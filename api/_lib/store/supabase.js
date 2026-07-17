@@ -212,6 +212,29 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       throwOn(error, 'recordPayment');
     },
 
+    // --- reconciliation -----------------------------------------------------
+    async listChecksForReconcile(venueId) {
+      const { data: checks, error } = await client
+        .from('checks').select('id').eq('venue_id', venueId);
+      throwOn(error, 'listChecksForReconcile.checks');
+      const out = [];
+      for (const c of checks || []) {
+        const { data: pays, error: pErr } = await client
+          .from('payments')
+          .select('txid, amount_cents, tip_cents, status')
+          .eq('check_id', c.id);
+        throwOn(pErr, 'listChecksForReconcile.payments');
+        out.push({
+          checkId: c.id,
+          events: await loadEvents(c.id),
+          payments: (pays || []).map((p) => ({
+            txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents, status: p.status,
+          })),
+        });
+      }
+      return out;
+    },
+
     // --- panel --------------------------------------------------------------
     async getPanelView(venueId) {
       const { data: venue, error: vErr } = await client

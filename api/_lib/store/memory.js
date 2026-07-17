@@ -73,6 +73,18 @@ function createMemoryStore() {
     async getPayment(txid) {
       return payments.get(txid) || null;
     },
+    /** Reconciliation inputs: each check's event log + its payment rows. */
+    async listChecksForReconcile(venueId) {
+      return [...checks.values()]
+        .filter((c) => c.venueId === venueId)
+        .map((c) => ({
+          checkId: c.id,
+          events: [...(events.get(c.id) || [])],
+          payments: [...payments.values()]
+            .filter((p) => p.checkId === c.id)
+            .map((p) => ({ txid: p.txid, amountCents: p.amountCents, tipCents: p.tipCents, status: p.status })),
+        }));
+    },
     /**
      * Restaurant panel view: every check of the venue with derived state,
      * plus day totals. Tips are reported from CONFIRMED payments only and
