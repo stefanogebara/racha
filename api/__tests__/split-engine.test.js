@@ -102,11 +102,34 @@ describe('splitByItems — per-person exact allocation', () => {
   test('unclaimed item is an error — the UI resolves claims first', () => {
     expect(() => splitByItems([{ id: 'x', priceCents: 100, claimedBy: [] }])).toThrow(/no claimants/);
   });
+
+  test('a diner named __proto__ keeps their share (review finding: money vanished)', () => {
+    const { perPerson, totalCents } = splitByItems([
+      { id: 'x', priceCents: 100, claimedBy: ['__proto__'] },
+      { id: 'y', priceCents: 250, claimedBy: ['constructor', 'ana'] },
+    ]);
+    expect(perPerson['__proto__']).toBe(100);
+    expect(perPerson['constructor']).toBe(125);
+    expect(perPerson['ana']).toBe(125);
+    const sum = Object.values(perPerson).reduce((s, v) => s + v, 0);
+    expect(sum).toBe(totalCents);
+  });
+
+  test('duplicate claimants on one item are rejected', () => {
+    expect(() => splitByItems([{ id: 'x', priceCents: 100, claimedBy: ['ana', 'ana'] }]))
+      .toThrow(/duplicate claimants/);
+  });
+
+  test('non-string claimant ids are rejected', () => {
+    expect(() => splitByItems([{ id: 'x', priceCents: 100, claimedBy: [42] }]))
+      .toThrow(/non-empty strings/);
+  });
 });
 
-describe('servicoCents — optional 10% math (basis points, half-up)', () => {
-  test('10% of round numbers', () => {
-    expect(servicoCents(10000)).toBe(1000);
+describe('servicoCents — optional serviço math (basis points, half-up, NO default)', () => {
+  test('10% must be passed explicitly (review finding: silent default = implicit charge)', () => {
+    expect(servicoCents(10000, 1000)).toBe(1000);
+    expect(() => servicoCents(10000)).toThrow(/out of range/); // undefined bp rejected
   });
 
   test('half-up rounding at the centavo', () => {
@@ -120,8 +143,9 @@ describe('servicoCents — optional 10% math (basis points, half-up)', () => {
     expect(servicoCents(10000, 0)).toBe(0);
   });
 
-  test('rejects unit mistakes (10 for 10%) via the range guard upper bound is fine but 3001 is not', () => {
+  test('rejects out-of-range and guards overflow', () => {
     expect(() => servicoCents(10000, 3001)).toThrow(/out of range/);
     expect(servicoCents(10000, 10)).toBe(10); // 10bp = 0.1% — legal, math is exact
+    expect(() => servicoCents(Number.MAX_SAFE_INTEGER - 1, 1000)).toThrow(/safe integer range/);
   });
 });

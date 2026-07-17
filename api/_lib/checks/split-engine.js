@@ -79,16 +79,28 @@ function splitByItems(items) {
   if (!Array.isArray(items) || items.length === 0) {
     throw new TypeError('items must be a non-empty array');
   }
-  const perPerson = {};
+  // Null-prototype accumulator: personIds are diner-entered strings in a
+  // no-login flow — a guest named "__proto__" must not vanish their share
+  // (review finding: plain-object keying silently destroyed money).
+  const perPerson = Object.create(null);
   let totalCents = 0;
   items.forEach((item, idx) => {
     assertCents(item.priceCents, `items[${idx}].priceCents`);
     if (!Array.isArray(item.claimedBy) || item.claimedBy.length === 0) {
       throw new Error(`item ${item.id ?? idx} has no claimants`);
     }
+    if (new Set(item.claimedBy).size !== item.claimedBy.length) {
+      throw new Error(`item ${item.id ?? idx} has duplicate claimants`);
+    }
+    if (totalCents + item.priceCents > Number.MAX_SAFE_INTEGER) {
+      throw new RangeError('check total exceeds safe integer range');
+    }
     totalCents += item.priceCents;
     const shares = splitEqual(item.priceCents, item.claimedBy.length, idx);
     item.claimedBy.forEach((personId, j) => {
+      if (typeof personId !== 'string' || personId.length === 0) {
+        throw new TypeError(`items[${idx}].claimedBy must contain non-empty strings`);
+      }
       perPerson[personId] = (perPerson[personId] || 0) + shares[j];
     });
   });
@@ -98,12 +110,18 @@ function splitByItems(items) {
 /**
  * Serviço (tip) on a base amount. Half-up rounding to the centavo.
  * pctBasisPoints: 1000 = 10%. Kept in basis points to stay integer-only.
+ * NO default percentage (review finding): the venue's configured rate must be
+ * passed explicitly — a silent 10% fallback is exactly the kind of implicit
+ * charge the CDC rules exist to prevent.
  */
-function servicoCents(baseCents, pctBasisPoints = 1000) {
+function servicoCents(baseCents, pctBasisPoints) {
   assertCents(baseCents, 'baseCents');
   if (!Number.isSafeInteger(pctBasisPoints) || pctBasisPoints < 0 || pctBasisPoints > 3000) {
     // >30% serviço is not a thing; catches unit mistakes (e.g. passing 10 for 10%... 10bp=0.1%).
     throw new TypeError(`pctBasisPoints out of range [0,3000]: ${pctBasisPoints}`);
+  }
+  if (pctBasisPoints > 0 && baseCents > Math.floor((Number.MAX_SAFE_INTEGER - 5000) / pctBasisPoints)) {
+    throw new RangeError('servico computation exceeds safe integer range');
   }
   return Math.floor((baseCents * pctBasisPoints + 5000) / 10000);
 }

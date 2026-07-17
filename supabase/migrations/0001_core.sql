@@ -15,8 +15,15 @@ create table if not exists public.venues (
   city text,
   pos_provider text not null default 'manual'
     check (pos_provider in ('manual', 'colibri', 'simphony')),
-  pos_credentials jsonb,               -- encrypted at rest (Supabase vault in v1)
-  psp_recipient_id text,               -- PSP subaccount / recipient for splits
+  -- POS credentials deliberately NOT stored here (review finding: plaintext
+  -- jsonb). When colibri lands, credentials go in Supabase Vault, referenced
+  -- by id only.
+  pos_vault_ref text,
+  -- PSP subaccount / recipient for splits. Nullable only during onboarding:
+  -- the payment API layer MUST refuse to create charges for a venue without
+  -- it (funds would settle to the platform account = BACEN Res. 494 custody
+  -- territory). Enforced in code + fintech-compliance gate.
+  psp_recipient_id text,
   servico_basis_points integer not null default 1000
     check (servico_basis_points between 0 and 3000),
   active boolean not null default true,
@@ -28,7 +35,11 @@ create table if not exists public.venue_tables (
   id uuid primary key default gen_random_uuid(),
   venue_id uuid not null references public.venues(id) on delete cascade,
   label text not null,                 -- "Mesa 12"
+  -- Rotatable: a photographed QR must not grant indefinite visibility into
+  -- future checks (review finding). Regeneration = update qr_token +
+  -- qr_rotated_at; old token dies with the update.
   qr_token text not null unique default replace(gen_random_uuid()::text, '-', ''),
+  qr_rotated_at timestamptz,
   active boolean not null default true,
   created_at timestamptz not null default now(),
   unique (venue_id, label)
@@ -61,7 +72,7 @@ create table if not exists public.check_events (
   id uuid primary key default gen_random_uuid(),
   check_id uuid not null references public.checks(id) on delete cascade,
   seq integer not null,
-  type text not null check (type in ('OPENED', 'ADJUSTED', 'PAYMENT_CONFIRMED', 'CLOSED')),
+  type text not null check (type in ('OPENED', 'ADJUSTED', 'PAYMENT_CONFIRMED', 'PAYMENT_REFUNDED', 'CLOSED')),
   payload jsonb not null default '{}',
   created_at timestamptz not null default now(),
   unique (check_id, seq)
@@ -80,8 +91,17 @@ create table if not exists public.payments (
   tip_cents bigint not null default 0 check (tip_cents >= 0),
   status text not null default 'pendente'
     check (status in ('pendente', 'confirmado', 'expirado', 'devolvido')),
-  payer_label text,                    -- "Ana" (diner-entered, no login)
-  psp_payload jsonb,                   -- raw PSP webhook (masked at write time)
+  -- Diner-entered display name, no login. Bounded (review finding: unbounded
+  -- attacker-controlled text) and ALWAYS rendered escaped, never as HTML.
+  payer_label text check (payer_label is null or char_length(payer_label) between 1 and 60),
+  -- MASKED PSP webhook subset — the webhook handler strips payer PII
+  -- (CPF, full name, account) BEFORE this insert; storing the raw payload is
+  -- an LGPD finding, not a debugging convenience. Full payloads live at the
+  -- PSP dashboard when forensics need them.
+  psp_payload_masked jsonb,
+  -- Payroll/report queries key on confirmed_at (competência), NEVER
+  -- created_at (review finding: boundary-of-month tips landed in the wrong
+  -- period).
   confirmed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -89,9 +109,13 @@ create table if not exists public.payments (
 create index if not exists payments_check_idx on public.payments (check_id);
 create index if not exists payments_venue_day_idx on public.payments (venue_id, created_at);
 
--- Atomic event append: assigns the next seq under the unique constraint.
--- RPC (not PostgREST update+filters) — conditional writes live in SQL here,
--- with errors surfaced to the caller. (Seatable lesson 2026-07-14.)
+-- Atomic event append. RPC (not PostgREST update+filters — Seatable lesson
+-- 2026-07-14), serialized PER CHECK with a transaction-scoped advisory lock
+-- (review findings: the old optimistic seq retry (a) let racing lifecycle
+-- events both land, poisoning the log, and (b) aborted with a raw
+-- unique_violation under 3+ concurrent payers — the product's core scenario).
+-- With the lock, concurrent appends for the same check queue up and each gets
+-- a clean, gap-free seq; the reducer stays total as defense-in-depth.
 create or replace function public.append_check_event(
   p_check_id uuid,
   p_type text,
@@ -104,13 +128,7 @@ as $$
 declare
   v_seq integer;
 begin
-  select coalesce(max(seq), 0) + 1 into v_seq
-    from check_events where check_id = p_check_id;
-  insert into check_events (check_id, seq, type, payload)
-    values (p_check_id, v_seq, p_type, p_payload);
-  return v_seq;
-exception when unique_violation then
-  -- concurrent append won the seq: retry once at the next slot
+  perform pg_advisory_xact_lock(hashtextextended(p_check_id::text, 42));
   select coalesce(max(seq), 0) + 1 into v_seq
     from check_events where check_id = p_check_id;
   insert into check_events (check_id, seq, type, payload)

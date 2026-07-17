@@ -1,30 +1,37 @@
 'use strict';
 
 /**
- * Check state machine — event-sourced, pure.
+ * Check state machine — event-sourced, pure, and TOTAL.
  *
  * The append-only event log is the source of truth (rows in check_events);
  * this module derives state by folding events in seq order. Nothing here does
  * I/O. Money bugs must be replayable: given the same events, reduce() always
  * returns the same state.
  *
- * Event types (payload shapes validated here):
- *   OPENED             { totalCents }                    — check created (POS read or manual)
- *   ADJUSTED           { totalCents }                    — waiter added/removed items
- *   PAYMENT_CONFIRMED  { txid, amountCents, tipCents, method } — PSP webhook (at-least-once!)
- *   CLOSED             {}                                — table released
+ * TOTALITY (review finding, 2026-07-17): reduce() NEVER throws on a stored
+ * log. A raced or malformed event must not make real money unreadable — it is
+ * recorded in state.anomalies and skipped. Strict validation happens at
+ * APPEND time (validateEvent, called by the API before append_check_event,
+ * which serializes appends per check with an advisory lock).
  *
- * Rules encoded:
- * - PAYMENT_CONFIRMED is idempotent by txid: replays/duplicate webhooks are
- *   no-ops (at-least-once delivery is assumed from every PSP).
+ * Event types:
+ *   OPENED             { totalCents }
+ *   ADJUSTED           { totalCents }
+ *   PAYMENT_CONFIRMED  { txid, amountCents, tipCents, method }   (at-least-once!)
+ *   PAYMENT_REFUNDED   { txid, amountCents, tipCents }           (Pix devolução / MED)
+ *   CLOSED             {}
+ *
+ * Money rules encoded:
+ * - PAYMENT_CONFIRMED is idempotent by txid; a replay with DIFFERENT amounts
+ *   is flagged (anomaly 'divergent_txid'), never absorbed silently.
  * - Consumption (amountCents) and tips (tipCents) are tracked SEPARATELY:
- *   tips are employee remuneration (Lei 13.419/2017), never part of the check
- *   total, and the payroll report reads them from here.
- * - Overpayment never throws away money silently: state flags `overpaidCents`
- *   for reconciliation to alert on. It can happen legitimately mid-flight
- *   (ADJUSTED down after a payment was authorized).
- * - Payments after CLOSED are recorded as anomalies (`lateTxids`) — the money
- *   is real and reconciliation must see it; the status does not regress.
+ *   tips are employee remuneration (Lei 13.419/2017); the payroll report
+ *   reads them from here.
+ * - Refunds reference the original txid and can never exceed what that txid
+ *   paid (excess → anomaly, ignored).
+ * - Overpayment is flagged (overpaidCents), recomputed on every money event
+ *   including after CLOSED. Payments after CLOSED are recorded (late:true)
+ *   and counted; status never regresses.
  */
 
 const STATUS = Object.freeze({
@@ -34,43 +41,70 @@ const STATUS = Object.freeze({
   FECHADA: 'fechada',
 });
 
-const EVENT_TYPES = Object.freeze(['OPENED', 'ADJUSTED', 'PAYMENT_CONFIRMED', 'CLOSED']);
+const EVENT_TYPES = Object.freeze([
+  'OPENED', 'ADJUSTED', 'PAYMENT_CONFIRMED', 'PAYMENT_REFUNDED', 'CLOSED',
+]);
 
-function fail(msg) {
-  throw new Error(`check-state: ${msg}`);
+// Money accumulations must stay in exact-integer territory.
+const MAX_CENTS = Number.MAX_SAFE_INTEGER;
+
+class EventValidationError extends Error {}
+
+function invalid(msg) {
+  throw new EventValidationError(`check-state: ${msg}`);
 }
 
 function assertCents(v, name) {
-  if (!Number.isSafeInteger(v) || v < 0) fail(`${name} must be a non-negative integer, got ${v}`);
+  if (!Number.isSafeInteger(v) || v < 0) invalid(`${name} must be a non-negative integer, got ${v}`);
 }
 
-/** Validate a single event before it is appended to the log. */
+/**
+ * Strict validation for the APPEND path: the API calls this against current
+ * state before appending. Throws EventValidationError on any violation.
+ * (The reducer reuses it but converts throws into anomalies — totality.)
+ */
 function validateEvent(evt, prevState) {
-  if (!evt || !EVENT_TYPES.includes(evt.type)) fail(`unknown event type: ${evt && evt.type}`);
+  if (!evt || !EVENT_TYPES.includes(evt.type)) invalid(`unknown event type: ${evt && evt.type}`);
   const p = evt.payload || {};
   switch (evt.type) {
     case 'OPENED':
-      if (prevState) fail('OPENED must be the first event');
+      if (prevState) invalid('OPENED must be the first event');
       assertCents(p.totalCents, 'OPENED.totalCents');
       break;
     case 'ADJUSTED':
-      if (!prevState) fail('ADJUSTED before OPENED');
-      if (prevState.status === STATUS.FECHADA) fail('cannot ADJUST a closed check');
+      if (!prevState) invalid('ADJUSTED before OPENED');
+      if (prevState.status === STATUS.FECHADA) invalid('cannot ADJUST a closed check');
       assertCents(p.totalCents, 'ADJUSTED.totalCents');
       break;
     case 'PAYMENT_CONFIRMED':
-      if (!prevState) fail('PAYMENT_CONFIRMED before OPENED');
-      if (typeof p.txid !== 'string' || p.txid.length < 1) fail('PAYMENT_CONFIRMED.txid required');
+      if (!prevState) invalid('PAYMENT_CONFIRMED before OPENED');
+      if (typeof p.txid !== 'string' || p.txid.length < 1) invalid('PAYMENT_CONFIRMED.txid required');
       assertCents(p.amountCents, 'PAYMENT_CONFIRMED.amountCents');
       assertCents(p.tipCents ?? 0, 'PAYMENT_CONFIRMED.tipCents');
-      if (p.amountCents === 0 && (p.tipCents ?? 0) === 0) fail('zero-value payment');
+      if (p.amountCents === 0 && (p.tipCents ?? 0) === 0) invalid('zero-value payment');
       break;
+    case 'PAYMENT_REFUNDED': {
+      if (!prevState) invalid('PAYMENT_REFUNDED before OPENED');
+      if (typeof p.txid !== 'string' || p.txid.length < 1) invalid('PAYMENT_REFUNDED.txid required');
+      assertCents(p.amountCents ?? 0, 'PAYMENT_REFUNDED.amountCents');
+      assertCents(p.tipCents ?? 0, 'PAYMENT_REFUNDED.tipCents');
+      if ((p.amountCents ?? 0) === 0 && (p.tipCents ?? 0) === 0) invalid('zero-value refund');
+      const pay = prevState.payments[p.txid];
+      if (!pay) invalid(`refund for unknown txid ${p.txid}`);
+      if (pay.refundedAmountCents + (p.amountCents ?? 0) > pay.amountCents) {
+        invalid(`refund exceeds paid amount for txid ${p.txid}`);
+      }
+      if (pay.refundedTipCents + (p.tipCents ?? 0) > pay.tipCents) {
+        invalid(`tip refund exceeds paid tip for txid ${p.txid}`);
+      }
+      break;
+    }
     case 'CLOSED':
-      if (!prevState) fail('CLOSED before OPENED');
-      if (prevState.status === STATUS.FECHADA) fail('already closed');
+      if (!prevState) invalid('CLOSED before OPENED');
+      if (prevState.status === STATUS.FECHADA) invalid('already closed');
       break;
     default:
-      fail(`unhandled type ${evt.type}`);
+      invalid(`unhandled type ${evt.type}`);
   }
 }
 
@@ -78,80 +112,165 @@ function initialState() {
   return null; // no OPENED yet
 }
 
-/** Fold one event into state. Pure; returns a NEW state object. */
-function applyEvent(state, evt) {
-  validateEvent(evt, state);
+/** payments map uses a null-prototype object: txids are external strings. */
+function emptyPayments() {
+  return Object.create(null);
+}
+
+/**
+ * Fold one event into state — TOTAL. Invalid events return the previous state
+ * with an anomaly appended (except a valid duplicate PAYMENT_CONFIRMED, which
+ * is a clean idempotent no-op). Pure; returns a NEW state object.
+ */
+function applyEvent(state, evt, seq = null) {
+  // Idempotent replay short-circuit must run BEFORE strict validation so a
+  // duplicate webhook is a no-op, not an anomaly.
+  if (state && evt && evt.type === 'PAYMENT_CONFIRMED') {
+    const p = evt.payload || {};
+    const existing = typeof p.txid === 'string' ? state.payments[p.txid] : undefined;
+    if (existing) {
+      if (existing.amountCents === p.amountCents && existing.tipCents === (p.tipCents ?? 0)) {
+        return state; // clean at-least-once replay
+      }
+      // Same txid, different money: never absorb silently (review finding).
+      return withAnomaly(state, seq, 'divergent_txid',
+        `txid ${p.txid} replayed with different amounts`);
+    }
+  }
+
+  try {
+    validateEvent(evt, state);
+  } catch (err) {
+    if (err instanceof EventValidationError) {
+      // Totality: a stored log must always reduce. Raced duplicates
+      // (CLOSED,CLOSED), adjust-after-close, malformed payloads → anomaly.
+      if (state === null) {
+        // Pre-OPENED garbage: keep a bootstrap anomaly holder.
+        return {
+          ...emptyOpenState(0),
+          status: STATUS.ABERTA,
+          bootstrapped: true,
+          anomalies: [{ seq, type: evt && evt.type, reason: err.message }],
+        };
+      }
+      return withAnomaly(state, seq, evt && evt.type, err.message);
+    }
+    throw err; // programmer errors stay loud
+  }
+
   const p = evt.payload || {};
   switch (evt.type) {
     case 'OPENED':
-      return {
-        status: STATUS.ABERTA,
-        totalCents: p.totalCents,
-        paidCents: 0,
-        tipCents: 0,
-        overpaidCents: 0,
-        txids: [],
-        lateTxids: [],
-      };
-    case 'ADJUSTED': {
-      const next = { ...state, totalCents: p.totalCents, txids: [...state.txids], lateTxids: [...state.lateTxids] };
-      return recomputeStatus(next);
-    }
+      return emptyOpenState(p.totalCents);
+    case 'ADJUSTED':
+      return recompute({ ...cloneState(state), totalCents: p.totalCents });
     case 'PAYMENT_CONFIRMED': {
-      if (state.txids.includes(p.txid) || state.lateTxids.includes(p.txid)) {
-        return state; // idempotent replay — at-least-once webhook delivery
-      }
-      if (state.status === STATUS.FECHADA) {
-        // Money after close: never dropped, never regresses status. Flagged
-        // for reconciliation (refund path decided by a human/MED flow).
-        return {
-          ...state,
-          lateTxids: [...state.lateTxids, p.txid],
-          paidCents: state.paidCents + p.amountCents,
-          tipCents: state.tipCents + (p.tipCents ?? 0),
-        };
-      }
-      const next = {
-        ...state,
-        txids: [...state.txids, p.txid],
-        lateTxids: [...state.lateTxids],
-        paidCents: state.paidCents + p.amountCents,
-        tipCents: state.tipCents + (p.tipCents ?? 0),
+      const next = cloneState(state);
+      const tip = p.tipCents ?? 0;
+      guardCap(next.paidCents, p.amountCents);
+      guardCap(next.tipCents, tip);
+      next.payments[p.txid] = {
+        amountCents: p.amountCents,
+        tipCents: tip,
+        refundedAmountCents: 0,
+        refundedTipCents: 0,
+        late: state.status === STATUS.FECHADA,
       };
-      return recomputeStatus(next);
+      next.paidCents += p.amountCents;
+      next.tipCents += tip;
+      return recompute(next);
+    }
+    case 'PAYMENT_REFUNDED': {
+      const next = cloneState(state);
+      const amount = p.amountCents ?? 0;
+      const tip = p.tipCents ?? 0;
+      const pay = next.payments[p.txid];
+      pay.refundedAmountCents += amount;
+      pay.refundedTipCents += tip;
+      next.paidCents -= amount;
+      next.tipCents -= tip;
+      return recompute(next);
     }
     case 'CLOSED':
-      return { ...state, status: STATUS.FECHADA, txids: [...state.txids], lateTxids: [...state.lateTxids] };
+      return recompute({ ...cloneState(state), closed: true });
     default:
-      fail(`unhandled type ${evt.type}`);
+      return withAnomaly(state, seq, evt.type, 'unhandled type');
   }
 }
 
-/** Derive status + overpaid flag from totals. Never called on FECHADA. */
-function recomputeStatus(state) {
+function emptyOpenState(totalCents) {
+  return {
+    status: STATUS.ABERTA,
+    totalCents,
+    paidCents: 0,
+    tipCents: 0,
+    overpaidCents: 0,
+    closed: false,
+    payments: emptyPayments(),
+    anomalies: [],
+  };
+}
+
+function cloneState(state) {
+  const payments = emptyPayments();
+  for (const txid of Object.keys(state.payments)) {
+    payments[txid] = { ...state.payments[txid] };
+  }
+  return { ...state, payments, anomalies: [...state.anomalies] };
+}
+
+function withAnomaly(state, seq, type, reason) {
+  const next = cloneState(state);
+  next.anomalies.push({ seq, type: type || 'UNKNOWN', reason });
+  return next;
+}
+
+function guardCap(current, add) {
+  if (current + add > MAX_CENTS) invalid('money accumulation exceeds safe integer range');
+}
+
+/**
+ * Derive status + overpaid from totals. FECHADA (closed flag) wins and never
+ * regresses; overpaidCents is recomputed on EVERY money event, including
+ * post-close payments (review finding: it used to go stale).
+ */
+function recompute(state) {
   const overpaidCents = Math.max(0, state.paidCents - state.totalCents);
   let status;
-  if (state.paidCents === 0) status = STATUS.ABERTA;
+  if (state.closed) status = STATUS.FECHADA;
+  else if (state.paidCents === 0) status = STATUS.ABERTA;
   else if (state.paidCents < state.totalCents) status = STATUS.PARCIAL;
   else status = STATUS.PAGA;
   return { ...state, status, overpaidCents };
 }
 
 /**
- * Reduce a full event log (seq-ordered) to current state.
- * @param {Array<{type:string, payload:object}>} events
+ * Reduce a full event log (seq-ordered) to current state. TOTAL: never throws
+ * on stored data; inspect state.anomalies (reconciliation alerts on any).
+ * @param {Array<{type:string, payload:object, seq?:number}>} events
  */
 function reduce(events) {
-  if (!Array.isArray(events)) fail('events must be an array');
+  if (!Array.isArray(events)) invalid('events must be an array');
   let state = initialState();
-  for (const evt of events) state = applyEvent(state, evt);
+  events.forEach((evt, i) => {
+    state = applyEvent(state, evt, evt.seq ?? i + 1);
+  });
   return state;
 }
 
 /** Remaining consumption to collect (never negative). */
 function remainingCents(state) {
-  if (!state) fail('no state');
+  if (!state) invalid('no state');
   return Math.max(0, state.totalCents - state.paidCents);
 }
 
-module.exports = { STATUS, EVENT_TYPES, reduce, applyEvent, validateEvent, remainingCents, initialState };
+/** Late payments (post-close), for reconciliation/refund workflows. */
+function lateTxids(state) {
+  if (!state) return [];
+  return Object.keys(state.payments).filter((t) => state.payments[t].late);
+}
+
+module.exports = {
+  STATUS, EVENT_TYPES, EventValidationError,
+  reduce, applyEvent, validateEvent, remainingCents, lateTxids, initialState,
+};
