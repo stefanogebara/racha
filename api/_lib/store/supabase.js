@@ -90,6 +90,45 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       };
     },
 
+    // --- ownership / membership ---------------------------------------------
+    async addVenueMember(venueId, userId, role = 'owner') {
+      if (!userId) throw new Error('userId required');
+      const { error } = await client
+        .from('venue_members')
+        .upsert({ venue_id: venueId, user_id: userId, role }, { onConflict: 'venue_id,user_id' });
+      throwOn(error, 'addVenueMember');
+      return { venueId, userId, role };
+    },
+    async userOwnsVenue(userId, venueId) {
+      if (!userId || !venueId) return false;
+      const { data, error } = await client
+        .from('venue_members')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('venue_id', venueId)
+        .maybeSingle();
+      throwOn(error, 'userOwnsVenue');
+      return !!data;
+    },
+    async listVenuesForOwner(userId) {
+      const { data, error } = await client
+        .from('venue_members')
+        .select('venues(id, name, city, servico_basis_points, psp_recipient_id)')
+        .eq('user_id', userId);
+      throwOn(error, 'listVenuesForOwner');
+      return (data || []).map((r) => r.venues).filter(Boolean).map((v) => ({
+        id: v.id, name: v.name, city: v.city,
+        servicoBp: v.servico_basis_points, pspRecipientId: v.psp_recipient_id,
+      }));
+    },
+    async venueIdForTable(tableId) {
+      if (!tableId) return null;
+      const { data, error } = await client
+        .from('venue_tables').select('venue_id').eq('id', tableId).maybeSingle();
+      throwOn(error, 'venueIdForTable');
+      return data ? data.venue_id : null;
+    },
+
     async createTable(venueId, label) {
       if (!label || !String(label).trim()) throw new Error('table label required');
       const { data, error } = await client

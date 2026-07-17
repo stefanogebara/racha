@@ -1,25 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import { authedReq as req, signOut } from './auth';
 
 /**
  * Painel de gestão do restaurante — onboarding + mesas/QR. Warm Glass.
- * Two surfaces by URL:
+ * Behind the owner login gate (see Gate.tsx). Two surfaces by URL:
  *   /admin            → onboarding (cria o restaurante) → redireciona p/ mesas
  *   /admin?v=<id>     → gestão de mesas (criar, QR imprimível, girar, desativar)
- *
- * Produção: atrás de auth do dono. Este server de demo é localhost-only.
  * O QR codifica a URL da conta do cliente: <origin>/?t=<qr_token>.
  */
 
 interface Venue { id: string; name: string; city: string | null; servicoBp: number; pspRecipientId: string | null }
 interface Table { id: string; label: string; qrToken: string; qrRotatedAt: string | null; active: boolean; hasOpenCheck: boolean }
-
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || body.success === false) throw new Error(body.error || `HTTP ${res.status}`);
-  return body.data as T;
-}
 
 export default function Admin() {
   const venueId = useMemo(() => new URLSearchParams(window.location.search).get('v') ?? '', []);
@@ -34,6 +26,14 @@ function Onboarding() {
   const [servico, setServico] = useState(10);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mine, setMine] = useState<Venue[]>([]);
+
+  // If this owner already has venues, offer them instead of a blank form.
+  useEffect(() => {
+    req<{ user: unknown; venues: Venue[] }>('/api/me')
+      .then((d) => setMine(d.venues || []))
+      .catch(() => {});
+  }, []);
 
   async function submit() {
     setBusy(true); setError(null);
@@ -53,10 +53,21 @@ function Onboarding() {
     <main className="shell">
       <header className="head">
         <span className="venue">Racha</span>
-        <span className="mesa">novo restaurante</span>
+        <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>sair</button>
       </header>
+      {mine.length > 0 && (
+        <section className="panel">
+          <p className="label">Seus restaurantes</p>
+          {mine.map((v) => (
+            <div className="checkrow" key={v.id}>
+              <strong>{v.name}</strong>
+              <a className="ghost" href={`/admin?v=${v.id}`}>gerenciar mesas →</a>
+            </div>
+          ))}
+        </section>
+      )}
       <section className="card">
-        <p className="label">Cadastre seu restaurante</p>
+        <p className="label">{mine.length > 0 ? 'Cadastrar outro restaurante' : 'Cadastre seu restaurante'}</p>
         <input className="namefield" placeholder="Nome do restaurante" value={name} onChange={(e) => setName(e.target.value)} />
         <input className="namefield" placeholder="Cidade (opcional)" value={city} onChange={(e) => setCity(e.target.value)} />
         <input className="namefield" placeholder="CNPJ (opcional)" value={cnpj} onChange={(e) => setCnpj(e.target.value)} />
@@ -131,7 +142,7 @@ function Tables({ venueId }: { venueId: string }) {
     <main className="shell wide">
       <header className="head">
         <span className="venue">{venue?.name ?? 'Restaurante'}</span>
-        <span className="mesa">mesas &amp; QR</span>
+        <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>sair</button>
       </header>
 
       {!venue?.pspRecipientId && (

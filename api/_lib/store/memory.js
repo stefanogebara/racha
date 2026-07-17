@@ -21,6 +21,7 @@ function createMemoryStore() {
   const txidToCheck = new Map();
 
   const tableById = new Map(); // id → table row (stable id; qrToken rotates)
+  const members = [];          // { venueId, userId, role }
 
   // Sync internals — the memory store is synchronous; the public contract is
   // async (matches the Supabase store, so `.rejects` works uniformly).
@@ -62,6 +63,30 @@ function createMemoryStore() {
     },
     async getVenue(venueId) {
       return venues.get(venueId) || null;
+    },
+
+    // --- ownership / membership ---------------------------------------------
+    async addVenueMember(venueId, userId, role = 'owner') {
+      if (!venues.has(venueId)) throw new Error('unknown venue');
+      if (!userId) throw new Error('userId required');
+      if (members.some((m) => m.venueId === venueId && m.userId === userId)) {
+        return { venueId, userId, role }; // idempotent
+      }
+      members.push({ venueId, userId, role });
+      return { venueId, userId, role };
+    },
+    async userOwnsVenue(userId, venueId) {
+      return members.some((m) => m.userId === userId && m.venueId === venueId);
+    },
+    async listVenuesForOwner(userId) {
+      return members
+        .filter((m) => m.userId === userId)
+        .map((m) => venues.get(m.venueId))
+        .filter(Boolean);
+    },
+    async venueIdForTable(tableId) {
+      const t = tableById.get(tableId);
+      return t ? t.venueId : null;
     },
 
     // --- tables / QR --------------------------------------------------------

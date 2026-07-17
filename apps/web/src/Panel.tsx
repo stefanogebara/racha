@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { brl } from './api';
+import { authedReq, signOut } from './auth';
 
 /**
  * Painel do restaurante — live view of every table's check + day totals.
- * Warm Glass; auto-refresh. The demo endpoint is unauthenticated (localhost
- * only); the production panel ships behind venue auth.
+ * Warm Glass; auto-refresh. Behind the owner login gate (Gate.tsx); every
+ * fetch carries the owner's token and the API enforces venue ownership.
  */
 
 interface PanelData {
@@ -34,10 +35,7 @@ export default function Panel() {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`/api/panel?v=${encodeURIComponent(venueId)}`);
-      const body = await res.json();
-      if (!res.ok || body.success === false) throw new Error(body.error || `HTTP ${res.status}`);
-      setData(body.data);
+      setData(await authedReq<PanelData>(`/api/panel?v=${encodeURIComponent(venueId)}`));
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -57,7 +55,7 @@ export default function Panel() {
     <main className="shell wide">
       <header className="head">
         <span className="venue">{data.venue.name}</span>
-        <span className="mesa">painel do salão</span>
+        <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>sair</button>
       </header>
 
       <section className="statgrid">

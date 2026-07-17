@@ -40,6 +40,26 @@ const store = useSupabase
   : createMemoryStore();
 const psp = new MockPsp({ webhookSecret: crypto.randomBytes(24).toString('hex') });
 const charge = createChargeService({ store, psp });
+
+// Owner auth — needs a Supabase client to verify GoTrue tokens. Present only
+// when SUPABASE creds are configured; without it, authed endpoints refuse
+// (501) rather than silently opening.
+const { createAuth, AuthError } = require('./api/_lib/auth');
+let auth = null;
+let authClient = null;
+if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  const { createClient } = require('@supabase/supabase-js');
+  authClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  auth = createAuth({ authClient, store });
+}
+/** Guard: resolve the caller to a user, or send 401/501 and return null. */
+async function guardUser(req, res) {
+  if (!auth) { json(res, 501, { success: false, error: 'auth não configurado (rode em modo supabase)' }); return null; }
+  try { return await auth.requireUser(req); }
+  catch (e) { json(res, e.statusCode || 401, { success: false, error: e.message }); return null; }
+}
 const handleWebhook = createWebhookHandler({
   loadEvents: store.loadEvents.bind(store),
   appendEvent: store.appendEvent.bind(store),
@@ -72,12 +92,39 @@ const handleWebhook = createWebhookHandler({
     { id: 'j2', name: 'Caipirinha (2x)', priceCents: 3980 },
     { id: 'j3', name: 'Arroz e farofa', priceCents: 1500 },
   ]);
+
+  // Demo owner — so /painel and /admin (now owner-gated) are reachable. Real
+  // GoTrue user via the admin API when in supabase mode; the frontend logs in
+  // with these creds. In memory mode there's no GoTrue, so we mint a fake
+  // user id and link it (auth verification is disabled in memory mode anyway).
+  const DEMO_EMAIL = 'dono@bardoze.demo';
+  const DEMO_PASS = 'racha-demo-1234';
+  let ownerLine = '';
+  if (useSupabase && authClient) {
+    // Idempotent: ignore "already registered".
+    const { data: created, error } = await authClient.auth.admin.createUser({
+      email: DEMO_EMAIL, password: DEMO_PASS, email_confirm: true,
+    });
+    let userId = created && created.user && created.user.id;
+    if (error && /registered|exists/i.test(error.message)) {
+      const { data: list } = await authClient.auth.admin.listUsers();
+      const u = (list && list.users || []).find((x) => x.email === DEMO_EMAIL);
+      userId = u && u.id;
+    }
+    if (userId) { await store.addVenueMember(venue.id, userId, 'owner'); ownerLine = `  Login  ${DEMO_EMAIL} / ${DEMO_PASS}`; }
+  } else {
+    await store.addVenueMember(venue.id, 'demo-user-0000', 'owner');
+    ownerLine = '  Login  (modo memória — auth desligada)';
+  }
+
   process.stdout.write([
     '', `Racha demo pronto (${useSupabase ? 'SUPABASE worttfotxasxqjaqwpjf' : 'memória'}):`,
     `  API    http://localhost:${PORT}`,
     `  Conta  http://localhost:5173/?t=${mesa.qrToken}`,
     `  Conta2 http://localhost:5173/?t=${mesa2.qrToken}`,
     `  Painel http://localhost:5173/painel?v=${venue.id}`,
+    `  Admin  http://localhost:5173/admin`,
+    ownerLine,
     '', '',
   ].join('\n'));
 })().catch((err) => {
@@ -134,40 +181,55 @@ const server = http.createServer(async (req, res) => {
       return json(res, status, { success: status === 200, data: result });
     }
 
-    // Restaurant panel (local demo — the production panel ships with auth;
-    // this server never leaves localhost).
+    // Restaurant panel — owner-gated.
     if (req.method === 'GET' && url.pathname === '/api/panel') {
-      const data = await store.getPanelView(url.searchParams.get('v') || '');
+      const user = await guardUser(req, res); if (!user) return;
+      const venueId = url.searchParams.get('v') || '';
+      try { await auth.requireVenueOwner(user, venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const data = await store.getPanelView(venueId);
       if (!data) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
       return json(res, 200, { success: true, data });
+    }
+
+    // Who am I + my venues (bootstraps the admin/panel client after login).
+    if (req.method === 'GET' && url.pathname === '/api/me') {
+      const user = await guardUser(req, res); if (!user) return;
+      const venues = await store.listVenuesForOwner(user.id);
+      return json(res, 200, { success: true, data: { user: { id: user.id, email: user.email }, venues } });
     }
 
     // --- onboarding + table/QR management (production ships behind auth) ------
     // Bad input → 400 (not a store-thrown 500). Store validation is the second
     // line; these are the first (review finding).
     if (req.method === 'POST' && url.pathname === '/api/venues') {
+      const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.name || !String(b.name).trim()) return json(res, 400, { success: false, error: 'Nome é obrigatório' });
       const venue = await store.createVenue({
         name: b.name, cnpj: b.cnpj ?? null, city: b.city ?? null,
         servicoBp: Number.isInteger(b.servicoBp) ? b.servicoBp : 1000,
       });
-      return json(res, 200, { success: true, data: venue });
-    }
-    if (req.method === 'GET' && url.pathname === '/api/venues/get') {
-      const venue = await store.getVenue(url.searchParams.get('v') || '');
-      if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      // The authenticated creator becomes the venue owner.
+      await store.addVenueMember(venue.id, user.id, 'owner');
       return json(res, 200, { success: true, data: venue });
     }
     if (req.method === 'GET' && url.pathname === '/api/tables') {
-      const venue = await store.getVenue(url.searchParams.get('v') || '');
+      const user = await guardUser(req, res); if (!user) return;
+      const venueId = url.searchParams.get('v') || '';
+      try { await auth.requireVenueOwner(user, venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const venue = await store.getVenue(venueId);
       if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
       return json(res, 200, { success: true, data: { venue, tables: await store.listTables(venue.id) } });
     }
     if (req.method === 'POST' && url.pathname === '/api/tables') {
+      const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.venueId) return json(res, 400, { success: false, error: 'venueId é obrigatório' });
       if (!b.label || !String(b.label).trim()) return json(res, 400, { success: false, error: 'Rótulo da mesa é obrigatório' });
+      try { await auth.requireVenueOwner(user, b.venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       try {
         const t = await store.createTable(b.venueId, b.label);
         return json(res, 200, { success: true, data: t });
@@ -177,14 +239,20 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (req.method === 'POST' && url.pathname === '/api/tables/rotate') {
+      const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.tableId) return json(res, 400, { success: false, error: 'tableId é obrigatório' });
+      try { await auth.requireTableOwner(user, b.tableId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const r = await store.rotateTableQr(b.tableId);
       return json(res, 200, { success: true, data: r });
     }
     if (req.method === 'POST' && url.pathname === '/api/tables/active') {
+      const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.tableId || typeof b.active !== 'boolean') return json(res, 400, { success: false, error: 'tableId e active são obrigatórios' });
+      try { await auth.requireTableOwner(user, b.tableId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       try {
         const r = await store.setTableActive(b.tableId, b.active);
         return json(res, 200, { success: true, data: r });

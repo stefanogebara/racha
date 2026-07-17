@@ -3,13 +3,16 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import Panel from './Panel';
 import Admin from './Admin';
+import Gate from './Gate';
 import './styles.css';
 
 const path = window.location.pathname;
-const Root = path.startsWith('/painel') ? Panel : path.startsWith('/admin') ? Admin : App;
+// Diner conta flow is public; owner surfaces (/admin, /painel) sit behind the login gate.
+const root =
+  path.startsWith('/painel') ? <Gate><Panel /></Gate>
+  : path.startsWith('/admin') ? <Gate><Admin /></Gate>
+  : <App />;
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <Root />
-  </React.StrictMode>,
+  <React.StrictMode>{root}</React.StrictMode>,
 );
