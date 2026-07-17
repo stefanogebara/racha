@@ -93,9 +93,13 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     // --- ownership / membership ---------------------------------------------
     async addVenueMember(venueId, userId, role = 'owner') {
       if (!userId) throw new Error('userId required');
+      // ignoreDuplicates: an existing (venue,user) row is left UNTOUCHED — a
+      // re-add never silently changes a member's role (matches the memory
+      // store's short-circuit; review finding). Role changes are an explicit
+      // future operation, not a side effect of re-adding.
       const { error } = await client
         .from('venue_members')
-        .upsert({ venue_id: venueId, user_id: userId, role }, { onConflict: 'venue_id,user_id' });
+        .upsert({ venue_id: venueId, user_id: userId, role }, { onConflict: 'venue_id,user_id', ignoreDuplicates: true });
       throwOn(error, 'addVenueMember');
       return { venueId, userId, role };
     },
