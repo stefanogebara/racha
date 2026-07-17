@@ -119,6 +119,8 @@ function Tables({ venueId }: { venueId: string }) {
     catch (e) { setError((e as Error).message); }
   }
   async function toggle(t: Table) {
+    if (t.active && t.hasOpenCheck) { setError(`${t.label} tem conta aberta — feche antes de desativar.`); return; }
+    if (t.active && !confirm(`Desativar a ${t.label}? O QR dela para de funcionar.`)) return;
     try { await req('/api/tables/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, active: !t.active }) }); await refresh(); }
     catch (e) { setError((e as Error).message); }
   }

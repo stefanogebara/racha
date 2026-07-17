@@ -143,8 +143,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     // --- onboarding + table/QR management (production ships behind auth) ------
+    // Bad input → 400 (not a store-thrown 500). Store validation is the second
+    // line; these are the first (review finding).
     if (req.method === 'POST' && url.pathname === '/api/venues') {
       const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.name || !String(b.name).trim()) return json(res, 400, { success: false, error: 'Nome é obrigatório' });
       const venue = await store.createVenue({
         name: b.name, cnpj: b.cnpj ?? null, city: b.city ?? null,
         servicoBp: Number.isInteger(b.servicoBp) ? b.servicoBp : 1000,
@@ -163,18 +166,31 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/tables') {
       const b = JSON.parse(await readBody(req) || '{}');
-      const t = await store.createTable(b.venueId, b.label);
-      return json(res, 200, { success: true, data: t });
+      if (!b.venueId) return json(res, 400, { success: false, error: 'venueId é obrigatório' });
+      if (!b.label || !String(b.label).trim()) return json(res, 400, { success: false, error: 'Rótulo da mesa é obrigatório' });
+      try {
+        const t = await store.createTable(b.venueId, b.label);
+        return json(res, 200, { success: true, data: t });
+      } catch (e) {
+        const dup = /duplicate/.test(e.message);
+        return json(res, dup ? 409 : 400, { success: false, error: dup ? 'Já existe uma mesa com esse nome' : e.message });
+      }
     }
     if (req.method === 'POST' && url.pathname === '/api/tables/rotate') {
       const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.tableId) return json(res, 400, { success: false, error: 'tableId é obrigatório' });
       const r = await store.rotateTableQr(b.tableId);
       return json(res, 200, { success: true, data: r });
     }
     if (req.method === 'POST' && url.pathname === '/api/tables/active') {
       const b = JSON.parse(await readBody(req) || '{}');
-      const r = await store.setTableActive(b.tableId, b.active);
-      return json(res, 200, { success: true, data: r });
+      if (!b.tableId || typeof b.active !== 'boolean') return json(res, 400, { success: false, error: 'tableId e active são obrigatórios' });
+      try {
+        const r = await store.setTableActive(b.tableId, b.active);
+        return json(res, 200, { success: true, data: r });
+      } catch (e) {
+        return json(res, 409, { success: false, error: e.message });
+      }
     }
 
     // DEV ONLY — "the bank app confirmed": emits the signed webhook a real

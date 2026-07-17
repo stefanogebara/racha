@@ -112,22 +112,29 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       const { data: tabs, error } = await client
         .from('venue_tables')
         .select('id, label, qr_token, qr_rotated_at, active')
-        .eq('venue_id', venueId)
-        .order('label', { ascending: true });
+        .eq('venue_id', venueId);
       throwOn(error, 'listTables');
-      // Open-check badge (informational): uses the cache status column.
-      const { data: openChecks, error: cErr } = await client
+      // hasOpenCheck by DERIVED state (the checks.status cache is unmaintained
+      // in v0 — reading it left the badge stuck TRUE forever; review finding).
+      const { data: allChecks, error: cErr } = await client
         .from('checks')
-        .select('table_id')
-        .eq('venue_id', venueId)
-        .neq('status', 'fechada');
+        .select('id, table_id')
+        .eq('venue_id', venueId);
       throwOn(cErr, 'listTables.checks');
-      const openByTable = new Set((openChecks || []).map((c) => c.table_id));
-      return (tabs || []).map((t) => ({
-        id: t.id, label: t.label, qrToken: t.qr_token,
-        qrRotatedAt: t.qr_rotated_at, active: t.active,
-        hasOpenCheck: openByTable.has(t.id),
-      }));
+      const openByTable = new Set();
+      for (const c of allChecks || []) {
+        if (openByTable.has(c.table_id)) continue;
+        const state = reduce(await loadEvents(c.id));
+        if (state.status !== 'fechada') openByTable.add(c.table_id);
+      }
+      return (tabs || [])
+        .map((t) => ({
+          id: t.id, label: t.label, qrToken: t.qr_token,
+          qrRotatedAt: t.qr_rotated_at, active: t.active,
+          hasOpenCheck: openByTable.has(t.id),
+        }))
+        // Same locale-numeric sort as the memory store (Mesa 2 < Mesa 10).
+        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { numeric: true }));
     },
     /**
      * Rotate a table's QR token — the OLD token stops resolving immediately
@@ -146,6 +153,18 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return { id: data.id, qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at };
     },
     async setTableActive(tableId, active) {
+      // Refuse to deactivate a table with an open check — no new token to fall
+      // back to, so a mid-payment diner would be stranded (review finding).
+      if (!active) {
+        const { data: checkRows, error: cErr } = await client
+          .from('checks').select('id').eq('table_id', tableId);
+        throwOn(cErr, 'setTableActive.checks');
+        for (const c of checkRows || []) {
+          if (reduce(await loadEvents(c.id)).status !== 'fechada') {
+            throw new Error('table has an open check — close it before deactivating');
+          }
+        }
+      }
       const { data, error } = await client
         .from('venue_tables')
         .update({ active: !!active })
@@ -192,26 +211,32 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       throwOn(tErr, 'getCheckByQrToken.table');
       if (!table) return null;
 
-      const { data: check, error: cErr } = await client
+      // Select the open check by DERIVED state, not the checks.status cache
+      // (that column is intentionally unmaintained in v0 — filtering on it
+      // would return a CLOSED check and leak the previous party's bill to the
+      // next diner on a not-yet-rotated QR; review finding). Fetch the recent
+      // candidates and pick the first whose reduced state isn't fechada.
+      const { data: cands, error: cErr } = await client
         .from('checks')
         .select('id, pos_ref')
         .eq('table_id', table.id)
-        .neq('status', 'fechada')
         .order('opened_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(10);
       throwOn(cErr, 'getCheckByQrToken.check');
-      if (!check) return null;
 
-      let items = [];
-      try { items = JSON.parse(check.pos_ref) || []; } catch { items = []; }
-
-      return {
-        venue: { name: table.venues.name, servicoBp: table.venues.servico_basis_points },
-        table: { label: table.label },
-        check: { id: check.id, items },
-        state: reduce(await loadEvents(check.id)),
-      };
+      for (const cand of cands || []) {
+        const state = reduce(await loadEvents(cand.id));
+        if (state.status === 'fechada') continue;
+        let items = [];
+        try { items = JSON.parse(cand.pos_ref) || []; } catch { items = []; }
+        return {
+          venue: { name: table.venues.name, servicoBp: table.venues.servico_basis_points },
+          table: { label: table.label },
+          check: { id: cand.id, items },
+          state,
+        };
+      }
+      return null;
     },
 
     loadEvents,

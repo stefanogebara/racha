@@ -37,8 +37,11 @@ function createMemoryStore() {
     if (!venues.has(venueId)) throw new Error('unknown venue');
     if (!label || !String(label).trim()) throw new Error('table label required');
     const trimmed = String(label).trim();
+    // Uniqueness scoped to ALL tables in the venue (active OR inactive) — mirrors
+    // the DB `unique (venue_id, label)`. Reusing a deactivated table's label is
+    // blocked in both stores (reactivate the old one instead).
     for (const t of tableById.values()) {
-      if (t.venueId === venueId && t.label === trimmed && t.active) {
+      if (t.venueId === venueId && t.label === trimmed) {
         throw new Error('duplicate table label');
       }
     }
@@ -94,10 +97,20 @@ function createMemoryStore() {
       tables.set(t.qrToken, t);
       return { id: t.id, qrToken: t.qrToken, qrRotatedAt: t.qrRotatedAt };
     },
-    /** Deactivate/reactivate a table. An inactive table's QR does NOT resolve. */
+    /**
+     * Deactivate/reactivate a table. An inactive table's QR does NOT resolve.
+     * Refuses to DEACTIVATE a table with an open check — that would strand a
+     * mid-payment diner with no new token to fall back to (review finding).
+     */
     async setTableActive(tableId, active) {
       const t = tableById.get(tableId);
       if (!t) throw new Error('unknown table');
+      if (!active) {
+        const open = [...checks.values()].some(
+          (c) => c.tableId === t.id && reduce(events.get(c.id) || []).status !== 'fechada',
+        );
+        if (open) throw new Error('table has an open check — close it before deactivating');
+      }
       t.active = !!active;
       return { id: t.id, active: t.active };
     },
