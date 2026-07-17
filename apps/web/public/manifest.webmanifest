@@ -1,0 +1,10 @@
+{
+  "name": "Racha",
+  "short_name": "Racha",
+  "description": "Veja a conta, divida e pague com Pix — sem app, sem cadastro.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAFAF7",
+  "theme_color": "#111411",
+  "icons": []
+}
