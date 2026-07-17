@@ -73,6 +73,43 @@ function createMemoryStore() {
     async getPayment(txid) {
       return payments.get(txid) || null;
     },
+    /**
+     * Restaurant panel view: every check of the venue with derived state,
+     * plus day totals. Tips are reported from CONFIRMED payments only and
+     * keyed by confirmed_at (Lei 13.419 payroll competência).
+     */
+    async getPanelView(venueId) {
+      const venue = venues.get(venueId);
+      if (!venue) return null;
+      const rows = [...checks.values()]
+        .filter((c) => c.venueId === venueId)
+        .map((c) => {
+          const table = [...tables.values()].find((t) => t.id === c.tableId);
+          const state = reduce(events.get(c.id) || []);
+          return {
+            checkId: c.id,
+            tableLabel: table ? table.label : '?',
+            state: {
+              status: state.status,
+              totalCents: state.totalCents,
+              paidCents: state.paidCents,
+              tipCents: state.tipCents,
+              anomalies: state.anomalies.length,
+            },
+          };
+        });
+      const confirmed = [...payments.values()].filter((p) => p.status === 'confirmado');
+      return {
+        venue: { name: venue.name },
+        checks: rows,
+        today: {
+          confirmedCents: confirmed.reduce((s, p) => s + p.amountCents, 0),
+          tipsCents: confirmed.reduce((s, p) => s + p.tipCents, 0),
+          paymentsCount: confirmed.length,
+          anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
+        },
+      };
+    },
 
     // --- writes --------------------------------------------------------------
     async appendEvent(checkId, type, payload) {

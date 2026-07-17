@@ -32,20 +32,32 @@ const handleWebhook = createWebhookHandler({
   psp,
 });
 
-// --- seed a believable table ---------------------------------------------
+// --- seed a believable venue ----------------------------------------------
 const venue = store.seedVenue({ name: 'Bar do Zé', servicoBp: 1000 });
 const mesa = store.seedTable(venue.id, 'Mesa 7');
-let seededCheckId;
-store.openCheck(mesa.qrToken, [
-  { id: 'i1', name: 'Picanha na chapa', priceCents: 8990 },
-  { id: 'i2', name: 'Chopp artesanal (4x)', priceCents: 5560 },
-  { id: 'i3', name: 'Batata rústica', priceCents: 3290 },
-  { id: 'i4', name: 'Refrigerante (2x)', priceCents: 1580 },
-  { id: 'i5', name: 'Pudim da casa', priceCents: 1890 },
-]).then((c) => {
-  seededCheckId = c.id;
-  process.stdout.write(`\nRacha demo pronto:\n  API   http://localhost:${PORT}\n  Conta http://localhost:5173/?t=${mesa.qrToken}\n\n`);
-});
+const mesa2 = store.seedTable(venue.id, 'Mesa 12');
+(async () => {
+  await store.openCheck(mesa.qrToken, [
+    { id: 'i1', name: 'Picanha na chapa', priceCents: 8990 },
+    { id: 'i2', name: 'Chopp artesanal (4x)', priceCents: 5560 },
+    { id: 'i3', name: 'Batata rústica', priceCents: 3290 },
+    { id: 'i4', name: 'Refrigerante (2x)', priceCents: 1580 },
+    { id: 'i5', name: 'Pudim da casa', priceCents: 1890 },
+  ]);
+  await store.openCheck(mesa2.qrToken, [
+    { id: 'j1', name: 'Moqueca de peixe', priceCents: 12900 },
+    { id: 'j2', name: 'Caipirinha (2x)', priceCents: 3980 },
+    { id: 'j3', name: 'Arroz e farofa', priceCents: 1500 },
+  ]);
+  process.stdout.write([
+    '', 'Racha demo pronto:',
+    `  API    http://localhost:${PORT}`,
+    `  Conta  http://localhost:5173/?t=${mesa.qrToken}`,
+    `  Conta2 http://localhost:5173/?t=${mesa2.qrToken}`,
+    `  Painel http://localhost:5173/painel?v=${venue.id}`,
+    '', '',
+  ].join('\n'));
+})();
 
 function json(res, status, body) {
   res.writeHead(status, {
@@ -94,6 +106,14 @@ const server = http.createServer(async (req, res) => {
       const result = await handleWebhook(raw, req.headers['x-racha-signature']);
       const status = result.status === 'rejected' ? 409 : 200;
       return json(res, status, { success: status === 200, data: result });
+    }
+
+    // Restaurant panel (local demo — the production panel ships with auth;
+    // this server never leaves localhost).
+    if (req.method === 'GET' && url.pathname === '/api/panel') {
+      const data = await store.getPanelView(url.searchParams.get('v') || '');
+      if (!data) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      return json(res, 200, { success: true, data });
     }
 
     // DEV ONLY — "the bank app confirmed": emits the signed webhook a real

@@ -1,23 +1,41 @@
-/* Racha — receipt aesthetic: paper, ink, one green. Mobile-first. */
+/* Racha — Warm Glass (Seatable design system, DESIGN.md is canon).
+   Body = warm-white + 4 warm orbs; surfaces = translucent glass with
+   backdrop blur; burgundy for action, emerald/amber/red semantic-only. */
 
 :root {
-  --paper: #FAFAF7;
-  --card: #FFFFFF;
-  --ink: #111411;
-  --muted: #6B7069;
-  --line: #E7E7E0;
-  --green: #00934F;   /* Pix-adjacent, AA on white */
-  --green-dark: #007A42;
-  --radius: 16px;
+  --warm-white: #FAFAF9;
+  --burgundy: #9F1239;
+  --burgundy-dark: #881337;
+  --charcoal: #1C1917;
+  --stone: #706A65;
+  --glass-card: rgba(255, 255, 255, 0.62);
+  --glass-panel: rgba(255, 255, 255, 0.55);
+  --glass-subtle: rgba(255, 255, 255, 0.40);
+  --glass-border: rgba(255, 255, 255, 0.70);
+  --glass-border-subtle: rgba(28, 25, 23, 0.06);
+  --glass-border-input: rgba(28, 25, 23, 0.12);
+  --emerald: #059669;   /* semantic positive (AA on glass) */
+  --emerald-bright: #10B981;
+  --shadow-card: 0 1px 2px rgba(28, 25, 23, 0.04), 0 8px 24px rgba(28, 25, 23, 0.04);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--charcoal);
+  font-family: 'DM Sans', 'Inter', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  font-synthesis: none;
+}
+
+body {
+  background-color: var(--warm-white);
+  background-image:
+    radial-gradient(ellipse 65% 45% at 12% 18%, rgba(217, 119, 6, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 40% at 88% 22%, rgba(245, 158, 11, 0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 75% 50% at 50% 95%, rgba(159, 18, 57, 0.12) 0%, transparent 65%),
+    radial-gradient(ellipse 45% 35% at 90% 80%, rgba(120, 53, 15, 0.10) 0%, transparent 55%);
+  background-attachment: fixed;
 }
 
 .shell {
@@ -29,32 +47,49 @@ html, body {
   flex-direction: column;
   gap: 12px;
 }
+.shell.wide { max-width: 860px; }
 
-.head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  padding: 8px 4px 0;
+.head { display: flex; align-items: baseline; justify-content: space-between; padding: 10px 4px 2px; }
+.venue {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-weight: 400;
+  font-size: 30px;
+  letter-spacing: -0.01em;
 }
-.venue { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
-.mesa { color: var(--muted); font-size: 14px; }
+.mesa { color: var(--stone); font-size: 14px; }
 
+/* Glass tiers */
 .card, .pixcard, .paid {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  background: var(--glass-card);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  padding: 18px 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.panel {
+  background: var(--glass-panel);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 20px;
+  box-shadow: var(--shadow-card);
   padding: 18px 16px;
   display: flex; flex-direction: column; gap: 12px;
 }
 
 .label {
   font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--muted);
+  text-transform: uppercase; color: var(--stone);
 }
 
 .items { list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .items li {
   display: flex; justify-content: space-between; gap: 12px;
   font-size: 15px; line-height: 1.35;
-  border-bottom: 1px dashed var(--line); padding-bottom: 8px;
+  border-bottom: 1px dashed var(--glass-border-subtle); padding-bottom: 8px;
 }
 .items li:last-child { border-bottom: none; padding-bottom: 0; }
 
@@ -63,84 +98,138 @@ html, body {
 .totalrow {
   display: flex; justify-content: space-between;
   font-weight: 700; font-size: 17px;
-  border-top: 2px solid var(--ink); padding-top: 10px;
+  border-top: 2px solid var(--charcoal); padding-top: 10px;
 }
 
 .progresswrap { display: flex; flex-direction: column; gap: 6px; }
-.progressbar {
-  height: 8px; border-radius: 99px; background: var(--line); overflow: hidden;
-}
-.progressbar span { display: block; height: 100%; background: var(--green); border-radius: 99px; transition: width .4s ease; }
+.progressbar { height: 8px; border-radius: 99px; background: rgba(28, 25, 23, 0.08); overflow: hidden; }
+.progressbar span { display: block; height: 100%; background: var(--emerald-bright); border-radius: 99px; transition: width .4s ease; }
 
+/* Mode chips — glass chips, 46px radius (designed, not lazy) */
 .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .mode {
-  padding: 10px; border-radius: 12px; border: 1px solid var(--line);
-  background: transparent; font-size: 14px; font-weight: 600; color: var(--muted);
+  padding: 11px; border-radius: 46px;
+  border: 1px solid var(--glass-border-subtle);
+  background: var(--glass-subtle);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 14px; font-weight: 600; color: var(--stone);
+  font-family: inherit;
 }
-.mode.on { border-color: var(--ink); color: var(--ink); background: #F4F4EF; }
+.mode.on { border-color: var(--charcoal); color: var(--charcoal); background: rgba(255, 255, 255, 0.78); }
 
 .stepperrow { display: flex; align-items: center; gap: 12px; font-size: 15px; }
 .stepper {
   display: flex; align-items: center; gap: 14px;
-  border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px;
+  border: 1px solid var(--glass-border-input); border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  padding: 6px 10px;
 }
 .stepper button {
   width: 34px; height: 34px; border-radius: 10px; border: none;
-  background: #F1F1EA; font-size: 20px; font-weight: 700; color: var(--ink);
+  background: rgba(28, 25, 23, 0.06); font-size: 20px; font-weight: 700; color: var(--charcoal);
+  font-family: inherit;
 }
 .stepper strong { min-width: 20px; text-align: center; font-size: 17px; }
 
 .customrow {
   display: flex; align-items: center; gap: 8px;
-  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+  border: 1px solid var(--glass-border-input); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  padding: 10px 12px;
 }
-.customrow label { color: var(--muted); font-weight: 600; }
+.customrow label { color: var(--stone); font-weight: 600; }
 .customrow input {
   border: none; outline: none; font-size: 20px; width: 100%;
-  font-variant-numeric: tabular-nums; background: transparent; color: var(--ink);
+  font-variant-numeric: tabular-nums; background: transparent; color: var(--charcoal);
+  font-family: inherit;
 }
 
-.servico { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink); }
-.servico input { width: 18px; height: 18px; accent-color: var(--green); margin-top: 1px; }
-.servico em { font-style: normal; color: var(--green-dark); font-weight: 600; }
+.servico { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--charcoal); }
+.servico input { width: 18px; height: 18px; accent-color: var(--emerald); margin-top: 1px; }
+.servico em { font-style: normal; color: var(--emerald); font-weight: 600; }
 
 .namefield {
-  border: 1px solid var(--line); border-radius: 12px; padding: 12px;
-  font-size: 15px; background: transparent; color: var(--ink);
+  border: 1px solid var(--glass-border-input); border-radius: 8px; padding: 12px;
+  font-size: 15px; background: rgba(255, 255, 255, 0.5); color: var(--charcoal);
+  font-family: inherit;
 }
+.namefield::placeholder { color: var(--stone); }
 
+/* Primary CTA — burgundy filled pill */
 .cta {
-  border: none; border-radius: 14px; padding: 16px;
-  background: var(--green); color: #fff; font-size: 16px; font-weight: 700;
-  letter-spacing: -0.01em; box-shadow: 0 6px 16px rgba(0, 147, 79, .25);
+  border: none; border-radius: 100px; padding: 16px;
+  background: var(--burgundy); color: #fff; font-size: 16px; font-weight: 700;
+  letter-spacing: -0.01em; font-family: inherit;
+  box-shadow: 0 6px 18px rgba(159, 18, 57, 0.28);
 }
-.cta:active { transform: translateY(1px); }
-.cta:disabled { background: var(--line); color: var(--muted); box-shadow: none; }
+.cta:active { transform: translateY(1px); background: var(--burgundy-dark); }
+.cta:disabled { background: rgba(28, 25, 23, 0.12); color: var(--stone); box-shadow: none; }
 
 .ghost {
-  border: 1px dashed var(--line); border-radius: 12px; padding: 12px;
-  background: transparent; color: var(--muted); font-size: 13px;
+  border: 1px dashed var(--glass-border-input); border-radius: 46px; padding: 12px;
+  background: transparent; color: var(--stone); font-size: 13px; font-family: inherit;
 }
-.linklike { border: none; background: none; color: var(--muted); font-size: 14px; padding: 6px; }
+.linklike { border: none; background: none; color: var(--stone); font-size: 14px; padding: 6px; font-family: inherit; }
 
 .pixcard { text-align: center; }
-.bigmoney { font-size: 40px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.bigmoney {
+  font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
+  font-size: 46px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+}
 .codebox {
-  font-family: ui-monospace, 'Cascadia Mono', monospace; font-size: 12px;
-  color: var(--muted); background: #F4F4EF; border-radius: 10px; padding: 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px;
+  color: var(--stone); background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 10px; padding: 12px;
   word-break: break-all; text-align: left;
 }
 
 .paid { align-items: center; text-align: center; gap: 14px; padding: 40px 16px; }
 .paidmark {
   width: 72px; height: 72px; border-radius: 50%;
-  background: var(--green); color: #fff; font-size: 40px;
+  background: var(--emerald-bright); color: #fff; font-size: 40px;
   display: grid; place-items: center;
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
 }
-.paid h2 { font-size: 22px; letter-spacing: -0.02em; }
+.paid h2 { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 26px; }
 .paid .progresswrap { width: 100%; }
 
-.foot { text-align: center; color: var(--muted); font-size: 12px; padding-top: 4px; }
-.muted { color: var(--muted); }
+/* Restaurant panel */
+.statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stat {
+  background: var(--glass-card);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--glass-border); border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  padding: 14px; display: flex; flex-direction: column; gap: 4px;
+}
+.stat b {
+  font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
+  font-size: 24px; font-variant-numeric: tabular-nums;
+}
+.stat span { font-size: 12px; color: var(--stone); }
+
+.checkrow {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 12px 4px; border-bottom: 1px dashed var(--glass-border-subtle);
+  font-size: 14px;
+}
+.checkrow:last-child { border-bottom: none; }
+.pill {
+  border-radius: 46px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+}
+.pill.aberta { background: rgba(28, 25, 23, 0.07); color: var(--stone); }
+.pill.parcial { background: rgba(245, 158, 11, 0.18); color: #92400E; }
+.pill.paga { background: rgba(16, 185, 129, 0.16); color: #065F46; }
+.pill.fechada { background: rgba(28, 25, 23, 0.09); color: var(--charcoal); }
+
+.foot { text-align: center; color: var(--stone); font-size: 12px; padding-top: 4px; }
+.muted { color: var(--stone); }
 .small { font-size: 13px; }
 .center { text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .progressbar span { transition: none; }
+}
