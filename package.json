@@ -1,0 +1,13 @@
+{
+  "name": "racha",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Racha — pay-at-table for Brazil. QR na mesa, vê a conta, racha, paga com Pix.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
