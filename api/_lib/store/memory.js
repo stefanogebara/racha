@@ -20,18 +20,86 @@ function createMemoryStore() {
   const payments = new Map(); // txid → payment row
   const txidToCheck = new Map();
 
+  const tableById = new Map(); // id → table row (stable id; qrToken rotates)
+
+  // Sync internals — the memory store is synchronous; the public contract is
+  // async (matches the Supabase store, so `.rejects` works uniformly).
+  function _mkVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null }) {
+    if (!name || !String(name).trim()) throw new Error('venue name required');
+    if (!Number.isInteger(servicoBp) || servicoBp < 0 || servicoBp > 3000) {
+      throw new Error('servicoBp out of range [0,3000]');
+    }
+    const id = crypto.randomUUID();
+    venues.set(id, { id, name: String(name).trim(), cnpj, city, servicoBp, pspRecipientId, active: true });
+    return venues.get(id);
+  }
+  function _mkTable(venueId, label) {
+    if (!venues.has(venueId)) throw new Error('unknown venue');
+    if (!label || !String(label).trim()) throw new Error('table label required');
+    const trimmed = String(label).trim();
+    for (const t of tableById.values()) {
+      if (t.venueId === venueId && t.label === trimmed && t.active) {
+        throw new Error('duplicate table label');
+      }
+    }
+    const qrToken = crypto.randomUUID().replace(/-/g, '');
+    const id = crypto.randomUUID();
+    const row = { id, venueId, label: trimmed, qrToken, qrRotatedAt: null, active: true };
+    tables.set(qrToken, row);
+    tableById.set(id, row);
+    return { ...row };
+  }
+
   return {
-    // --- seeding (demo) -----------------------------------------------------
+    // --- onboarding / venue -------------------------------------------------
+    async createVenue(args) { return _mkVenue(args); },
+    // Demo/test alias (SYNC — existing helpers call it without await).
     seedVenue({ name, servicoBp = 1000, pspRecipientId = 'rcpt_demo' }) {
-      const id = crypto.randomUUID();
-      venues.set(id, { id, name, servicoBp, pspRecipientId });
-      return venues.get(id);
+      return _mkVenue({ name, servicoBp, pspRecipientId });
     },
-    seedTable(venueId, label) {
-      const qrToken = crypto.randomUUID();
-      const id = crypto.randomUUID();
-      tables.set(qrToken, { id, venueId, label, qrToken });
-      return tables.get(qrToken);
+    async getVenue(venueId) {
+      return venues.get(venueId) || null;
+    },
+
+    // --- tables / QR --------------------------------------------------------
+    async createTable(venueId, label) { return _mkTable(venueId, label); },
+    seedTable(venueId, label) { return _mkTable(venueId, label); },
+    async listTables(venueId) {
+      return [...tableById.values()]
+        .filter((t) => t.venueId === venueId)
+        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { numeric: true }))
+        .map((t) => {
+          const openCheck = [...checks.values()].find(
+            (c) => c.tableId === t.id && reduce(events.get(c.id) || []).status !== 'fechada',
+          );
+          return {
+            id: t.id, label: t.label, qrToken: t.qrToken,
+            qrRotatedAt: t.qrRotatedAt, active: t.active,
+            hasOpenCheck: !!openCheck,
+          };
+        });
+    },
+    /**
+     * Rotate a table's QR token. The OLD token stops resolving immediately —
+     * a photographed QR must not grant indefinite access to future checks
+     * (schema/review security property). The live check (tied to table_id,
+     * not the token) stays reachable via the NEW token.
+     */
+    async rotateTableQr(tableId, nowIso) {
+      const t = tableById.get(tableId);
+      if (!t) throw new Error('unknown table');
+      tables.delete(t.qrToken);
+      t.qrToken = crypto.randomUUID().replace(/-/g, '');
+      t.qrRotatedAt = nowIso || new Date().toISOString();
+      tables.set(t.qrToken, t);
+      return { id: t.id, qrToken: t.qrToken, qrRotatedAt: t.qrRotatedAt };
+    },
+    /** Deactivate/reactivate a table. An inactive table's QR does NOT resolve. */
+    async setTableActive(tableId, active) {
+      const t = tableById.get(tableId);
+      if (!t) throw new Error('unknown table');
+      t.active = !!active;
+      return { id: t.id, active: t.active };
     },
     async openCheck(tableQrToken, items) {
       const table = tables.get(tableQrToken);
@@ -47,8 +115,10 @@ function createMemoryStore() {
     // --- reads ---------------------------------------------------------------
     async getCheckByQrToken(qrToken) {
       const table = tables.get(qrToken);
-      if (!table) return null;
-      const check = [...checks.values()].find((c) => c.tableId === table.id);
+      if (!table || !table.active) return null; // inactive/rotated token is dead
+      const check = [...checks.values()].find(
+        (c) => c.tableId === table.id && reduce(events.get(c.id) || []).status !== 'fechada',
+      );
       if (!check) return null;
       const venue = venues.get(table.venueId);
       const log = events.get(check.id) || [];

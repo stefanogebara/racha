@@ -51,32 +51,109 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     client, // exposed for tests/cleanup only
 
     // --- seeding / onboarding ---------------------------------------------
-    async seedVenue({ name, cnpj = '00000000000191', servicoBp = 1000, pspRecipientId }) {
+    async createVenue({ name, cnpj = '00000000000191', city = null, servicoBp = 1000, pspRecipientId = null }) {
+      if (!name || !String(name).trim()) throw new Error('venue name required');
+      if (!Number.isInteger(servicoBp) || servicoBp < 0 || servicoBp > 3000) {
+        throw new Error('servicoBp out of range [0,3000]');
+      }
       const { data, error } = await client
         .from('venues')
         .insert({
-          name, cnpj,
+          name: String(name).trim(), cnpj, city,
           servico_basis_points: servicoBp,
           psp_recipient_id: pspRecipientId ?? null,
         })
-        .select('id, name, servico_basis_points, psp_recipient_id')
+        .select('id, name, city, servico_basis_points, psp_recipient_id')
         .single();
-      throwOn(error, 'seedVenue');
+      throwOn(error, 'createVenue');
       return {
-        id: data.id, name: data.name,
+        id: data.id, name: data.name, city: data.city,
         servicoBp: data.servico_basis_points,
         pspRecipientId: data.psp_recipient_id,
       };
     },
+    seedVenue(args) {
+      return this.createVenue({ pspRecipientId: 'rcpt_demo', ...args });
+    },
+    async getVenue(venueId) {
+      const { data, error } = await client
+        .from('venues')
+        .select('id, name, city, cnpj, servico_basis_points, psp_recipient_id, active')
+        .eq('id', venueId)
+        .maybeSingle();
+      throwOn(error, 'getVenue');
+      if (!data) return null;
+      return {
+        id: data.id, name: data.name, city: data.city, cnpj: data.cnpj,
+        servicoBp: data.servico_basis_points, pspRecipientId: data.psp_recipient_id,
+        active: data.active,
+      };
+    },
 
-    async seedTable(venueId, label) {
+    async createTable(venueId, label) {
+      if (!label || !String(label).trim()) throw new Error('table label required');
       const { data, error } = await client
         .from('venue_tables')
-        .insert({ venue_id: venueId, label })
-        .select('id, venue_id, label, qr_token')
+        .insert({ venue_id: venueId, label: String(label).trim() })
+        .select('id, venue_id, label, qr_token, qr_rotated_at, active')
         .single();
-      throwOn(error, 'seedTable');
-      return { id: data.id, venueId: data.venue_id, label: data.label, qrToken: data.qr_token };
+      // unique_violation on (venue_id, label) surfaces as a clear message.
+      if (error && /duplicate|unique/i.test(error.message)) throw new Error('duplicate table label');
+      throwOn(error, 'createTable');
+      return {
+        id: data.id, venueId: data.venue_id, label: data.label,
+        qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at, active: data.active,
+      };
+    },
+    seedTable(venueId, label) {
+      return this.createTable(venueId, label);
+    },
+    async listTables(venueId) {
+      const { data: tabs, error } = await client
+        .from('venue_tables')
+        .select('id, label, qr_token, qr_rotated_at, active')
+        .eq('venue_id', venueId)
+        .order('label', { ascending: true });
+      throwOn(error, 'listTables');
+      // Open-check badge (informational): uses the cache status column.
+      const { data: openChecks, error: cErr } = await client
+        .from('checks')
+        .select('table_id')
+        .eq('venue_id', venueId)
+        .neq('status', 'fechada');
+      throwOn(cErr, 'listTables.checks');
+      const openByTable = new Set((openChecks || []).map((c) => c.table_id));
+      return (tabs || []).map((t) => ({
+        id: t.id, label: t.label, qrToken: t.qr_token,
+        qrRotatedAt: t.qr_rotated_at, active: t.active,
+        hasOpenCheck: openByTable.has(t.id),
+      }));
+    },
+    /**
+     * Rotate a table's QR token — the OLD token stops resolving immediately
+     * (security property). Plain UPDATE by id (no or= filter → no PostgREST
+     * 42703). Token generated app-side to mirror the column default.
+     */
+    async rotateTableQr(tableId, nowIso) {
+      const newToken = require('crypto').randomUUID().replace(/-/g, '');
+      const { data, error } = await client
+        .from('venue_tables')
+        .update({ qr_token: newToken, qr_rotated_at: nowIso || new Date().toISOString() })
+        .eq('id', tableId)
+        .select('id, qr_token, qr_rotated_at')
+        .single();
+      throwOn(error, 'rotateTableQr');
+      return { id: data.id, qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at };
+    },
+    async setTableActive(tableId, active) {
+      const { data, error } = await client
+        .from('venue_tables')
+        .update({ active: !!active })
+        .eq('id', tableId)
+        .select('id, active')
+        .single();
+      throwOn(error, 'setTableActive');
+      return { id: data.id, active: data.active };
     },
 
     async openCheck(tableQrToken, items) {
@@ -110,6 +187,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         .from('venue_tables')
         .select('id, label, venue_id, venues(name, servico_basis_points)')
         .eq('qr_token', qrToken)
+        .eq('active', true) // inactive/rotated token is dead (security property)
         .maybeSingle();
       throwOn(tErr, 'getCheckByQrToken.table');
       if (!table) return null;

@@ -230,6 +230,22 @@ body {
 .small { font-size: 13px; }
 .center { text-align: center; }
 
+/* QR print card */
+.qrprint { align-items: center; text-align: center; gap: 10px; }
+.qrbox {
+  background: #fff; padding: 16px; border-radius: 16px;
+  border: 1px solid var(--glass-border-subtle);
+  display: grid; place-items: center;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .progressbar span { transition: none; }
+}
+
+/* Printing: only the QR card, black on white, no glass/gradient */
+@media print {
+  body { background: #fff !important; }
+  .shell { max-width: none; }
+  .linklike, .cta { display: none !important; }
+  .pixcard { border: none; box-shadow: none; backdrop-filter: none; background: #fff; }
 }

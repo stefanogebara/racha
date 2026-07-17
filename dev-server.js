@@ -142,6 +142,41 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { success: true, data });
     }
 
+    // --- onboarding + table/QR management (production ships behind auth) ------
+    if (req.method === 'POST' && url.pathname === '/api/venues') {
+      const b = JSON.parse(await readBody(req) || '{}');
+      const venue = await store.createVenue({
+        name: b.name, cnpj: b.cnpj ?? null, city: b.city ?? null,
+        servicoBp: Number.isInteger(b.servicoBp) ? b.servicoBp : 1000,
+      });
+      return json(res, 200, { success: true, data: venue });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/venues/get') {
+      const venue = await store.getVenue(url.searchParams.get('v') || '');
+      if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      return json(res, 200, { success: true, data: venue });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/tables') {
+      const venue = await store.getVenue(url.searchParams.get('v') || '');
+      if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      return json(res, 200, { success: true, data: { venue, tables: await store.listTables(venue.id) } });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/tables') {
+      const b = JSON.parse(await readBody(req) || '{}');
+      const t = await store.createTable(b.venueId, b.label);
+      return json(res, 200, { success: true, data: t });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/tables/rotate') {
+      const b = JSON.parse(await readBody(req) || '{}');
+      const r = await store.rotateTableQr(b.tableId);
+      return json(res, 200, { success: true, data: r });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/tables/active') {
+      const b = JSON.parse(await readBody(req) || '{}');
+      const r = await store.setTableActive(b.tableId, b.active);
+      return json(res, 200, { success: true, data: r });
+    }
+
     // DEV ONLY — "the bank app confirmed": emits the signed webhook a real
     // PSP would send. Does not exist in production builds.
     if (req.method === 'POST' && url.pathname === '/api/dev/confirm') {
