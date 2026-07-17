@@ -15,13 +15,29 @@
 
 const http = require('http');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { createMemoryStore } = require('./api/_lib/store/memory');
 const { MockPsp } = require('./api/_lib/pay/mock-psp');
 const { createWebhookHandler } = require('./api/_lib/pay/webhook-handler');
 const { createChargeService } = require('./api/_lib/pay/create-charge');
 
+// Minimal .env loader (no dependency): KEY=VALUE lines, no interpolation.
+const envPath = path.join(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
+  }
+}
+
 const PORT = 8787;
-const store = createMemoryStore();
+// RACHA_STORE=supabase runs the same demo against the real project
+// (requires SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env).
+const useSupabase = process.env.RACHA_STORE === 'supabase';
+const store = useSupabase
+  ? require('./api/_lib/store/supabase').createSupabaseStore()
+  : createMemoryStore();
 const psp = new MockPsp({ webhookSecret: crypto.randomBytes(24).toString('hex') });
 const charge = createChargeService({ store, psp });
 const handleWebhook = createWebhookHandler({
@@ -32,11 +48,18 @@ const handleWebhook = createWebhookHandler({
   psp,
 });
 
-// --- seed a believable venue ----------------------------------------------
-const venue = store.seedVenue({ name: 'Bar do Zé', servicoBp: 1000 });
-const mesa = store.seedTable(venue.id, 'Mesa 7');
-const mesa2 = store.seedTable(venue.id, 'Mesa 12');
+// --- seed a believable venue (store-agnostic: memory OR supabase) -----------
+// Against supabase, demo tables get unique labels per boot (unique venue_id+label)
+// and the venue is tagged [demo] so it is recognizable in the dashboard.
 (async () => {
+  const bootTag = crypto.randomBytes(2).toString('hex');
+  const venue = await store.seedVenue({
+    name: useSupabase ? `Bar do Zé [demo ${bootTag}]` : 'Bar do Zé',
+    servicoBp: 1000,
+    pspRecipientId: 'rcpt_demo',
+  });
+  const mesa = await store.seedTable(venue.id, useSupabase ? `Mesa 7 · ${bootTag}` : 'Mesa 7');
+  const mesa2 = await store.seedTable(venue.id, useSupabase ? `Mesa 12 · ${bootTag}` : 'Mesa 12');
   await store.openCheck(mesa.qrToken, [
     { id: 'i1', name: 'Picanha na chapa', priceCents: 8990 },
     { id: 'i2', name: 'Chopp artesanal (4x)', priceCents: 5560 },
@@ -50,14 +73,17 @@ const mesa2 = store.seedTable(venue.id, 'Mesa 12');
     { id: 'j3', name: 'Arroz e farofa', priceCents: 1500 },
   ]);
   process.stdout.write([
-    '', 'Racha demo pronto:',
+    '', `Racha demo pronto (${useSupabase ? 'SUPABASE worttfotxasxqjaqwpjf' : 'memória'}):`,
     `  API    http://localhost:${PORT}`,
     `  Conta  http://localhost:5173/?t=${mesa.qrToken}`,
     `  Conta2 http://localhost:5173/?t=${mesa2.qrToken}`,
     `  Painel http://localhost:5173/painel?v=${venue.id}`,
     '', '',
   ].join('\n'));
-})();
+})().catch((err) => {
+  process.stderr.write(`seed failed: ${err.message}\n`);
+  process.exit(1);
+});
 
 function json(res, status, body) {
   res.writeHead(status, {
