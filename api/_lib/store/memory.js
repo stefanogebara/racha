@@ -152,6 +152,15 @@ function createMemoryStore() {
     async openCheck(tableQrToken, items) {
       const table = tables.get(tableQrToken);
       if (!table) throw new Error('unknown table');
+      // One open check per table — enforced synchronously here (no await
+      // between the check and the insert), the memory analog of the supabase
+      // partial unique index (checks_one_open_per_table).
+      const alreadyOpen = [...checks.values()].some((c) => {
+        if (c.tableId !== table.id) return false;
+        const st = reduce(events.get(c.id) || []);
+        return !!st && st.status !== 'fechada';
+      });
+      if (alreadyOpen) { const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; throw e; }
       const id = crypto.randomUUID();
       const totalCents = items.reduce((s, i) => s + i.priceCents, 0);
       checks.set(id, { id, venueId: table.venueId, tableId: table.id, items });

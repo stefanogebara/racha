@@ -25,8 +25,11 @@ function badRequest(msg) {
  * OR a single total (total-only venues). Always yields items so the diner
  * sees a line breakdown; the total is the sum.
  */
+const MAX_ITEMS = 200; // a real check never has more; bounds the stored snapshot
+
 function normalizeItems({ items, totalCents }) {
   if (Array.isArray(items) && items.length > 0) {
+    if (items.length > MAX_ITEMS) throw badRequest(`no máximo ${MAX_ITEMS} itens por conta`);
     let sum = 0;
     const out = items.map((it, i) => {
       if (!it || typeof it.name !== 'string' || !it.name.trim()) throw badRequest(`item ${i + 1}: nome obrigatório`);

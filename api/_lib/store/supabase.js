@@ -113,7 +113,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     async setCheckItems(checkId, items) {
       const { error } = await client
         .from('checks')
-        .update({ pos_ref: JSON.stringify(items).slice(0, 2000) })
+        .update({ pos_ref: JSON.stringify(items) }) // full JSON; count bounded upstream
         .eq('id', checkId);
       throwOn(error, 'setCheckItems');
     },
@@ -262,10 +262,19 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           venue_id: table.venue_id,
           table_id: table.id,
           total_cents: totalCents,
-          pos_ref: JSON.stringify(items).slice(0, 2000),
+          // Full JSON — item count is bounded upstream (normalizeItems), so the
+          // old 2000-char slice (which sliced mid-JSON → parse fail → the diner
+          // saw an EMPTY item list on big checks) is gone (review finding).
+          pos_ref: JSON.stringify(items),
         })
         .select('id')
         .single();
+      // The partial unique index (checks_one_open_per_table) is the DB backstop
+      // for one-open-check-per-table: a racing double-open loses here and gets a
+      // friendly 409, not a 500.
+      if (cErr && /checks_one_open_per_table|duplicate key/i.test(cErr.message)) {
+        const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; throw e;
+      }
       throwOn(cErr, 'openCheck.insert');
       await this.appendEvent(check.id, 'OPENED', { totalCents });
       return { id: check.id, venueId: table.venue_id, tableId: table.id, items };
@@ -287,11 +296,14 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       // would return a CLOSED check and leak the previous party's bill to the
       // next diner on a not-yet-rotated QR; review finding). Fetch the recent
       // candidates and pick the first whose reduced state isn't fechada.
+      // Oldest-first, so if a legacy pre-index duplicate somehow exists both
+      // stores resolve the SAME check (memory picks insertion-order-first too).
+      // With checks_one_open_per_table there is at most one open check anyway.
       const { data: cands, error: cErr } = await client
         .from('checks')
         .select('id, pos_ref')
         .eq('table_id', table.id)
-        .order('opened_at', { ascending: false })
+        .order('opened_at', { ascending: true })
         .limit(10);
       throwOn(cErr, 'getCheckByQrToken.check');
 

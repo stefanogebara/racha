@@ -121,4 +121,31 @@ describe.each(impls)('check lifecycle [$name]', ({ make }) => {
     await store.setTableActive(t.id, false);
     await expect(svc.openCheck({ tableId: t.id, totalCents: 1000 })).rejects.toThrow(/desativada/);
   });
+
+  test('large itemized check keeps ALL items (no truncation → empty list)', async () => {
+    const t = await freshTable();
+    const items = Array.from({ length: 60 }, (_, i) => ({ name: `Item número ${i + 1} do cardápio`, priceCents: 100 + i }));
+    await svc.openCheck({ tableId: t.id, items });
+    const view = await store.getCheckByQrToken(t.qrToken);
+    expect(view.check.items).toHaveLength(60); // used to be [] on supabase past ~2000 chars
+    expect(view.state.totalCents).toBe(items.reduce((s, i) => s + i.priceCents, 0));
+  });
+
+  test('more than 200 items is refused', async () => {
+    const t = await freshTable();
+    const items = Array.from({ length: 201 }, (_, i) => ({ name: `x${i}`, priceCents: 1 }));
+    await expect(svc.openCheck({ tableId: t.id, items })).rejects.toThrow(/200 itens/);
+  });
+
+  test('concurrent double-open opens at most ONE check (race backstop)', async () => {
+    const t = await freshTable();
+    const results = await Promise.allSettled([
+      svc.openCheck({ tableId: t.id, totalCents: 10000 }),
+      svc.openCheck({ tableId: t.id, totalCents: 5000 }),
+    ]);
+    const ok = results.filter((r) => r.status === 'fulfilled');
+    expect(ok).toHaveLength(1); // the other loses to the guard / unique index
+    const view = await store.getCheckByQrToken(t.qrToken);
+    expect(view.state.totalCents).toBe(ok[0].value.totalCents); // the single winner
+  });
 });
