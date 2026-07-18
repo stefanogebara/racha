@@ -25,13 +25,13 @@ function createMemoryStore() {
 
   // Sync internals — the memory store is synchronous; the public contract is
   // async (matches the Supabase store, so `.rejects` works uniformly).
-  function _mkVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null }) {
+  function _mkVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null, posProvider = 'manual' }) {
     if (!name || !String(name).trim()) throw new Error('venue name required');
     if (!Number.isInteger(servicoBp) || servicoBp < 0 || servicoBp > 3000) {
       throw new Error('servicoBp out of range [0,3000]');
     }
     const id = crypto.randomUUID();
-    venues.set(id, { id, name: String(name).trim(), cnpj, city, servicoBp, pspRecipientId, active: true });
+    venues.set(id, { id, name: String(name).trim(), cnpj, city, servicoBp, pspRecipientId, posProvider, active: true });
     return venues.get(id);
   }
   function _mkTable(venueId, label) {
@@ -87,6 +87,16 @@ function createMemoryStore() {
     async venueIdForTable(tableId) {
       const t = tableById.get(tableId);
       return t ? t.venueId : null;
+    },
+    async getTable(tableId) {
+      const t = tableById.get(tableId);
+      return t ? { ...t } : null;
+    },
+    /** Replace the itemized snapshot the diner sees (manual ADJUSTED). */
+    async setCheckItems(checkId, items) {
+      const c = checks.get(checkId);
+      if (!c) throw new Error('unknown check');
+      checks.set(checkId, { ...c, items });
     },
 
     // --- tables / QR --------------------------------------------------------

@@ -40,6 +40,9 @@ const store = useSupabase
   : createMemoryStore();
 const psp = new MockPsp({ webhookSecret: crypto.randomBytes(24).toString('hex') });
 const charge = createChargeService({ store, psp });
+const { createCheckService } = require('./api/_lib/checks/check-service');
+const checkSvc = createCheckService({ store });
+const { resolvePosAdapter } = require('./api/_lib/pos/adapter');
 
 // Owner auth — needs a Supabase client to verify GoTrue tokens. Present only
 // when SUPABASE creds are configured; without it, authed endpoints refuse
@@ -150,6 +153,24 @@ function readBody(req) {
   });
 }
 
+/**
+ * POS write-back after a confirmed payment. Resolves the venue's adapter and
+ * posts the payment to the POS so it shows the table settled. Manual mode is a
+ * no-op. Best-effort: a POS sync failure must never fail the diner's payment
+ * (the money already moved) — it's logged for the panel to surface.
+ */
+async function writeBackToPos(checkId) {
+  try {
+    const venue = await store.getVenueForCheck(checkId);
+    if (!venue) return;
+    const adapter = resolvePosAdapter(venue);
+    if (!adapter.capabilities.writeBack) return; // manual: nothing to sync
+    await adapter.writeBackPayment({ venue, checkId });
+  } catch (err) {
+    process.stderr.write(`writeBackToPos(${checkId}) failed (non-fatal): ${err.message}\n`);
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   try {
@@ -177,6 +198,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/webhooks/psp') {
       const raw = await readBody(req);
       const result = await handleWebhook(raw, req.headers['x-racha-signature']);
+      if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
+        await writeBackToPos(result.checkId); // POS sync (manual: no-op)
+      }
       const status = result.status === 'rejected' ? 409 : 200;
       return json(res, status, { success: status === 200, data: result });
     }
@@ -190,6 +214,35 @@ const server = http.createServer(async (req, res) => {
       const data = await store.getPanelView(venueId);
       if (!data) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
       return json(res, 200, { success: true, data });
+    }
+
+    // --- manual check lifecycle (owner-gated) --------------------------------
+    // POS adapter, manual mode: the owner pushes the check from the panel.
+    if (req.method === 'POST' && url.pathname === '/api/checks') {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.tableId) return json(res, 400, { success: false, error: 'tableId é obrigatório' });
+      try { await auth.requireTableOwner(user, b.tableId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      try {
+        const r = await checkSvc.openCheck({ tableId: b.tableId, items: b.items, totalCents: b.totalCents });
+        return json(res, 200, { success: true, data: r });
+      } catch (e) { return json(res, e.statusCode || 400, { success: false, error: e.message }); }
+    }
+    if (req.method === 'POST' && (url.pathname === '/api/checks/adjust' || url.pathname === '/api/checks/close')) {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.checkId) return json(res, 400, { success: false, error: 'checkId é obrigatório' });
+      const venue = await store.getVenueForCheck(b.checkId);
+      if (!venue) return json(res, 404, { success: false, error: 'conta não encontrada' });
+      try { await auth.requireVenueOwner(user, venue.id); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      try {
+        const r = url.pathname.endsWith('close')
+          ? await checkSvc.closeCheck({ checkId: b.checkId })
+          : await checkSvc.adjustCheck({ checkId: b.checkId, items: b.items, totalCents: b.totalCents });
+        return json(res, 200, { success: true, data: r });
+      } catch (e) { return json(res, e.statusCode || 400, { success: false, error: e.message }); }
     }
 
     // Who am I + my venues (bootstraps the admin/panel client after login).
@@ -275,6 +328,9 @@ const server = http.createServer(async (req, res) => {
         payerCpf: '390.533.447-05',
       });
       const result = await handleWebhook(wh.rawBody, wh.signature);
+      if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
+        await writeBackToPos(result.checkId);
+      }
       return json(res, 200, { success: true, data: result });
     }
 

@@ -136,6 +136,28 @@ function Tables({ venueId }: { venueId: string }) {
     catch (e) { setError((e as Error).message); }
   }
 
+  // Manual mode (POS adapter): the owner opens/closes the check from the panel.
+  async function openManualCheck(t: Table) {
+    const raw = prompt(`Abrir conta na ${t.label}\n\nTotal da conta (R$):`);
+    if (raw == null) return;
+    const totalCents = Math.round(parseFloat(raw.replace(',', '.')) * 100);
+    if (!Number.isFinite(totalCents) || totalCents <= 0) { setError('Informe um total válido.'); return; }
+    try {
+      await req('/api/checks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, totalCents }) });
+      await refresh();
+    } catch (e) { setError((e as Error).message); }
+  }
+  async function closeManualCheck(t: Table) {
+    if (!confirm(`Fechar a conta da ${t.label}?`)) return;
+    try {
+      const view = await fetch(`/api/check?t=${encodeURIComponent(t.qrToken)}`).then((r) => r.json());
+      const checkId = view?.data?.check?.id;
+      if (!checkId) { setError('Conta não encontrada.'); return; }
+      await req('/api/checks/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkId }) });
+      await refresh();
+    } catch (e) { setError((e as Error).message); }
+  }
+
   if (printing) return <PrintCard venue={venue} table={printing} origin={origin} onClose={() => setPrinting(null)} />;
 
   return (
@@ -175,7 +197,10 @@ function Tables({ venueId }: { venueId: string }) {
               {!t.active && <span className="pill fechada">desativada</span>}
               {t.qrRotatedAt && <span className="muted small">QR girado</span>}
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {t.active && (t.hasOpenCheck
+                ? <button className="ghost" onClick={() => closeManualCheck(t)}>fechar conta</button>
+                : <button className="cta" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => openManualCheck(t)}>abrir conta</button>)}
               <button className="ghost" onClick={() => setPrinting(t)}>QR</button>
               <button className="ghost" onClick={() => rotate(t)}>girar</button>
               <button className="ghost" onClick={() => toggle(t)}>{t.active ? 'desativar' : 'ativar'}</button>

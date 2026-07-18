@@ -30,6 +30,11 @@ function throwOn(error, op) {
   if (error) throw new Error(`supabase store ${op}: ${error.message}`);
 }
 
+// Postgres errors on a non-uuid string in a uuid column; a malformed id from
+// the app just means "not found", not a 500. Guard the id-taking reads.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
+
 function createSupabaseStore({ url, serviceRoleKey } = {}) {
   const client = createClient(
     url || required('SUPABASE_URL'),
@@ -38,6 +43,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
   );
 
   async function loadEvents(checkId) {
+    if (!isUuid(checkId)) return []; // malformed id → empty log → "not found"
     const { data, error } = await client
       .from('check_events')
       .select('seq, type, payload')
@@ -76,9 +82,10 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return this.createVenue({ pspRecipientId: 'rcpt_demo', ...args });
     },
     async getVenue(venueId) {
+      if (!isUuid(venueId)) return null;
       const { data, error } = await client
         .from('venues')
-        .select('id, name, city, cnpj, servico_basis_points, psp_recipient_id, active')
+        .select('id, name, city, cnpj, servico_basis_points, psp_recipient_id, pos_provider, active')
         .eq('id', venueId)
         .maybeSingle();
       throwOn(error, 'getVenue');
@@ -86,8 +93,29 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return {
         id: data.id, name: data.name, city: data.city, cnpj: data.cnpj,
         servicoBp: data.servico_basis_points, pspRecipientId: data.psp_recipient_id,
-        active: data.active,
+        posProvider: data.pos_provider, active: data.active,
       };
+    },
+    async getTable(tableId) {
+      if (!isUuid(tableId)) return null;
+      const { data, error } = await client
+        .from('venue_tables')
+        .select('id, venue_id, label, qr_token, qr_rotated_at, active')
+        .eq('id', tableId)
+        .maybeSingle();
+      throwOn(error, 'getTable');
+      if (!data) return null;
+      return {
+        id: data.id, venueId: data.venue_id, label: data.label,
+        qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at, active: data.active,
+      };
+    },
+    async setCheckItems(checkId, items) {
+      const { error } = await client
+        .from('checks')
+        .update({ pos_ref: JSON.stringify(items).slice(0, 2000) })
+        .eq('id', checkId);
+      throwOn(error, 'setCheckItems');
     },
 
     // --- ownership / membership ---------------------------------------------
@@ -104,7 +132,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return { venueId, userId, role };
     },
     async userOwnsVenue(userId, venueId) {
-      if (!userId || !venueId) return false;
+      if (!isUuid(userId) || !isUuid(venueId)) return false; // malformed → not an owner
       const { data, error } = await client
         .from('venue_members')
         .select('id')
@@ -126,7 +154,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       }));
     },
     async venueIdForTable(tableId) {
-      if (!tableId) return null;
+      if (!isUuid(tableId)) return null;
       const { data, error } = await client
         .from('venue_tables').select('venue_id').eq('id', tableId).maybeSingle();
       throwOn(error, 'venueIdForTable');
@@ -295,9 +323,10 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     },
 
     async getVenueForCheck(checkId) {
+      if (!isUuid(checkId)) return null;
       const { data, error } = await client
         .from('checks')
-        .select('venues(id, name, servico_basis_points, psp_recipient_id)')
+        .select('venues(id, name, servico_basis_points, psp_recipient_id, pos_provider)')
         .eq('id', checkId)
         .maybeSingle();
       throwOn(error, 'getVenueForCheck');
@@ -306,6 +335,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         id: data.venues.id, name: data.venues.name,
         servicoBp: data.venues.servico_basis_points,
         pspRecipientId: data.venues.psp_recipient_id,
+        posProvider: data.venues.pos_provider,
       };
     },
 
