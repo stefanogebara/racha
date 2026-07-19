@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import AdminHouse from './AdminHouse';
+import { parseBrlToCents } from './api';
 import { authedReq as req, signOut } from './auth';
 
 /**
@@ -140,8 +142,8 @@ function Tables({ venueId }: { venueId: string }) {
   async function openManualCheck(t: Table) {
     const raw = prompt(`Abrir conta na ${t.label}\n\nTotal da conta (R$):`);
     if (raw == null) return;
-    const totalCents = Math.round(parseFloat(raw.replace(',', '.')) * 100);
-    if (!Number.isFinite(totalCents) || totalCents <= 0) { setError('Informe um total válido.'); return; }
+    const totalCents = parseBrlToCents(raw); // "1.234,56" e "R$ 47,50" resolvem certo
+    if (totalCents == null || totalCents <= 0) { setError('Informe um total válido.'); return; }
     try {
       await req('/api/checks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, totalCents }) });
       await refresh();
@@ -208,6 +210,8 @@ function Tables({ venueId }: { venueId: string }) {
           </div>
         ))}
       </section>
+
+      <AdminHouse venueId={venueId} />
 
       <footer className="foot"><span>racha · o QR de cada mesa abre a conta do cliente</span></footer>
     </main>

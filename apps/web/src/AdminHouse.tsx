@@ -1,0 +1,235 @@
+import { useCallback, useEffect, useState } from 'react';
+import { brl, dmy, parseBrlToCents } from './api';
+import { authedReq as req } from './auth';
+
+/**
+ * "Saldo da casa" — administração do house account por restaurante.
+ * Config (bônus, validade, limites de recarga), passivo em aberto e a lista
+ * de contas com novo link + reembolso. Reembolso no v1 é registro contábil:
+ * o dono envia o Pix ao cliente manualmente; o ledger guarda a prova.
+ */
+
+interface HouseAdminConfig {
+  enabled: boolean;
+  bonusBp: number;
+  validityDays: number;
+  minLoadCents: number;
+  maxLoadCents: number;
+}
+
+interface HouseAdminAccount {
+  id: string;
+  name: string;
+  phoneMasked: string;
+  principalCents: number;
+  bonusCents: number;
+  createdAt: string;
+}
+
+interface HouseAdminData {
+  config: HouseAdminConfig;
+  liability: { principalCents: number; bonusCents: number; accountCount: number };
+  accounts: HouseAdminAccount[];
+}
+
+export default function AdminHouse({ venueId }: { venueId: string }) {
+  const [data, setData] = useState<HouseAdminData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Campos como string: digitação parcial ("1,5") não pode virar NaN no estado.
+  const [enabled, setEnabled] = useState(false);
+  const [bonusPct, setBonusPct] = useState('10');
+  const [validity, setValidity] = useState('90');
+  const [minLoad, setMinLoad] = useState('20');
+  const [maxLoad, setMaxLoad] = useState('500');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [freshLink, setFreshLink] = useState<{ accountId: string; url: string } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const d = await req<HouseAdminData>(`/api/house/admin?v=${encodeURIComponent(venueId)}`);
+      setData(d);
+      setError(null);
+      setEnabled(d.config.enabled);
+      // Render SEM separador de milhar: toLocaleString emitia "1.000", que o
+      // save() re-parsearia — agora com parseBrlToCents o round-trip é lossless
+      // de qualquer forma, mas "1000,00" evita a ambiguidade por completo.
+      setBonusPct(String(d.config.bonusBp / 100).replace('.', ','));
+      setValidity(String(d.config.validityDays));
+      setMinLoad((d.config.minLoadCents / 100).toFixed(2).replace('.', ','));
+      setMaxLoad((d.config.maxLoadCents / 100).toFixed(2).replace('.', ','));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [venueId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function save() {
+    // parseBrlToCents também serve para % com 2 casas: "1,5"% → 150bp,
+    // exatamente a mesma escala ×100 de reais → centavos.
+    const bonusBp = parseBrlToCents(bonusPct);
+    const minLoadCents = parseBrlToCents(minLoad);
+    const maxLoadCents = parseBrlToCents(maxLoad);
+    const validityDays = /^\d+$/.test(validity.trim()) ? Number(validity.trim()) : null;
+    if (bonusBp == null || minLoadCents == null || maxLoadCents == null || validityDays == null) {
+      setError('Confira os valores — use vírgula para os centavos (ex.: 1000,00).');
+      return;
+    }
+    setSaving(true); setSaved(false); setError(null);
+    try {
+      await req('/api/house/admin', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venueId,
+          config: { enabled, bonusBp, validityDays, minLoadCents, maxLoadCents },
+        }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function rotate(a: HouseAdminAccount) {
+    if (!confirm(`Gerar novo link de carteira para ${a.name}? O link antigo para de funcionar na hora.`)) return;
+    try {
+      const r = await req<{ accountToken: string }>('/api/house/admin/rotate-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: a.id }),
+      });
+      setFreshLink({ accountId: a.id, url: `${window.location.origin}/carteira?t=${r.accountToken}` });
+      setLinkCopied(false);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function copyLink() {
+    if (!freshLink) return;
+    await navigator.clipboard.writeText(freshLink.url).catch(() => {});
+    setLinkCopied(true);
+  }
+
+  async function refund(a: HouseAdminAccount) {
+    const raw = prompt(`Reembolsar ${a.name}\nSaldo pago disponível: ${brl(a.principalCents)}\n\nValor do reembolso (R$):`);
+    if (raw == null) return;
+    const amountCents = parseBrlToCents(raw); // "1.000" = mil reais, nunca R$ 10
+    if (amountCents == null || amountCents <= 0) { setError('Informe um valor válido.'); return; }
+    try {
+      const r = await req<{ principalCents: number; bonusCents: number }>('/api/house/admin/refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: a.id, amountCents }),
+      });
+      // Ecoa o valor que o parser entendeu — o dono confere antes de mandar o Pix.
+      setNotice(
+        `Reembolso de ${brl(amountCents)} registrado — envie o Pix ao cliente.` +
+        (r.bonusCents > 0 ? ` Esta conta ainda tem ${brl(r.bonusCents)} de bônus ativo.` : ''),
+      );
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  if (!data) {
+    return (
+      <section className="panel">
+        <p className="label">Saldo da casa</p>
+        <p className="muted small">{error ?? 'carregando…'}</p>
+      </section>
+    );
+  }
+
+  const { liability, accounts } = data;
+
+  return (
+    <section className="panel">
+      <p className="label">Saldo da casa</p>
+
+      <label className="servico" style={{ alignItems: 'center' }}>
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <span>Clientes podem carregar saldo pré-pago com bônus</span>
+      </label>
+
+      <div className="cfggrid">
+        <label>
+          Bônus por recarga (%)
+          <input className="namefield" inputMode="decimal" value={bonusPct}
+            onChange={(e) => setBonusPct(e.target.value)} />
+        </label>
+        <label>
+          Validade do bônus (dias) — mínimo legal 30 dias
+          <input className="namefield" inputMode="numeric" value={validity}
+            onChange={(e) => setValidity(e.target.value)} />
+        </label>
+        <label>
+          Recarga mínima (R$)
+          <input className="namefield" inputMode="decimal" value={minLoad}
+            onChange={(e) => setMinLoad(e.target.value)} />
+        </label>
+        <label>
+          Recarga máxima (R$)
+          <input className="namefield" inputMode="decimal" value={maxLoad}
+            onChange={(e) => setMaxLoad(e.target.value)} />
+        </label>
+      </div>
+
+      {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      {saved && <p className="small" style={{ color: 'var(--emerald)' }}>salvo ✓</p>}
+      <button className="cta" style={{ padding: '12px 20px' }} disabled={saving} onClick={save}>
+        {saving ? 'salvando…' : 'Salvar configuração'}
+      </button>
+
+      <div className="stat">
+        <b className="mono">{brl(liability.principalCents + liability.bonusCents)}</b>
+        <span>
+          Passivo em aberto: {brl(liability.principalCents)} (pago) + {brl(liability.bonusCents)} (bônus)
+          em {liability.accountCount} {liability.accountCount === 1 ? 'conta' : 'contas'}
+        </span>
+      </div>
+      <p className="muted small">
+        O saldo pago é passivo reembolsável — dinheiro do cliente até ser consumido; só o bônus é promoção sua.
+      </p>
+
+      <p className="label">Contas ({accounts.length})</p>
+      {accounts.length === 0 && <p className="muted small">nenhuma conta ainda.</p>}
+      {accounts.map((a) => (
+        <div key={a.id}>
+          <div className="checkrow" style={{ flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 150 }}>
+              <strong>{a.name}</strong>
+              <span className="muted small">{a.phoneMasked} · desde {dmy(a.createdAt)}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right' }}>
+              <span className="mono">{brl(a.principalCents)} pago</span>
+              <span className="mono muted small">{brl(a.bonusCents)} bônus</span>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="ghost" onClick={() => rotate(a)}>novo link</button>
+              <button className="ghost" onClick={() => refund(a)}>reembolsar</button>
+            </div>
+          </div>
+          {freshLink?.accountId === a.id && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 4px 12px' }}>
+              <div className="codebox">{freshLink.url}</div>
+              <button className="ghost" onClick={copyLink}>
+                {linkCopied ? 'link copiado ✓' : 'copiar link da carteira'}
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+      {notice && <p className="small" style={{ color: 'var(--emerald)' }}>{notice}</p>}
+    </section>
+  );
+}

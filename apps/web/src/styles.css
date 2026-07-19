@@ -238,6 +238,12 @@ body {
   display: grid; place-items: center;
 }
 
+/* House accounts — saldo da casa (carteira + admin) */
+.chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pos { color: var(--emerald); font-weight: 600; }
+.cfggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cfggrid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--stone); }
+
 @media (prefers-reduced-motion: reduce) {
   .progressbar span { transition: none; }
 }
