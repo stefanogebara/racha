@@ -135,4 +135,156 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     expect(await store.getCheckByQrToken('nope-' + crypto.randomUUID())).toBeNull();
     expect(await store.findCheckByTxid('ghost-' + crypto.randomUUID())).toBeNull();
   });
+
+  test('house accounts: open → load → confirm (idempotent) → redeem FIFO → refund → rotate → reconcile inputs', async () => {
+    const { reconcileVenueHouse } = require('../_lib/checks/reconcile');
+    const houseState = require('../_lib/house/account-state');
+
+    const hv = await store.seedVenue({ name: 'CasaContrato', servicoBp: 1000, pspRecipientId: 'rcpt_house' });
+    await store.setHouseConfig(hv.id, { enabled: true, bonusBp: 1500, validityDays: 30 });
+    const hTable = await store.seedTable(hv.id, `Mesa ${crypto.randomInt(1000, 9999)}`);
+
+    // venue-by-token carries the house config
+    const hit = await store.getVenueByTableToken(hTable.qrToken);
+    expect(hit.venue.houseEnabled).toBe(true);
+    expect(hit.venue.houseBonusBp).toBe(1500);
+    expect(await store.getVenueByTableToken('dead-' + crypto.randomUUID())).toBeNull();
+
+    // open — duplicate phone rejected, token never a phone-derived value
+    const phone = '119' + String(crypto.randomInt(10000000, 99999999));
+    const acc = await store.createHouseAccount({ venueId: hv.id, phone, name: 'Contrato' });
+    expect(acc.accountToken).toMatch(/^[0-9a-f]{32}$/);
+    await expect(store.createHouseAccount({ venueId: hv.id, phone, name: 'Dup' }))
+      .rejects.toThrow(/duplicate/);
+    expect((await store.getHouseAccountByToken(acc.accountToken)).id).toBe(acc.id);
+    expect(await store.getHouseAccountByToken('nope')).toBeNull();
+    expect(await store.getHouseAccountById('not-a-uuid')).toBeNull();
+
+    // two loads with different expiries → FIFO ordering is observable
+    const t0 = '2026-07-19T12:00:00.000Z';
+    await store.registerHouseLoad({ accountId: acc.id, txid: `hl1_${acc.id.slice(0, 8)}`, amountCents: 10000, bonusCents: 1000, validityDays: 60 });
+    await store.registerHouseLoad({ accountId: acc.id, txid: `hl2_${acc.id.slice(0, 8)}`, amountCents: 5000, bonusCents: 800, validityDays: 30 });
+    const c1 = await store.confirmHouseLoad({ txid: `hl1_${acc.id.slice(0, 8)}`, confirmedAt: t0 });
+    expect(c1.duplicate).toBe(false);
+    expect((await store.confirmHouseLoad({ txid: `hl1_${acc.id.slice(0, 8)}`, confirmedAt: t0 })).duplicate).toBe(true);
+    await store.confirmHouseLoad({ txid: `hl2_${acc.id.slice(0, 8)}`, confirmedAt: t0 });
+
+    const load = await store.findHouseLoadByTxid(`hl1_${acc.id.slice(0, 8)}`);
+    expect(load.status).toBe('confirmado');
+    expect(load.amountCents).toBe(10000);
+
+    let state = houseState.reduce(await store.loadHouseEvents(acc.id));
+    expect(state.principalCents).toBe(15000);
+    expect(state.lots).toHaveLength(2);
+
+    // redeem 1500 at t1: lot from hl2 (30d, expires sooner) drains FIRST
+    const hCheck = await store.openCheck(hTable.qrToken, [{ id: 'a', name: 'A', priceCents: 9000 }]);
+    const t1 = '2026-07-20T12:00:00.000Z';
+    const red = await store.redeemHouse({
+      accountId: acc.id, checkId: hCheck.id, txid: `hr1_${acc.id.slice(0, 8)}`, amountCents: 1500, nowIso: t1,
+    });
+    expect(red.bonusUsedCents).toBe(1500);
+    expect(red.principalUsedCents).toBe(0);
+    state = houseState.reduce(await store.loadHouseEvents(acc.id));
+    const bySeq = new Map(state.lots.map((l) => [l.seq, l]));
+    expect([...bySeq.values()].find((l) => l.grantedCents === 800).remainingCents).toBe(0);   // hl2 drained
+    expect([...bySeq.values()].find((l) => l.grantedCents === 1000).remainingCents).toBe(300); // hl1 partially
+
+    // insufficient → 409-shaped error, nothing changes
+    await expect(store.redeemHouse({
+      accountId: acc.id, checkId: hCheck.id, txid: `hr2_${acc.id.slice(0, 8)}`, amountCents: 99999, nowIso: t1,
+    })).rejects.toMatchObject({ statusCode: 409 });
+
+    // refund principal; over-refund rejected
+    const ref = await store.refundHousePrincipal({ accountId: acc.id, amountCents: 5000, nowIso: t1 });
+    expect(ref.principalCents).toBe(10000);
+    await expect(store.refundHousePrincipal({ accountId: acc.id, amountCents: 999999, nowIso: t1 }))
+      .rejects.toMatchObject({ statusCode: 409 });
+
+    // rotate: old token dies
+    const rot = await store.rotateHouseAccountToken(acc.id);
+    expect(rot.accountToken).not.toBe(acc.accountToken);
+    expect(await store.getHouseAccountByToken(acc.accountToken)).toBeNull();
+    expect((await store.getHouseAccountByToken(rot.accountToken)).id).toBe(acc.id);
+
+    // payments row for the redeem + house reconciliation is clean end to end
+    await store.recordHousePaymentRow({
+      checkId: hCheck.id, venueId: hv.id, txid: `hr1_${acc.id.slice(0, 8)}`, amountCents: 1500, confirmedAt: t1,
+    });
+    const recon = await reconcileVenueHouse(store, hv.id);
+    expect(recon.ok).toBe(true);
+    expect(recon.accountsChecked).toBeGreaterThanOrEqual(1);
+
+    // listHouseAccounts masks nothing here (store returns raw; the SERVICE masks)
+    const list = await store.listHouseAccounts(hv.id);
+    expect(list.find((a) => a.id === acc.id).phone).toBe(phone);
+  });
+
+  test('house hardening: dup load txid, idempotent redeem, guarded check append + reversal, frozen accounts', async () => {
+    const hv = await store.seedVenue({ name: 'CasaDura', servicoBp: 1000, pspRecipientId: 'rcpt_dura' });
+    await store.setHouseConfig(hv.id, { enabled: true, bonusBp: 1000, validityDays: 30 });
+    const hTable = await store.seedTable(hv.id, `Mesa ${crypto.randomInt(1000, 9999)}`);
+    const phone = '118' + String(crypto.randomInt(10000000, 99999999));
+    const acc = await store.createHouseAccount({ venueId: hv.id, phone, name: 'Dura' });
+    const t0 = '2026-07-19T12:00:00.000Z';
+    const uniq = acc.id.slice(0, 8);
+
+    // duplicate load txid must fail loudly on BOTH stores (never overwrite money)
+    await store.registerHouseLoad({ accountId: acc.id, txid: `dl_${uniq}`, amountCents: 10000, bonusCents: 0, validityDays: 30 });
+    await expect(store.registerHouseLoad({ accountId: acc.id, txid: `dl_${uniq}`, amountCents: 99999, bonusCents: 0, validityDays: 30 }))
+      .rejects.toThrow(/duplicate|unique/i);
+    await store.confirmHouseLoad({ txid: `dl_${uniq}`, confirmedAt: t0 });
+
+    const check = await store.openCheck(hTable.qrToken, [{ id: 'a', name: 'A', priceCents: 5000 }]);
+
+    // idempotent redeem: same txid twice = one debit, prior breakdown returned
+    const r1 = await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `ir_${uniq}`, amountCents: 2000, nowIso: t0 });
+    expect(r1.duplicate).toBe(false);
+    const r2 = await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `ir_${uniq}`, amountCents: 2000, nowIso: t0 });
+    expect(r2.duplicate).toBe(true);
+    expect(r2.principalUsedCents).toBe(2000);
+    const houseState2 = require('../_lib/house/account-state');
+    expect(houseState2.reduce(await store.loadHouseEvents(acc.id)).principalCents).toBe(8000);
+
+    // guarded append: pays, dedups by txid, and REFUSES overpay
+    const seq1 = await store.appendHousePaymentGuarded(check.id, `ir_${uniq}`, 2000);
+    expect(await store.appendHousePaymentGuarded(check.id, `ir_${uniq}`, 2000)).toBe(seq1); // replay no-op
+    await expect(store.appendHousePaymentGuarded(check.id, `over_${uniq}`, 3001))
+      .rejects.toMatchObject({ statusCode: 409 }); // 2000 paid + 3001 > 5000
+    expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(2000);
+
+    // reversal restores the exact breakdown, idempotently
+    await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `rv_${uniq}`, amountCents: 1000, nowIso: t0 });
+    expect((await store.reverseHouseRedeem({ accountId: acc.id, txid: `rv_${uniq}`, nowIso: t0 })).duplicate).toBe(false);
+    expect((await store.reverseHouseRedeem({ accountId: acc.id, txid: `rv_${uniq}`, nowIso: t0 })).duplicate).toBe(true);
+    expect(houseState2.reduce(await store.loadHouseEvents(acc.id)).principalCents).toBe(8000);
+
+    // payments-row idempotency: a second write never clobbers the first
+    await store.recordHousePaymentRow({ checkId: check.id, venueId: hv.id, txid: `ir_${uniq}`, amountCents: 2000, confirmedAt: t0 });
+    await store.recordHousePaymentRow({ checkId: check.id, venueId: hv.id, txid: `ir_${uniq}`, amountCents: 9999, confirmedAt: t0 });
+    expect((await store.getPayment(`ir_${uniq}`)).amountCents).toBe(2000);
+
+    // frozen account: token dies, redeem refuses, admin lookups still resolve
+    await store.setHouseAccountActive(acc.id, false);
+    expect(await store.getHouseAccountByToken(acc.accountToken)).toBeNull();
+    await expect(store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `fz_${uniq}`, amountCents: 100, nowIso: t0 }))
+      .rejects.toThrow(/unknown house account|Conta não encontrada/);
+    expect((await store.getHouseAccountById(acc.id)).active).toBe(false);
+    await store.setHouseAccountActive(acc.id, true);
+    expect((await store.getHouseAccountByToken(acc.accountToken)).id).toBe(acc.id);
+  });
+
+  test('open check stays reachable after 10+ closed checks on the same table (review finding)', async () => {
+    const hv = await store.seedVenue({ name: 'MesaCheia', servicoBp: 1000, pspRecipientId: 'rcpt_cheia' });
+    const t = await store.seedTable(hv.id, `Mesa ${crypto.randomInt(1000, 9999)}`);
+    for (let i = 0; i < 11; i += 1) {
+      const c = await store.openCheck(t.qrToken, [{ id: 'x', name: 'X', priceCents: 1000 }]);
+      await store.appendEvent(c.id, 'CLOSED', {});
+    }
+    const open = await store.openCheck(t.qrToken, [{ id: 'y', name: 'Y', priceCents: 4200 }]);
+    const view = await store.getCheckByQrToken(t.qrToken);
+    expect(view).not.toBeNull();
+    expect(view.check.id).toBe(open.id);
+    expect(view.state.totalCents).toBe(4200);
+  });
 });
