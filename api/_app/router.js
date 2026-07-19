@@ -29,6 +29,8 @@ const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler } = require('../_lib/pay/webhook-handler');
 const { createChargeService } = require('../_lib/pay/create-charge');
 const { createCheckService } = require('../_lib/checks/check-service');
+const { createHouseService } = require('../_lib/house/house-service');
+const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
@@ -42,12 +44,15 @@ const store = useSupabase
 const psp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 const charge = createChargeService({ store, psp });
 const checkSvc = createCheckService({ store });
+const houseSvc = createHouseService({ store, psp });
 const handleWebhook = createWebhookHandler({
   loadEvents: store.loadEvents.bind(store),
   appendEvent: store.appendEvent.bind(store),
   recordPayment: store.recordPayment.bind(store),
   findCheckByTxid: store.findCheckByTxid.bind(store),
   psp,
+  // txid that isn't a check charge → maybe a house-account load.
+  fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
 });
 
 // The simulate-confirmation affordance only exists when explicitly enabled
@@ -94,6 +99,24 @@ async function guardUser(req, res) {
   catch (e) { json(res, e.statusCode || 401, { success: false, error: e.message }); return null; }
 }
 
+// Instance-local rate limit for the one public row-creating endpoint
+// (house/open). Fluid Compute reuses instances, so this bites a scripted
+// flood; the per-venue account cap in the service is the durable bound.
+const openBuckets = new Map(); // ip → { count, resetAt }
+function rateLimitOpen(req) {
+  const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    || (req.socket && req.socket.remoteAddress) || 'unknown';
+  const nowMs = Date.now();
+  const b = openBuckets.get(ip);
+  if (!b || nowMs > b.resetAt) {
+    openBuckets.set(ip, { count: 1, resetAt: nowMs + 10 * 60 * 1000 });
+    if (openBuckets.size > 10000) openBuckets.clear(); // memory bound
+    return true;
+  }
+  b.count += 1;
+  return b.count <= 10; // 10 wallet creations / 10 min / IP
+}
+
 async function writeBackToPos(checkId) {
   try {
     const venue = await store.getVenueForCheck(checkId);
@@ -135,6 +158,90 @@ async function route(req, res) {
       }
       const status = result.status === 'rejected' ? 409 : 200;
       return json(res, status, { success: status === 200, data: result });
+    }
+
+    // --- house accounts: diner (public; bearer credential = accountToken) ----
+    if (req.method === 'GET' && url.pathname === '/api/house/config') {
+      const data = await houseSvc.publicConfig(url.searchParams.get('t') || '');
+      return json(res, 200, { success: true, data });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/house/open') {
+      if (!rateLimitOpen(req)) {
+        return json(res, 429, { success: false, error: 'Muitas tentativas — aguarde alguns minutos' });
+      }
+      const b = JSON.parse(await readBody(req) || '{}');
+      const data = await houseSvc.openAccount({
+        tableQrToken: b.token, phone: b.phone, name: b.name,
+      });
+      return json(res, 200, { success: true, data });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/house/account') {
+      const data = await houseSvc.wallet(url.searchParams.get('t') || '');
+      return json(res, 200, { success: true, data });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/house/load') {
+      const b = JSON.parse(await readBody(req) || '{}');
+      const data = await houseSvc.createLoad({
+        accountToken: b.accountToken, amountCents: b.amountCents,
+      });
+      return json(res, 200, { success: true, data });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/house/redeem') {
+      const b = JSON.parse(await readBody(req) || '{}');
+      const data = await houseSvc.redeem({
+        accountToken: b.accountToken, tableQrToken: b.token, amountCents: b.amountCents,
+        idempotencyKey: b.idempotencyKey ?? null,
+      });
+      await writeBackToPos(data.checkId);
+      return json(res, 200, { success: true, data });
+    }
+
+    // --- house accounts: owner (gated) ---------------------------------------
+    if (req.method === 'GET' && url.pathname === '/api/house/admin') {
+      const user = await guardUser(req, res); if (!user) return;
+      const venueId = url.searchParams.get('v') || '';
+      try { await auth.requireVenueOwner(user, venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const data = await houseSvc.adminView(venueId);
+      // The reconciliation canary RUNS here — it existed but had no callers
+      // (review finding): partial redeem failures were permanently silent.
+      const [houseRecon, checkRecon] = await Promise.all([
+        reconcileVenueHouse(store, venueId),
+        reconcileVenue(store, venueId),
+      ]);
+      data.reconcile = {
+        ok: houseRecon.ok && checkRecon.checksFailed === 0,
+        house: { failed: houseRecon.accountsFailed, findings: houseRecon.findings },
+        checks: { failed: checkRecon.checksFailed, worst: checkRecon.worstSeverity },
+      };
+      for (const f of houseRecon.findings) {
+        if (f.severity === 'critical') {
+          process.stderr.write(`RECONCILE CRITICAL venue=${venueId} ${f.code}: ${f.message}\n`);
+        }
+      }
+      return json(res, 200, { success: true, data });
+    }
+    if (req.method === 'PATCH' && url.pathname === '/api/house/admin') {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.venueId) return json(res, 400, { success: false, error: 'venueId é obrigatório' });
+      try { await auth.requireVenueOwner(user, b.venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const data = await houseSvc.updateConfig(b.venueId, b.config || {});
+      return json(res, 200, { success: true, data });
+    }
+    if (req.method === 'POST' && (url.pathname === '/api/house/admin/rotate-token' || url.pathname === '/api/house/admin/refund')) {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.accountId) return json(res, 400, { success: false, error: 'accountId é obrigatório' });
+      const venueId = await houseSvc.venueIdForAccount(b.accountId);
+      if (!venueId) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      try { await auth.requireVenueOwner(user, venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const data = url.pathname.endsWith('refund')
+        ? await houseSvc.refundPrincipal({ accountId: b.accountId, amountCents: b.amountCents })
+        : await houseSvc.rotateToken(b.accountId);
+      return json(res, 200, { success: true, data });
     }
 
     // --- owner (gated) -------------------------------------------------------
@@ -238,11 +345,14 @@ async function route(req, res) {
     if (DEMO_MODE && req.method === 'POST' && url.pathname === '/api/dev/confirm') {
       const body = JSON.parse(await readBody(req) || '{}');
       const payment = await store.getPayment(body.txid || '');
-      if (!payment) return json(res, 404, { success: false, error: 'txid desconhecido' });
-      const wh = psp.buildConfirmationWebhook({
-        txid: payment.txid, amountCents: payment.amountCents, tipCents: payment.tipCents,
-        payerName: payment.payerLabel || 'Cliente Demo', payerCpf: '390.533.447-05',
-      });
+      const houseLoad = payment ? null : await store.findHouseLoadByTxid(body.txid || '');
+      if (!payment && !houseLoad) return json(res, 404, { success: false, error: 'txid desconhecido' });
+      const wh = psp.buildConfirmationWebhook(payment
+        ? {
+            txid: payment.txid, amountCents: payment.amountCents, tipCents: payment.tipCents,
+            payerName: payment.payerLabel || 'Cliente Demo', payerCpf: '390.533.447-05',
+          }
+        : { txid: houseLoad.txid, amountCents: houseLoad.amountCents, tipCents: 0, payerName: 'Cliente Demo' });
       const result = await handleWebhook(wh.rawBody, wh.signature);
       if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
         await writeBackToPos(result.checkId);

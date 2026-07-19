@@ -40,6 +40,16 @@ const PORT = 8787;
     { id: 'j3', name: 'Arroz e farofa', priceCents: 1500 },
   ]);
 
+  // Saldo da casa: enabled with 15% bonus + a seeded customer wallet holding
+  // a confirmed R$100 load (R$15 bonus) so the flow is clickable end to end.
+  await store.setHouseConfig(venue.id, { enabled: true, bonusBp: 1500, validityDays: 90 });
+  const conta = await store.createHouseAccount({ venueId: venue.id, phone: '11987654321', name: 'Cliente Fiel' });
+  const seedLoadTxid = `hlseed${bootTag}${crypto.randomBytes(4).toString('hex')}`;
+  await store.registerHouseLoad({
+    accountId: conta.id, txid: seedLoadTxid, amountCents: 10000, bonusCents: 1500, validityDays: 90,
+  });
+  await store.confirmHouseLoad({ txid: seedLoadTxid, confirmedAt: new Date().toISOString() });
+
   const DEMO_EMAIL = 'dono@bardoze.demo';
   const DEMO_PASS = 'racha-demo-1234';
   let ownerLine = '';
@@ -64,6 +74,7 @@ const PORT = 8787;
     `  API    http://localhost:${PORT}`,
     `  Conta  http://localhost:5173/?t=${mesa.qrToken}`,
     `  Conta2 http://localhost:5173/?t=${mesa2.qrToken}`,
+    `  Carteira http://localhost:5173/carteira?t=${conta.accountToken}`,
     `  Painel http://localhost:5173/painel?v=${venue.id}`,
     `  Admin  http://localhost:5173/admin`,
     ownerLine, '', '',
