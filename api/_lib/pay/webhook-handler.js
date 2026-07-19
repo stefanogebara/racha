@@ -27,8 +27,11 @@ const { maskPixPayload } = require('./mask');
  * @param {(payment: object) => Promise<void>} [deps.recordPayment]  payments-table upsert (masked payload)
  * @param {{ verifyAndParseWebhook: Function }} deps.psp
  * @param {(checkId: string) => Promise<{id: string}|null>} deps.findCheckByTxid
+ * @param {(parsed: object) => Promise<object|null>} [deps.fallback]
+ *   Tried when the txid is not a check charge (e.g. house-account loads).
+ *   Returns a result object to use, or null → the unknown-txid rejection.
  */
-function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, findCheckByTxid }) {
+function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, findCheckByTxid, fallback }) {
   if (!loadEvents || !appendEvent || !psp || !findCheckByTxid) {
     throw new Error('createWebhookHandler: missing dependencies');
   }
@@ -42,6 +45,12 @@ function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, fin
 
     const check = await findCheckByTxid(parsed.txid);
     if (!check) {
+      // Not a check charge — maybe another charge family (house-account
+      // loads). The fallback owns its own idempotency/validation.
+      if (fallback) {
+        const alt = await fallback(parsed);
+        if (alt) return alt;
+      }
       // A webhook for a txid we never issued: reject loudly. Never 200 an
       // unknown money event — that is how funds disappear from ledgers.
       return { status: 'rejected', reason: `unknown txid ${parsed.txid}` };

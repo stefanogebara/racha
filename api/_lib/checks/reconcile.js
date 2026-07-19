@@ -18,6 +18,7 @@
  */
 
 const { reduce } = require('./check-state');
+const houseState = require('../house/account-state');
 
 /**
  * @param {object} input
@@ -135,4 +136,133 @@ async function reconcileVenue(store, venueId) {
   };
 }
 
-module.exports = { reconcileCheck, reconcileVenue };
+/**
+ * House-account cross-check: the append-only ledger (reduced) vs the
+ * operational balances the locked RPCs maintain (supabase). `stored: null`
+ * (memory store) skips the column comparison — there is nothing independent
+ * to compare. PURE and TOTAL.
+ */
+function reconcileHouseAccount({ accountId, events, stored }) {
+  const findings = [];
+  const add = (severity, code, msg, extra = {}) =>
+    findings.push({ severity, code, message: msg, ...extra });
+
+  let state;
+  try {
+    state = houseState.reduce(events || []);
+  } catch (err) {
+    add('critical', 'house_reduce_threw', `house ledger could not be reduced: ${err.message}`);
+    return { accountId, ok: false, findings, state: null };
+  }
+
+  for (const a of state ? state.anomalies : []) {
+    add('high', 'house_log_anomaly', `house-ledger anomaly: ${a.reason}`, { seq: a.seq, type: a.type });
+  }
+
+  if (state && stored) {
+    if (stored.principalCents !== state.principalCents) {
+      add('critical', 'house_principal_drift',
+        `principal: stored ${stored.principalCents}¢ vs ledger ${state.principalCents}¢`,
+        { driftCents: stored.principalCents - state.principalCents });
+    }
+    const storedBySeq = new Map((stored.lots || []).map((l) => [l.seq, l]));
+    for (const lot of state.lots) {
+      const s = storedBySeq.get(lot.seq);
+      if (!s) {
+        // A lot the ledger granted but the lots table lost — only meaningful
+        // if the ledger still has bonus left in it.
+        if (lot.remainingCents > 0) {
+          add('critical', 'house_lot_missing',
+            `bonus lot seq ${lot.seq} in ledger (${lot.remainingCents}¢ left) but not stored`);
+        }
+        continue;
+      }
+      if (s.remainingCents !== lot.remainingCents) {
+        add('critical', 'house_lot_drift',
+          `bonus lot seq ${lot.seq}: stored ${s.remainingCents}¢ vs ledger ${lot.remainingCents}¢`);
+      }
+      storedBySeq.delete(lot.seq);
+    }
+    for (const [seq, s] of storedBySeq) {
+      if (s.remainingCents > 0) {
+        add('critical', 'house_lot_unknown',
+          `stored bonus lot seq ${seq} (${s.remainingCents}¢) has no granting ledger event`);
+      }
+    }
+  }
+
+  return { accountId, ok: findings.length === 0, findings, state };
+}
+
+/**
+ * Venue-level house reconciliation: per-account checks PLUS the redeem ↔
+ * payments-row chain (account ledger REDEEMED txids must be confirmed
+ * house_account payment rows, and vice versa — together with reconcileCheck
+ * this closes the loop account ledger ↔ payments ↔ check ledger).
+ */
+async function reconcileVenueHouse(store, venueId) {
+  const accounts = await store.listHouseAccountsForReconcile(venueId);
+  const results = accounts.map(reconcileHouseAccount);
+  const venueFindings = [];
+
+  const checkInputs = await store.listChecksForReconcile(venueId);
+  const housePayRows = new Map();
+  // Every txid that actually LANDED on a check ledger — the disambiguator
+  // between the two mid-redeem crash permutations (review finding: the old
+  // single message prescribed "re-credit" even when the check WAS paid,
+  // which would hand the customer the meal AND the balance).
+  const checkLedgerTxids = new Set();
+  for (const ci of checkInputs) {
+    for (const p of ci.payments || []) {
+      if (p.method === 'house_account') housePayRows.set(p.txid, p);
+    }
+    let st = null;
+    try { st = reduce(ci.events || []); } catch { st = null; }
+    for (const txid of Object.keys(st ? st.payments : {})) checkLedgerTxids.add(txid);
+  }
+
+  const redeemTxids = new Set();
+  for (const r of results) {
+    if (!r.state) continue;
+    for (const [txid, rd] of Object.entries(r.state.redeems)) {
+      if (rd.reversed) continue; // compensated — correctly absent everywhere
+      redeemTxids.add(txid);
+      if (!housePayRows.has(txid)) {
+        if (checkLedgerTxids.has(txid)) {
+          venueFindings.push({
+            severity: 'critical', code: 'house_redeem_missing_payment_row_paid',
+            message: `redeem ${txid} paid the check but has no payments row — BACKFILL the row; do NOT re-credit account ${r.accountId}`,
+            txid, accountId: r.accountId,
+          });
+        } else {
+          venueFindings.push({
+            severity: 'critical', code: 'house_redeem_missing_payment_row',
+            message: `redeem ${txid} debited account ${r.accountId} but never reached the check — re-credit the customer (or replay the redeem)`,
+            txid, accountId: r.accountId,
+          });
+        }
+      }
+    }
+  }
+  for (const [txid, row] of housePayRows) {
+    if (row.status === 'confirmado' && !redeemTxids.has(txid)) {
+      venueFindings.push({
+        severity: 'critical', code: 'house_payment_row_without_redeem',
+        message: `house payment row ${txid} has no REDEEMED ledger event (credit paid a check without a debit)`,
+        txid,
+      });
+    }
+  }
+
+  const failed = results.filter((r) => !r.ok).map(({ state, ...rest }) => rest);
+  return {
+    venueId,
+    accountsChecked: results.length,
+    accountsFailed: failed.length,
+    findings: venueFindings,
+    failed,
+    ok: failed.length === 0 && venueFindings.length === 0,
+  };
+}
+
+module.exports = { reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };

@@ -35,6 +35,29 @@ function throwOn(error, op) {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
 
+// One venue shape everywhere (house-account config rides along).
+const VENUE_COLS = 'id, name, city, cnpj, servico_basis_points, psp_recipient_id, pos_provider, active, '
+  + 'house_enabled, house_bonus_bp, house_validity_days, house_min_load_cents, house_max_load_cents';
+function mapVenue(v) {
+  if (!v) return null;
+  return {
+    id: v.id, name: v.name, city: v.city, cnpj: v.cnpj,
+    servicoBp: v.servico_basis_points, pspRecipientId: v.psp_recipient_id,
+    posProvider: v.pos_provider, active: v.active,
+    houseEnabled: v.house_enabled, houseBonusBp: v.house_bonus_bp,
+    houseValidityDays: v.house_validity_days,
+    houseMinLoadCents: v.house_min_load_cents == null ? undefined : Number(v.house_min_load_cents),
+    houseMaxLoadCents: v.house_max_load_cents == null ? undefined : Number(v.house_max_load_cents),
+  };
+}
+function mapHouseAccount(a) {
+  if (!a) return null;
+  return {
+    id: a.id, venueId: a.venue_id, phone: a.phone, name: a.name,
+    accountToken: a.account_token, active: a.active !== false, createdAt: a.created_at,
+  };
+}
+
 function createSupabaseStore({ url, serviceRoleKey } = {}) {
   const client = createClient(
     url || required('SUPABASE_URL'),
@@ -85,16 +108,11 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       if (!isUuid(venueId)) return null;
       const { data, error } = await client
         .from('venues')
-        .select('id, name, city, cnpj, servico_basis_points, psp_recipient_id, pos_provider, active')
+        .select(VENUE_COLS)
         .eq('id', venueId)
         .maybeSingle();
       throwOn(error, 'getVenue');
-      if (!data) return null;
-      return {
-        id: data.id, name: data.name, city: data.city, cnpj: data.cnpj,
-        servicoBp: data.servico_basis_points, pspRecipientId: data.psp_recipient_id,
-        posProvider: data.pos_provider, active: data.active,
-      };
+      return mapVenue(data);
     },
     async getTable(tableId) {
       if (!isUuid(tableId)) return null;
@@ -291,18 +309,18 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       throwOn(tErr, 'getCheckByQrToken.table');
       if (!table) return null;
 
-      // Select the open check by DERIVED state, not the checks.status cache
-      // (that column is intentionally unmaintained in v0 — filtering on it
-      // would return a CLOSED check and leak the previous party's bill to the
-      // next diner on a not-yet-rotated QR; review finding). Fetch the recent
-      // candidates and pick the first whose reduced state isn't fechada.
-      // Oldest-first, so if a legacy pre-index duplicate somehow exists both
-      // stores resolve the SAME check (memory picks insertion-order-first too).
-      // With checks_one_open_per_table there is at most one open check anyway.
+      // Since migration 0004 the ONE cache transition that matters
+      // (status → 'fechada' on CLOSED) is maintained inside the locked append
+      // RPC and was backfilled, so filtering closed checks out HERE is safe —
+      // and necessary: the old unfiltered `.limit(10)` oldest-first scan went
+      // blind once a table accumulated 10 closed checks, killing the whole
+      // pay flow for that table (review finding, HIGH). The derived-state
+      // skip below stays as the authority (belt and suspenders).
       const { data: cands, error: cErr } = await client
         .from('checks')
         .select('id, pos_ref')
         .eq('table_id', table.id)
+        .neq('status', 'fechada')
         .order('opened_at', { ascending: true })
         .limit(10);
       throwOn(cErr, 'getCheckByQrToken.check');
@@ -338,17 +356,12 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       if (!isUuid(checkId)) return null;
       const { data, error } = await client
         .from('checks')
-        .select('venues(id, name, servico_basis_points, psp_recipient_id, pos_provider)')
+        .select(`venues(${VENUE_COLS})`)
         .eq('id', checkId)
         .maybeSingle();
       throwOn(error, 'getVenueForCheck');
       if (!data || !data.venues) return null;
-      return {
-        id: data.venues.id, name: data.venues.name,
-        servicoBp: data.venues.servico_basis_points,
-        pspRecipientId: data.venues.psp_recipient_id,
-        posProvider: data.venues.pos_provider,
-      };
+      return mapVenue(data.venues);
     },
 
     async getPayment(txid) {
@@ -409,15 +422,254 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       for (const c of checks || []) {
         const { data: pays, error: pErr } = await client
           .from('payments')
-          .select('txid, amount_cents, tip_cents, status')
+          .select('txid, amount_cents, tip_cents, status, method')
           .eq('check_id', c.id);
         throwOn(pErr, 'listChecksForReconcile.payments');
         out.push({
           checkId: c.id,
           events: await loadEvents(c.id),
           payments: (pays || []).map((p) => ({
-            txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents, status: p.status,
+            txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents, status: p.status, method: p.method,
           })),
+        });
+      }
+      return out;
+    },
+
+    // --- house accounts (saldo da casa) -------------------------------------
+    // Operational balances (principal_cents + house_bonus_lots) are written
+    // ONLY by the house_* RPCs (locked per account, salt 43); reads here
+    // derive from the ledger exactly like the memory store, so both stores
+    // present identical views. listHouseAccountsForReconcile exposes the
+    // stored columns for the cross-check.
+    async getVenueByTableToken(qrToken) {
+      if (!qrToken) return null;
+      const { data, error } = await client
+        .from('venue_tables')
+        .select(`id, label, active, venues(${VENUE_COLS})`)
+        .eq('qr_token', qrToken)
+        .eq('active', true)
+        .maybeSingle();
+      throwOn(error, 'getVenueByTableToken');
+      if (!data || !data.venues) return null;
+      return { venue: mapVenue(data.venues), table: { id: data.id, label: data.label } };
+    },
+    async setHouseConfig(venueId, clean) {
+      const patch = {};
+      if ('enabled' in clean) patch.house_enabled = clean.enabled;
+      if ('bonusBp' in clean) patch.house_bonus_bp = clean.bonusBp;
+      if ('validityDays' in clean) patch.house_validity_days = clean.validityDays;
+      if ('minLoadCents' in clean) patch.house_min_load_cents = clean.minLoadCents;
+      if ('maxLoadCents' in clean) patch.house_max_load_cents = clean.maxLoadCents;
+      const { data, error } = await client
+        .from('venues')
+        .update(patch)
+        .eq('id', venueId)
+        .select(VENUE_COLS)
+        .single();
+      throwOn(error, 'setHouseConfig');
+      return mapVenue(data);
+    },
+    async createHouseAccount({ venueId, phone, name }) {
+      const { data, error } = await client.rpc('house_open_account', {
+        p_venue_id: venueId, p_phone: phone, p_name: name,
+      });
+      if (error && /duplicate|unique/i.test(error.message)) throw new Error('duplicate house account');
+      throwOn(error, 'createHouseAccount');
+      return {
+        id: data.id, venueId: data.venueId, phone: data.phone,
+        name: data.name, accountToken: data.accountToken, createdAt: data.createdAt,
+      };
+    },
+    async getHouseAccountByToken(token) {
+      if (!token || typeof token !== 'string') return null;
+      const { data, error } = await client
+        .from('house_accounts')
+        .select('id, venue_id, phone, name, account_token, created_at')
+        .eq('account_token', token)
+        .eq('active', true)
+        .maybeSingle();
+      throwOn(error, 'getHouseAccountByToken');
+      return mapHouseAccount(data);
+    },
+    async getHouseAccountById(accountId) {
+      if (!isUuid(accountId)) return null;
+      const { data, error } = await client
+        .from('house_accounts')
+        .select('id, venue_id, phone, name, account_token, active, created_at')
+        .eq('id', accountId)
+        .maybeSingle();
+      throwOn(error, 'getHouseAccountById');
+      return mapHouseAccount(data);
+    },
+    async countHouseAccounts(venueId) {
+      if (!isUuid(venueId)) return 0;
+      const { count, error } = await client
+        .from('house_accounts')
+        .select('id', { count: 'exact', head: true })
+        .eq('venue_id', venueId);
+      throwOn(error, 'countHouseAccounts');
+      return count || 0;
+    },
+    async setHouseAccountActive(accountId, active) {
+      if (!isUuid(accountId)) { const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e; }
+      const { data, error } = await client
+        .from('house_accounts')
+        .update({ active: !!active })
+        .eq('id', accountId)
+        .select('id, active')
+        .maybeSingle();
+      throwOn(error, 'setHouseAccountActive');
+      if (!data) { const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e; }
+      return { id: data.id, active: data.active };
+    },
+    async loadHouseEvents(accountId) {
+      if (!isUuid(accountId)) return [];
+      const { data, error } = await client
+        .from('house_account_events')
+        .select('seq, type, payload')
+        .eq('account_id', accountId)
+        .order('seq', { ascending: true });
+      throwOn(error, 'loadHouseEvents');
+      return data || [];
+    },
+    async rotateHouseAccountToken(accountId) {
+      if (!isUuid(accountId)) return null;
+      const newToken = require('crypto').randomUUID().replace(/-/g, '');
+      const { data, error } = await client
+        .from('house_accounts')
+        .update({ account_token: newToken })
+        .eq('id', accountId)
+        .select('id, account_token')
+        .maybeSingle();
+      throwOn(error, 'rotateHouseAccountToken');
+      return data ? { id: data.id, accountToken: data.account_token } : null;
+    },
+    async listHouseAccounts(venueId) {
+      if (!isUuid(venueId)) return [];
+      const { data, error } = await client
+        .from('house_accounts')
+        .select('id, venue_id, phone, name, account_token, created_at')
+        .eq('venue_id', venueId)
+        .order('created_at', { ascending: true });
+      throwOn(error, 'listHouseAccounts');
+      return (data || []).map(mapHouseAccount);
+    },
+    async registerHouseLoad({ accountId, txid, amountCents, bonusCents, validityDays }) {
+      const { error } = await client.from('house_loads').insert({
+        txid, account_id: accountId, amount_cents: amountCents,
+        bonus_cents: bonusCents, validity_days: validityDays,
+      });
+      throwOn(error, 'registerHouseLoad');
+    },
+    async findHouseLoadByTxid(txid) {
+      if (!txid) return null;
+      const { data, error } = await client
+        .from('house_loads')
+        .select('txid, account_id, amount_cents, bonus_cents, validity_days, status')
+        .eq('txid', txid)
+        .maybeSingle();
+      throwOn(error, 'findHouseLoadByTxid');
+      if (!data) return null;
+      return {
+        txid: data.txid, accountId: data.account_id,
+        amountCents: Number(data.amount_cents), bonusCents: Number(data.bonus_cents),
+        validityDays: data.validity_days, status: data.status,
+      };
+    },
+    async confirmHouseLoad({ txid, confirmedAt }) {
+      const { data, error } = await client.rpc('house_confirm_load', {
+        p_txid: txid, p_confirmed_at: confirmedAt,
+      });
+      throwOn(error, 'confirmHouseLoad');
+      return { accountId: data.accountId, seq: data.seq, duplicate: data.duplicate === true };
+    },
+    async redeemHouse({ accountId, checkId, txid, amountCents, nowIso }) {
+      const { data, error } = await client.rpc('house_redeem', {
+        p_account_id: accountId, p_check_id: checkId, p_txid: txid,
+        p_amount_cents: amountCents, p_now: nowIso,
+      });
+      if (error && /saldo insuficiente/i.test(error.message)) {
+        const e = new Error('saldo insuficiente'); e.statusCode = 409; throw e;
+      }
+      if (error && /invalid amount/i.test(error.message)) {
+        const e = new Error('invalid amount'); e.statusCode = 400; throw e;
+      }
+      if (error && /unknown house account/i.test(error.message)) {
+        const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e;
+      }
+      throwOn(error, 'redeemHouse');
+      return {
+        seq: data.seq, duplicate: data.duplicate === true,
+        principalUsedCents: Number(data.principalUsedCents),
+        bonusUsedCents: Number(data.bonusUsedCents),
+      };
+    },
+    async reverseHouseRedeem({ accountId, txid, nowIso }) {
+      const { data, error } = await client.rpc('house_redeem_reverse', {
+        p_account_id: accountId, p_txid: txid, p_now: nowIso,
+      });
+      throwOn(error, 'reverseHouseRedeem');
+      return { duplicate: data.duplicate === true, seq: data.seq };
+    },
+    async appendHousePaymentGuarded(checkId, txid, amountCents) {
+      const { data, error } = await client.rpc('append_house_payment_guarded', {
+        p_check_id: checkId, p_txid: txid, p_amount_cents: amountCents,
+      });
+      if (error && /excede o que falta|conta fechada/i.test(error.message)) {
+        const e = new Error(error.message.replace(/^.*?(excede o que falta pagar|conta fechada).*$/i, '$1'));
+        e.statusCode = 409; throw e;
+      }
+      throwOn(error, 'appendHousePaymentGuarded');
+      return data;
+    },
+    async refundHousePrincipal({ accountId, amountCents, nowIso }) {
+      const { data, error } = await client.rpc('house_refund_principal', {
+        p_account_id: accountId, p_amount_cents: amountCents, p_now: nowIso,
+      });
+      if (error && /saldo insuficiente/i.test(error.message)) {
+        const e = new Error('saldo insuficiente'); e.statusCode = 409; throw e;
+      }
+      if (error && /unknown house account/i.test(error.message)) {
+        const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e;
+      }
+      throwOn(error, 'refundHousePrincipal');
+      return { seq: data.seq, principalCents: Number(data.principalCents) };
+    },
+    async recordHousePaymentRow({ checkId, venueId, txid, amountCents, confirmedAt }) {
+      // Idempotent by txid: a healed retry re-attempts this write; an
+      // existing row is left untouched (never silently rewritten).
+      const { error } = await client.from('payments').upsert({
+        check_id: checkId, venue_id: venueId, txid,
+        method: 'house_account', amount_cents: amountCents, tip_cents: 0,
+        status: 'confirmado', confirmed_at: confirmedAt,
+      }, { onConflict: 'txid', ignoreDuplicates: true });
+      throwOn(error, 'recordHousePaymentRow');
+    },
+    async listHouseAccountsForReconcile(venueId) {
+      const { data: accounts, error } = await client
+        .from('house_accounts')
+        .select('id, principal_cents')
+        .eq('venue_id', venueId);
+      throwOn(error, 'listHouseAccountsForReconcile');
+      const out = [];
+      for (const a of accounts || []) {
+        const { data: lots, error: lErr } = await client
+          .from('house_bonus_lots')
+          .select('event_seq, remaining_cents, expires_at')
+          .eq('account_id', a.id);
+        throwOn(lErr, 'listHouseAccountsForReconcile.lots');
+        out.push({
+          accountId: a.id,
+          events: await this.loadHouseEvents(a.id),
+          stored: {
+            principalCents: Number(a.principal_cents),
+            lots: (lots || []).map((l) => ({
+              seq: l.event_seq,
+              remainingCents: Number(l.remaining_cents),
+              expiresAt: l.expires_at,
+            })),
+          },
         });
       }
       return out;

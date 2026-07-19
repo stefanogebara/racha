@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const { reduce } = require('../checks/check-state');
+const houseState = require('../house/account-state');
 
 function createMemoryStore() {
   const venues = new Map();
@@ -23,6 +24,34 @@ function createMemoryStore() {
   const tableById = new Map(); // id → table row (stable id; qrToken rotates)
   const members = [];          // { venueId, userId, role }
 
+  // House accounts (saldo da casa). Balances are DERIVED (reduce over the
+  // ledger) — single-threaded sync writes make the validate→append pair
+  // atomic here; the supabase store gets the same atomicity from the locked
+  // house RPCs.
+  const houseAccounts = new Map(); // id → { id, venueId, phone, name, accountToken, createdAt }
+  const houseByToken = new Map();  // accountToken → accountId
+  const houseEvents = new Map();   // accountId → [{seq, type, payload}]
+  const houseLoads = new Map();    // txid → { txid, accountId, amountCents, bonusCents, validityDays, status }
+
+  function _houseAppend(accountId, type, payload) {
+    const log = houseEvents.get(accountId);
+    if (!log) throw new Error('unknown house account');
+    const state = houseState.reduce(log);
+    houseState.validateEvent({ type, payload }, state); // strict append gate
+    const seq = log.length + 1;
+    log.push({ seq, type, payload });
+    return seq;
+  }
+
+  // Last valid instant = 23:59:59.999 América/São_Paulo on (confirm date +
+  // validity days) — the displayed "expira em DD/MM" is then exactly right.
+  // BRT is UTC-3 year-round (no DST since 2019). Mirrors house_confirm_load v2.
+  function _spEndOfDay(fromIso, plusDays) {
+    const sp = new Date(Date.parse(fromIso) - 3 * 3600 * 1000); // SP wall clock
+    const end = Date.UTC(sp.getUTCFullYear(), sp.getUTCMonth(), sp.getUTCDate() + plusDays, 23, 59, 59, 999);
+    return new Date(end + 3 * 3600 * 1000).toISOString(); // back to a UTC instant
+  }
+
   // Sync internals — the memory store is synchronous; the public contract is
   // async (matches the Supabase store, so `.rejects` works uniformly).
   function _mkVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null, posProvider = 'manual' }) {
@@ -31,7 +60,13 @@ function createMemoryStore() {
       throw new Error('servicoBp out of range [0,3000]');
     }
     const id = crypto.randomUUID();
-    venues.set(id, { id, name: String(name).trim(), cnpj, city, servicoBp, pspRecipientId, posProvider, active: true });
+    venues.set(id, {
+      id, name: String(name).trim(), cnpj, city, servicoBp, pspRecipientId, posProvider, active: true,
+      // Saldo da casa — off until the owner enables it. validityDays ≥ 30 is
+      // the CDC-derived legal floor (docs/house-accounts/README.md).
+      houseEnabled: false, houseBonusBp: 1000, houseValidityDays: 90,
+      houseMinLoadCents: 2000, houseMaxLoadCents: 50000,
+    });
     return venues.get(id);
   }
   function _mkTable(venueId, label) {
@@ -209,7 +244,7 @@ function createMemoryStore() {
           events: [...(events.get(c.id) || [])],
           payments: [...payments.values()]
             .filter((p) => p.checkId === c.id)
-            .map((p) => ({ txid: p.txid, amountCents: p.amountCents, tipCents: p.tipCents, status: p.status })),
+            .map((p) => ({ txid: p.txid, amountCents: p.amountCents, tipCents: p.tipCents, status: p.status, method: p.method || 'pix' })),
         }));
     },
     /**
@@ -237,7 +272,11 @@ function createMemoryStore() {
             },
           };
         });
-      const confirmed = [...payments.values()].filter((p) => p.status === 'confirmado');
+      // Venue-scoped like the supabase store — a shared demo instance must
+      // never leak one venue's totals into another's panel (review finding).
+      const confirmed = [...payments.values()].filter((p) =>
+        p.status === 'confirmado'
+        && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId);
       return {
         venue: { name: venue.name },
         checks: rows,
@@ -260,9 +299,11 @@ function createMemoryStore() {
     },
     async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel }) {
       txidToCheck.set(txid, checkId);
+      const check = checks.get(checkId);
       payments.set(txid, {
-        txid, checkId, amountCents, tipCents,
-        payerLabel: payerLabel || null,
+        txid, checkId, venueId: check ? check.venueId : null, // panel scoping
+        amountCents, tipCents,
+        payerLabel: payerLabel || null, method: 'pix',
         status: 'pendente', createdAt: new Date().toISOString(),
       });
     },
@@ -274,6 +315,200 @@ function createMemoryStore() {
         status: kind === 'refund' ? 'devolvido' : 'confirmado',
         pspPayloadMasked, confirmedAt,
       });
+    },
+
+    // --- house accounts (saldo da casa) -------------------------------------
+    async getVenueByTableToken(qrToken) {
+      const table = tables.get(qrToken);
+      if (!table || !table.active) return null;
+      return { venue: venues.get(table.venueId), table: { id: table.id, label: table.label } };
+    },
+    async setHouseConfig(venueId, clean) {
+      const venue = venues.get(venueId);
+      if (!venue) throw new Error('unknown venue');
+      if ('enabled' in clean) venue.houseEnabled = clean.enabled;
+      if ('bonusBp' in clean) venue.houseBonusBp = clean.bonusBp;
+      if ('validityDays' in clean) venue.houseValidityDays = clean.validityDays;
+      if ('minLoadCents' in clean) venue.houseMinLoadCents = clean.minLoadCents;
+      if ('maxLoadCents' in clean) venue.houseMaxLoadCents = clean.maxLoadCents;
+      return venue;
+    },
+    async createHouseAccount({ venueId, phone, name }) {
+      if (!venues.has(venueId)) throw new Error('unknown venue');
+      for (const a of houseAccounts.values()) {
+        if (a.venueId === venueId && a.phone === phone) throw new Error('duplicate house account');
+      }
+      const id = crypto.randomUUID();
+      const accountToken = crypto.randomUUID().replace(/-/g, '');
+      const row = { id, venueId, phone, name, accountToken, active: true, createdAt: new Date().toISOString() };
+      houseAccounts.set(id, row);
+      houseByToken.set(accountToken, id);
+      houseEvents.set(id, []);
+      _houseAppend(id, 'OPENED', {});
+      return { ...row };
+    },
+    async getHouseAccountByToken(token) {
+      const id = houseByToken.get(token);
+      const a = id ? houseAccounts.get(id) : null;
+      return a && a.active ? { ...a } : null; // frozen account = dead token (parity w/ supabase)
+    },
+    async countHouseAccounts(venueId) {
+      let n = 0;
+      for (const a of houseAccounts.values()) if (a.venueId === venueId) n += 1;
+      return n;
+    },
+    async setHouseAccountActive(accountId, active) {
+      const a = houseAccounts.get(accountId);
+      if (!a) { const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e; }
+      a.active = !!active;
+      return { id: a.id, active: a.active };
+    },
+    async getHouseAccountById(accountId) {
+      const a = houseAccounts.get(accountId);
+      return a ? { ...a } : null;
+    },
+    async loadHouseEvents(accountId) {
+      return [...(houseEvents.get(accountId) || [])];
+    },
+    async rotateHouseAccountToken(accountId) {
+      const a = houseAccounts.get(accountId);
+      if (!a) return null;
+      houseByToken.delete(a.accountToken);
+      a.accountToken = crypto.randomUUID().replace(/-/g, '');
+      houseByToken.set(a.accountToken, a.id);
+      return { id: a.id, accountToken: a.accountToken };
+    },
+    async listHouseAccounts(venueId) {
+      return [...houseAccounts.values()]
+        .filter((a) => a.venueId === venueId)
+        .sort((x, y) => x.createdAt.localeCompare(y.createdAt))
+        .map((a) => ({ ...a }));
+    },
+    async registerHouseLoad({ accountId, txid, amountCents, bonusCents, validityDays }) {
+      if (!houseAccounts.has(accountId)) throw new Error('unknown house account');
+      // Mirrors the supabase PK: a txid re-register must fail loudly, never
+      // silently replace money amounts (review finding).
+      if (houseLoads.has(txid)) throw new Error('duplicate house load txid');
+      houseLoads.set(txid, { txid, accountId, amountCents, bonusCents, validityDays, status: 'pendente' });
+    },
+    async findHouseLoadByTxid(txid) {
+      const l = houseLoads.get(txid);
+      return l ? { ...l } : null;
+    },
+    async confirmHouseLoad({ txid, confirmedAt }) {
+      const load = houseLoads.get(txid);
+      if (!load) throw new Error('unknown house load');
+      const state = houseState.reduce(houseEvents.get(load.accountId) || []);
+      if (state && state.loads[txid]) {
+        return { accountId: load.accountId, seq: null, duplicate: true };
+      }
+      const bonusExpiresAt = _spEndOfDay(confirmedAt, load.validityDays);
+      const seq = _houseAppend(load.accountId, 'LOAD_CONFIRMED', {
+        txid, at: confirmedAt,
+        principalCents: load.amountCents,
+        bonusCents: load.bonusCents,
+        ...(load.bonusCents > 0 ? { bonusExpiresAt } : {}),
+      });
+      houseLoads.set(txid, { ...load, status: 'confirmado' });
+      return { accountId: load.accountId, seq, duplicate: false };
+    },
+    async redeemHouse({ accountId, checkId, txid, amountCents, nowIso }) {
+      if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+        throw new Error('invalid amount'); // parity with the RPC's raise
+      }
+      const log = houseEvents.get(accountId);
+      if (!log) throw new Error('unknown house account');
+      const account = houseAccounts.get(accountId);
+      if (!account || !account.active) throw new Error(`unknown house account ${accountId}`);
+      const state = houseState.reduce(log);
+      // idempotency: a retried redeem with the same txid returns the prior debit
+      if (state && state.redeems[txid]) {
+        const prior = state.redeems[txid];
+        return {
+          seq: null, duplicate: true,
+          principalUsedCents: prior.principalCents, bonusUsedCents: prior.bonusCents,
+        };
+      }
+      let plan;
+      try {
+        plan = houseState.planRedeem(state, amountCents, nowIso);
+      } catch (e) {
+        if (e instanceof houseState.HouseEventValidationError) {
+          const err = new Error('saldo insuficiente'); err.statusCode = 409; throw err;
+        }
+        throw e;
+      }
+      const seq = _houseAppend(accountId, 'REDEEMED', {
+        txid, checkId, at: nowIso,
+        principalCents: plan.principalCents,
+        bonusCents: plan.bonusCents,
+        lots: plan.lots,
+      });
+      return { seq, duplicate: false, principalUsedCents: plan.principalCents, bonusUsedCents: plan.bonusCents };
+    },
+    /** Compensation: put the exact REDEEMED breakdown back (idempotent by txid). */
+    async reverseHouseRedeem({ accountId, txid, nowIso }) {
+      const log = houseEvents.get(accountId);
+      if (!log) throw new Error('unknown house account');
+      const state = houseState.reduce(log);
+      const orig = state ? state.redeems[txid] : null;
+      if (!orig) throw new Error(`unknown redeem txid ${txid}`);
+      if (orig.reversed) return { duplicate: true };
+      const seq = _houseAppend(accountId, 'REDEEM_REVERSED', {
+        txid, at: nowIso, reason: 'check_append_refused',
+      });
+      return { duplicate: false, seq };
+    },
+    /**
+     * Check-side append for credit redeems, validated ATOMICALLY (no await
+     * between read and push — single-threaded sync = the memory analog of the
+     * append_house_payment_guarded RPC). Credit must never overpay a check.
+     */
+    async appendHousePaymentGuarded(checkId, txid, amountCents) {
+      const log = events.get(checkId);
+      if (!log) throw new Error('unknown check');
+      const state = reduce(log);
+      if (state && state.payments[txid]) {
+        return log.find((e) => e.type === 'PAYMENT_CONFIRMED' && e.payload.txid === txid).seq;
+      }
+      if (!state || state.status === 'fechada') {
+        const e = new Error('conta fechada'); e.statusCode = 409; throw e;
+      }
+      if (state.paidCents + amountCents > state.totalCents) {
+        const e = new Error('excede o que falta pagar'); e.statusCode = 409; throw e;
+      }
+      const seq = log.length + 1;
+      log.push({ seq, type: 'PAYMENT_CONFIRMED', payload: { txid, amountCents, tipCents: 0, method: 'house_account' } });
+      return seq;
+    },
+    async refundHousePrincipal({ accountId, amountCents, nowIso }) {
+      const log = houseEvents.get(accountId);
+      if (!log) { const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e; }
+      const state = houseState.reduce(log);
+      if (!state || amountCents > state.principalCents) {
+        const e = new Error('saldo insuficiente'); e.statusCode = 409; throw e;
+      }
+      const seq = _houseAppend(accountId, 'PRINCIPAL_REFUNDED', {
+        amountCents, at: nowIso, settlement: 'manual',
+      });
+      return { seq, principalCents: state.principalCents - amountCents };
+    },
+    async recordHousePaymentRow({ checkId, venueId, txid, amountCents, confirmedAt }) {
+      if (payments.has(txid)) return; // idempotent — an existing row stands (supabase parity)
+      payments.set(txid, {
+        txid, checkId, venueId, amountCents, tipCents: 0,
+        payerLabel: null, method: 'house_account',
+        status: 'confirmado', confirmedAt, createdAt: new Date().toISOString(),
+      });
+    },
+    async listHouseAccountsForReconcile(venueId) {
+      return [...houseAccounts.values()]
+        .filter((a) => a.venueId === venueId)
+        .map((a) => ({
+          accountId: a.id,
+          events: [...(houseEvents.get(a.id) || [])],
+          stored: null, // memory derives balances; nothing independent to cross-check
+        }));
     },
   };
 }
