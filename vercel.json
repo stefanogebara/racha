@@ -3,6 +3,7 @@
   "buildCommand": "npm --prefix apps/web install && npm --prefix apps/web run build",
   "outputDirectory": "apps/web/dist",
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
