@@ -165,6 +165,41 @@ describe('pagarme adapter', () => {
     expect(() => createPagarmePsp({ secretKey: 'pk_publica' })).toThrow(/PAGARME_SECRET_KEY/);
   });
 
+  test('createRecipient: payload correto (PJ por 14 dígitos, banco mapeado, repasse diário) e rp_ de volta', async () => {
+    const reply = { id: 'rp_novo123', status: 'registration' };
+    const { impl, calls } = stubFetch([{ match: '/recipients', method: 'POST', reply }]);
+    const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+
+    const r = await psp.createRecipient({
+      name: '65.087.663 Stefano Chap Chap Gebara',
+      email: 'x@y.com',
+      document: '65.087.663/0001-30', // com máscara — adapter limpa
+      bank: { code: '260', agencia: '0001', conta: '00544596', contaDv: '6' },
+    });
+    expect(r).toEqual({ recipientId: 'rp_novo123', status: 'registration' });
+
+    const body = calls[0].body;
+    expect(body.document).toBe('65087663000130');
+    expect(body.type).toBe('company'); // 14 dígitos = PJ, automático
+    expect(body.default_bank_account).toMatchObject({
+      holder_document: '65087663000130', holder_type: 'company',
+      bank: '260', branch_number: '0001', account_number: '00544596',
+      account_check_digit: '6', type: 'checking',
+    });
+    expect(body.transfer_settings).toMatchObject({ transfer_enabled: true, transfer_interval: 'Daily' });
+
+    await expect(psp.createRecipient({ name: 'x', document: null, bank: null }))
+      .rejects.toThrow(/obrigatórios/);
+  });
+
+  test('getRecipient: status da análise; id inválido → null sem chamada', async () => {
+    const { impl, calls } = stubFetch([{ match: '/recipients/rp_a', method: 'GET', reply: { id: 'rp_a', status: 'active', name: 'Bar' } }]);
+    const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+    expect(await psp.getRecipient('rp_a')).toEqual({ recipientId: 'rp_a', status: 'active', name: 'Bar' });
+    expect(await psp.getRecipient('rcpt_demo')).toBeNull();
+    expect(calls).toHaveLength(1);
+  });
+
   test('no-split de TESTE: só com flag E sk_test_; sk_live_ ignora o flag (custódia absoluta)', async () => {
     // flag + sk_test_ + sem rp_ → ordem SEM split, marcada no metadata
     const { impl, calls } = stubFetch([{ match: '/orders', method: 'POST', reply: PIX_ORDER_REPLY }]);

@@ -204,6 +204,47 @@ function createPagarmePsp({
     },
 
     /**
+     * Cria o recebedor do restaurante (o passo com LATÊNCIA do onboarding —
+     * análise KYC do Pagar.me). Exige a conta em modo marketplace (senão o
+     * gateway recusa: "verifique a configuração da funcionalidade Split").
+     * Dados vêm do formulário do DONO no admin; nada é inventado aqui.
+     */
+    async createRecipient({ name, email, document, type = 'individual', bank }) {
+      if (!name || !document || !bank) throw new TypeError('createRecipient: name, document e bank são obrigatórios');
+      const digits = String(document).replace(/\D/g, '');
+      const body = {
+        name: String(name).slice(0, 128),
+        email: email || undefined,
+        document: digits,
+        type: digits.length === 14 ? 'company' : (type || 'individual'),
+        default_bank_account: {
+          holder_name: String(bank.holderName || name).slice(0, 30),
+          holder_type: digits.length === 14 ? 'company' : 'individual',
+          holder_document: digits,
+          bank: String(bank.code),
+          branch_number: String(bank.agencia),
+          ...(bank.agenciaDv ? { branch_check_digit: String(bank.agenciaDv) } : {}),
+          account_number: String(bank.conta),
+          account_check_digit: String(bank.contaDv),
+          type: bank.type === 'savings' ? 'savings' : 'checking',
+        },
+        // Repasse automático diário — o "nunca atrasaram o repasse" da Meep
+        // é argumento de venda; D+1 automático é o nosso.
+        transfer_settings: { transfer_enabled: true, transfer_interval: 'Daily', transfer_day: 0 },
+      };
+      const r = await api('POST', '/recipients', body);
+      if (!r || !/^rp_/.test(r.id || '')) throw new Error('pagarme: resposta sem rp_ — recebedor não criado');
+      return { recipientId: r.id, status: r.status || 'registration' };
+    },
+
+    /** Status atual do recebedor (análise KYC: registration → active). */
+    async getRecipient(recipientId) {
+      if (!/^rp_/.test(recipientId || '')) return null;
+      const r = await api('GET', `/recipients/${recipientId}`);
+      return { recipientId: r.id, status: r.status, name: r.name };
+    },
+
+    /**
      * Webhook: valida o Basic Auth do endpoint (se configurado) e RE-BUSCA a
      * cobrança na API — o corpo do POST nunca é a fonte de verdade.
      */

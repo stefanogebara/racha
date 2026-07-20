@@ -340,6 +340,13 @@ function createMemoryStore() {
       if (!table || !table.active) return null;
       return { venue: venues.get(table.venueId), table: { id: table.id, label: table.label } };
     },
+    /** Grava o recebedor (rp_) criado no PSP — a partir daí o split roteia. */
+    async setVenueRecipient(venueId, recipientId) {
+      const venue = venues.get(venueId);
+      if (!venue) throw new Error('unknown venue');
+      venue.pspRecipientId = recipientId;
+      return { id: venue.id, pspRecipientId: recipientId };
+    },
     async setHouseConfig(venueId, clean) {
       const venue = venues.get(venueId);
       if (!venue) throw new Error('unknown venue');

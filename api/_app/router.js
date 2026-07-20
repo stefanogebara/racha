@@ -219,6 +219,34 @@ async function route(req, res) {
       return json(res, 200, { success: true, data });
     }
 
+    // --- recebimento (PSP recipient) — o passo com latência do onboarding ----
+    if (req.method === 'GET' && url.pathname === '/api/psp/recipient') {
+      const user = await guardUser(req, res); if (!user) return;
+      const venueId = url.searchParams.get('v') || '';
+      try { await auth.requireVenueOwner(user, venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const venue = await store.getVenue(venueId);
+      if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      if (!venue.pspRecipientId || !/^rp_/.test(venue.pspRecipientId)) {
+        return json(res, 200, { success: true, data: { recipientId: venue.pspRecipientId || null, status: null } });
+      }
+      const info = psp.getRecipient ? await psp.getRecipient(venue.pspRecipientId) : null;
+      return json(res, 200, { success: true, data: info || { recipientId: venue.pspRecipientId, status: 'desconhecido' } });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/psp/recipient') {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.venueId) return json(res, 400, { success: false, error: 'venueId é obrigatório' });
+      try { await auth.requireVenueOwner(user, b.venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      if (!psp.createRecipient) return json(res, 501, { success: false, error: 'PSP atual não cria recebedor' });
+      const r = await psp.createRecipient({
+        name: b.name, email: b.email ?? null, document: b.document, bank: b.bank,
+      });
+      await store.setVenueRecipient(b.venueId, r.recipientId);
+      return json(res, 200, { success: true, data: r });
+    }
+
     // --- house accounts: owner (gated) ---------------------------------------
     if (req.method === 'GET' && url.pathname === '/api/house/admin') {
       const user = await guardUser(req, res); if (!user) return;

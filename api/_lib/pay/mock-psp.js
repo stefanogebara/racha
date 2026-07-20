@@ -110,6 +110,19 @@ class MockPsp {
     return { txid };
   }
 
+  /** Recebedor de mentira — o admin funciona igual no demo. */
+  async createRecipient({ name, document, bank }) {
+    if (!name || !document || !bank) throw new TypeError('createRecipient: name, document e bank são obrigatórios');
+    const id = 'rp_mock' + crypto.createHash('sha256')
+      .update(`${document}|${bank.conta || ''}`).digest('hex').slice(0, 20);
+    return { recipientId: id, status: 'active' };
+  }
+
+  async getRecipient(recipientId) {
+    if (!/^rp_/.test(recipientId || '')) return null;
+    return { recipientId, status: 'active', name: 'Recebedor demo' };
+  }
+
   /** Sign a webhook body the way the mock "PSP side" would. */
   signWebhook(rawBody) {
     return crypto.createHmac('sha256', this.webhookSecret).update(rawBody, 'utf8').digest('hex');

@@ -466,6 +466,17 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       if (!data || !data.venues) return null;
       return { venue: mapVenue(data.venues), table: { id: data.id, label: data.label } };
     },
+    /** Grava o recebedor (rp_) criado no PSP — a partir daí o split roteia. */
+    async setVenueRecipient(venueId, recipientId) {
+      const { data, error } = await client
+        .from('venues')
+        .update({ psp_recipient_id: recipientId })
+        .eq('id', venueId)
+        .select('id, psp_recipient_id')
+        .single();
+      throwOn(error, 'setVenueRecipient');
+      return { id: data.id, pspRecipientId: data.psp_recipient_id };
+    },
     async setHouseConfig(venueId, clean) {
       const patch = {};
       if ('enabled' in clean) patch.house_enabled = clean.enabled;
