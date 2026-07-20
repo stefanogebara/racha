@@ -78,6 +78,33 @@ export interface HouseRedeemResult {
   check: CheckView | null;
 }
 
+// ---- Superfícies do dono (buscadas via authedReq de auth.ts, com Bearer).
+
+/** GET /api/tables?v=<venueId> → { venue, tables } — inventário de mesas. */
+export interface Venue { id: string; name: string; city: string | null; servicoBp: number; pspRecipientId: string | null }
+
+export interface VenueTable {
+  id: string;
+  label: string;
+  qrToken: string;
+  qrRotatedAt: string | null;
+  active: boolean;
+  /** Mesa de treino: a equipe pratica nela, mas ela fica fora dos QRs impressos. */
+  training: boolean;
+  hasOpenCheck: boolean;
+}
+
+export interface TablesView { venue: Venue; tables: VenueTable[] }
+
+/** GET /api/panel → data.ativacao — tração dos últimos 7 dias para o dono. */
+export interface PanelAtivacao {
+  /** 7 dias em ordem cronológica; dias sem movimento vêm presentes, zerados. */
+  dias: Array<{ dia: string /* 'YYYY-MM-DD' */; pagamentos: number; valorCents: number; gorjetaCents: number; contas: number }>;
+  /** Pagamentos confirmados na semana, por método. */
+  metodos: { pix: number; card: number; house_account: number };
+  semana: { pagamentos: number; valorCents: number; gorjetaCents: number; contas: number };
+}
+
 /**
  * Erro de API com o status HTTP anexado — callers distinguem 404 (recurso
  * sumiu de verdade) de um soluço de rede (status === undefined, o fetch

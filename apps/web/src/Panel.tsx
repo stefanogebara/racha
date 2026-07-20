@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { brl } from './api';
+import { brl, type PanelAtivacao } from './api';
 import { authedReq, signOut } from './auth';
 
 /**
@@ -16,6 +16,7 @@ interface PanelData {
     state: { status: string; totalCents: number; paidCents: number; tipCents: number; anomalies: number };
   }>;
   today: { confirmedCents: number; tipsCents: number; paymentsCount: number; anomalies: number };
+  ativacao: PanelAtivacao;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -73,6 +74,8 @@ export default function Panel() {
         </div>
       </section>
 
+      <Ativacao a={data.ativacao} />
+
       <section className="panel">
         <p className="label">Mesas</p>
         {data.checks.length === 0 && <p className="muted small">nenhuma conta aberta.</p>}
@@ -101,5 +104,46 @@ export default function Panel() {
         <span>racha · painel atualiza sozinho a cada 4s</span>
       </footer>
     </main>
+  );
+}
+
+// ------------------------------------------------------------------ ativação
+
+/** 'YYYY-MM-DD' → 'DD/MM' por fatia de string — new Date() aqui empurraria o dia
+ *  para a véspera no fuso BR (ISO sem hora é parseado como meia-noite UTC). */
+const ddmm = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
+
+/** Últimos 7 dias de uso — barras CSS proporcionais ao valor, sem lib de gráfico. */
+function Ativacao({ a }: { a: PanelAtivacao | undefined }) {
+  if (!a) return null; // backend antigo ainda no ar — o resto do painel segue de pé
+  const vazio = a.semana.pagamentos === 0 && a.semana.contas === 0;
+  const teto = Math.max(1, ...a.dias.map((d) => d.valorCents));
+  return (
+    <section className="panel">
+      <p className="label">Ativação — últimos 7 dias</p>
+      {vazio ? (
+        <p className="muted small">sem movimento nos últimos 7 dias.</p>
+      ) : (
+        <>
+          {a.dias.map((d) => (
+            <div className="actrow" key={d.dia}>
+              <span className="mono muted small">{ddmm(d.dia)}</span>
+              <div className="actbar"><span style={{ width: `${Math.round((d.valorCents / teto) * 100)}%` }} /></div>
+              <span className={d.contas === 0 ? 'mono small muted' : 'mono small'}>
+                {d.contas} {d.contas === 1 ? 'conta' : 'contas'} · {brl(d.valorCents)}
+              </span>
+            </div>
+          ))}
+          <p className="small">
+            Pix {a.metodos.pix} · Cartão {a.metodos.card} · Saldo {a.metodos.house_account}
+          </p>
+          <p className="muted small">
+            Semana: {a.semana.pagamentos} {a.semana.pagamentos === 1 ? 'pagamento' : 'pagamentos'} ·{' '}
+            {a.semana.contas} {a.semana.contas === 1 ? 'conta' : 'contas'} · {brl(a.semana.valorCents)} ·{' '}
+            serviço {brl(a.semana.gorjetaCents)}
+          </p>
+        </>
+      )}
+    </section>
   );
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
-import { parseBrlToCents } from './api';
+import { parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
 import { authedReq as req, signOut } from './auth';
 
 /**
@@ -10,10 +10,8 @@ import { authedReq as req, signOut } from './auth';
  *   /admin            → onboarding (cria o restaurante) → redireciona p/ mesas
  *   /admin?v=<id>     → gestão de mesas (criar, QR imprimível, girar, desativar)
  * O QR codifica a URL da conta do cliente: <origin>/?t=<qr_token>.
+ * A folha de impressão de todos os QRs vive em /qrs?v=<id> (Qrs.tsx).
  */
-
-interface Venue { id: string; name: string; city: string | null; servicoBp: number; pspRecipientId: string | null }
-interface Table { id: string; label: string; qrToken: string; qrRotatedAt: string | null; active: boolean; hasOpenCheck: boolean }
 
 export default function Admin() {
   const venueId = useMemo(() => new URLSearchParams(window.location.search).get('v') ?? '', []);
@@ -98,16 +96,16 @@ function Onboarding() {
 // ------------------------------------------------------------------- tables
 function Tables({ venueId }: { venueId: string }) {
   const [venue, setVenue] = useState<Venue | null>(null);
-  const [tables, setTables] = useState<Table[]>([]);
+  const [tables, setTables] = useState<VenueTable[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState('');
-  const [printing, setPrinting] = useState<Table | null>(null);
+  const [printing, setPrinting] = useState<VenueTable | null>(null);
 
   const origin = window.location.origin;
 
   const refresh = useCallback(async () => {
     try {
-      const data = await req<{ venue: Venue; tables: Table[] }>(`/api/tables?v=${encodeURIComponent(venueId)}`);
+      const data = await req<TablesView>(`/api/tables?v=${encodeURIComponent(venueId)}`);
       setVenue(data.venue); setTables(data.tables); setError(null);
     } catch (e) { setError((e as Error).message); }
   }, [venueId]);
@@ -126,20 +124,25 @@ function Tables({ venueId }: { venueId: string }) {
     } catch (e) { setError((e as Error).message); }
   }
 
-  async function rotate(t: Table) {
+  async function rotate(t: VenueTable) {
     if (!confirm(`Girar o QR da ${t.label}? O código impresso atual para de funcionar na hora.`)) return;
     try { await req('/api/tables/rotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id }) }); await refresh(); }
     catch (e) { setError((e as Error).message); }
   }
-  async function toggle(t: Table) {
+  async function toggle(t: VenueTable) {
     if (t.active && t.hasOpenCheck) { setError(`${t.label} tem conta aberta — feche antes de desativar.`); return; }
     if (t.active && !confirm(`Desativar a ${t.label}? O QR dela para de funcionar.`)) return;
     try { await req('/api/tables/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, active: !t.active }) }); await refresh(); }
     catch (e) { setError((e as Error).message); }
   }
+  // Mesa de treino: a equipe pratica o fluxo nela; fica fora da folha /qrs.
+  async function toggleTraining(t: VenueTable) {
+    try { await req<{ id: string; training: boolean }>('/api/tables/training', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, training: !t.training }) }); await refresh(); }
+    catch (e) { setError((e as Error).message); }
+  }
 
   // Manual mode (POS adapter): the owner opens/closes the check from the panel.
-  async function openManualCheck(t: Table) {
+  async function openManualCheck(t: VenueTable) {
     const raw = prompt(`Abrir conta na ${t.label}\n\nTotal da conta (R$):`);
     if (raw == null) return;
     const totalCents = parseBrlToCents(raw); // "1.234,56" e "R$ 47,50" resolvem certo
@@ -149,7 +152,7 @@ function Tables({ venueId }: { venueId: string }) {
       await refresh();
     } catch (e) { setError((e as Error).message); }
   }
-  async function closeManualCheck(t: Table) {
+  async function closeManualCheck(t: VenueTable) {
     if (!confirm(`Fechar a conta da ${t.label}?`)) return;
     try {
       const view = await fetch(`/api/check?t=${encodeURIComponent(t.qrToken)}`).then((r) => r.json());
@@ -189,14 +192,20 @@ function Tables({ venueId }: { venueId: string }) {
       </section>
 
       <section className="panel">
-        <p className="label">Mesas ({tables.length})</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          <p className="label">Mesas ({tables.length})</p>
+          <a className="linklike" style={{ textDecoration: 'none' }} href={`/qrs?v=${encodeURIComponent(venueId)}`}>
+            🖨 Imprimir QRs das mesas
+          </a>
+        </div>
         {tables.length === 0 && <p className="muted small">nenhuma mesa ainda.</p>}
         {tables.map((t) => (
           <div className="checkrow" key={t.id}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, flexWrap: 'wrap' }}>
               <strong style={{ opacity: t.active ? 1 : 0.45 }}>{t.label}</strong>
               {t.hasOpenCheck && <span className="pill parcial">conta aberta</span>}
               {!t.active && <span className="pill fechada">desativada</span>}
+              {t.training && <span className="muted small">· mesa de treino</span>}
               {t.qrRotatedAt && <span className="muted small">QR girado</span>}
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -205,6 +214,7 @@ function Tables({ venueId }: { venueId: string }) {
                 : <button className="cta" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => openManualCheck(t)}>abrir conta</button>)}
               <button className="ghost" onClick={() => setPrinting(t)}>QR</button>
               <button className="ghost" onClick={() => rotate(t)}>girar</button>
+              <button className="linklike" onClick={() => toggleTraining(t)}>{t.training ? 'tirar do treino' : 'treino'}</button>
               <button className="ghost" onClick={() => toggle(t)}>{t.active ? 'desativar' : 'ativar'}</button>
             </div>
           </div>
@@ -219,7 +229,7 @@ function Tables({ venueId }: { venueId: string }) {
 }
 
 // --------------------------------------------------------------- print card
-function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; table: Table; origin: string; onClose: () => void }) {
+function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; table: VenueTable; origin: string; onClose: () => void }) {
   const url = `${origin}/?t=${table.qrToken}`;
   return (
     <main className="shell">

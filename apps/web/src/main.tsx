@@ -4,6 +4,7 @@ import App from './App';
 import Panel from './Panel';
 import Admin from './Admin';
 import Gate from './Gate';
+import Qrs from './Qrs';
 import Wallet from './Wallet';
 import './styles.css';
 
@@ -12,6 +13,7 @@ const path = window.location.pathname;
 const root =
   path.startsWith('/painel') ? <Gate><Panel /></Gate>
   : path.startsWith('/admin') ? <Gate><Admin /></Gate>
+  : path.startsWith('/qrs') ? <Gate><Qrs /></Gate>
   : path.startsWith('/carteira') ? <Wallet />
   : <App />;
 

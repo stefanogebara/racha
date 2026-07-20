@@ -247,6 +247,11 @@ body {
 .pill.paga { background: rgba(16, 185, 129, 0.16); color: #065F46; }
 .pill.fechada { background: rgba(28, 25, 23, 0.09); color: var(--charcoal); }
 
+/* Ativação (painel) — barras CSS por dia, proporcionais ao valor; sem lib de gráfico */
+.actrow { display: grid; grid-template-columns: 42px 1fr max-content; align-items: center; gap: 10px; }
+.actbar { height: 8px; border-radius: 99px; background: rgba(28, 25, 23, 0.08); overflow: hidden; }
+.actbar span { display: block; height: 100%; background: var(--emerald); border-radius: 99px; }
+
 .foot { text-align: center; color: var(--stone); font-size: 12px; padding-top: 4px; }
 .muted { color: var(--stone); }
 .small { font-size: 13px; }
@@ -260,6 +265,28 @@ body {
   display: grid; place-items: center;
 }
 
+/* /qrs — folha com o cartão de cada mesa (A6-ish, 2 por linha no A4) */
+.qrgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.qrcard {
+  background: var(--glass-card);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  padding: 22px 16px 14px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px;
+  break-inside: avoid;
+}
+.qrcard .qrvenue {
+  font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
+  font-size: 22px; letter-spacing: -0.01em;
+}
+.qrcard .qrmesa { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 30px; }
+.qrcard .qrhint { font-size: 13px; }
+.qrcard .qrperks { font-size: 12px; color: var(--stone); }
+.qrcard .qrbrand { font-size: 11px; color: var(--stone); letter-spacing: 0.18em; margin-top: 4px; }
+
 /* House accounts — saldo da casa (carteira + admin) */
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .pos { color: var(--emerald); font-weight: 600; }
@@ -270,10 +297,24 @@ body {
   .progressbar span { transition: none; }
 }
 
-/* Printing: only the QR card, black on white, no glass/gradient */
+/* Printing: only the QR cards, black on white, no glass/gradient */
 @media print {
   body { background: #fff !important; }
   .shell { max-width: none; }
-  .linklike, .cta { display: none !important; }
+  .noprint, .linklike, .cta { display: none !important; }
   .pixcard { border: none; box-shadow: none; backdrop-filter: none; background: #fff; }
+
+  /* /qrs — papel branco, tinta preta; borda fina como guia de corte,
+     e cada cartão inteiro numa página (break-inside: avoid). */
+  .qrspage { padding: 0; gap: 0; display: block; }
+  .qrgrid { gap: 8mm; }
+  .qrcard {
+    background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none;
+    border: 1pt solid #999; border-radius: 12pt; box-shadow: none;
+    color: #000;
+    padding: 10mm 6mm 6mm;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .qrcard .qrhint, .qrcard .qrperks, .qrcard .qrbrand { color: #000; }
+  .qrcard .qrbox { border: none; padding: 0; }
 }
