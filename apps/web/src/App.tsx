@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, brl, parseBrlToCents, CheckView, ChargeResult } from './api';
+import Home from './Home';
 import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
 import { clearStoredWallet, readStoredWallet } from './house';
@@ -90,7 +91,8 @@ export default function App() {
     }
   }, [view, houseChecked, token]);
 
-  if (!token) return <Shell><p className="muted center">Escaneie o QR da sua mesa para ver a conta.</p></Shell>;
+  // Sem token de mesa = visita direta (desktop/prospect/KYC) → landing.
+  if (!token) return <Home />;
   if (error) return <Shell><p className="muted center">{error}</p></Shell>;
   if (!view) return <Shell><p className="muted center">carregando a conta…</p></Shell>;
 
