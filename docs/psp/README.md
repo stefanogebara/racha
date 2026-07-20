@@ -88,8 +88,19 @@ Pagar.me: MDR não-negociável acima do mercado quando houver volume.
 | Cartão aprovado → webhook → ledger (+gorjeta separada) | ✅ `ch_nP9yAPKpF2FKEJM1`: pago 6000→6500, tip 100 |
 | Cartão recusado (CVV 6xx) → 402, ledger intacto | ✅ |
 | Estorno via dashboard → `charge.refunded` → ledger | ✅ `ch_nP9y…`: 500+100 de gorjeta devolvidos, pago 6500→6000, 0 anomalias |
-| Pix | ⛔ conta sem Pix habilitado (`action_forbidden — Sem ambiente configurado`) → pedir no suporte |
-| Split / recebedor | ⛔ funcionalidade Split desabilitada na conta → mesmo pedido de suporte |
+| Pix → auto-pago (simulador) → webhook → ledger | ✅ `ch_O4W0…`: pago 6000→6700 (+700, gorjeta 70 separada) |
+| Split / recebedor | ⏳ COMERCIAL: conta precisa virar **marketplace** (muda o TIPO de antecipação) — contato solicitado 20/07 (11999002121, e-mail, 10h–18h) |
+
+Notas do ambiente de teste (suporte, 20/07):
+- Pix em test mode: Configurações → Meios de pagamento → Pix → **provedor
+  Simulador**. Regra do simulador: **< R$ 500 auto-paga, ≥ R$ 500 falha**
+  (produção não tem essa regra — não é bug em teste com valor alto).
+- Com provedor Simulador o `qr_code` vem como URL de página de pagamento;
+  com provedor homolog/produção vem o **copia-e-cola EMV real** (`000201…
+  br.gov.bcb.pix…`) — confirmado nos dois modos; o adapter serve o que o
+  provedor der.
+- Split: o toggle em Configurações → Funcionalidades só funciona depois que
+  o comercial marcar o cadastro como marketplace internamente.
 
 Aprendizados de campo já codificados no adapter: gateway exige CPF
 (`payerDocument` atravessa o stack; checkout de cartão pede CPF), telefone e
