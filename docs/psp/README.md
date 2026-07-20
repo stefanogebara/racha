@@ -87,7 +87,7 @@ Pagar.me: MDR não-negociável acima do mercado quando houver volume.
 |---|---|
 | Cartão aprovado → webhook → ledger (+gorjeta separada) | ✅ `ch_nP9yAPKpF2FKEJM1`: pago 6000→6500, tip 100 |
 | Cartão recusado (CVV 6xx) → 402, ledger intacto | ✅ |
-| Estorno via dashboard → `charge.refunded` → ledger | ⏳ 1 clique do fundador |
+| Estorno via dashboard → `charge.refunded` → ledger | ✅ `ch_nP9y…`: 500+100 de gorjeta devolvidos, pago 6500→6000, 0 anomalias |
 | Pix | ⛔ conta sem Pix habilitado (`action_forbidden — Sem ambiente configurado`) → pedir no suporte |
 | Split / recebedor | ⛔ funcionalidade Split desabilitada na conta → mesmo pedido de suporte |
 
