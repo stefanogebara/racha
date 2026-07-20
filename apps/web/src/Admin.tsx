@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
+import AdminRecipient from './AdminRecipient';
 import { parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
 import { authedReq as req, signOut } from './auth';
 
@@ -172,11 +173,11 @@ function Tables({ venueId }: { venueId: string }) {
         <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>sair</button>
       </header>
 
-      {!venue?.pspRecipientId && (
+      {!venue?.pspRecipientId?.startsWith('rp_') && (
         <section className="card" style={{ borderColor: 'rgba(245,158,11,0.4)' }}>
           <p className="small">
             ⚠ Meio de pagamento ainda não conectado — as mesas funcionam para teste,
-            mas cobranças reais só depois de configurar o split do PSP.
+            mas cobranças reais só depois de criar o recebedor na seção Recebimento abaixo.
           </p>
         </section>
       )}
@@ -220,6 +221,8 @@ function Tables({ venueId }: { venueId: string }) {
           </div>
         ))}
       </section>
+
+      <AdminRecipient venueId={venueId} onChanged={refresh} />
 
       <AdminHouse venueId={venueId} />
 
