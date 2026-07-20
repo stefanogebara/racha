@@ -96,7 +96,11 @@ function createPagarmePsp({
       // é placeholder da plataforma por ora — se o modo LIVE exigir o real,
       // o checkout de cartão ganha o campo (decisão anotada no runbook).
       customer: {
-        name: 'Cliente Racha', type: 'individual', email: 'cliente@racha.app',
+        name: 'Cliente Racha', type: 'individual',
+        // E-mail único por cobrança: o gateway deduplica customer por e-mail
+        // e reutiliza o registro antigo (sem telefone/documento) — cada
+        // cobrança leva o snapshot completo.
+        email: `cliente+${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}@racha.app`,
         ...(payerDocument ? { document: payerDocument } : {}),
         phones: { mobile_phone: { country_code: '55', area_code: '11', number: '987654321' } },
       },
