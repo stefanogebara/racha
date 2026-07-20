@@ -134,9 +134,14 @@ function createPagarmePsp({
         }],
       });
       const charge = order.charges && order.charges[0];
-      const tx = charge && charge.last_transaction;
-      if (!charge || !tx || !tx.qr_code) {
-        throw new Error('pagarme: resposta sem qr_code — cobrança Pix não criada');
+      const tx = (charge && charge.last_transaction) || {};
+      if (!charge || !tx.qr_code) {
+        // O motivo real (ex.: Pix não habilitado na conta) mora no
+        // gateway_response — sem ele o erro é inacionável.
+        const gw = tx.gateway_response || {};
+        const reason = (Array.isArray(gw.errors) && gw.errors.map((e) => e.message || e).join('; '))
+          || gw.code || tx.status || (charge && charge.status) || 'sem detalhe';
+        throw new Error(`pagarme: cobrança Pix sem qr_code (${String(reason).slice(0, 140)})`);
       }
       return {
         txid: charge.id, // ch_... — chave de idempotência do webhook
