@@ -1,19 +1,69 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, ApiError, brl } from './api';
 
 /**
  * Apple Pay / Google Pay — cobrança de CARTÃO tokenizada pelo mesmo portão de
  * dinheiro do Pix (POST /api/pay com wallet + paymentToken).
  *
- * No demo (PSP mock) a folha nativa não existe — merchant validation da Apple
- * e o gateway do Google só vêm com o PSP real (RFP). Então a "sheet" aqui é
- * uma simulação claramente rotulada que gera um token de teste; quando o PSP
- * real entrar, authorize() troca a simulação pelo SDK (Payment Request API /
- * botão do PSP) e NADA mais muda — backend, ledger e recibos já falam 'card'.
+ * Dois modos, decididos por env:
+ * - REAL (VITE_PAGARME_PUBLIC_KEY + VITE_PAGARME_ACCOUNT_ID presentes):
+ *   botão oficial do Google Pay (pay.js), tokenization PAYMENT_GATEWAY com
+ *   gateway "pagarme" — o token da sheet vai direto pro adapter como
+ *   card_token (docs.pagar.me/docs/google-pay-tm-guide). pk_test_ roda no
+ *   environment TEST do Google. Apple Pay fica OCULTO no modo real: o
+ *   Pagar.me não tem Apple Pay web hoje (decisão em docs/psp/README.md) —
+ *   botão morto que recusa todo tap é pior que não ter botão.
+ * - DEMO (sem as envs): sheet simulada claramente rotulada, token de teste,
+ *   confirmação via /api/dev/confirm — o caminho do mock PSP.
  */
 
 type Wallet = 'apple_pay' | 'google_pay';
 const WALLET_LABEL: Record<Wallet, string> = { apple_pay: 'Apple Pay', google_pay: 'Google Pay' };
+
+const PK = (import.meta.env.VITE_PAGARME_PUBLIC_KEY as string | undefined) || '';
+const ACC = (import.meta.env.VITE_PAGARME_ACCOUNT_ID as string | undefined) || '';
+const REAL = Boolean(PK && ACC);
+
+// pay.js é singleton — carrega uma vez por página.
+let gpayLoader: Promise<void> | null = null;
+function loadGPayJs(): Promise<void> {
+  if (!gpayLoader) {
+    gpayLoader = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://pay.google.com/gp/p/js/pay.js';
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('não deu para carregar o Google Pay'));
+      document.head.appendChild(s);
+    });
+  }
+  return gpayLoader;
+}
+
+const GPAY_CARD_METHOD = {
+  type: 'CARD',
+  parameters: {
+    allowedAuthMethods: ['PAN_ONLY', 'CRYPTOGRAM_3DS'],
+    // Bandeiras compatíveis com o gateway Pagar.me (guia Google Pay deles).
+    allowedCardNetworks: ['MASTERCARD', 'VISA'],
+  },
+  tokenizationSpecification: {
+    type: 'PAYMENT_GATEWAY',
+    parameters: { gateway: 'pagarme', gatewayMerchantId: ACC },
+  },
+};
+
+function gpayClient() {
+  const g = (window as unknown as { google?: { payments: { api: { PaymentsClient: new (o: object) => GPayClient } } } }).google;
+  if (!g) throw new Error('Google Pay indisponível');
+  return new g.payments.api.PaymentsClient({
+    environment: PK.startsWith('pk_test_') ? 'TEST' : 'PRODUCTION',
+  });
+}
+interface GPayClient {
+  isReadyToPay(req: object): Promise<{ result: boolean }>;
+  loadPaymentData(req: object): Promise<{ paymentMethodData: { tokenizationData: { token: string } } }>;
+}
 
 export default function WalletButtons({
   token, amountCents, tipCents, payerLabel, disabled, venueName, onPaid,
@@ -29,35 +79,88 @@ export default function WalletButtons({
   const [sheet, setSheet] = useState<Wallet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Ordem por plataforma: Apple primeiro em iOS/macOS, Google primeiro no resto.
-  const isApple = typeof (window as unknown as { ApplePaySession?: unknown }).ApplePaySession !== 'undefined'
-    || /iPhone|iPad|Macintosh/.test(navigator.userAgent);
-  const wallets: Wallet[] = isApple ? ['apple_pay', 'google_pay'] : ['google_pay', 'apple_pay'];
+  const [gpayReady, setGpayReady] = useState(false);
 
   const total = amountCents + tipCents;
 
-  async function authorize(wallet: Wallet) {
+  useEffect(() => {
+    if (!REAL) return;
+    let alive = true;
+    loadGPayJs()
+      .then(() => gpayClient().isReadyToPay({ apiVersion: 2, apiVersionMinor: 0, allowedPaymentMethods: [GPAY_CARD_METHOD] }))
+      .then((r) => { if (alive) setGpayReady(r.result === true); })
+      .catch(() => { if (alive) setGpayReady(false); }); // sem GPay no device → só Pix
+    return () => { alive = false; };
+  }, []);
+
+  async function settle(wallet: Wallet, paymentToken: string) {
+    const charge = await api.payWallet(token, amountCents, tipCents, payerLabel, wallet, paymentToken);
+    try {
+      await api.devConfirm(charge.txid); // demo: confirma na hora
+    } catch (e) {
+      // PSP real: /api/dev/confirm não existe (404) — a confirmação chega
+      // pelo webhook charge.paid e o polling da conta atualiza o progresso.
+      if ((e as ApiError).status !== 404) throw e;
+    }
+    onPaid();
+  }
+
+  // --- modo REAL: sheet oficial do Google -----------------------------------
+  async function realGooglePay() {
     setBusy(true); setError(null);
     try {
-      // PSP real: este token vem da sheet nativa (Payment Request API).
+      const data = await gpayClient().loadPaymentData({
+        apiVersion: 2,
+        apiVersionMinor: 0,
+        allowedPaymentMethods: [GPAY_CARD_METHOD],
+        transactionInfo: {
+          totalPriceStatus: 'FINAL',
+          totalPrice: (total / 100).toFixed(2),
+          currencyCode: 'BRL',
+          countryCode: 'BR',
+        },
+        merchantInfo: { merchantName: `Racha · ${venueName}`.slice(0, 60) },
+      });
+      await settle('google_pay', data.paymentMethodData.tokenizationData.token);
+    } catch (e) {
+      const status = (e as { statusCode?: string }).statusCode;
+      if (status !== 'CANCELED') setError((e as Error).message); // fechar a sheet não é erro
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // --- modo DEMO: sheet simulada -------------------------------------------
+  async function demoAuthorize(wallet: Wallet) {
+    setBusy(true); setError(null);
+    try {
+      // PSP real: este token viria da sheet nativa.
       const paymentToken = `tok_demo_${crypto.randomUUID().replace(/-/g, '')}`;
-      const charge = await api.payWallet(token, amountCents, tipCents, payerLabel, wallet, paymentToken);
-      try {
-        await api.devConfirm(charge.txid); // demo: banco emissor confirma na hora
-      } catch (e) {
-        // Produção com PSP real: sem /api/dev/confirm (404) — a confirmação
-        // chega pelo webhook do adquirente e o polling da conta atualiza.
-        if ((e as ApiError).status !== 404) throw e;
-      }
+      await settle(wallet, paymentToken);
       setSheet(null);
-      onPaid();
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
+
+  if (REAL) {
+    if (!gpayReady) return null; // device sem Google Pay → fica o Pix (e o saldo)
+    return (
+      <>
+        <button type="button" className="walletbtn gpay" disabled={disabled || busy} onClick={realGooglePay}>
+          {busy ? 'autorizando…' : 'G Pay'}
+        </button>
+        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      </>
+    );
+  }
+
+  // Ordem por plataforma no demo: Apple primeiro em iOS/macOS.
+  const isApple = typeof (window as unknown as { ApplePaySession?: unknown }).ApplePaySession !== 'undefined'
+    || /iPhone|iPad|Macintosh/.test(navigator.userAgent);
+  const wallets: Wallet[] = isApple ? ['apple_pay', 'google_pay'] : ['google_pay', 'apple_pay'];
 
   return (
     <>
@@ -91,7 +194,7 @@ export default function WalletButtons({
               <span className="muted small">cartão</span>
               <span className="mono muted small">•••• 4242 (demo)</span>
             </div>
-            <button className="cta" disabled={busy} onClick={() => authorize(sheet)}>
+            <button className="cta" disabled={busy} onClick={() => demoAuthorize(sheet)}>
               {busy ? 'autorizando…' : `Pagar ${brl(total)}`}
             </button>
             <button className="linklike" disabled={busy} onClick={() => setSheet(null)}>cancelar</button>
