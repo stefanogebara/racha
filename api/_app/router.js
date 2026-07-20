@@ -161,9 +161,21 @@ async function route(req, res) {
     }
     if (req.method === 'POST' && url.pathname === '/api/webhooks/psp') {
       const raw = await readBody(req);
+      // Toda chegada de webhook fica visível nos logs — diagnóstico de
+      // entrega (Pagar.me chamou? com auth? qual evento?) sem adivinhação.
+      let evtType = '?';
+      try { evtType = JSON.parse(raw).type || JSON.parse(raw).kind || '?'; } catch { /* corpo opaco */ }
+      process.stderr.write(`[webhook] in type=${evtType} auth=${req.headers.authorization ? 'sim' : 'não'} bytes=${raw.length}\n`);
       // Headers inteiros: o mock pega x-racha-signature, o Pagar.me valida o
       // Basic Auth do endpoint (e re-busca a cobrança na API de todo jeito).
-      const result = await handleWebhook(raw, req.headers);
+      let result;
+      try {
+        result = await handleWebhook(raw, req.headers);
+      } catch (err) {
+        process.stderr.write(`[webhook] out threw=${err.name}: ${String(err.message).slice(0, 80)}\n`);
+        throw err; // segue pro mapa de status do catch externo (401 etc.)
+      }
+      process.stderr.write(`[webhook] out status=${result.status}${result.reason ? ` reason=${result.reason.slice(0, 80)}` : ''}\n`);
       if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
         await writeBackToPos(result.checkId);
       }
