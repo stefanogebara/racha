@@ -164,4 +164,27 @@ describe('pagarme adapter', () => {
     expect(() => createPagarmePsp({ secretKey: null })).toThrow(/PAGARME_SECRET_KEY/);
     expect(() => createPagarmePsp({ secretKey: 'pk_publica' })).toThrow(/PAGARME_SECRET_KEY/);
   });
+
+  test('no-split de TESTE: só com flag E sk_test_; sk_live_ ignora o flag (custódia absoluta)', async () => {
+    // flag + sk_test_ + sem rp_ → ordem SEM split, marcada no metadata
+    const { impl, calls } = stubFetch([{ match: '/orders', method: 'POST', reply: PIX_ORDER_REPLY }]);
+    const pspTest = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl, allowNoSplitInTest: true });
+    await pspTest.createPixCharge({ chargeRef: 'x', amountCents: 100, tipCents: 0, recipientId: 'rcpt_demo' });
+    expect(calls[0].body.split).toBeUndefined();
+    expect(calls[0].body.metadata.split_mode).toBe('none_test');
+
+    // com rp_ presente, o split volta mesmo com o flag ligado
+    const s2 = stubFetch([{ match: '/orders', method: 'POST', reply: PIX_ORDER_REPLY }]);
+    const pspRp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: s2.impl, allowNoSplitInTest: true });
+    await pspRp.createPixCharge({ chargeRef: 'x', amountCents: 100, tipCents: 0, recipientId: 'rp_venue1' });
+    expect(s2.calls[0].body.split).toHaveLength(1);
+    expect(s2.calls[0].body.metadata.split_mode).toBeUndefined();
+
+    // sk_live_ + flag → custódia continua recusando (o flag é ignorado)
+    const s3 = stubFetch([]);
+    const pspLive = createPagarmePsp({ secretKey: 'sk_live_x', fetchImpl: s3.impl, allowNoSplitInTest: true });
+    await expect(pspLive.createPixCharge({ chargeRef: 'x', amountCents: 100, tipCents: 0, recipientId: 'rcpt_demo' }))
+      .rejects.toThrow(/custódia/);
+    expect(s3.calls).toHaveLength(0);
+  });
 });

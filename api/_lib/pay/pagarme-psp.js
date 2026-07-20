@@ -38,10 +38,22 @@ function assertCents(v, name) {
   }
 }
 
-function createPagarmePsp({ secretKey, webhookBasicAuth = null, fetchImpl = fetch } = {}) {
+function createPagarmePsp({
+  secretKey,
+  webhookBasicAuth = null,
+  fetchImpl = fetch,
+  // Escape hatch SÓ DE TESTE: contas novas têm o Split desabilitado até o
+  // suporte liberar (não dá nem pra criar recebedor). Com este flag E chave
+  // sk_test_, cobranças sem rp_ saem SEM split (caem no saldo da conta de
+  // teste) pra bateria de aceite rodar. Com sk_live_ o flag é IGNORADO —
+  // a regra de custódia (split obrigatório) é absoluta em produção.
+  allowNoSplitInTest = process.env.PAGARME_ALLOW_NO_SPLIT === 'true',
+} = {}) {
   if (!secretKey || !/^sk_/.test(secretKey)) {
     throw new Error('createPagarmePsp: PAGARME_SECRET_KEY (sk_...) é obrigatória');
   }
+  const isTestKey = /^sk_test_/.test(secretKey);
+  const noSplitOk = allowNoSplitInTest && isTestKey;
   const authHeader = `Basic ${Buffer.from(`${secretKey}:`).toString('base64')}`;
 
   async function api(method, path, body) {
@@ -68,7 +80,8 @@ function createPagarmePsp({ secretKey, webhookBasicAuth = null, fetchImpl = fetc
 
   /** Corpo comum do pedido: total = consumo + gorjeta, split integral pro venue. */
   function baseOrder({ chargeRef, amountCents, tipCents, recipientId, description }) {
-    if (typeof recipientId !== 'string' || !/^rp_/.test(recipientId)) {
+    const hasRecipient = typeof recipientId === 'string' && /^rp_/.test(recipientId);
+    if (!hasRecipient && !noSplitOk) {
       throw new Error('pagarme: recipientId (rp_...) é obrigatório — recusando cobrança de custódia da plataforma');
     }
     assertCents(amountCents, 'amountCents');
@@ -79,15 +92,21 @@ function createPagarmePsp({ secretKey, webhookBasicAuth = null, fetchImpl = fetc
       code: chargeRef.slice(0, 64),
       items: [{ description: (description || 'Racha').slice(0, 64), amount: total, quantity: 1, code: 'racha' }],
       customer: { name: 'Cliente Racha', type: 'individual', email: 'cliente@racha.app' },
-      metadata: { charge_ref: chargeRef, tip_cents: String(tipCents) },
+      metadata: {
+        charge_ref: chargeRef,
+        tip_cents: String(tipCents),
+        ...(hasRecipient ? {} : { split_mode: 'none_test' }), // rastreável no extrato
+      },
       // 100% pro recebedor do restaurante; taxas do gateway saem dele
       // (repasse comercial é assunto do contrato, não do fluxo de fundos).
-      split: [{
-        recipient_id: recipientId,
-        amount: total,
-        type: 'flat',
-        options: { charge_processing_fee: true, charge_remainder_fee: true, liable: true },
-      }],
+      ...(hasRecipient ? {
+        split: [{
+          recipient_id: recipientId,
+          amount: total,
+          type: 'flat',
+          options: { charge_processing_fee: true, charge_remainder_fee: true, liable: true },
+        }],
+      } : {}),
     };
   }
 
