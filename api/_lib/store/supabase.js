@@ -19,6 +19,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { reduce } = require('../checks/check-state');
+const { buildAtivacao } = require('../checks/ativacao');
 
 function required(name) {
   const v = process.env[name];
@@ -200,7 +201,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     async listTables(venueId) {
       const { data: tabs, error } = await client
         .from('venue_tables')
-        .select('id, label, qr_token, qr_rotated_at, active')
+        .select('id, label, qr_token, qr_rotated_at, active, training')
         .eq('venue_id', venueId);
       throwOn(error, 'listTables');
       // hasOpenCheck by DERIVED state (the checks.status cache is unmaintained
@@ -219,7 +220,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return (tabs || [])
         .map((t) => ({
           id: t.id, label: t.label, qrToken: t.qr_token,
-          qrRotatedAt: t.qr_rotated_at, active: t.active,
+          qrRotatedAt: t.qr_rotated_at, active: t.active, training: t.training === true,
           hasOpenCheck: openByTable.has(t.id),
         }))
         // Same locale-numeric sort as the memory store (Mesa 2 < Mesa 10).
@@ -240,6 +241,17 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         .single();
       throwOn(error, 'rotateTableQr');
       return { id: data.id, qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at };
+    },
+    /** Mesa de treino: paga normal, mas fica FORA das métricas do painel. */
+    async setTableTraining(tableId, training) {
+      const { data, error } = await client
+        .from('venue_tables')
+        .update({ training: !!training })
+        .eq('id', tableId)
+        .select('id, training')
+        .single();
+      throwOn(error, 'setTableTraining');
+      return { id: data.id, training: data.training };
     },
     async setTableActive(tableId, active) {
       // Refuse to deactivate a table with an open check — no new token to fall
@@ -705,22 +717,48 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         });
       }
 
-      const { data: confirmed, error: pErr } = await client
+      // Mesas de TREINO ficam fora de todos os números (workshop pré-turno
+      // não é movimento da casa) — espelha o memory store.
+      const { data: trainingTables, error: ttErr } = await client
+        .from('venue_tables')
+        .select('id')
+        .eq('venue_id', venueId)
+        .eq('training', true);
+      throwOn(ttErr, 'getPanelView.trainingTables');
+      const trainingChecks = new Set();
+      if ((trainingTables || []).length > 0) {
+        const { data: tChecks, error: tcErr } = await client
+          .from('checks')
+          .select('id')
+          .eq('venue_id', venueId)
+          .in('table_id', trainingTables.map((t) => t.id));
+        throwOn(tcErr, 'getPanelView.trainingChecks');
+        for (const c of tChecks || []) trainingChecks.add(c.id);
+      }
+
+      const { data: confirmedRaw, error: pErr } = await client
         .from('payments')
-        .select('amount_cents, tip_cents')
+        .select('amount_cents, tip_cents, check_id, confirmed_at, method')
         .eq('venue_id', venueId)
         .eq('status', 'confirmado');
       throwOn(pErr, 'getPanelView.payments');
+      const confirmed = (confirmedRaw || [])
+        .filter((p) => !trainingChecks.has(p.check_id))
+        .map((p) => ({
+          amountCents: p.amount_cents, tipCents: p.tip_cents,
+          checkId: p.check_id, confirmedAt: p.confirmed_at, method: p.method,
+        }));
 
       return {
         venue: { name: venue.name },
         checks: rows,
         today: {
-          confirmedCents: (confirmed || []).reduce((s, p) => s + p.amount_cents, 0),
-          tipsCents: (confirmed || []).reduce((s, p) => s + p.tip_cents, 0),
-          paymentsCount: (confirmed || []).length,
+          confirmedCents: confirmed.reduce((s, p) => s + p.amountCents, 0),
+          tipsCents: confirmed.reduce((s, p) => s + p.tipCents, 0),
+          paymentsCount: confirmed.length,
           anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
         },
+        ativacao: buildAtivacao(confirmed),
       };
     },
   };

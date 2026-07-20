@@ -352,6 +352,15 @@ async function route(req, res) {
       const r = await store.rotateTableQr(b.tableId);
       return json(res, 200, { success: true, data: r });
     }
+    if (req.method === 'POST' && url.pathname === '/api/tables/training') {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.tableId || typeof b.training !== 'boolean') return json(res, 400, { success: false, error: 'tableId e training são obrigatórios' });
+      try { await auth.requireTableOwner(user, b.tableId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const r = await store.setTableTraining(b.tableId, b.training);
+      return json(res, 200, { success: true, data: r });
+    }
     if (req.method === 'POST' && url.pathname === '/api/tables/active') {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
@@ -362,6 +371,28 @@ async function route(req, res) {
         const r = await store.setTableActive(b.tableId, b.active);
         return json(res, 200, { success: true, data: r });
       } catch (e) { return json(res, 409, { success: false, error: e.message }); }
+    }
+
+    // --- demo pública: reset da mesa demoracha (cron diário + on-demand) -----
+    // Sem auth de propósito: só toca a mesa fixa da demonstração, é
+    // idempotente e rate-limited — o pior abuso possível é... resetar a demo.
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/demo/reset') {
+      if (!rateLimitOpen(req)) return json(res, 429, { success: false, error: 'calma lá' });
+      const view = await store.getCheckByQrToken('demoracha');
+      if (view && view.state.paidCents === 0 && view.state.totalCents === 21310) {
+        return json(res, 200, { success: true, data: { status: 'já fresca' } });
+      }
+      if (view) await store.appendEvent(view.check.id, 'CLOSED', {});
+      const hit = await store.getVenueByTableToken('demoracha');
+      if (!hit) return json(res, 404, { success: false, error: 'demo não existe neste ambiente' });
+      await store.openCheck('demoracha', [
+        { id: 'i1', name: 'Picanha na chapa', priceCents: 8990 },
+        { id: 'i2', name: 'Chopp artesanal (4x)', priceCents: 5560 },
+        { id: 'i3', name: 'Batata rústica', priceCents: 3290 },
+        { id: 'i4', name: 'Refrigerante (2x)', priceCents: 1580 },
+        { id: 'i5', name: 'Pudim da casa', priceCents: 1890 },
+      ]);
+      return json(res, 200, { success: true, data: { status: 'resetada', totalCents: 21310 } });
     }
 
     // --- demo-only: simulate the bank confirming the Pix ---------------------

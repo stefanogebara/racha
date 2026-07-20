@@ -288,6 +288,32 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     expect((await store.getHouseAccountByToken(acc.accountToken)).id).toBe(acc.id);
   });
 
+  test('mesa de treino: paga normal, mas fica fora dos totais e da ativação do painel', async () => {
+    const tv = await store.seedVenue({ name: 'Treino', servicoBp: 1000, pspRecipientId: 'rcpt_tr' });
+    const mesaReal = await store.seedTable(tv.id, `Mesa ${crypto.randomInt(1000, 9999)}`);
+    const mesaTreino = await store.seedTable(tv.id, `Treino ${crypto.randomInt(1000, 9999)}`);
+    const tgl = await store.setTableTraining(mesaTreino.id, true);
+    expect(tgl.training).toBe(true);
+    expect((await store.listTables(tv.id)).find((t) => t.id === mesaTreino.id).training).toBe(true);
+
+    // paga R$10 na mesa real e R$99 na mesa de treino
+    const cReal = await store.openCheck(mesaReal.qrToken, [{ id: 'a', name: 'A', priceCents: 1000 }]);
+    const cTreino = await store.openCheck(mesaTreino.qrToken, [{ id: 'b', name: 'B', priceCents: 9900 }]);
+    for (const [c, cents] of [[cReal, 1000], [cTreino, 9900]]) {
+      const ch = await charge({ checkId: c.id, amountCents: cents, tipCents: 0 });
+      const wh = psp.buildConfirmationWebhook({ txid: ch.txid, amountCents: cents, tipCents: 0 });
+      await handler(wh.rawBody, wh.signature);
+    }
+
+    const panel = await store.getPanelView(tv.id);
+    expect(panel.today.confirmedCents).toBe(1000);        // só a mesa real
+    expect(panel.today.paymentsCount).toBe(1);
+    expect(panel.ativacao.semana.valorCents).toBe(1000);  // treino fora da série
+    expect(panel.ativacao.semana.contas).toBe(1);
+    expect(panel.ativacao.dias).toHaveLength(7);
+    expect(panel.ativacao.metodos.pix).toBe(1);
+  });
+
   test('open check stays reachable after 10+ closed checks on the same table (review finding)', async () => {
     const hv = await store.seedVenue({ name: 'MesaCheia', servicoBp: 1000, pspRecipientId: 'rcpt_cheia' });
     const t = await store.seedTable(hv.id, `Mesa ${crypto.randomInt(1000, 9999)}`);

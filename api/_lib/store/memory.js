@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const { reduce } = require('../checks/check-state');
+const { buildAtivacao } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
 
 function createMemoryStore() {
@@ -83,7 +84,7 @@ function createMemoryStore() {
     }
     const qrToken = crypto.randomUUID().replace(/-/g, '');
     const id = crypto.randomUUID();
-    const row = { id, venueId, label: trimmed, qrToken, qrRotatedAt: null, active: true };
+    const row = { id, venueId, label: trimmed, qrToken, qrRotatedAt: null, active: true, training: false };
     tables.set(qrToken, row);
     tableById.set(id, row);
     return { ...row };
@@ -147,7 +148,7 @@ function createMemoryStore() {
           );
           return {
             id: t.id, label: t.label, qrToken: t.qrToken,
-            qrRotatedAt: t.qrRotatedAt, active: t.active,
+            qrRotatedAt: t.qrRotatedAt, active: t.active, training: t.training === true,
             hasOpenCheck: !!openCheck,
           };
         });
@@ -172,6 +173,13 @@ function createMemoryStore() {
      * Refuses to DEACTIVATE a table with an open check — that would strand a
      * mid-payment diner with no new token to fall back to (review finding).
      */
+    /** Mesa de treino: paga normal, mas fica FORA das métricas do painel. */
+    async setTableTraining(tableId, training) {
+      const t = tableById.get(tableId);
+      if (!t) throw new Error('unknown table');
+      t.training = !!training;
+      return { id: t.id, training: t.training };
+    },
     async setTableActive(tableId, active) {
       const t = tableById.get(tableId);
       if (!t) throw new Error('unknown table');
@@ -274,9 +282,17 @@ function createMemoryStore() {
         });
       // Venue-scoped like the supabase store — a shared demo instance must
       // never leak one venue's totals into another's panel (review finding).
+      // Mesas de TREINO ficam fora de todos os números (workshop pré-turno
+      // não é movimento da casa).
+      const trainingChecks = new Set(
+        [...checks.values()]
+          .filter((c) => c.venueId === venueId && (tableById.get(c.tableId) || {}).training)
+          .map((c) => c.id),
+      );
       const confirmed = [...payments.values()].filter((p) =>
         p.status === 'confirmado'
-        && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId);
+        && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId
+        && !trainingChecks.has(p.checkId));
       return {
         venue: { name: venue.name },
         checks: rows,
@@ -286,6 +302,7 @@ function createMemoryStore() {
           paymentsCount: confirmed.length,
           anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
         },
+        ativacao: buildAtivacao(confirmed),
       };
     },
 
