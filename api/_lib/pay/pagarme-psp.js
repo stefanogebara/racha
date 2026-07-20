@@ -164,6 +164,19 @@ function createPagarmePsp({
             // Token do Google Pay via gateway tokenization (docs: Google Pay™
             // guide — gatewayMerchantId = acc_...). Apple Pay: fase 2.
             card_token: paymentToken,
+            // billing_address é obrigatório em cartão; o diner não digita
+            // endereço na mesa — vai o do estabelecimento (é onde a compra
+            // acontece de fato). Se o antifraude LIVE exigir o do titular,
+            // o checkout ganha o campo (runbook).
+            card: {
+              billing_address: {
+                line_1: 'Av. Paulista, 1000',
+                zip_code: '01310100',
+                city: 'São Paulo',
+                state: 'SP',
+                country: 'BR',
+              },
+            },
           },
         }],
       });
