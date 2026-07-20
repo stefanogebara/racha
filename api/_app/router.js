@@ -39,9 +39,15 @@ const store = useSupabase
   ? require('../_lib/store/supabase').createSupabaseStore()
   : createMemoryStore();
 
-// Stable webhook secret in prod (an instance-random secret would break
-// verification across scaled instances). Random fallback for a bare local run.
-const psp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
+// PSP real por env (RACHA_PSP=pagarme + PAGARME_SECRET_KEY); mock é o
+// default — demo e testes seguem idênticos. Stable webhook secret in prod
+// (an instance-random secret would break verification across instances).
+const psp = process.env.RACHA_PSP === 'pagarme'
+  ? require('../_lib/pay/pagarme-psp').createPagarmePsp({
+      secretKey: process.env.PAGARME_SECRET_KEY,
+      webhookBasicAuth: process.env.PAGARME_WEBHOOK_AUTH || null,
+    })
+  : new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 const charge = createChargeService({ store, psp });
 const checkSvc = createCheckService({ store });
 const houseSvc = createHouseService({ store, psp });
@@ -154,7 +160,9 @@ async function route(req, res) {
     }
     if (req.method === 'POST' && url.pathname === '/api/webhooks/psp') {
       const raw = await readBody(req);
-      const result = await handleWebhook(raw, req.headers['x-racha-signature']);
+      // Headers inteiros: o mock pega x-racha-signature, o Pagar.me valida o
+      // Basic Auth do endpoint (e re-busca a cobrança na API de todo jeito).
+      const result = await handleWebhook(raw, req.headers);
       if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
         await writeBackToPos(result.checkId);
       }

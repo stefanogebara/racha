@@ -41,7 +41,9 @@ function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, fin
    * Throws WebhookVerificationError upward (HTTP layer → 401).
    */
   return async function handlePspWebhook(rawBody, signatureHeader) {
-    const parsed = psp.verifyAndParseWebhook(rawBody, signatureHeader); // throws on bad sig
+    // await: o mock verifica em memória (sync), o Pagar.me RE-BUSCA a
+    // cobrança na API (async) — o corpo do webhook nunca é a verdade.
+    const parsed = await psp.verifyAndParseWebhook(rawBody, signatureHeader); // throws on bad sig/auth
 
     const check = await findCheckByTxid(parsed.txid);
     if (!check) {

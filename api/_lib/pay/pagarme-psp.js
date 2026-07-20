@@ -1,0 +1,198 @@
+'use strict';
+
+/**
+ * Pagar.me (Stone) — o PSP real do Racha. Implementa o MESMO contrato do
+ * MockPsp (create-charge/webhook-handler não sabem qual PSP está atrás):
+ *
+ *   createPixCharge({ chargeRef, amountCents, tipCents, recipientId, description })
+ *     → { txid, copiaECola, expiresAt }
+ *   createWalletCharge({ chargeRef, amountCents, tipCents, recipientId, wallet, paymentToken })
+ *     → { txid }
+ *   verifyAndParseWebhook(rawBody, signatureOrHeaders)
+ *     → Promise<{ kind, txid, amountCents, tipCents, method, raw }>
+ *
+ * Decisões de segurança:
+ * - O webhook do Pagar.me v5 NÃO tem assinatura HMAC. Nunca confiamos no
+ *   corpo: extraímos o charge id e RE-BUSCAMOS a cobrança na API com a
+ *   secret key — a API é a verdade, o webhook é só um sino. Opcionalmente
+ *   validamos o Basic Auth configurado no endpoint (PAGARME_WEBHOOK_AUTH).
+ * - Split SEMPRE presente com o recebedor do restaurante (rp_...) — dinheiro
+ *   nunca para na conta da plataforma (BACEN Res. 494). O restaurante é o
+ *   merchant of record do seu recebedor.
+ * - Gorjeta viaja na MESMA cobrança (total = consumo + serviço) e fica
+ *   separada via metadata.tip_cents — o ledger lê de lá (Lei 13.419).
+ *
+ * Campos batem com docs.pagar.me core/v5 (orders); a ativação em test mode
+ * valida na prática (checklist em docs/psp/README.md).
+ */
+
+const BASE_URL = 'https://api.pagar.me/core/v5';
+
+class WebhookVerificationError extends Error {
+  constructor(message) { super(message); this.name = 'WebhookVerificationError'; }
+}
+
+function assertCents(v, name) {
+  if (!Number.isSafeInteger(v) || v < 0) {
+    throw new TypeError(`${name} must be a non-negative integer, got ${v}`);
+  }
+}
+
+function createPagarmePsp({ secretKey, webhookBasicAuth = null, fetchImpl = fetch } = {}) {
+  if (!secretKey || !/^sk_/.test(secretKey)) {
+    throw new Error('createPagarmePsp: PAGARME_SECRET_KEY (sk_...) é obrigatória');
+  }
+  const authHeader = `Basic ${Buffer.from(`${secretKey}:`).toString('base64')}`;
+
+  async function api(method, path, body) {
+    const res = await fetchImpl(`${BASE_URL}${path}`, {
+      method,
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+    if (!res.ok) {
+      const msg = (json && (json.message || JSON.stringify(json.errors || json))) || `HTTP ${res.status}`;
+      const err = new Error(`pagarme ${method} ${path}: ${msg}`);
+      // 4xx do gateway em cobrança = recusa (402 pro diner), não bug nosso.
+      err.statusCode = res.status >= 400 && res.status < 500 ? 402 : 502;
+      throw err;
+    }
+    return json;
+  }
+
+  /** Corpo comum do pedido: total = consumo + gorjeta, split integral pro venue. */
+  function baseOrder({ chargeRef, amountCents, tipCents, recipientId, description }) {
+    if (typeof recipientId !== 'string' || !/^rp_/.test(recipientId)) {
+      throw new Error('pagarme: recipientId (rp_...) é obrigatório — recusando cobrança de custódia da plataforma');
+    }
+    assertCents(amountCents, 'amountCents');
+    assertCents(tipCents, 'tipCents');
+    const total = amountCents + tipCents;
+    if (total === 0) throw new TypeError('zero-value charge');
+    return {
+      code: chargeRef.slice(0, 64),
+      items: [{ description: (description || 'Racha').slice(0, 64), amount: total, quantity: 1, code: 'racha' }],
+      customer: { name: 'Cliente Racha', type: 'individual', email: 'cliente@racha.app' },
+      metadata: { charge_ref: chargeRef, tip_cents: String(tipCents) },
+      // 100% pro recebedor do restaurante; taxas do gateway saem dele
+      // (repasse comercial é assunto do contrato, não do fluxo de fundos).
+      split: [{
+        recipient_id: recipientId,
+        amount: total,
+        type: 'flat',
+        options: { charge_processing_fee: true, charge_remainder_fee: true, liable: true },
+      }],
+    };
+  }
+
+  return {
+    provider: 'pagarme',
+
+    async createPixCharge({ chargeRef, amountCents, tipCents = 0, recipientId, description = '' }) {
+      const order = await api('POST', '/orders', {
+        ...baseOrder({ chargeRef, amountCents, tipCents, recipientId, description }),
+        payments: [{
+          payment_method: 'pix',
+          pix: { expires_in: 900 }, // 15 min, igual ao mock
+        }],
+      });
+      const charge = order.charges && order.charges[0];
+      const tx = charge && charge.last_transaction;
+      if (!charge || !tx || !tx.qr_code) {
+        throw new Error('pagarme: resposta sem qr_code — cobrança Pix não criada');
+      }
+      return {
+        txid: charge.id, // ch_... — chave de idempotência do webhook
+        copiaECola: tx.qr_code,
+        expiresAt: tx.expires_at || new Date(Date.now() + 900 * 1000).toISOString(),
+      };
+    },
+
+    async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken }) {
+      if (!['apple_pay', 'google_pay'].includes(wallet)) {
+        throw new TypeError(`createWalletCharge: unknown wallet ${wallet}`);
+      }
+      if (typeof paymentToken !== 'string' || paymentToken.length < 8) {
+        const err = new Error('cartão recusado — token de pagamento inválido');
+        err.statusCode = 402;
+        throw err;
+      }
+      const order = await api('POST', '/orders', {
+        ...baseOrder({ chargeRef, amountCents, tipCents, recipientId, description: `Racha ${wallet}` }),
+        payments: [{
+          payment_method: 'credit_card',
+          credit_card: {
+            installments: 1,
+            statement_descriptor: 'RACHA',
+            // Token do Google Pay via gateway tokenization (docs: Google Pay™
+            // guide — gatewayMerchantId = acc_...). Apple Pay: fase 2.
+            card_token: paymentToken,
+          },
+        }],
+      });
+      const charge = order.charges && order.charges[0];
+      if (!charge) throw new Error('pagarme: resposta sem charge — cobrança de cartão não criada');
+      const status = charge.status;
+      if (status === 'failed' || status === 'canceled') {
+        const err = new Error('cartão recusado');
+        err.statusCode = 402;
+        throw err;
+      }
+      return { txid: charge.id };
+    },
+
+    /**
+     * Webhook: valida o Basic Auth do endpoint (se configurado) e RE-BUSCA a
+     * cobrança na API — o corpo do POST nunca é a fonte de verdade.
+     */
+    async verifyAndParseWebhook(rawBody, signatureOrHeaders) {
+      if (webhookBasicAuth) {
+        const headers = (signatureOrHeaders && typeof signatureOrHeaders === 'object')
+          ? signatureOrHeaders : {};
+        const got = headers.authorization || headers.Authorization || '';
+        const want = `Basic ${Buffer.from(webhookBasicAuth).toString('base64')}`;
+        if (got !== want) throw new WebhookVerificationError('webhook basic auth mismatch');
+      }
+      let event;
+      try { event = JSON.parse(rawBody); } catch {
+        throw new WebhookVerificationError('body is not JSON');
+      }
+      const type = event && event.type; // ex.: charge.paid, charge.refunded
+      const chargeId = event && event.data && (event.data.id || (event.data.charge && event.data.charge.id));
+      if (!type || typeof chargeId !== 'string' || !/^ch_/.test(chargeId)) {
+        throw new WebhookVerificationError(`webhook sem charge id (type=${type})`);
+      }
+      if (!/^charge\.(paid|refunded|partial_canceled)$/.test(type)) {
+        // Outros eventos (order.*, charge.created...) não movem dinheiro no
+        // nosso ledger — o handler rejeita txids desconhecidos, então
+        // devolvemos um shape que nunca casa.
+        throw new WebhookVerificationError(`evento ignorado: ${type}`);
+      }
+
+      // A VERDADE: estado atual da cobrança direto da API.
+      const charge = await api('GET', `/charges/${chargeId}`);
+      const totalCents = charge.amount;
+      const tipCents = Number((charge.metadata && charge.metadata.tip_cents) || 0) || 0;
+      const amountCents = Math.max(0, totalCents - tipCents);
+      const method = charge.payment_method === 'pix' ? 'pix' : 'card';
+
+      if (type === 'charge.paid') {
+        if (charge.status !== 'paid') {
+          throw new WebhookVerificationError(`webhook diz paid mas API diz ${charge.status}`);
+        }
+        return { kind: 'payment_confirmed', txid: charge.id, amountCents, tipCents, method, raw: charge };
+      }
+      // Reembolso: v1 trata reembolso TOTAL (parciais entram no checklist de
+      // ativação — exigem mapear canceled_amount por transação).
+      return { kind: 'refund', txid: charge.id, amountCents, tipCents, method, raw: charge };
+    },
+  };
+}
+
+module.exports = { createPagarmePsp, WebhookVerificationError };

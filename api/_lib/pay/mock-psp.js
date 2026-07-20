@@ -26,7 +26,11 @@
 
 const crypto = require('crypto');
 
-class WebhookVerificationError extends Error {}
+class WebhookVerificationError extends Error {
+  // name explícito: o router mapeia por err.name → 401 (subclasse de Error
+  // sozinha ficaria 'Error' e viraria 500).
+  constructor(message) { super(message); this.name = 'WebhookVerificationError'; }
+}
 
 function assertCents(v, name) {
   if (!Number.isSafeInteger(v) || v < 0) {
@@ -139,10 +143,14 @@ class MockPsp {
    * only then is the body parsed. Throws WebhookVerificationError — the HTTP
    * layer maps it to 401 and never processes the body.
    */
-  verifyAndParseWebhook(rawBody, signatureHeader) {
+  verifyAndParseWebhook(rawBody, signatureOrHeaders) {
     if (typeof rawBody !== 'string' || rawBody.length === 0) {
       throw new WebhookVerificationError('empty webhook body');
     }
+    // Aceita o header cru (testes) OU o objeto req.headers (router).
+    const signatureHeader = typeof signatureOrHeaders === 'object' && signatureOrHeaders !== null
+      ? signatureOrHeaders['x-racha-signature']
+      : signatureOrHeaders;
     if (typeof signatureHeader !== 'string' || !/^[a-f0-9]{64}$/i.test(signatureHeader)) {
       throw new WebhookVerificationError('missing/malformed signature');
     }
