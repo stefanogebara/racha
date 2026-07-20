@@ -90,6 +90,7 @@ async function legCard() {
   const pay = await j('POST', `${BASE}/api/pay`, {
     token: MESA, amountCents: 500, tipCents: 100,
     payerLabel: 'Aceite Card', wallet: 'google_pay', paymentToken: tok,
+    payerDocument: '39053344705', // CPF de teste com dígitos válidos (docs)
   });
   if (!pay.data.success) throw new Error(`pay falhou: ${pay.status} ${pay.data.error}`);
   process.stdout.write(`charge criada: ${pay.data.data.txid} (method=${pay.data.data.method})\naguardando webhook charge.paid`);
@@ -105,6 +106,7 @@ async function legDecline() {
   const pay = await j('POST', `${BASE}/api/pay`, {
     token: MESA, amountCents: 300, tipCents: 0,
     payerLabel: 'Aceite Decline', wallet: 'google_pay', paymentToken: tok,
+    payerDocument: '39053344705',
   });
   if (pay.status !== 402 && pay.data.success !== false) {
     throw new Error(`esperava recusa, veio: ${pay.status} ${JSON.stringify(pay.data).slice(0, 160)}`);
@@ -119,6 +121,7 @@ async function legPix() {
   const before = (await checkState()).paidCents;
   const pay = await j('POST', `${BASE}/api/pay`, {
     token: MESA, amountCents: 700, tipCents: 70, payerLabel: 'Aceite Pix',
+    payerDocument: '39053344705',
   });
   if (!pay.data.success) throw new Error(`pix falhou: ${pay.status} ${pay.data.error}`);
   const d = pay.data.data;

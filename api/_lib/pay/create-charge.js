@@ -31,8 +31,14 @@ function createChargeService({ store, psp }) {
    * @param {'pix'|'apple_pay'|'google_pay'} [args.wallet]  omitted → Pix.
    * @param {string} [args.paymentToken]  wallet-sheet token (required for wallets)
    */
-  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null }) {
+  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null, payerDocument = null }) {
     if (typeof checkId !== 'string' || !checkId) throw badRequest('checkId required');
+    // CPF do pagador — o adquirente exige em cartão (BR). Normaliza e valida
+    // formato aqui; nulo é aceito (Pix pode dispensar).
+    if (payerDocument !== null) {
+      payerDocument = String(payerDocument).replace(/\D/g, '');
+      if (!/^\d{11}$/.test(payerDocument)) throw badRequest('CPF inválido (11 dígitos)');
+    }
     if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw badRequest('amountCents must be a non-negative integer');
     if (!Number.isSafeInteger(tipCents) || tipCents < 0) throw badRequest('tipCents must be a non-negative integer');
     if (amountCents + tipCents === 0) throw badRequest('zero-value charge');
@@ -65,13 +71,14 @@ function createChargeService({ store, psp }) {
       charge = await psp.createWalletCharge({
         chargeRef, amountCents, tipCents,
         recipientId: venue.pspRecipientId,
-        wallet, paymentToken,
+        wallet, paymentToken, payerDocument,
       });
     } else {
       charge = await psp.createPixCharge({
         chargeRef, amountCents, tipCents,
         recipientId: venue.pspRecipientId,
         description: payerLabel ? `Racha ${payerLabel}` : 'Racha',
+        payerDocument,
       });
     }
 

@@ -80,6 +80,10 @@ export default function WalletButtons({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gpayReady, setGpayReady] = useState(false);
+  // CPF do pagador — o adquirente exige em cartão no BR ("customer Document
+  // is required"); padrão de todo checkout brasileiro.
+  const [cpf, setCpf] = useState('');
+  const cpfDigits = cpf.replace(/\D/g, '');
 
   const total = amountCents + tipCents;
 
@@ -93,8 +97,8 @@ export default function WalletButtons({
     return () => { alive = false; };
   }, []);
 
-  async function settle(wallet: Wallet, paymentToken: string) {
-    const charge = await api.payWallet(token, amountCents, tipCents, payerLabel, wallet, paymentToken);
+  async function settle(wallet: Wallet, paymentToken: string, payerDocument?: string) {
+    const charge = await api.payWallet(token, amountCents, tipCents, payerLabel, wallet, paymentToken, payerDocument);
     try {
       await api.devConfirm(charge.txid); // demo: confirma na hora
     } catch (e) {
@@ -121,7 +125,7 @@ export default function WalletButtons({
         },
         merchantInfo: { merchantName: `Racha · ${venueName}`.slice(0, 60) },
       });
-      await settle('google_pay', data.paymentMethodData.tokenizationData.token);
+      await settle('google_pay', data.paymentMethodData.tokenizationData.token, cpfDigits);
     } catch (e) {
       const status = (e as { statusCode?: string }).statusCode;
       if (status !== 'CANCELED') setError((e as Error).message); // fechar a sheet não é erro
@@ -149,7 +153,16 @@ export default function WalletButtons({
     if (!gpayReady) return null; // device sem Google Pay → fica o Pix (e o saldo)
     return (
       <>
-        <button type="button" className="walletbtn gpay" disabled={disabled || busy} onClick={realGooglePay}>
+        <input
+          className="namefield" inputMode="numeric" maxLength={14}
+          placeholder="CPF (a operadora do cartão exige)"
+          value={cpf} onChange={(e) => setCpf(e.target.value)}
+        />
+        <button
+          type="button" className="walletbtn gpay"
+          disabled={disabled || busy || cpfDigits.length !== 11}
+          onClick={realGooglePay}
+        >
           {busy ? 'autorizando…' : 'G Pay'}
         </button>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}

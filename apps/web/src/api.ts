@@ -109,15 +109,16 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, amountCents, tipCents, payerLabel }),
     }),
-  /** Apple/Google Pay: mesma rota e portões do Pix, cobrança de cartão tokenizada. */
+  /** Apple/Google Pay: mesma rota e portões do Pix, cobrança de cartão tokenizada.
+   *  payerDocument (CPF) é exigido pelo adquirente em cartão no BR. */
   payWallet: (
     token: string, amountCents: number, tipCents: number, payerLabel: string | null,
-    wallet: 'apple_pay' | 'google_pay', paymentToken: string,
+    wallet: 'apple_pay' | 'google_pay', paymentToken: string, payerDocument?: string,
   ) =>
     request<ChargeResult>('/api/pay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, amountCents, tipCents, payerLabel, wallet, paymentToken }),
+      body: JSON.stringify({ token, amountCents, tipCents, payerLabel, wallet, paymentToken, payerDocument: payerDocument ?? null }),
     }),
   /** Demo-only: plays the diner's bank confirming the Pix. */
   devConfirm: (txid: string) =>

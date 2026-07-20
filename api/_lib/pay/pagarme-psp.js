@@ -79,7 +79,7 @@ function createPagarmePsp({
   }
 
   /** Corpo comum do pedido: total = consumo + gorjeta, split integral pro venue. */
-  function baseOrder({ chargeRef, amountCents, tipCents, recipientId, description }) {
+  function baseOrder({ chargeRef, amountCents, tipCents, recipientId, description, payerDocument = null }) {
     const hasRecipient = typeof recipientId === 'string' && /^rp_/.test(recipientId);
     if (!hasRecipient && !noSplitOk) {
       throw new Error('pagarme: recipientId (rp_...) é obrigatório — recusando cobrança de custódia da plataforma');
@@ -91,7 +91,12 @@ function createPagarmePsp({
     return {
       code: chargeRef.slice(0, 64),
       items: [{ description: (description || 'Racha').slice(0, 64), amount: total, quantity: 1, code: 'racha' }],
-      customer: { name: 'Cliente Racha', type: 'individual', email: 'cliente@racha.app' },
+      // O adquirente exige documento do pagador em cartão ("The customer
+      // Document is required") — vem do checkout quando o método pede.
+      customer: {
+        name: 'Cliente Racha', type: 'individual', email: 'cliente@racha.app',
+        ...(payerDocument ? { document: payerDocument } : {}),
+      },
       metadata: {
         charge_ref: chargeRef,
         tip_cents: String(tipCents),
@@ -113,9 +118,9 @@ function createPagarmePsp({
   return {
     provider: 'pagarme',
 
-    async createPixCharge({ chargeRef, amountCents, tipCents = 0, recipientId, description = '' }) {
+    async createPixCharge({ chargeRef, amountCents, tipCents = 0, recipientId, description = '', payerDocument = null }) {
       const order = await api('POST', '/orders', {
-        ...baseOrder({ chargeRef, amountCents, tipCents, recipientId, description }),
+        ...baseOrder({ chargeRef, amountCents, tipCents, recipientId, description, payerDocument }),
         payments: [{
           payment_method: 'pix',
           pix: { expires_in: 900 }, // 15 min, igual ao mock
@@ -133,7 +138,7 @@ function createPagarmePsp({
       };
     },
 
-    async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken }) {
+    async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, payerDocument = null }) {
       if (!['apple_pay', 'google_pay'].includes(wallet)) {
         throw new TypeError(`createWalletCharge: unknown wallet ${wallet}`);
       }
@@ -143,7 +148,7 @@ function createPagarmePsp({
         throw err;
       }
       const order = await api('POST', '/orders', {
-        ...baseOrder({ chargeRef, amountCents, tipCents, recipientId, description: `Racha ${wallet}` }),
+        ...baseOrder({ chargeRef, amountCents, tipCents, recipientId, description: `Racha ${wallet}`, payerDocument }),
         payments: [{
           payment_method: 'credit_card',
           credit_card: {

@@ -155,6 +155,7 @@ async function route(req, res) {
         tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null,
         // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
         wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
+        payerDocument: body.payerDocument ?? null, // CPF — adquirente exige em cartão
       });
       return json(res, 200, { success: true, data: result });
     }
