@@ -75,7 +75,28 @@ Pagar.me: MDR não-negociável acima do mercado quando houver volume.
 ## Segurança
 
 - A `sk_` NUNCA entra no repo nem no chat — só Vercel env / `.env` local.
-- O endpoint de webhook não confia no corpo: re-busca por id. Basic Auth é
-  camada extra, não a única defesa.
+- O endpoint de webhook não confia no corpo: re-busca por id. **O webhook do
+  Pagar.me chega SEM Authorization** (verificado nos logs, 2026-07-20) —
+  `PAGARME_WEBHOOK_AUTH` foi removido; a defesa é o verify-by-refetch.
 - Loads do saldo da casa continuam **só Pix** mesmo com cartão ligado
   (fraude de chargeback em crédito pré-pago).
+
+## Estado do aceite em test mode (2026-07-20)
+
+| Perna | Status |
+|---|---|
+| Cartão aprovado → webhook → ledger (+gorjeta separada) | ✅ `ch_nP9yAPKpF2FKEJM1`: pago 6000→6500, tip 100 |
+| Cartão recusado (CVV 6xx) → 402, ledger intacto | ✅ |
+| Estorno via dashboard → `charge.refunded` → ledger | ⏳ 1 clique do fundador |
+| Pix | ⛔ conta sem Pix habilitado (`action_forbidden — Sem ambiente configurado`) → pedir no suporte |
+| Split / recebedor | ⛔ funcionalidade Split desabilitada na conta → mesmo pedido de suporte |
+
+Aprendizados de campo já codificados no adapter: gateway exige CPF
+(`payerDocument` atravessa o stack; checkout de cartão pede CPF), telefone e
+billing_address do customer; dedup de customer por e-mail (e-mail único por
+cobrança); simulador decide recusa pelo **CVV 6xx**, não pelo número.
+Pedido de suporte único: *"habilitar Pix e Split de pagamentos na conta
+acc_d4zGpnxtxyFp2DyV (test mode; marketplace de pagamento na mesa com
+repasse a restaurantes)"*. Cobranças de teste órfãs (retries de webhook dos
+primeiros aceites) podem retro-confirmar no ledger da mesa demo — esperado
+e inofensivo.
