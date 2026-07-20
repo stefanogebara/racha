@@ -115,6 +115,20 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     expect(panel.today.confirmedCents).toBeGreaterThanOrEqual(6000);
     expect(panel.today.tipsCents).toBeGreaterThanOrEqual(600);
     expect(panel.today.anomalies).toBe(0);
+
+    // wallet leg: Apple Pay charge registers method 'card' end to end
+    const wc = await charge({
+      checkId: check.id, amountCents: 1000, tipCents: 0,
+      wallet: 'apple_pay', paymentToken: 'tok_demo_contract1234',
+    });
+    const wwh = psp.buildConfirmationWebhook({ txid: wc.txid, amountCents: 1000, tipCents: 0, method: 'card' });
+    expect((await handler(wwh.rawBody, wwh.signature)).status).toBe('appended');
+    const wrow = await store.getPayment(wc.txid);
+    expect(wrow.method).toBe('card');
+    expect(wrow.status).toBe('confirmado');
+    const wstate = reduce(await store.loadEvents(check.id));
+    expect(wstate.paidCents).toBe(7000);
+    expect(wstate.payments[wc.txid].amountCents).toBe(1000);
   });
 
   test('charge gates hold: no recipient / above remaining', async () => {
