@@ -297,13 +297,13 @@ function createMemoryStore() {
       log.push({ seq, type, payload });
       return seq;
     },
-    async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel }) {
+    async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel, method = 'pix' }) {
       txidToCheck.set(txid, checkId);
       const check = checks.get(checkId);
       payments.set(txid, {
         txid, checkId, venueId: check ? check.venueId : null, // panel scoping
         amountCents, tipCents,
-        payerLabel: payerLabel || null, method: 'pix',
+        payerLabel: payerLabel || null, method,
         status: 'pendente', createdAt: new Date().toISOString(),
       });
     },

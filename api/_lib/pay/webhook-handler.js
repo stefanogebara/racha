@@ -64,7 +64,9 @@ function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, fin
       txid: parsed.txid,
       amountCents: parsed.amountCents,
       tipCents: parsed.tipCents,
-      ...(type === 'PAYMENT_CONFIRMED' ? { method: 'pix' } : {}),
+      // Real method from the PSP ('card' for Apple/Google Pay) — it used to be
+      // hardcoded 'pix', which would mislabel wallet money in the ledger.
+      ...(type === 'PAYMENT_CONFIRMED' ? { method: parsed.method || 'pix' } : {}),
     };
 
     if (type === 'PAYMENT_CONFIRMED' && state && state.payments[parsed.txid]) {

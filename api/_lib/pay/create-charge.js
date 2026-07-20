@@ -21,10 +21,17 @@ function badRequest(msg) {
   return err;
 }
 
+const WALLETS = Object.freeze(['apple_pay', 'google_pay']);
+
 function createChargeService({ store, psp }) {
   if (!store || !psp) throw new Error('createChargeService: missing dependencies');
 
-  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null }) {
+  /**
+   * @param {object} args
+   * @param {'pix'|'apple_pay'|'google_pay'} [args.wallet]  omitted → Pix.
+   * @param {string} [args.paymentToken]  wallet-sheet token (required for wallets)
+   */
+  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null }) {
     if (typeof checkId !== 'string' || !checkId) throw badRequest('checkId required');
     if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw badRequest('amountCents must be a non-negative integer');
     if (!Number.isSafeInteger(tipCents) || tipCents < 0) throw badRequest('tipCents must be a non-negative integer');
@@ -32,6 +39,7 @@ function createChargeService({ store, psp }) {
     if (payerLabel !== null && (typeof payerLabel !== 'string' || payerLabel.length > 60)) {
       throw badRequest('payerLabel must be a string of at most 60 chars');
     }
+    if (wallet !== null && !WALLETS.includes(wallet)) throw badRequest(`carteira desconhecida: ${wallet}`);
 
     const venue = await store.getVenueForCheck(checkId);
     if (!venue) throw badRequest('unknown check');
@@ -49,23 +57,36 @@ function createChargeService({ store, psp }) {
       throw badRequest(`amount exceeds remaining (${remaining} centavos)`);
     }
 
-    const charge = await psp.createPixCharge({
-      chargeRef: `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`,
-      amountCents,
-      tipCents,
-      recipientId: venue.pspRecipientId,
-      description: payerLabel ? `Racha ${payerLabel}` : 'Racha',
-    });
+    const chargeRef = `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`;
+    let charge;
+    if (wallet) {
+      // Apple/Google Pay = tokenized CARD charge. Same money gates as Pix;
+      // tips ride along exactly the same (Lei 13.419 tracking downstream).
+      charge = await psp.createWalletCharge({
+        chargeRef, amountCents, tipCents,
+        recipientId: venue.pspRecipientId,
+        wallet, paymentToken,
+      });
+    } else {
+      charge = await psp.createPixCharge({
+        chargeRef, amountCents, tipCents,
+        recipientId: venue.pspRecipientId,
+        description: payerLabel ? `Racha ${payerLabel}` : 'Racha',
+      });
+    }
 
     await store.registerCharge({
       checkId, txid: charge.txid, amountCents, tipCents, payerLabel,
+      method: wallet ? 'card' : 'pix',
     });
 
     return {
       txid: charge.txid,
-      copiaECola: charge.copiaECola,
-      expiresAt: charge.expiresAt,
+      copiaECola: charge.copiaECola ?? null, // wallets have no BR Code
+      expiresAt: charge.expiresAt ?? null,
       amountCents, tipCents,
+      method: wallet ? 'card' : 'pix',
+      wallet: wallet ?? null,
     };
   };
 }

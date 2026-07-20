@@ -14,9 +14,14 @@
  * Adapter contract (every real PSP adapter must implement):
  *   createPixCharge({ chargeRef, amountCents, tipCents, recipientId, description })
  *     → { txid, copiaECola, expiresAt }
+ *   createWalletCharge({ chargeRef, amountCents, tipCents, recipientId, wallet, paymentToken })
+ *     → { txid }   (wallet: 'apple_pay' | 'google_pay' — tokenized CARD charges;
+ *     the real adapter passes the wallet token to the acquirer. Mock validates
+ *     the token shape and declines garbage, like a real gateway would.)
  *   verifyAndParseWebhook(rawBody, signatureHeader)
- *     → { kind: 'payment_confirmed'|'refund', txid, amountCents, tipCents, raw }
- *     (throws WebhookVerificationError on bad signature/shape)
+ *     → { kind: 'payment_confirmed'|'refund', txid, amountCents, tipCents, method, raw }
+ *     (throws WebhookVerificationError on bad signature/shape; method defaults
+ *     to 'pix' for backward compatibility with older webhook bodies)
  */
 
 const crypto = require('crypto');
@@ -68,18 +73,52 @@ class MockPsp {
     };
   }
 
+  /**
+   * Tokenized card charge via wallet (Apple Pay / Google Pay). The token came
+   * from the device's payment sheet; a real adapter forwards it to the
+   * acquirer. The mock enforces the same gates a gateway would: recipient
+   * required (no platform custody), token shape validated — a malformed token
+   * is DECLINED loudly, never absorbed.
+   */
+  async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken }) {
+    if (typeof recipientId !== 'string' || recipientId.length === 0) {
+      throw new Error('createWalletCharge: recipientId is required — refusing platform-custody charge');
+    }
+    if (typeof chargeRef !== 'string' || chargeRef.length === 0) {
+      throw new TypeError('createWalletCharge: chargeRef required');
+    }
+    if (!['apple_pay', 'google_pay'].includes(wallet)) {
+      throw new TypeError(`createWalletCharge: unknown wallet ${wallet}`);
+    }
+    assertCents(amountCents, 'amountCents');
+    assertCents(tipCents, 'tipCents');
+    if (amountCents + tipCents === 0) throw new TypeError('zero-value charge');
+    if (typeof paymentToken !== 'string' || !/^tok_[A-Za-z0-9_-]{8,}$/.test(paymentToken)) {
+      const err = new Error('cartão recusado — token de pagamento inválido');
+      err.statusCode = 402; // decline, not a server error
+      throw err;
+    }
+    const txid = 'mockw' + crypto
+      .createHash('sha256')
+      .update(`${chargeRef}|${amountCents}|${tipCents}|${recipientId}|${wallet}`)
+      .digest('hex')
+      .slice(0, 27);
+    return { txid };
+  }
+
   /** Sign a webhook body the way the mock "PSP side" would. */
   signWebhook(rawBody) {
     return crypto.createHmac('sha256', this.webhookSecret).update(rawBody, 'utf8').digest('hex');
   }
 
   /** Build a signed confirmation webhook for a charge (demo/tests). */
-  buildConfirmationWebhook({ txid, amountCents, tipCents = 0, payerName = null, payerCpf = null }) {
+  buildConfirmationWebhook({ txid, amountCents, tipCents = 0, payerName = null, payerCpf = null, method = 'pix' }) {
     const body = JSON.stringify({
       kind: 'payment_confirmed',
       txid,
       amount: amountCents,
       tip: tipCents,
+      method,
       horario: new Date().toISOString(),
       pagador: payerName || payerCpf ? { nome: payerName, cpf: payerCpf } : undefined,
     });
@@ -130,7 +169,9 @@ class MockPsp {
     const tipCents = parsed.tip ?? 0;
     assertCents(amountCents, 'webhook amount');
     assertCents(tipCents, 'webhook tip');
-    return { kind, txid, amountCents, tipCents, raw: parsed };
+    // 'card' covers wallet charges (Apple/Google Pay are tokenized cards).
+    const method = parsed.method === 'card' ? 'card' : 'pix';
+    return { kind, txid, amountCents, tipCents, method, raw: parsed };
   }
 }
 

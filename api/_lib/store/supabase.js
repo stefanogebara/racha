@@ -367,7 +367,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     async getPayment(txid) {
       const { data, error } = await client
         .from('payments')
-        .select('txid, check_id, amount_cents, tip_cents, payer_label, status, psp_payload_masked, confirmed_at')
+        .select('txid, check_id, amount_cents, tip_cents, payer_label, status, method, psp_payload_masked, confirmed_at')
         .eq('txid', txid)
         .maybeSingle();
       throwOn(error, 'getPayment');
@@ -375,7 +375,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return {
         txid: data.txid, checkId: data.check_id,
         amountCents: data.amount_cents, tipCents: data.tip_cents,
-        payerLabel: data.payer_label, status: data.status,
+        payerLabel: data.payer_label, status: data.status, method: data.method,
         pspPayloadMasked: data.psp_payload_masked, confirmedAt: data.confirmed_at,
       };
     },
@@ -389,13 +389,13 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return data;
     },
 
-    async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel }) {
+    async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel, method = 'pix' }) {
       const { data: check, error: cErr } = await client
         .from('checks').select('venue_id').eq('id', checkId).single();
       throwOn(cErr, 'registerCharge.check');
       const { error } = await client.from('payments').insert({
         check_id: checkId, venue_id: check.venue_id, txid,
-        method: 'pix', amount_cents: amountCents, tip_cents: tipCents,
+        method, amount_cents: amountCents, tip_cents: tipCents,
         payer_label: payerLabel || null,
       });
       throwOn(error, 'registerCharge');

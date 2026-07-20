@@ -147,6 +147,8 @@ async function route(req, res) {
       const result = await charge({
         checkId: view.check.id, amountCents: body.amountCents,
         tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null,
+        // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
+        wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
       });
       return json(res, 200, { success: true, data: result });
     }
@@ -351,6 +353,7 @@ async function route(req, res) {
         ? {
             txid: payment.txid, amountCents: payment.amountCents, tipCents: payment.tipCents,
             payerName: payment.payerLabel || 'Cliente Demo', payerCpf: '390.533.447-05',
+            method: payment.method === 'card' ? 'card' : 'pix', // wallet money must not be mislabeled pix
           }
         : { txid: houseLoad.txid, amountCents: houseLoad.amountCents, tipCents: 0, payerName: 'Cliente Demo' });
       const result = await handleWebhook(wh.rawBody, wh.signature);
