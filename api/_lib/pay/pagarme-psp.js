@@ -91,11 +91,14 @@ function createPagarmePsp({
     return {
       code: chargeRef.slice(0, 64),
       items: [{ description: (description || 'Racha').slice(0, 64), amount: total, quantity: 1, code: 'racha' }],
-      // O adquirente exige documento do pagador em cartão ("The customer
-      // Document is required") — vem do checkout quando o método pede.
+      // O adquirente exige documento e telefone do pagador em cartão ("The
+      // customer Document/phone is required"). CPF vem do checkout; telefone
+      // é placeholder da plataforma por ora — se o modo LIVE exigir o real,
+      // o checkout de cartão ganha o campo (decisão anotada no runbook).
       customer: {
         name: 'Cliente Racha', type: 'individual', email: 'cliente@racha.app',
         ...(payerDocument ? { document: payerDocument } : {}),
+        phones: { mobile_phone: { country_code: '55', area_code: '11', number: '987654321' } },
       },
       metadata: {
         charge_ref: chargeRef,
