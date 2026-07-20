@@ -159,7 +159,14 @@ function createPagarmePsp({
       if (!charge) throw new Error('pagarme: resposta sem charge — cobrança de cartão não criada');
       const status = charge.status;
       if (status === 'failed' || status === 'canceled') {
-        const err = new Error('cartão recusado');
+        // O motivo real do gateway vai no erro — "recusado" seco não ajuda
+        // nem o diner nem o debug (acquirer_message/gateway_response).
+        const tx = charge.last_transaction || {};
+        const gw = tx.gateway_response || {};
+        const reason = tx.acquirer_message
+          || (Array.isArray(gw.errors) && gw.errors.map((e) => e.message || e).join('; '))
+          || gw.code || tx.status || status;
+        const err = new Error(`cartão recusado (${String(reason).slice(0, 140)})`);
         err.statusCode = 402;
         throw err;
       }

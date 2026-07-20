@@ -63,8 +63,12 @@ async function pollPaidDelta(beforePaid, timeoutMs = 90000) {
   return null;
 }
 
-/** Tokeniza um cartão de TESTE no endpoint público (só pk — browser-safe). */
-async function tokenizeTestCard(number) {
+/**
+ * Tokeniza um cartão de TESTE no endpoint público (só pk — browser-safe).
+ * Simulador do Pagar.me decide o resultado pelo CVV: começar com 6 = recusa
+ * pelo emissor; qualquer outro aprova (docs: Simulador de Cartão de Crédito).
+ */
+async function tokenizeTestCard(number, cvv = '123') {
   const r = await j('POST', `https://api.pagar.me/core/v5/tokens?appId=${PK}`, {
     type: 'card',
     card: {
@@ -72,7 +76,7 @@ async function tokenizeTestCard(number) {
       holder_name: 'Aceite Racha',
       exp_month: 12,
       exp_year: 2030,
-      cvv: '123',
+      cvv,
     },
   });
   if (!r.data.id) throw new Error(`tokenização falhou: ${JSON.stringify(r.data).slice(0, 200)}`);
@@ -97,7 +101,7 @@ async function legCard() {
 async function legDecline() {
   process.stdout.write('\n== CARD (recusado) ==\n');
   const before = (await checkState()).paidCents;
-  const tok = await tokenizeTestCard('4000000000000002');
+  const tok = await tokenizeTestCard('4000000000000010', '600'); // CVV 6xx = recusa do emissor
   const pay = await j('POST', `${BASE}/api/pay`, {
     token: MESA, amountCents: 300, tipCents: 0,
     payerLabel: 'Aceite Decline', wallet: 'google_pay', paymentToken: tok,
