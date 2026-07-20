@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, brl, parseBrlToCents, CheckView, ChargeResult } from './api';
 import HousePay from './HousePay';
+import WalletButtons from './WalletPay';
 import { clearStoredWallet, readStoredWallet } from './house';
 
 /**
@@ -122,7 +123,7 @@ export default function App() {
   }
 
   async function onCopy() {
-    if (!charge) return;
+    if (!charge || !charge.copiaECola) return;
     await navigator.clipboard.writeText(charge.copiaECola).catch(() => {});
     setCopied(true);
   }
@@ -159,7 +160,7 @@ export default function App() {
             <p className="muted small">inclui {brl(charge.tipCents)} de serviço para a equipe</p>
           )}
           <div className="codebox" aria-label="Pix copia e cola">
-            {charge.copiaECola.slice(0, 64)}…
+            {(charge.copiaECola ?? '').slice(0, 64)}…
           </div>
           <button className="cta" onClick={onCopy}>
             {copied ? 'Código copiado ✓' : 'Copiar código Pix'}
@@ -320,6 +321,15 @@ export default function App() {
           <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
             Pagar {brl(totalToPay)} com Pix
           </button>
+          <WalletButtons
+            token={token}
+            amountCents={cappedBase}
+            tipCents={servicoCents}
+            payerLabel={payerLabel.trim() || null}
+            disabled={totalToPay === 0}
+            venueName={venue.name}
+            onPaid={async () => { await refresh(); setStep('pago'); }}
+          />
           {house && house.balanceCents > 0 && (
             <button className="ghost" onClick={() => setStep('saldo')}>
               Pagar com saldo ({brl(house.balanceCents)} disponível)

@@ -18,10 +18,13 @@ export interface CheckView {
 
 export interface ChargeResult {
   txid: string;
-  copiaECola: string;
-  expiresAt: string;
+  /** null em cobranças de carteira (Apple/Google Pay) — só Pix tem BR Code. */
+  copiaECola: string | null;
+  expiresAt: string | null;
   amountCents: number;
   tipCents: number;
+  method?: 'pix' | 'card';
+  wallet?: 'apple_pay' | 'google_pay' | null;
 }
 
 // ---- House accounts (saldo da casa) — docs/house-accounts/README.md is canon.
@@ -105,6 +108,16 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, amountCents, tipCents, payerLabel }),
+    }),
+  /** Apple/Google Pay: mesma rota e portões do Pix, cobrança de cartão tokenizada. */
+  payWallet: (
+    token: string, amountCents: number, tipCents: number, payerLabel: string | null,
+    wallet: 'apple_pay' | 'google_pay', paymentToken: string,
+  ) =>
+    request<ChargeResult>('/api/pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, amountCents, tipCents, payerLabel, wallet, paymentToken }),
     }),
   /** Demo-only: plays the diner's bank confirming the Pix. */
   devConfirm: (txid: string) =>

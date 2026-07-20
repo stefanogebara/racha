@@ -172,6 +172,28 @@ body {
 }
 .linklike { border: none; background: none; color: var(--stone); font-size: 14px; padding: 6px; font-family: inherit; }
 
+/* Wallet payments (Apple Pay / Google Pay) — convenções das marcas: pill
+   preta da Apple, pill clara com borda do Google. */
+.walletrow { display: flex; gap: 8px; }
+.walletbtn {
+  flex: 1; border-radius: 100px; padding: 13px; font-size: 15px; font-weight: 600;
+  font-family: inherit; cursor: pointer; border: 1px solid transparent;
+  letter-spacing: -0.01em;
+}
+.walletbtn.apple { background: var(--charcoal); color: #fff; }
+.walletbtn.gpay { background: #fff; color: var(--charcoal); border-color: var(--glass-border-input); }
+.walletbtn:disabled { opacity: 0.5; cursor: default; }
+.sheetoverlay {
+  position: fixed; inset: 0; background: rgba(28, 25, 23, 0.45);
+  display: flex; align-items: flex-end; justify-content: center; z-index: 60;
+}
+.sheet {
+  background: var(--warm-white); width: min(430px, 100%);
+  border-radius: 18px 18px 0 0; padding: 20px 20px 28px;
+  display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 -8px 32px rgba(28, 25, 23, 0.18);
+}
+
 .pixcard { text-align: center; }
 .bigmoney {
   font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
