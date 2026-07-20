@@ -66,12 +66,15 @@ interface GPayClient {
 }
 
 export default function WalletButtons({
-  token, amountCents, tipCents, payerLabel, disabled, venueName, onPaid,
+  token, amountCents, tipCents, payerLabel, payerDocument, disabled, venueName, onPaid,
 }: {
   token: string;
   amountCents: number;
   tipCents: number;
   payerLabel: string | null;
+  /** CPF (só dígitos) vindo do campo único da tela da conta — o adquirente
+   *  exige documento do customer em todo método. */
+  payerDocument: string;
   disabled: boolean;
   venueName: string;
   onPaid: () => void;
@@ -80,10 +83,7 @@ export default function WalletButtons({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gpayReady, setGpayReady] = useState(false);
-  // CPF do pagador — o adquirente exige em cartão no BR ("customer Document
-  // is required"); padrão de todo checkout brasileiro.
-  const [cpf, setCpf] = useState('');
-  const cpfDigits = cpf.replace(/\D/g, '');
+  const cpfDigits = payerDocument.replace(/\D/g, '');
 
   const total = amountCents + tipCents;
 
@@ -153,11 +153,6 @@ export default function WalletButtons({
     if (!gpayReady) return null; // device sem Google Pay → fica o Pix (e o saldo)
     return (
       <>
-        <input
-          className="namefield" inputMode="numeric" maxLength={14}
-          placeholder="CPF (a operadora do cartão exige)"
-          value={cpf} onChange={(e) => setCpf(e.target.value)}
-        />
         <button
           type="button" className="walletbtn gpay"
           disabled={disabled || busy || cpfDigits.length !== 11}

@@ -103,11 +103,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getCheck: (token: string) => request<CheckView>(`/api/check?t=${encodeURIComponent(token)}`),
-  pay: (token: string, amountCents: number, tipCents: number, payerLabel: string | null) =>
+  pay: (token: string, amountCents: number, tipCents: number, payerLabel: string | null, payerDocument?: string) =>
     request<ChargeResult>('/api/pay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, amountCents, tipCents, payerLabel }),
+      body: JSON.stringify({ token, amountCents, tipCents, payerLabel, payerDocument: payerDocument ?? null }),
     }),
   /** Apple/Google Pay: mesma rota e portões do Pix, cobrança de cartão tokenizada.
    *  payerDocument (CPF) é exigido pelo adquirente em cartão no BR. */

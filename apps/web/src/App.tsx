@@ -36,6 +36,11 @@ export default function App() {
   const [customValue, setCustomValue] = useState('');
   const [servicoOn, setServicoOn] = useState(true);
   const [payerLabel, setPayerLabel] = useState('');
+  // CPF do pagador: o adquirente exige o documento do customer em TODO
+  // método (Pix e cartão) — padrão de checkout brasileiro. Um campo só,
+  // compartilhado com o Google Pay.
+  const [cpf, setCpf] = useState('');
+  const cpfDigits = cpf.replace(/\D/g, '');
 
   const [step, setStep] = useState<Step>('conta');
   const [charge, setCharge] = useState<ChargeResult | null>(null);
@@ -115,7 +120,7 @@ export default function App() {
 
   async function onPay() {
     try {
-      const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null);
+      const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null, cpfDigits);
       setCharge(result);
       setStep('pagar');
       setCopied(false);
@@ -319,8 +324,13 @@ export default function App() {
             className="namefield" maxLength={60} placeholder="Seu nome (opcional)"
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
+          <input
+            className="namefield" inputMode="numeric" maxLength={14}
+            placeholder="Seu CPF (a operadora de pagamento exige)"
+            value={cpf} onChange={(e) => setCpf(e.target.value)}
+          />
 
-          <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
+          <button className="cta" disabled={totalToPay === 0 || cpfDigits.length !== 11} onClick={onPay}>
             Pagar {brl(totalToPay)} com Pix
           </button>
           <WalletButtons
@@ -328,6 +338,7 @@ export default function App() {
             amountCents={cappedBase}
             tipCents={servicoCents}
             payerLabel={payerLabel.trim() || null}
+            payerDocument={cpfDigits}
             disabled={totalToPay === 0}
             venueName={venue.name}
             onPaid={async () => { await refresh(); setStep('pago'); }}
