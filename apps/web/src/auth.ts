@@ -7,21 +7,29 @@ import { createClient, type Session } from '@supabase/supabase-js';
  * verifies it and enforces venue ownership.
  */
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+// Auth roda contra o projeto Supabase do SEATABLE (login compartilhado: quem tem
+// conta no Seatable entra no Racha). A URL + a chave PUBLICÁVEL são valores
+// PÚBLICOS (vão pro bundle do browser de qualquer jeito — não são segredo) e são
+// FIXOS do projeto de auth, então hardcoded de propósito: a env da Vercel se
+// mostrou frágil (2 rodadas de "Invalid API key" — sobrou a chave publicável do
+// RACHA contra a URL do Seatable). Os DADOS do Racha continuam no projeto do
+// Racha, via API com Bearer — nada aqui lê dado. Trocou o projeto de auth? Edita.
+const AUTH_URL = 'https://ckforlwdhewexyqljsaf.supabase.co';
+const AUTH_PUBLISHABLE = 'sb_publishable_GIg9CVZqYQs6rlllwU0Iaw_3E6pcf2N';
 
 // flowType 'implicit': o callback do OAuth (Google via Supabase do Seatable)
 // volta com os tokens no HASH (#access_token=...), não em ?code=. No modo PKCE
 // (default do supabase-js) o cliente só olha ?code e IGNORA o hash — a sessão
 // nunca se estabelecia e caía de volta no login (verificado 2026-07-21).
-export const supabase = url && key ? createClient(url, key, {
+// detectSessionInUrl OFF: processamos o hash na mão (recoverOAuthSession).
+export const supabase = createClient(AUTH_URL, AUTH_PUBLISHABLE, {
   auth: {
     flowType: 'implicit',
-    detectSessionInUrl: false, // nós processamos o hash na mão (recoverOAuthSession) — sem corrida com o detect automático
+    detectSessionInUrl: false,
     persistSession: true,
     autoRefreshToken: true,
   },
-}) : null;
+});
 
 /**
  * Cinto-e-suspensório: se o OAuth voltou com #access_token no hash e o detect
@@ -36,12 +44,7 @@ export async function recoverOAuthSession(): Promise<void> {
   const access_token = p.get('access_token');
   const refresh_token = p.get('refresh_token');
   if (access_token && refresh_token) {
-    try {
-      const { data, error } = await supabase.auth.setSession({ access_token, refresh_token });
-      (window as unknown as { __authDebug?: unknown }).__authDebug = { ok: !!data?.session, err: error?.message ?? null, email: data?.session?.user?.email ?? null };
-    } catch (e) {
-      (window as unknown as { __authDebug?: unknown }).__authDebug = { ok: false, threw: (e as Error).message };
-    }
+    try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { /* token inválido → segue pro login */ }
   }
   history.replaceState(null, '', window.location.pathname + window.location.search);
 }
