@@ -89,7 +89,7 @@ Pagar.me: MDR não-negociável acima do mercado quando houver volume.
 | Cartão recusado (CVV 6xx) → 402, ledger intacto | ✅ |
 | Estorno via dashboard → `charge.refunded` → ledger | ✅ `ch_nP9y…`: 500+100 de gorjeta devolvidos, pago 6500→6000, 0 anomalias |
 | Pix → auto-pago (simulador) → webhook → ledger | ✅ `ch_O4W0…`: pago 6000→6700 (+700, gorjeta 70 separada) |
-| Split / recebedor | ⏳ **sandbox bloqueado**: split "habilitado" pelo comercial 21/07, mas a API em **test mode** ainda recusa criar recebedor — `action_forbidden: This company is not allowed to create a recipient` (2 tentativas idênticas, não é propagação). Provável: habilitaram no **live**, o sandbox segue restrito. Pergunta ao Pagar.me: habilitar criação de recebedor no ambiente de TESTE, ou só live? |
+| Split / recebedor | ✅ **VERIFICADO 21/07** — suporte liberou o sandbox; `split-acceptance.mjs` verde ponta a ponta: recebedor `re_cmrv0ll6r…` criado `active`, cobrança dividida `ch_xeEOGg…` aceita, Pix pago (R$200 + gorjeta R$20 separada) confirmado no ledger. **Dois aprendizados de campo**: (1) recebedor exige `email`; (2) **o id do recebedor vem com prefixo `re_`, não `rp_`** — o adapter assumia `rp_` e rejeitava a resposta VÁLIDA (fix: aceita `/^r[ep]_/`). Saldo do recebedor ficou R$0 logo após (simulador não credita balance na hora — em live o `split-smoke-live.mjs` confirma o repasse real). |
 
 Notas do ambiente de teste (suporte, 20/07):
 - Pix em test mode: Configurações → Meios de pagamento → Pix → **provedor
