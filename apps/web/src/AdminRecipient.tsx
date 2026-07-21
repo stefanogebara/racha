@@ -71,7 +71,9 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   // 'rcpt_demo' e afins (venues antigos) não são recebedores de verdade.
   const realId = info.recipientId && /^r[ep]_/.test(info.recipientId) ? info.recipientId : null;
   const formVisible = !realId || showForm;
-  const requiredMissing = !name.trim() || !doc || !bankCode || !agencia || !conta || !contaDv;
+  // E-mail é OBRIGATÓRIO no Pagar.me (POST /recipients recusa sem ele: child
+  // "email" is required) — apesar do form antigo marcar "opcional".
+  const requiredMissing = !name.trim() || !doc || !bankCode || !agencia || !conta || !contaDv || !email.trim();
   const marketplaceHint = submitError && /split|marketplace/i.test(submitError)
     ? 'A conta Pagar.me ainda não está em modo marketplace — o comercial precisa habilitar (pedido já feito).'
     : null;
@@ -182,8 +184,8 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
                 onChange={(e) => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
             </label>
             <label>
-              E-mail (opcional)
-              <input className="namefield" type="email" value={email}
+              E-mail (do restaurante)
+              <input className="namefield" type="email" required placeholder="obrigatório — o Pagar.me exige" value={email}
                 onChange={(e) => setEmail(e.target.value)} />
             </label>
             <label>
