@@ -10,11 +10,44 @@ import { createClient, type Session } from '@supabase/supabase-js';
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
 
-export const supabase = url && key ? createClient(url, key) : null;
+// flowType 'implicit': o callback do OAuth (Google via Supabase do Seatable)
+// volta com os tokens no HASH (#access_token=...), não em ?code=. No modo PKCE
+// (default do supabase-js) o cliente só olha ?code e IGNORA o hash — a sessão
+// nunca se estabelecia e caía de volta no login (verificado 2026-07-21).
+export const supabase = url && key ? createClient(url, key, {
+  auth: {
+    flowType: 'implicit',
+    detectSessionInUrl: true,
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+}) : null;
+
+/**
+ * Cinto-e-suspensório: se o OAuth voltou com #access_token no hash e o detect
+ * automático não pegou, extrai os tokens e seta a sessão na mão. Idempotente —
+ * no-op quando não há hash (o caminho normal). Limpa o hash da URL no fim.
+ */
+export async function recoverOAuthSession(): Promise<void> {
+  if (!supabase || typeof window === 'undefined') return;
+  const hash = window.location.hash;
+  if (!hash.includes('access_token')) return;
+  const p = new URLSearchParams(hash.replace(/^#/, ''));
+  const access_token = p.get('access_token');
+  const refresh_token = p.get('refresh_token');
+  if (access_token && refresh_token) {
+    try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { /* token inválido → segue pro login */ }
+  }
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+}
 
 export function onSession(cb: (s: Session | null) => void): () => void {
   if (!supabase) { cb(null); return () => {}; }
-  supabase.auth.getSession().then(({ data }) => cb(data.session));
+  // Recupera a sessão do hash ANTES de perguntar getSession — assim o primeiro
+  // render já sabe que está logado (sem piscar o login e voltar).
+  recoverOAuthSession()
+    .then(() => supabase!.auth.getSession())
+    .then(({ data }) => cb(data.session));
   const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => cb(s));
   return () => sub.subscription.unsubscribe();
 }
