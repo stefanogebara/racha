@@ -89,7 +89,7 @@ Pagar.me: MDR não-negociável acima do mercado quando houver volume.
 | Cartão recusado (CVV 6xx) → 402, ledger intacto | ✅ |
 | Estorno via dashboard → `charge.refunded` → ledger | ✅ `ch_nP9y…`: 500+100 de gorjeta devolvidos, pago 6500→6000, 0 anomalias |
 | Pix → auto-pago (simulador) → webhook → ledger | ✅ `ch_O4W0…`: pago 6000→6700 (+700, gorjeta 70 separada) |
-| Split / recebedor | ⏳ COMERCIAL: conta precisa virar **marketplace** (muda o TIPO de antecipação) — contato solicitado 20/07 (11999002121, e-mail, 10h–18h) |
+| Split / recebedor | ⏳ **sandbox bloqueado**: split "habilitado" pelo comercial 21/07, mas a API em **test mode** ainda recusa criar recebedor — `action_forbidden: This company is not allowed to create a recipient` (2 tentativas idênticas, não é propagação). Provável: habilitaram no **live**, o sandbox segue restrito. Pergunta ao Pagar.me: habilitar criação de recebedor no ambiente de TESTE, ou só live? |
 
 Notas do ambiente de teste (suporte, 20/07):
 - Pix em test mode: Configurações → Meios de pagamento → Pix → **provedor
@@ -111,3 +111,36 @@ acc_d4zGpnxtxyFp2DyV (test mode; marketplace de pagamento na mesa com
 repasse a restaurantes)"*. Cobranças de teste órfãs (retries de webhook dos
 primeiros aceites) podem retro-confirmar no ledger da mesa demo — esperado
 e inofensivo.
+
+## Bateria de split + smoke de produção (D0)
+
+Dois harnesses, um pra cada ambiente. Ambos criam dono efêmero/sessão via
+service-role (sem senha) e provam a MESMA cadeia: recebedor → cobrança
+dividida aceita → pagamento confirmado → **repasse no saldo do recebedor**
+(endpoint novo `GET /api/psp/recipient/balance`, owner-gated, read-only).
+
+**Test mode — [`scripts/split-acceptance.mjs`](../../scripts/split-acceptance.mjs)** (autônomo, dados sintéticos, auto-limpa):
+```
+node scripts/split-acceptance.mjs           # base default: racha-gray.vercel.app
+```
+Cria venue+recebedor de TESTE+mesa+conta, paga Pix <R$500 (Simulador
+auto-paga), confere ledger e saldo, apaga tudo. **Hoje trava na prova nº1**
+(criar recebedor) enquanto o sandbox não liberar — ver tabela acima.
+
+**Live / D0 — [`scripts/split-smoke-live.mjs`](../../scripts/split-smoke-live.mjs)** (dinheiro REAL, casa REAL, nada é apagado):
+```
+node scripts/split-smoke-live.mjs --venue <venueId> --cpf <cpf-do-pagador> [--amount 100]
+```
+Pré-requisitos (go-live):
+- Vercel: `PAGARME_SECRET_KEY=sk_live_…`, webhook **live** → `/api/webhooks/psp`,
+  `VITE_PAGARME_PUBLIC_KEY`/Google Pay com a `pk_live_`.
+- O **dono já criou o recebedor real** no admin (seção Recebimento) e o KYC
+  está `active` — o smoke NÃO cria recebedor (dados bancários reais são do dono).
+
+O smoke: autentica o dono (mint via service-role), exige recebedor `active`,
+abre uma conta minúscula numa **mesa de treino** (fica fora dos números da
+casa), cria a cobrança dividida real e **imprime o BR Code pra um humano pagar**
+(não há Simulador em live), aguarda o webhook confirmar, e lê o saldo do
+recebedor pra provar o repasse. Fecha só a conta de treino; venue e recebedor
+permanecem. Plumbing validado 21/07 (auth + gate de recebedor); as demais
+chamadas são as mesmas já verdes no test mode.
