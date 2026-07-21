@@ -42,12 +42,43 @@ const store = useSupabase
 // PSP real por env (RACHA_PSP=pagarme + PAGARME_SECRET_KEY); mock é o
 // default — demo e testes seguem idênticos. Stable webhook secret in prod
 // (an instance-random secret would break verification across instances).
-const psp = process.env.RACHA_PSP === 'pagarme'
-  ? require('../_lib/pay/pagarme-psp').createPagarmePsp({
+//
+// BLINDAGEM (incidente 2026-07-21): a criação do PSP roda no LOAD do módulo.
+// Uma PAGARME_SECRET_KEY malformada (ex.: colaram a pk_ no lugar da sk_) fazia
+// createPagarmePsp() lançar na init e derrubava a API INTEIRA — /api/check,
+// painel, tudo 500 (FUNCTION_INVOCATION_FAILED), não só pagamento. Agora a
+// falha de config degrada: leitura segue de pé; SÓ as rotas de pagamento
+// respondem 503 com motivo claro (nunca cai no mock em silêncio — dinheiro
+// real jamais roteia pra um PSP de mentira).
+function buildPsp() {
+  if (process.env.RACHA_PSP === 'pagarme') {
+    return require('../_lib/pay/pagarme-psp').createPagarmePsp({
       secretKey: process.env.PAGARME_SECRET_KEY,
       webhookBasicAuth: process.env.PAGARME_WEBHOOK_AUTH || null,
-    })
-  : new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
+    });
+  }
+  return new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
+}
+let psp;
+try {
+  psp = buildPsp();
+} catch (err) {
+  process.stderr.write(`[psp] init FALHOU: ${err.message} — rotas de pagamento em 503, leitura segue\n`);
+  const indisponivel = () => {
+    const e = new Error(`pagamento indisponível: PSP não configurado (${err.message})`);
+    e.statusCode = 503;
+    throw e;
+  };
+  psp = {
+    provider: 'unconfigured',
+    createPixCharge: indisponivel,
+    createWalletCharge: indisponivel,
+    createRecipient: indisponivel,
+    verifyAndParseWebhook: indisponivel,
+    getRecipient: async () => null,
+    getRecipientBalance: async () => null,
+  };
+}
 const charge = createChargeService({ store, psp });
 const checkSvc = createCheckService({ store });
 const houseSvc = createHouseService({ store, psp });
