@@ -97,11 +97,21 @@ const handleWebhook = createWebhookHandler({
 // leaves this off so nobody can mark payments confirmed).
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
+// Login COMPARTILHADO (opcional): a verificação de token pode apontar pra OUTRO
+// projeto Supabase que não o de dados. Com AUTH_SUPABASE_URL/KEY = Seatable, o
+// token vem do GoTrue do Seatable (então quem já tem conta no Seatable loga no
+// Racha), enquanto os DADOS do Racha (venues/checks) ficam no projeto do Racha.
+// Sem esses envs, cai no projeto do próprio Racha (comportamento antigo).
+// getUser() só VERIFICA o JWT — a chave publicável/anon do projeto de auth basta
+// (não precisa service-role pra isso). Requer soltar o FK venue_members→auth.users
+// (migração 0008), já que os user_ids passam a vir de outro projeto.
+const AUTH_SUPABASE_URL = process.env.AUTH_SUPABASE_URL || process.env.SUPABASE_URL;
+const AUTH_SUPABASE_KEY = process.env.AUTH_SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 let auth = null;
 let authClient = null;
-if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+if (AUTH_SUPABASE_URL && AUTH_SUPABASE_KEY) {
   const { createClient } = require('@supabase/supabase-js');
-  authClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+  authClient = createClient(AUTH_SUPABASE_URL, AUTH_SUPABASE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   auth = createAuth({ authClient, store });
