@@ -470,6 +470,13 @@ async function route(req, res) {
 
     // --- demo-only: simulate the bank confirming the Pix ---------------------
     if (DEMO_MODE && req.method === 'POST' && url.pathname === '/api/dev/confirm') {
+      // Só o mock forja webhook assinado. Com o adapter real (Pagar.me test),
+      // a confirmação vem do Simulador/webhook de verdade — o botão de simular
+      // some (404 → o front esconde) e NUNCA há como "confirmar" uma cobrança
+      // real na mão (fecha o buraco de dev/confirm em prod com dinheiro real).
+      if (typeof psp.buildConfirmationWebhook !== 'function') {
+        return json(res, 404, { success: false, error: 'confirmação simulada indisponível — a cobrança confirma pelo provedor' });
+      }
       const body = JSON.parse(await readBody(req) || '{}');
       const payment = await store.getPayment(body.txid || '');
       const houseLoad = payment ? null : await store.findHouseLoadByTxid(body.txid || '');

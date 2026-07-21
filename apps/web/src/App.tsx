@@ -44,6 +44,9 @@ export default function App() {
 
   const [step, setStep] = useState<Step>('conta');
   const [charge, setCharge] = useState<ChargeResult | null>(null);
+  // Quanto já estava pago no instante em que criei MINHA cobrança — quando o
+  // pago passar disso, é a minha que caiu → avança pro ✓ sozinho.
+  const [paidBaseline, setPaidBaseline] = useState<number | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [demoGone, setDemoGone] = useState(false);
@@ -96,6 +99,15 @@ export default function App() {
     }
   }, [view, houseChecked, token]);
 
+  // Auto-avança pro ✓ quando o pagamento cai — webhook real OU Simulador da
+  // demo, sem depender de botão. Vale pro diner REAL: paguei no banco → vejo a
+  // confirmação sozinho (antes ficava travado na tela do código Pix).
+  useEffect(() => {
+    if (step === 'pagar' && charge && paidBaseline !== null && view && view.state.paidCents > paidBaseline) {
+      setStep('pago');
+    }
+  }, [view, step, charge, paidBaseline]);
+
   // Sem token de mesa = visita direta (desktop/prospect/KYC) → landing.
   if (!token) return <Home />;
   if (error) return <Shell><p className="muted center">{error}</p></Shell>;
@@ -120,6 +132,7 @@ export default function App() {
 
   async function onPay() {
     try {
+      setPaidBaseline(state.paidCents); // baseline ANTES da minha cobrança cair
       const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null, cpfDigits);
       setCharge(result);
       setStep('pagar');
