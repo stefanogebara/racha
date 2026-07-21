@@ -25,6 +25,42 @@ export async function signIn(email: string, password: string) {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Criar conta. Retorna needsConfirm=true quando o projeto exige confirmação de
+ * e-mail (Supabase não devolve sessão até confirmar) — o front mostra "confira
+ * seu e-mail". Racha é produto próprio: conta é do dono do restaurante, sem
+ * depender de Seatable.
+ */
+export async function signUp(email: string, password: string): Promise<{ needsConfirm: boolean }> {
+  if (!supabase) throw new Error('auth não configurado');
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) throw new Error(error.message);
+  return { needsConfirm: !data.session };
+}
+
+/**
+ * Login com Google (OAuth). Exige o provider Google habilitado no Supabase Auth
+ * do Racha (Authentication → Providers) + a URL /admin na allowlist de redirect.
+ * Redireciona a página; a sessão volta pronta em /admin.
+ */
+export async function signInWithGoogle(): Promise<void> {
+  if (!supabase) throw new Error('auth não configurado');
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: `${window.location.origin}/admin` },
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Envia o e-mail de redefinição de senha (volta pro /admin pra trocar). */
+export async function resetPassword(email: string): Promise<void> {
+  if (!supabase) throw new Error('auth não configurado');
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/admin`,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function signOut() {
   if (supabase) await supabase.auth.signOut();
 }
