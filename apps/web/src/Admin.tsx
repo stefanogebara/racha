@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
 import AdminRecipient from './AdminRecipient';
+import AdminSetup from './AdminSetup';
 import { parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
 import { authedReq as req, signOut } from './auth';
 
@@ -173,14 +174,8 @@ function Tables({ venueId }: { venueId: string }) {
         <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>sair</button>
       </header>
 
-      {!venue?.pspRecipientId?.startsWith('rp_') && (
-        <section className="card" style={{ borderColor: 'rgba(245,158,11,0.4)' }}>
-          <p className="small">
-            ⚠ Meio de pagamento ainda não conectado — as mesas funcionam para teste,
-            mas cobranças reais só depois de criar o recebedor na seção Recebimento abaixo.
-          </p>
-        </section>
-      )}
+      {/* O banner âmbar do recebimento virou o passo 3 do checklist (AdminSetup). */}
+      {venue && <AdminSetup venue={venue} tables={tables} />}
 
       <section className="panel">
         <p className="label">Adicionar mesa</p>
@@ -192,7 +187,7 @@ function Tables({ venueId }: { venueId: string }) {
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
       </section>
 
-      <section className="panel">
+      <section className="panel" id="mesas">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <p className="label">Mesas ({tables.length})</p>
           <a className="linklike" style={{ textDecoration: 'none' }} href={`/qrs?v=${encodeURIComponent(venueId)}`}>

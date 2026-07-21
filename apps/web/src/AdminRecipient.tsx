@@ -61,7 +61,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
   if (!info) {
     return (
-      <section className="panel">
+      <section className="panel" id="recebimento">
         <p className="label">Recebimento</p>
         <p className="muted small">{loadError ?? 'carregando…'}</p>
       </section>
@@ -124,7 +124,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   }
 
   return (
-    <section className="panel">
+    <section className="panel" id="recebimento">
       <p className="label">Recebimento</p>
 
       {!realId && (
