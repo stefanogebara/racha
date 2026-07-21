@@ -24,7 +24,7 @@ interface Step {
 export default function AdminSetup({ venue, tables }: { venue: Venue; tables: VenueTable[] }) {
   const mesasReais = tables.filter((t) => t.active && !t.training).length;
   const temTreino = tables.some((t) => t.training);
-  const recebedorOk = !!venue.pspRecipientId?.startsWith('rp_');
+  const recebedorOk = /^r[ep]_/.test(venue.pspRecipientId || '');
 
   const steps: Step[] = [
     {

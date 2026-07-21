@@ -69,7 +69,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   }
 
   // 'rcpt_demo' e afins (venues antigos) não são recebedores de verdade.
-  const realId = info.recipientId && info.recipientId.startsWith('rp_') ? info.recipientId : null;
+  const realId = info.recipientId && /^r[ep]_/.test(info.recipientId) ? info.recipientId : null;
   const formVisible = !realId || showForm;
   const requiredMissing = !name.trim() || !doc || !bankCode || !agencia || !conta || !contaDv;
   const marketplaceHint = submitError && /split|marketplace/i.test(submitError)

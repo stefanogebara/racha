@@ -227,7 +227,7 @@ async function route(req, res) {
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const venue = await store.getVenue(venueId);
       if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
-      if (!venue.pspRecipientId || !/^rp_/.test(venue.pspRecipientId)) {
+      if (!venue.pspRecipientId || !/^r[ep]_/.test(venue.pspRecipientId)) {
         return json(res, 200, { success: true, data: { recipientId: venue.pspRecipientId || null, status: null } });
       }
       const info = psp.getRecipient ? await psp.getRecipient(venue.pspRecipientId) : null;
@@ -240,7 +240,7 @@ async function route(req, res) {
       try { await auth.requireVenueOwner(user, venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const venue = await store.getVenue(venueId);
-      if (!venue || !venue.pspRecipientId || !/^rp_/.test(venue.pspRecipientId)) {
+      if (!venue || !venue.pspRecipientId || !/^r[ep]_/.test(venue.pspRecipientId)) {
         return json(res, 404, { success: false, error: 'venue sem recebedor' });
       }
       if (!psp.getRecipientBalance) return json(res, 501, { success: false, error: 'PSP não expõe saldo' });

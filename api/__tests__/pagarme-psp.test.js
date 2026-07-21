@@ -165,8 +165,10 @@ describe('pagarme adapter', () => {
     expect(() => createPagarmePsp({ secretKey: 'pk_publica' })).toThrow(/PAGARME_SECRET_KEY/);
   });
 
-  test('createRecipient: payload correto (PJ por 14 dígitos, banco mapeado, repasse diário) e rp_ de volta', async () => {
-    const reply = { id: 'rp_novo123', status: 'registration' };
+  test('createRecipient: payload correto (PJ por 14 dígitos, banco mapeado, repasse diário) e re_ de volta', async () => {
+    // Pagar.me devolve o recebedor com prefixo re_ (confirmado na API 21/07) —
+    // assumir rp_ rejeitava a resposta VÁLIDA (o bug que travou o aceite de split).
+    const reply = { id: 're_cmrv0eg8u00v3', status: 'active' };
     const { impl, calls } = stubFetch([{ match: '/recipients', method: 'POST', reply }]);
     const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
 
@@ -176,7 +178,7 @@ describe('pagarme adapter', () => {
       document: '65.087.663/0001-30', // com máscara — adapter limpa
       bank: { code: '260', agencia: '0001', conta: '00544596', contaDv: '6' },
     });
-    expect(r).toEqual({ recipientId: 'rp_novo123', status: 'registration' });
+    expect(r).toEqual({ recipientId: 're_cmrv0eg8u00v3', status: 'active' });
 
     const body = calls[0].body;
     expect(body.document).toBe('65087663000130');
@@ -192,24 +194,24 @@ describe('pagarme adapter', () => {
       .rejects.toThrow(/obrigatórios/);
   });
 
-  test('getRecipient: status da análise; id inválido → null sem chamada', async () => {
-    const { impl, calls } = stubFetch([{ match: '/recipients/rp_a', method: 'GET', reply: { id: 'rp_a', status: 'active', name: 'Bar' } }]);
+  test('getRecipient: status da análise (id real re_); id inválido → null sem chamada', async () => {
+    const { impl, calls } = stubFetch([{ match: '/recipients/re_a', method: 'GET', reply: { id: 're_a', status: 'active', name: 'Bar' } }]);
     const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
-    expect(await psp.getRecipient('rp_a')).toEqual({ recipientId: 'rp_a', status: 'active', name: 'Bar' });
+    expect(await psp.getRecipient('re_a')).toEqual({ recipientId: 're_a', status: 'active', name: 'Bar' });
     expect(await psp.getRecipient('rcpt_demo')).toBeNull();
     expect(calls).toHaveLength(1);
   });
 
   test('getRecipientBalance: centavos da API (prova do repasse); id inválido → null sem chamada', async () => {
     const reply = { currency: 'BRL', available_amount: 21000, waiting_funds_amount: 1000, transferred_amount: 500 };
-    const { impl, calls } = stubFetch([{ match: '/recipients/rp_a/balance', method: 'GET', reply }]);
+    const { impl, calls } = stubFetch([{ match: '/recipients/re_a/balance', method: 'GET', reply }]);
     const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
-    expect(await psp.getRecipientBalance('rp_a')).toEqual({
+    expect(await psp.getRecipientBalance('re_a')).toEqual({
       currency: 'BRL', availableCents: 21000, waitingCents: 1000, transferredCents: 500,
     });
     expect(await psp.getRecipientBalance('rcpt_demo')).toBeNull();
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toMatch(/\/recipients\/rp_a\/balance$/);
+    expect(calls[0].url).toMatch(/\/recipients\/re_a\/balance$/);
   });
 
   test('no-split de TESTE: só com flag E sk_test_; sk_live_ ignora o flag (custódia absoluta)', async () => {

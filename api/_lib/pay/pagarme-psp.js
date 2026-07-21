@@ -80,9 +80,11 @@ function createPagarmePsp({
 
   /** Corpo comum do pedido: total = consumo + gorjeta, split integral pro venue. */
   function baseOrder({ chargeRef, amountCents, tipCents, recipientId, description, payerDocument = null }) {
-    const hasRecipient = typeof recipientId === 'string' && /^rp_/.test(recipientId);
+    // Pagar.me devolve o id do recebedor com prefixo re_ (confirmado na API,
+    // 21/07); rp_ é aceito também por causa do mock e de venues legados.
+    const hasRecipient = typeof recipientId === 'string' && /^r[ep]_/.test(recipientId);
     if (!hasRecipient && !noSplitOk) {
-      throw new Error('pagarme: recipientId (rp_...) é obrigatório — recusando cobrança de custódia da plataforma');
+      throw new Error('pagarme: recipientId (re_...) é obrigatório — recusando cobrança de custódia da plataforma');
     }
     assertCents(amountCents, 'amountCents');
     assertCents(tipCents, 'tipCents');
@@ -233,13 +235,13 @@ function createPagarmePsp({
         transfer_settings: { transfer_enabled: true, transfer_interval: 'Daily', transfer_day: 0 },
       };
       const r = await api('POST', '/recipients', body);
-      if (!r || !/^rp_/.test(r.id || '')) throw new Error('pagarme: resposta sem rp_ — recebedor não criado :: ' + JSON.stringify(r).slice(0, 400));
+      if (!r || !/^r[ep]_/.test(r.id || '')) throw new Error('pagarme: resposta sem id de recebedor (re_...) — não criado');
       return { recipientId: r.id, status: r.status || 'registration' };
     },
 
     /** Status atual do recebedor (análise KYC: registration → active). */
     async getRecipient(recipientId) {
-      if (!/^rp_/.test(recipientId || '')) return null;
+      if (!/^r[ep]_/.test(recipientId || '')) return null;
       const r = await api('GET', `/recipients/${recipientId}`);
       return { recipientId: r.id, status: r.status, name: r.name };
     },
@@ -250,7 +252,7 @@ function createPagarmePsp({
      * centavos, direto da API. Read-only; o dono vê "quanto já caiu".
      */
     async getRecipientBalance(recipientId) {
-      if (!/^rp_/.test(recipientId || '')) return null;
+      if (!/^r[ep]_/.test(recipientId || '')) return null;
       const r = await api('GET', `/recipients/${recipientId}/balance`);
       return {
         currency: r.currency || 'BRL',

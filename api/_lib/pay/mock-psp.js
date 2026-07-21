@@ -119,13 +119,13 @@ class MockPsp {
   }
 
   async getRecipient(recipientId) {
-    if (!/^rp_/.test(recipientId || '')) return null;
+    if (!/^r[ep]_/.test(recipientId || '')) return null;
     return { recipientId, status: 'active', name: 'Recebedor demo' };
   }
 
   /** Saldo de mentira — o painel funciona igual no demo. */
   async getRecipientBalance(recipientId) {
-    if (!/^rp_/.test(recipientId || '')) return null;
+    if (!/^r[ep]_/.test(recipientId || '')) return null;
     return { currency: 'BRL', availableCents: 0, waitingCents: 0, transferredCents: 0 };
   }
 

@@ -95,7 +95,7 @@ async function main() {
   const rec = await j('GET', `${BASE}/api/psp/recipient?v=${VENUE}`, { token });
   if (!rec.data.success) throw new Error(`recebedor: ${rec.status} ${rec.data.error}`);
   const info = rec.data.data;
-  if (!info.recipientId || !/^rp_/.test(info.recipientId)) {
+  if (!info.recipientId || !/^r[ep]_/.test(info.recipientId)) {
     throw new Error('a casa NÃO tem recebedor. O dono precisa criar no admin (seção Recebimento) antes do smoke.');
   }
   if (info.status !== 'active') {

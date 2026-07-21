@@ -59,6 +59,10 @@ const headers = { Authorization: `Bearer ${token}` };
 
 const repoId = Number(execFileSync('gh', ['api', `repos/${REPO}`, '--jq', '.id']).toString().trim());
 const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+// O gitSource deploya o que está no GitHub — então garante que o commit local
+// já subiu (evita o tropeço de "commit && deploy" sem push no meio, que deploya
+// o commit ANTERIOR). Push é no-op se já estiver em dia.
+execFileSync('git', ['-C', repoRoot, 'push', 'origin', 'HEAD:main'], { stdio: 'inherit' });
 const sha = execFileSync('git', ['-C', repoRoot, 'rev-parse', 'origin/main']).toString().trim();
 console.log(`deployando ${REPO}@${sha.slice(0, 8)}`);
 
