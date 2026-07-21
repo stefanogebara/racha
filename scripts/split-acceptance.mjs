@@ -81,6 +81,7 @@ async function main() {
     body: {
       venueId,
       name: 'Aceite Split Racha',
+      email: 'aceite.split@racha.app', // Pagar.me exige e-mail no recebedor
       document: '39053344705', // CPF de teste (dígitos válidos) → individual
       bank: { code: '341', agencia: '1234', conta: '56789', contaDv: '0', type: 'checking' },
     },

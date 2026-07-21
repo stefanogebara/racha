@@ -233,7 +233,7 @@ function createPagarmePsp({
         transfer_settings: { transfer_enabled: true, transfer_interval: 'Daily', transfer_day: 0 },
       };
       const r = await api('POST', '/recipients', body);
-      if (!r || !/^rp_/.test(r.id || '')) throw new Error('pagarme: resposta sem rp_ — recebedor não criado');
+      if (!r || !/^rp_/.test(r.id || '')) throw new Error('pagarme: resposta sem rp_ — recebedor não criado :: ' + JSON.stringify(r).slice(0, 400));
       return { recipientId: r.id, status: r.status || 'registration' };
     },
 
