@@ -17,7 +17,7 @@ const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
 export const supabase = url && key ? createClient(url, key, {
   auth: {
     flowType: 'implicit',
-    detectSessionInUrl: true,
+    detectSessionInUrl: false, // nós processamos o hash na mão (recoverOAuthSession) — sem corrida com o detect automático
     persistSession: true,
     autoRefreshToken: true,
   },
@@ -36,7 +36,12 @@ export async function recoverOAuthSession(): Promise<void> {
   const access_token = p.get('access_token');
   const refresh_token = p.get('refresh_token');
   if (access_token && refresh_token) {
-    try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { /* token inválido → segue pro login */ }
+    try {
+      const { data, error } = await supabase.auth.setSession({ access_token, refresh_token });
+      (window as unknown as { __authDebug?: unknown }).__authDebug = { ok: !!data?.session, err: error?.message ?? null, email: data?.session?.user?.email ?? null };
+    } catch (e) {
+      (window as unknown as { __authDebug?: unknown }).__authDebug = { ok: false, threw: (e as Error).message };
+    }
   }
   history.replaceState(null, '', window.location.pathname + window.location.search);
 }
