@@ -245,6 +245,22 @@ function createPagarmePsp({
     },
 
     /**
+     * Saldo do recebedor — a PROVA do repasse do split. Um pagamento dividido
+     * pinga aqui (waiting_funds → available conforme liquida). Valores em
+     * centavos, direto da API. Read-only; o dono vê "quanto já caiu".
+     */
+    async getRecipientBalance(recipientId) {
+      if (!/^rp_/.test(recipientId || '')) return null;
+      const r = await api('GET', `/recipients/${recipientId}/balance`);
+      return {
+        currency: r.currency || 'BRL',
+        availableCents: Number(r.available_amount ?? 0) || 0,
+        waitingCents: Number(r.waiting_funds_amount ?? 0) || 0,
+        transferredCents: Number(r.transferred_amount ?? 0) || 0,
+      };
+    },
+
+    /**
      * Webhook: valida o Basic Auth do endpoint (se configurado) e RE-BUSCA a
      * cobrança na API — o corpo do POST nunca é a fonte de verdade.
      */

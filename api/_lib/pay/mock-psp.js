@@ -123,6 +123,12 @@ class MockPsp {
     return { recipientId, status: 'active', name: 'Recebedor demo' };
   }
 
+  /** Saldo de mentira — o painel funciona igual no demo. */
+  async getRecipientBalance(recipientId) {
+    if (!/^rp_/.test(recipientId || '')) return null;
+    return { currency: 'BRL', availableCents: 0, waitingCents: 0, transferredCents: 0 };
+  }
+
   /** Sign a webhook body the way the mock "PSP side" would. */
   signWebhook(rawBody) {
     return crypto.createHmac('sha256', this.webhookSecret).update(rawBody, 'utf8').digest('hex');

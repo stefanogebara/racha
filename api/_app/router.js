@@ -233,6 +233,20 @@ async function route(req, res) {
       const info = psp.getRecipient ? await psp.getRecipient(venue.pspRecipientId) : null;
       return json(res, 200, { success: true, data: info || { recipientId: venue.pspRecipientId, status: 'desconhecido' } });
     }
+    // Saldo do recebedor — a prova do repasse do split ("quanto já caiu").
+    if (req.method === 'GET' && url.pathname === '/api/psp/recipient/balance') {
+      const user = await guardUser(req, res); if (!user) return;
+      const venueId = url.searchParams.get('v') || '';
+      try { await auth.requireVenueOwner(user, venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const venue = await store.getVenue(venueId);
+      if (!venue || !venue.pspRecipientId || !/^rp_/.test(venue.pspRecipientId)) {
+        return json(res, 404, { success: false, error: 'venue sem recebedor' });
+      }
+      if (!psp.getRecipientBalance) return json(res, 501, { success: false, error: 'PSP não expõe saldo' });
+      const bal = await psp.getRecipientBalance(venue.pspRecipientId);
+      return json(res, 200, { success: true, data: bal });
+    }
     if (req.method === 'POST' && url.pathname === '/api/psp/recipient') {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');

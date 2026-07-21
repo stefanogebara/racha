@@ -200,6 +200,18 @@ describe('pagarme adapter', () => {
     expect(calls).toHaveLength(1);
   });
 
+  test('getRecipientBalance: centavos da API (prova do repasse); id inválido → null sem chamada', async () => {
+    const reply = { currency: 'BRL', available_amount: 21000, waiting_funds_amount: 1000, transferred_amount: 500 };
+    const { impl, calls } = stubFetch([{ match: '/recipients/rp_a/balance', method: 'GET', reply }]);
+    const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+    expect(await psp.getRecipientBalance('rp_a')).toEqual({
+      currency: 'BRL', availableCents: 21000, waitingCents: 1000, transferredCents: 500,
+    });
+    expect(await psp.getRecipientBalance('rcpt_demo')).toBeNull();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toMatch(/\/recipients\/rp_a\/balance$/);
+  });
+
   test('no-split de TESTE: só com flag E sk_test_; sk_live_ ignora o flag (custódia absoluta)', async () => {
     // flag + sk_test_ + sem rp_ → ordem SEM split, marcada no metadata
     const { impl, calls } = stubFetch([{ match: '/orders', method: 'POST', reply: PIX_ORDER_REPLY }]);
