@@ -28,6 +28,13 @@ html, body {
   font-synthesis: none;
 }
 
+/* "Resolver agora ↓" desliza até o passo — o fluxo do setup vira contínuo. */
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* <select> reaproveita o visual do input de texto (.namefield). */
+select.namefield { appearance: none; -webkit-appearance: none; background-image: none; cursor: pointer; }
+
 body {
   background-color: var(--warm-white);
   background-image:

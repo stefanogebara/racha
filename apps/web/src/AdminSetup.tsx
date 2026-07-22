@@ -60,28 +60,46 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
   ];
   const feitos = steps.filter((s) => s.done).length;
   const completo = feitos === steps.length;
+  const pct = Math.round((feitos / steps.length) * 100);
+  // O primeiro passo pendente é O próximo — ganha o botão em destaque; os demais
+  // ficam discretos, pra deixar claro por onde continuar (fluxo, não lista solta).
+  const proximoTodo = steps.findIndex((s) => !s.done);
 
   return (
     <section className="panel" aria-label="Implantação">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
         <p className="label">Implantação</p>
-        <span className="muted small">{completo ? 'completa ✓' : `${feitos} de ${steps.length}`}</span>
+        <span className="muted small">{completo ? 'completa ✓' : `passo ${feitos + 1} de ${steps.length}`}</span>
       </div>
 
-      {!completo && steps.map((s) => (
-        <div className="checkrow" key={s.title}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flex: 1, flexWrap: 'wrap' }}>
-            <span aria-hidden="true" style={{ opacity: s.done ? 1 : 0.35 }}>{s.done ? '✓' : '○'}</span>
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <strong style={{ opacity: s.done ? 0.6 : 1 }}>{s.title}</strong>
-              <p className="muted small" style={s.warn ? { color: 'var(--burgundy)' } : undefined}>{s.sub}</p>
+      {/* Barra de progresso — o fio contínuo do fluxo. */}
+      <div aria-hidden="true" style={{ height: 6, borderRadius: 999, background: 'rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: 'var(--emerald)', transition: 'width .3s ease' }} />
+      </div>
+
+      {!completo && (
+        <p className="muted small" style={{ marginTop: 2 }}>Siga os passos na ordem — cada um destrava o próximo.</p>
+      )}
+
+      {!completo && steps.map((s, i) => {
+        const isNext = i === proximoTodo;
+        return (
+          <div className="checkrow" key={s.title} style={isNext ? { background: 'rgba(16,185,129,0.06)', borderRadius: 12, padding: '10px 12px' } : undefined}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flex: 1, flexWrap: 'wrap' }}>
+              <span aria-hidden="true" style={{ opacity: s.done ? 1 : 0.35 }}>{s.done ? '✓' : isNext ? '→' : '○'}</span>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <strong style={{ opacity: s.done ? 0.6 : 1 }}>{s.title}</strong>
+                <p className="muted small" style={s.warn ? { color: 'var(--burgundy)' } : undefined}>{s.sub}</p>
+              </div>
             </div>
+            {!s.done && s.href && (
+              <a className={isNext ? 'cta' : 'ghost'} style={isNext ? { textDecoration: 'none', padding: '8px 14px', fontSize: 13 } : { textDecoration: 'none' }} href={s.href}>
+                {isNext ? 'resolver agora ↓' : 'resolver ↓'}
+              </a>
+            )}
           </div>
-          {!s.done && s.href && (
-            <a className="ghost" style={{ textDecoration: 'none' }} href={s.href}>resolver ↓</a>
-          )}
-        </div>
-      ))}
+        );
+      })}
 
       {/* O roteiro sobrevive ao D2: é o que mantém o garçom apresentando o QR. */}
       <details style={{ marginTop: completo ? 0 : 8 }}>

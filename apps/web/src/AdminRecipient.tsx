@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authedReq as req } from './auth';
+import { onlyDigits, alnum, isValidCpfCnpj, docKind, maskCpfCnpj, isValidEmail, BR_BANKS, bankName } from './br';
 
 /**
  * "Recebimento" — o recebedor Pagar.me (split) do restaurante, por venue.
@@ -23,10 +24,6 @@ interface CreatedRecipient { recipientId: string; status: string }
 /** rp_AbCd1234Ef56 → "rp_AbCd1234…" — o botão ao lado copia o id inteiro. */
 const shortId = (id: string) => (id.length > 11 ? `${id.slice(0, 11)}…` : id);
 
-const onlyDigits = (s: string) => s.replace(/\D/g, '');
-/** Dígito verificador pode ser letra em alguns bancos (ex.: conta 'X' no BB). */
-const alnum = (s: string) => s.replace(/[^0-9a-zA-Z]/g, '');
-
 export default function AdminRecipient({ venueId, onChanged }: { venueId: string; onChanged?: () => void }) {
   const [info, setInfo] = useState<RecipientInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -46,6 +43,14 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   const [accountType, setAccountType] = useState<'checking' | 'savings'>('checking');
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Erro só aparece depois que o campo foi tocado (onBlur) ou numa tentativa de
+  // enviar — não gritar em vermelho enquanto a pessoa ainda está digitando.
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [triedSubmit, setTriedSubmit] = useState(false);
+  // Banco: dropdown da lista curada, ou 'outro' → digita o código de compensação.
+  const [bankOther, setBankOther] = useState(false);
+  const touch = (k: string) => setTouched((t) => ({ ...t, [k]: true }));
+  const showErr = (k: string) => Boolean(touched[k]) || triedSubmit;
 
   const refresh = useCallback(async () => {
     try {
@@ -71,12 +76,39 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   // 'rcpt_demo' e afins (venues antigos) não são recebedores de verdade.
   const realId = info.recipientId && /^r[ep]_/.test(info.recipientId) ? info.recipientId : null;
   const formVisible = !realId || showForm;
-  // E-mail é OBRIGATÓRIO no Pagar.me (POST /recipients recusa sem ele: child
-  // "email" is required) — apesar do form antigo marcar "opcional".
-  const requiredMissing = !name.trim() || !doc || !bankCode || !agencia || !conta || !contaDv || !email.trim();
+
+  // Validação por campo — a primeira barreira (o Pagar.me confere de novo na
+  // criação, mas aqui pega o typo na hora, antes de gastar a chamada).
+  const kind = docKind(doc); // 'cpf' | 'cnpj' | null (tamanho ainda incompleto)
+  const valid = {
+    name: name.trim().length >= 2,
+    // CPF/CNPJ com dígito verificador — pega quase todo erro de digitação.
+    doc: isValidCpfCnpj(doc),
+    // E-mail é OBRIGATÓRIO no Pagar.me (POST /recipients recusa sem ele).
+    email: isValidEmail(email),
+    bank: bankCode.length === 3,
+    agencia: agencia.length >= 1,
+    conta: conta.length >= 1,
+    contaDv: contaDv.length >= 1,
+  };
+  const canSubmit = valid.name && valid.doc && valid.email && valid.bank && valid.agencia && valid.conta && valid.contaDv;
+  const knownBank = bankName(bankCode); // nome do banco pelo código, ou null
   const marketplaceHint = submitError && /split|marketplace/i.test(submitError)
     ? 'A conta Pagar.me ainda não está em modo marketplace — o comercial precisa habilitar (pedido já feito).'
     : null;
+
+  // Borda vermelha só quando o campo foi tocado e está inválido.
+  const errStyle = (key: string, ok: boolean) =>
+    (showErr(key) && !ok ? { borderColor: 'var(--burgundy)' } : undefined);
+  // Feedback abaixo do input: erro (vermelho) > confirmação (verde) > dica (cinza).
+  const fb = (key: string, ok: boolean, errMsg: string, hint: string, okMsg?: string) => {
+    if (showErr(key) && !ok) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--burgundy)' }}>{errMsg}</span>;
+    if (ok && okMsg) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--emerald)' }}>{okMsg}</span>;
+    return <span className="muted small" style={{ display: 'block', marginTop: 4 }}>{hint}</span>;
+  };
+  const docErr = kind === null
+    ? 'CPF tem 11 dígitos, CNPJ tem 14 — ainda faltam números.'
+    : 'Os dígitos verificadores não batem — confira o número.';
 
   async function copyId() {
     if (!realId) return;
@@ -85,12 +117,9 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   }
 
   async function submit() {
-    if (doc.length !== 11 && doc.length !== 14) {
-      setSubmitError('CPF tem 11 dígitos e CNPJ tem 14 — confira o documento.');
-      return;
-    }
-    if (bankCode.length !== 3) {
-      setSubmitError('O código do banco tem 3 dígitos (ex.: 260, 341).');
+    setTriedSubmit(true);
+    if (!canSubmit) {
+      setSubmitError('Confira os campos destacados em vermelho antes de continuar.');
       return;
     }
     setBusy(true); setSubmitError(null); setCreated(null);
@@ -126,7 +155,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   }
 
   return (
-    <section className="panel" id="recebimento">
+    <section className="panel" id="recebimento" style={{ scrollMarginTop: 16 }}>
       <p className="label">Recebimento</p>
 
       {!realId && (
@@ -172,28 +201,66 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
       {formVisible && (
         <>
+          <p className="muted small" style={{ marginTop: 4 }}>
+            São os dados bancários do restaurante — é pra onde o dinheiro das comandas cai.
+            Precisam ser <strong>exatamente</strong> os dados da conta no banco; o Pagar.me
+            confere com a Receita e recusa se não bater.
+          </p>
+
           <div className="cfggrid">
             <label style={{ gridColumn: '1 / -1' }}>
-              Razão social / nome
-              <input className="namefield" placeholder="Como está no banco" value={name}
+              Razão social / nome do titular
+              <input className="namefield" placeholder="Como está no cadastro do banco" value={name}
+                onBlur={() => touch('name')} style={errStyle('name', valid.name)}
                 onChange={(e) => setName(e.target.value)} />
+              {fb('name', valid.name, 'Informe o nome do titular da conta.', 'Igual ao cadastro no banco / na Receita.')}
             </label>
-            <label>
-              CNPJ ou CPF
-              <input className="namefield" inputMode="numeric" placeholder="só números" value={doc}
+
+            <label style={{ gridColumn: '1 / -1' }}>
+              CNPJ ou CPF do titular
+              <input className="namefield" inputMode="numeric" placeholder="00.000.000/0000-00" value={maskCpfCnpj(doc)}
+                onBlur={() => touch('doc')} style={errStyle('doc', valid.doc)}
                 onChange={(e) => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
+              {fb('doc', valid.doc, docErr, 'CNPJ do restaurante (14 díg.) ou seu CPF (11 díg.).',
+                kind === 'cpf' ? 'CPF válido ✓' : 'CNPJ válido ✓')}
             </label>
-            <label>
-              E-mail (do restaurante)
-              <input className="namefield" type="email" required placeholder="obrigatório — o Pagar.me exige" value={email}
+
+            <label style={{ gridColumn: '1 / -1' }}>
+              E-mail do restaurante
+              <input className="namefield" type="email" inputMode="email" placeholder="contato@restaurante.com.br" value={email}
+                onBlur={() => touch('email')} style={errStyle('email', valid.email)}
                 onChange={(e) => setEmail(e.target.value)} />
+              {fb('email', valid.email, 'E-mail inválido — confira o formato.', 'O Pagar.me exige — usa pra avisar sobre os repasses.')}
             </label>
-            <label>
-              Banco (código)
-              <input className="namefield" inputMode="numeric" placeholder="260 = Nubank, 341 = Itaú…" value={bankCode}
-                onChange={(e) => setBankCode(onlyDigits(e.target.value).slice(0, 3))} />
+
+            <label style={{ gridColumn: '1 / -1' }}>
+              Banco
+              <select className="namefield" value={bankOther ? '__other__' : bankCode}
+                onBlur={() => touch('bank')} style={errStyle('bank', valid.bank)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '__other__') { setBankOther(true); setBankCode(''); }
+                  else { setBankOther(false); setBankCode(val); }
+                  touch('bank');
+                }}>
+                <option value="">Selecione o banco…</option>
+                {BR_BANKS.map((b) => <option key={b.code} value={b.code}>{b.code} — {b.name}</option>)}
+                <option value="__other__">Outro banco (digitar código)…</option>
+              </select>
+              {bankOther && (
+                <input className="namefield" inputMode="numeric" placeholder="Código de compensação (3 dígitos, ex.: 218)" value={bankCode}
+                  style={{ marginTop: 8, ...(errStyle('bank', valid.bank) || {}) }}
+                  onBlur={() => touch('bank')}
+                  onChange={(e) => setBankCode(onlyDigits(e.target.value).slice(0, 3))} />
+              )}
+              {bankOther
+                ? fb('bank', valid.bank, 'O código de compensação tem 3 dígitos.',
+                    knownBank ? `Código ${bankCode} — ${knownBank}.` : 'Código de compensação do banco (3 dígitos).',
+                    knownBank ? `${knownBank} ✓` : undefined)
+                : fb('bank', valid.bank, 'Escolha o banco da conta.', 'Onde a conta do restaurante está.')}
             </label>
-            <label>
+
+            <label style={{ gridColumn: '1 / -1' }}>
               Tipo de conta
               <div style={{ display: 'flex', gap: 16, paddingTop: 8 }}>
                 <label className="servico" style={{ alignItems: 'center' }}>
@@ -208,34 +275,43 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
                 </label>
               </div>
             </label>
+
             <label>
               Agência
-              <input className="namefield" inputMode="numeric" value={agencia}
+              <input className="namefield" inputMode="numeric" placeholder="0000" value={agencia}
+                onBlur={() => touch('agencia')} style={errStyle('agencia', valid.agencia)}
                 onChange={(e) => setAgencia(onlyDigits(e.target.value).slice(0, 5))} />
+              {fb('agencia', valid.agencia, 'Informe a agência.', 'Sem o dígito — ele vai no campo ao lado.')}
             </label>
             <label>
-              Dígito da agência (opcional)
-              <input className="namefield" value={agenciaDv}
+              Dígito da agência
+              <input className="namefield" placeholder="opcional" value={agenciaDv}
                 onChange={(e) => setAgenciaDv(alnum(e.target.value).slice(0, 2))} />
+              <span className="muted small" style={{ display: 'block', marginTop: 4 }}>Deixe vazio se a agência não tem dígito.</span>
             </label>
+
             <label>
               Conta
-              <input className="namefield" inputMode="numeric" value={conta}
+              <input className="namefield" inputMode="numeric" placeholder="00000000" value={conta}
+                onBlur={() => touch('conta')} style={errStyle('conta', valid.conta)}
                 onChange={(e) => setConta(onlyDigits(e.target.value).slice(0, 13))} />
+              {fb('conta', valid.conta, 'Informe o número da conta.', 'Número da conta, sem o dígito.')}
             </label>
             <label>
               Dígito da conta
-              <input className="namefield" value={contaDv}
+              <input className="namefield" placeholder="0" value={contaDv}
+                onBlur={() => touch('contaDv')} style={errStyle('contaDv', valid.contaDv)}
                 onChange={(e) => setContaDv(alnum(e.target.value).slice(0, 2))} />
+              {fb('contaDv', valid.contaDv, 'Informe o dígito da conta.', 'Geralmente 1 caractere (pode ser X).')}
             </label>
           </div>
 
-          <p className="muted small">A conta precisa pertencer ao mesmo CNPJ/CPF do documento — é a regra do KYC.</p>
+          <p className="muted small">A conta precisa pertencer ao mesmo CNPJ/CPF do documento — é a regra do KYC do Pagar.me.</p>
 
           {submitError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{submitError}</p>}
           {marketplaceHint && <p className="muted small">{marketplaceHint}</p>}
 
-          <button className="cta" style={{ padding: '12px 20px' }} disabled={busy || requiredMissing} onClick={submit}>
+          <button className="cta" style={{ padding: '12px 20px' }} disabled={busy} onClick={submit}>
             {busy ? 'enviando…' : 'Criar recebedor'}
           </button>
           {realId && (

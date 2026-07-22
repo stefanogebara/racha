@@ -5,6 +5,7 @@ import AdminRecipient from './AdminRecipient';
 import AdminSetup from './AdminSetup';
 import { parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
 import { authedReq as req, signOut } from './auth';
+import { isValidCNPJ, maskCpfCnpj, onlyDigits } from './br';
 
 /**
  * Painel de gestão do restaurante — onboarding + mesas/QR. Warm Glass.
@@ -29,6 +30,7 @@ function Onboarding() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mine, setMine] = useState<Venue[]>([]);
+  const cnpjValid = isValidCNPJ(cnpj); // opcional, mas se preenchido tem que valer
 
   // If this owner already has venues, offer them instead of a blank form.
   useEffect(() => {
@@ -72,7 +74,14 @@ function Onboarding() {
         <p className="label">{mine.length > 0 ? 'Cadastrar outro restaurante' : 'Cadastre seu restaurante'}</p>
         <input className="namefield" placeholder="Nome do restaurante" value={name} onChange={(e) => setName(e.target.value)} />
         <input className="namefield" placeholder="Cidade (opcional)" value={city} onChange={(e) => setCity(e.target.value)} />
-        <input className="namefield" placeholder="CNPJ (opcional)" value={cnpj} onChange={(e) => setCnpj(e.target.value)} />
+        <input className="namefield" inputMode="numeric" placeholder="CNPJ (opcional)" value={maskCpfCnpj(cnpj)}
+          style={cnpj && !cnpjValid ? { borderColor: 'var(--burgundy)' } : undefined}
+          onChange={(e) => setCnpj(onlyDigits(e.target.value).slice(0, 14))} />
+        {cnpj !== '' && (
+          <span className="small" style={{ color: cnpjValid ? 'var(--emerald)' : 'var(--burgundy)' }}>
+            {cnpjValid ? 'CNPJ válido ✓' : 'CNPJ incompleto ou inválido — confira os 14 dígitos.'}
+          </span>
+        )}
         <label className="servico" style={{ alignItems: 'center' }}>
           <span style={{ flex: 1 }}>Serviço sugerido</span>
           <div className="stepper">
@@ -86,7 +95,7 @@ function Onboarding() {
           existe mas ainda não recebe. Isso mantém a Racha fora da custódia de recursos.
         </p>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
-        <button className="cta" disabled={busy || !name.trim()} onClick={submit}>
+        <button className="cta" disabled={busy || !name.trim() || (cnpj !== '' && !cnpjValid)} onClick={submit}>
           {busy ? 'criando…' : 'Criar restaurante'}
         </button>
       </section>
@@ -177,24 +186,24 @@ function Tables({ venueId }: { venueId: string }) {
       {/* O banner âmbar do recebimento virou o passo 3 do checklist (AdminSetup). */}
       {venue && <AdminSetup venue={venue} tables={tables} />}
 
-      <section className="panel">
-        <p className="label">Adicionar mesa</p>
-        <div style={{ display: 'flex', gap: 8 }}>
+      <section className="panel" id="mesas" style={{ scrollMarginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          <p className="label">Mesas ({tables.length})</p>
+          <a className="linklike" style={{ textDecoration: 'none' }} href={`/qrs?v=${encodeURIComponent(venueId)}`}>
+            🖨 Imprimir QRs
+          </a>
+        </div>
+        <p className="muted small">
+          Cadastre cada mesa com o nome que ela tem no salão (“Mesa 12”, “Balcão 3”).
+          Depois marque uma como <em>treino</em> pra equipe praticar sem sujar os números.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
           <input className="namefield" style={{ flex: 1 }} placeholder="Ex.: Mesa 12" value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTable()} />
           <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={addTable}>Adicionar</button>
         </div>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
-      </section>
-
-      <section className="panel" id="mesas">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-          <p className="label">Mesas ({tables.length})</p>
-          <a className="linklike" style={{ textDecoration: 'none' }} href={`/qrs?v=${encodeURIComponent(venueId)}`}>
-            🖨 Imprimir QRs das mesas
-          </a>
-        </div>
-        {tables.length === 0 && <p className="muted small">nenhuma mesa ainda.</p>}
+        {tables.length === 0 && <p className="muted small">nenhuma mesa ainda — adicione a primeira acima.</p>}
         {tables.map((t) => (
           <div className="checkrow" key={t.id}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, flexWrap: 'wrap' }}>
@@ -219,7 +228,15 @@ function Tables({ venueId }: { venueId: string }) {
 
       <AdminRecipient venueId={venueId} onChanged={refresh} />
 
-      <AdminHouse venueId={venueId} />
+      {/* Créditos da casa: recurso avançado (carteira pré-paga), fora do setup — colapsado. */}
+      <details>
+        <summary className="muted small" style={{ cursor: 'pointer', padding: '4px 2px' }}>
+          Créditos da casa (avançado) — carteira pré-paga do cliente
+        </summary>
+        <div style={{ marginTop: 8 }}>
+          <AdminHouse venueId={venueId} />
+        </div>
+      </details>
 
       <footer className="foot"><span>racha · o QR de cada mesa abre a conta do cliente</span></footer>
     </main>
