@@ -38,12 +38,15 @@ const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
 
 // One venue shape everywhere (house-account config rides along).
 const VENUE_COLS = 'id, name, city, cnpj, servico_basis_points, psp_recipient_id, pos_provider, active, '
+  + 'psp_recipient_status, notify_email, notify_whatsapp, '
   + 'house_enabled, house_bonus_bp, house_validity_days, house_min_load_cents, house_max_load_cents';
 function mapVenue(v) {
   if (!v) return null;
   return {
     id: v.id, name: v.name, city: v.city, cnpj: v.cnpj,
     servicoBp: v.servico_basis_points, pspRecipientId: v.psp_recipient_id,
+    pspRecipientStatus: v.psp_recipient_status ?? null,
+    notifyEmail: v.notify_email ?? null, notifyWhatsapp: v.notify_whatsapp ?? null,
     posProvider: v.pos_provider, active: v.active,
     houseEnabled: v.house_enabled, houseBonusBp: v.house_bonus_bp,
     houseValidityDays: v.house_validity_days,
@@ -466,16 +469,44 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       if (!data || !data.venues) return null;
       return { venue: mapVenue(data.venues), table: { id: data.id, label: data.label } };
     },
-    /** Grava o recebedor (rp_) criado no PSP — a partir daí o split roteia. */
-    async setVenueRecipient(venueId, recipientId) {
+    /**
+     * Grava o recebedor (re_) criado no PSP — a partir daí o split roteia. opts
+     * carrega o status inicial (ex.: 'registration') e os contatos do dono pro
+     * aviso de KYC (e-mail + WhatsApp), capturados no mesmo form.
+     */
+    async setVenueRecipient(venueId, recipientId, opts = {}) {
+      const patch = { psp_recipient_id: recipientId };
+      if (opts.status !== undefined) patch.psp_recipient_status = opts.status;
+      if (opts.notifyEmail !== undefined) patch.notify_email = opts.notifyEmail;
+      if (opts.notifyWhatsapp !== undefined) patch.notify_whatsapp = opts.notifyWhatsapp;
       const { data, error } = await client
         .from('venues')
-        .update({ psp_recipient_id: recipientId })
+        .update(patch)
         .eq('id', venueId)
         .select('id, psp_recipient_id')
         .single();
       throwOn(error, 'setVenueRecipient');
       return { id: data.id, pspRecipientId: data.psp_recipient_id };
+    },
+    /** Atualiza só o status do recebedor (o cron, ao detectar a transição KYC). */
+    async setVenueRecipientStatus(venueId, status) {
+      const { data, error } = await client
+        .from('venues')
+        .update({ psp_recipient_status: status })
+        .eq('id', venueId)
+        .select('id, psp_recipient_status')
+        .single();
+      throwOn(error, 'setVenueRecipientStatus');
+      return { id: data.id, pspRecipientStatus: data.psp_recipient_status };
+    },
+    /** Venues com recebedor ainda em análise — o cron refetcha e avisa na virada. */
+    async listVenuesPendingRecipient() {
+      const { data, error } = await client
+        .from('venues')
+        .select(VENUE_COLS)
+        .eq('psp_recipient_status', 'registration');
+      throwOn(error, 'listVenuesPendingRecipient');
+      return (data || []).map(mapVenue);
     },
     async setHouseConfig(venueId, clean) {
       const patch = {};

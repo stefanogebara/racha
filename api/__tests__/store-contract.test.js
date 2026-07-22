@@ -69,6 +69,29 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
 
   afterAll(async () => { await cleanup(); });
 
+  test('recebedor status: persiste status+contatos, vira active, sai dos pendentes', async () => {
+    const v = await store.seedVenue({ name: 'Recebedor KYC', servicoBp: 1000 });
+    await store.setVenueRecipient(v.id, 're_contract123', {
+      status: 'registration', notifyEmail: 'dono@rest.com', notifyWhatsapp: '5511999990000',
+    });
+    let got = await store.getVenue(v.id);
+    expect(got.pspRecipientId).toBe('re_contract123');
+    expect(got.pspRecipientStatus).toBe('registration');
+    expect(got.notifyEmail).toBe('dono@rest.com');
+    expect(got.notifyWhatsapp).toBe('5511999990000');
+
+    // aparece na varredura do cron enquanto em análise
+    const pending = await store.listVenuesPendingRecipient();
+    expect(pending.map((x) => x.id)).toContain(v.id);
+
+    // vira active → sai da lista (o cron não reprocessa)
+    await store.setVenueRecipientStatus(v.id, 'active');
+    got = await store.getVenue(v.id);
+    expect(got.pspRecipientStatus).toBe('active');
+    const after = await store.listVenuesPendingRecipient();
+    expect(after.map((x) => x.id)).not.toContain(v.id);
+  });
+
   test('full money loop: open → view → charge → webhook → state → panel', async () => {
     const check = await store.openCheck(table.qrToken, [
       { id: 'a', name: 'Item A', priceCents: 7000 },

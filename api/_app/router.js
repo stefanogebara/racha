@@ -28,6 +28,7 @@ const { createMemoryStore } = require('../_lib/store/memory');
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler } = require('../_lib/pay/webhook-handler');
 const { createChargeService } = require('../_lib/pay/create-charge');
+const { notifyOwnerRecipientStatus } = require('../_lib/notify');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
 const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
@@ -334,7 +335,13 @@ async function route(req, res) {
       const r = await psp.createRecipient({
         name: b.name, email: b.email ?? null, document: b.document, bank: b.bank,
       });
-      await store.setVenueRecipient(b.venueId, r.recipientId);
+      // Persiste o status inicial (registration) + os contatos do dono pro aviso
+      // de KYC: o mesmo e-mail do form + o WhatsApp opcional (a Olímpia entrega).
+      await store.setVenueRecipient(b.venueId, r.recipientId, {
+        status: r.status || 'registration',
+        notifyEmail: b.email ?? undefined,
+        notifyWhatsapp: b.notifyWhatsapp ? String(b.notifyWhatsapp).replace(/[^\d+]/g, '') : undefined,
+      });
       return json(res, 200, { success: true, data: r });
     }
 
@@ -512,6 +519,35 @@ async function route(req, res) {
         { id: 'i5', name: 'Pudim da casa', priceCents: 1890 },
       ]);
       return json(res, 200, { success: true, data: { status: 'resetada', totalCents: 21310 } });
+    }
+
+    // --- cron diário: detecta a virada do KYC do recebedor e avisa o dono -----
+    // Varre recebedores em 'registration', refetcha o status vivo e, na virada
+    // (active/refused/suspended), persiste + dispara o aviso via Olímpia. Uma vez
+    // por transição — o status persistido é a idempotência. Guarda por CRON_SECRET
+    // quando setado; senão rate-limit (o processo é idempotente de todo jeito).
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/recipient-status') {
+      if (process.env.CRON_SECRET) {
+        if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+          return json(res, 401, { success: false, error: 'unauthorized' });
+        }
+      } else if (!rateLimitOpen(req)) {
+        return json(res, 429, { success: false, error: 'calma lá' });
+      }
+      if (!psp.getRecipient) return json(res, 200, { success: true, data: { checked: 0, transitions: 0, note: 'PSP sem getRecipient' } });
+      const pending = await store.listVenuesPendingRecipient();
+      const detail = [];
+      for (const v of pending) {
+        let info;
+        try { info = await psp.getRecipient(v.pspRecipientId); }
+        catch (e) { detail.push({ venue: v.id, error: String(e.message).slice(0, 120) }); continue; }
+        const live = info && info.status ? info.status : null;
+        if (!live || live === 'registration' || live === v.pspRecipientStatus) continue; // sem virada
+        await store.setVenueRecipientStatus(v.id, live);
+        const n = await notifyOwnerRecipientStatus({ venue: v, status: live, previousStatus: v.pspRecipientStatus });
+        detail.push({ venue: v.id, from: v.pspRecipientStatus, to: live, notify: n.ok ? 'sent' : (n.skipped ? 'skipped' : 'failed') });
+      }
+      return json(res, 200, { success: true, data: { checked: pending.length, transitions: detail.filter((d) => d.to).length, detail } });
     }
 
     // --- demo-only: simulate the bank confirming the Pix ---------------------

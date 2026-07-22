@@ -63,6 +63,7 @@ function createMemoryStore() {
     const id = crypto.randomUUID();
     venues.set(id, {
       id, name: String(name).trim(), cnpj, city, servicoBp, pspRecipientId, posProvider, active: true,
+      pspRecipientStatus: null, notifyEmail: null, notifyWhatsapp: null,
       // Saldo da casa — off until the owner enables it. validityDays ≥ 30 is
       // the CDC-derived legal floor (docs/house-accounts/README.md).
       houseEnabled: false, houseBonusBp: 1000, houseValidityDays: 90,
@@ -340,12 +341,24 @@ function createMemoryStore() {
       if (!table || !table.active) return null;
       return { venue: venues.get(table.venueId), table: { id: table.id, label: table.label } };
     },
-    /** Grava o recebedor (rp_) criado no PSP — a partir daí o split roteia. */
-    async setVenueRecipient(venueId, recipientId) {
+    /** Grava o recebedor + status inicial + contatos do dono (aviso de KYC). */
+    async setVenueRecipient(venueId, recipientId, opts = {}) {
       const venue = venues.get(venueId);
       if (!venue) throw new Error('unknown venue');
       venue.pspRecipientId = recipientId;
+      if (opts.status !== undefined) venue.pspRecipientStatus = opts.status;
+      if (opts.notifyEmail !== undefined) venue.notifyEmail = opts.notifyEmail;
+      if (opts.notifyWhatsapp !== undefined) venue.notifyWhatsapp = opts.notifyWhatsapp;
       return { id: venue.id, pspRecipientId: recipientId };
+    },
+    async setVenueRecipientStatus(venueId, status) {
+      const venue = venues.get(venueId);
+      if (!venue) throw new Error('unknown venue');
+      venue.pspRecipientStatus = status;
+      return { id: venue.id, pspRecipientStatus: status };
+    },
+    async listVenuesPendingRecipient() {
+      return Array.from(venues.values()).filter((v) => v.pspRecipientStatus === 'registration');
     },
     async setHouseConfig(venueId, clean) {
       const venue = venues.get(venueId);

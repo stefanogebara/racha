@@ -35,6 +35,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   const [name, setName] = useState('');
   const [doc, setDoc] = useState('');
   const [email, setEmail] = useState('');
+  const [notifyWhatsapp, setNotifyWhatsapp] = useState('');
   const [bankCode, setBankCode] = useState('');
   const [agencia, setAgencia] = useState('');
   const [agenciaDv, setAgenciaDv] = useState('');
@@ -136,6 +137,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
           venueId,
           name: name.trim(),
           ...(email.trim() ? { email: email.trim() } : {}),
+          ...(notifyWhatsapp.trim() ? { notifyWhatsapp: notifyWhatsapp.trim() } : {}),
           document: doc,
           bank: {
             code: bankCode,
@@ -238,6 +240,13 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
                 onBlur={() => touch('email')} style={errStyle('email', valid.email)}
                 onChange={(e) => setEmail(e.target.value)} />
               {fb('email', valid.email, 'E-mail inválido — confira o formato.', 'O Pagar.me exige — usa pra avisar sobre os repasses.')}
+            </label>
+
+            <label style={{ gridColumn: '1 / -1' }}>
+              WhatsApp do dono (avisos) <span className="muted small">— opcional</span>
+              <input className="namefield" inputMode="tel" placeholder="(11) 99999-9999" value={notifyWhatsapp}
+                onChange={(e) => setNotifyWhatsapp(e.target.value)} />
+              <span className="muted small" style={{ display: 'block', marginTop: 4 }}>Pra te avisar por WhatsApp quando o KYC aprovar (ou recusar). Sem isso, só por e-mail.</span>
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
