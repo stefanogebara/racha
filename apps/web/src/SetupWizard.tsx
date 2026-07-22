@@ -36,7 +36,17 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
   const recebedorOk = /^r[ep]_/.test(venue?.pspRecipientId || '');
   const temTreino = tables.some((t) => t.training);
   const done = [mesasReais > 0, recebedorOk, temTreino, false];
-  const canNext = step === 0 ? tables.length > 0 : true;
+  // Trava de avanço por etapa: só sai da etapa quando o essencial dela existe.
+  // Passo 1 (mesas): ≥1 mesa. Passo 2 (recebimento): recebedor criado — sem ele
+  // as cobranças reais não liquidam, então não deixa passar batido.
+  const leaveOk = (s: number) => (s === 0 ? tables.length > 0 : s === 1 ? recebedorOk : true);
+  const canNext = leaveOk(step);
+  // Pular pela trilha (stepper): pra frente só até onde as travas deixam; voltar sempre.
+  const canJump = (target: number) => {
+    if (target <= step) return true;
+    for (let s = step; s < target; s++) if (!leaveOk(s)) return false;
+    return true;
+  };
 
   async function add() {
     if (await admin.addTable(newLabel)) setNewLabel('');
@@ -51,10 +61,11 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
             const state = done[i] ? 'done' : i === step ? 'current' : 'pending';
             const bg = state === 'done' ? 'var(--emerald)' : state === 'current' ? 'var(--burgundy)' : 'transparent';
             const fg = state === 'pending' ? 'var(--stone)' : '#fff';
+            const reachable = canJump(i);
             return (
               <div key={title} style={{ display: 'flex', alignItems: 'flex-start', flex: i < STEPS.length - 1 ? 1 : '0 0 auto', minWidth: 0 }}>
-                <button onClick={() => setStep(i)} aria-current={i === step}
-                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                <button onClick={() => reachable && setStep(i)} disabled={!reachable} aria-current={i === step}
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: reachable ? 'pointer' : 'not-allowed', opacity: reachable ? 1 : 0.5, padding: 0 }}>
                   <span style={{ width: 28, height: 28, borderRadius: 999, background: bg, color: fg, border: state === 'pending' ? '1px solid var(--glass-border-input)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>
                     {done[i] ? '✓' : i + 1}
                   </span>
@@ -167,6 +178,11 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
           ? <button className="cta" disabled={!canNext} onClick={() => setStep(step + 1)}>Próximo →</button>
           : <button className="cta" onClick={onDone}>Concluir ✓</button>}
       </div>
+      {step === 1 && !recebedorOk && (
+        <p className="muted small" style={{ alignSelf: 'center', textAlign: 'center', margin: 0 }}>
+          Crie o recebedor acima pra avançar — ou vá pro painel e conecte depois.
+        </p>
+      )}
       <button className="linklike" style={{ alignSelf: 'center' }} onClick={onDone}>ir direto pro painel</button>
     </>
   );
