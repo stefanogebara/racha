@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
 import AdminRecipient from './AdminRecipient';
 import AdminSetup from './AdminSetup';
-import { parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
+import SetupWizard from './SetupWizard';
+import { type Venue, type VenueTable } from './api';
 import { authedReq as req, signOut } from './auth';
 import { isValidCNPJ, maskCpfCnpj, onlyDigits } from './br';
+import { setupComplete, useVenueAdmin, type VenueAdmin } from './useVenueAdmin';
 
 /**
  * Painel de gestão do restaurante — onboarding + mesas/QR. Warm Glass.
@@ -18,7 +20,7 @@ import { isValidCNPJ, maskCpfCnpj, onlyDigits } from './br';
 
 export default function Admin() {
   const venueId = useMemo(() => new URLSearchParams(window.location.search).get('v') ?? '', []);
-  return venueId ? <Tables venueId={venueId} /> : <Onboarding />;
+  return venueId ? <VenueAdminSurface venueId={venueId} /> : <Onboarding />;
 }
 
 // ---------------------------------------------------------------- onboarding
@@ -104,86 +106,60 @@ function Onboarding() {
   );
 }
 
-// ------------------------------------------------------------------- tables
-function Tables({ venueId }: { venueId: string }) {
-  const [venue, setVenue] = useState<Venue | null>(null);
-  const [tables, setTables] = useState<VenueTable[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [newLabel, setNewLabel] = useState('');
+// ------------------------------------------------ venue admin (2 telas)
+// Uma superfície, dois modos: o assistente de setup (SetupWizard, passo a
+// passo) pra quem ainda está configurando, e o painel de gestão (ManageView)
+// pro dia a dia. Os dados/ações vêm todos do hook useVenueAdmin — as duas
+// telas leem da mesma fonte.
+function VenueAdminSurface({ venueId }: { venueId: string }) {
+  const admin = useVenueAdmin(venueId);
   const [printing, setPrinting] = useState<VenueTable | null>(null);
-
+  const [mode, setMode] = useState<'wizard' | 'manage' | null>(null);
   const origin = window.location.origin;
+  const decided = useRef(false);
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await req<TablesView>(`/api/tables?v=${encodeURIComponent(venueId)}`);
-      setVenue(data.venue); setTables(data.tables); setError(null);
-    } catch (e) { setError((e as Error).message); }
-  }, [venueId]);
+  // Decide a tela padrão UMA vez, quando os dados carregam: restaurante já
+  // operante abre no painel; ainda em setup abre no assistente. ?setup=1 força.
+  useEffect(() => {
+    if (decided.current || !admin.venue) return;
+    decided.current = true;
+    const forced = new URLSearchParams(window.location.search).get('setup') === '1';
+    setMode(forced || !setupComplete(admin.venue, admin.tables) ? 'wizard' : 'manage');
+  }, [admin.venue, admin.tables]);
 
-  useEffect(() => { refresh(); }, [refresh]);
-
-  async function addTable() {
-    const label = newLabel.trim();
-    if (!label) return;
-    try {
-      await req('/api/tables', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ venueId, label }),
-      });
-      setNewLabel(''); await refresh();
-    } catch (e) { setError((e as Error).message); }
-  }
-
-  async function rotate(t: VenueTable) {
-    if (!confirm(`Girar o QR da ${t.label}? O código impresso atual para de funcionar na hora.`)) return;
-    try { await req('/api/tables/rotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id }) }); await refresh(); }
-    catch (e) { setError((e as Error).message); }
-  }
-  async function toggle(t: VenueTable) {
-    if (t.active && t.hasOpenCheck) { setError(`${t.label} tem conta aberta — feche antes de desativar.`); return; }
-    if (t.active && !confirm(`Desativar a ${t.label}? O QR dela para de funcionar.`)) return;
-    try { await req('/api/tables/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, active: !t.active }) }); await refresh(); }
-    catch (e) { setError((e as Error).message); }
-  }
-  // Mesa de treino: a equipe pratica o fluxo nela; fica fora da folha /qrs.
-  async function toggleTraining(t: VenueTable) {
-    try { await req<{ id: string; training: boolean }>('/api/tables/training', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, training: !t.training }) }); await refresh(); }
-    catch (e) { setError((e as Error).message); }
-  }
-
-  // Manual mode (POS adapter): the owner opens/closes the check from the panel.
-  async function openManualCheck(t: VenueTable) {
-    const raw = prompt(`Abrir conta na ${t.label}\n\nTotal da conta (R$):`);
-    if (raw == null) return;
-    const totalCents = parseBrlToCents(raw); // "1.234,56" e "R$ 47,50" resolvem certo
-    if (totalCents == null || totalCents <= 0) { setError('Informe um total válido.'); return; }
-    try {
-      await req('/api/checks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, totalCents }) });
-      await refresh();
-    } catch (e) { setError((e as Error).message); }
-  }
-  async function closeManualCheck(t: VenueTable) {
-    if (!confirm(`Fechar a conta da ${t.label}?`)) return;
-    try {
-      const view = await fetch(`/api/check?t=${encodeURIComponent(t.qrToken)}`).then((r) => r.json());
-      const checkId = view?.data?.check?.id;
-      if (!checkId) { setError('Conta não encontrada.'); return; }
-      await req('/api/checks/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkId }) });
-      await refresh();
-    } catch (e) { setError((e as Error).message); }
-  }
-
-  if (printing) return <PrintCard venue={venue} table={printing} origin={origin} onClose={() => setPrinting(null)} />;
+  if (printing) return <PrintCard venue={admin.venue} table={printing} origin={origin} onClose={() => setPrinting(null)} />;
 
   return (
     <main className="shell wide">
       <header className="head">
-        <span className="venue">{venue?.name ?? 'Restaurante'}</span>
+        <span className="venue">{admin.venue?.name ?? 'Restaurante'}</span>
         <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>sair</button>
       </header>
 
-      {/* O banner âmbar do recebimento virou o passo 3 do checklist (AdminSetup). */}
+      {mode === null && <p className="muted small">carregando…</p>}
+      {mode === 'wizard' && (
+        <SetupWizard admin={admin} venueId={venueId} onPrint={setPrinting} onDone={() => setMode('manage')} />
+      )}
+      {mode === 'manage' && (
+        <ManageView admin={admin} venueId={venueId} onPrint={setPrinting} onConfigure={() => setMode('wizard')} />
+      )}
+
+      <footer className="foot"><span>racha · o QR de cada mesa abre a conta do cliente</span></footer>
+    </main>
+  );
+}
+
+// ------------------------------------------------------- painel de gestão
+function ManageView({ admin, venueId, onPrint, onConfigure }: {
+  admin: VenueAdmin; venueId: string; onPrint: (t: VenueTable) => void; onConfigure: () => void;
+}) {
+  const [newLabel, setNewLabel] = useState('');
+  const { venue, tables, error } = admin;
+
+  async function add() { if (await admin.addTable(newLabel)) setNewLabel(''); }
+
+  return (
+    <>
       {venue && <AdminSetup venue={venue} tables={tables} />}
 
       <section className="panel" id="mesas" style={{ scrollMarginTop: 16 }}>
@@ -199,8 +175,8 @@ function Tables({ venueId }: { venueId: string }) {
         </p>
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
           <input className="namefield" style={{ flex: 1 }} placeholder="Ex.: Mesa 12" value={newLabel}
-            onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTable()} />
-          <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={addTable}>Adicionar</button>
+            onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+          <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>Adicionar</button>
         </div>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
         {tables.length === 0 && <p className="muted small">nenhuma mesa ainda — adicione a primeira acima.</p>}
@@ -215,18 +191,18 @@ function Tables({ venueId }: { venueId: string }) {
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {t.active && (t.hasOpenCheck
-                ? <button className="ghost" onClick={() => closeManualCheck(t)}>fechar conta</button>
-                : <button className="cta" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => openManualCheck(t)}>abrir conta</button>)}
-              <button className="ghost" onClick={() => setPrinting(t)}>QR</button>
-              <button className="ghost" onClick={() => rotate(t)}>girar</button>
-              <button className="linklike" onClick={() => toggleTraining(t)}>{t.training ? 'tirar do treino' : 'treino'}</button>
-              <button className="ghost" onClick={() => toggle(t)}>{t.active ? 'desativar' : 'ativar'}</button>
+                ? <button className="ghost" onClick={() => admin.closeManualCheck(t)}>fechar conta</button>
+                : <button className="cta" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => admin.openManualCheck(t)}>abrir conta</button>)}
+              <button className="ghost" onClick={() => onPrint(t)}>QR</button>
+              <button className="ghost" onClick={() => admin.rotate(t)}>girar</button>
+              <button className="linklike" onClick={() => admin.toggleTraining(t)}>{t.training ? 'tirar do treino' : 'treino'}</button>
+              <button className="ghost" onClick={() => admin.toggle(t)}>{t.active ? 'desativar' : 'ativar'}</button>
             </div>
           </div>
         ))}
       </section>
 
-      <AdminRecipient venueId={venueId} onChanged={refresh} />
+      <AdminRecipient venueId={venueId} onChanged={admin.refresh} />
 
       {/* Créditos da casa: recurso avançado (carteira pré-paga), fora do setup — colapsado. */}
       <details>
@@ -238,8 +214,8 @@ function Tables({ venueId }: { venueId: string }) {
         </div>
       </details>
 
-      <footer className="foot"><span>racha · o QR de cada mesa abre a conta do cliente</span></footer>
-    </main>
+      <button className="linklike" style={{ alignSelf: 'center' }} onClick={onConfigure}>abrir assistente de configuração</button>
+    </>
   );
 }
 
