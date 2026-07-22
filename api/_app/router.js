@@ -92,6 +92,24 @@ const handleWebhook = createWebhookHandler({
   fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
 });
 
+// DEMO ISOLADO (blindagem do go-live): a mesa pública de demonstração NUNCA
+// toca o PSP real. Sem isso, ligar sk_live_ faria um lead pagando a "conta de
+// mentira" (o link que a Olímpia manda) ou ser cobrado DE VERDADE, ou o demo
+// quebrar (o recebedor de teste não existe em live). Aqui ele roda sempre num
+// MockPsp próprio e se auto-confirma — independente de RACHA_PSP/live. É a única
+// venue cujo dinheiro é fake por design.
+const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || 'demoracha';
+const demoPsp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
+const demoCharge = createChargeService({ store, psp: demoPsp });
+const demoWebhook = createWebhookHandler({
+  loadEvents: store.loadEvents.bind(store),
+  appendEvent: store.appendEvent.bind(store),
+  recordPayment: store.recordPayment.bind(store),
+  findCheckByTxid: store.findCheckByTxid.bind(store),
+  psp: demoPsp,
+  fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
+});
+
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
@@ -191,13 +209,31 @@ async function route(req, res) {
       const body = JSON.parse(await readBody(req) || '{}');
       const view = await store.getCheckByQrToken(body.token || '');
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada' });
-      const result = await charge({
+      // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
+      // pelo PSP real — dinheiro fake mesmo com o app em live.
+      const isDemo = (body.token || '') === DEMO_TABLE_TOKEN;
+      const result = await (isDemo ? demoCharge : charge)({
         checkId: view.check.id, amountCents: body.amountCents,
         tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null,
         // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
         wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
         payerDocument: body.payerDocument ?? null, // CPF — adquirente exige em cartão
       });
+      // O demo se auto-paga: sem Simulador nem webhook externo em live, o próprio
+      // MockPsp assina a confirmação e o handler do demo credita o ledger — a
+      // "conta de mentira" fecha na hora, sem tocar dinheiro real.
+      if (isDemo && result.txid) {
+        try {
+          const { rawBody, signature } = demoPsp.buildConfirmationWebhook({
+            txid: result.txid, amountCents: result.amountCents, tipCents: result.tipCents,
+            payerName: body.payerLabel || 'Cliente Demo', payerCpf: '390.533.447-05',
+            method: result.method,
+          });
+          await demoWebhook(rawBody, { 'x-racha-signature': signature });
+        } catch (e) {
+          process.stderr.write(`[demo] auto-confirm falhou: ${String(e.message).slice(0, 120)}\n`);
+        }
+      }
       return json(res, 200, { success: true, data: result });
     }
     if (req.method === 'POST' && url.pathname === '/api/webhooks/psp') {
