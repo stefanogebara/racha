@@ -84,7 +84,12 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     const pending = await store.listVenuesPendingRecipient();
     expect(pending.map((x) => x.id)).toContain(v.id);
 
-    // vira active → sai da lista (o cron não reprocessa)
+    // status intermediário (affiliation) SEGUE pendente — o cron continua vigiando
+    await store.setVenueRecipientStatus(v.id, 'affiliation');
+    const mid = await store.listVenuesPendingRecipient();
+    expect(mid.map((x) => x.id)).toContain(v.id);
+
+    // vira active (terminal) → sai da lista (o cron não reprocessa)
     await store.setVenueRecipientStatus(v.id, 'active');
     got = await store.getVenue(v.id);
     expect(got.pspRecipientStatus).toBe('active');

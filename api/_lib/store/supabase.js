@@ -20,6 +20,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const { reduce } = require('../checks/check-state');
 const { buildAtivacao } = require('../checks/ativacao');
+const { RECIPIENT_TERMINAL } = require('../recipient-status');
 
 function required(name) {
   const v = process.env[name];
@@ -499,12 +500,18 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       throwOn(error, 'setVenueRecipientStatus');
       return { id: data.id, pspRecipientStatus: data.psp_recipient_status };
     },
-    /** Venues com recebedor ainda em análise — o cron refetcha e avisa na virada. */
+    /**
+     * Venues com recebedor ainda NÃO-terminal (segue no KYC) — o cron refetcha e
+     * avisa na virada. Inclui registration, affiliation e afins; para de listar
+     * só quando chega num terminal (active/refused/…), pra o dono ser avisado uma
+     * vez e o venue sair da varredura.
+     */
     async listVenuesPendingRecipient() {
       const { data, error } = await client
         .from('venues')
         .select(VENUE_COLS)
-        .eq('psp_recipient_status', 'registration');
+        .not('psp_recipient_status', 'is', null)
+        .not('psp_recipient_status', 'in', `(${RECIPIENT_TERMINAL.join(',')})`);
       throwOn(error, 'listVenuesPendingRecipient');
       return (data || []).map(mapVenue);
     },

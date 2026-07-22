@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const { reduce } = require('../checks/check-state');
 const { buildAtivacao } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
+const { isTerminalRecipientStatus } = require('../recipient-status');
 
 function createMemoryStore() {
   const venues = new Map();
@@ -358,7 +359,9 @@ function createMemoryStore() {
       return { id: venue.id, pspRecipientStatus: status };
     },
     async listVenuesPendingRecipient() {
-      return Array.from(venues.values()).filter((v) => v.pspRecipientStatus === 'registration');
+      return Array.from(venues.values()).filter(
+        (v) => v.pspRecipientStatus && !isTerminalRecipientStatus(v.pspRecipientStatus),
+      );
     },
     async setHouseConfig(venueId, clean) {
       const venue = venues.get(venueId);

@@ -29,6 +29,7 @@ const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler } = require('../_lib/pay/webhook-handler');
 const { createChargeService } = require('../_lib/pay/create-charge');
 const { notifyOwnerRecipientStatus } = require('../_lib/notify');
+const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
 const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
@@ -542,12 +543,26 @@ async function route(req, res) {
         try { info = await psp.getRecipient(v.pspRecipientId); }
         catch (e) { detail.push({ venue: v.id, error: String(e.message).slice(0, 120) }); continue; }
         const live = info && info.status ? info.status : null;
-        if (!live || live === 'registration' || live === v.pspRecipientStatus) continue; // sem virada
-        await store.setVenueRecipientStatus(v.id, live);
-        const n = await notifyOwnerRecipientStatus({ venue: v, status: live, previousStatus: v.pspRecipientStatus });
-        detail.push({ venue: v.id, from: v.pspRecipientStatus, to: live, notify: n.ok ? 'sent' : (n.skipped ? 'skipped' : 'failed') });
+        if (!live || live === v.pspRecipientStatus) continue; // sem mudança
+        if (isTerminalRecipientStatus(live)) {
+          // Status que interessa ao dono (active/refused/…): avisa. Só grava DEPOIS
+          // que o aviso saiu — se falhar (endpoint fora), não consome a transição
+          // e o próximo tick retenta (aviso perdido é pior que status 1 dia velho).
+          const n = await notifyOwnerRecipientStatus({ venue: v, status: live, previousStatus: v.pspRecipientStatus });
+          if (n.ok) {
+            await store.setVenueRecipientStatus(v.id, live);
+            detail.push({ venue: v.id, from: v.pspRecipientStatus, to: live, notify: 'sent' });
+          } else {
+            detail.push({ venue: v.id, from: v.pspRecipientStatus, to: live, notify: n.skipped ? 'skipped' : 'failed_retry' });
+          }
+        } else {
+          // Intermediário (registration → affiliation → …): rastreia, sem avisar.
+          await store.setVenueRecipientStatus(v.id, live);
+          detail.push({ venue: v.id, from: v.pspRecipientStatus, to: live, note: 'intermediario' });
+        }
       }
-      return json(res, 200, { success: true, data: { checked: pending.length, transitions: detail.filter((d) => d.to).length, detail } });
+      const notified = detail.filter((d) => d.notify === 'sent').length;
+      return json(res, 200, { success: true, data: { checked: pending.length, notified, detail } });
     }
 
     // --- demo-only: simulate the bank confirming the Pix ---------------------
