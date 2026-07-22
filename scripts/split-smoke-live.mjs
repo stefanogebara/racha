@@ -39,6 +39,10 @@ const BASE = args.base || 'https://racha-gray.vercel.app';
 const VENUE = args.venue;
 const CPF = String(args.cpf || '').replace(/\D/g, '');
 const AMOUNT = Number.parseInt(args.amount, 10) || 100; // R$ 1,00
+// Auth compartilhada: donos vivem no GoTrue do Seatable, não no do Racha.
+// --token <access_token> do dono logado pula o mint (robusto sob shared auth);
+// senão, mint via projeto de AUTH (AUTH_SUPABASE_* no .env) ou o próprio Racha.
+const TOKEN = args.token || null;
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const env = Object.fromEntries(
@@ -46,6 +50,10 @@ const env = Object.fromEntries(
     .map((l) => l.match(/^([A-Z_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2].trim()]),
 );
 const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY: SERVICE, SUPABASE_PUBLISHABLE_KEY: PUB } = env;
+// Projeto de AUTH (onde os donos existem sob shared auth). Espelha o router.
+const AUTH_URL = env.AUTH_SUPABASE_URL || SUPABASE_URL;
+const AUTH_SERVICE = env.AUTH_SUPABASE_SERVICE_ROLE_KEY || SERVICE;
+const AUTH_PUB = env.AUTH_SUPABASE_PUBLISHABLE_KEY || env.AUTH_SUPABASE_KEY || PUB;
 
 const log = (m) => process.stdout.write(`${m}\n`);
 const brl = (c) => `R$ ${(c / 100).toFixed(2).replace('.', ',')}`;
@@ -56,6 +64,7 @@ if (!VENUE || CPF.length !== 11) {
 }
 
 const admin = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } });
+const authAdmin = createClient(AUTH_URL, AUTH_SERVICE, { auth: { persistSession: false } });
 
 async function j(method, url, { token, body } = {}) {
   const res = await fetch(url, {
@@ -73,12 +82,12 @@ async function mintOwnerToken(venueId) {
   if (mem.error) throw new Error(`venue_members: ${mem.error.message}`);
   if (!mem.data.length) throw new Error(`venue ${venueId} não tem dono (owner) — confira o id`);
   const userId = mem.data[0].user_id;
-  const gu = await admin.auth.admin.getUserById(userId);
-  if (gu.error || !gu.data.user?.email) throw new Error('não achei o e-mail do dono');
+  const gu = await authAdmin.auth.admin.getUserById(userId);
+  if (gu.error || !gu.data.user?.email) throw new Error('dono não encontrado no projeto de AUTH — configure AUTH_SUPABASE_* no .env, ou passe --token');
   const email = gu.data.user.email;
-  const link = await admin.auth.admin.generateLink({ type: 'magiclink', email });
+  const link = await authAdmin.auth.admin.generateLink({ type: 'magiclink', email });
   if (link.error) throw new Error(`generateLink: ${link.error.message}`);
-  const anon = createClient(SUPABASE_URL, PUB, { auth: { persistSession: false } });
+  const anon = createClient(AUTH_URL, AUTH_PUB, { auth: { persistSession: false } });
   const v = await anon.auth.verifyOtp({ token_hash: link.data.properties.hashed_token, type: 'email' });
   const token = v.data?.session?.access_token;
   if (!token) throw new Error(`verifyOtp não devolveu sessão: ${v.error?.message || '?'}`);
@@ -87,7 +96,9 @@ async function mintOwnerToken(venueId) {
 
 async function main() {
   log(`smoke LIVE · venue ${VENUE} · valor ${brl(AMOUNT)} · ${BASE}\n`);
-  const { token, email } = await mintOwnerToken(VENUE);
+  let token, email;
+  if (TOKEN) { token = TOKEN; email = '(via --token)'; }
+  else { ({ token, email } = await mintOwnerToken(VENUE)); }
   log(`dono autenticado: ${email}`);
 
   // 1. recebedor ACTIVE?
