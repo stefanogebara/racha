@@ -58,7 +58,12 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
       setInfo(d);
       setLoadError(null);
     } catch (e) {
+      // Recebedor cadastrado mas inexistente no PSP atual (ex.: id de TESTE com o
+      // app já em live → "Recipient not found") NÃO pode travar o painel: cai num
+      // sentinel sem id pra o formulário aparecer e o dono criar um novo (que
+      // sobrescreve o id morto). O aviso explica o porquê logo abaixo.
       setLoadError((e as Error).message);
+      setInfo((prev) => prev ?? { recipientId: null, status: null });
     }
   }, [venueId]);
 
@@ -160,7 +165,9 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
       {!realId && (
         <div style={{ border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.08)', borderRadius: 12, padding: '10px 12px' }}>
-          <p className="small">⚠ Sem recebedor configurado — cobranças reais não liquidam até criar.</p>
+          {loadError
+            ? <p className="small">⚠ O recebedor cadastrado não foi encontrado no Pagar.me deste ambiente — provavelmente foi criado em teste e o app já está em live. Crie um novo abaixo; ele substitui o antigo.</p>
+            : <p className="small">⚠ Sem recebedor configurado — cobranças reais não liquidam até criar.</p>}
           {info.recipientId && (
             <p className="muted small">O id atual ({info.recipientId}) é de demonstração — não recebe de verdade.</p>
           )}
