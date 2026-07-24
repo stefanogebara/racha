@@ -39,7 +39,7 @@ const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
 
 // One venue shape everywhere (house-account config rides along).
 const VENUE_COLS = 'id, name, city, cnpj, servico_basis_points, psp_recipient_id, pos_provider, active, '
-  + 'psp_recipient_status, notify_email, notify_whatsapp, '
+  + 'psp_recipient_status, notify_email, notify_whatsapp, stripe_account_id, '
   + 'house_enabled, house_bonus_bp, house_validity_days, house_min_load_cents, house_max_load_cents';
 function mapVenue(v) {
   if (!v) return null;
@@ -47,6 +47,7 @@ function mapVenue(v) {
     id: v.id, name: v.name, city: v.city, cnpj: v.cnpj,
     servicoBp: v.servico_basis_points, pspRecipientId: v.psp_recipient_id,
     pspRecipientStatus: v.psp_recipient_status ?? null,
+    stripeAccountId: v.stripe_account_id ?? null,
     notifyEmail: v.notify_email ?? null, notifyWhatsapp: v.notify_whatsapp ?? null,
     posProvider: v.pos_provider, active: v.active,
     houseEnabled: v.house_enabled, houseBonusBp: v.house_bonus_bp,
@@ -516,6 +517,17 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         .single();
       throwOn(error, 'setVenueRecipient');
       return { id: data.id, pspRecipientId: data.psp_recipient_id };
+    },
+    /** Grava a conta conectada Stripe (acct_) do venue — rail de cartão/Apple Pay. */
+    async setVenueStripeAccount(venueId, accountId) {
+      const { data, error } = await client
+        .from('venues')
+        .update({ stripe_account_id: accountId })
+        .eq('id', venueId)
+        .select('id, stripe_account_id')
+        .single();
+      throwOn(error, 'setVenueStripeAccount');
+      return { id: data.id, stripeAccountId: data.stripe_account_id };
     },
     /** Atualiza só o status do recebedor (o cron, ao detectar a transição KYC). */
     async setVenueRecipientStatus(venueId, status) {

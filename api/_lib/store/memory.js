@@ -64,7 +64,7 @@ function createMemoryStore() {
     const id = crypto.randomUUID();
     venues.set(id, {
       id, name: String(name).trim(), cnpj, city, servicoBp, pspRecipientId, posProvider, active: true,
-      pspRecipientStatus: null, notifyEmail: null, notifyWhatsapp: null,
+      pspRecipientStatus: null, notifyEmail: null, notifyWhatsapp: null, stripeAccountId: null,
       // Saldo da casa — off until the owner enables it. validityDays ≥ 30 is
       // the CDC-derived legal floor (docs/house-accounts/README.md).
       houseEnabled: false, houseBonusBp: 1000, houseValidityDays: 90,
@@ -373,6 +373,12 @@ function createMemoryStore() {
       if (opts.notifyEmail !== undefined) venue.notifyEmail = opts.notifyEmail;
       if (opts.notifyWhatsapp !== undefined) venue.notifyWhatsapp = opts.notifyWhatsapp;
       return { id: venue.id, pspRecipientId: recipientId };
+    },
+    async setVenueStripeAccount(venueId, accountId) {
+      const venue = venues.get(venueId);
+      if (!venue) throw new Error('unknown venue');
+      venue.stripeAccountId = accountId;
+      return { id: venue.id, stripeAccountId: accountId };
     },
     async setVenueRecipientStatus(venueId, status) {
       const venue = venues.get(venueId);

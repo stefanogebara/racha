@@ -28,6 +28,8 @@ const { createMemoryStore } = require('../_lib/store/memory');
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
+const { createStripePsp } = require('../_lib/pay/stripe-psp');
+const { reduce, remainingCents } = require('../_lib/checks/check-state');
 const { createChargeService } = require('../_lib/pay/create-charge');
 const { notifyOwnerRecipientStatus } = require('../_lib/notify');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
@@ -106,8 +108,34 @@ const confirmDeps = {
   findCheckByTxid: store.findCheckByTxid.bind(store),
   fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
 };
+
+// Stripe = 2º rail (cartão / Apple Pay / Google Pay web via Connect). SÓ liga
+// com STRIPE_SECRET_KEY setada; sem isso fica null e todo o caminho de cartão
+// responde 503/inerte — o Pix (Pagar.me) fica 100% intacto. Deploy gated
+// (conta Connect + onboarding por restaurante + jurídico, regra nº4).
+let stripePsp = null;
+if (process.env.STRIPE_SECRET_KEY) {
+  try {
+    stripePsp = createStripePsp({
+      secretKey: process.env.STRIPE_SECRET_KEY,
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || null,
+    });
+  } catch (err) {
+    process.stderr.write(`[stripe] init FALHOU: ${err.message} — rail de cartão inerte\n`);
+    stripePsp = null;
+  }
+}
+
+// A reconciliação re-pergunta ao PSP DONO da cobrança: pi_ → Stripe, o resto →
+// o PSP principal (Pagar.me/mock). Um dispatcher de getCharge por prefixo de txid.
+const reconcilePsp = {
+  getCharge: async (txid) => {
+    if (stripePsp && typeof txid === 'string' && /^pi_/.test(txid)) return stripePsp.getCharge(txid);
+    return typeof psp.getCharge === 'function' ? psp.getCharge(txid) : null;
+  },
+};
 const reconciler = createChargeReconciler({
-  store, psp,
+  store, psp: reconcilePsp,
   confirm: (parsed) => applyConfirmedPayment(parsed, confirmDeps),
 });
 
@@ -288,6 +316,48 @@ async function route(req, res) {
       }
       return json(res, 200, { success: true, data: result });
     }
+
+    // --- cartão / Apple Pay (Stripe, 2º rail) — cria o PaymentIntent ---------
+    // Devolve o clientSecret; o front confirma com a carteira (Express Checkout
+    // Element) e a confirmação chega pelo /api/webhooks/stripe. Inerte sem
+    // STRIPE_SECRET_KEY (503) ou sem conta Stripe no venue (400). Mesmos portões
+    // de dinheiro do Pix (espelha create-charge): nunca passa do que falta.
+    if (req.method === 'POST' && url.pathname === '/api/pay/stripe-intent') {
+      if (!stripePsp) return json(res, 503, { success: false, error: 'cartão/Apple Pay indisponível — Stripe não configurado' });
+      const b = JSON.parse(await readBody(req) || '{}');
+      if ((b.token || '') === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, error: 'a demo não usa cartão' });
+      const view = await store.getCheckByQrToken(b.token || '');
+      if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      const venue = await store.getVenueForCheck(view.check.id);
+      if (!venue || !venue.stripeAccountId || !/^acct_/.test(venue.stripeAccountId)) {
+        return json(res, 400, { success: false, error: 'este restaurante ainda não aceita cartão' });
+      }
+      const amountCents = b.amountCents;
+      const tipCents = b.tipCents ?? 0;
+      if (!Number.isSafeInteger(amountCents) || amountCents < 0) return json(res, 400, { success: false, error: 'amountCents inválido' });
+      if (!Number.isSafeInteger(tipCents) || tipCents < 0) return json(res, 400, { success: false, error: 'tipCents inválido' });
+      if (amountCents + tipCents === 0) return json(res, 400, { success: false, error: 'cobrança de valor zero' });
+      const state = reduce(await store.loadEvents(view.check.id));
+      if (!state || state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada' });
+      const remaining = remainingCents(state);
+      if (amountCents > remaining) return json(res, 400, { success: false, error: `valor acima do que falta (${remaining} centavos)` });
+      try {
+        const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
+        const charge = await stripePsp.createWalletCharge({
+          chargeRef, amountCents, tipCents,
+          recipientId: venue.stripeAccountId,
+          wallet: b.wallet ?? null, payerDocument: b.payerDocument ?? null,
+        });
+        await store.registerCharge({
+          checkId: view.check.id, txid: charge.txid, amountCents, tipCents,
+          payerLabel: b.payerLabel ?? null, method: 'card',
+        });
+        return json(res, 200, { success: true, data: { txid: charge.txid, clientSecret: charge.clientSecret, amountCents, tipCents, method: 'card' } });
+      } catch (e) {
+        return json(res, e.statusCode || 502, { success: false, error: e.message });
+      }
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/webhooks/psp') {
       const raw = await readBody(req);
       // Toda chegada de webhook fica visível nos logs — diagnóstico de
@@ -305,6 +375,30 @@ async function route(req, res) {
         throw err; // segue pro mapa de status do catch externo (401 etc.)
       }
       process.stderr.write(`[webhook] out status=${result.status}${result.reason ? ` reason=${result.reason.slice(0, 80)}` : ''}\n`);
+      if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
+        await writeBackToPos(result.checkId);
+      }
+      const status = result.status === 'rejected' ? 409 : 200;
+      return json(res, status, { success: status === 200, data: result });
+    }
+
+    // --- webhook do Stripe (2º rail) — confirmação de cartão/Apple Pay --------
+    // Verifica a assinatura Stripe (constructEvent, sobre os BYTES CRUS) e cai
+    // no MESMO applyConfirmedPayment do Pix. Inerte sem STRIPE configurado.
+    // ⚠️ Ao ligar em prod: garantir corpo CRU (Vercel bodyParser off nesta rota)
+    // — o Stripe assina os bytes; um req.body re-serializado quebra a assinatura.
+    if (req.method === 'POST' && url.pathname === '/api/webhooks/stripe') {
+      if (!stripePsp) return json(res, 503, { success: false, error: 'stripe não configurado' });
+      const raw = await readBody(req);
+      process.stderr.write(`[stripe-webhook] in bytes=${raw.length} sig=${req.headers['stripe-signature'] ? 'sim' : 'não'}\n`);
+      let result;
+      try {
+        const parsed = await stripePsp.verifyAndParseWebhook(raw, req.headers);
+        result = await applyConfirmedPayment(parsed, confirmDeps);
+      } catch (err) {
+        process.stderr.write(`[stripe-webhook] threw=${err.name}: ${String(err.message).slice(0, 80)}\n`);
+        throw err; // WebhookVerificationError → 401 no mapa de status do catch externo
+      }
       if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
         await writeBackToPos(result.checkId);
       }
