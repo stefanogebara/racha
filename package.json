@@ -13,6 +13,7 @@
     "jest": "^29.7.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.110.7"
+    "@supabase/supabase-js": "^2.110.7",
+    "stripe": "^22.3.2"
   }
 }
