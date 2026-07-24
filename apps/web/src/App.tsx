@@ -39,6 +39,10 @@ export default function App() {
   // compartilhado com o Google Pay.
   const [cpf, setCpf] = useState('');
   const cpfDigits = cpf.replace(/\D/g, '');
+  // Antes o botão de pagar exigia CPF pra HABILITAR — ficava cinza em silêncio e
+  // parecia "quebrado" (diner toca e nada acontece). Agora é tocável e, sem CPF,
+  // dá feedback + foca o campo.
+  const [cpfHint, setCpfHint] = useState(false);
 
   const [step, setStep] = useState<Step>('conta');
   const [charge, setCharge] = useState<ChargeResult | null>(null);
@@ -140,6 +144,12 @@ export default function App() {
   }
 
   async function onPay() {
+    if (cpfDigits.length !== 11) {
+      setCpfHint(true);
+      document.getElementById('cpf-field')?.focus();
+      return;
+    }
+    setCpfHint(false);
     try {
       setPaidBaseline(state.paidCents); // baseline ANTES da minha cobrança cair
       const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null, cpfDigits);
@@ -384,12 +394,18 @@ export default function App() {
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
           <input
+            id="cpf-field"
             className="namefield" inputMode="numeric" maxLength={14}
-            placeholder="Seu CPF (a operadora de pagamento exige)"
-            value={cpf} onChange={(e) => setCpf(e.target.value)}
+            placeholder="Seu CPF (obrigatório pra pagar)"
+            style={cpfHint && cpfDigits.length !== 11 ? { borderColor: 'var(--burgundy)' } : undefined}
+            value={cpf}
+            onChange={(e) => { setCpf(e.target.value); if (e.target.value.replace(/\D/g, '').length === 11) setCpfHint(false); }}
           />
+          {cpfHint && cpfDigits.length !== 11 && (
+            <p className="small" style={{ color: 'var(--burgundy)' }}>Preencha seu CPF (11 dígitos) pra liberar o pagamento.</p>
+          )}
 
-          <button className="cta" disabled={totalToPay === 0 || cpfDigits.length !== 11} onClick={onPay}>
+          <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
             Pagar {brl(totalToPay)} com Pix
           </button>
           <WalletButtons
