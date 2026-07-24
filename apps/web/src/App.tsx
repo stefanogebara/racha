@@ -4,6 +4,7 @@ import Home from './Home';
 import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
 import { clearStoredWallet, readStoredWallet } from './house';
+import { computeShare, type SplitMode } from './split';
 
 /**
  * Racha diner flow — one screen, three acts:
@@ -17,12 +18,6 @@ import { clearStoredWallet, readStoredWallet } from './house';
 
 type Step = 'conta' | 'pagar' | 'pago' | 'saldo';
 
-function splitEqualLocal(totalCents: number, parts: number, index: number): number {
-  const base = Math.floor(totalCents / parts);
-  const remainder = totalCents % parts;
-  return base + (index < remainder ? 1 : 0);
-}
-
 export default function App() {
   const token = useMemo(
     () => new URLSearchParams(window.location.search).get('t') ?? '',
@@ -31,9 +26,11 @@ export default function App() {
   const [view, setView] = useState<CheckView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [mode, setMode] = useState<'igual' | 'valor'>('igual');
+  const [mode, setMode] = useState<SplitMode>('igual');
   const [people, setPeople] = useState(2);
   const [customValue, setCustomValue] = useState('');
+  // Modo "Por item": ids dos itens que o diner marcou como seus.
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(() => new Set());
   const [servicoOn, setServicoOn] = useState(true);
   const [payerLabel, setPayerLabel] = useState('');
   // CPF do pagador: o adquirente exige o documento do customer em TODO
@@ -120,15 +117,26 @@ export default function App() {
   // parseBrlToCents devolve null para entrada inválida ('R$ 47,50' colado com
   // lixo, '1.234,56', etc. resolvem certo; 'abc' → null) — null desarma o CTA.
   const customCents = parseBrlToCents(customValue);
-  const baseCents =
-    mode === 'igual'
-      ? splitEqualLocal(remaining, Math.max(people, 1), 0)
-      : Math.max(0, customCents ?? 0);
-  const cappedBase = Math.min(baseCents, remaining);
-  const servicoCents = servicoOn
-    ? Math.floor((cappedBase * venue.servicoBp + 5000) / 10000)
-    : 0;
-  const totalToPay = cappedBase + servicoCents;
+  const selectedCents = view.check.items
+    .filter((i) => selectedItems.has(i.id))
+    .reduce((s, i) => s + i.priceCents, 0);
+  // Split proporcional em TODO modo: o serviço é sempre % da SUA parte
+  // (split.ts espelha o backend). Quem paga mais, paga mais serviço.
+  const share = computeShare({
+    mode, remaining, people, customCents, selectedCents,
+    servicoOn, servicoBp: venue.servicoBp,
+  });
+  const cappedBase = share.base;
+  const servicoCents = share.servico;
+  const totalToPay = share.total;
+
+  function toggleItem(id: string) {
+    setSelectedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   async function onPay() {
     try {
@@ -217,7 +225,7 @@ export default function App() {
             </p>
           </div>
           {remaining > 0 && (
-            <button className="cta" onClick={() => { setStep('conta'); refresh(); }}>
+            <button className="cta" onClick={() => { setSelectedItems(new Set()); setStep('conta'); refresh(); }}>
               Pagar mais uma parte
             </button>
           )}
@@ -266,14 +274,36 @@ export default function App() {
       </header>
 
       <section className="card">
-        <p className="label">Sua conta</p>
-        <ul className="items">
-          {view.check.items.map((i) => (
-            <li key={i.id}>
-              <span>{i.name}</span>
-              <span className="mono">{brl(i.priceCents)}</span>
-            </li>
-          ))}
+        <p className="label">
+          Sua conta
+          {mode === 'item' && remaining > 0 && <span className="muted small"> · toque o que foi seu</span>}
+        </p>
+        <ul className={mode === 'item' && remaining > 0 ? 'items pickable' : 'items'}>
+          {view.check.items.map((i) => {
+            if (mode !== 'item' || remaining === 0) {
+              return (
+                <li key={i.id}>
+                  <span>{i.name}</span>
+                  <span className="mono">{brl(i.priceCents)}</span>
+                </li>
+              );
+            }
+            const picked = selectedItems.has(i.id);
+            return (
+              <li key={i.id}>
+                <button
+                  type="button"
+                  className={picked ? 'itempick on' : 'itempick'}
+                  aria-pressed={picked}
+                  onClick={() => toggleItem(i.id)}
+                >
+                  <span className="tick" aria-hidden="true">{picked ? '✓' : '+'}</span>
+                  <span className="iname">{i.name}</span>
+                  <span className="mono">{brl(i.priceCents)}</span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
         <div className="totalrow">
           <span>Total</span>
@@ -295,16 +325,19 @@ export default function App() {
       ) : (
         <section className="card">
           <p className="label">Sua parte</p>
-          <div className="modes" role="tablist">
+          <div className="modes modes3" role="tablist">
             <button role="tab" aria-selected={mode === 'igual'} className={mode === 'igual' ? 'mode on' : 'mode'} onClick={() => setMode('igual')}>
-              Dividir igual
+              Igual
+            </button>
+            <button role="tab" aria-selected={mode === 'item'} className={mode === 'item' ? 'mode on' : 'mode'} onClick={() => setMode('item')}>
+              Por item
             </button>
             <button role="tab" aria-selected={mode === 'valor'} className={mode === 'valor' ? 'mode on' : 'mode'} onClick={() => setMode('valor')}>
               Outro valor
             </button>
           </div>
 
-          {mode === 'igual' ? (
+          {mode === 'igual' && (
             <div className="stepperrow">
               <span>Dividir entre</span>
               <div className="stepper">
@@ -314,7 +347,15 @@ export default function App() {
               </div>
               <span>pessoas</span>
             </div>
-          ) : (
+          )}
+          {mode === 'item' && (
+            <p className="muted small itemhint">
+              {selectedItems.size === 0
+                ? 'Toque os itens que foram seus na conta ↑ — o serviço acompanha a sua parte.'
+                : `${selectedItems.size} ${selectedItems.size === 1 ? 'item' : 'itens'} · sua parte ${brl(cappedBase)}`}
+            </p>
+          )}
+          {mode === 'valor' && (
             <div className="customrow">
               <label htmlFor="valor">R$</label>
               <input
@@ -328,10 +369,14 @@ export default function App() {
           <label className="servico">
             <input type="checkbox" checked={servicoOn} onChange={(e) => setServicoOn(e.target.checked)} />
             <span>
-              Serviço da equipe ({(venue.servicoBp / 100).toFixed(0)}%) — opcional
+              Serviço da equipe ({(venue.servicoBp / 100).toFixed(0)}% da sua parte) — opcional
               <em>{servicoOn && servicoCents > 0 ? ` +${brl(servicoCents)}` : ''}</em>
             </span>
           </label>
+
+          {share.capped && cappedBase > 0 && (
+            <p className="muted small">Ajustado pro que ainda falta na conta ({brl(remaining)}) — o resto já foi pago.</p>
+          )}
 
           <input
             className="namefield" maxLength={60} placeholder="Seu nome (opcional)"

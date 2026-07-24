@@ -125,6 +125,34 @@ body {
 }
 .mode.on { border-color: var(--charcoal); color: var(--charcoal); background: rgba(255, 255, 255, 0.78); }
 
+/* 3-up modes (Igual · Por item · Outro valor) — tighter so the labels fit */
+.modes3 { grid-template-columns: 1fr 1fr 1fr; }
+.modes3 .mode { padding: 10px 4px; font-size: 13px; }
+
+/* Split por item: os itens da conta viram tocáveis */
+.items.pickable { gap: 6px; }
+.items.pickable li { border-bottom: none; padding-bottom: 0; }
+.itempick {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--glass-border-input);
+  background: rgba(255, 255, 255, 0.42);
+  font-size: 15px; line-height: 1.3; color: var(--charcoal);
+  font-family: inherit; text-align: left; cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.itempick .tick {
+  flex: none; width: 22px; height: 22px; border-radius: 7px;
+  display: grid; place-items: center;
+  border: 1px solid var(--glass-border-input);
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 13px; font-weight: 700; color: var(--stone);
+}
+.itempick .iname { flex: 1; }
+.itempick.on { border-color: var(--emerald); background: rgba(16, 185, 129, 0.09); }
+.itempick.on .tick { border-color: var(--emerald); background: var(--emerald); color: #fff; }
+.itemhint { margin-top: 2px; }
+
 .stepperrow { display: flex; align-items: center; gap: 12px; font-size: 15px; }
 .stepper {
   display: flex; align-items: center; gap: 14px;
