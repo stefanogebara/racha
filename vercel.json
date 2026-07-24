@@ -8,6 +8,7 @@
   ],
   "crons": [
     { "path": "/api/demo/reset", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/recipient-status", "schedule": "0 11 * * *" }
+    { "path": "/api/cron/recipient-status", "schedule": "0 11 * * *" },
+    { "path": "/api/cron/reconcile-pending", "schedule": "*/15 * * * *" }
   ]
 }

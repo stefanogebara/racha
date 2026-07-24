@@ -45,6 +45,10 @@ class MockPsp {
       throw new Error('MockPsp requires a webhookSecret (>=16 chars) — no unsigned webhooks, even in dev');
     }
     this.webhookSecret = webhookSecret;
+    // Charge registry: mirrors the gateway's own record so getCharge() can
+    // answer "was this paid?" — the input the active reconciler needs when a
+    // webhook goes missing. A real adapter reads this from the PSP API.
+    this.charges = new Map(); // txid → { txid, amountCents, tipCents, method, status }
   }
 
   /**
@@ -70,6 +74,7 @@ class MockPsp {
       .slice(0, 28);
     // Shape mimics a BR Code (Pix copia-e-cola) enough for UI work.
     const copiaECola = `00020126580014br.gov.bcb.pix${txid}5204000053039865406${((amountCents + tipCents) / 100).toFixed(2)}5802BR6009Sao Paulo${description.slice(0, 20)}6304MOCK`;
+    this.charges.set(txid, { txid, amountCents, tipCents, method: 'pix', status: 'pending' });
     return {
       txid,
       copiaECola,
@@ -107,6 +112,7 @@ class MockPsp {
       .update(`${chargeRef}|${amountCents}|${tipCents}|${recipientId}|${wallet}`)
       .digest('hex')
       .slice(0, 27);
+    this.charges.set(txid, { txid, amountCents, tipCents, method: 'card', status: 'pending' });
     return { txid };
   }
 
@@ -127,6 +133,41 @@ class MockPsp {
   async getRecipientBalance(recipientId) {
     if (!/^r[ep]_/.test(recipientId || '')) return null;
     return { currency: 'BRL', availableCents: 0, waitingCents: 0, transferredCents: 0 };
+  }
+
+  /**
+   * Estado de uma cobrança (parity com pagarme.getCharge) — o que a
+   * reconciliação ativa consulta. null pra txid desconhecida. `raw` imita o
+   * shape da API real o suficiente pro maskPixPayload.
+   */
+  async getCharge(txid) {
+    const c = this.charges.get(txid);
+    if (!c) return null;
+    return {
+      txid: c.txid,
+      status: c.status,
+      paid: c.status === 'paid',
+      kind: 'payment_confirmed',
+      amountCents: c.amountCents,
+      tipCents: c.tipCents,
+      method: c.method,
+      raw: {
+        id: c.txid, status: c.status, amount: c.amountCents + c.tipCents,
+        payment_method: c.method, metadata: { tip_cents: String(c.tipCents) },
+      },
+    };
+  }
+
+  /**
+   * Test/demo affordance: marca a cobrança como paga NO GATEWAY sem emitir o
+   * webhook — encena exatamente o buraco que a reconciliação cobre (banco
+   * confirmou, o sino não tocou). Não toca o ledger; só o registro do "PSP".
+   */
+  settleCharge(txid) {
+    const c = this.charges.get(txid);
+    if (!c) throw new Error(`settleCharge: unknown txid ${txid}`);
+    c.status = 'paid';
+    return { txid, status: 'paid' };
   }
 
   /** Sign a webhook body the way the mock "PSP side" would. */

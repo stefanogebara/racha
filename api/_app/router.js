@@ -26,7 +26,8 @@ if (fs.existsSync(envPath)) {
 
 const { createMemoryStore } = require('../_lib/store/memory');
 const { MockPsp } = require('../_lib/pay/mock-psp');
-const { createWebhookHandler } = require('../_lib/pay/webhook-handler');
+const { createWebhookHandler, applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createChargeService } = require('../_lib/pay/create-charge');
 const { notifyOwnerRecipientStatus } = require('../_lib/notify');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
@@ -92,6 +93,22 @@ const handleWebhook = createWebhookHandler({
   psp,
   // txid that isn't a check charge → maybe a house-account load.
   fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
+});
+
+// Active reconciliation: re-ask the PSP about pending charges and confirm the
+// paid ones through the SAME core the webhook uses. The safety net for a
+// missed/rejected webhook — money confirmation must never hinge on a POST
+// arriving. Triggered on the diner's read (self-healing) and by a cron.
+const confirmDeps = {
+  loadEvents: store.loadEvents.bind(store),
+  appendEvent: store.appendEvent.bind(store),
+  recordPayment: store.recordPayment.bind(store),
+  findCheckByTxid: store.findCheckByTxid.bind(store),
+  fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
+};
+const reconciler = createChargeReconciler({
+  store, psp,
+  confirm: (parsed) => applyConfirmedPayment(parsed, confirmDeps),
 });
 
 // DEMO ISOLADO (blindagem do go-live): a mesa pública de demonstração NUNCA
@@ -184,6 +201,18 @@ function rateLimitOpen(req) {
   return b.count <= 10; // 10 wallet creations / 10 min / IP
 }
 
+// Confirm-on-read throttle: at most one PSP re-check per check per ~10s per
+// instance (Fluid Compute reuse makes this bite). Stops a pending charge from
+// firing a gateway call on every 4s diner poll while still healing fast.
+const reconcileThrottle = new Map(); // checkId → nextAllowedMs
+function shouldReconcileNow(checkId) {
+  const now = Date.now();
+  if (now < (reconcileThrottle.get(checkId) || 0)) return false;
+  if (reconcileThrottle.size > 5000) reconcileThrottle.clear(); // memory bound
+  reconcileThrottle.set(checkId, now + 10_000);
+  return true;
+}
+
 async function writeBackToPos(checkId) {
   try {
     const venue = await store.getVenueForCheck(checkId);
@@ -203,8 +232,29 @@ async function route(req, res) {
 
     // --- diner (public) ------------------------------------------------------
     if (req.method === 'GET' && url.pathname === '/api/check') {
-      const data = await store.getCheckByQrToken(url.searchParams.get('t') || '');
+      const token = url.searchParams.get('t') || '';
+      let data = await store.getCheckByQrToken(token);
       if (!data) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      // Confirm-on-read: heal a missed webhook. If money is still owed, re-ask
+      // the PSP about this check's pending charges (throttled per check,
+      // best-effort — a slow/absent gateway must NEVER break the read). The
+      // diner is already polling every 4s, so a dead webhook still resolves in
+      // seconds. Demo self-confirms via its own mock → skip it.
+      if (token !== DEMO_TABLE_TOKEN && data.state && data.state.paidCents < data.state.totalCents
+          && shouldReconcileNow(data.check.id)) {
+        try {
+          const r = await reconciler.reconcile({ checkId: data.check.id });
+          if (r.confirmed > 0) {
+            data = (await store.getCheckByQrToken(token)) || data;
+            // Curada AQUI → sai do conjunto pendente e o cron nunca mais a vê.
+            // O write-back pro POS tem que sair deste caminho, senão o balcão
+            // fica achando que a mesa ainda deve (review finding).
+            await writeBackToPos(data.check.id);
+          }
+        } catch (e) {
+          process.stderr.write(`[reconcile-on-read] ${String(e.message).slice(0, 100)}\n`);
+        }
+      }
       return json(res, 200, { success: true, data });
     }
     if (req.method === 'POST' && url.pathname === '/api/pay') {
@@ -563,6 +613,36 @@ async function route(req, res) {
       }
       const notified = detail.filter((d) => d.notify === 'sent').length;
       return json(res, 200, { success: true, data: { checked: pending.length, notified, detail } });
+    }
+
+    // --- cron: reconciliação ativa de cobranças pendentes --------------------
+    // Rede de segurança do webhook. Varre cobranças Pix/cartão ainda pendentes
+    // (fora da janela de graça, dentro da janela de validade), re-pergunta ao
+    // PSP e confirma as PAGAS pelo MESMO caminho do webhook (idempotente). O
+    // confirm-on-read já cura a mesa que o diner está olhando; este cron pega
+    // as contas que ninguém está vendo (app fechado) e escreve de volta no POS.
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/reconcile-pending') {
+      if (process.env.CRON_SECRET) {
+        if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+          return json(res, 401, { success: false, error: 'unauthorized' });
+        }
+      } else if (!rateLimitOpen(req)) {
+        return json(res, 429, { success: false, error: 'calma lá' });
+      }
+      // ?hours= amplia a janela pra uma varredura profunda manual (curar um
+      // straggler antigo); sem ele, usa a janela padrão do reconciliador.
+      const hours = Number(url.searchParams.get('hours'));
+      const windowMs = Number.isFinite(hours) && hours > 0 ? hours * 3600 * 1000 : undefined;
+      const result = await reconciler.reconcile({ limit: 200, ...(windowMs ? { windowMs } : {}) });
+      for (const d of result.details) {
+        if (d.checkId && (d.status === 'appended' || d.status === 'divergent_appended')) {
+          await writeBackToPos(d.checkId);
+        }
+      }
+      if (result.confirmed > 0 || result.errors > 0) {
+        process.stderr.write(`[reconcile-cron] confirmed=${result.confirmed} checked=${result.checked} errors=${result.errors}\n`);
+      }
+      return json(res, 200, { success: true, data: result });
     }
 
     // --- demo-only: simulate the bank confirming the Pix ---------------------

@@ -56,15 +56,26 @@ function createPagarmePsp({
   const noSplitOk = allowNoSplitInTest && isTestKey;
   const authHeader = `Basic ${Buffer.from(`${secretKey}:`).toString('base64')}`;
 
-  async function api(method, path, body) {
-    const res = await fetchImpl(`${BASE_URL}${path}`, {
-      method,
-      headers: {
-        Authorization: authHeader,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+  async function api(method, path, body, timeoutMs = 15000) {
+    let res;
+    try {
+      res = await fetchImpl(`${BASE_URL}${path}`, {
+        method,
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        // Um gateway pendurado nunca pode pendurar o chamador (o confirm-on-read
+        // roda no /api/check público). Timeout → 502 (transitório), jamais 4xx.
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (netErr) {
+      const e = new Error(`pagarme ${method} ${path}: ${netErr.name === 'TimeoutError' ? `timeout ${timeoutMs}ms` : netErr.message}`);
+      e.statusCode = 502;
+      e.httpStatus = 0; // rede/timeout — nunca "recusa" nem "inexistente"
+      throw e;
+    }
     const text = await res.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = null; }
@@ -73,6 +84,7 @@ function createPagarmePsp({
       const err = new Error(`pagarme ${method} ${path}: ${msg}`);
       // 4xx do gateway em cobrança = recusa (402 pro diner), não bug nosso.
       err.statusCode = res.status >= 400 && res.status < 500 ? 402 : 502;
+      err.httpStatus = res.status; // status exato — getCharge precisa separar 404 de 401/403
       throw err;
     }
     return json;
@@ -259,6 +271,43 @@ function createPagarmePsp({
         availableCents: Number(r.available_amount ?? 0) || 0,
         waitingCents: Number(r.waiting_funds_amount ?? 0) || 0,
         transferredCents: Number(r.transferred_amount ?? 0) || 0,
+      };
+    },
+
+    /**
+     * Estado atual de UMA cobrança, direto da API (a mesma verdade que o
+     * webhook consulta). Usado pela reconciliação ativa: quando o webhook não
+     * chega (best-effort), o servidor re-pergunta "essa cobrança foi paga?" e
+     * confirma a que já está `paid`. Retorna null pra id fora do padrão ou 4xx
+     * (cobrança inexistente/não-acionável); relança 5xx pra retry no próximo
+     * tick — um soluço do gateway não pode virar "não pago".
+     * @returns {Promise<null|{txid,status,paid,kind,amountCents,tipCents,method,raw}>}
+     */
+    async getCharge(chargeId) {
+      if (typeof chargeId !== 'string' || !/^ch_/.test(chargeId)) return null;
+      let charge;
+      try {
+        charge = await api('GET', `/charges/${chargeId}`, null, 4000);
+      } catch (err) {
+        // SÓ 404 (cobrança inexistente/estranha) vira null e é pulada. 401/403
+        // (chave revogada), 422, 5xx e timeout RELANÇAM — a reconciliação
+        // contabiliza como erro e o cron alerta. Engolir um 4xx de auth como
+        // "desconhecida" derrubaria a rede de segurança inteira sem sinal.
+        if (err.httpStatus === 404) return null;
+        throw err;
+      }
+      if (!charge || !charge.id) return null;
+      const totalCents = charge.amount;
+      const tipCents = Number((charge.metadata && charge.metadata.tip_cents) || 0) || 0;
+      const amountCents = Math.max(0, totalCents - tipCents);
+      const method = charge.payment_method === 'pix' ? 'pix' : 'card';
+      return {
+        txid: charge.id,
+        status: charge.status,
+        paid: charge.status === 'paid',
+        kind: 'payment_confirmed',
+        amountCents, tipCents, method,
+        raw: charge,
       };
     },
 

@@ -430,6 +430,34 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     },
 
     // --- reconciliation -----------------------------------------------------
+    /**
+     * Pending PIX/card charges to actively reconcile against the PSP. A pure
+     * READ (no PostgREST claim — rule 7 is about UPDATE+filter). Bounded by a
+     * time window: created before now-graceMs (webhook got first crack) and
+     * after now-windowMs (past-expiry charges drop out without any write).
+     */
+    async listPendingCharges({ checkId = null, graceMs = 0, windowMs = null, limit = 100 } = {}) {
+      const now = Date.now();
+      let q = client
+        .from('payments')
+        .select('txid, check_id, amount_cents, tip_cents, method, created_at')
+        .eq('status', 'pendente')
+        .in('method', ['pix', 'card'])
+        .lt('created_at', new Date(now - graceMs).toISOString())
+        .order('created_at', { ascending: true })
+        .limit(limit);
+      if (windowMs != null && Number.isFinite(windowMs)) {
+        q = q.gte('created_at', new Date(now - windowMs).toISOString());
+      }
+      if (checkId) q = q.eq('check_id', checkId);
+      const { data, error } = await q;
+      throwOn(error, 'listPendingCharges');
+      return (data || []).map((r) => ({
+        checkId: r.check_id, txid: r.txid,
+        amountCents: r.amount_cents, tipCents: r.tip_cents, method: r.method,
+      }));
+    },
+
     async listChecksForReconcile(venueId) {
       const { data: checks, error } = await client
         .from('checks').select('id').eq('venue_id', venueId);

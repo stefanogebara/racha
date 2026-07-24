@@ -245,6 +245,28 @@ function createMemoryStore() {
     async getPayment(txid) {
       return payments.get(txid) || null;
     },
+    /**
+     * Pending PIX/card charges to actively reconcile against the PSP. Bounded
+     * by a time WINDOW (not a status flag): older than `graceMs` (so the
+     * webhook gets first crack) and younger than `windowMs` (charges past Pix
+     * expiry stop being polled without any write). house_account rows are
+     * excluded — they confirm inline, never via the gateway.
+     */
+    async listPendingCharges({ checkId = null, graceMs = 0, windowMs = Infinity, limit = 100 } = {}) {
+      const now = Date.now();
+      return [...payments.values()]
+        .filter((p) => {
+          if (p.status !== 'pendente') return false;
+          if (p.method !== 'pix' && p.method !== 'card') return false;
+          if (checkId && p.checkId !== checkId) return false;
+          const age = now - Date.parse(p.createdAt);
+          return age >= graceMs && age <= windowMs;
+        })
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .slice(0, limit)
+        .map((p) => ({ checkId: p.checkId, txid: p.txid, amountCents: p.amountCents, tipCents: p.tipCents, method: p.method }));
+    },
+
     /** Reconciliation inputs: each check's event log + its payment rows. */
     async listChecksForReconcile(venueId) {
       return [...checks.values()]

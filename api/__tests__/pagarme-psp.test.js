@@ -236,4 +236,40 @@ describe('pagarme adapter', () => {
       .rejects.toThrow(/custódia/);
     expect(s3.calls).toHaveLength(0);
   });
+
+  test('getCharge: paga → paid:true (valores da API); pendente → paid:false', async () => {
+    const paid = { id: 'ch_x', status: 'paid', amount: 6600, payment_method: 'pix', metadata: { tip_cents: '600' } };
+    const p1 = stubFetch([{ match: '/charges/ch_x', method: 'GET', reply: paid }]);
+    const psp1 = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: p1.impl });
+    expect(await psp1.getCharge('ch_x')).toMatchObject({
+      txid: 'ch_x', status: 'paid', paid: true, kind: 'payment_confirmed',
+      amountCents: 6000, tipCents: 600, method: 'pix',
+    });
+
+    const pending = { id: 'ch_x', status: 'pending', amount: 5000, payment_method: 'pix', metadata: {} };
+    const p2 = stubFetch([{ match: '/charges/ch_x', method: 'GET', reply: pending }]);
+    const psp2 = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: p2.impl });
+    expect(await psp2.getCharge('ch_x')).toMatchObject({ paid: false, status: 'pending' });
+  });
+
+  test('getCharge: id fora do padrão ch_ → null sem chamar a API', async () => {
+    const { impl, calls } = stubFetch([]);
+    const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+    expect(await psp.getCharge('mock123')).toBeNull();
+    expect(await psp.getCharge(null)).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  test('getCharge: 404 → null; 401/5xx RELANÇAM (a rede de segurança não morre calada)', async () => {
+    // 404 (fallback do stub) = cobrança inexistente → pula
+    const psp404 = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: stubFetch([]).impl });
+    expect(await psp404.getCharge('ch_gone')).toBeNull();
+
+    // 401 (chave revogada) NÃO pode virar "desconhecida" — relança pro cron alertar
+    const s401 = stubFetch([{ match: '/charges/ch_x', method: 'GET', status: 401, reply: { message: 'unauthorized' } }]);
+    await expect(createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: s401.impl }).getCharge('ch_x')).rejects.toThrow();
+
+    const s500 = stubFetch([{ match: '/charges/ch_x', method: 'GET', status: 500, reply: { message: 'boom' } }]);
+    await expect(createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: s500.impl }).getCharge('ch_x')).rejects.toThrow();
+  });
 });
