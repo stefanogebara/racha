@@ -490,6 +490,54 @@ async function route(req, res) {
       return json(res, 200, { success: true, data: r });
     }
 
+    // --- Stripe Connect (2º rail: cartão/Apple Pay) — onboarding do restaurante
+    // Cria/reusa a conta conectada e devolve o link de onboarding (KYC na hosted
+    // page da Stripe — dados bancários nunca passam por nós). Inerte sem Stripe.
+    if (req.method === 'POST' && url.pathname === '/api/psp/stripe-connect') {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.venueId) return json(res, 400, { success: false, error: 'venueId é obrigatório' });
+      try { await auth.requireVenueOwner(user, b.venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      if (!stripePsp) return json(res, 503, { success: false, error: 'cartão/Apple Pay indisponível — Stripe não configurado' });
+      const venue = await store.getVenue(b.venueId);
+      if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      try {
+        let accountId = venue.stripeAccountId;
+        if (!accountId || !/^acct_/.test(accountId)) {
+          const acct = await stripePsp.createConnectedAccount({
+            email: venue.notifyEmail || undefined,
+            businessName: venue.name, cnpj: venue.cnpj || undefined,
+          });
+          accountId = acct.recipientId;
+          await store.setVenueStripeAccount(b.venueId, accountId);
+        }
+        const base = process.env.CLIENT_URL || 'https://racha-gray.vercel.app';
+        const link = await stripePsp.createAccountLink({
+          accountId,
+          refreshUrl: `${base}/admin?stripe=refresh&v=${b.venueId}`,
+          returnUrl: `${base}/admin?stripe=done&v=${b.venueId}`,
+        });
+        return json(res, 200, { success: true, data: { accountId, onboardingUrl: link.url } });
+      } catch (e) {
+        return json(res, e.statusCode || 502, { success: false, error: e.message });
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/psp/stripe-connect') {
+      const user = await guardUser(req, res); if (!user) return;
+      const venueId = url.searchParams.get('v') || '';
+      try { await auth.requireVenueOwner(user, venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const venue = await store.getVenue(venueId);
+      if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      // available=false → o Stripe nem está ligado no ambiente; a UI esconde a
+      // seção inteira (nada de botão que só daria 503).
+      if (!stripePsp) return json(res, 200, { success: true, data: { available: false, accountId: venue.stripeAccountId || null, status: null, chargesEnabled: false } });
+      if (!venue.stripeAccountId) return json(res, 200, { success: true, data: { available: true, accountId: null, status: null, chargesEnabled: false } });
+      const info = await stripePsp.getConnectedAccount(venue.stripeAccountId);
+      return json(res, 200, { success: true, data: { available: true, ...(info || { accountId: venue.stripeAccountId, status: 'desconhecido', chargesEnabled: false }) } });
+    }
+
     // --- house accounts: owner (gated) ---------------------------------------
     if (req.method === 'GET' && url.pathname === '/api/house/admin') {
       const user = await guardUser(req, res); if (!user) return;

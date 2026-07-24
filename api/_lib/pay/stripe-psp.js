@@ -161,6 +161,44 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
     },
 
     /**
+     * Link de ONBOARDING (KYC) da conta conectada — o dono abre, preenche os
+     * dados bancários/KYC na hosted page da Stripe (nada disso passa por nós) e
+     * volta pro admin. Expira; gera de novo se preciso.
+     */
+    async createAccountLink({ accountId, refreshUrl, returnUrl }) {
+      if (!/^acct_/.test(accountId || '')) throw new Error('createAccountLink: accountId (acct_…) obrigatório');
+      if (!refreshUrl || !returnUrl) throw new TypeError('createAccountLink: refreshUrl e returnUrl obrigatórios');
+      const link = await stripe.accountLinks.create({
+        account: accountId,
+        refresh_url: refreshUrl,
+        return_url: returnUrl,
+        type: 'account_onboarding',
+      });
+      return { url: link.url };
+    },
+
+    /** Status da conta conectada — a prova de que o restaurante pode receber. */
+    async getConnectedAccount(accountId) {
+      if (!/^acct_/.test(accountId || '')) return null;
+      let a;
+      try {
+        a = await stripe.accounts.retrieve(accountId);
+      } catch (err) {
+        if (err && (err.statusCode === 404 || err.code === 'resource_missing')) return null;
+        throw err;
+      }
+      const chargesEnabled = a.charges_enabled === true;
+      return {
+        recipientId: a.id,
+        chargesEnabled,
+        payoutsEnabled: a.payouts_enabled === true,
+        // 'active' só quando dá pra cobrar; 'pending' se enviou dados mas ainda
+        // em análise; 'registration' se nem começou o onboarding.
+        status: chargesEnabled ? 'active' : (a.details_submitted ? 'pending' : 'registration'),
+      };
+    },
+
+    /**
      * Webhook: verifica a assinatura Stripe (constructEvent) e devolve o shape
      * parseado comum. O corpo CRU é obrigatório (a assinatura é sobre os bytes).
      */

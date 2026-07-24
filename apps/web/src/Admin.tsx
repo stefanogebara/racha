@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
 import AdminRecipient from './AdminRecipient';
+import AdminStripe from './AdminStripe';
 import AdminSetup from './AdminSetup';
 import SetupWizard from './SetupWizard';
 import { type Venue, type VenueTable } from './api';
@@ -203,6 +204,8 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
       </section>
 
       <AdminRecipient venueId={venueId} onChanged={admin.refresh} />
+
+      <AdminStripe venueId={venueId} />
 
       {/* Créditos da casa: recurso avançado (carteira pré-paga), fora do setup — colapsado. */}
       <details>

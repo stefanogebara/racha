@@ -39,6 +39,14 @@ function stubStripe(overrides = {}) {
     },
     accounts: {
       create: async (params) => { calls.accounts.push(params); return { id: 'acct_test1', charges_enabled: false, ...(overrides.account || {}) }; },
+      retrieve: async (id) => {
+        calls.retrieve.push(id);
+        if (overrides.accountRetrieveError) throw overrides.accountRetrieveError;
+        return overrides.accountRetrieved || { id, charges_enabled: false, payouts_enabled: false, details_submitted: false };
+      },
+    },
+    accountLinks: {
+      create: async (params) => { calls.accountLinks = calls.accountLinks || []; calls.accountLinks.push(params); return { url: 'https://connect.stripe.com/setup/acct_test1/xyz' }; },
     },
   };
 }
@@ -143,5 +151,26 @@ describe('stripe adapter — config + Connect', () => {
     expect(stub.calls.accounts[0].country).toBe('BR');
     expect(stub.calls.accounts[0].business_type).toBe('company');
     expect(stub.calls.accounts[0].company.tax_id).toBe('65087663000130');
+  });
+
+  test('createAccountLink: onboarding url; exige acct_ + urls', async () => {
+    const stub = stubStripe();
+    const r = await mk({}, stub).createAccountLink({ accountId: 'acct_x', refreshUrl: 'https://r', returnUrl: 'https://d' });
+    expect(r.url).toMatch(/connect\.stripe\.com/);
+    expect(stub.calls.accountLinks[0]).toMatchObject({ account: 'acct_x', type: 'account_onboarding', refresh_url: 'https://r', return_url: 'https://d' });
+    await expect(mk().createAccountLink({ accountId: 're_x', refreshUrl: 'a', returnUrl: 'b' })).rejects.toThrow(/acct_/);
+    await expect(mk().createAccountLink({ accountId: 'acct_x' })).rejects.toThrow(/obrigatórios/);
+  });
+
+  test('getConnectedAccount: status por charges_enabled/details_submitted; ausente → null', async () => {
+    const active = await mk({}, stubStripe({ accountRetrieved: { id: 'acct_x', charges_enabled: true, payouts_enabled: true, details_submitted: true } })).getConnectedAccount('acct_x');
+    expect(active).toMatchObject({ recipientId: 'acct_x', chargesEnabled: true, status: 'active' });
+    const pending = await mk({}, stubStripe({ accountRetrieved: { id: 'acct_x', charges_enabled: false, details_submitted: true } })).getConnectedAccount('acct_x');
+    expect(pending).toMatchObject({ status: 'pending', chargesEnabled: false });
+    const fresh = await mk({}, stubStripe({ accountRetrieved: { id: 'acct_x', charges_enabled: false, details_submitted: false } })).getConnectedAccount('acct_x');
+    expect(fresh).toMatchObject({ status: 'registration' });
+    expect(await mk().getConnectedAccount('re_pagarme')).toBeNull();
+    const missing = new Error('no acct'); missing.code = 'resource_missing';
+    expect(await mk({}, stubStripe({ accountRetrieveError: missing })).getConnectedAccount('acct_gone')).toBeNull();
   });
 });
