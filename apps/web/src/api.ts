@@ -3,7 +3,8 @@
 export interface CheckItem { id: string; name: string; priceCents: number }
 
 export interface CheckView {
-  venue: { name: string; servicoBp: number };
+  /** acceptsCard: o restaurante tem conta Stripe conectada (cartão/Apple Pay). */
+  venue: { name: string; servicoBp: number; acceptsCard?: boolean };
   table: { label: string };
   check: { id: string; items: CheckItem[] };
   state: {
@@ -146,6 +147,14 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, amountCents, tipCents, payerLabel, wallet, paymentToken, payerDocument: payerDocument ?? null }),
+    }),
+  /** Stripe (2º rail): cria o PaymentIntent (destination charge) e devolve o
+   *  clientSecret pro Express Checkout Element confirmar (Apple/Google Pay/cartão). */
+  stripeIntent: (token: string, amountCents: number, tipCents: number, payerLabel: string | null, payerDocument?: string) =>
+    request<{ txid: string; clientSecret: string; amountCents: number; tipCents: number; method: 'card' }>('/api/pay/stripe-intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, amountCents, tipCents, payerLabel, payerDocument: payerDocument ?? null }),
     }),
   /** Demo-only: plays the diner's bank confirming the Pix. */
   devConfirm: (txid: string) =>

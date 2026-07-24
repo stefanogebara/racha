@@ -3,6 +3,7 @@ import { api, ApiError, brl, parseBrlToCents, CheckView, ChargeResult } from './
 import Home from './Home';
 import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
+import StripeWalletPay from './StripeWalletPay';
 import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, type SplitMode } from './split';
 
@@ -401,6 +402,17 @@ export default function App() {
             venueName={venue.name}
             onPaid={async () => { await refresh(); setStep('pago'); }}
           />
+          {venue.acceptsCard && (
+            <StripeWalletPay
+              token={token}
+              amountCents={cappedBase}
+              tipCents={servicoCents}
+              payerLabel={payerLabel.trim() || null}
+              payerDocument={cpfDigits}
+              disabled={totalToPay === 0}
+              onPaid={async () => { await refresh(); setStep('pago'); }}
+            />
+          )}
           {house && house.balanceCents > 0 && (
             <button className="ghost" onClick={() => setStep('saldo')}>
               Pagar com saldo ({brl(house.balanceCents)} disponível)

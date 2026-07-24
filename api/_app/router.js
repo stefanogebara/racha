@@ -283,6 +283,15 @@ async function route(req, res) {
           process.stderr.write(`[reconcile-on-read] ${String(e.message).slice(0, 100)}\n`);
         }
       }
+      // Sinaliza pro diner se o restaurante aceita cartão/Apple Pay (tem conta
+      // Stripe conectada). Só consulta o venue quando o Stripe está ligado — em
+      // prod hoje stripePsp é null → nenhuma chamada extra, a flag fica ausente.
+      if (stripePsp && token !== DEMO_TABLE_TOKEN) {
+        const v = await store.getVenueForCheck(data.check.id);
+        if (v && v.stripeAccountId && /^acct_/.test(v.stripeAccountId)) {
+          data = { ...data, venue: { ...data.venue, acceptsCard: true } };
+        }
+      }
       return json(res, 200, { success: true, data });
     }
     if (req.method === 'POST' && url.pathname === '/api/pay') {
