@@ -23,6 +23,9 @@ const WALLET_LABEL: Record<Wallet, string> = { apple_pay: 'Apple Pay', google_pa
 const PK = (import.meta.env.VITE_PAGARME_PUBLIC_KEY as string | undefined) || '';
 const ACC = (import.meta.env.VITE_PAGARME_ACCOUNT_ID as string | undefined) || '';
 const REAL = Boolean(PK && ACC);
+// merchantId do Google (BCR2DN...) — exigido pelo Google Pay em PRODUCTION,
+// dispensável em TEST. Diferente do acc_ do Pagar.me (gatewayMerchantId).
+const GPAY_MERCHANT_ID = (import.meta.env.VITE_GOOGLE_PAY_MERCHANT_ID as string | undefined) || '';
 
 // pay.js é singleton — carrega uma vez por página.
 let gpayLoader: Promise<void> | null = null;
@@ -123,7 +126,12 @@ export default function WalletButtons({
           currencyCode: 'BRL',
           countryCode: 'BR',
         },
-        merchantInfo: { merchantName: `Racha · ${venueName}`.slice(0, 60) },
+        merchantInfo: {
+          merchantName: `Racha · ${venueName}`.slice(0, 60),
+          // PRODUCTION exige o merchantId (BCR2DN...) do Wallet Console; em
+          // TEST é dispensável. Omitido quando não setado (segue no TEST).
+          ...(GPAY_MERCHANT_ID ? { merchantId: GPAY_MERCHANT_ID } : {}),
+        },
       });
       await settle('google_pay', data.paymentMethodData.tokenizationData.token, cpfDigits);
     } catch (e) {
