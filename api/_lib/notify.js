@@ -46,4 +46,36 @@ async function notifyOwnerRecipientStatus({ venue, status, previousStatus = null
   }
 }
 
-module.exports = { notifyOwnerRecipientStatus };
+/**
+ * Radar de ativação → FUNDADOR (não o dono do restaurante).
+ *
+ * Mesma ponte, destinatário diferente: aqui quem precisa agir é quem vende, não
+ * quem opera. O lado da Olímpia resolve o endereço (PROSPECTING_FOUNDER_*), por
+ * isso este payload não carrega telefone nem e-mail — o Racha não guarda o
+ * contato do fundador.
+ *
+ * Best-effort e nunca lança, igual ao aviso de recebedor: um digest que falha
+ * não pode derrubar o cron.
+ */
+async function notifyFounderActivationRadar({ mensagem, alertas = 0, total = 0, ativos = 0 }) {
+  const secret = process.env.RACHA_NOTIFY_SECRET;
+  if (!secret) {
+    process.stderr.write('[notify] RACHA_NOTIFY_SECRET ausente — radar não enviado\n');
+    return { skipped: true, reason: 'no_secret' };
+  }
+  try {
+    const res = await fetch(`${NOTIFY_URL}/api/racha-notify`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ event: 'activation_radar', mensagem, alertas, total, ativos }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) process.stderr.write(`[notify] radar ${res.status}: ${JSON.stringify(data).slice(0, 160)}\n`);
+    return { ok: res.ok, status: res.status, data };
+  } catch (e) {
+    process.stderr.write(`[notify] radar falhou: ${String(e.message).slice(0, 160)}\n`);
+    return { ok: false, error: e.message };
+  }
+}
+
+module.exports = { notifyOwnerRecipientStatus, notifyFounderActivationRadar };

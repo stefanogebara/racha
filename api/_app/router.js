@@ -31,7 +31,8 @@ const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
 const { createChargeService } = require('../_lib/pay/create-charge');
-const { notifyOwnerRecipientStatus } = require('../_lib/notify');
+const { notifyOwnerRecipientStatus, notifyFounderActivationRadar } = require('../_lib/notify');
+const { montarRadar } = require('../_lib/activation/radar');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
@@ -794,6 +795,46 @@ async function route(req, res) {
         process.stderr.write(`[reconcile-cron] confirmed=${result.confirmed} checked=${result.checked} errors=${result.errors}\n`);
       }
       return json(res, 200, { success: true, data: result });
+    }
+
+    // --- cron: radar de ativação ---------------------------------------------
+    // Cadastrar não é ativar. Em 25/jul/2026 havia 3 restaurantes cadastrados e
+    // ZERO uso real — dois travados havia dias (um sem recebedor, outro sem
+    // nunca abrir conta) e nada avisava o fundador. Este cron olha o funil todo
+    // dia e manda SÓ quem precisa de ação, com a ação junto.
+    //
+    // ?dry=1 devolve o radar sem enviar (inspeção sem incomodar ninguém).
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/activation-radar') {
+      if (process.env.CRON_SECRET) {
+        if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+          return json(res, 401, { success: false, error: 'unauthorized' });
+        }
+      } else if (!rateLimitOpen(req)) {
+        return json(res, 429, { success: false, error: 'calma lá' });
+      }
+      if (typeof store.listVenueActivation !== 'function') {
+        return json(res, 200, { success: true, data: { skipped: 'store sem listVenueActivation' } });
+      }
+      const radar = montarRadar(await store.listVenueActivation(), Date.now());
+      const dry = url.searchParams.get('dry') === '1';
+      // Silêncio é feature: digest que chega todo dia sem novidade para de ser
+      // lido. Sem alerta, não envia — e o cron ainda responde o retrato.
+      let envio = { skipped: dry ? 'dry-run' : 'sem alertas' };
+      if (!dry && radar.precisaEnviar) {
+        envio = await notifyFounderActivationRadar({
+          mensagem: radar.mensagem, alertas: radar.alertas.length,
+          total: radar.total, ativos: radar.ativos,
+        });
+      }
+      process.stderr.write(`[radar] total=${radar.total} ativos=${radar.ativos} alertas=${radar.alertas.length}\n`);
+      return json(res, 200, {
+        success: true,
+        data: {
+          total: radar.total, ativos: radar.ativos, porEstagio: radar.porEstagio,
+          alertas: radar.alertas.map((a) => ({ name: a.name, estagio: a.estagio, acao: a.acao })),
+          mensagem: radar.mensagem, envio,
+        },
+      });
     }
 
     // --- demo-only: simulate the bank confirming the Pix ---------------------

@@ -391,6 +391,41 @@ function createMemoryStore() {
         (v) => v.pspRecipientStatus && !isTerminalRecipientStatus(v.pspRecipientStatus),
       );
     },
+    /**
+     * Espelho em memória do RPC venue_activation_stats — mesmas definições:
+     * mesa real = ativa e não-treino; pagamento = 'confirmado'; recebedor ok =
+     * recipient r*_ fora de um terminal ruim. Manter os dois lados iguais é o
+     * que faz o teste de contrato valer alguma coisa.
+     */
+    async listVenueActivation() {
+      const RUINS = ['refused', 'suspended', 'blocked'];
+      return Array.from(venues.values()).map((v) => {
+        const mesas = [...tableById.values()].filter((t) => t.venueId === v.id);
+        const contasDoVenue = [...checks.values()].filter((c) => c.venueId === v.id);
+        const idsContas = new Set(contasDoVenue.map((c) => c.id));
+        const pagos = [...payments.values()].filter(
+          (p) => p.status === 'confirmado' && idsContas.has(p.checkId),
+        );
+        const ultimoMs = pagos.reduce((max, p) => {
+          const t = Date.parse(p.confirmedAt || p.createdAt);
+          return Number.isFinite(t) && t > max ? t : max;
+        }, 0);
+        return {
+          id: v.id,
+          name: v.name,
+          recebedorOk: /^r[ep]_/.test(v.pspRecipientId || '')
+            && !RUINS.includes(v.pspRecipientStatus || ''),
+          recipientStatus: v.pspRecipientStatus || null,
+          mesasReais: mesas.filter((t) => t.active && t.training !== true).length,
+          mesasTotal: mesas.length,
+          contas: contasDoVenue.length,
+          pagosConfirmados: pagos.length,
+          valorCents: pagos.reduce((s, p) => s + (p.amountCents || 0), 0),
+          ultimoPagamentoMs: ultimoMs || null,
+          criadoMs: v.createdAt ? Date.parse(v.createdAt) : null,
+        };
+      });
+    },
     async setHouseConfig(venueId, clean) {
       const venue = venues.get(venueId);
       if (!venue) throw new Error('unknown venue');

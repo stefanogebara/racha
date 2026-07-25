@@ -555,6 +555,30 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       throwOn(error, 'listVenuesPendingRecipient');
       return (data || []).map(mapVenue);
     },
+    /**
+     * Números do funil de ativação, um registro por restaurante (RPC
+     * venue_activation_stats — migração 0011). Datas viram epoch ms aqui, na
+     * borda, porque o classificador (activation/radar.js) é puro e só fala
+     * número: quem converte formato é o store, não a regra.
+     */
+    async listVenueActivation() {
+      const { data, error } = await client.rpc('venue_activation_stats');
+      throwOn(error, 'listVenueActivation');
+      const ms = (v) => (v ? Date.parse(v) : null);
+      return (data || []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        recebedorOk: r.recebedor_ok === true,
+        recipientStatus: r.psp_recipient_status || null,
+        mesasReais: Number(r.mesas_reais) || 0,
+        mesasTotal: Number(r.mesas_total) || 0,
+        contas: Number(r.contas) || 0,
+        pagosConfirmados: Number(r.pagos_confirmados) || 0,
+        valorCents: Number(r.valor_cents) || 0,
+        ultimoPagamentoMs: ms(r.ultimo_pagamento),
+        criadoMs: ms(r.created_at),
+      }));
+    },
     async setHouseConfig(venueId, clean) {
       const patch = {};
       if ('enabled' in clean) patch.house_enabled = clean.enabled;
