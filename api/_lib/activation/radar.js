@@ -9,7 +9,8 @@
  * ativar, e ninguém estava olhando a diferença. Este módulo é o olho.
  *
  * O funil, do mais longe do dinheiro pro mais perto:
- *   sem_recebedor → sem_mesas → sem_uso → sem_primeiro_pagamento → esfriou → ativo
+ *   sem_recebedor → recebedor_em_analise → sem_mesas → sem_uso →
+ *   sem_primeiro_pagamento → esfriou → ativo
  *
  * Cada restaurante para em UM degrau, e cada degrau tem UMA ação que destrava.
  * Um fundador solo não precisa de dashboard: precisa da próxima ligação.
@@ -28,6 +29,7 @@ const DIAS_ESFRIOU = 7;
 
 const ESTAGIOS = {
   SEM_RECEBEDOR: 'sem_recebedor',
+  RECEBEDOR_EM_ANALISE: 'recebedor_em_analise',
   SEM_MESAS: 'sem_mesas',
   SEM_USO: 'sem_uso',
   SEM_PRIMEIRO_PAGAMENTO: 'sem_primeiro_pagamento',
@@ -47,26 +49,32 @@ const DEGRAUS = {
     titulo: 'travado: não pode receber',
     acao: 'terminar o cadastro do recebedor (Pagar.me) — sem isso nenhum Pix entra',
   },
-  [ESTAGIOS.SEM_MESAS]: {
+  [ESTAGIOS.RECEBEDOR_EM_ANALISE]: {
     prioridade: 2,
+    precisaAcao: true,
+    titulo: 'recebedor em análise (ainda não recebe)',
+    acao: 'acompanhar o KYC na Pagar.me — NÃO pôr o QR na mesa antes de aprovar (o pagamento falharia)',
+  },
+  [ESTAGIOS.SEM_MESAS]: {
+    prioridade: 3,
     precisaAcao: true,
     titulo: 'sem mesa de verdade',
     acao: 'cadastrar as mesas reais do salão (só treino/inativa não gera conta)',
   },
   [ESTAGIOS.SEM_USO]: {
-    prioridade: 3,
+    prioridade: 4,
     precisaAcao: true,
     titulo: 'pronto, mas nunca usou',
     acao: 'imprimir e pôr o QR na mesa + 15 min de treino com a equipe',
   },
   [ESTAGIOS.SEM_PRIMEIRO_PAGAMENTO]: {
-    prioridade: 4,
+    prioridade: 5,
     precisaAcao: true,
     titulo: 'abriu conta, ninguém pagou',
     acao: 'ver se o garçom está oferecendo — a frase na hora da conta é o que converte',
   },
   [ESTAGIOS.ESFRIOU]: {
-    prioridade: 5,
+    prioridade: 6,
     precisaAcao: true,
     titulo: 'esfriou',
     acao: 'ligar pro dono: usou e parou — descobrir o que travou',
@@ -114,6 +122,11 @@ function classificarVenue(v, nowMs) {
 
   let estagio;
   if (!v.recebedorOk) estagio = ESTAGIOS.SEM_RECEBEDOR;
+  // Só 'active' RECEBE de verdade. Um recipient parado no KYC da Pagar.me
+  // ('registration'/'affiliation'/…) existe mas o pagamento falharia — e status
+  // desconhecido (null) é "não sei", que aqui vale o mesmo que "não". Caso real:
+  // o Kitos ficou dias em 'affiliation' parecendo "só não usaram ainda".
+  else if (v.recipientStatus !== 'active') estagio = ESTAGIOS.RECEBEDOR_EM_ANALISE;
   else if (mesas === 0) estagio = ESTAGIOS.SEM_MESAS;
   else if (contas === 0) estagio = idadeDias > DIAS_CARENCIA ? ESTAGIOS.SEM_USO : ESTAGIOS.NOVO;
   else if (pagos === 0) estagio = ESTAGIOS.SEM_PRIMEIRO_PAGAMENTO;

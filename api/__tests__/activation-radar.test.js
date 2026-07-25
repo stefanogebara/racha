@@ -21,6 +21,7 @@ const venue = (over = {}) => ({
   id: 'v1',
   name: 'Restaurante Teste',
   recebedorOk: true,
+  recipientStatus: 'active',
   mesasReais: 3,
   contas: 10,
   pagosConfirmados: 8,
@@ -45,11 +46,41 @@ describe('classificarVenue — degraus do funil, do mais grave pro melhor', () =
     expect(r.estagio).toBe(ESTAGIOS.SEM_RECEBEDOR);
   });
 
+  test('recebedor em KYC (affiliation) NÃO pode receber — não mandar por QR na mesa', () => {
+    // Caso real (Kitos Food, jul/2026): recipient criado mas parado em
+    // 'affiliation'. Só 'active' recebe de verdade — se o cliente pagasse,
+    // quebrava. Mandar o dono ativar a mesa aqui queima a primeira impressão.
+    const r = classificarVenue(venue({ recipientStatus: 'affiliation', contas: 0, pagosConfirmados: 0, ultimoPagamentoMs: null }), AGORA);
+    expect(r.estagio).toBe(ESTAGIOS.RECEBEDOR_EM_ANALISE);
+    expect(r.precisaAcao).toBe(true);
+    expect(r.acao).toMatch(/KYC|análise|Pagar\.me/i);
+    expect(r.prioridade).toBeLessThan(3); // ganha de sem_uso: é bloqueio de dinheiro
+  });
+
+  test('status desconhecido (nunca consultado) também segura o QR', () => {
+    // NULL = a gente NÃO SABE se recebe. Na dúvida, não manda pôr QR na mesa.
+    const r = classificarVenue(venue({ recipientStatus: null }), AGORA);
+    expect(r.estagio).toBe(ESTAGIOS.RECEBEDOR_EM_ANALISE);
+  });
+
+  test('só active destrava o resto do funil', () => {
+    expect(classificarVenue(venue({ recipientStatus: 'active' }), AGORA).estagio).toBe(ESTAGIOS.ATIVO);
+    for (const s of ['registration', 'affiliation', 'pending']) {
+      expect(classificarVenue(venue({ recipientStatus: s }), AGORA).estagio).toBe(ESTAGIOS.RECEBEDOR_EM_ANALISE);
+    }
+  });
+
   test('recebedor ok mas nenhuma mesa real: só treino/inativa não vira dinheiro', () => {
     const r = classificarVenue(venue({ mesasReais: 0, contas: 0, pagosConfirmados: 0 }), AGORA);
     expect(r.estagio).toBe(ESTAGIOS.SEM_MESAS);
-    expect(r.prioridade).toBe(2);
     expect(r.precisaAcao).toBe(true);
+    // Ordem relativa em vez de número fixo: inserir um degrau no meio do funil
+    // não pode quebrar o teste do degrau vizinho (aconteceu ao inserir o KYC).
+    const semUso = classificarVenue(
+      venue({ contas: 0, pagosConfirmados: 0, ultimoPagamentoMs: null, criadoMs: diasAtras(DIAS_CARENCIA + 1) }),
+      AGORA,
+    );
+    expect(r.prioridade).toBeLessThan(semUso.prioridade);
   });
 
   test('setup pronto e nunca abriu conta (passada a carência) → sem_uso', () => {
