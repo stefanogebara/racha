@@ -230,6 +230,19 @@ function rateLimitOpen(req) {
   return b.count <= 10; // 10 wallet creations / 10 min / IP
 }
 
+/**
+ * Cron sem CRON_SECRET = rota PÚBLICA (só rate limit por IP). Ler é inofensivo;
+ * ENVIAR não é — um estranho poderia disparar WhatsApp/e-mail em rajada, pro
+ * dono do restaurante ou pro fundador. Então o efeito colateral de saída exige
+ * o segredo: sem ele o cron ainda calcula e responde, mas não manda nada.
+ *
+ * Lido a cada chamada (e não no load do módulo) pra que setar a env passe a
+ * valer no próximo request, sem precisar de redeploy.
+ */
+function podeEnviarAviso() {
+  return !!process.env.CRON_SECRET;
+}
+
 // Confirm-on-read throttle: at most one PSP re-check per check per ~10s per
 // instance (Fluid Compute reuse makes this bite). Stops a pending charge from
 // firing a gateway call on every 4s diner poll while still healing fast.
@@ -750,7 +763,9 @@ async function route(req, res) {
           // Status que interessa ao dono (active/refused/…): avisa. Só grava DEPOIS
           // que o aviso saiu — se falhar (endpoint fora), não consome a transição
           // e o próximo tick retenta (aviso perdido é pior que status 1 dia velho).
-          const n = await notifyOwnerRecipientStatus({ venue: v, status: live, previousStatus: v.pspRecipientStatus });
+          const n = podeEnviarAviso()
+            ? await notifyOwnerRecipientStatus({ venue: v, status: live, previousStatus: v.pspRecipientStatus })
+            : { skipped: true, reason: 'sem CRON_SECRET — rota pública não dispara aviso' };
           if (n.ok) {
             await store.setVenueRecipientStatus(v.id, live);
             detail.push({ venue: v.id, from: v.pspRecipientStatus, to: live, notify: 'sent' });
@@ -820,7 +835,9 @@ async function route(req, res) {
       // Silêncio é feature: digest que chega todo dia sem novidade para de ser
       // lido. Sem alerta, não envia — e o cron ainda responde o retrato.
       let envio = { skipped: dry ? 'dry-run' : 'sem alertas' };
-      if (!dry && radar.precisaEnviar) {
+      if (!dry && radar.precisaEnviar && !podeEnviarAviso()) {
+        envio = { skipped: 'sem CRON_SECRET — rota pública não dispara aviso' };
+      } else if (!dry && radar.precisaEnviar) {
         envio = await notifyFounderActivationRadar({
           mensagem: radar.mensagem, alertas: radar.alertas.length,
           total: radar.total, ativos: radar.ativos,
