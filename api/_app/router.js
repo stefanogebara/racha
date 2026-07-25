@@ -763,9 +763,17 @@ async function route(req, res) {
           // Status que interessa ao dono (active/refused/…): avisa. Só grava DEPOIS
           // que o aviso saiu — se falhar (endpoint fora), não consome a transição
           // e o próximo tick retenta (aviso perdido é pior que status 1 dia velho).
-          const n = podeEnviarAviso()
-            ? await notifyOwnerRecipientStatus({ venue: v, status: live, previousStatus: v.pspRecipientStatus })
-            : { skipped: true, reason: 'sem CRON_SECRET — rota pública não dispara aviso' };
+          //
+          // EXCEÇÃO: aviso DESLIGADO (sem CRON_SECRET) não é falha temporária —
+          // é config. Segurar a gravação aí congelaria o status pra sempre: o
+          // radar mostraria "em análise" pra um recebedor já aprovado e o
+          // fundador ficaria cobrando um KYC que já saiu. Então grava e marca.
+          if (!podeEnviarAviso()) {
+            await store.setVenueRecipientStatus(v.id, live);
+            detail.push({ venue: v.id, from: v.pspRecipientStatus, to: live, notify: 'skipped_sem_secret' });
+            continue;
+          }
+          const n = await notifyOwnerRecipientStatus({ venue: v, status: live, previousStatus: v.pspRecipientStatus });
           if (n.ok) {
             await store.setVenueRecipientStatus(v.id, live);
             detail.push({ venue: v.id, from: v.pspRecipientStatus, to: live, notify: 'sent' });
