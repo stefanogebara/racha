@@ -15,3 +15,12 @@
 const { route } = require('./_app/router');
 
 module.exports = (req, res) => route(req, res);
+
+// Entrega o CORPO CRU (bytes intactos) ao handler. Sem isto o runtime
+// @vercel/node parseia JSON e popula req.body; o readBody re-serializa com
+// JSON.stringify e QUEBRA a assinatura do webhook Stripe — o constructEvent
+// exige EXATAMENTE os bytes que a Stripe assinou (whitespace/escape idênticos).
+// O Pagar.me usa Basic-auth no header (não HMAC de corpo), então nunca sofreu;
+// o Stripe sofre. bodyParser:false conserta os dois rails de uma vez: todo
+// route lê via readBody(req), que já sabe consumir o stream cru.
+module.exports.config = { api: { bodyParser: false } };
