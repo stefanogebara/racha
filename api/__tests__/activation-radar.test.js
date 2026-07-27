@@ -175,6 +175,21 @@ describe('montarRadar — o que o fundador recebe', () => {
     expect(r.precisaEnviar).toBe(false);
   });
 
+  test('venue marcado is_test NÃO conta como cliente', () => {
+    // 27/jul/2026: o radar dizia "3 restaurantes, 1 ativo" quando a verdade era
+    // ZERO clientes — Beira Mar é o sandbox do fundador e Kitos é o teste de um
+    // amigo. O filtro por NOME não pega teste batizado de restaurante de
+    // verdade; métrica inflada faz o fundador olhar pro lugar errado.
+    const r = montarRadar([
+      venue({ id: 'sandbox', name: 'Beira Mar', isTest: true, recebedorOk: false }),
+      venue({ id: 'amigo', name: 'Kitos Food', isTest: true, recipientStatus: 'affiliation' }),
+      venue({ id: 'real', name: 'Okay', recebedorOk: false }),
+    ], AGORA);
+    expect(r.total).toBe(1);
+    expect(r.alertas).toHaveLength(1);
+    expect(r.alertas[0].name).toBe('Okay');
+  });
+
   test('demo NÃO entra no radar — Bar do Zé não é cliente', () => {
     const r = montarRadar([
       venue({ id: 'demo1', name: 'Bar do Zé [demo ca8c]', recebedorOk: false }),

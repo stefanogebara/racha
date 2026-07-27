@@ -93,9 +93,17 @@ const DEGRAUS = {
   },
 };
 
-/** Demos (Bar do Zé, Bar do Racha) não são clientes — nunca entram no radar. */
-function ehDemo(name) {
-  return /demo|demonstra/i.test(String(name || ''));
+/**
+ * Não-cliente: demo (Bar do Zé, Bar do Racha) OU venue marcado `is_test` —
+ * sandbox do fundador, teste de amigo. O filtro por NOME não pega um teste
+ * batizado de restaurante de verdade: em 27/jul/2026 o radar dizia "3
+ * restaurantes, 1 ativo" quando a verdade era ZERO clientes. Métrica inflada
+ * faz o fundador olhar pro lugar errado — e é o radar que decide o dia dele.
+ */
+function ehDemo(venue) {
+  const v = typeof venue === 'string' ? { name: venue } : (venue || {});
+  if (v.isTest === true) return true;
+  return /demo|demonstra/i.test(String(v.name || ''));
 }
 
 const diasEntre = (deMs, ateMs) => Math.floor((ateMs - deMs) / DIA_MS);
@@ -160,7 +168,7 @@ function linhaAlerta(a) {
  * chega todo dia sem novidade vira ruído e para de ser lido).
  */
 function montarRadar(venues, nowMs) {
-  const reais = (venues || []).filter((v) => !ehDemo(v.name));
+  const reais = (venues || []).filter((v) => !ehDemo(v));
   const classificados = reais.map((v) => classificarVenue(v, nowMs));
 
   const alertas = classificados

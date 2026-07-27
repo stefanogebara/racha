@@ -568,6 +568,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return (data || []).map((r) => ({
         id: r.id,
         name: r.name,
+        isTest: r.is_test === true,
         recebedorOk: r.recebedor_ok === true,
         recipientStatus: r.psp_recipient_status || null,
         mesasReais: Number(r.mesas_reais) || 0,

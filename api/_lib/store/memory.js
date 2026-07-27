@@ -413,6 +413,7 @@ function createMemoryStore() {
         return {
           id: v.id,
           name: v.name,
+          isTest: v.isTest === true,
           recebedorOk: /^r[ep]_/.test(v.pspRecipientId || '')
             && !RUINS.includes(v.pspRecipientStatus || ''),
           recipientStatus: v.pspRecipientStatus || null,
