@@ -21,8 +21,9 @@
  */
 
 const { createManualAdapter } = require('./manual');
+const { createSaiposAdapter } = require('./saipos');
 
-const PROVIDERS = Object.freeze(['manual', 'colibri', 'simphony']);
+const PROVIDERS = Object.freeze(['manual', 'saipos', 'colibri', 'simphony']);
 
 /**
  * Resolve the POS adapter for a venue. Unknown/unimplemented providers throw a
@@ -36,6 +37,19 @@ function resolvePosAdapter(venue) {
   switch (provider) {
     case 'manual':
       return createManualAdapter();
+    case 'saipos': {
+      // Credenciais por env (sandbox / loja de teste). Quando o primeiro venue
+      // real usar Saipos, isto migra pra colunas do venue — a validação de
+      // config incompleta continua ESTOURANDO aqui, nunca degradando pra
+      // manual em silêncio.
+      const idPartner = process.env.SAIPOS_ID_PARTNER;
+      const secret = process.env.SAIPOS_SECRET;
+      const codStore = process.env.SAIPOS_COD_STORE;
+      if (!idPartner || !secret || !codStore) {
+        throw new Error('saipos: faltam SAIPOS_ID_PARTNER / SAIPOS_SECRET / SAIPOS_COD_STORE no ambiente');
+      }
+      return createSaiposAdapter({ idPartner, secret, codStore });
+    }
     case 'colibri':
     case 'simphony':
       throw new Error(`integração POS '${provider}' ainda não implementada (próxima fatia)`);

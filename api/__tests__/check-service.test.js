@@ -48,7 +48,7 @@ describe('resolvePosAdapter', () => {
     expect(() => resolvePosAdapter({ posProvider: 'colibri' })).toThrow(/não implementada/);
     expect(() => resolvePosAdapter({ posProvider: 'simphony' })).toThrow(/não implementada/);
     expect(() => resolvePosAdapter({ posProvider: 'bogus' })).toThrow(/desconhecido/);
-    expect(PROVIDERS).toEqual(['manual', 'colibri', 'simphony']);
+    expect(PROVIDERS).toEqual(['manual', 'saipos', 'colibri', 'simphony']);
   });
 });
 
