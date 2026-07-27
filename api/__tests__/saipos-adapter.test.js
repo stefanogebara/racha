@@ -76,17 +76,16 @@ describe('auth — token é cacheado e renovado só quando morre', () => {
 describe('pullOpenCheck — a conta viva da mesa vira o shape do Racha', () => {
   // Shape plausível baseado na doc (itens com preço em REAIS decimais — o
   // parser converte pra centavos com arredondamento; validar no sandbox).
-  const venda = {
-    sales: [{
-      order_id: 'ord-77',
-      cod_store: '42',
-      items: [
-        { desc_store_item: 'Picanha na chapa', quantity: 1, unit_price: 89.9 },
-        { desc_store_item: 'Chopp', quantity: 4, unit_price: 13.9 },
-      ],
-      total: 145.5,
-    }],
-  };
+  // Shape REAL confirmado no sandbox (2026-07-27): array no topo, não { sales }.
+  const venda = [{
+    order_id: 'ord-77',
+    cod_store: '42',
+    items: [
+      { desc_store_item: 'Picanha na chapa', quantity: 1, unit_price: 89.9 },
+      { desc_store_item: 'Chopp', quantity: 4, unit_price: 13.9 },
+    ],
+    total: 145.5,
+  }];
 
   test('itens e total em centavos, com quantidade multiplicada', async () => {
     const f = fetchFake([auth200, { status: 200, json: venda }]);
@@ -98,13 +97,15 @@ describe('pullOpenCheck — a conta viva da mesa vira o shape do Racha', () => {
       { id: expect.any(String), name: 'Picanha na chapa', priceCents: 8990 },
       { id: expect.any(String), name: 'Chopp (4x)', priceCents: 5560 },
     ]);
-    // a query foi pra mesa certa
+    // A API exige COLCHETES LITERAIS na query (sandbox 2026-07-27): sem eles
+    // devolve 400 "É necessario que table ou pad sejam arrays".
     const leitura = f.chamadas.find((c) => c.url.includes('sale-status-by-table-or-pad'));
-    expect(leitura.url).toContain('table=12');
+    expect(decodeURIComponent(leitura.url)).toContain('table=[12]');
   });
 
   test('mesa sem conta aberta → null (não é erro)', async () => {
-    for (const resp of [{ status: 200, json: { sales: [] } }, { status: 404, json: {} }]) {
+    // [] é o que o sandbox devolve de verdade pra mesa livre.
+    for (const resp of [{ status: 200, json: [] }, { status: 200, json: { sales: [] } }, { status: 404, json: {} }]) {
       const f = fetchFake([auth200, resp]);
       const pos = createSaiposAdapter({ ...CFG, fetchImpl: f });
       expect(await pos.pullOpenCheck({ table: '9' })).toBeNull();

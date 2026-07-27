@@ -78,20 +78,29 @@ function createSaiposAdapter(cfg = {}) {
    * @param {{ table?: string, pad?: string }} ref  número da mesa OU comanda
    */
   async function pullOpenCheck({ table, pad } = {}) {
+    // FORMATO REAL (descoberto no sandbox 2026-07-27 — a doc engana):
+    // o parâmetro é uma string com COLCHETES LITERAIS, um valor por chamada:
+    // `?table=[5]`. Sem colchetes → 400 "É necessario que table ou pad sejam
+    // arrays"; com múltiplos ([1,2,3]) → 400 também. `table[]=5` e JSON com
+    // aspas idem. Por isso montamos a string à mão em vez de confiar no
+    // default "5" que a doc exibe.
     const q = new URLSearchParams();
-    if (table) q.set('table', table);
-    if (pad) q.set('pad', pad);
+    if (table) q.set('table', `[${table}]`);
+    if (pad) q.set('pad', `[${pad}]`);
     const res = await chamar(`/sale-status-by-table-or-pad?${q}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`saipos consulta mesa falhou: HTTP ${res.status}`);
-    const body = await res.json().catch(() => ({}));
-    const venda = Array.isArray(body.sales) ? body.sales[0] : null;
-    if (!venda || !Array.isArray(venda.items)) {
-      if (venda === null && !Array.isArray(body.sales)) {
-        process.stderr.write('[saipos] resposta com shape inesperado — validar no sandbox\n');
-      }
+    const body = await res.json().catch(() => null);
+    // A resposta é um ARRAY no topo (mesa livre → []), não { sales: [...] }.
+    // Aceitamos as duas formas: o shape documentado nunca foi público e pode
+    // variar por versão — tolerar é mais barato que quebrar num sábado.
+    const lista = Array.isArray(body) ? body : (Array.isArray(body && body.sales) ? body.sales : null);
+    if (!lista) {
+      process.stderr.write('[saipos] resposta com shape inesperado na consulta de mesa\n');
       return null;
     }
+    const venda = lista[0];
+    if (!venda || !Array.isArray(venda.items)) return null;
     const items = venda.items.map((it, i) => {
       const qtd = Number(it.quantity || 1);
       const nome = String(it.desc_store_item || it.name || `Item ${i + 1}`);
