@@ -6,10 +6,24 @@ que vai pro registro de templates / style pack.
 
 ## Antes de usar (decisões e dependências)
 - [ ] **Oferta do piloto:** o plano previa **2 meses grátis, sem risco**. Confirme antes de a Olímpia prometer.
-- [ ] **Link da prévia:** hoje o demo é localhost — **precisa do deploy (Vercel)** pra virar link compartilhável. Até lá, a Olímpia descreve, não manda link.
+- [x] **Link liberado (deploy no ar, verificado 2026-07-27).** A Olímpia PODE mandar link:
+      - **Dono de restaurante** → `https://racha-gray.vercel.app/` (landing B2B: como
+        funciona, saldo da casa, entrada do painel).
+      - **"Quero ver como o cliente vê"** → `https://racha-gray.vercel.app/?t=demoracha`
+        (mesa de demonstração: conta viva, dividir igual/por item/outro valor, serviço
+        opcional). Roda no PSP **mock** e reseta por cron — ninguém é cobrado de verdade
+        (`api/__tests__/demo-isolation.test.js` prova o isolamento).
+- [ ] **A "prévia com a cara do [restaurante]" NÃO existe ainda.** O análogo do `criar_demo`
+      do Seatable não foi portado — só existe a mesa genérica "Bar do Racha". A Olímpia
+      manda o demo genérico e **não** promete versão personalizada.
 - [ ] **Compliance WhatsApp:** lead DENTRO da janela de 24h (já conversou) → texto livre (abaixo). Lead FORA da janela / número novo → **template aprovado pela Meta** (seção no fim). Nunca dispare texto livre fora da janela.
 - [ ] **ICP do piloto:** priorize quem já falou com a Olímpia e **disse não pro CRM/reservas** do Seatable — bar/casual vira ICP do Racha. Densidade > alcance: 2-3 bairros de SP.
 - [ ] **Escalar preço pós-piloto → humano.** A Olímpia nunca inventa preço (regra da persona).
+- [ ] **NUNCA prometer gorjeta pro garçom.** Nem "cai direto no Pix do garçom", nem "o
+      garçom recebe mais gorjeta". O serviço liquida no **CNPJ do restaurante** e é
+      distribuído via folha (Lei 13.419/2017 + STJ Tema 1102) — liquidação direta pro
+      garçom é exposição trabalhista/tributária **do cliente**. Non-negociável #2 do
+      produto (`racha/CLAUDE.md`). Se o assunto surgir, use a ramificação "E a gorjeta?".
 
 ---
 
@@ -17,11 +31,11 @@ que vai pro registro de templates / style pack.
 
 Escolha UMA. Curtas, um assunto, uma pergunta só (regras da persona).
 
-**A — puxando pela dor (rush + gorjeta):**
+**A — puxando pela dor (rush + giro de mesa):**
 > Oi [nome]! É a Olímpia 🙂 a gente tá testando com alguns restaurantes de SP uma
 > forma do cliente fechar a conta sozinho — escaneia o QR da mesa, divide e paga
 > no Pix em segundos, sem esperar a maquininha. A mesa vira mais rápido no rush e
-> o garçom ainda recebe mais gorjeta. Posso te mostrar como fica?
+> o garçom fica no salão em vez de carregar maquininha. Posso te mostrar como fica?
 
 **B — mais leve, pra quem já tinha dito não pro sistema de reservas:**
 > Oi [nome]! Aqui é a Olímpia de novo. Isso aqui é uma coisa diferente do sistema
@@ -37,8 +51,13 @@ Escolha UMA. Curtas, um assunto, uma pergunta só (regras da persona).
 > a conta, escolhe se paga tudo ou só a parte dele, e manda no Pix — cai direto na
 > conta do restaurante. Sem app, sem cadastro, sem maquininha passando de mão em mão.
 
-_(se o deploy já estiver no ar, emenda a prévia — o movimento que converte:)_
-> Quer que eu monte uma prévia com a cara do [restaurante] pra você ver no celular?
+_(emenda o demo — o movimento que converte, e agora é só mandar:)_
+> Quer ver na prática? Abre esse link no celular que é exatamente a tela que o seu
+> cliente vê na mesa: racha-gray.vercel.app/?t=demoracha — pode mexer à vontade, é uma
+> conta de mentira, ninguém é cobrado.
+
+_(Se ele preferir o lado do restaurante, manda `racha-gray.vercel.app`. Não prometa
+prévia personalizada com o nome do restaurante — não existe ainda.)_
 
 **"Quanto custa?":**
 > No piloto é de graça — a ideia é você testar sem risco por uns dois meses e ver
@@ -49,6 +68,13 @@ _(se o deploy já estiver no ar, emenda a prévia — o movimento que converte:)
 > Justo — é o que mais me perguntam. Por isso o piloto é grátis: você testa numa
 > mesa ou duas, vê quantos clientes topam, e se não rolar não perdeu nada. Quem
 > testou gostou de não ter que esperar a maquininha. Quer começar por uma mesa só?
+
+**"E a gorjeta / os 10%?"** (resposta única — não improvise):
+> Os 10% entram na conta normalmente, o cliente pode tirar se quiser, e o valor cai no
+> CNPJ do restaurante junto com o resto — você distribui pela folha como já faz hoje.
+> A gente só separa e mostra quanto foi de serviço no relatório, pra facilitar o
+> fechamento.
+> _(Nunca ofereça repasse direto pro garçom, mesmo se ele pedir → `escalar_humano`.)_
 
 **"Já uso [maquininha/sistema]":**
 > Ele não substitui sua maquininha — roda junto, só pra quem prefere pagar no Pix
@@ -85,5 +111,7 @@ Botão sugerido: `Quero saber mais`.
   produtos ou uma persona separada.
 - O template acima entra no **registro de Abordagens** (prospect_templates) só
   depois de aprovado pela Meta.
-- A prévia do Racha (mock da conta da casa) é o análogo do `criar_demo` do Seatable —
-  vale portar quando o deploy estiver no ar.
+- A prévia personalizada (conta com o nome/cardápio do prospect) é o análogo do
+  `criar_demo` do Seatable. **Desbloqueada** — o deploy já está no ar; falta portar.
+  Hoje a Olímpia manda a mesa genérica `?t=demoracha`. Portar isso é o maior ganho de
+  conversão pendente no funil do Racha.
