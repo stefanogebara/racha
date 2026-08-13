@@ -78,4 +78,31 @@ async function notifyFounderActivationRadar({ mensagem, alertas = 0, total = 0, 
   }
 }
 
-module.exports = { notifyOwnerRecipientStatus, notifyFounderActivationRadar };
+/**
+ * Beacon da prévia de prospecção → timeline da Olímpia.
+ *
+ * Quando a Olímpia manda o link do demo, ele carrega `pl` — um token HMAC que
+ * ELA cunhou e só ela verifica (identifica o lead; não autoriza nada). O front
+ * repassa o valor pra cá e daqui vai server-side pro `/api/previa-event`, que
+ * é público de propósito (mesma postura do beacon da prévia por-restaurante):
+ * por isso, diferente dos avisos acima, NÃO leva RACHA_NOTIFY_SECRET.
+ * Server-side porque o CORS do endpoint dela não abre pro browser do diner.
+ *
+ * Best-effort e nunca lança: telemetria jamais pode quebrar o demo.
+ */
+async function notifyPreviaBeacon({ pl, event }) {
+  try {
+    const res = await fetch(`${NOTIFY_URL}/api/previa-event`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: pl, event }),
+      signal: AbortSignal.timeout(4000),
+    });
+    return { ok: res.ok, status: res.status };
+  } catch (e) {
+    process.stderr.write(`[notify] previa-beacon falhou: ${String(e.message).slice(0, 160)}\n`);
+    return { ok: false, error: e.message };
+  }
+}
+
+module.exports = { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon };

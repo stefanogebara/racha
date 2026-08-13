@@ -24,6 +24,28 @@ export default function App() {
     () => new URLSearchParams(window.location.search).get('t') ?? '',
     [],
   );
+  // Beacon da prospecção: o link que a Olímpia manda carrega `pl` (token do
+  // lead, opaco pra nós). Reporta abertura e pagamento same-origin — o backend
+  // repassa pra ela. Best-effort com dedup por sessionStorage: telemetria
+  // jamais pode quebrar o demo, nem repetir a cada reload.
+  const prospectPl = useMemo(
+    () => new URLSearchParams(window.location.search).get('pl'),
+    [],
+  );
+  const sendBeacon = useCallback((event: 'opened' | 'paid') => {
+    if (!prospectPl) return;
+    try {
+      const key = `racha-beacon:${event}:${prospectPl.slice(-16)}`;
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch { /* storage indisponível → manda assim mesmo */ }
+    fetch('/api/demo/beacon', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pl: prospectPl, event }),
+    }).catch(() => {});
+  }, [prospectPl]);
+  useEffect(() => { sendBeacon('opened'); }, [sendBeacon]);
   const [view, setView] = useState<CheckView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +131,12 @@ export default function App() {
       setStep('pago');
     }
   }, [view, step, charge, paidBaseline]);
+
+  // O ✓ é o momento-prova do demo de prospecção: o lead PAGOU a conta de
+  // mentira. Cobre os dois caminhos até 'pago' (webhook e redeem de saldo).
+  useEffect(() => {
+    if (step === 'pago') sendBeacon('paid');
+  }, [step, sendBeacon]);
 
   // Sem token de mesa = visita direta (desktop/prospect/KYC) → landing.
   if (!token) return <Home />;
