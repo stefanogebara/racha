@@ -31,7 +31,7 @@ const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
 const { createChargeService } = require('../_lib/pay/create-charge');
-const { notifyOwnerRecipientStatus, notifyFounderActivationRadar } = require('../_lib/notify');
+const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon } = require('../_lib/notify');
 const { montarRadar } = require('../_lib/activation/radar');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
@@ -713,6 +713,21 @@ async function route(req, res) {
         const r = await store.setTableActive(b.tableId, b.active);
         return json(res, 200, { success: true, data: r });
       } catch (e) { return json(res, 409, { success: false, error: e.message }); }
+    }
+
+    // --- demo pública: beacon de abertura/pagamento pro radar da Olímpia -----
+    // Sem auth de propósito: o `pl` é um token HMAC que a Olímpia cunhou e só
+    // ela verifica — aqui é opaco, só se repassa (ver notifyPreviaBeacon). O
+    // pior abuso com um pl vazado é a reação que a abertura real já dispararia.
+    if (req.method === 'POST' && url.pathname === '/api/demo/beacon') {
+      if (!rateLimitOpen(req)) return json(res, 429, { success: false, error: 'calma lá' });
+      const b = JSON.parse(await readBody(req) || '{}');
+      const ev = b.event === 'paid' || b.event === 'opened' ? b.event : null;
+      const pl = typeof b.pl === 'string' && b.pl.length >= 40 && b.pl.length <= 400 ? b.pl : null;
+      if (!ev || !pl) return json(res, 400, { success: false, error: 'pl e event são obrigatórios' });
+      await notifyPreviaBeacon({ pl, event: ev });
+      // Sempre 200 pro front: beacon é best-effort, o demo nunca espelha falha daqui.
+      return json(res, 200, { success: true });
     }
 
     // --- demo pública: reset da mesa demoracha (cron diário + on-demand) -----
