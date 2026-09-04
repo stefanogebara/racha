@@ -168,3 +168,51 @@ saber, de relance, qual versão está ali nem de onde veio.
 `scripts/fetch-fonts.sh` deixa a procedência explícita e a atualização numa linha.
 `Typo.font()` cai no serif/sans/mono do sistema sem as fontes — o app renderiza
 certo, só perde calor.
+
+---
+
+### 16. O chão virou papel; a timeline virou contact sheet
+
+**Contra:** manter os quatro orbes em gradiente do `styles.css`, que são a
+assinatura do app web.
+**Por quê:** numa página larga eles continuam certos. Numa tela de celular,
+atrás de fotografias de comida, um lavado de cor grande e macio é a única coisa
+que, sozinha, faz uma interface ler como gerada — e foi exatamente essa a
+crítica. Trocar por papel de verdade (fibra, o pautado fraquíssimo de uma nota,
+luz de cima-esquerda) mantém a família quente da marca, tira o clichê, e deixa a
+**cor vir só da comida**. Ganho de lado: o fundo virou estático, então custa uma
+passada de GPU no layout em vez de frames contínuos.
+**E a grade:** alturas de card variadas davam ritmo decorativo — o tamanho do
+card não dizia nada verdadeiro sobre o racha. Ladrilhos uniformes dizem que os
+itens são pares, que é o que são, e deixam as fotos carregarem a página.
+`paguei/devia` saiu do ladrilho: é detalhe de card, e repetido em todo ladrilho
+transformava a galeria numa planilha com foto.
+
+---
+
+### 17. Transparência é requisito de produto, não preferência visual
+
+**Por quê:** o recorte sobre papel lê como um objeto fotografado numa
+superfície; a mesma imagem com fundo embutido lê como stock colado numa caixa.
+Isso restringe o fornecedor de imagem de item de linha aos modelos que devolvem
+alfa de verdade — hoje `gpt-image-1` e `gpt-image-1-mini` com
+`background: "transparent"`. Imagen e a linha Gemini devolvem quadro opaco e por
+isso servem só à capa, que é full-bleed e quer fundo.
+**Custo aceito:** PNG em vez de WebP no item (o WebP com alfa não é aceito no
+mesmo caminho), o que engorda o cache. O cache endereçado pelo prato absorve.
+
+---
+
+### 18. Auditoria de quadro por captura real
+
+**Por quê:** o app nativo não compila aqui, mas a renderização web compila em
+qualquer lugar — e o contêiner tem Chromium. Então o design passou a ser
+verificado olhando: `lab/audit.js` captura cada estado de repouso **e a
+transição congelada em 25%, 50% e 75%**, e cada quadro é inspecionado.
+**O que só apareceu assim:** o `[hidden]` derrotado por `display:flex`; o
+ladrilho voador continuando visível sobre a conversa por causa de um ternário
+com `z01<=1` (sempre verdadeiro); a grade e o card ambos a meia opacidade no
+meio do voo, que é literalmente o "visual glitch" reclamado; o canvas quadrado
+esticado num quadro não-quadrado; e dois "falta" diferentes na tela sem nada
+explicando a diferença (um inclui item sem dono, o outro não).
+Nenhum desses aparece lendo o código.

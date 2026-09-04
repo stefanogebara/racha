@@ -19,7 +19,7 @@ função recebe `size` e se normaliza.
 
 | # | Shader | Efeito | Onde aparece | Por que existe |
 |---|---|---|---|---|
-| 1 | `warmGround` | color | fundo do app | Os quatro gradientes do CSS, respirando. **Com dither de ±1/255** — sem ele os degradês largos e de baixo contraste fazem bandas visíveis em OLED. |
+| 1 | `paperGround` | color | fundo do app | **Papel, não gradiente.** Fibra direcional, o pautado quase invisível de uma nota, e luz de cima-esquerda com queda nas bordas. Trocou os quatro orbes: numa tela de celular, atrás de fotos de comida, um lavado de cor grande é o que faz uma interface parecer gerada. E é estático — uma passada de GPU no layout, zero por frame. |
 | 2 | `liquidGlass` | layer | `GlassCard` | Refração de verdade: desloca o conteúdo perto da borda pelo gradiente do SDF. Dispersão cromática **só no fio da borda** — no card inteiro vira tela quebrada. Brilho de quina que segue a inclinação do aparelho. É `layerEffect` porque `colorEffect` fisicamente não consegue refratar: só vê o próprio pixel. |
 | 3 | `imageResolve` | layer | `DishImageView` | A foto **revela**: frente de onda diagonal amaciada por ruído, linha cáustica cavalgando a borda, grão que some. Fade não conta nada; isso conta que a imagem está condensando. |
 | 4 | `tokenStream` | layer | `StreamingText` | Ancorado no **x/y do último glifo**, medido pelo `TextRenderer`, então acompanha texto quebrado em linhas em vez de assumir uma linha só. |
@@ -34,9 +34,9 @@ função recebe `size` e se normaliza.
 A pessoa está num bar barulhento com 15% de bateria. Isso é requisito, não
 enfeite:
 
-- **Um relógio só.** `ShaderClock` é um `CADisplayLink` a 30 Hz preferidos,
-  compartilhado, que se desliga quando o último observador some. Vários
-  `TimelineView` seriam vários loops de redraw a 120 Hz.
+- **O fundo não anima.** Era a maior fonte de frames contínuos; desenhar papel
+  não precisa de relógio. O que sobra no `ShaderClock` (um `CADisplayLink` a
+  30 Hz compartilhado, que se desliga sozinho) é só o vidro e o streaming.
 - **Refração desligada em lista.** `RachaCard` passa `refract: false`. Vinte
   `layerEffect` rolando ao mesmo tempo é o único jeito de esses visuais virarem
   reclamação de bateria.
@@ -47,9 +47,8 @@ enfeite:
 
 ## Acessibilidade
 
-- **Reduce Motion** congela `warmGround` numa fase bonita em vez de apagar a cor
-  (a cor é a marca; a deriva não é), desliga `zoomMorph`, `settledBurst`,
-  `tokenStream` e a revelação da imagem.
+- **Reduce Motion** desliga `zoomMorph`, `settledBurst`, `tokenStream` e a
+  revelação da imagem. O fundo não precisa de exceção: já é estático.
 - **Reduce Transparency** troca o vidro por superfície opaca em `GlassCard`.
 - Nenhum shader carrega informação sozinho. Tudo que eles dizem também está dito
   em texto — a barra tem número ao lado, o burst tem a faixa "Fechado, tudo quite".

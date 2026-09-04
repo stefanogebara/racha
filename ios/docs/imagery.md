@@ -13,9 +13,19 @@ Levantado em setembro de 2026, por imagem 1024×1024:
 | `gemini-3.1-flash-image` (Nano Banana 2) | Google | 0,045–0,15 |
 | `gemini-3-pro-image` (Nano Banana Pro) | Google | 0,13–0,24 |
 
-`gpt-image-1-mini` no tier `low` é ~4× mais barato que a alternativa mais próxima
-e é mais que suficiente para um card de 160 pt, que é o tamanho em que essas
-imagens são realmente vistas. `medium` fica reservado pra capa do racha, que
+**O motivo do padrão é a transparência, não o preço.** `gpt-image-1` e
+`gpt-image-1-mini` são os únicos modelos atuais que devolvem canal alfa de
+verdade (`background: "transparent"`), e o recorte é o que faz a grade
+funcionar: um prato pousado no papel do app, com a própria sombra de contato,
+lê como objeto fotografado numa superfície. Um prato entregue com fundo embutido
+lê como stock colado numa caixa, e estilo nenhum recupera disso — é a maior
+diferença entre a galeria parecer desenhada e parecer gerada.
+
+Imagen e a linha Gemini devolvem quadro opaco, então ficam como tier de
+qualidade da **capa** (que é full-bleed e quer fundo) e nunca de item de linha.
+No mais, `gpt-image-1-mini` no tier `low` ainda é ~4× mais barato que a
+alternativa mais próxima e mais que suficiente para um ladrilho de 160 pt, que é
+o tamanho em que essas imagens são realmente vistas. `medium` fica reservado pra capa do racha, que
 aparece grande na timeline. Trocar de fornecedor é uma linha em
 `ImageEngine.fromSettings`.
 
@@ -24,16 +34,16 @@ aparece grande na timeline. Trocar de fornecedor é uma linha em
 A chave é **o prato, não o item**:
 
 ```
-v3.plate.picanha-com-fritas
-v3.glass.chopp-500ml
-v3.cover.jantar.chopp+farofa+picanha
+v4.plate.picanha-com-fritas
+v4.glass.chopp-500ml
+v4.cover.jantar.chopp+farofa+picanha
 ```
 
 Duas pessoas pedindo picanha em dois restaurantes em duas noites batem na mesma
 imagem. Ao longo do histórico de um usuário a taxa de acerto em comida é alta,
 porque gente pede as mesmas coisas. O custo marginal da centésima picanha é zero.
 
-O `v3` é a versão do estilo e faz parte da chave: mexer numa palavra da receita
+O `v4` é a versão do estilo e faz parte da chave: mexer numa palavra da receita
 invalida só o que foi feito com a redação antiga, sem servir uma galeria de
 aparências misturadas nem jogar fora cache já pago.
 
