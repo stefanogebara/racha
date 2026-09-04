@@ -58,10 +58,39 @@ through a price; the grid's outer margin set above its gutter; the currency
 mark's advance reserved on every row so a total sits on the column its own items
 make.
 
+## The fourteenth round: changing the form instead of refining it
+
+Five separate rounds had called the illustrations the weakest asset and the
+clearest tell of a machine. The engraved line system answered that by tightening
+the line — one weight, one horizon, one viewpoint — and it was better, and it
+was still a line drawing. Which is the point: an even, uniform contour is what a
+generator reaches for by default, so an even, uniform contour is what a machine
+looks like.
+
+So the last round changed the form. **Xilogravura** — the woodcut of Brazilian
+cordel, the pamphlet literature sold at fairs in the Northeast. That inverts the
+whole operation. A subject is a solid mass of ink. Detail is not added to it in
+black, it is *removed* from it in white, because a gouge takes ink away. Tone is
+a run of chunky parallel cuts, not fine hatching. The contour is faceted, because
+a blade travels in straight pushes and the block chips where it turns. And the
+ink never lays down perfectly, so a little of the paper comes through.
+
+It is also the right form for this product and not merely a different one: a bar
+tab in Brazil belongs to the same world of cheap, everyday printed paper as a
+cordel cover does. The previous set could have been drawn for a hotel in
+Copenhagen. This one could not.
+
+The critic's read changed accordingly. Where earlier rounds had called the
+drawings "generic monoline food icons — exactly the default output of a prompt",
+the round after the woodcut called them "true linocut" and complained only that
+two of the fourteen did not yet match the grammar. That is a much narrower
+problem than the one it replaced.
+
 ## Where it stopped
 
 The critic never reached 9/10. Scores ran 5.5 → 6 → 6 → 6 → 5.5 → 6 → 5.5 → 6 →
-6 → 5.5 → 6, oscillating rather than climbing, across twelve rounds.
+6 → 5.5 → 6 → 6 → 6 → **6.5**, across fourteen rounds — the last, after the
+woodcut and the craft pass that followed it, the highest of the run.
 
 That pattern is worth being honest about rather than grinding against. Reading
 the transcripts together, three things are going on:
@@ -95,12 +124,12 @@ was the brief.
 
 ## What I would do next, with a human in the loop
 
-- Commission the illustration set properly, or cut it. Five rounds called it the
-  weakest asset. The engraved system is much better than what it replaced and it
-  is still the thing a studio would redraw first. Xilogravura nordestina — the
-  woodcut of northeastern Brazilian cordel — was round ten's suggestion and it is
-  a good one: culturally exact, and a real cut line is immune to reading as
-  machine-made.
+- Finish the woodcut set. Two of the fourteen blocks (the place setting and the
+  fish) still read at a different level of abstraction from the rest, which the
+  last round named exactly. A human cutting these would fix that in an afternoon.
+- The relief form is much darker than the line form. Nobody has yet looked at it
+  on a phone in a dark bar at low brightness, which is the environment this
+  product was designed for, and it is the one check a screenshot cannot make.
 - Decide the currency-mark question once, with someone who can look at a phone
   rather than a contact sheet. It is the single most re-litigated detail here.
 - Test the ink ramp in an actual dark bar. Two rounds called the quiet greys

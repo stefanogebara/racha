@@ -306,3 +306,33 @@ certas sobre a mesma coisa. O vinho agora marca estado (aberto, não pagou, sem
 dono) e a ação primária é uma barra de tinta: continua sendo o objeto mais
 pesado da tela por massa, sem gastar a única cor do sistema na palavra
 "dividir".
+
+## 26 — Xilogravura: o desenho vira gravura em relevo (2026-09-04)
+
+**Contexto.** Cinco rodadas de crítica cega chamaram as ilustrações de o pior
+ativo e o sinal mais claro de máquina. A versão anterior respondeu apertando o
+traço — um peso, um horizonte, um ponto de vista. Ficou melhor e continuou
+sendo desenho de linha, que é a forma que um gerador procura por padrão.
+
+**Decisão.** Trocar a forma, não refinar. Xilogravura: o sujeito é uma massa
+sólida de tinta; o detalhe não é somado em preto, é **removido em branco**,
+porque a goiva tira tinta. Tom é uma corrida de cortes paralelos grossos. O
+contorno é facetado, porque a lâmina anda em empurrões retos e o bloco lasca na
+curva — `emit()` densifica todo caminho e desloca cada ponto na normal por um
+ruído determinístico de duas oitavas. E a tinta nunca assenta perfeita, então um
+pouco do papel atravessa (`speck`).
+
+**Por que essa forma e não outra.** A xilogravura nordestina é a estampa do
+cordel, a literatura de folheto vendida em feira. Uma comanda de bar pertence ao
+mesmo mundo de papel impresso barato e cotidiano que a capa de cordel. A versão
+em linha podia ter sido feita para um hotel em Copenhague; essa não.
+
+**Consequência.** Cada sujeito é cortado como uma silhueta única e articulado
+por dentro: dois blocos encostados com um fio de papel entre eles viram um
+borrão só. O canal de papel que cada bloco carrega (o halo de 4,2× o peso) é o
+que um impressor deixa sem cortar entre duas formas pra elas não correrem juntas
+na folha — e é o que separa os sujeitos que se sobrepõem na natureza-morta.
+
+**O que faria mudar de ideia.** Se a massa preta pesar demais numa tela de bar
+com 15% de bateria e brilho baixo. A gravura é muito mais escura que a linha; é
+a checagem que precisa de um telefone de verdade, não de uma captura.

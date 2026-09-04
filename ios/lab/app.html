@@ -108,13 +108,15 @@ body{
    set back from the figure so the eye lands on the amount. */
 .cy{font-size:.62em;letter-spacing:.02em;margin-right:.26em;color:var(--ink-3);
   font-family:inherit;font-variation-settings:'opsz' 16}
-.standing .cy,.net .cy{font-size:.42em;margin-right:.20em}
+.standing .cy,.net .cy{font-size:.42em;margin-right:.22em;position:relative;top:-.16em}
+.cap .amt .cy{display:inline-block;min-width:1.5em;text-align:right}
 
 b .cy,.net .cy{color:var(--ink-4)}
 /* A quiet label. Most things that used to shout in letterspaced caps say it
    at 11.5px in sentence case instead — an eyebrow only means something when
    there are one or two of them on a screen. */
 .lbl{font-size:11.5px;line-height:1.45;color:var(--ink-3);letter-spacing:0}
+.nt{color:var(--ink-3)}
 /* The receipt-voiced micro label. This one detail does most of the work of
    making the interface feel like a bill rather than a generic app. */
 .mi{font-size:9.5px;font-weight:500;letter-spacing:.13em;
@@ -122,17 +124,18 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* A section rule in the ledger: the label and the hairline are one object. */
 .mi.rule{display:flex;align-items:center;gap:10px;color:var(--ink-4)}
 .mi.rule::after{content:'';flex:1;height:1px;background:var(--rule)}
-.mi.rule i{font-style:normal;text-transform:none;letter-spacing:0;color:var(--ink-4);
-  font-weight:400;margin-left:-6px}
+
 
 /* ── layers ───────────────────────────────────────────────────────────── */
+/* The sheet runs out under a wash of its own stock. */
+.pageend{position:absolute;left:0;right:0;bottom:0;height:76px;z-index:12;pointer-events:none;
+  background:linear-gradient(180deg,transparent,var(--p-0) 62%);opacity:var(--pageend,1);
+  transition:opacity .2s ease}
 .layer{position:absolute;inset:0;z-index:10;
   transition:transform .34s cubic-bezier(.2,.9,.25,1),filter .34s ease}
 .scr.sheeted .layer,.scr.sheeted #hero,.scr.sheeted #paper{
   transform:scale(.972);transform-origin:top center}
-#grid{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:56px 0 56px;
-  -webkit-mask-image:linear-gradient(180deg,#000 calc(100% - 56px),transparent);
-  mask-image:linear-gradient(180deg,#000 calc(100% - 56px),transparent)}
+#grid{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:56px 0 64px}
 #grid::-webkit-scrollbar{display:none}
 #card,#thread{pointer-events:none;opacity:0}
 
@@ -181,7 +184,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 #hero canvas{position:relative;width:96%;height:96%}
 
 /* ── card ─────────────────────────────────────────────────────────────── */
-#card{display:flex;flex-direction:column;padding:54px 22px 24px;gap:0}
+#card{display:flex;flex-direction:column;padding:54px 22px 32px;gap:0}
 .cardmeta h2+.who-row{margin-top:-4px}
 /* Picture above, name below, both hanging off the same left margin. A cover. */
 .herorow{display:flex;flex-direction:column;gap:20px;align-items:flex-start}
@@ -229,7 +232,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .stateline{display:flex;justify-content:space-between;gap:14px;font-size:12px;color:var(--ink-3)}
 .stateline .open{color:var(--ink-2)}
 .go{margin-top:0;width:100%;border:none;cursor:pointer;
-  font-family:var(--serif);font-weight:400;font-size:17px;letter-spacing:-.008em;
+  font-family:var(--serif);font-weight:400;font-size:17px;letter-spacing:.022em;
   color:var(--p-hi);padding:15px;border-radius:0;
   background:var(--ink);transition:background .16s}
 .go:active{background:var(--ink-2)}
@@ -259,8 +262,7 @@ b .cy,.net .cy{color:var(--ink-4)}
    total that is ruled off — the one place in the app that looks like paper
    because it is standing in for paper. */
 .slip{display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--ink-2);
-  background:var(--p-hi);padding:15px 15px 14px;align-self:stretch;position:relative;
-  box-shadow:0 0 0 1px var(--rule)}
+  background:var(--p-hi);padding:15px 15px 14px;align-self:stretch;position:relative}
 /* The torn edge of a pad. Scalloped, not dashed: a perforation is a row of
    holes the paper was pulled through, and it reads at the top of the slip the
    way it reads on the real thing. */
@@ -273,7 +275,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* Dot leaders. The eye needs a rail to run along between a name and a figure,
    which is why every printed bill in the world has them and no app does. */
 .slip div i,.led div i,.rw .lead{flex:1 1 auto;min-width:16px;align-self:center;height:1px;
-  margin:0 9px;opacity:.62;background:var(--leader) left center/4px 1px repeat-x}
+  margin:0 9px;opacity:.62;background:var(--leader) right center/4px 1px repeat-x}
 .slip .slip-h i,.slip .slip-h{gap:14px}
 .slip .dim{color:var(--ink-4)}
 .slip .open{color:var(--act)}
@@ -361,7 +363,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 
   pointer-events:none;transition:opacity .28s ease;display:flex;align-items:flex-end}
 .sh.on{opacity:1;pointer-events:auto}
-.sh::before{content:'';position:absolute;inset:0;background:#7A5A2E;opacity:.22;
+.sh::before{content:'';position:absolute;inset:0;background:#7A5A2E;opacity:.13;
   mix-blend-mode:multiply;pointer-events:none}
 .shb{position:relative;z-index:1;width:100%;max-height:calc(100% - 118px);overflow-y:auto;overscroll-behavior:contain;
   scrollbar-width:none;background:var(--p-0);border-radius:2px 2px 0 0;transform-origin:bottom;
@@ -374,7 +376,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* The last row runs under a wash of the sheet's own paper, so content reads as
    continuing past the edge instead of being cut through the digits. */
 .sh::after{content:'';position:absolute;left:0;right:0;bottom:0;z-index:2;
-  height:96px;background:linear-gradient(180deg,transparent,var(--p-0) 54%);pointer-events:none}
+  height:120px;background:linear-gradient(180deg,transparent,var(--p-0) 46%);pointer-events:none}
 .shb::-webkit-scrollbar{display:none}
 .shh{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;
   background:var(--p-0);padding:2px 0 8px;z-index:2}
@@ -394,8 +396,9 @@ button.rw{cursor:pointer}
 .rw .g .n{font-size:14px}
 .rw .amt{font-family:var(--serif);font-size:17px;padding-top:1px;
   font-variant-numeric:tabular-nums}
-.der{display:flex;flex-direction:column;gap:6px;padding:0 0 10px 16px!important;
-  font-size:12.5px;color:var(--ink-2);border-bottom:none!important}
+.der{display:flex;flex-direction:column;gap:5px;padding:0 0 11px 14px!important;
+  font-size:11.5px;color:var(--ink-3);border-bottom:none!important;
+  border-left:1px solid var(--rule);margin-left:2px}
 .der div{padding:0!important;border:none!important}
 .der[hidden],[hidden]{display:none!important}
 .der div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
@@ -599,6 +602,7 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
       <div class="sheet" id="tiles"></div>
     </section>
 
+    <div class="pageend" aria-hidden="true"></div>
     <div id="hero" aria-hidden="true"></div>
 
     <section class="layer" id="card" aria-label="Racha"></section>
@@ -1014,6 +1018,11 @@ function still(r){
   const S=0.90, X=[0.205,0.500,0.795];
   return pick.map((name,i)=>({name,x:X[i],y:0.520,s:S,z:i===1?2:i}));
 }
+/* The stock each block is printed on, read off the live stylesheet so a
+   change to the palette cannot leave the gouges a shade off the surface. */
+const STOCK = (()=>{ const s=getComputedStyle(document.documentElement);
+  return {hi:s.getPropertyValue('--p-hi').trim()||'#FCF9F3',
+          p0:s.getPropertyValue('--p-0').trim()||'#F7F2E9'}; })();
 function heroTarget(){
   const b=el('scr').getBoundingClientRect();
   // Two thirds of the width, not all of it. A picture that fills the screen
@@ -1096,6 +1105,7 @@ function open(id){
     t.style.opacity=i===k?'0':'';
   });
   setTimeout(()=>tiles.forEach(t=>{t.style.transitionDelay='';}),420);
+  el('scr').style.setProperty('--pageend','0');
   heroFrom=tileRect(id)||{x:80,y:300,w:150,h:150};
   const h=el('hero'); h.innerHTML='';
   const cv=document.createElement('canvas'); h.append(cv);
@@ -1104,12 +1114,13 @@ function open(id){
   // on one shared ground line, at one shared size, so the rules run together
   // into a single horizon rather than three stacked drawings.
   const t=heroTarget();
-  drawStill(cv, still(r), Math.round(t.w), Math.round(t.h), r.id);
+  drawStill(cv, still(r), Math.round(t.w), Math.round(t.h), r.id, {paper:STOCK.p0});
   cv.style.width='100%'; cv.style.height='100%';
   renderCard(); renderThread();
   applyZ(Z); goto(1);
 }
 function toGrid(){
+  el('scr').style.setProperty('--pageend','1');
   document.querySelectorAll('.tile').forEach(t=>{t.style.opacity='';t.style.transitionDelay='';});
   goto(0);
 }
@@ -1140,14 +1151,14 @@ function renderGrid(){
         <span class="lbl">${r.date.toLowerCase()} · ${r.people.length} pessoas${
           r.cur!==CUR.BRL?' · em '+r.cur.name:''}</span>
         <span class="v">
-          <span style="font-size:11.5px;color:${done?'var(--ink-4)':'var(--act)'};
+          <span style="font-size:11.5px;color:${done?'var(--ink-4)':'var(--ink-2)'};
             font-weight:${done?400:500}">${done?'quite':'aberto'}</span>
-          <span class="amt">${money(s.total,r.cur)}</span></span>
+          <span class="amt">${money(s.total,r.cur,{noSym:r.cur===CUR.BRL})}</span></span>
       </span></button>`;}).join('');
 
   document.querySelectorAll('.tile canvas').forEach(cv=>{
     const box=cv.parentElement.getBoundingClientRect();
-    drawFood(cv,cv.dataset.dish,Math.max(60,Math.round(box.width*.96)),cv.dataset.seed);
+    drawFood(cv,cv.dataset.dish,Math.max(60,Math.round(box.width*.96)),cv.dataset.seed,{paper:STOCK.hi});
     cv.style.width='96%'; cv.style.height='96%';
   });
   document.querySelectorAll('.tile').forEach(b=>b.onclick=()=>open(b.dataset.id));
@@ -1179,7 +1190,7 @@ function renderCard(){
         <div><span>Devia</span><i></i><span>${money(mine?mine.owed:0,r.cur,{noSym:true})}</span></div>
       </div>
       </div>
-    <div class="cardgap"></div>
+    <div class="cardgap" style="max-height:34px"></div>
     <div class="standing">
       ${done?`<span class="lbl">Fechado</span><b class="ser disp">Tudo quite</b>`
         :`<span class="lbl">${s.unassigned.length
@@ -1350,16 +1361,26 @@ function turn(k){
 }
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
+/** The split most of this bill uses. Printing it once at the head of the
+    column means the rows only have to carry what departs from it — four
+    identical name-lists stacked under four consecutive items are texture, not
+    information. Returns null when there is no clear majority to name. */
+function usualOf(r){
+  const tally={};
+  r.items.forEach(it=>{const k=Object.keys(it.claims).sort().join('\u0000');
+    if(k)tally[k]=(tally[k]||0)+1;});
+  const best=Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0];
+  return best&&tally[best]>1 ? best.split('\u0000') : null;
+}
 function renderLedger(){
   const r=focus,{s,b}=stateOf(r),rd=s.shares.filter(x=>x.rounding);
   el('ledgerb').innerHTML=`
   <div style="display:flex;flex-direction:column;gap:22px">
-    <div class="sec"><span class="mi rule">Quem deve o quê <i>em ${esc(r.cur.name)}</i></span>
+    <div class="sec"><span class="mi rule">Quem deve o quê — em ${esc(r.cur.name)}</span>
       ${s.shares.map((sh,i)=>{const bl=b.find(x=>x.p===sh.p);
         return `<div><button class="rw" data-d="${i}">
           <span class="g"><span class="n">${esc(sh.p===ME?'Você':sh.p)}</span>
-          <span style="font-size:11.5px;color:${
-            bl.net===0 ? 'var(--ink-4)' : bl.net<0 ? 'var(--act)' : 'var(--ink-3)'}">${
+          <span style="font-size:11.5px;color:var(--ink-3)">${
             bl.net===0 ? 'quite'
             : bl.paid ? 'pagou '+brl(bl.paid,r.cur)+(bl.net<0?', falta '+brl(-bl.net,r.cur):'')
             : bl.net>0 ? 'a receber '+brl(bl.net,r.cur) : 'ainda não pagou'}</span></span>
@@ -1370,13 +1391,17 @@ function renderLedger(){
           </div></div>`;}).join('')}
       <div class="tt"><span>Total</span><span>${money(s.total,r.cur)}</span></div></div>
 
-    <div class="sec"><span class="mi rule">Itens${s.unassigned.length?` — ${s.unassigned.length} sem dono`:''}</span>
-      ${r.items.map((it,i)=>{const ow=Object.keys(it.claims);
+    <div class="sec"><span class="mi rule">Itens</span>
+      ${usualOf(r)?`<p class="nt" style="padding:0 0 4px">Sem indicação, o item foi de ${
+        esc(usualOf(r).map(p=>p===ME?'você':p).join(', '))}.</p>`:''}
+      ${(()=>{const usual=(usualOf(r)||[]).join('\u0000');
+        return r.items.map((it,i)=>{const ow=Object.keys(it.claims);
+        const same=!!usual&&ow.slice().sort().join('\u0000')===usual;
         return `<div class="rw">
           <span class="g"><span class="n">${it.q>1?`<span class="num" style="color:var(--ink-3)">${it.q}× </span>`:''}${esc(it.n)}</span>
-          ${ow.length?`<span class="lbl">${esc(ow.map(p=>p===ME?'você':p).join(' · '))}</span>`
-            :'<span style="font-size:11.5px;color:var(--act)">sem dono</span>'}</span>
-          <i class="lead"></i><span style="font-size:13px">${money(it.total,r.cur,{noSym:true})}</span></div>`;}).join('')}</div>
+          ${!ow.length?'<span style="font-size:11.5px;color:var(--act)">sem dono</span>'
+            :same?'':`<span class="lbl">${esc(ow.map(p=>p===ME?'você':p).join(' · '))}</span>`}</span>
+          <i class="lead"></i><span style="font-size:13px">${money(it.total,r.cur,{noSym:true})}</span></div>`;}).join('');})()}</div>
 
     ${r.extras.length?`<div class="sec"><span class="mi rule">Extras</span>
       ${r.extras.map(e=>`<div class="rw">
@@ -1610,9 +1635,9 @@ function drawOnb(){
     {name:'Chopp 500ml',      x:.17, y:.38, s:.60, z:.15},
     {name:'Farofa da casa',   x:.82, y:.55, s:.54, z:.30},
     {name:'Picanha na chapa', x:.50, y:.62, s:.88, z:.90},
-  ], Math.max(220,box.width), 268, 'abertura');
+  ], Math.max(220,box.width), 268, 'abertura', {paper:STOCK.p0});
   document.querySelectorAll('.door canvas').forEach(cv=>{
-    drawFood(cv,cv.dataset.dish,52,cv.dataset.seed);
+    drawFood(cv,cv.dataset.dish,52,cv.dataset.seed,{paper:STOCK.hi});
     cv.style.width='90%';cv.style.height='90%';
   });
 }
@@ -1849,7 +1874,7 @@ function buildFlow(){
         <figcaption><b>${n.t}</b><span>${n.s}</span></figcaption></figure>`).join('');
 
   cv.querySelectorAll('[data-mdish]').forEach(c=>{
-    drawFood(c,c.dataset.mdish,+c.dataset.msize,c.dataset.mseed);
+    drawFood(c,c.dataset.mdish,+c.dataset.msize,c.dataset.mseed,{paper:STOCK.hi});
     c.style.width='96%'; c.style.height='96%';
   });
 }

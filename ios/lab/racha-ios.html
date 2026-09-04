@@ -108,13 +108,15 @@ body{
    set back from the figure so the eye lands on the amount. */
 .cy{font-size:.62em;letter-spacing:.02em;margin-right:.26em;color:var(--ink-3);
   font-family:inherit;font-variation-settings:'opsz' 16}
-.standing .cy,.net .cy{font-size:.42em;margin-right:.20em}
+.standing .cy,.net .cy{font-size:.42em;margin-right:.22em;position:relative;top:-.16em}
+.cap .amt .cy{display:inline-block;min-width:1.5em;text-align:right}
 
 b .cy,.net .cy{color:var(--ink-4)}
 /* A quiet label. Most things that used to shout in letterspaced caps say it
    at 11.5px in sentence case instead — an eyebrow only means something when
    there are one or two of them on a screen. */
 .lbl{font-size:11.5px;line-height:1.45;color:var(--ink-3);letter-spacing:0}
+.nt{color:var(--ink-3)}
 /* The receipt-voiced micro label. This one detail does most of the work of
    making the interface feel like a bill rather than a generic app. */
 .mi{font-size:9.5px;font-weight:500;letter-spacing:.13em;
@@ -122,17 +124,18 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* A section rule in the ledger: the label and the hairline are one object. */
 .mi.rule{display:flex;align-items:center;gap:10px;color:var(--ink-4)}
 .mi.rule::after{content:'';flex:1;height:1px;background:var(--rule)}
-.mi.rule i{font-style:normal;text-transform:none;letter-spacing:0;color:var(--ink-4);
-  font-weight:400;margin-left:-6px}
+
 
 /* ── layers ───────────────────────────────────────────────────────────── */
+/* The sheet runs out under a wash of its own stock. */
+.pageend{position:absolute;left:0;right:0;bottom:0;height:76px;z-index:12;pointer-events:none;
+  background:linear-gradient(180deg,transparent,var(--p-0) 62%);opacity:var(--pageend,1);
+  transition:opacity .2s ease}
 .layer{position:absolute;inset:0;z-index:10;
   transition:transform .34s cubic-bezier(.2,.9,.25,1),filter .34s ease}
 .scr.sheeted .layer,.scr.sheeted #hero,.scr.sheeted #paper{
   transform:scale(.972);transform-origin:top center}
-#grid{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:56px 0 56px;
-  -webkit-mask-image:linear-gradient(180deg,#000 calc(100% - 56px),transparent);
-  mask-image:linear-gradient(180deg,#000 calc(100% - 56px),transparent)}
+#grid{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:56px 0 64px}
 #grid::-webkit-scrollbar{display:none}
 #card,#thread{pointer-events:none;opacity:0}
 
@@ -181,7 +184,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 #hero canvas{position:relative;width:96%;height:96%}
 
 /* ── card ─────────────────────────────────────────────────────────────── */
-#card{display:flex;flex-direction:column;padding:54px 22px 24px;gap:0}
+#card{display:flex;flex-direction:column;padding:54px 22px 32px;gap:0}
 .cardmeta h2+.who-row{margin-top:-4px}
 /* Picture above, name below, both hanging off the same left margin. A cover. */
 .herorow{display:flex;flex-direction:column;gap:20px;align-items:flex-start}
@@ -229,7 +232,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .stateline{display:flex;justify-content:space-between;gap:14px;font-size:12px;color:var(--ink-3)}
 .stateline .open{color:var(--ink-2)}
 .go{margin-top:0;width:100%;border:none;cursor:pointer;
-  font-family:var(--serif);font-weight:400;font-size:17px;letter-spacing:-.008em;
+  font-family:var(--serif);font-weight:400;font-size:17px;letter-spacing:.022em;
   color:var(--p-hi);padding:15px;border-radius:0;
   background:var(--ink);transition:background .16s}
 .go:active{background:var(--ink-2)}
@@ -259,8 +262,7 @@ b .cy,.net .cy{color:var(--ink-4)}
    total that is ruled off — the one place in the app that looks like paper
    because it is standing in for paper. */
 .slip{display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--ink-2);
-  background:var(--p-hi);padding:15px 15px 14px;align-self:stretch;position:relative;
-  box-shadow:0 0 0 1px var(--rule)}
+  background:var(--p-hi);padding:15px 15px 14px;align-self:stretch;position:relative}
 /* The torn edge of a pad. Scalloped, not dashed: a perforation is a row of
    holes the paper was pulled through, and it reads at the top of the slip the
    way it reads on the real thing. */
@@ -273,7 +275,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* Dot leaders. The eye needs a rail to run along between a name and a figure,
    which is why every printed bill in the world has them and no app does. */
 .slip div i,.led div i,.rw .lead{flex:1 1 auto;min-width:16px;align-self:center;height:1px;
-  margin:0 9px;opacity:.62;background:var(--leader) left center/4px 1px repeat-x}
+  margin:0 9px;opacity:.62;background:var(--leader) right center/4px 1px repeat-x}
 .slip .slip-h i,.slip .slip-h{gap:14px}
 .slip .dim{color:var(--ink-4)}
 .slip .open{color:var(--act)}
@@ -361,7 +363,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 
   pointer-events:none;transition:opacity .28s ease;display:flex;align-items:flex-end}
 .sh.on{opacity:1;pointer-events:auto}
-.sh::before{content:'';position:absolute;inset:0;background:#7A5A2E;opacity:.22;
+.sh::before{content:'';position:absolute;inset:0;background:#7A5A2E;opacity:.13;
   mix-blend-mode:multiply;pointer-events:none}
 .shb{position:relative;z-index:1;width:100%;max-height:calc(100% - 118px);overflow-y:auto;overscroll-behavior:contain;
   scrollbar-width:none;background:var(--p-0);border-radius:2px 2px 0 0;transform-origin:bottom;
@@ -374,7 +376,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* The last row runs under a wash of the sheet's own paper, so content reads as
    continuing past the edge instead of being cut through the digits. */
 .sh::after{content:'';position:absolute;left:0;right:0;bottom:0;z-index:2;
-  height:96px;background:linear-gradient(180deg,transparent,var(--p-0) 54%);pointer-events:none}
+  height:120px;background:linear-gradient(180deg,transparent,var(--p-0) 46%);pointer-events:none}
 .shb::-webkit-scrollbar{display:none}
 .shh{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;
   background:var(--p-0);padding:2px 0 8px;z-index:2}
@@ -394,8 +396,9 @@ button.rw{cursor:pointer}
 .rw .g .n{font-size:14px}
 .rw .amt{font-family:var(--serif);font-size:17px;padding-top:1px;
   font-variant-numeric:tabular-nums}
-.der{display:flex;flex-direction:column;gap:6px;padding:0 0 10px 16px!important;
-  font-size:12.5px;color:var(--ink-2);border-bottom:none!important}
+.der{display:flex;flex-direction:column;gap:5px;padding:0 0 11px 14px!important;
+  font-size:11.5px;color:var(--ink-3);border-bottom:none!important;
+  border-left:1px solid var(--rule);margin-left:2px}
 .der div{padding:0!important;border:none!important}
 .der[hidden],[hidden]{display:none!important}
 .der div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
@@ -599,6 +602,7 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
       <div class="sheet" id="tiles"></div>
     </section>
 
+    <div class="pageend" aria-hidden="true"></div>
     <div id="hero" aria-hidden="true"></div>
 
     <section class="layer" id="card" aria-label="Racha"></section>
@@ -728,15 +732,15 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
 
 <script>
 
-const INK   = '#2A231B';
+const INK   = '#241E17';
 const PAPER = '#F9F5EC';
 
-/* Optical frame. Every recipe draws its subject to touch BASE at the bottom
-   and to reach no higher than CAP, so a row of them shares a horizon.        */
-const CAP = 0.20, BASE = 0.855;
+/* Optical frame. Every subject stands on BASE and reaches no higher than CAP,
+   so a row of them shares a horizon.                                        */
+const CAP = 0.20, BASE = 0.850;
 
 /* ── deterministic randomness ─────────────────────────────────────────────
-   Same dish, same picture, forever.                                         */
+   Same dish, same block, forever.                                          */
 const fnv = s => { let h = 0x811c9dc5; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; } return h >>> 0; };
 function rng(seed) {
   let s = seed >>> 0;
@@ -744,430 +748,515 @@ function rng(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 
-/* ── the two weights ──────────────────────────────────────────────────────
-   An engraving has a contour and a hatch, and that is all. Two weights, in
-   fixed ratio, on every subject at every size.                              */
-const CONTOUR = 0.0165, DETAIL_RATIO = 0.60;
-
-/* Level of detail. Below ~64px a hatch becomes a grey smudge and a hairline
-   disappears, so the drawing simplifies to a contour at a heavier weight —
-   the same subject, told with fewer words.                                   */
+/* Level of detail. Below ~64px a gouge narrower than a pixel closes up and the
+   block turns to a blot, so the small cut is the silhouette and the two or
+   three gouges that carry the subject's identity — which is exactly what a
+   printer cutting a small block would do.                                   */
 function lodFor(S) { return S < 64 ? 0 : S < 132 ? 1 : 2; }
 
-/* ── primitives ───────────────────────────────────────────────────────────
-   All in unit coordinates. `c` arrives pre-scaled, so a lineWidth set here is
-   in unit terms too.                                                        */
+/* ── the block edge ───────────────────────────────────────────────────────
+   Contours are faceted and slightly irregular. A blade cuts in straight
+   pushes and the block chips where it turns, so a woodcut contour is a chain
+   of short segments that do not quite line up — never a bezier. Every path
+   below goes through `emit`, which densifies it and walks the points with
+   `lineTo`, displacing each one along its normal by a deterministic wobble.  */
 
-function W(c, k = 1) { c.lineWidth = c.__cw * k; }
-
-function poly(c, pts, close = false) {
+function emit(c, pts, close) {
+  const a = c.__chip;
+  const k = (c.__k = (c.__k | 0) + 1) * 2.399;
   c.beginPath();
-  pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
-  if (close) c.closePath();
-}
-
-/** Catmull-Rom through the points, converted to cubics. Organic contours. */
-function curve(c, pts, close = false) {
-  const p = close ? [pts[pts.length - 1], ...pts, pts[0], pts[1]] : [pts[0], ...pts, pts[pts.length - 1]];
-  c.beginPath(); c.moveTo(p[1][0], p[1][1]);
-  for (let i = 1; i < p.length - 2; i++) {
-    const [x0, y0] = p[i - 1], [x1, y1] = p[i], [x2, y2] = p[i + 1], [x3, y3] = p[i + 2];
-    c.bezierCurveTo(x1 + (x2 - x0) / 6, y1 + (y2 - y0) / 6,
-                    x2 - (x3 - x1) / 6, y2 - (y3 - y1) / 6, x2, y2);
+  for (let i = 0; i < pts.length; i++) {
+    let [x, y] = pts[i];
+    if (a > 0) {
+      const p = pts[(i - 1 + pts.length) % pts.length], n = pts[(i + 1) % pts.length];
+      let dx = n[0] - p[0], dy = n[1] - p[1];
+      const L = Math.hypot(dx, dy) || 1;
+      // two octaves, so the wobble reads as grain rather than as a sine wave
+      const w = Math.sin(i * 1.77 + k) * 0.62 + Math.sin(i * 0.53 + k * 1.9) * 0.38;
+      x += (-dy / L) * w * a; y += (dx / L) * w * a;
+    }
+    i ? c.lineTo(x, y) : c.moveTo(x, y);
   }
   if (close) c.closePath();
 }
 
+/** Straight run, densified so the chip has somewhere to land. */
+function poly(c, pts, close = false) {
+  const out = [];
+  for (let i = 0; i < pts.length - (close ? 0 : 1); i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const n = Math.max(2, Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) * 26));
+    for (let j = 0; j < n; j++) out.push([a[0] + (b[0] - a[0]) * j / n, a[1] + (b[1] - a[1]) * j / n]);
+  }
+  if (!close) out.push(pts[pts.length - 1]);
+  emit(c, out, close);
+}
+
+/** Catmull-Rom, sampled to points — the curve is a guide, the cut is faceted. */
+function curve(c, pts, close = false) {
+  const p = close ? [pts[pts.length - 1], ...pts, pts[0], pts[1]]
+                  : [pts[0], ...pts, pts[pts.length - 1]];
+  const out = [];
+  for (let i = 1; i < p.length - 2; i++) {
+    const [x0, y0] = p[i - 1], [x1, y1] = p[i], [x2, y2] = p[i + 1], [x3, y3] = p[i + 2];
+    const n = Math.max(4, Math.round(Math.hypot(x2 - x1, y2 - y1) * 30));
+    for (let j = 0; j < n; j++) {
+      const t = j / n, t2 = t * t, t3 = t2 * t;
+      out.push([
+        0.5 * ((2 * x1) + (-x0 + x2) * t + (2 * x0 - 5 * x1 + 4 * x2 - x3) * t2 + (-x0 + 3 * x1 - 3 * x2 + x3) * t3),
+        0.5 * ((2 * y1) + (-y0 + y2) * t + (2 * y0 - 5 * y1 + 4 * y2 - y3) * t2 + (-y0 + 3 * y1 - 3 * y2 + y3) * t3)]);
+    }
+  }
+  emit(c, out, close);
+}
+
 function ell(c, cx, cy, rx, ry, rot = 0) {
-  c.beginPath(); c.ellipse(cx, cy, rx, ry, rot, 0, 6.28319);
+  const out = [], N = 76, cs = Math.cos(rot), sn = Math.sin(rot);
+  for (let i = 0; i < N; i++) {
+    const t = i / N * 6.28319, x = Math.cos(t) * rx, y = Math.sin(t) * ry;
+    out.push([cx + x * cs - y * sn, cy + x * sn + y * cs]);
+  }
+  emit(c, out, true);
 }
 
 function rrect(c, x, y, w, h, r) {
-  c.beginPath();
-  c.moveTo(x + r, y);
-  c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
-  c.arcTo(x, y + h, x, y, r);         c.arcTo(x, y, x + w, y, r);
-  c.closePath();
+  const pts = [], arc = (cx, cy, a0, a1) => {
+    for (let i = 0; i <= 5; i++) { const a = a0 + (a1 - a0) * i / 5;
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } };
+  arc(x + w - r, y + r, -1.5708, 0); arc(x + w - r, y + h - r, 0, 1.5708);
+  arc(x + r, y + h - r, 1.5708, 3.1416); arc(x + r, y + r, 3.1416, 4.7124);
+  emit(c, pts, true);
 }
 
-/** Solid subject: knock the paper out first so overlapping shapes occlude,
-    then lay the contour on top. This is how a subject reads as opaque
-    without a single fill of ink. */
-function body(c, shape) { shape(c); c.fillStyle = c.__paper; c.fill(); swell(c, shape); }
+/* ── the four marks ───────────────────────────────────────────────────────
+   A relief block affords exactly these: ink left standing, ink taken away by
+   a gouge, ink taken away in parallel runs, and ink that failed to transfer.  */
 
-/** Contour only — for lines that sit inside an already-knocked-out body. */
-function line(c, shape) { shape(c); W(c); c.stroke(); }
+/** Ink left standing. The paper halo is the uncut channel a printer leaves
+    between two forms so they do not run together on the sheet. */
+function block(c, shape) {
+  shape(c);
+  c.strokeStyle = c.__paper; c.lineWidth = c.__cw * 4.2; c.stroke();
+  c.fillStyle = c.__ink; c.fill();
+}
 
-/** The contour, stroked twice: once at weight, then again — heavier — clipped
-    to the side of the form that turns away from the light.
-
-    This is the one thing a cut line does that a vector stroke does not. A
-    gouge in a block is wider where the blade digs in and finer where it lifts,
-    so a woodcut's outline swells along the shadowed edge and thins along the
-    lit one. A perfectly uniform stroke around every object is the single
-    clearest sign that nobody's hand was involved; the same drawing with the
-    weight moving through it reads as cut rather than as generated. The light
-    is fixed for the whole set, so the swelling always falls the same way. */
-/** A detail line: the second and only other weight. Dropped at lod 0. */
-function detail(c, shape) {
+/** A gouge: ink taken away. This is where detail lives now — a white line
+    through the black, not a black line on the white. */
+function gouge(c, shape, k = 1) {
   if (c.__lod < 1) return;
-  shape(c); W(c, DETAIL_RATIO); c.stroke();
+  shape(c); c.strokeStyle = c.__paper; c.lineWidth = c.__cw * 1.15 * k;
+  c.lineCap = 'round'; c.stroke();
 }
 
-/** Hatch: parallel rules at the house angle, clipped to `shape`.
+/** A gouge that survives the small cut, for the two or three lines that carry
+    the subject's identity. */
+function keyGouge(c, shape, k = 1) {
+  shape(c); c.strokeStyle = c.__paper; c.lineWidth = c.__cw * 1.25 * k;
+  c.lineCap = 'round'; c.stroke();
+}
 
-    Deliberately rationed. Hatching every solid — meat, rice, a sack, a car —
-    is filler standing in for observed form, and it is the loudest tell that a
-    drawing set was generated rather than drawn. Here it means exactly one
-    thing: liquid seen through glass, which is what parallel rules have meant
-    in an engraving for three hundred years. Everything else is pure contour,
-    and the shapes have to earn their read without it. */
-function hatch(c, shape, { gap = 0.052, band = null, ang = -0.6 } = {}) {
+/** Tone: parallel gouges, clipped to a shape. Chunky and slightly uneven —
+    the fine, even hatching of an engraving is a different tool entirely, and
+    at this scale it is also the texture that reads as generated. */
+function cut(c, shape, { gap = 0.072, band = null, ang = -0.62, k = 1 } = {}) {
   if (c.__lod < 2) return;
   c.save();
   shape(c); c.clip();
   if (band) { const [x0, y0, x1, y1] = band; c.beginPath(); c.rect(x0, y0, x1 - x0, y1 - y0); c.clip(); }
   c.translate(0.5, 0.5); c.rotate(ang); c.translate(-0.5, -0.5);
-  c.beginPath();
-  for (let x = -0.7; x < 1.8; x += gap) { c.moveTo(x, -0.7); c.lineTo(x, 1.8); }
-  W(c, DETAIL_RATIO); c.stroke();
-  c.restore();
-}
-
-/** Stipple — the hatch's dotted cousin, for crumb and grain. */
-function stipple(c, shape, R, n, r = 0.008) {
-  if (c.__lod < 2) return;
-  c.save(); shape(c); c.clip();
-  c.fillStyle = c.__ink;
-  for (let i = 0; i < n; i++) {
-    c.beginPath(); c.arc(R(), R(), r * (0.6 + R() * 0.8), 0, 6.283); c.fill();
+  c.strokeStyle = c.__paper; c.lineCap = 'butt';
+  let i = 0;
+  for (let x = -0.7; x < 1.8; x += gap, i++) {
+    // the run is not perfectly even: the blade wanders and the gouges vary
+    const w = c.__cw * k * (0.78 + 0.5 * Math.abs(Math.sin(i * 2.3)));
+    const j = Math.sin(i * 1.31) * gap * 0.13;
+    c.lineWidth = w;
+    c.beginPath(); c.moveTo(x + j, -0.7); c.lineTo(x - j, 1.8); c.stroke();
   }
   c.restore();
 }
 
-/** A filled ink mark — an eye, a seed, a pip. The only place ink is solid. */
-function mark(c, shape) { shape(c); c.fillStyle = c.__ink; c.fill(); }
-
-/** The ground. Every subject stands on the same rule, at the same baseline,
-    at the same length. That shared horizon is most of what makes fourteen
-    unrelated objects read as one set rather than as fourteen stickers. */
-function ground(c) { line(c, k => poly(k, [[0.10, BASE], [0.90, BASE]])); }
-
-function swell(c, shape) {
-  W(c); shape(c); c.stroke();
-  if (c.__lod < 1) return;
-  c.save();
-  // The shadowed side is the half-plane below and right of the terminator,
-  // which runs lower-left to upper-right because the light is upper-left.
-  // LIGHT is fixed for the whole set, so the weight always moves the same way.
-  c.beginPath();
-  c.moveTo(-0.8, 1.65); c.lineTo(1.65, -0.8);
-  c.lineTo(2.6, -0.8); c.lineTo(2.6, 2.6); c.lineTo(-0.8, 2.6);
-  c.closePath(); c.clip();
-  W(c, 1.9); shape(c); c.stroke();
+/** Ink that did not take. A few specks of paper coming through a black mass —
+    the thing that says a block was pressed onto a sheet by hand. */
+function speck(c, shape, R, n = 26) {
+  if (c.__lod < 2) return;
+  c.save(); shape(c); c.clip();
+  c.fillStyle = c.__paper;
+  for (let i = 0; i < n; i++) {
+    const x = R(), y = R(), r = 0.004 + R() * 0.008;
+    c.beginPath();
+    for (let j = 0; j < 5; j++) {                 // angular, not round
+      const a = j / 5 * 6.283, rr = r * (0.6 + R() * 0.8);
+      j ? c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr)
+        : c.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    c.closePath(); c.fill();
+  }
   c.restore();
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   THE RECIPES
+/** The ground: a bar, not a hairline. Every subject stands on the same one, at
+    the same length — that shared horizon is most of what makes fourteen
+    unrelated objects read as one set. */
+function ground(c) {
+  c.fillStyle = c.__ink;
+  const h = c.__cw * 1.5;
+  c.fillRect(0.10, BASE - h / 2, 0.80, h);
+}
 
-   Each one is a side elevation, standing on BASE, reaching no higher than CAP,
-   no wider than 0.78 of the frame. Read them as a set: the only differences
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE BLOCKS
+
+   Each is a side elevation standing on BASE, reaching no higher than CAP, no
+   wider than 0.80 of the frame. Read them as a set: the only differences
    between two subjects should be the differences between the objects.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const RECIPES = {};
 
-/** Picanha — the fat cap is the identity of the cut, so it is the one line
-    that gets drawn twice. Side view on a board. */
+/** Espetinho — three pieces on a skewer. The churrasco a Brazilian table
+    actually sees, and unmistakable at any size. */
 RECIPES.picanha = (c, R) => {
-  // The espeto, not the raw cut. A steak in elevation is a loaf of bread; three
-  // pieces on a skewer is unmistakably a churrasco, and it is the thing a
-  // Brazilian table actually sees.
-  const x0 = 0.175, y0 = BASE - 0.055, x1 = 0.845, y1 = CAP + 0.045;
+  const x0 = 0.165, y0 = BASE - 0.075, x1 = 0.855, y1 = CAP + 0.040;
   const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
-  const ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+  const ux = dx / L, uy = dy / L, nx = -uy, ny = ux, ang = Math.atan2(dy, dx);
   const at = (t, o = 0) => [x0 + ux * L * t + nx * o, y0 + uy * L * t + ny * o];
-  // the spit, drawn first and occluded by the meat
-  line(c, k => poly(k, [at(-0.03), at(1.03)]));
-  [0.24, 0.50, 0.76].forEach((t, i) => {
-    const [cx, cy] = at(t);
-    const w = 0.108 - i * 0.004, h = 0.082;
-    const cut = k => { k.save(); k.translate(cx, cy); k.rotate(Math.atan2(dy, dx));
-      curve(k, [[-w, 0.004], [-w * 0.72, -h], [0, -h * 1.14],
-                [w * 0.74, -h * 0.92], [w, 0.010],
-                [w * 0.70, h * 0.96], [0, h * 1.12], [-w * 0.70, h * 0.94]], true);
+  // the spit, laid down first and buried by the meat
+  block(c, k => poly(k, [at(-0.02, -0.011), at(1.02, -0.011),
+                         at(1.02, 0.011), at(-0.02, 0.011)], true));
+  [0.235, 0.500, 0.765].forEach((t, i) => {
+    const [cx, cy] = at(t), w = 0.112 - i * 0.005, h = 0.086;
+    const piece = k => { k.save(); k.translate(cx, cy); k.rotate(ang);
+      curve(k, [[-w, 0], [-w * 0.70, -h], [0, -h * 1.16], [w * 0.72, -h * 0.94],
+                [w, 0.008], [w * 0.68, h * 0.98], [0, h * 1.14], [-w * 0.70, h * 0.96]], true);
       k.restore(); };
-    body(c, cut);
-    // the fat cap on the upper edge of each piece
-    detail(c, k => { k.save(); k.translate(cx, cy); k.rotate(Math.atan2(dy, dx));
-      curve(k, [[-w * 0.70, -h * 0.52], [0, -h * 0.66], [w * 0.72, -h * 0.46]]);
-      k.restore(); });
+    block(c, piece);
+    // the fat cap, cut out of the top edge of each piece
+    keyGouge(c, k => { k.save(); k.translate(cx, cy); k.rotate(ang);
+      curve(k, [[-w * 0.66, -h * 0.56], [0, -h * 0.72], [w * 0.68, -h * 0.50]]);
+      k.restore(); }, 1.3);
+    cut(c, piece, { gap: 0.055, band: [cx - 0.02, cy - 0.005, 1, 1], k: 0.8 });
+    speck(c, piece, R, 10);
   });
   ground(c);
 };
 
-/** Chopp — a straight tumbler. The head is the only curved line in it. */
+/** Chopp — the beer is the black mass, the head is the paper. */
 RECIPES.chopp = (c, R) => {
-  const top = CAP + 0.045, bot = BASE, hw = 0.152, hwT = 0.182;
-  const glass = k => poly(k, [
-    [0.5 - hwT, top], [0.5 + hwT, top], [0.5 + hw, bot], [0.5 - hw, bot]], true);
-  body(c, glass);
-  // The head sits inside the glass with clear air above it, so the rim stays a
-  // straight line. A scallop that meets the rim reads as broken glass.
-  const foamY = top + 0.135;
-  const w = k => 0.5 - hwT + (hwT - hw) * ((k - top) / (bot - top));
-  if (c.__lod === 0) { ground(c); return; }   // the small cut: glass and fill only
-  line(c, k => curve(k, [
-    [w(foamY) + 0.004, foamY - 0.005], [0.5 - 0.095, foamY - 0.042],
-    [0.5 - 0.025, foamY + 0.004], [0.5 + 0.055, foamY - 0.038],
-    [0.5 + 0.115, foamY + 0.006], [1 - w(foamY) - 0.004, foamY - 0.010]]));
-  const beer = k => poly(k, [
-    [w(foamY) + 0.014, foamY + 0.020], [1 - w(foamY) - 0.014, foamY + 0.020],
-    [0.5 + hw - 0.014, bot - 0.014], [0.5 - hw + 0.014, bot - 0.014]], true);
-  hatch(c, beer, { gap: 0.062 });
-  if (c.__lod >= 2) [[0.42, 0.30], [0.57, 0.46], [0.47, 0.62], [0.61, 0.72]]
-    .forEach(([bx, bt]) => detail(c, k => ell(k, bx, foamY + 0.06 + bt * 0.28, 0.011, 0.011)));
-  ground(c);
-};
-
-/** Caipirinha — a rocks glass. Lime as two wedges, ice as two squares. */
-RECIPES.caipirinha = (c, R) => {
-  const top = CAP + 0.115, bot = BASE, hw = 0.150, hwT = 0.172;
-  const glass = k => poly(k, [
-    [0.5 - hwT, top], [0.5 + hwT, top], [0.5 + hw, bot], [0.5 - hw, bot]], true);
-  body(c, glass);
-  const fill = top + 0.070;
-  line(c, k => poly(k, [[0.5 - hwT + 0.007, fill], [0.5 + hwT - 0.007, fill]]));
-  hatch(c, k => poly(k, [
-    [0.5 - hwT + 0.012, fill], [0.5 + hwT - 0.012, fill],
-    [0.5 + hw - 0.012, bot - 0.012], [0.5 - hw + 0.012, bot - 0.012]], true), { gap: 0.062 });
+  const top = CAP + 0.045, bot = BASE - 0.012, hw = 0.150, hwT = 0.180;
+  const glass = k => poly(k, [[0.5 - hwT, top], [0.5 + hwT, top],
+                              [0.5 + hw, bot], [0.5 - hw, bot]], true);
+  block(c, glass);
+  const wAt = y => hwT + (hw - hwT) * ((y - top) / (bot - top));
+  const foam = top + 0.150;
+  // the head, taken out of the glass in one wide sweep — a gouge, not a shape
   if (c.__lod > 0) {
-    // ice: two cubes breaking the fill line, which is what makes it read as ice
-    body(c, k => rrect(k, 0.402, fill - 0.028, 0.098, 0.098, 0.013));
-    body(c, k => rrect(k, 0.512, fill + 0.052, 0.090, 0.090, 0.013));
-    // lime wedge straddling the rim, kept clear of the frame
-    const lx = 0.5 + hwT - 0.050, ly = top;
-    body(c, k => { k.beginPath(); k.arc(lx, ly, 0.088, Math.PI, 0); k.closePath(); });
-    detail(c, k => { k.beginPath();
-      for (let i = 1; i < 4; i++) { const a = Math.PI * i / 4;
-        k.moveTo(lx, ly); k.lineTo(lx - Math.cos(a) * 0.080, ly - Math.sin(a) * 0.080); } });
+    c.save(); glass(c); c.clip(); c.fillStyle = c.__paper;
+    const p = [[0.5 - hwT, top + 0.020], [0.5 + hwT, top + 0.020]];
+    curve(c, [[0.5 + wAt(foam), foam - 0.010], [0.5 + 0.070, foam - 0.044],
+              [0.5 - 0.010, foam + 0.006], [0.5 - 0.085, foam - 0.040],
+              [0.5 - wAt(foam), foam - 0.006],
+              [0.5 - hwT, top + 0.022], [0.5 + hwT, top + 0.022]], true);
+    c.fill(); c.restore();
   }
+  // the rim: a standing bar the head does not reach
+  block(c, k => poly(k, [[0.5 - hwT, top], [0.5 + hwT, top],
+                         [0.5 + hwT - 0.004, top + 0.026], [0.5 - hwT + 0.004, top + 0.026]], true));
+  if (c.__lod >= 2) [[0.43, 0.28], [0.57, 0.44], [0.46, 0.60], [0.61, 0.74]]
+    .forEach(([bx, bt]) => gouge(c, k => ell(k, bx, foam + 0.07 + bt * 0.24, 0.014, 0.014), 0.9));
+  speck(c, glass, R, 16);
   ground(c);
 };
 
-/** Farofa — a mound in a shallow bowl. Grain by stipple, nothing else. */
+/** Caipirinha — ice and lime cut white out of the drink. */
+RECIPES.caipirinha = (c, R) => {
+  const top = CAP + 0.115, bot = BASE - 0.012, hw = 0.148, hwT = 0.170;
+  const glass = k => poly(k, [[0.5 - hwT, top], [0.5 + hwT, top],
+                              [0.5 + hw, bot], [0.5 - hw, bot]], true);
+  block(c, glass);
+  const fill = top + 0.086;
+  if (c.__lod > 0) {
+    c.save(); glass(c); c.clip(); c.fillStyle = c.__paper;
+    // the air above the drink
+    poly(c, [[0.5 - hwT - 0.02, top + 0.024], [0.5 + hwT + 0.02, top + 0.024],
+             [0.5 + hwT + 0.02, fill], [0.5 - hwT - 0.02, fill]], true); c.fill();
+    // ice, gouged out of the drink
+    rrect(c, 0.396, fill + 0.034, 0.102, 0.102, 0.012); c.fill();
+    rrect(c, 0.512, fill + 0.126, 0.094, 0.094, 0.012); c.fill();
+    c.restore();
+    // the rim the air did not reach
+    block(c, k => poly(k, [[0.5 - hwT, top], [0.5 + hwT, top],
+                           [0.5 + hwT - 0.004, top + 0.026], [0.5 - hwT + 0.004, top + 0.026]], true));
+    // lime straddling the rim: a black half-disc with its segments cut white
+    const lx = 0.5 + hwT - 0.052, ly = top + 0.012;
+    block(c, k => { const p = [];
+      for (let i = 0; i <= 22; i++) { const a = Math.PI + Math.PI * i / 22;
+        p.push([lx + Math.cos(a) * 0.092, ly + Math.sin(a) * 0.092]); }
+      poly(k, p, true); });
+    for (let i = 1; i < 4; i++) { const a = Math.PI * i / 4;
+      gouge(c, k => poly(k, [[lx, ly], [lx - Math.cos(a) * 0.084, ly - Math.sin(a) * 0.084]]), 0.8);
+    }
+  }
+  speck(c, glass, R, 12);
+  ground(c);
+};
+
+/** Farofa — a mound in a bowl, the grain gouged out of the black. */
 RECIPES.farofa = (c, R) => {
-  const rim = 0.575, bot = BASE - 0.02, hw = 0.30;
-  const mound = k => curve(k, [
-    [0.5 - hw + 0.03, rim], [0.5 - 0.16, rim - 0.115], [0.5 - 0.02, rim - 0.165],
-    [0.5 + 0.15, rim - 0.10], [0.5 + hw - 0.03, rim]], false);
-  body(c, k => { mound(k); k.closePath(); });
-  stipple(c, k => { mound(k); k.closePath(); }, R, 190, 0.0075);
-  const bowl = k => { k.beginPath(); k.moveTo(0.5 - hw, rim);
-    k.bezierCurveTo(0.5 - hw + 0.01, bot, 0.5 + hw - 0.01, bot, 0.5 + hw, rim); };
-  body(c, k => { bowl(k); k.closePath(); });
-  line(c, k => poly(k, [[0.5 - hw - 0.035, rim], [0.5 + hw + 0.035, rim]]));
+  const rim = 0.590, bot = BASE - 0.014, hw = 0.300;
+  // bowl and mound cut as one silhouette; the rim is a gouge across it
+  const whole = k => { const p = [
+      [0.5 - hw + 0.026, rim - 0.004], [0.5 - 0.155, rim - 0.118],
+      [0.5 - 0.015, rim - 0.170], [0.5 + 0.150, rim - 0.104],
+      [0.5 + hw - 0.026, rim - 0.004], [0.5 + hw, rim]];
+    for (let i = 1; i <= 24; i++) { const t = i / 24;
+      p.push([0.5 + hw - 2 * hw * t, rim + Math.sin(Math.PI * t) * (bot - rim)]); }
+    curve(k, p, true); };
+  block(c, whole);
+  keyGouge(c, k => poly(k, [[0.5 - hw + 0.014, rim + 0.006], [0.5 + hw - 0.014, rim + 0.006]]), 1.5);
+  speck(c, k => { const p = [
+      [0.5 - hw + 0.030, rim - 0.006], [0.5 - 0.155, rim - 0.118],
+      [0.5 - 0.015, rim - 0.170], [0.5 + 0.150, rim - 0.104],
+      [0.5 + hw - 0.030, rim - 0.006]];
+    curve(k, p, true); }, R, 60);
+  cut(c, whole, { gap: 0.062, band: [0.5, rim + 0.020, 1, bot], k: 0.85 });
   ground(c);
 };
 
-/** Vinagrete — dice in a shallow dish. Cubes seen in the same elevation. */
+/** Vinagrete — the dice are gouges, which is exactly what a relief block does
+    with small repeated shapes. */
 RECIPES.vinagrete = (c, R) => {
-  const rim = 0.60, bot = BASE - 0.02, hw = 0.315;
-  const dish = k => { k.beginPath(); k.moveTo(0.5 - hw, rim);
-    k.bezierCurveTo(0.5 - hw + 0.02, bot, 0.5 + hw - 0.02, bot, 0.5 + hw, rim); k.closePath(); };
-  // heap of dice above the rim
+  const rim = 0.605, bot = BASE - 0.014, hw = 0.308;
+  const N = c.__lod === 0 ? 5 : 10;
   const heap = [];
-  const N = c.__lod === 0 ? 5 : 11;   // eleven dice at 33px is grey mush
   for (let i = 0; i < N; i++) {
-    const t = i / (N - 1);
-    heap.push([0.5 + (t - 0.5) * 0.50 + (R() - 0.5) * 0.03,
-               rim - 0.045 - Math.cos((t - 0.5) * 2.6) * 0.085 + (R() - 0.5) * 0.04,
-               0.052 + R() * 0.016]);
+    const t = N === 1 ? 0.5 : i / (N - 1);
+    heap.push([0.5 + (t - 0.5) * 0.48 + (R() - 0.5) * 0.03,
+               rim - 0.052 - Math.cos((t - 0.5) * 2.5) * 0.078 + (R() - 0.5) * 0.034,
+               0.062 + R() * 0.014]);
   }
-  heap.sort((a, b) => a[1] - b[1]);
-  heap.forEach(([x, y, s]) => body(c, k => rrect(k, x - s / 2, y - s / 2, s, s, 0.008)));
-  body(c, dish);
-  line(c, k => poly(k, [[0.5 - hw - 0.035, rim], [0.5 + hw + 0.035, rim]]));
+  const whole = k => { const p = [];
+    for (let i = 0; i <= 26; i++) { const t = i / 26;
+      p.push([0.5 - hw + 0.026 + (2 * hw - 0.052) * t,
+              rim - 0.012 - Math.cos((t - 0.5) * 2.4) * 0.100]); }
+    p.push([0.5 + hw, rim]);
+    for (let i = 1; i <= 24; i++) { const t = i / 24;
+      p.push([0.5 + hw - 2 * hw * t, rim + Math.sin(Math.PI * t) * (bot - rim)]); }
+    poly(k, p, true); };
+  block(c, whole);
+  if (c.__lod > 0) {                       // the dice, cut back out of the heap
+    c.save(); whole(c); c.clip(); c.fillStyle = c.__paper;
+    heap.forEach(([x, y, s]) => { rrect(c, x - s / 2, y - s / 2, s * 0.72, s * 0.72, 0.005); c.fill(); });
+    c.restore();
+  }
+  keyGouge(c, k => poly(k, [[0.5 - hw + 0.014, rim + 0.006], [0.5 + hw - 0.014, rim + 0.006]]), 1.5);
+  cut(c, whole, { gap: 0.062, band: [0.5, rim + 0.020, 1, bot], k: 0.85 });
   ground(c);
 };
 
-/** Linguiça — a coil on a grill. Two concentric contours and the links. */
+/** Linguiça — two links, the ties gouged across them. */
 RECIPES.linguica = (c, R) => {
-  // Two links, side on. The coil was the one drawing seen from above, and at
-  // small sizes it read as a lens or an eye rather than as a sausage.
   const link = (x0, y0, x1, y1, t) => {
     const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
     const ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
     const P = (u, o) => [x0 + ux * L * u + nx * o, y0 + uy * L * u + ny * o];
-    body(c, k => curve(k, [
+    const body = k => curve(k, [
       P(0, 0), P(0.10, -t * 1.05), P(0.5, -t * 1.16), P(0.90, -t * 1.05),
-      P(1, 0), P(0.90, t * 1.05), P(0.5, t * 1.16), P(0.10, t * 1.05)], true));
-    // the tie at each end
-    detail(c, k => poly(k, [P(0.085, -t * 0.86), P(0.085, t * 0.86)]));
-    detail(c, k => poly(k, [P(0.915, -t * 0.86), P(0.915, t * 0.86)]));
+      P(1, 0), P(0.90, t * 1.05), P(0.5, t * 1.16), P(0.10, t * 1.05)], true);
+    block(c, body);
+    keyGouge(c, k => poly(k, [P(0.085, -t * 0.84), P(0.085, t * 0.84)]));
+    keyGouge(c, k => poly(k, [P(0.915, -t * 0.84), P(0.915, t * 0.84)]));
+    cut(c, body, { gap: 0.058, band: [0, (y0 + y1) / 2, 1, 1], k: 0.8 });
   };
-  link(0.135, BASE - 0.060, 0.800, BASE - 0.250, 0.058);
-  link(0.175, BASE - 0.032, 0.845, BASE - 0.092, 0.055);
+  link(0.140, BASE - 0.072, 0.800, BASE - 0.258, 0.060);
+  link(0.178, BASE - 0.042, 0.848, BASE - 0.100, 0.057);
   ground(c);
 };
 
-/** Pudim — a truncated cone with the hole through it, and the caramel run. */
+/** Pudim — the caramel runs are gouges down the black. */
 RECIPES.pudim = (c, R) => {
-  const top = CAP + 0.075, bot = BASE - 0.055, rT = 0.185, rB = 0.30;
-  const side = k => { k.beginPath();
-    k.moveTo(0.5 - rT, top); k.lineTo(0.5 - rB, bot);
-    k.ellipse(0.5, bot, rB, rB * 0.20, 0, Math.PI, 0, true);
-    k.lineTo(0.5 + rT, top); k.closePath(); };
-  body(c, side);
-  // the top face and the hole
-  body(c, k => ell(k, 0.5, top, rT, rT * 0.26));
-  body(c, k => ell(k, 0.5, top, 0.055, 0.055 * 0.26));
-  // caramel running down two sides
-  detail(c, k => curve(k, [[0.5 - rT + 0.02, top + 0.035], [0.5 - rT - 0.015, top + 0.13],
-                           [0.5 - rB + 0.055, top + 0.235]]));
-  detail(c, k => curve(k, [[0.5 + rT - 0.055, top + 0.03], [0.5 + rT - 0.005, top + 0.115],
-                           [0.5 + rB - 0.075, top + 0.20]]));
+  const top = CAP + 0.085, bot = BASE - 0.052, rT = 0.180, rB = 0.295;
+  const side = k => { const p = [[0.5 - rT, top], [0.5 - rB, bot]];
+    for (let i = 1; i < 22; i++) { const a = Math.PI - Math.PI * i / 22;
+      p.push([0.5 + Math.cos(a) * rB, bot - Math.sin(a) * rB * 0.20]); }
+    p.push([0.5 + rB, bot], [0.5 + rT, top]);
+    poly(k, p, true); };
+  block(c, side);
+  // the top face and the hole through it
+  block(c, k => ell(k, 0.5, top, rT, rT * 0.26));
+  if (c.__lod > 0) { c.save(); ell(c, 0.5, top, 0.052, 0.052 * 0.28);
+    c.fillStyle = c.__paper; c.fill(); c.restore(); }
+  keyGouge(c, k => ell(k, 0.5, top, rT * 0.995, rT * 0.26), 0.7);
+  gouge(c, k => curve(k, [[0.5 - rT + 0.024, top + 0.040], [0.5 - rT - 0.010, top + 0.132],
+                          [0.5 - rB + 0.058, top + 0.240]]), 1.5);
+  gouge(c, k => curve(k, [[0.5 + rT - 0.052, top + 0.034], [0.5 + rT - 0.002, top + 0.118],
+                          [0.5 + rB - 0.078, top + 0.206]]), 1.5);
+  cut(c, side, { gap: 0.066, band: [0.56, top, 1, bot + 0.05], k: 0.85 });
+  speck(c, side, R, 16);
   ground(c);
 };
 
-/** Peixe — a whole fish on the plate, nose left, in strict elevation. */
+/** Peixe — the scales and the gill are cut, the eye is a hole. */
 RECIPES.peixe = (c, R) => {
-  const cy = 0.545, L = 0.315, h = 0.145;
+  const cy = 0.535, L = 0.310, h = 0.148;
   const fish = k => curve(k, [
-    [0.5 - L, cy + 0.012], [0.5 - L * 0.45, cy - h], [0.5 + L * 0.22, cy - h * 0.86],
+    [0.5 - L, cy + 0.010], [0.5 - L * 0.45, cy - h], [0.5 + L * 0.22, cy - h * 0.86],
     [0.5 + L * 0.66, cy - h * 0.40], [0.5 + L * 0.66, cy + h * 0.40],
-    [0.5 + L * 0.22, cy + h * 0.86], [0.5 - L * 0.45, cy + h],
-  ], true);
-  body(c, fish);
-  // tail
-  body(c, k => poly(k, [[0.5 + L * 0.63, cy], [0.5 + L, cy - h * 0.72],
-                        [0.5 + L * 0.90, cy], [0.5 + L, cy + h * 0.72]], true));
-  // dorsal
-  detail(c, k => poly(k, [[0.5 - L * 0.22, cy - h * 0.93], [0.5 - L * 0.05, cy - h * 1.35],
-                          [0.5 + L * 0.24, cy - h * 0.88]]));
-  // gill and eye
-  detail(c, k => { k.beginPath(); k.arc(0.5 - L * 0.60, cy, h * 0.62, -1.05, 1.05); });
-  mark(c, k => ell(k, 0.5 - L * 0.78, cy - h * 0.22, 0.017, 0.017));
+    [0.5 + L * 0.22, cy + h * 0.86], [0.5 - L * 0.45, cy + h]], true);
+  block(c, fish);
+  block(c, k => poly(k, [[0.5 + L * 0.62, cy], [0.5 + L, cy - h * 0.74],
+                         [0.5 + L * 0.90, cy], [0.5 + L, cy + h * 0.74]], true));
+  block(c, k => poly(k, [[0.5 - L * 0.22, cy - h * 0.92], [0.5 - L * 0.04, cy - h * 1.38],
+                         [0.5 + L * 0.24, cy - h * 0.86]], true));
+  // gill
+  keyGouge(c, k => { const p = [];
+    for (let i = 0; i <= 14; i++) { const a = -1.05 + 2.10 * i / 14;
+      p.push([0.5 - L * 0.60 + Math.cos(a) * h * 0.62, cy + Math.sin(a) * h * 0.62]); }
+    poly(k, p); }, 1.2);
+  // scales: chevrons gouged into the flank
+  if (c.__lod >= 2) for (let r = 0; r < 3; r++) for (let q = 0; q < 4; q++) {
+    const sx = 0.5 - L * 0.30 + q * 0.085, sy = cy - h * 0.42 + r * h * 0.44;
+    gouge(c, k => poly(k, [[sx - 0.030, sy + 0.020], [sx, sy - 0.014], [sx + 0.030, sy + 0.020]]), 0.75);
+  }
+  // the eye is a hole in the block
+  if (c.__lod > 0) { c.save(); ell(c, 0.5 - L * 0.78, cy - h * 0.20, 0.020, 0.020);
+    c.fillStyle = c.__paper; c.fill(); c.restore(); }
   ground(c);
 };
 
-/** Prato — a plate with a fork and knife laid across it. The generic subject:
-    used whenever a dish has no drawing of its own, so it has to be the most
-    neutral and the best-drawn of the set. */
+/** Prato — a place setting, front elevation. The fallback drawing, so it has
+    to be the cleanest in the set. */
 RECIPES.prato = (c, R) => {
-  // Front elevation, like everything else in the set. A plate drawn from above
-  // is a different camera, and one different camera in fourteen drawings is
-  // enough to break the whole thing back into fourteen stickers.
-  const ry = BASE - 0.085, w = 0.235;
-  // the food on it, first, so the plate's rim knocks out over the base of it
-  body(c, k => curve(k, [
-    [0.5 - w * 0.72, ry - 0.004], [0.5 - w * 0.42, ry - 0.115],
-    [0.5 + 0.01, ry - 0.152], [0.5 + w * 0.46, ry - 0.108],
-    [0.5 + w * 0.74, ry - 0.004]], true));
-  // the plate: a shallow dish seen edge-on, with its foot
-  body(c, k => { k.beginPath();
-    k.moveTo(0.5 - w - 0.075, ry);
-    k.bezierCurveTo(0.5 - w, ry + 0.072, 0.5 + w, ry + 0.072, 0.5 + w + 0.075, ry);
-    k.closePath(); });
-  detail(c, k => poly(k, [[0.5 - 0.072, ry + 0.062], [0.5 - 0.072, BASE],
-                          [0.5 + 0.072, BASE], [0.5 + 0.072, ry + 0.062]]));
-  // fork and knife standing either side, at the plate's own height
-  const top = ry - 0.235;
-  const fx = 0.5 - w - 0.145;
-  body(c, k => { k.beginPath();
-    k.moveTo(fx - 0.028, top); k.lineTo(fx - 0.028, top + 0.100);
-    k.bezierCurveTo(fx - 0.028, top + 0.146, fx - 0.013, top + 0.156, fx - 0.013, top + 0.184);
-    k.lineTo(fx - 0.013, BASE); k.lineTo(fx + 0.013, BASE);
-    k.lineTo(fx + 0.013, top + 0.184);
-    k.bezierCurveTo(fx + 0.013, top + 0.156, fx + 0.028, top + 0.146, fx + 0.028, top + 0.100);
-    k.lineTo(fx + 0.028, top); k.closePath(); });
-  detail(c, k => poly(k, [[fx, top], [fx, top + 0.088]]));
-  const kx = 0.5 + w + 0.145;
-  body(c, k => { k.beginPath();
-    k.moveTo(kx - 0.024, top + 0.028);
-    k.bezierCurveTo(kx - 0.028, top, kx + 0.024, top - 0.004, kx + 0.024, top + 0.046);
-    k.lineTo(kx + 0.024, top + 0.176); k.lineTo(kx + 0.012, top + 0.196);
-    k.lineTo(kx + 0.012, BASE); k.lineTo(kx - 0.012, BASE);
-    k.lineTo(kx - 0.012, top + 0.196); k.lineTo(kx - 0.024, top + 0.176); k.closePath(); });
+  // A place setting, front elevation. Plate, food and foot are one block; the
+  // knife and fork stand either side of it. The fallback drawing, so it has to
+  // be the cleanest in the set.
+  const ry = BASE - 0.100, w = 0.238;
+  const whole = k => { const p = [
+      [0.5 - w - 0.082, ry - 0.006], [0.5 - w * 0.62, ry - 0.020],
+      [0.5 - w * 0.38, ry - 0.122], [0.5 + 0.010, ry - 0.160],
+      [0.5 + w * 0.44, ry - 0.116], [0.5 + w * 0.64, ry - 0.020],
+      [0.5 + w + 0.082, ry - 0.006]];
+    const q = [...p];
+    for (let i = 1; i <= 22; i++) { const t = i / 22;
+      q.push([0.5 + w + 0.082 - (2 * w + 0.164) * t, ry + Math.sin(Math.PI * t) * 0.104]); }
+    curve(k, q, true); };
+  block(c, whole);
+  // the rim: one gouge separating the food from the dish
+  keyGouge(c, k => poly(k, [[0.5 - w - 0.040, ry + 0.010], [0.5 + w + 0.040, ry + 0.010]]), 1.0);
+  speck(c, k => curve(k, [
+    [0.5 - w * 0.60, ry - 0.024], [0.5 - w * 0.38, ry - 0.122],
+    [0.5 + 0.010, ry - 0.160], [0.5 + w * 0.44, ry - 0.116],
+    [0.5 + w * 0.62, ry - 0.024]], true), R, 20);
+  block(c, k => poly(k, [[0.5 - 0.086, ry + 0.086], [0.5 + 0.086, ry + 0.086],
+                         [0.5 + 0.068, BASE], [0.5 - 0.068, BASE]], true));
+  const top = ry - 0.246;
+  const fx = 0.5 - w - 0.152;
+  block(c, k => poly(k, [[fx - 0.034, top], [fx + 0.034, top],
+                         [fx + 0.034, top + 0.104], [fx + 0.017, top + 0.192],
+                         [fx + 0.017, BASE], [fx - 0.017, BASE],
+                         [fx - 0.017, top + 0.192], [fx - 0.034, top + 0.104]], true));
+  gouge(c, k => poly(k, [[fx, top + 0.014], [fx, top + 0.094]]), 0.85);
+  const kx = 0.5 + w + 0.152;
+  block(c, k => poly(k, [[kx - 0.030, top + 0.028], [kx + 0.030, top + 0.052],
+                         [kx + 0.030, top + 0.182], [kx + 0.016, top + 0.202],
+                         [kx + 0.016, BASE], [kx - 0.016, BASE],
+                         [kx - 0.016, top + 0.202], [kx - 0.030, top + 0.182]], true));
   ground(c);
 };
 
 /* ── non-food subjects ────────────────────────────────────────────────────
-   A racha is not always a meal. These follow exactly the same rules.        */
+   A racha is not always a meal. Same block, same rules.                     */
 
-/** Chave — a key. Rent, the flat, the beach house. */
+/** Chave — rent, the flat, the beach house. */
 RECIPES.chave = (c, R) => {
-  const cy = 0.53;
-  body(c, k => ell(k, 0.275, cy, 0.115, 0.115));
-  body(c, k => ell(k, 0.275, cy, 0.048, 0.048));
-  body(c, k => poly(k, [[0.385, cy - 0.036], [0.795, cy - 0.036],
-                        [0.795, cy + 0.036], [0.385, cy + 0.036]], true));
-  body(c, k => poly(k, [[0.635, cy + 0.036], [0.675, cy + 0.036],
-                        [0.675, cy + 0.125], [0.635, cy + 0.125]], true));
-  body(c, k => poly(k, [[0.725, cy + 0.036], [0.765, cy + 0.036],
-                        [0.765, cy + 0.10], [0.725, cy + 0.10]], true));
+  const cy = 0.520;
+  block(c, k => ell(k, 0.272, cy, 0.118, 0.118));
+  c.save(); ell(c, 0.272, cy, 0.054, 0.054); c.fillStyle = c.__paper; c.fill(); c.restore();
+  block(c, k => poly(k, [[0.382, cy - 0.038], [0.796, cy - 0.038],
+                         [0.796, cy + 0.038], [0.382, cy + 0.038]], true));
+  block(c, k => poly(k, [[0.634, cy + 0.038], [0.676, cy + 0.038],
+                         [0.676, cy + 0.128], [0.634, cy + 0.128]], true));
+  block(c, k => poly(k, [[0.724, cy + 0.038], [0.766, cy + 0.038],
+                         [0.766, cy + 0.102], [0.724, cy + 0.102]], true));
   ground(c);
 };
 
-/** Ingresso — a ticket, with the tear notches and the perforation. */
+/** Ingresso — show, cinema, the ticket in a pocket. */
 RECIPES.ingresso = (c, R) => {
-  const x = 0.145, y = 0.335, w = 0.71, h = 0.33, n = 0.045;
-  const tick = k => { k.beginPath();
-    k.moveTo(x, y); k.lineTo(x + w, y);
-    k.lineTo(x + w, y + h / 2 - n); k.arc(x + w, y + h / 2, n, -Math.PI / 2, Math.PI / 2, true);
-    k.lineTo(x + w, y + h); k.lineTo(x, y + h);
-    k.lineTo(x, y + h / 2 + n); k.arc(x, y + h / 2, n, Math.PI / 2, -Math.PI / 2, true);
-    k.closePath(); };
-  body(c, tick);
-  // perforation
-  detail(c, k => { k.beginPath(); const px = x + w * 0.68;
-    for (let yy = y + 0.028; yy < y + h - 0.02; yy += 0.042) { k.moveTo(px, yy); k.lineTo(px, yy + 0.021); } });
-  // two rules standing in for the print
-  detail(c, k => poly(k, [[x + 0.05, y + 0.115], [x + w * 0.60, y + 0.115]]));
-  detail(c, k => poly(k, [[x + 0.05, y + 0.185], [x + w * 0.44, y + 0.185]]));
+  const x = 0.150, y = 0.330, w = 0.700, h = 0.330, n = 0.046, t = 0.030;
+  const tick = k => { const p = [[x, y], [x + w, y]];
+    for (let i = 0; i <= 14; i++) { const a = -1.5708 + Math.PI * i / 14;
+      p.push([x + w - Math.cos(a) * n, y + h / 2 + Math.sin(a) * n]); }
+    p.push([x + w, y + h], [x, y + h]);
+    for (let i = 0; i <= 14; i++) { const a = 1.5708 + Math.PI * i / 14;
+      p.push([x + Math.cos(a) * -n, y + h / 2 - Math.sin(a) * n]); }
+    poly(k, p, true); };
+  block(c, tick);
+  if (c.__lod > 0) {
+    // the field of the ticket is the paper it is printed on
+    c.save(); tick(c); c.clip(); c.fillStyle = c.__paper;
+    const q = [[x + t, y + t], [x + w - t, y + t]];
+    for (let i = 0; i <= 12; i++) { const a = -1.5708 + Math.PI * i / 12;
+      q.push([x + w - t - Math.cos(a) * n * 0.82, y + h / 2 + Math.sin(a) * n * 0.82]); }
+    q.push([x + w - t, y + h - t], [x + t, y + h - t]);
+    for (let i = 0; i <= 12; i++) { const a = 1.5708 + Math.PI * i / 12;
+      q.push([x + t - Math.cos(a) * -n * 0.82, y + h / 2 - Math.sin(a) * n * 0.82]); }
+    poly(c, q, true); c.fill(); c.restore();
+    // the stub, and the two rules of print on the face
+    block(c, k => poly(k, [[x + w * 0.70, y + t], [x + w - t, y + t],
+                           [x + w - t, y + h - t], [x + w * 0.70, y + h - t]], true));
+    block(c, k => poly(k, [[x + 0.056, y + 0.118], [x + w * 0.56, y + 0.118],
+                           [x + w * 0.56, y + 0.150], [x + 0.056, y + 0.150]], true));
+    block(c, k => poly(k, [[x + 0.056, y + 0.192], [x + w * 0.42, y + 0.192],
+                           [x + w * 0.42, y + 0.224], [x + 0.056, y + 0.224]], true));
+    keyGouge(c, k => { const p = [], px = x + w * 0.665;
+      for (let yy = y + 0.030; yy < y + h - 0.022; yy += 0.048) p.push([px, yy], [px, yy + 0.024]);
+      poly(k, p); }, 1.0);
+  }
   ground(c);
 };
 
-/** Fardo — a sack. Groceries, the market run, the crate of beer. */
+/** Fardo — the market run, the crate of beer. */
 RECIPES.fardo = (c, R) => {
-  const top = CAP + 0.085, bot = BASE - 0.01, hw = 0.245;
+  const top = CAP + 0.090, bot = BASE - 0.012, hw = 0.240;
   const sack = k => curve(k, [
-    [0.5 - hw * 0.55, top + 0.045], [0.5 - hw, top + 0.19], [0.5 - hw * 0.96, bot - 0.03],
-    [0.5, bot + 0.01], [0.5 + hw * 0.96, bot - 0.03], [0.5 + hw, top + 0.19],
-    [0.5 + hw * 0.55, top + 0.045],
-  ], true);
-  body(c, sack);
-  // the gathered neck
-  body(c, k => curve(k, [[0.5 - hw * 0.56, top + 0.05], [0.5 - hw * 0.30, top],
-                         [0.5, top - 0.028], [0.5 + hw * 0.30, top],
-                         [0.5 + hw * 0.56, top + 0.05]], true));
-  detail(c, k => poly(k, [[0.5 - hw * 0.58, top + 0.055], [0.5 + hw * 0.58, top + 0.055]]));
+    [0.5 - hw * 0.55, top + 0.048], [0.5 - hw, top + 0.196], [0.5 - hw * 0.96, bot - 0.030],
+    [0.5, bot], [0.5 + hw * 0.96, bot - 0.030], [0.5 + hw, top + 0.196],
+    [0.5 + hw * 0.55, top + 0.048]], true);
+  block(c, sack);
+  block(c, k => curve(k, [[0.5 - hw * 0.56, top + 0.052], [0.5 - hw * 0.30, top],
+                          [0.5, top - 0.030], [0.5 + hw * 0.30, top],
+                          [0.5 + hw * 0.56, top + 0.052]], true));
+  keyGouge(c, k => poly(k, [[0.5 - hw * 0.60, top + 0.058], [0.5 + hw * 0.60, top + 0.058]]), 1.3);
+  cut(c, sack, { gap: 0.066, band: [0.54, top + 0.10, 1, 1], k: 0.85 });
+  speck(c, sack, R, 20);
   ground(c);
 };
 
-/** Carro — a car in strict side elevation. The road trip, the Uber home. */
+/** Carro — the road trip, the ride home. */
 RECIPES.carro = (c, R) => {
-  const gy = BASE - 0.035, wr = 0.062;
+  const gy = BASE - 0.042, wr = 0.064;
   const shell = k => curve(k, [
-    [0.115, gy - 0.02], [0.12, gy - 0.10], [0.235, gy - 0.125],
-    [0.325, gy - 0.245], [0.62, gy - 0.255], [0.735, gy - 0.128],
-    [0.875, gy - 0.10], [0.885, gy - 0.02],
-  ], true);
-  body(c, shell);
-  // glasshouse
-  detail(c, k => poly(k, [[0.345, gy - 0.132], [0.395, gy - 0.225],
-                          [0.505, gy - 0.228], [0.505, gy - 0.132]], true));
-  detail(c, k => poly(k, [[0.535, gy - 0.132], [0.535, gy - 0.228],
-                          [0.615, gy - 0.222], [0.685, gy - 0.132]], true));
-  body(c, k => ell(k, 0.295, gy, wr, wr));
-  body(c, k => ell(k, 0.715, gy, wr, wr));
-  detail(c, k => ell(k, 0.295, gy, wr * 0.42, wr * 0.42));
-  detail(c, k => ell(k, 0.715, gy, wr * 0.42, wr * 0.42));
+    [0.112, gy - 0.018], [0.118, gy - 0.100], [0.232, gy - 0.126],
+    [0.322, gy - 0.248], [0.618, gy - 0.258], [0.734, gy - 0.130],
+    [0.876, gy - 0.100], [0.888, gy - 0.018]], true);
+  block(c, shell);
+  if (c.__lod > 0) { c.save(); c.fillStyle = c.__paper;
+    poly(c, [[0.346, gy - 0.134], [0.396, gy - 0.226],
+             [0.504, gy - 0.230], [0.504, gy - 0.134]], true); c.fill();
+    poly(c, [[0.536, gy - 0.134], [0.536, gy - 0.230],
+             [0.616, gy - 0.224], [0.686, gy - 0.134]], true); c.fill();
+    c.restore(); }
+  cut(c, shell, { gap: 0.062, band: [0.10, gy - 0.106, 0.92, 1], k: 0.8 });
+  block(c, k => ell(k, 0.294, gy, wr, wr));
+  block(c, k => ell(k, 0.716, gy, wr, wr));
+  if (c.__lod > 0) { c.save(); c.fillStyle = c.__paper;
+    ell(c, 0.294, gy, wr * 0.40, wr * 0.40); c.fill();
+    ell(c, 0.716, gy, wr * 0.40, wr * 0.40); c.fill(); c.restore(); }
   ground(c);
 };
 
-/** Carvão — three chunks on a heap. Facets, no roundness anywhere. */
+/** Carvão — facets, no roundness anywhere. */
 RECIPES.carvao = (c, R) => {
   const chunk = (cx, cy, s, rot) => {
     const pts = [];
@@ -1175,20 +1264,20 @@ RECIPES.carvao = (c, R) => {
       const a = i / 6 * 6.283 + rot, rr = s * (0.78 + R() * 0.34);
       pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.86]);
     }
-    body(c, k => poly(k, pts, true));
-    // one facet crease, so it reads as broken rather than as a pebble
-    detail(c, k => poly(k, [pts[0], [cx + (R() - 0.5) * s * 0.3, cy], pts[3]]));
+    block(c, k => poly(k, pts, true));
+    gouge(c, k => poly(k, [pts[0], [cx + (R() - 0.5) * s * 0.3, cy], pts[3]]), 1.2);
+    cut(c, k => poly(k, pts, true), { gap: 0.058, band: [cx, cy, 1, 1], k: 0.8 });
   };
-  chunk(0.325, BASE - 0.105, 0.135, 0.4);
-  chunk(0.675, BASE - 0.095, 0.125, 1.1);
-  chunk(0.505, BASE - 0.235, 0.150, 0.15);
+  chunk(0.322, BASE - 0.112, 0.138, 0.4);
+  chunk(0.678, BASE - 0.100, 0.128, 1.1);
+  chunk(0.502, BASE - 0.242, 0.152, 0.15);
   ground(c);
 };
 
-/* ── which drawing for which word ────────────────────────────────────────── */
+/* ── which block for which word ─────────────────────────────────────────── */
 
 const KEYS = [
-  [/picanh|carne|churrasc|contra|file|bife|costel|alcatr/i, 'picanha'],
+  [/picanh|carne|churrasc|contra|file|bife|costel|alcatr|espet/i, 'picanha'],
   [/chopp|cervej|beer|brahma|heineken|breja|long ?neck/i,   'chopp'],
   [/caipir|drink|cocktail|gin|vodka|whisk|dose|batida/i,    'caipirinha'],
   [/farofa|arroz|feijao|feijão|purê|pure|polenta/i,         'farofa'],
@@ -1228,10 +1317,12 @@ function paint(c, name, S, seedKey = name, { paper = PAPER, ink = INK } = {}) {
   const lod = lodFor(S);
   c.save();
   c.scale(S, S);
-  c.__lod = lod; c.__paper = paper; c.__ink = ink;
-  // The contour thickens as the drawing shrinks, so it never fades out.
-  c.__cw = Math.max(CONTOUR, 1.25 / S) * (lod === 0 ? 1.55 : lod === 1 ? 1.15 : 1);
-  c.strokeStyle = ink; c.lineJoin = 'round'; c.lineCap = 'round'; c.miterLimit = 2;
+  c.__lod = lod; c.__paper = paper; c.__ink = ink; c.__k = fnv(seedKey) & 63;
+  // The gouge widens as the block shrinks, so it never closes up in the print.
+  c.__cw = Math.max(0.0185, 1.35 / S) * (lod === 0 ? 1.5 : lod === 1 ? 1.15 : 1);
+  // The block chips less on a small cut: there is no room for it to.
+  c.__chip = lod === 0 ? 0 : lod === 1 ? 0.0030 : 0.0042;
+  c.lineJoin = 'round'; c.lineCap = 'round'; c.miterLimit = 2;
   RECIPES[recipeFor(name)](c, rng(fnv(seedKey)));
   c.restore();
 }
@@ -1239,9 +1330,9 @@ function paint(c, name, S, seedKey = name, { paper = PAPER, ink = INK } = {}) {
 const RECIPE_NAMES = Object.keys(RECIPES);
 
 /* ── arrangements ─────────────────────────────────────────────────────────
-   Several subjects on one baseline, the way a menu illustration groups them:
-   no depth, no scaling by distance, no fading. They overlap and occlude, and
-   that is the only cue that one is in front of another.                     */
+   Several blocks on one baseline, the way a cordel cover groups them: no
+   depth, no scaling by distance. They overlap, and the uncut channel of paper
+   each one carries is the only cue that one is in front of another.         */
 function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAPER } = {}) {
   const dpr = Math.min(globalThis.devicePixelRatio || 1, 3);
   canvas.width = Math.round(W_ * dpr); canvas.height = Math.round(H_ * dpr);
@@ -1249,7 +1340,6 @@ function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAPER } = 
   const c = canvas.getContext('2d');
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W_, H_);
-  // Back to front by z, so nearer subjects knock out the ones behind.
   [...plan].sort((a, b) => a.z - b.z).forEach((item, i) => {
     const side = Math.min(W_, H_) * item.s;
     c.save();
@@ -1545,6 +1635,11 @@ function still(r){
   const S=0.90, X=[0.205,0.500,0.795];
   return pick.map((name,i)=>({name,x:X[i],y:0.520,s:S,z:i===1?2:i}));
 }
+/* The stock each block is printed on, read off the live stylesheet so a
+   change to the palette cannot leave the gouges a shade off the surface. */
+const STOCK = (()=>{ const s=getComputedStyle(document.documentElement);
+  return {hi:s.getPropertyValue('--p-hi').trim()||'#FCF9F3',
+          p0:s.getPropertyValue('--p-0').trim()||'#F7F2E9'}; })();
 function heroTarget(){
   const b=el('scr').getBoundingClientRect();
   // Two thirds of the width, not all of it. A picture that fills the screen
@@ -1627,6 +1722,7 @@ function open(id){
     t.style.opacity=i===k?'0':'';
   });
   setTimeout(()=>tiles.forEach(t=>{t.style.transitionDelay='';}),420);
+  el('scr').style.setProperty('--pageend','0');
   heroFrom=tileRect(id)||{x:80,y:300,w:150,h:150};
   const h=el('hero'); h.innerHTML='';
   const cv=document.createElement('canvas'); h.append(cv);
@@ -1635,12 +1731,13 @@ function open(id){
   // on one shared ground line, at one shared size, so the rules run together
   // into a single horizon rather than three stacked drawings.
   const t=heroTarget();
-  drawStill(cv, still(r), Math.round(t.w), Math.round(t.h), r.id);
+  drawStill(cv, still(r), Math.round(t.w), Math.round(t.h), r.id, {paper:STOCK.p0});
   cv.style.width='100%'; cv.style.height='100%';
   renderCard(); renderThread();
   applyZ(Z); goto(1);
 }
 function toGrid(){
+  el('scr').style.setProperty('--pageend','1');
   document.querySelectorAll('.tile').forEach(t=>{t.style.opacity='';t.style.transitionDelay='';});
   goto(0);
 }
@@ -1671,14 +1768,14 @@ function renderGrid(){
         <span class="lbl">${r.date.toLowerCase()} · ${r.people.length} pessoas${
           r.cur!==CUR.BRL?' · em '+r.cur.name:''}</span>
         <span class="v">
-          <span style="font-size:11.5px;color:${done?'var(--ink-4)':'var(--act)'};
+          <span style="font-size:11.5px;color:${done?'var(--ink-4)':'var(--ink-2)'};
             font-weight:${done?400:500}">${done?'quite':'aberto'}</span>
-          <span class="amt">${money(s.total,r.cur)}</span></span>
+          <span class="amt">${money(s.total,r.cur,{noSym:r.cur===CUR.BRL})}</span></span>
       </span></button>`;}).join('');
 
   document.querySelectorAll('.tile canvas').forEach(cv=>{
     const box=cv.parentElement.getBoundingClientRect();
-    drawFood(cv,cv.dataset.dish,Math.max(60,Math.round(box.width*.96)),cv.dataset.seed);
+    drawFood(cv,cv.dataset.dish,Math.max(60,Math.round(box.width*.96)),cv.dataset.seed,{paper:STOCK.hi});
     cv.style.width='96%'; cv.style.height='96%';
   });
   document.querySelectorAll('.tile').forEach(b=>b.onclick=()=>open(b.dataset.id));
@@ -1710,7 +1807,7 @@ function renderCard(){
         <div><span>Devia</span><i></i><span>${money(mine?mine.owed:0,r.cur,{noSym:true})}</span></div>
       </div>
       </div>
-    <div class="cardgap"></div>
+    <div class="cardgap" style="max-height:34px"></div>
     <div class="standing">
       ${done?`<span class="lbl">Fechado</span><b class="ser disp">Tudo quite</b>`
         :`<span class="lbl">${s.unassigned.length
@@ -1881,16 +1978,26 @@ function turn(k){
 }
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
+/** The split most of this bill uses. Printing it once at the head of the
+    column means the rows only have to carry what departs from it — four
+    identical name-lists stacked under four consecutive items are texture, not
+    information. Returns null when there is no clear majority to name. */
+function usualOf(r){
+  const tally={};
+  r.items.forEach(it=>{const k=Object.keys(it.claims).sort().join('\u0000');
+    if(k)tally[k]=(tally[k]||0)+1;});
+  const best=Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0];
+  return best&&tally[best]>1 ? best.split('\u0000') : null;
+}
 function renderLedger(){
   const r=focus,{s,b}=stateOf(r),rd=s.shares.filter(x=>x.rounding);
   el('ledgerb').innerHTML=`
   <div style="display:flex;flex-direction:column;gap:22px">
-    <div class="sec"><span class="mi rule">Quem deve o quê <i>em ${esc(r.cur.name)}</i></span>
+    <div class="sec"><span class="mi rule">Quem deve o quê — em ${esc(r.cur.name)}</span>
       ${s.shares.map((sh,i)=>{const bl=b.find(x=>x.p===sh.p);
         return `<div><button class="rw" data-d="${i}">
           <span class="g"><span class="n">${esc(sh.p===ME?'Você':sh.p)}</span>
-          <span style="font-size:11.5px;color:${
-            bl.net===0 ? 'var(--ink-4)' : bl.net<0 ? 'var(--act)' : 'var(--ink-3)'}">${
+          <span style="font-size:11.5px;color:var(--ink-3)">${
             bl.net===0 ? 'quite'
             : bl.paid ? 'pagou '+brl(bl.paid,r.cur)+(bl.net<0?', falta '+brl(-bl.net,r.cur):'')
             : bl.net>0 ? 'a receber '+brl(bl.net,r.cur) : 'ainda não pagou'}</span></span>
@@ -1901,13 +2008,17 @@ function renderLedger(){
           </div></div>`;}).join('')}
       <div class="tt"><span>Total</span><span>${money(s.total,r.cur)}</span></div></div>
 
-    <div class="sec"><span class="mi rule">Itens${s.unassigned.length?` — ${s.unassigned.length} sem dono`:''}</span>
-      ${r.items.map((it,i)=>{const ow=Object.keys(it.claims);
+    <div class="sec"><span class="mi rule">Itens</span>
+      ${usualOf(r)?`<p class="nt" style="padding:0 0 4px">Sem indicação, o item foi de ${
+        esc(usualOf(r).map(p=>p===ME?'você':p).join(', '))}.</p>`:''}
+      ${(()=>{const usual=(usualOf(r)||[]).join('\u0000');
+        return r.items.map((it,i)=>{const ow=Object.keys(it.claims);
+        const same=!!usual&&ow.slice().sort().join('\u0000')===usual;
         return `<div class="rw">
           <span class="g"><span class="n">${it.q>1?`<span class="num" style="color:var(--ink-3)">${it.q}× </span>`:''}${esc(it.n)}</span>
-          ${ow.length?`<span class="lbl">${esc(ow.map(p=>p===ME?'você':p).join(' · '))}</span>`
-            :'<span style="font-size:11.5px;color:var(--act)">sem dono</span>'}</span>
-          <i class="lead"></i><span style="font-size:13px">${money(it.total,r.cur,{noSym:true})}</span></div>`;}).join('')}</div>
+          ${!ow.length?'<span style="font-size:11.5px;color:var(--act)">sem dono</span>'
+            :same?'':`<span class="lbl">${esc(ow.map(p=>p===ME?'você':p).join(' · '))}</span>`}</span>
+          <i class="lead"></i><span style="font-size:13px">${money(it.total,r.cur,{noSym:true})}</span></div>`;}).join('');})()}</div>
 
     ${r.extras.length?`<div class="sec"><span class="mi rule">Extras</span>
       ${r.extras.map(e=>`<div class="rw">
@@ -2141,9 +2252,9 @@ function drawOnb(){
     {name:'Chopp 500ml',      x:.17, y:.38, s:.60, z:.15},
     {name:'Farofa da casa',   x:.82, y:.55, s:.54, z:.30},
     {name:'Picanha na chapa', x:.50, y:.62, s:.88, z:.90},
-  ], Math.max(220,box.width), 268, 'abertura');
+  ], Math.max(220,box.width), 268, 'abertura', {paper:STOCK.p0});
   document.querySelectorAll('.door canvas').forEach(cv=>{
-    drawFood(cv,cv.dataset.dish,52,cv.dataset.seed);
+    drawFood(cv,cv.dataset.dish,52,cv.dataset.seed,{paper:STOCK.hi});
     cv.style.width='90%';cv.style.height='90%';
   });
 }
@@ -2380,7 +2491,7 @@ function buildFlow(){
         <figcaption><b>${n.t}</b><span>${n.s}</span></figcaption></figure>`).join('');
 
   cv.querySelectorAll('[data-mdish]').forEach(c=>{
-    drawFood(c,c.dataset.mdish,+c.dataset.msize,c.dataset.mseed);
+    drawFood(c,c.dataset.mdish,+c.dataset.msize,c.dataset.mseed,{paper:STOCK.hi});
     c.style.width='96%'; c.style.height='96%';
   });
 }
