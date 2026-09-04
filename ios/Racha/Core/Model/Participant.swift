@@ -19,7 +19,7 @@ struct Participant: Identifiable, Hashable, Codable, Sendable {
         self.id = id
         self.name = name
         self.pixKey = pixKey
-        self.avatarSeed = avatarSeed ?? abs(name.lowercased().folded.hashValue % 360)
+        self.avatarSeed = avatarSeed ?? (name.folded.stableHash % 360)
     }
 
     /// First name, which is what fits on a chip.
@@ -34,6 +34,19 @@ struct Participant: Identifiable, Hashable, Codable, Sendable {
 }
 
 extension String {
+    /// FNV-1a, 64-bit. Deterministic across launches and devices, unlike
+    /// `hashValue` — Swift seeds its hasher per process, so anything persisted or
+    /// re-derived from a hash (an avatar colour, a placeholder plate) would drift
+    /// between cold starts. Every stable seed in the app comes from here.
+    var stableHash: Int {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return Int(bitPattern: UInt(hash & 0x7FFF_FFFF_FFFF_FFFF))
+    }
+
     /// Lowercased, accent-stripped, whitespace-trimmed. The normalisation used for
     /// every fuzzy match in the app — name resolution, dish-image cache keys,
     /// restaurant lookups — so "Açaí" and "acai" are never two different things.

@@ -92,7 +92,6 @@ struct RachaButton: View {
 
     @State private var press: Double = 0
     @State private var touch: CGPoint = .zero
-    @GestureState private var isDown = false
 
     var body: some View {
         GeometryReader { geo in
@@ -102,7 +101,6 @@ struct RachaButton: View {
                 .pressResponse(press, at: touch)
                 .gesture(
                     DragGesture(minimumDistance: 0)
-                        .updating($isDown) { value, state, _ in state = true }
                         .onChanged { value in
                             if press == 0 { Haptics.shared.press() }
                             touch = value.location

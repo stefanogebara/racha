@@ -23,8 +23,6 @@ struct RootView: View {
     @State private var burstProgress: Double = 0
 
     var body: some View {
-        @Bindable var nav = navigator
-
         ZStack {
             WarmGroundBackground()
 

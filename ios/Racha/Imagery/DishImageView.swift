@@ -18,7 +18,7 @@ struct DishImageView: View {
     @State private var resolve: Double = 0
     @State private var clock = ShaderClock.shared
     /// Per-image seed so twelve cards resolving at once do not do it in lockstep.
-    private var seed: Double { Double(abs(cacheKey.hashValue % 997)) }
+    private var seed: Double { Double(cacheKey.stableHash % 997) }
 
     var body: some View {
         ZStack {

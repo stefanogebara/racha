@@ -94,6 +94,7 @@ final class AgentSession {
         task = Task { [weak self] in
             guard let self else { return }
             var rounds = 0
+            var hitLimit = true
             // A hard ceiling on the loop. A model that keeps calling tools forever
             // would burn the user's battery and their money; six rounds is far more
             // than any real request needs.
@@ -111,10 +112,11 @@ final class AgentSession {
                 case .failed(let message):
                     self.finishWithFailure(message)
                 }
+                hitLimit = false
                 break
             }
 
-            if rounds >= maxRounds {
+            if hitLimit && !Task.isCancelled {
                 self.finishWithFailure("A conversa ficou em loop e eu parei. O que já foi alterado está salvo e dá pra desfazer.")
             }
             self.isThinking = false

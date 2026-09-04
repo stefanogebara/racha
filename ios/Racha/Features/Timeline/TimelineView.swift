@@ -15,7 +15,6 @@ struct TimelineView: View {
 
     @Environment(RachaRepository.self) private var repository
     @Environment(Navigator.self) private var navigator
-    @Environment(AppSettings.self) private var settings
     @State private var showingNew = false
     @State private var showingSettings = false
 

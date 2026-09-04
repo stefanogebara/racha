@@ -138,6 +138,6 @@ struct ProceduralImageProvider: ImageProvider {
     func generate(prompt: String, size: Int) async throws -> Data {
         // The renderer lives in ProceduralPlate.swift so this file stays free of
         // UIKit and can be unit-tested on its own.
-        try await ProceduralPlate.render(seed: prompt.folded.hashValue, size: size)
+        try await ProceduralPlate.render(seed: prompt.folded.stableHash, size: size)
     }
 }
