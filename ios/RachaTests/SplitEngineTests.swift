@@ -151,3 +151,65 @@ struct SplitEngineTests {
         }
     }
 }
+
+@Suite("Bases de extra")
+struct ExtraBaseTests {
+
+    private func state(consumption: [Cents], extras: [Extra]) -> RachaState {
+        let people = consumption.indices.map { Participant(name: "P\($0)") }
+        var s = RachaState(id: UUID(), title: "Teste", kind: .jantar, currency: .brl,
+                           createdAt: Date(), updatedAt: Date())
+        s.participants = people
+        s.extras = extras
+        // One item per person, each claimed only by them: consumption is exact.
+        for (i, amount) in consumption.enumerated() {
+            let item = LineItem(name: "Item \(i)", unitPrice: amount)
+            s.items.append(item)
+            s.claimsByItem[item.id] = [Claim(itemID: item.id, personID: people[i].id)]
+        }
+        return s
+    }
+
+    @Test("percentual sobre base de cabeças usa dinheiro real, não some")
+    func percentageOnEqualHeads() {
+        // Regressão: uma base de peso 1 dava 10% de um centavo = zero, e o extra
+        // desaparecia em silêncio.
+        let s = state(consumption: [Cents(8000), Cents(2000)],
+                      extras: [Extra(label: "Taxa igual", kind: .percentage(bp: 1000),
+                                     base: .equalHeads)])
+        let split = s.split
+        // 10% de R$ 50,00 (metade de R$ 100,00) para cada um.
+        for share in split.shares { #expect(share.extrasTotal == Cents(500)) }
+        #expect(split.total == Cents(11_000))
+    }
+
+    @Test("percentual sobre consumo continua proporcional")
+    func percentageOnConsumption() {
+        let s = state(consumption: [Cents(8000), Cents(2000)],
+                      extras: [Extra.servico(bp: 1000)])
+        let split = s.split
+        #expect(split.shares[0].extrasTotal == Cents(800))
+        #expect(split.shares[1].extrasTotal == Cents(200))
+    }
+
+    @Test("percentual pode incidir sobre extras anteriores quando a nota faz isso")
+    func percentageOnEarlierExtras() {
+        let s = state(consumption: [Cents(10_000)],
+                      extras: [Extra.couvert(Cents(1200)),
+                               Extra(label: "Serviço", kind: .percentage(bp: 1000),
+                                     base: .consumptionPlusEarlierExtras, isGratuity: true)])
+        let split = s.split
+        // 10% de (100,00 + 12,00) = 11,20 · mais o couvert de 12,00.
+        #expect(split.shares[0].extrasTotal == Cents(1200 + 1120))
+    }
+
+    @Test("valor fixo rateia proporcional ao consumo e fecha exatamente")
+    func fixedSpreadsProportionally() {
+        let s = state(consumption: [Cents(7000), Cents(3000)],
+                      extras: [Extra(label: "Entrega", kind: .fixed(Cents(1000)))])
+        let split = s.split
+        #expect(split.shares[0].extrasTotal == Cents(700))
+        #expect(split.shares[1].extrasTotal == Cents(300))
+        #expect(split.total == Cents(11_000))
+    }
+}

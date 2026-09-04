@@ -74,7 +74,7 @@ Racha/
   Imagery/    provedores, cache endereçado por conteúdo, prato procedural
   Design/     paleta, tipografia, vidro, háptico, movimento
   Shaders/    9 shaders Metal + wrappers
-  Features/   Timeline · Thread · Balances · Receipt
+  Features/   Timeline · Thread · Balances (a foto da nota entra pelo composer)
 RachaTests/   Swift Testing
 scripts/      verificadores + gerador de ícone + fontes
 docs/         arquitetura, modelo, ferramentas, shaders, imagens, decisões

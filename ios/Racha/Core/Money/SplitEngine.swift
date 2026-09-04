@@ -125,7 +125,14 @@ enum SplitEngine {
             case .consumptionPlusEarlierExtras:
                 base = zip(consumption, extraShares).map { $0 + $1.map(\.amount).total }
             case .equalHeads:
-                base = people.map { _ in Cents(1) }   // uniform weights → equal split
+                // An equal slice of the whole consumption. Using a placeholder
+                // weight of 1 here would be *almost* right — it produces the same
+                // equal split for `.fixed` — but it silently zeroes a `.percentage`
+                // extra, since 10% of one centavo rounds to nothing. Basing it on
+                // real money keeps every kind meaningful on this base.
+                let equalSlice = Allocator.equal(consumption.total, into: people.count,
+                                                 rotate: position)
+                base = equalSlice.parts
             }
 
             let amount: Cents
