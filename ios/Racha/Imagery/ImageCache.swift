@@ -50,8 +50,8 @@ actor ImageCache {
     /// Fetch or generate. Concurrent callers for the same key share one request —
     /// a timeline scrolling past twelve identical chopps must produce one
     /// generation, not twelve.
-    func image(key: String, prompt: String, provider: ImageProvider,
-               fallback: ImageProvider = ProceduralImageProvider(),
+    func image(key: String, prompt: String, provider: any ImageProvider,
+               fallback: any ImageProvider = ProceduralImageProvider(),
                size: Int = 1024) async -> UIImage? {
         if let hit = cached(key) { return hit }
         if let failedAt = failures[key], Date().timeIntervalSince(failedAt) < failureTTL {
@@ -76,7 +76,7 @@ actor ImageCache {
         return result
     }
 
-    private func procedural(key: String, prompt: String, fallback: ImageProvider, size: Int) async -> UIImage? {
+    private func procedural(key: String, prompt: String, fallback: any ImageProvider, size: Int) async -> UIImage? {
         // The procedural plate is deterministic from the key, so it is stable
         // across launches — the same dish always gets the same placeholder, which
         // keeps the timeline from reshuffling colours on every cold start.

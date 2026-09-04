@@ -16,7 +16,13 @@ mistakes that are actually plausible when writing a lot of Swift at once:
 import re
 import sys
 from collections import defaultdict
+import pathlib
 from pathlib import Path
+
+# Run from anywhere: paths resolve against the repo, not the shell's cwd.
+import os
+os.chdir(pathlib.Path(__file__).resolve().parent.parent)
+
 
 ROOTS = [Path("Racha"), Path("RachaTests")]
 

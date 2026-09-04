@@ -10,7 +10,7 @@ import Foundation
 struct AgentToolbox {
     let repository: RachaRepository
     let rachaID: UUID
-    var historyProvider: () -> HistoryIndex
+    var historyProvider: @MainActor () -> HistoryIndex
 
     private var state: RachaState { get throws {
         guard let s = repository.state(rachaID) else { throw RachaError.unknownRacha }

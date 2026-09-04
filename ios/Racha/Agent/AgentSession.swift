@@ -42,7 +42,7 @@ final class AgentSession {
     private var task: Task<Void, Never>?
 
     init(rachaID: UUID, repository: RachaRepository, client: AnthropicClient,
-         transcripts: TranscriptStore, history: @escaping () -> HistoryIndex) {
+         transcripts: TranscriptStore, history: @escaping @MainActor () -> HistoryIndex) {
         self.rachaID = rachaID
         self.repository = repository
         self.client = client

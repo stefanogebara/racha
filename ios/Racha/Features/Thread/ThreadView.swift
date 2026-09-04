@@ -231,7 +231,7 @@ struct ThreadView: View {
 
     private func startSession() async {
         guard session?.rachaID != rachaID else { return }
-        let transport: AgentTransport = settings.hasAgentKey
+        let transport: any AgentTransport = settings.hasAgentKey
             ? LiveTransport()
             : MockTransport()
         let client = AnthropicClient(config: .opus(key: settings.anthropicKey), transport: transport)

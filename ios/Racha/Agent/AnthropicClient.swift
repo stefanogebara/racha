@@ -52,9 +52,9 @@ struct AnthropicClient: Sendable {
     }
 
     var config: Config
-    var transport: AgentTransport
+    var transport: any AgentTransport
 
-    init(config: Config, transport: AgentTransport? = nil) {
+    init(config: Config, transport: (any AgentTransport)? = nil) {
         self.config = config
         self.transport = transport ?? LiveTransport()
     }

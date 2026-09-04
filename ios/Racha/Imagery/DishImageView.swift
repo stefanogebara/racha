@@ -95,9 +95,10 @@ private struct ResolveModifier: ViewModifier {
 /// to the cache. Injected through the environment so previews and tests can swap
 /// in the procedural provider with no network at all.
 struct ImageEngine: Sendable {
-    var provider: ImageProvider
-    var coverProvider: ImageProvider
+    var provider: any ImageProvider
+    var coverProvider: any ImageProvider
 
+    @MainActor
     static func fromSettings(_ settings: AppSettings) -> ImageEngine {
         if !settings.openAIKey.isEmpty {
             return ImageEngine(

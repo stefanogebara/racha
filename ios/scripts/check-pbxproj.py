@@ -16,7 +16,13 @@ essentially every hand-edit mistake:
 """
 import re
 import sys
+import pathlib
 from pathlib import Path
+
+# Run from anywhere: paths resolve against the repo, not the shell's cwd.
+import os
+os.chdir(pathlib.Path(__file__).resolve().parent.parent)
+
 
 TOKEN = re.compile(r'''
       (?P<comment>/\*.*?\*/)

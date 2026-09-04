@@ -20,7 +20,13 @@ parameters after the implicit ones. float2 counts as ONE Swift argument
 """
 import re
 import sys
+import pathlib
 from pathlib import Path
+
+# Run from anywhere: paths resolve against the repo, not the shell's cwd.
+import os
+os.chdir(pathlib.Path(__file__).resolve().parent.parent)
+
 
 METAL = Path("Racha/Shaders/Racha.metal")
 SWIFT = Path("Racha/Shaders/RachaShaders.swift")
