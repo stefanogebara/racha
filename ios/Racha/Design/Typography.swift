@@ -61,6 +61,11 @@ enum Typo {
     static var tileAmount: Font { font(.serif, 15, relativeTo: .body) }
     static var galleryTitle: Font { font(.serif, 26, relativeTo: .title) }
     static var galleryNet: Font { font(.serif, 46, relativeTo: .largeTitle) }
+
+    // First run.
+    static var onboardTitle: Font { font(.serif, 40, relativeTo: .largeTitle) }
+    static var proofTotal: Font { font(.serif, 25, relativeTo: .title2) }
+    static var proofPart: Font { font(.serif, 16, relativeTo: .body) }
 }
 
 extension View {

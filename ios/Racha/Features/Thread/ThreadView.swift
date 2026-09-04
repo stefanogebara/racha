@@ -23,6 +23,7 @@ struct ThreadView: View {
     @State private var session: AgentSession?
     @State private var draft = ""
     @State private var photo: PhotosPickerItem?
+    @State private var showingPhotoPicker = false
     @State private var showingLedger = false
     @State private var showingSettle = false
     @State private var wasSettled = false
@@ -54,6 +55,14 @@ struct ThreadView: View {
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .matchedGeometryEffect(id: rachaID, in: namespace, isSource: false)
         .task(id: rachaID) { await startSession() }
+        .task(id: rachaID) {
+            // First run can ask for the camera or the keyboard. One shot only.
+            switch navigator.takeIntent() {
+            case .camera: showingPhotoPicker = true
+            case .compose: try? await Task.sleep(for: .seconds(0.45)); composerFocused = true
+            case .none: break
+            }
+        }
         .onChange(of: state?.isSettled ?? false) { was, now in
             // The settled moment. Fired from the ledger's own truth, so it happens
             // whether the last payment came from a tap or from the agent.
@@ -61,6 +70,7 @@ struct ThreadView: View {
             wasSettled = true
             navigator.celebrate(rachaID, at: CGPoint(x: 200, y: 420))
         }
+        .photosPicker(isPresented: $showingPhotoPicker, selection: $photo, matching: .images)
         .sheet(isPresented: $showingLedger) { LedgerSheet(rachaID: rachaID) }
         .sheet(isPresented: $showingSettle) { SettleSheet(rachaID: rachaID) }
         .onChange(of: photo) { _, item in Task { await attach(item) } }
@@ -190,7 +200,8 @@ struct ThreadView: View {
             }
 
             HStack(alignment: .bottom, spacing: 10) {
-                PhotosPicker(selection: $photo, matching: .images) {
+                PhotosPicker(selection: $photo, matching: .images,
+                             photoLibrary: .shared()) {
                     Image(systemName: "camera.fill")
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(Palette.stone)

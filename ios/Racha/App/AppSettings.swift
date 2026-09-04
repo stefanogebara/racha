@@ -17,6 +17,10 @@ final class AppSettings {
     var imageryEnabled: Bool { didSet { UserDefaults.standard.set(imageryEnabled, forKey: "racha.imagery") } }
     var monthlyImageBudgetCents: Int { didSet { UserDefaults.standard.set(monthlyImageBudgetCents, forKey: "racha.imageBudget") } }
 
+    /// False until the person has been through first run. Not derived from
+    /// "are there any rachas?" — someone can delete every racha and must not be
+    /// shown the welcome again.
+    var hasOnboarded: Bool { didSet { UserDefaults.standard.set(hasOnboarded, forKey: "racha.onboarded") } }
     var myName: String { didSet { UserDefaults.standard.set(myName, forKey: "racha.myName") } }
     var myPixKey: String { didSet { UserDefaults.standard.set(myPixKey, forKey: "racha.myPix") } }
     var myCity: String { didSet { UserDefaults.standard.set(myCity, forKey: "racha.myCity") } }
@@ -28,6 +32,7 @@ final class AppSettings {
         openAIKey = Keychain.get(.openAI) ?? ""
         googleKey = Keychain.get(.google) ?? ""
         let defaults = UserDefaults.standard
+        hasOnboarded = defaults.bool(forKey: "racha.onboarded")
         imageryEnabled = defaults.object(forKey: "racha.imagery") as? Bool ?? true
         monthlyImageBudgetCents = defaults.object(forKey: "racha.imageBudget") as? Int ?? 500
         myName = defaults.string(forKey: "racha.myName") ?? "Eu"

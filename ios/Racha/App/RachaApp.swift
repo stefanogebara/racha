@@ -17,9 +17,10 @@ struct RachaApp: App {
                 .preferredColorScheme(.light)   // the palette is a light palette; see docs/decisions
                 .task {
                     await repository.loadAll()
-                    if repository.allStates.isEmpty {
-                        await SeedData.install(into: repository)
-                    }
+                    // No auto-seed: fabricating a history for someone who never
+                    // had one is dishonest, and it makes the gallery's headline
+                    // number a lie on first launch. The sample data is installed
+                    // only if the person asks for it, from first run.
                 }
         }
     }
@@ -41,6 +42,17 @@ final class Navigator {
     var isDragging = false
     /// Set when a racha just settled, to run the burst at the tap point.
     var burst: (rachaID: UUID, origin: CGPoint, startedAt: Date)?
+
+    /// A one-shot instruction for the next screen to honour — set by first run,
+    /// consumed by the thread. Kept here rather than passed down so the thread
+    /// does not need to know it was opened by onboarding at all.
+    enum Intent { case camera, compose }
+    var pendingIntent: Intent?
+
+    func takeIntent() -> Intent? {
+        defer { pendingIntent = nil }
+        return pendingIntent
+    }
 
     var isThread: Bool { zoom > 0.5 }
 

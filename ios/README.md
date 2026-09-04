@@ -20,9 +20,13 @@ chat, é iOS 18).
 open ios/Racha.xcodeproj      # ⌘R
 ```
 
-Funciona sem chave nenhuma: entra em modo demonstração, com três rachas de exemplo
-(um fechado, um aberto com item sem dono, uma viagem em euro), o agente rodando um
-script, e as imagens desenhadas localmente. **As contas são reais nesse modo** —
+Abre no primeiro uso: uma prova (conta real, partes desiguais, somando exato),
+o seu nome, e três portas. A porta "ver um exemplo" instala os rachas de amostra
+— um fechado, um aberto com item sem dono, uma viagem em euro. O app **não**
+semeia nada sozinho.
+
+Funciona sem chave nenhuma: entra em modo demonstração, com o agente rodando um
+script e as imagens desenhadas localmente. **As contas são reais nesse modo** —
 passam pelo mesmo motor. Só as frases do agente é que são de mentira.
 
 Pra ligar tudo, em **Ajustes**:
@@ -63,7 +67,7 @@ executado.
 
 ```
 Racha/
-  App/        entrada, ajustes, RootView (o zoom contínuo)
+  App/        entrada, ajustes, RootView (o zoom contínuo + porteiro do 1º uso)
   Core/
     Money/    Cents, Allocator, SplitEngine, SettleUp, formato — puro, sem I/O
     Model/    eventos, projeção, estado derivado
@@ -74,7 +78,7 @@ Racha/
   Imagery/    provedores, cache endereçado por conteúdo, prato procedural
   Design/     paleta, tipografia, vidro, háptico, movimento
   Shaders/    9 shaders Metal + wrappers
-  Features/   Timeline · Thread · Balances (a foto da nota entra pelo composer)
+  Features/   Onboarding · Timeline · Thread · Balances
 RachaTests/   Swift Testing
 scripts/      verificadores + gerador de ícone + fontes
 docs/         arquitetura, modelo, ferramentas, shaders, imagens, decisões

@@ -216,3 +216,49 @@ meio do voo, que é literalmente o "visual glitch" reclamado; o canvas quadrado
 esticado num quadro não-quadrado; e dois "falta" diferentes na tela sem nada
 explicando a diferença (um inclui item sem dono, o outro não).
 Nenhum desses aparece lendo o código.
+
+---
+
+### 19. O primeiro uso é uma prova, não um carrossel
+
+**Contra:** três ou quatro telas de marketing explicando o que o app faz.
+**Por quê:** ninguém lê carrossel de onboarding, e a alegação do produto —
+"você só fala e eu faço a conta" — não se demonstra descrevendo. São três
+tempos, cada um com uma tarefa:
+
+1. **Abertura.** Diz o que é e **prova**: uma conta real dividida pelo motor
+   real, com as partes **desiguais** (a Ju não bebeu, então a parte dela é
+   menor). Divisão igual não prova nada — dividir por três qualquer um faz.
+   A prova usa o churrasco, não o jantar, porque o jantar tem item sem dono e
+   uma alegação que precisa de nota de rodapé não é prova.
+2. **Seu nome.** A única coisa sem a qual o app não funciona, já que toda
+   divisão precisa saber quem é "você". A chave Pix é oferecida aqui porque
+   este é o único momento em que explicar *por quê* não custa nada, e é
+   visivelmente opcional.
+3. **Por onde começar.** Três portas de verdade. Duas caem direto numa
+   conversa, porque a conversa é o produto — um boas-vindas que termina numa
+   galeria vazia não ensinou nada.
+
+---
+
+### 20. O app não semeia dados de exemplo sozinho
+
+**Contra:** instalar os rachas de amostra em todo primeiro lançamento (era o
+que fazia antes).
+**Por quê:** inventar um histórico para quem nunca teve um é desonesto, e
+transforma o número do topo da galeria — quanto te devem — numa mentira no
+primeiro lançamento. Agora a amostra entra só pela porta "ver um exemplo".
+**Efeito colateral bom:** `hasOnboarded` passou a ser um flag próprio em vez de
+ser derivado de "existe algum racha?" — alguém que apaga todos os rachas não
+pode ver as boas-vindas de novo.
+
+---
+
+### 21. O mapa de fluxo é feito das telas, não de desenhos delas
+
+**Por quê:** todo wireframe redesenhado descola do app na primeira semana. No
+mapa (aba "Fluxo" da renderização web), cada nó é a **tela de verdade** — mesmo
+CSS, mesma tipografia, mesmos números vindos do motor — a 0,295 de escala.
+Se a tela mudar, o mapa muda junto; se o mapa parecer errado, é porque está.
+**Custo aceito:** o mapa só existe na renderização web. O app nativo não tem um
+equivalente, e não deveria — é documentação de design, não funcionalidade.

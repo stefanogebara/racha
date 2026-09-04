@@ -18,6 +18,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(Navigator.self) private var navigator
     @Environment(RachaRepository.self) private var repository
+    @Environment(AppSettings.self) private var settings
     @Namespace private var namespace
 
     @State private var burstProgress: Double = 0
@@ -50,6 +51,45 @@ struct RootView: View {
             withAnimation(.easeOut(duration: 1.1)) { burstProgress = 1 }
         }
         .statusBarHidden(navigator.zoom > 0.9 && false)
+        .overlay {
+            if !settings.hasOnboarded {
+                OnboardingView(onFinish: open)
+                    .transition(.opacity.combined(with: .scale(scale: 1.03)))
+                    .zIndex(10)
+            }
+        }
+        .animation(Motion.fluid, value: settings.hasOnboarded)
+    }
+
+    /// Where each first-run door lands.
+    ///
+    /// Two of the three go straight into a thread, because the thread is the
+    /// product — a welcome that ends on an empty gallery has taught nothing.
+    private func open(_ door: OnboardingView.Door) {
+        switch door {
+        case .example:
+            Task {
+                if repository.allStates.isEmpty {
+                    await SeedData.install(into: repository)
+                }
+                navigator.zoom = 0
+            }
+        case .camera, .talk:
+            Task {
+                let id = try? await repository.createRacha(
+                    title: "Novo racha", kind: .jantar, meName: settings.myName)
+                guard let id else { return }
+                if !settings.myPixKey.isEmpty {
+                    try? await repository.append(id, .pixKeySet(id: repository.meID, key: settings.myPixKey),
+                                                 origin: .system, summary: "Sua chave Pix")
+                }
+                navigator.open(id)
+                // The camera door opens the picker straight away; the talk door
+                // leaves the composer focused and gets out of the way.
+                navigator.pendingIntent = (door == .camera) ? .camera : .compose
+                withAnimation(Motion.zoom) { navigator.zoom = 2 }
+            }
+        }
     }
 
     /// Drag down from the thread to zoom back out.
