@@ -9,9 +9,9 @@ import SwiftUI
 /// reviewable place.
 enum RachaShader {
 
-    static func warmGround(size: CGSize, time: Double, intensity: Double = 1) -> Shader {
-        ShaderLibrary.warmGround(
-            .float2(size), .float(time), .float(intensity)
+    static func paperGround(size: CGSize, time: Double, warmth: Double = 1) -> Shader {
+        ShaderLibrary.paperGround(
+            .float2(size), .float(time), .float(warmth)
         )
     }
 
@@ -110,28 +110,24 @@ private final class DisplayLinkProxy: NSObject {
     @objc func fire() { handler() }
 }
 
-/// The app's animated background.
-struct WarmGroundBackground: View {
-    @State private var clock = ShaderClock.shared
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+/// The app's ground.
+///
+/// Static, and deliberately so. The old version animated four colour orbs on a
+/// shared clock; drawing paper does not need a clock at all, which means the
+/// background now costs one GPU pass at layout and nothing per frame. On a
+/// phone at 15% battery that is the correct trade, and the page looks more
+/// expensive for it, not less.
+struct PaperBackground: View {
     var body: some View {
         GeometryReader { geo in
             Rectangle()
-                .fill(Palette.warmWhite)
-                .colorEffect(RachaShader.warmGround(
-                    size: geo.size,
-                    // Reduce Motion freezes the orbs at a pleasant phase rather than
-                    // removing them: the colour is part of the brand, the drift isn't.
-                    time: reduceMotion ? 12.0 : clock.time,
-                    intensity: 1.0
-                ))
-                .colorEffect(RachaShader.paperGrain(size: geo.size, amount: 0.018))
+                .fill(Palette.paper)
+                .colorEffect(RachaShader.paperGround(size: geo.size, time: 0, warmth: 1.0))
+                .colorEffect(RachaShader.paperGrain(size: geo.size, amount: 0.012))
+                .drawingGroup()          // rasterise once; it never changes
                 .ignoresSafeArea()
         }
         .ignoresSafeArea()
-        .onAppear { if !reduceMotion { clock.subscribe() } }
-        .onDisappear { if !reduceMotion { clock.unsubscribe() } }
     }
 }
 

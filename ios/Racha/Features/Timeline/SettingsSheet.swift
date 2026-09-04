@@ -17,7 +17,7 @@ struct SettingsSheet: View {
 
         NavigationStack {
             ZStack {
-                WarmGroundBackground()
+                PaperBackground()
                 ScrollView {
                     VStack(spacing: 16) {
                         GlassCard(cornerRadius: 20) {

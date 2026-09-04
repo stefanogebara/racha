@@ -65,50 +65,52 @@ static inline float sdRoundedBox(float2 p, float2 halfSize, float radius) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Warm ground — the four-orb gradient from the web app, alive.
+// 1. Paper — the ground.
 // ---------------------------------------------------------------------------
 //
-// The web version is four static CSS radial-gradients. Here they breathe: each
-// orb drifts on its own low-frequency noise path, and the whole field is
-// dithered so the wide, low-contrast falloffs don't band on an OLED panel.
-// The motion is deliberately below the threshold of "animation" — you notice it
-// only if you stare, which is the point of a background.
+// This replaced a four-orb radial gradient. The orbs were the web app's
+// signature and they are still right *there*, on a wide page — but on a phone
+// screen, behind photographs of food, a big soft colour wash is the single
+// thing that makes an interface read as generated. So the ground became what
+// the subject actually is: paper.
 //
-// args: size, time, intensity
-[[stitchable]] half4 warmGround(float2 position, half4 color,
-                                float2 size, float time, float intensity) {
+// Three cues, none of them a colour ramp:
+//   · fibre      — long-wavelength directional noise, the stock's own grain
+//   · rule       — the faint horizontal spacing a receipt is printed on,
+//                  a detail only this product would have
+//   · press      — light from the upper left, falling off at the edges, so the
+//                  sheet reads as lit rather than as a fill
+//
+// Colour in this app comes from the food. The ground stays out of the way.
+//
+// args: size, time, warmth
+[[stitchable]] half4 paperGround(float2 position, half4 color,
+                                 float2 size, float time, float warmth) {
     float2 uv = position / size;
-    float aspect = size.x / max(size.y, 1.0);
 
-    const float3 base = float3(0.980, 0.980, 0.976);   // #FAFAF9
+    const float3 base = float3(0.969, 0.949, 0.914);   // #F7F2E9
 
-    const float2 centers[4] = { float2(0.12, 0.18), float2(0.88, 0.22),
-                                float2(0.50, 0.95), float2(0.90, 0.80) };
-    const float2 radii[4]   = { float2(0.65, 0.45), float2(0.55, 0.40),
-                                float2(0.75, 0.50), float2(0.45, 0.35) };
-    const float4 tints[4]   = { float4(0.851, 0.467, 0.024, 0.18),
-                                float4(0.961, 0.620, 0.043, 0.15),
-                                float4(0.624, 0.071, 0.224, 0.12),
-                                float4(0.471, 0.208, 0.059, 0.10) };
+    // Fibre: two octaves stretched along different axes so it never tiles into
+    // a visible weave.
+    float fibre = fbm(float2(position.x * 0.055, position.y * 0.011)) * 0.6
+                + fbm(float2(position.x * 0.009, position.y * 0.047)) * 0.4;
+    float3 c = base + (fibre - 0.5) * 0.030 * float3(1.0, 0.94, 0.84);
 
-    float3 accum = base;
-    for (int i = 0; i < 4; ++i) {
-        float phase = float(i) * 1.7;
-        float2 drift = float2(fbm(float2(time * 0.045 + phase, phase)),
-                              fbm(float2(phase, time * 0.038 + phase))) - 0.5;
-        float2 c = centers[i] + drift * 0.055;
-        float2 d = (uv - c) / radii[i];
-        d.x *= mix(1.0, aspect, 0.35);                 // keep orbs from ovalising on wide layouts
-        float falloff = 1.0 - smoothstep(0.0, 1.0, length(d));
-        falloff *= falloff;                            // matches CSS's perceptual falloff better than linear
-        accum = mix(accum, tints[i].rgb, falloff * tints[i].a * intensity);
-    }
+    // Ruled spacing, at the threshold of visibility.
+    float rule = smoothstep(0.55, 1.0, fract(position.y / 26.0));
+    c -= rule * 0.006;
 
-    // Ordered dither at ±1/255. Without it the orbs band in visible rings.
-    float dither = (hash21(position) - 0.5) / 255.0;
-    accum += dither;
+    // Press: a broad highlight up and left, falling into a warm edge shadow.
+    float d = length((uv - float2(0.34, 0.24)) * float2(1.0, 1.25));
+    float lit = 1.0 - smoothstep(0.0, 1.25, d);
+    c += lit * 0.020;
+    float edge = smoothstep(0.55, 1.15, length(uv - 0.5) * 1.7);
+    c -= edge * float3(0.055, 0.070, 0.095) * warmth;
 
-    return half4(half3(accum), 1.0h) * color.a;
+    // Dither: without it the press falloff bands on an OLED panel.
+    c += (hash21(position) - 0.5) / 255.0;
+
+    return half4(half3(c), 1.0h) * color.a;
 }
 
 // ---------------------------------------------------------------------------

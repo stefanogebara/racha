@@ -44,12 +44,28 @@ enum ImageProviderError: LocalizedError {
 }
 
 /// OpenAI Images API. The default.
+///
+/// **Transparency is the reason this is the default**, not the price.
+/// `gpt-image-1` and `gpt-image-1-mini` are the only current models that return
+/// a real alpha channel (`background: "transparent"` with a PNG or WebP output),
+/// and a cut-out subject is what makes the gallery work: a dish sitting on the
+/// app's paper with its own contact shadow reads as an object that was
+/// photographed on a surface. A dish delivered on its own baked-in background
+/// reads as a stock photo pasted into a box, and no amount of styling recovers
+/// from that — it is the single biggest difference between the gallery looking
+/// designed and looking generated.
+///
+/// Imagen and the Gemini image line return opaque frames, so they are the
+/// quality tier for the *cover* (which is full-bleed and wants a background)
+/// and never for a line item.
 struct OpenAIImageProvider: ImageProvider {
     var apiKey: String
     var model: String = "gpt-image-1-mini"
     var quality: String = "low"
+    /// Cut-out (alpha) or full-frame. Line items are cut out; covers are not.
+    var transparent: Bool = true
 
-    var identifier: String { "\(model)/\(quality)" }
+    var identifier: String { "\(model)/\(quality)\(transparent ? "/alpha" : "")" }
     var costPerImageMicros: Int { quality == "low" ? 5_000 : 11_000 }
 
     func generate(prompt: String, size: Int) async throws -> Data {
@@ -59,14 +75,19 @@ struct OpenAIImageProvider: ImageProvider {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.timeoutInterval = 90
-        let body: JSONValue = [
+        // `background: transparent` requires a format that carries alpha. WebP
+        // keeps a 1024px cut-out at a few tens of KB, which matters because the
+        // cache holds hundreds of them.
+        var fields: [String: JSONValue] = [
             "model": .string(model),
             "prompt": .string(prompt),
             "n": 1,
             "size": .string("\(size)x\(size)"),
             "quality": .string(quality),
-            "output_format": "webp"
+            "output_format": .string(transparent ? "png" : "webp")
         ]
+        if transparent { fields["background"] = "transparent" }
+        let body = JSONValue.object(fields)
         request.httpBody = body.jsonText.data(using: .utf8)
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -128,7 +149,7 @@ struct GoogleImageProvider: ImageProvider {
     }
 }
 
-/// Draws a deterministic gradient plate locally. Used with no key configured, and
+/// Draws a deterministic cut-out dish locally, with alpha. Used with no key configured, and
 /// as the permanent fallback when generation fails — so a card is never empty and
 /// the timeline never has a hole in it.
 struct ProceduralImageProvider: ImageProvider {

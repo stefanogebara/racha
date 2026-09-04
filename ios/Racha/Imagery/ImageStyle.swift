@@ -20,17 +20,34 @@ enum VisualWorld: String, Codable, Sendable {
 /// style be tuned without either serving a mixed-looking gallery or throwing away
 /// a paid-for cache.
 enum ImageStyle {
-    static let version = 3
+    static let version = 4
 
     /// The constant that makes a set look like a set. Every prompt ends with it.
+    /// The constant that makes a set look like a set. Every item prompt ends
+    /// with it. Note what it asks for: a subject **isolated on transparency**,
+    /// with its own contact shadow retained. The app composites that cut-out
+    /// onto its paper, so the object appears to sit on the page rather than
+    /// inside a photo pasted into a box.
     private static let house = """
+    Isolated on a fully transparent background — no backdrop, no surface, no \
+    scene, alpha channel only around the subject. Keep the subject's own soft \
+    contact shadow directly beneath it. Shot on a Hasselblad with a 100mm macro, \
+    f/5.6. Single large softbox from the upper left with a subtle warm bounce \
+    from the right. Muted, natural, slightly desaturated colour with warm amber \
+    undertones. Editorial food-magazine styling. No text, no logos, no \
+    watermarks, no hands, no people, no cutlery unless specified, no props \
+    competing with the subject. Subject centred and filling most of the frame, \
+    square crop.
+    """
+
+    /// The cover is different: it is shown full-bleed behind type, so it keeps a
+    /// real background rather than being cut out.
+    private static let coverHouse = """
     Shot on a Hasselblad with a 100mm macro, f/5.6. Single large softbox from the \
-    upper left with a subtle warm bounce from the right. Background is a seamless \
-    warm off-white (#FAFAF9) with a faint gradient falloff. Muted, natural, slightly \
-    desaturated colour with warm amber undertones. Soft realistic shadows, shallow \
-    but not extreme depth of field. Editorial food-magazine styling. No text, no \
-    logos, no watermarks, no hands, no people, no cutlery unless specified, no \
-    props competing with the subject. Centred, generous negative space, square crop.
+    upper left. Background is a seamless warm off-white (#F7F2E9) paper surface \
+    with a faint falloff. Muted, natural, slightly desaturated colour with warm \
+    amber undertones. Editorial food-magazine styling. No text, no logos, no \
+    watermarks, no hands, no people. Generous negative space, square crop.
     """
 
     static func prompt(for item: LineItem) -> String {
@@ -73,27 +90,27 @@ enum ImageStyle {
             An overhead editorial spread of a shared Brazilian table: \
             \(subjects.joined(separator: ", ")). Several dishes arranged on a warm \
             off-white surface, as if photographed the moment before people start \
-            eating. \(house)
+            eating. \(coverHouse)
             """
         case .viagem:
             return """
             A travel still life representing a trip: \(subjects.joined(separator: ", ")). \
-            A few characteristic objects arranged as an overhead flat lay. \(house)
+            A few characteristic objects arranged as an overhead flat lay. \(coverHouse)
             """
         case .casa:
             return """
             A quiet domestic still life representing a shared household: \
-            \(subjects.joined(separator: ", ")). Overhead, calm, ordered. \(house)
+            \(subjects.joined(separator: ", ")). Overhead, calm, ordered. \(coverHouse)
             """
         case .mercado:
             return """
             An overhead flat lay of grocery items: \(subjects.joined(separator: ", ")), \
-            arranged in a loose grid. \(house)
+            arranged in a loose grid. \(coverHouse)
             """
         case .outro:
             return """
             An abstract overhead still life representing \(title), built from folded \
-            warm paper and simple geometric forms. \(house)
+            warm paper and simple geometric forms. \(coverHouse)
             """
         }
     }

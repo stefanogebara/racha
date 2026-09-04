@@ -24,9 +24,9 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            WarmGroundBackground()
+            PaperBackground()
 
-            TimelineView(namespace: namespace)
+            GalleryView(namespace: namespace)
                 .scaleEffect(1 + navigator.zoom * 0.34, anchor: .center)
                 .opacity(1 - navigator.zoom * 1.45)
                 .blur(radius: navigator.zoom * 9)

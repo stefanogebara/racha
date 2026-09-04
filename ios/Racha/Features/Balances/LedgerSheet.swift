@@ -18,7 +18,7 @@ struct LedgerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                WarmGroundBackground()
+                PaperBackground()
                 if let state {
                     content(state)
                 } else {

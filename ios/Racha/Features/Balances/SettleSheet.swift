@@ -21,7 +21,7 @@ struct SettleSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                WarmGroundBackground()
+                PaperBackground()
                 if let state { content(state) }
             }
             .navigationTitle("Acertar")
@@ -245,7 +245,7 @@ struct PixKeyPrompt: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                WarmGroundBackground()
+                PaperBackground()
                 VStack(spacing: 16) {
                     Text("Chave Pix de \(person.shortName)")
                         .font(Typo.serifBody)

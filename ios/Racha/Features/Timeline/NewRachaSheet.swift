@@ -25,7 +25,7 @@ struct NewRachaSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                WarmGroundBackground()
+                PaperBackground()
                 ScrollView {
                     VStack(spacing: 18) {
                         GlassCard(cornerRadius: 22) {

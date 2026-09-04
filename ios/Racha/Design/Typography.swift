@@ -52,9 +52,26 @@ enum Typo {
 
     /// The all-caps tracked label from the web app (`.label`).
     static var label: Font { font(.sansBold, 11, relativeTo: .caption2) }
+
+    // Gallery. The mono micro-label is the detail that makes the interface read
+    // as a bill rather than as a generic app — it borrows the receipt's own
+    // voice, and it costs nothing.
+    static var receipt: Font { font(.mono, 9.5, relativeTo: .caption2) }
+    static var tileTitle: Font { font(.serif, 20, relativeTo: .title3) }
+    static var tileAmount: Font { font(.serif, 15, relativeTo: .body) }
+    static var galleryTitle: Font { font(.serif, 26, relativeTo: .title) }
+    static var galleryNet: Font { font(.serif, 46, relativeTo: .largeTitle) }
 }
 
 extension View {
+    /// The receipt micro-label: mono, 9.5px, wide tracking, uppercase.
+    func receiptLabel() -> some View {
+        self.font(Typo.receipt)
+            .tracking(1.6)
+            .textCase(.uppercase)
+            .foregroundStyle(Palette.ink3)
+    }
+
     /// Section label: 11px, bold, 0.14em tracking, uppercase, stone.
     func rachaLabel() -> some View {
         self.font(Typo.label)

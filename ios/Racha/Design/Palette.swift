@@ -8,6 +8,22 @@ import SwiftUI
 /// the only action colour; emerald, amber and red are semantic only — a green
 /// button that doesn't mean "paid" would break the one thing the colour says.
 enum Palette {
+    // The ground is paper, not a gradient. Three cuts of the same warm stock:
+    // the tile sheet is lit (paperHigh → paperLow), the app ground sits between
+    // them. Colour in this app comes from the food, never from the chrome.
+    static let paper       = Color(hex: 0xF7F2E9)
+    static let paperHigh   = Color(hex: 0xFCF9F3)
+    static let paperMid    = Color(hex: 0xF1EADD)
+    static let paperLow    = Color(hex: 0xE7DECB)
+
+    static let ink         = Color(hex: 0x211C16)
+    static let ink2        = Color(hex: 0x584E42)
+    static let ink3        = Color(hex: 0x8B8070)
+
+    /// The one action colour, and the one "settled" colour. Nothing else.
+    static let action      = Color(hex: 0x8E1231)
+    static let positive    = Color(hex: 0x1F6B4A)
+
     static let warmWhite   = Color(hex: 0xFAFAF9)
     static let burgundy    = Color(hex: 0x9F1239)
     static let burgundyDark = Color(hex: 0x881337)
@@ -24,7 +40,7 @@ enum Palette {
     static let glassPanel   = Color.white.opacity(0.55)
     static let glassSubtle  = Color.white.opacity(0.40)
     static let glassBorder  = Color.white.opacity(0.70)
-    static let hairline     = Color(hex: 0x1C1917).opacity(0.06)
+    static let hairline     = Color(hex: 0x211C16).opacity(0.07)
     static let inputBorder  = Color(hex: 0x1C1917).opacity(0.12)
 
     /// The four orbs from the web `body` background, as normalised positions,

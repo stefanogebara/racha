@@ -11,6 +11,9 @@ struct DishImageView: View {
     var prompt: String
     var cornerRadius: CGFloat = 14
     var size: Int = 512
+    /// Padding around the cut-out, as a fraction of the frame. A subject that
+    /// touches its own edges reads as cropped rather than placed.
+    var inset: CGFloat = 0
 
     @Environment(\.imageEngine) private var engine
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -25,7 +28,11 @@ struct DishImageView: View {
             if let image {
                 Image(uiImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    // .fit, not .fill: a cut-out must never be cropped, and its
+                    // alpha means there is no background to fill with anyway.
+                    .aspectRatio(contentMode: .fit)
+                    .padding(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .scaleEffect(1 - inset * 2)
                     .modifier(ResolveModifier(progress: resolve,
                                               time: clock.time,
                                               seed: seed,
@@ -102,8 +109,12 @@ struct ImageEngine: Sendable {
     static func fromSettings(_ settings: AppSettings) -> ImageEngine {
         if !settings.openAIKey.isEmpty {
             return ImageEngine(
-                provider: OpenAIImageProvider(apiKey: settings.openAIKey, quality: "low"),
-                coverProvider: OpenAIImageProvider(apiKey: settings.openAIKey, quality: "medium"))
+                // Line items are cut out; the cover is a full frame and keeps its
+                // background. See the note on transparency in ImageProvider.
+                provider: OpenAIImageProvider(apiKey: settings.openAIKey,
+                                              quality: "low", transparent: true),
+                coverProvider: OpenAIImageProvider(apiKey: settings.openAIKey,
+                                                   quality: "medium", transparent: false))
         }
         if !settings.googleKey.isEmpty {
             return ImageEngine(
