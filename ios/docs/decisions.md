@@ -262,3 +262,47 @@ CSS, mesma tipografia, mesmos números vindos do motor — a 0,295 de escala.
 Se a tela mudar, o mapa muda junto; se o mapa parecer errado, é porque está.
 **Custo aceito:** o mapa só existe na renderização web. O app nativo não tem um
 equivalente, e não deveria — é documentação de design, não funcionalidade.
+
+## 22 — Newsreader no lugar de Instrument Serif (2026-09-04)
+
+**Contexto.** Doze rodadas de crítica independente sinalizaram a tipografia do
+dinheiro. Medir resolveu: os algarismos da Instrument Serif são proporcionais —
+o "1" tem 54% da largura do "0" (7,5pt contra 13,8pt em corpo 30). Nenhuma
+coluna de valores composta nela alinha na vírgula, e tabular na mão com células
+de largura fixa só deixa os "1" chacoalhando dentro da caixa.
+
+**Decisão.** Newsreader para tudo que é linguagem e dinheiro. Uma família só,
+com eixo óptico (display e texto são o mesmo desenho cortado duas vezes), e
+algarismos de largura uniforme por construção — 16,83pt para todo dígito em
+corpo 30. A coluna alinha porque a fonte diz, não porque o layout está
+brigando. O mono saiu: fazia display, ledger e rótulo ao mesmo tempo, e um mono
+de programador padrão é assinatura de trabalho feito por máquina.
+
+**Consequência.** `Typo.Face.mono` agora aponta para Newsreader; o payload Pix
+cai no monoespaçado do sistema. Duas famílias no app inteiro.
+
+## 23 — O traço engrossa na sombra (2026-09-04)
+
+Um contorno perfeitamente uniforme em volta de cada objeto é o sinal mais claro
+de que nenhuma mão esteve envolvida. Uma goiva abre mais largo onde a lâmina
+crava e mais fino onde ela levanta, então a xilogravura engrossa na aresta
+sombreada. `swell()` desenha o contorno duas vezes: uma no peso base, outra a
+1,9× recortada no semiplano abaixo-e-à-direita do terminador. A luz é fixa para
+o conjunto inteiro, então o engrossamento cai sempre do mesmo lado.
+
+## 24 — A comanda (2026-09-04)
+
+O desenho estava de bom gosto em geral — papel creme, serifa, um vinho — o que
+quer dizer que poderia ser de um hotel ou de uma loja de vinho. A comanda é a
+única coisa que ele só poderia ser. A conta na thread virou a papeleta que o bar
+brasileiro usa de verdade: número de quatro dígitos, borda picotada, pontilhado
+correndo do nome até o valor, total riscado embaixo como uma nota impressa risca.
+
+## 25 — O vinho compra estado, não botão (2026-09-04)
+
+Duas críticas puxaram para lados opostos — "quatro vermelhos, corta pra um" e
+"nenhuma cor semântica nos estados que decidem se alguém paga". As duas estavam
+certas sobre a mesma coisa. O vinho agora marca estado (aberto, não pagou, sem
+dono) e a ação primária é uma barra de tinta: continua sendo o objeto mais
+pesado da tela por massa, sem gastar a única cor do sistema na palavra
+"dividir".

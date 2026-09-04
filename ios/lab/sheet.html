@@ -1,0 +1,25 @@
+<meta charset="utf-8">
+<style>
+ body{background:#F9F5EC;margin:0;padding:28px;font:12px/1.3 -apple-system,sans-serif;color:#8B8070}
+ .row{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:26px;align-items:flex-end}
+ .c{text-align:center}
+ .c span{display:block;margin-top:5px;letter-spacing:.06em;text-transform:uppercase;font-size:9px}
+ h3{font:10px/1 -apple-system;letter-spacing:.14em;color:#B5AA97;margin:0 0 12px}
+</style>
+<div id="out"></div>
+<script type="module">
+import { drawFood, RECIPE_NAMES } from './food.js';
+const out = document.getElementById('out');
+for (const S of [200, 110, 46]) {
+  const h = document.createElement('h3'); h.textContent = S + ' PX'; out.append(h);
+  const row = document.createElement('div'); row.className = 'row';
+  for (const n of RECIPE_NAMES) {
+    const d = document.createElement('div'); d.className='c';
+    const cv = document.createElement('canvas'); d.append(cv);
+    const lab = document.createElement('span'); lab.textContent = n; d.append(lab);
+    row.append(d); drawFood(cv, n, S, n);
+  }
+  out.append(row);
+}
+document.body.dataset.done='1';
+</script>
