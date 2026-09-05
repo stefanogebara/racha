@@ -40,6 +40,42 @@ Nada pula etapa. Um toque na tela e uma frase do agente entram pelo mesmo lugar
 (`RachaRepository.append`), o que é o motivo de **toda** edição ser desfazível, não
 só as do agente.
 
+## Da mesa pro racha
+
+O QR na mesa carrega `<origin>/?t=<token>` — o mesmo adesivo que o diner web já
+usa (`apps/web/src/Qrs.tsx`). O token é rotativo (`POST /api/tables/rotate`) e é
+tratado como credencial: nunca vai pro log, nunca pro event store, nunca pra tela.
+
+```
+   adesivo na mesa
+        │  TableQR.parse — recusa wifi, Pix, Instagram
+        ▼
+   ┌──────────────┐   GET /api/check?t=…   ┌─────────────────────┐
+   │ TableSource  │ ─────────────────────▶ │ servidor do Racha   │
+   │ (protocolo)  │ ◀───────────────────── │ resolve o POS       │
+   └──────┬───────┘      OpenCheck         │ manual │ Saipos │ … │
+          │                                └─────────────────────┘
+          ▼
+   ┌──────────────┐  venueSet + itemsAdded + serviço
+   │ CheckImport  │ ───────────────────────────────▶ RachaRepository
+   └──────────────┘  (re-scan = diff, nunca duplica)
+```
+
+**As credenciais do POS não passam pelo telefone.** `idPartner`/`secret` do
+Saipos vivem no ambiente do servidor (`api/_lib/pos/`) e ficam lá; o aparelho só
+apresenta um token que leu de um adesivo. Um telefone de cliente com credencial
+de PDV dentro é um telefone perdido de distância de um incidente na loja inteira.
+
+Por isso os "providers" aqui não são `manual`/`saipos`/`colibri` — essa escolha é
+do servidor, por venue. Do lado do app só existem duas fontes: o backend
+(`BackendTableSource`) e a demo embutida (`DemoTableSource`), que mantém a
+promessa de rodar sem chave e sem rede.
+
+O contrato entre os dois lados é conferido por `scripts/check-pos-contract.py`:
+ele compara as chaves que o decoder Swift lê com as que o servidor emite. Sem
+isso, renomear `priceCents` no servidor não quebraria build nenhum — o app só
+leria uma conta vazia, num sábado, na mesa de alguém.
+
 ## Regras invioláveis
 
 Vindas do `CLAUDE.md` da raiz do repositório e do briefing do produto. Cada uma

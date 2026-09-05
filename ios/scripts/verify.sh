@@ -6,7 +6,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 fail=0
-for check in verify-money check-shaders check-pbxproj check-swift; do
+for check in verify-money check-shaders check-pbxproj check-swift check-pos-contract; do
   printf '\n\033[1m── %s ──\033[0m\n' "$check"
   if ! python3 "scripts/$check.py"; then fail=1; fi
 done

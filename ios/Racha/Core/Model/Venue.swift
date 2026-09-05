@@ -15,8 +15,19 @@ struct Venue: Hashable, Codable, Sendable {
     /// The venue's Pix key. In production the PSP issues a cobrança per share and
     /// this is the fallback for a static code; in the demo it is the venue's key.
     var pixKey: String?
-    /// Table number as printed on the QR, when there is one.
-    var table: Int?
+    /// The POS's own id for this check, when the table came from a scan. The
+    /// key that makes a re-scan a merge instead of a second copy of dinner, and
+    /// the reference the venue reconciles against.
+    var checkID: String?
+    /// The table as the venue labels it. Free text on purpose: `POST /api/tables`
+    /// takes any `label`, and real venues use "Varanda 2", "Balcão", "12". A
+    /// number here would quietly drop half of them.
+    var label: String?
 
-    var tableLabel: String? { table.map { "Mesa \($0)" } }
+    /// How the table is named on screen. A bare number gets "Mesa" in front of
+    /// it; anything the venue already spelled out is left alone.
+    var tableLabel: String? {
+        guard let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else { return nil }
+        return label.allSatisfy(\.isNumber) ? "Mesa \(label)" : label
+    }
 }

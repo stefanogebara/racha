@@ -29,7 +29,7 @@ enum SeedData {
         let pedro = Participant(name: "Pedro")
         await add(repo, id, [
             (.venueSet(Venue(name: "Bar do Zé", legalName: "BAR DO ZE LTDA", city: "SAO PAULO",
-                             pixKey: "pix@bardoze.com.br", table: 12)), "Mesa 12 do Bar do Zé"),
+                             pixKey: "pix@bardoze.com.br", label: "12")), "Mesa 12 do Bar do Zé"),
             (.participantAdded(gui), "Gui sentou"),
             (.participantAdded(ju), "Ju sentou"),
             (.participantAdded(pedro), "Pedro sentou")
@@ -87,7 +87,7 @@ enum SeedData {
         let ju = Participant(name: "Ju")
         await add(repo, id, [
             (.venueSet(Venue(name: "Cantina da Vila", legalName: "CANTINA DA VILA LTDA", city: "SAO PAULO",
-                             pixKey: "financeiro@cantinadavila.com.br", table: 4)), "Mesa 4 da Cantina da Vila"),
+                             pixKey: "financeiro@cantinadavila.com.br", label: "4")), "Mesa 4 da Cantina da Vila"),
             (.participantAdded(ju), "Ju sentou")
         ])
         let file = LineItem(name: "Filé à parmegiana", quantity: 2, unitPrice: Cents(7900), category: .carne)
@@ -116,7 +116,7 @@ enum SeedData {
         let pedro = Participant(name: "Pedro")
         await add(repo, id, [
             (.venueSet(Venue(name: "Choperia Central", legalName: "CHOPERIA CENTRAL LTDA", city: "SAO PAULO",
-                             pixKey: "pix@choperiacentral.com.br", table: 22)), "Mesa 22 da Choperia Central"),
+                             pixKey: "pix@choperiacentral.com.br", label: "22")), "Mesa 22 da Choperia Central"),
             (.participantAdded(gui), "Gui sentou"),
             (.participantAdded(pedro), "Pedro sentou")
         ])
@@ -149,7 +149,7 @@ enum SeedData {
         let pedro = Participant(name: "Pedro")
         await add(repo, id, [
             (.venueSet(Venue(name: "Peixaria do Porto", legalName: "PEIXARIA DO PORTO LTDA", city: "SANTOS",
-                             pixKey: "pix@peixariadoporto.com.br", table: 7)), "Mesa 7 da Peixaria do Porto"),
+                             pixKey: "pix@peixariadoporto.com.br", label: "7")), "Mesa 7 da Peixaria do Porto"),
             (.participantAdded(ju), "Ju sentou"),
             (.participantAdded(gui), "Gui sentou"),
             (.participantAdded(pedro), "Pedro sentou")

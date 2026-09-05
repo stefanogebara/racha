@@ -111,7 +111,16 @@ Nada disso dá pra afirmar daqui:
    como chão claro e agora recebe a mesa — a comanda em especial precisa dos
    tokens `slip*`. `scripts/fetch-fonts.sh` baixa o Archivo variável; falta
    registrá-lo em `INFOPLIST_KEY_UIAppFonts`.
-8. **A mesa (decisão #29).** `Venue`/`venueSet` no modelo, `RachaState.due/
+8. **A leitura da mesa (decisão #30).** `ScannerView` é a única parte do app que
+   um simulador não exercita de verdade: precisa de câmera. Num aparelho:
+   imprimir um QR do painel (`/qrs`), escanear, ver "Lendo a mesa…" e a comanda
+   chegar; negar a permissão de câmera e conferir que a tela explica e oferece
+   digitar o código; escanear um QR de wifi e conferir que nada acontece (o
+   scanner ignora em silêncio, por projeto). Re-escanear a mesma mesa depois do
+   garçom lançar mais uma rodada tem que **somar** os itens novos, nunca
+   duplicar o jantar — `CheckImportTests` cobre a lógica, mas o caminho todo
+   (rede + merge + UI) é de aparelho.
+9. **A mesa (decisão #29).** `Venue`/`venueSet` no modelo, `RachaState.due/
    remainingOnTable/unpaidParticipants/isSettled/comanda`, `PixPayload.forVenue`,
    a `SettleSheet` reescrita como Pagar, `GalleryView` e `RachaTile` novos,
    `SeedData` com quatro mesas. Tudo escrito sem compilador. Pontos que só o Xcode

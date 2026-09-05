@@ -12,10 +12,12 @@ struct GalleryView: View {
 
     @Environment(RachaRepository.self) private var repository
     @Environment(Navigator.self) private var navigator
+    @Environment(AppSettings.self) private var settings
     @State private var showingNew = false
     @State private var showingSettings = false
     @State private var paying = false
     @State private var payingID: UUID?
+    @State private var scan = ScanFlow()
 
     private var states: [RachaState] { repository.allStates }
     /// The table you are at: the most recent one that is not closed.
@@ -62,6 +64,22 @@ struct GalleryView: View {
         .sheet(isPresented: $showingNew) { NewRachaSheet() }
         .sheet(isPresented: $showingSettings) { SettingsSheet() }
         .sheet(isPresented: $paying) { if let id = payingID { SettleSheet(rachaID: id) } }
+        .sheet(isPresented: $scan.isPresentingScanner) {
+            ScannerView { qr in
+                Task {
+                    guard let id = await scan.open(qr, in: repository, meName: settings.myName) else { return }
+                    navigator.open(id)
+                }
+            }
+        }
+        .overlay { if scan.phase == .reading { readingOverlay } }
+        .alert("Não deu", isPresented: .init(get: { if case .failed = scan.phase { return true }; return false },
+                                             set: { if !$0 { scan.dismissError() } })) {
+            Button("Tentar de novo") { scan.dismissError(); scan.isPresentingScanner = true }
+            Button("Fechar", role: .cancel) { scan.dismissError() }
+        } message: {
+            if case .failed(let message) = scan.phase { Text(message) }
+        }
     }
 
     private var header: some View {
@@ -70,11 +88,38 @@ struct GalleryView: View {
                 .font(Typo.tileTitle)
                 .foregroundStyle(Palette.ink)
             Spacer()
+            Button { Haptics.shared.press(); scan.isPresentingScanner = true } label: {
+                Image(systemName: "qrcode.viewfinder")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(Palette.ink2)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Escanear a mesa")
             Button("Ajustes") { showingSettings = true }
                 .font(Typo.bodyMedium)
                 .foregroundStyle(Palette.ink2)
                 .buttonStyle(.plain)
+                .padding(.leading, 16)
         }
+    }
+
+    /// The read is a network hop in a bar. Say so, over the screen, so nobody
+    /// taps Pagar on a bill that is still arriving.
+    private var readingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView().tint(Palette.cream)
+                Text("Lendo a mesa…")
+                    .font(Typo.body)
+                    .foregroundStyle(Palette.cream)
+            }
+            .padding(28)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.sheet)
+            }
+        }
+        .transition(.opacity)
     }
 
     /// The table you are at.
@@ -140,9 +185,12 @@ struct GalleryView: View {
                 .foregroundStyle(Palette.ink3)
                 .fixedSize(horizontal: false, vertical: true)
             RachaButton(title: "Escanear o QR da mesa", icon: "qrcode.viewfinder") {
-                Haptics.shared.press(); showingNew = true
+                Haptics.shared.press(); scan.isPresentingScanner = true
             }
             .padding(.top, 8)
+            RachaButton(title: "Abrir sem QR", icon: nil, style: .ghost) {
+                Haptics.shared.press(); showingNew = true
+            }
         }
     }
 }

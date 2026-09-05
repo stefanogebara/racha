@@ -88,13 +88,18 @@ numa mesa brasileira. Deixar implícito seria escolher por todo mundo.
 ### Mesa
 
 ```
-Venue { name, legalName, city, pixKey, table }
+Venue { name, legalName, city, pixKey, checkID, label }
 ```
 
 O racha é uma mesa. `venueSet` carrega a casa (nome, razão social e cidade pro
 payload do Pix, a chave Pix **do restaurante**, o número da mesa impresso no QR).
 A chave nunca é de um garçom nem de um amigo (CLAUDE.md #2 e #4): o Pix de cada
 parte vai pra casa, pelo split do PSP; a gente não segura nada.
+
+`label` é **texto livre**, como o servidor guarda (`POST /api/tables` aceita
+qualquer rótulo): mesas reais se chamam "Varanda 2" e "Balcão", não só "12".
+`checkID` é o id da conta no servidor — é ele que faz um re-scan virar merge em
+vez de uma segunda cópia do jantar.
 
 ### Pagamento
 

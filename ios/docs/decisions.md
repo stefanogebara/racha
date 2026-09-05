@@ -468,3 +468,51 @@ continuando a ir pra casa, nunca entre amigos.
 mesa, `comanda`), `PixPayload.forVenue`, `SettleSheet` reescrita como a sheet
 Pagar, `GalleryView` como a mesa atual + mesas anteriores, `SeedData` com quatro
 mesas. Nada compilado; `verification.md`.
+
+## 30 — O telefone lê a mesa; o servidor fala com o PDV (2026-09-05)
+
+**Contexto.** Decidida a mesa como o produto (#29), faltava o caminho de
+entrada: o QR. O repositório já tinha a camada de POS do lado do servidor
+(`api/_lib/pos/`: contrato, `manual`, e o Saipos de verdade) e o QR já era
+impresso pelo painel como `<origin>/?t=<qr_token>`, lido por `GET /api/check`.
+
+**Decisão.** O app escaneia e chama `GET /api/check?t=…` — nada mais. Quem
+resolve o adaptador de PDV, por venue, é o servidor. Do lado do app, `TableSource`
+tem duas implementações: backend e demo.
+
+**Por quê, e é o ponto todo.** As credenciais do PDV (`idPartner`/`secret` do
+Saipos) ficam no ambiente do servidor. Um telefone de cliente com credencial de
+PDV dentro é um telefone perdido de distância de um incidente na loja inteira —
+e seria uma credencial por venue, distribuída pra centenas de aparelhos que a
+gente não controla. O token da mesa, ao contrário, é rotativo, escopado a uma
+mesa e revogável num toque no painel.
+
+**Detalhes que custaram decisão:**
+
+- *A origem vem do QR, não do build.* Um venue white-label imprime o domínio
+  dele; seguir o adesivo faz isso funcionar sem release.
+- *Rótulo de mesa é texto livre.* O servidor aceita qualquer `label`; mesas
+  reais se chamam "Varanda 2". Modelar como `Int` (o que eu tinha feito) perde
+  metade delas em silêncio.
+- *Re-escanear é diff, não import.* O garçom lança uma rodada, alguém escaneia
+  de novo. Importar tudo outra vez dobraria a conta. O merge casa por nome
+  dobrado + quantidade + total, contando multiplicidade (duas rodadas iguais
+  são duas linhas), porque o id de item do Saipos muda entre leituras.
+- *Preço não-inteiro é recusado, não adivinhado.* Um `priceCents` fracionário
+  estoura em vez de virar arredondamento silencioso na conta de alguém.
+- *Divergência item×total é exposta.* O total impresso manda (é o que a casa vai
+  cobrar); a diferença aparece, não é "corrigida".
+- *QR alheio é ignorado em silêncio.* Uma câmera varrendo uma mesa de bar vê
+  wifi, Pix e Instagram; avisar a cada um seria ruído, não ajuda.
+
+**Contra o quê.** Falar direto com o PDV do aparelho: um hop a menos e funciona
+com o servidor fora do ar — e distribui credencial de loja pra telefone de
+cliente. Não.
+
+**O que faria mudar de ideia.** Um PDV que emita token efêmero por mesa, escopado
+e revogável, pro próprio cliente. Aí o hop direto vira defensável.
+
+**Onde está.** `Core/POS/` (`TableQR`, `TableSource`, `BackendTableSource`,
+`DemoTableSource`, `CheckImport`, `RachaEnvironment`), `Features/Scan/`
+(`ScannerView`, `ScanFlow`), `RachaTests/TableSourceTests.swift`,
+`scripts/check-pos-contract.py`.
