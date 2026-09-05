@@ -612,7 +612,7 @@ const KEYS = [
   [/picanh|carne|churrasc|contra|file|bife|costel|alcatr|espet/i, 'picanha'],
   [/chopp|cervej|beer|brahma|heineken|breja|long ?neck/i,   'chopp'],
   [/caipir|drink|cocktail|gin|vodka|whisk|dose|batida/i,    'caipirinha'],
-  [/farofa|arroz|feijao|feijão|purê|pure|polenta/i,         'farofa'],
+  [/farofa|arroz|feijao|feijão|purê|pure|polenta|batata|frita|porç|porc/i, 'farofa'],
   [/vinagr|salada|salad|tomate|guacamol|antepast/i,         'vinagrete'],
   [/lingui|linguí|salsich|chouri|sausage/i,                 'linguica'],
   [/pudim|sobremes|doce|brigadeir|pave|pavê|mousse|bolo/i,  'pudim'],

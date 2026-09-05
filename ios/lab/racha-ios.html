@@ -218,7 +218,8 @@ b .cy,.net .cy{color:var(--ink-4)}
   transition:opacity .6s var(--ease),border-color .6s var(--ease)}
 /* Settled recedes — the picture and the figure, not the words. */
 .tile.done{border-color:var(--rule-2)}
-.tile.done .cap .t{color:var(--ink-2)}
+.tile.done .cap .t{color:var(--ink)}
+.tile.done .cap .amt{color:var(--ink-2)}
 .tile:hover{border-color:rgba(247,242,233,.26)}
 /* The racha that is live carries a luminous border: a conic gradient turning
    behind a 1px ring. A border that moves reads as a thing with a pulse. */
@@ -538,7 +539,7 @@ button.rw{cursor:pointer}
 .bts{display:flex;gap:8px}
 .bt{flex:1;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;border:none;
   padding:13px;border-radius:2px}
-.bt.p{background:var(--act);color:var(--p-hi)}
+.bt.p{background:var(--cream);color:var(--night)}
 .bt.s{background:transparent;color:var(--ink-2);border:1px solid var(--rule)}
 
 /* avatars — initials on a warm disc, one hue per person, forever */
@@ -754,8 +755,8 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
         <div style="display:flex;flex-direction:column;gap:13px;margin-top:4px">
           <span class="mi">Racha</span>
           <h2>Fala que eu<br>faço a conta.</h2>
-          <p class="lead">Manda a foto da nota ou só conta o que rolou. Eu divido,
-            mostro onde cai cada centavo, e você confere.</p>
+          <p class="lead">Escaneia o QR da mesa, fala o que foi de quem, e cada um
+            paga a casa direto no Pix. Eu divido, mostro onde cai cada centavo, e você confere.</p>
         </div>
         <div class="proof" id="proof" aria-hidden="true"></div>
         <div class="foot">
@@ -794,8 +795,8 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
           <div>
             <button class="door" data-door="foto">
               <span class="gl"><canvas data-dish="Picanha na chapa" data-seed="onb|nota"></canvas></span>
-              <span class="tx"><b>Fotografar a nota</b>
-                <span>eu leio os itens e monto a conta</span></span>
+              <span class="tx"><b>Escanear o QR da mesa</b>
+                <span>a conta da mesa aparece aqui, item por item</span></span>
               <span class="ch">›</span>
             </button>
             <button class="door" data-door="falar">
@@ -824,8 +825,8 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
       <div class="shb"><div class="shh"><span class="ser">A conta</span>
         <button data-x>Fechar</button></div><div id="ledgerb"></div></div>
     </div>
-    <div class="sh" id="settle" aria-label="Acertar">
-      <div class="shb"><div class="shh"><span class="ser">Acertar</span>
+    <div class="sh" id="settle" aria-label="Pagar">
+      <div class="shb"><div class="shh"><span class="ser">Pagar</span>
         <button data-x>Fechar</button></div><div id="settleb"></div></div>
     </div>
   </div>
@@ -1442,7 +1443,7 @@ const KEYS = [
   [/picanh|carne|churrasc|contra|file|bife|costel|alcatr|espet/i, 'picanha'],
   [/chopp|cervej|beer|brahma|heineken|breja|long ?neck/i,   'chopp'],
   [/caipir|drink|cocktail|gin|vodka|whisk|dose|batida/i,    'caipirinha'],
-  [/farofa|arroz|feijao|feijão|purê|pure|polenta/i,         'farofa'],
+  [/farofa|arroz|feijao|feijão|purê|pure|polenta|batata|frita|porç|porc/i, 'farofa'],
   [/vinagr|salada|salad|tomate|guacamol|antepast/i,         'vinagrete'],
   [/lingui|linguí|salsich|chouri|sausage/i,                 'linguica'],
   [/pudim|sobremes|doce|brigadeir|pave|pavê|mousse|bolo/i,  'pudim'],
@@ -1722,9 +1723,13 @@ const REDUCE=matchMedia('(prefers-reduced-motion: reduce)').matches;
    DATA — the same three rachas as Core/Store/SeedData.swift.
    ══════════════════════════════════════════════════════════════════════════ */
 const ME='Você';
-const PIXKEY={[ME]:'voce@exemplo.com',Gui:'gui@exemplo.com',Ju:'+5511988887777'};
+/* The restaurant's Pix, not a friend's. Money goes from the diner to the house
+   through the PSP's split rules; nothing ever sits with us (non-negotiable #4).
+   In the prototype the key is the venue's; in production the PSP issues a
+   cobrança with a txid per share. */
 const RACHAS=[
-  {id:'ze',title:'Bar do Zé',kind:'Jantar',date:'12 SET',cur:CUR.BRL,
+  {id:'ze',title:'Bar do Zé',table:12,kind:'Jantar',date:'12 SET',cur:CUR.BRL,
+   pix:{key:'pix@bardoze.com.br',name:'BAR DO ZE LTDA',city:'SAO PAULO'},
    people:[ME,'Gui','Ju','Pedro'],hero:'Chopp 500ml',
    items:[
      {n:'Picanha na chapa',q:1,total:12900,claims:{[ME]:1,Gui:1,Ju:1}},
@@ -1735,49 +1740,43 @@ const RACHAS=[
      {n:'Pudim',q:1,total:1800,claims:{}}],
    extras:[{id:'sv',label:'Serviço',kind:'pct',bp:1000,base:'cons',on:true,tip:true},
            {id:'cv',label:'Couvert',kind:'head',cents:1200,base:'heads',on:true}],
-   payments:[{by:ME,amount:15000,confirmed:true}]},
-  {id:'gui',title:'Churrasco no Gui',kind:'Churrasco',date:'5 SET',cur:CUR.BRL,settled:true,
-   people:[ME,'Gui','Ju'],hero:'Picanha',
+   // Ju has already paid her part to the house; the other three have not.
+   payments:[{by:'Ju',amount:9890,confirmed:true}]},
+  {id:'cantina',title:'Cantina da Vila',table:4,kind:'Jantar',date:'5 SET',cur:CUR.BRL,closed:true,
+   pix:{key:'financeiro@cantinadavila.com.br',name:'CANTINA DA VILA LTDA',city:'SAO PAULO'},
+   people:[ME,'Ju'],hero:'Filé à parmegiana',
    items:[
-     {n:'Picanha',q:1,total:18900,claims:{[ME]:1,Gui:1,Ju:1}},
-     {n:'Linguiça',q:2,total:4800,claims:{[ME]:1,Gui:1,Ju:1}},
-     {n:'Carvão e gelo',q:1,total:4200,claims:{[ME]:1,Gui:1,Ju:1}},
-     {n:'Cerveja (fardo)',q:2,total:11800,claims:{[ME]:1,Gui:1}}],
-   extras:[],payments:[{by:'Gui',amount:39700,confirmed:true}]},
-  {id:'lx',title:'Lisboa',kind:'Viagem',date:'22 AGO',cur:CUR.EUR,
-   people:[ME,'Ju'],hero:'Bonde de Lisboa',
-   items:[
-     {n:'Airbnb — 3 noites',q:3,total:25200,claims:{[ME]:1,Ju:1}},
-     {n:'Aluguel de carro',q:1,total:11200,claims:{[ME]:1,Ju:1}},
-     {n:'Jantar na Bica',q:1,total:6750,claims:{[ME]:1,Ju:1}},
-     {n:'Ingresso Mosteiro',q:2,total:2000,claims:{[ME]:1,Ju:1}}],
-   extras:[],payments:[{by:ME,amount:36400,confirmed:true}]},
-  {id:'pr',title:'Praia da Ferradura',kind:'Viagem',date:'16 AGO',cur:CUR.BRL,
-   people:[ME,'Gui','Pedro'],hero:'Peixe grelhado',
-   items:[
-     {n:'Peixe grelhado',q:2,total:16400,claims:{[ME]:1,Gui:1,Pedro:1}},
-     {n:'Chopp 500ml',q:6,total:9600,claims:{Gui:3,Pedro:2,[ME]:1}},
-     {n:'Gasolina',q:1,total:22000,claims:{[ME]:1,Gui:1,Pedro:1}}],
+     {n:'Filé à parmegiana',q:2,total:15800,claims:{[ME]:1,Ju:1}},
+     {n:'Salada da casa',q:1,total:2900,claims:{[ME]:1,Ju:1}},
+     {n:'Chopp 300ml',q:3,total:3600,claims:{[ME]:2,Ju:1}},
+     {n:'Pudim',q:1,total:1600,claims:{Ju:1}}],
    extras:[{id:'sv',label:'Serviço',kind:'pct',bp:1000,base:'cons',on:true,tip:true}],
-   payments:[{by:'Gui',amount:52800,confirmed:true}]},
-  {id:'sh',title:'Show no Circo',kind:'Rolê',date:'9 AGO',cur:CUR.BRL,settled:true,
-   people:[ME,'Ju'],hero:'Ingresso',
+   payments:[]},
+  {id:'chope',title:'Choperia Central',table:22,kind:'Happy hour',date:'30 AGO',cur:CUR.BRL,closed:true,
+   pix:{key:'pix@choperiacentral.com.br',name:'CHOPERIA CENTRAL LTDA',city:'SAO PAULO'},
+   people:[ME,'Gui','Pedro'],hero:'Caipirinha de limão',
    items:[
-     {n:'Ingresso',q:2,total:24000,claims:{[ME]:1,Ju:1}},
-     {n:'Caipirinha de limão',q:4,total:6400,claims:{[ME]:2,Ju:2}}],
-   extras:[],payments:[{by:'Ju',amount:30400,confirmed:true}]},
-  {id:'fe',title:'Feira de sábado',kind:'Mercado',date:'30 AGO',cur:CUR.BRL,settled:true,
-   people:[ME,'Ju'],hero:'Vinagrete',
+     {n:'Chopp 500ml',q:6,total:9600,claims:{Gui:3,Pedro:2,[ME]:1}},
+     {n:'Linguiça na chapa',q:1,total:4200,claims:{[ME]:1,Gui:1,Pedro:1}},
+     {n:'Batata frita',q:1,total:3400,claims:{[ME]:1,Gui:1,Pedro:1}},
+     {n:'Caipirinha de limão',q:2,total:4800,claims:{[ME]:1,Pedro:1}}],
+   extras:[{id:'sv',label:'Serviço',kind:'pct',bp:1000,base:'cons',on:true,tip:true}],
+   payments:[]},
+  {id:'peixaria',title:'Peixaria do Porto',table:7,kind:'Almoço',date:'22 AGO',cur:CUR.BRL,closed:true,
+   pix:{key:'pix@peixariadoporto.com.br',name:'PEIXARIA DO PORTO LTDA',city:'SANTOS'},
+   people:[ME,'Ju','Gui','Pedro'],hero:'Peixe na brasa',
    items:[
-     {n:'Hortifruti',q:1,total:8640,claims:{[ME]:1,Ju:1}},
-     {n:'Pastel de queijo',q:4,total:3200,claims:{[ME]:1,Ju:1}},
-     {n:'Caldo de cana',q:2,total:1600,claims:{[ME]:1,Ju:1}}],
-   extras:[],payments:[{by:ME,amount:13440,confirmed:true}]},
+     {n:'Peixe na brasa',q:2,total:16400,claims:{[ME]:1,Ju:1,Gui:1,Pedro:1}},
+     {n:'Farofa de dendê',q:1,total:1800,claims:{[ME]:1,Ju:1,Gui:1,Pedro:1}},
+     {n:'Caipirinha de caju',q:3,total:7200,claims:{[ME]:1,Gui:1,Pedro:1}},
+     {n:'Cerveja 600ml',q:4,total:6000,claims:{Gui:2,Pedro:2}}],
+   extras:[{id:'sv',label:'Serviço',kind:'pct',bp:1000,base:'cons',on:true,tip:true},
+           {id:'cv',label:'Couvert',kind:'head',cents:800,base:'heads',on:true}],
+   payments:[]},
 ];
-/* The churrasco settled: everyone squared with the host afterwards. */
-(()=>{['gui','fe','sh'].forEach(id=>{const g=RACHAS.find(r=>r.id===id);
-  settlePlan(balances(g)).transfers.forEach(t=>
-    g.payments.push({by:t.from,amount:t.amount,confirmed:true}));});})();
+/* A closed table is one where everybody paid the house their own part. */
+(()=>{RACHAS.filter(r=>r.closed).forEach(r=>{
+  split(r).shares.forEach(sh=>r.payments.push({by:sh.p,amount:sh.total,confirmed:true}));});})();
 
 const HUE={[ME]:16,Gui:34,Ju:348,Pedro:26};
 const el=i=>document.getElementById(i);
@@ -1798,8 +1797,12 @@ function stateOf(r){
   const s=split(r),b=balances(r),plan=settlePlan(b);
   const paid=(r.payments||[]).filter(p=>p.confirmed).reduce((a,p)=>a+p.amount,0);
   const mine=b.find(x=>x.p===ME);
-  return{s,b,plan,paid,mine,remaining:Math.max(0,s.total-paid),
-    done:!plan.transfers.length&&!plan.residual&&!s.unassigned.length};
+  const remaining=Math.max(0,s.total-paid);
+  // The table is closed when the house has all of it. Unowned items keep it
+  // open even if the money is there: someone still has to say whose they are.
+  return{s,b,plan,paid,mine,remaining,
+    unpaid:b.filter(x=>x.paid<x.owed).map(x=>x.p),
+    done:remaining===0&&!s.unassigned.length};
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1968,18 +1971,15 @@ function toThread(){ renderThread(); goto(2); }
    ══════════════════════════════════════════════════════════════════════════ */
 /* What a racha means for me, in its own currency: what the plan moves to me
    minus what it moves from me. Zero when settled, or when nothing is mine. */
-function myPosition(r){
-  let v=0; settlePlan(balances(r)).transfers.forEach(t=>{
-    if(t.to===ME)v+=t.amount; if(t.from===ME)v-=t.amount;});
-  return v;
-}
-/* What I still have to put on the table myself: my share, less what I paid,
-   less what the plan already routes through friends. Money owed to the bar,
-   not to a person — which is why it is not in the friend figure. */
+/* What I still owe the house at this table: my share, less what I have paid.
+   There is no friend balance in this product — each person pays the
+   restaurant their own part, and the restaurant is paid through the PSP. */
 function myDue(r){
   const b=balances(r).find(x=>x.p===ME); if(!b)return 0;
-  return Math.max(0,b.owed-b.paid-Math.max(0,-myPosition(r)));
+  return Math.max(0,b.owed-b.paid);
 }
+function myPosition(r){ return 0; }   // kept for callers; friend routing is gone
+function current(){ return RACHAS.find(r=>!stateOf(r).done)||null; }
 /* "você · Gui ×2 · Pedro" — who had an item, in the racha's own name order,
    with the weights the split actually used. One notation, everywhere. */
 function owners(it,r){
@@ -1993,32 +1993,36 @@ function names(ps,r){
   return o.length<2?o.join(''):o.slice(0,-1).join(', ')+' e '+o[o.length-1];
 }
 function renderGrid(){
-  // One figure, in reais. Euros are not added to reais: a racha in another
-  // currency gets its own row, and stays out of the poster number.
-  const rows=RACHAS.map(r=>({r,v:myPosition(r),d:myDue(r)})).filter(x=>x.v||x.d);
-  const net=rows.filter(x=>x.r.cur===CUR.BRL).reduce((s,x)=>s+x.v,0);
-  el('net').innerHTML = (!rows.length)
-    ? `<b style="font-size:64px">Tudo quite</b>`
-    : `<span class="lbl">${net<0?'Entre amigos, você deve':net>0?'Entre amigos, te devem':'Entre amigos, quite'}</span>
-       ${net?`<b class="${net<0?'owe':''}">${money(Math.abs(net))}</b>`:''}
-       ${(()=>{ // the one money action the hub has: settle with the person you owe, or collect
-         const pay=rows.find(x=>x.v<0&&x.r.cur===CUR.BRL), get=rows.find(x=>x.v>0&&x.r.cur===CUR.BRL);
-         const who=x=>{const t=settlePlan(balances(x.r)).transfers.find(t=>t.from===ME); return t?t.to:'';};
-         return pay?`<button class="go" id="hubgo" data-id="${pay.r.id}">Acertar com ${esc(who(pay))}</button>`
-           :get?`<button class="go" id="hubgo" data-id="${get.r.id}">Cobrar</button>`:'';})()}`;
-  const hg=el('hubgo'); if(hg)hg.onclick=()=>{focus=RACHAS.find(r=>r.id===hg.dataset.id);openSheet('settle');};
+  const now=current();
+  if(!now){
+    el('net').innerHTML=`<span class="lbl">Nenhuma mesa aberta</span>
+      <b style="font-size:48px;line-height:1">Sentou? Escaneia.</b>
+      <button class="go" id="hubgo">Escanear o QR da mesa</button>`;
+  } else {
+    const{s,mine,remaining,unpaid}=stateOf(now),due=myDue(now);
+    el('net').innerHTML=`
+      <span class="lbl">${esc(now.title)} · Mesa ${now.table} · agora</span>
+      ${due?`<span class="lbl" style="margin-top:6px">Sua parte</span><b>${money(due,now.cur)}</b>`
+           :`<span class="lbl" style="margin-top:6px">Sua parte, paga</span><b>${money(mine?mine.owed:0,now.cur)}</b>`}
+      <span class="lbl" style="margin-top:10px">${remaining
+        ?`Falta ${brl(remaining,now.cur)} na mesa · ${esc(names(unpaid.filter(p=>p!==ME),now)||'só você')} ainda não ${unpaid.filter(p=>p!==ME).length===1?'pagou':'pagaram'}`
+        :'Mesa paga'}${s.unassigned.length?` · <span style="color:var(--warn)">${s.unassigned.length} item sem dono</span>`:''}</span>
+      ${due?`<button class="go" id="hubgo" data-id="${now.id}">Pagar ${brl(due,now.cur)}</button>`:''}
+      <button class="go sec" id="hubtalk" data-id="${now.id}"><span>Abrir a conversa</span></button>`;
+  }
+  const hg=el('hubgo'); if(hg&&hg.dataset.id)hg.onclick=()=>{focus=RACHAS.find(r=>r.id===hg.dataset.id);openSheet('settle');};
+  const ht=el('hubtalk'); if(ht)ht.onclick=()=>{open(ht.dataset.id); setTimeout(()=>toThread(),420);};
 
-  el('tiles').innerHTML=RACHAS.map(r=>{
-    const{done}=stateOf(r),v=myPosition(r),d=myDue(r);
-    const live=!done&&r===RACHAS.find(x=>!stateOf(x).done);
-    return `<button class="tile${live?' live':''}${done?' done':''}" data-id="${r.id}" aria-label="${esc(r.title)}">
+  const past=RACHAS.filter(r=>r!==now);
+  el('tiles').innerHTML=(past.length?`<span class="lbl" style="grid-column:1/-1;margin-bottom:-2px">Mesas anteriores</span>`:'')+past.map(r=>{
+    const{mine}=stateOf(r);
+    return `<button class="tile done" data-id="${r.id}" aria-label="${esc(r.title)}">
       <span class="shot"><canvas data-dish="${esc(r.hero)}" data-seed="${r.id}|${esc(r.hero)}"></canvas></span>
       <span class="cap">
         <span class="t">${esc(r.title)}</span>
         <span class="lbl">${r.date.toLowerCase()} · ${r.people.length} pessoas</span>
-        <span class="v ${done?'quit':v<0||(!v&&d)?'owe':''}">
-          <span class="st">${done?'quite':v<0?'você deve':v>0?'te devem':d?'falta pagar':'em aberto'}</span>
-          ${done?'':(v||d)?`<span class="amt">${money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</span>`:''}</span>
+        <span class="v"><span class="st">você pagou</span>
+          <span class="amt">${money(mine?mine.paid:0,r.cur,{noSym:true})}</span></span>
       </span></button>`;}).join('');
 
   document.querySelectorAll('.tile canvas').forEach(cv=>{
@@ -2043,32 +2047,31 @@ function renderCard(){
       <div class="heroslot"></div>
       <div class="herofacts">
         <h2>${esc(r.title)}</h2>
-        <span class="lbl">${esc(r.date.toLowerCase())}, com ${
+        <span class="lbl">${esc(r.date.toLowerCase())} · mesa ${r.table} · com ${
           esc(names(r.people.filter(p=>p!==ME),r))}</span>
       </div>
     </div>
     <div class="standing">
-      ${(()=>{const v=myPosition(r);
-        return done||!v?`<span class="lbl">${done?'Fechado':'Entre vocês'}</span><b>Quite</b>`
-        :`<span class="lbl">${v<0?'Você deve':'Te devem'}</span><b class="${v<0?'owe':''}">${money(Math.abs(v),r.cur)}</b>`;})()}
+      ${(()=>{const due=myDue(r);
+        return due?`<span class="lbl">Sua parte</span><b>${money(due,r.cur)}</b>`
+          :`<span class="lbl">${done?'Mesa fechada · sua parte':'Sua parte, paga'}</span><b>${money(mine?mine.owed:0,r.cur)}</b>`;})()}
     </div>
     <div class="cardmeta">
       <div class="led">
-        <div><span>Sua parte</span><i></i><span>${money(mine?mine.owed:0,r.cur,{noSym:true})}</span></div>
-        <div><span>Você pagou</span><i></i><span>${money(mine?mine.paid:0,r.cur,{noSym:true})}</span></div>
-        <div><span>A conta</span><i></i><span>${money(s.total,r.cur,{noSym:true})}</span></div>
-        ${remaining?`<div><span>Falta pagar na mesa</span><i></i>
+        <div><span>A conta da mesa</span><i></i><span>${money(s.total,r.cur,{noSym:true})}</span></div>
+        <div><span>Já pago à casa</span><i></i><span>${money(paid,r.cur,{noSym:true})}</span></div>
+        ${remaining?`<div><span>Falta na mesa</span><i></i>
           <span>${money(remaining,r.cur,{noSym:true})}</span></div>`:''}
         ${s.unassigned.length?`<div class="warn"><span>${s.unassigned.length} ${s.unassigned.length>1?'itens':'item'} sem dono</span><i></i>
           <span>${money(s.unassignedTotal,r.cur,{noSym:true})}</span></div>`:''}
       </div>
     </div>
     <div class="cardgap"></div>
-    ${(()=>{const v=myPosition(r);
+    ${(()=>{const due=myDue(r);
       if(done)return `<button class="go" id="gothread">Ver a conversa</button>`;
-      if(v)return `<button class="go" id="gomoney">${v<0?'Pagar':'Cobrar'} ${brl(Math.abs(v),r.cur)}</button>
+      if(due)return `<button class="go" id="gomoney">Pagar ${brl(due,r.cur)}</button>
         <button class="go sec" id="gothread"><span>Abrir a conversa</span></button>`;
-      return `<button class="go" id="gothread">${r.items.some(i=>Object.keys(i.claims).length)?'Abrir a conversa':'Dividir a conta'}</button>`;})()}`;
+      return `<button class="go" id="gothread">Abrir a conversa</button>`;})()}`;
   el('back').onclick=toGrid;
   el('gothread').onclick=toThread;
   const gm=el('gomoney'); if(gm)gm.onclick=()=>openSheet('settle');
@@ -2087,7 +2090,7 @@ function renderThread(){
           stroke-width="1.9"><path d="M8 2L3.5 6.5L8 11"/></svg></button>
       <div style="flex:1;min-width:0">
         <div class="ser">${esc(r.title)}</div>
-        <div class="lbl" style="margin-top:3px">${r.people.length} pessoas, ${r.items.length} itens</div>
+        <div class="lbl" style="margin-top:3px">Mesa ${r.table} · ${r.people.length} pessoas · ${r.items.length} itens</div>
       </div>
       <button class="tot" id="opentot"><b>A conta</b></button>
     </div>
@@ -2129,7 +2132,7 @@ function comanda(r){ return String(fnv(r.id)%9000+1000); }
 function threadHead(){
   const r=focus,{s}=stateOf(r);
   return `<div class="slip">
-    <div class="slip-h"><span>Comanda ${comanda(r)}</span><span>${esc(r.date.toLowerCase())}</span></div>
+    <div class="slip-h"><span>Comanda ${comanda(r)} · Mesa ${r.table}</span><span>${esc(r.date.toLowerCase())}</span></div>
     ${s.shares.map(sh=>`<div><span>${esc(sh.p===ME?'Você':sh.p)}</span><i></i>
       <span>${money(sh.total,r.cur,{noSym:true})}</span></div>`).join('')}
     ${s.unassigned.length?`<div class="open"><span>${s.unassigned.length} ${s.unassigned.length>1?'itens':'item'} sem dono</span><i></i>
@@ -2163,11 +2166,11 @@ function renderChips(){
   // The two answers to the question the agent just asked. The 10% keeps its
   // own visible control on the bill (CDC); it is not a reply to "divido?".
   if(s.unassigned.length){out.push({t:`Sim, entre todos`,k:'assign',a:1});out.push({t:'Não, deixa em aberto',k:'later'});}
-  if(plan.transfers.length)out.push({t:'Quem paga quem?',k:'settle',a:1});
+  if(myDue(r))out.push({t:'Pagar minha parte',k:'pay',a:1});
+  if(stateOf(r).unpaid.filter(p=>p!==ME).length)out.push({t:'Quem falta pagar?',k:'settle'});
   if(r.extras.some(e=>e.tip&&e.on))out.push({t:'Tirar serviço',k:'notip'});
   else if(r.extras.some(e=>e.tip))out.push({t:'Pôr serviço',k:'tip'});
   out.push({t:'Quanto eu pago?',k:'mine'});
-  out.push({t:'Quem me deve?',k:'owed'});
   // Three. A suggestion row that runs off the edge is not a row of
   // suggestions, it is a list that has been squeezed into one — and the
   // chip sliced by the bezel is the first thing anyone notices.
@@ -2183,11 +2186,11 @@ function turn(k){
   el('chips').querySelectorAll('button').forEach(b=>b.disabled=true);
   const r=focus,mine=()=>{const x=split(r).shares.find(s=>s.p===ME);return x?x.total:0;};
   const before=mine();
-  const said={assign:'divide o que sobrou',settle:'quem paga quem?',notip:'tira o serviço',
-    tip:'põe o serviço de volta',mine:'quanto eu pago?',owed:'quem me deve?',
+  const said={assign:'divide o que sobrou',settle:'quem falta pagar?',notip:'tira o serviço',
+    tip:'põe o serviço de volta',mine:'quanto eu pago?',owed:'quem me deve?',pay:'quero pagar minha parte',
     later:'não, deixa em aberto',foto:'📷 nota do Bar do Zé'};
-  const lab={assign:'dividindo',settle:'fechando as contas',notip:'ajustando o serviço',
-    tip:'ajustando o serviço',mine:'conferindo a conta',owed:'lembrando',
+  const lab={assign:'dividindo',settle:'conferindo a mesa',notip:'ajustando o serviço',
+    tip:'ajustando o serviço',mine:'conferindo a conta',owed:'lembrando',pay:'gerando o Pix',
     later:'anotando',foto:'lendo a nota'};
   msgs.push({role:'u',text:said[k]});
   msgs.push({role:'w',text:lab[k]});
@@ -2221,9 +2224,12 @@ function turn(k){
       m.edits=[{s:k==='notip'?'Serviço fora da conta':'Serviço na conta',d:mine()-before,
         revert:()=>{ex.on=was;}}];
     }else if(k==='settle'){
-      const p=settlePlan(balances(r));
-      const L=p.transfers.map(t=>`${t.from===ME?'você paga':t.from+' paga'} ${brl(t.amount,r.cur)} ${t.to===ME?'pra você':'pro '+t.to}`);
-      stream(`${p.transfers.length===1?'Uma transferência resolve':p.transfers.length+' transferências resolvem'} tudo: ${L.join('; ')}.${p.residual?` Ainda faltam ${brl(p.residual,r.cur)} da conta — isso é do bar, não é dívida entre vocês.`:''}`,
+      const st=stateOf(r), others=st.unpaid.filter(p=>p!==ME);
+      const L=others.map(p=>{const b=st.b.find(x=>x.p===p);return `${p} ${brl(b.owed-b.paid,r.cur)}`;});
+      stream(others.length?`Falta ${brl(st.remaining,r.cur)} na mesa: ${L.join(', ')}${st.unpaid.includes(ME)?', e a sua parte':''}. Cada um paga a casa direto; a mesa fecha quando o último Pix cai.`
+        :`Só falta a sua parte: ${brl(myDue(r),r.cur)}. Todo mundo já pagou.`);
+    }else if(k==='pay'){
+      stream(`Sua parte é ${brl(myDue(r),r.cur)}. O Pix vai direto pro ${r.title}; a mesa fecha quando todo mundo pagar.`,
         ()=>{done();openSheet('settle');});
     }else if(k==='later'){
       const u=split(r);
@@ -2263,9 +2269,9 @@ function renderLedger(){
         return `<div><button class="rw" data-d="${i}">
           <span class="g"><span class="n">${esc(sh.p===ME?'Você':sh.p)}</span>
           <span style="font-size:12.5px;color:var(--ink-3)">${
-            bl.net===0 ? 'quite'
-            : bl.paid ? 'pagou '+brl(bl.paid,r.cur)+(bl.net<0?', falta '+brl(-bl.net,r.cur):'')
-            : bl.net>0 ? 'a receber '+brl(bl.net,r.cur) : 'ainda não pagou'}</span></span>
+            bl.paid>=bl.owed ? 'pagou'
+            : bl.paid ? 'pagou '+brl(bl.paid,r.cur)+', falta '+brl(bl.owed-bl.paid,r.cur)
+            : 'ainda não pagou'}</span></span>
           <i class="lead"></i><span class="amt">${money(sh.total,r.cur,{noSym:true})}</span>
           <span class="chev ${i===0?'on':''}" aria-hidden="true">›</span></button>
           <div class="der" id="d${i}" ${i===0?'':'hidden'}>
@@ -2311,47 +2317,48 @@ function renderLedger(){
     c.onclick=go; c.onkeydown=ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();go();}};});
 }
 function renderSettle(){
-  const r=focus,{plan}=stateOf(r);
-  if(!plan.transfers.length&&!plan.residual){
-    el('settleb').innerHTML=`<div class="sec" style="align-items:center;text-align:center;gap:12px;padding:28px 0">
-      <span class="ser" style="font-size:30px;color:var(--pos)">Tudo quite</span>
-      <span class="nt">Ninguém deve nada pra ninguém.</span></div>`;return;}
-  el('settleb').innerHTML=`<div style="display:flex;flex-direction:column;gap:20px">
-    ${plan.residual?`<div class="sec" style="gap:5px">
-      <span class="n" style="font-size:14px">Ainda falta pagar ${brl(plan.residual,r.cur)}</span>
-      <span class="nt">Isso é da conta, não é dívida entre vocês.</span></div>`:''}
-    ${stateOf(r).s.unassigned.length?`<div class="sec" style="gap:5px">
-      <span class="n" style="font-size:14px">${brl(stateOf(r).s.unassignedTotal,r.cur)} sem dono</span>
-      <span class="nt">${esc(stateOf(r).s.unassigned.map(i=>i.n).join(', '))} — ainda não
-        ${stateOf(r).s.unassigned.length>1?'entraram':'entrou'} na divisão, então
-        ${stateOf(r).s.unassigned.length>1?'não estão':'não está'} em nenhuma
-        transferência aqui.</span></div>`:''}
-    ${plan.transfers.map((t,i)=>{const key=PIXKEY[t.to];
-      return `<div class="sec">
-        <button class="rw" data-x="${i}">${av(t.from,28)}
-          <span style="color:var(--ink-4);font-size:11px">→</span>${av(t.to,28)}
-          <span class="g"><span class="n">${esc(t.from===ME?'Você':t.from)} → ${esc(t.to===ME?'você':t.to)}</span>
-          <span class="lbl">${key?'Pix':'sem chave'}</span></span>
-          <span class="amt">${money(t.amount,r.cur)}</span></button>
-        <div id="x${i}" hidden style="display:flex;flex-direction:column;gap:10px">
-          ${key?`<div class="pix">${esc(pixPayload({key,name:t.to,city:'SAO PAULO',
-            amount:t.amount,ref:'RACHA'+r.title.replace(/[^a-zA-Z]/g,'').toUpperCase().slice(0,8)}))}</div>
-            <div class="bts"><button class="bt p" data-c="${i}">Copiar Pix</button>
-            <button class="bt s" data-p="${i}">Já pagou</button></div>`
-          :`<p class="nt">${esc(t.to)} não tem chave Pix salva. O app pede a chave em vez de inventar uma.</p>
-            <div class="bts"><button class="bt s" data-p="${i}">Já pagou</button></div>`}
-        </div></div>`;}).join('')}
-    ${plan.transfers.length>1?`<p class="nt" style="text-align:center">
-      ${plan.transfers.length} transferências resolvem tudo — é o mínimo possível.</p>`:''}
+  const r=focus,{s,mine,paid,remaining,unpaid}=stateOf(r),due=myDue(r);
+  const tip=r.extras.find(e=>e.tip&&e.on), tipAmt=tip&&mine?(s.shares.find(x=>x.p===ME).extras.find(e=>e.label===tip.label)||{}).amount||0:0;
+  const others=unpaid.filter(p=>p!==ME);
+  el('settleb').innerHTML=`<div style="display:flex;flex-direction:column;gap:22px">
+    ${due?`
+    <div class="sec" style="gap:6px">
+      <span class="lbl">Sua parte · ${esc(r.title)} · Mesa ${r.table}</span>
+      <span class="ser" style="font-size:34px;line-height:1">${money(due,r.cur)}</span>
+      ${tip?`<span class="nt">Inclui ${brl(tipAmt,r.cur)} de serviço, que vai pra equipe da casa. É opcional:
+        <button class="tb" data-t="${tip.id}">tirar</button></span>`:''}
+    </div>
+    <div class="sec" style="gap:10px">
+      <div class="pix">${esc(pixPayload({key:r.pix.key,name:r.pix.name,city:r.pix.city,amount:due,
+        ref:'RACHA'+comanda(r)}))}</div>
+      <div class="bts"><button class="bt p" data-c="1">Copiar Pix</button>
+        <button class="bt s" data-p="1">Já paguei</button></div>
+      <p class="nt">O Pix vai direto pro ${esc(r.title)}. O Racha não segura dinheiro de ninguém.</p>
+    </div>`
+    :`<div class="sec" style="gap:6px">
+      <span class="lbl">Sua parte · ${esc(r.title)} · Mesa ${r.table}</span>
+      <span class="ser" style="font-size:34px;line-height:1">Paga</span>
+      <span class="nt">${brl(mine?mine.paid:0,r.cur)} recebidos pela casa.</span></div>`}
+
+    <div class="sec"><span class="mi rule">A mesa</span>
+      <div class="rw"><span class="g"><span class="n">Já pago à casa</span></span><i class="lead"></i>
+        <span class="amt">${money(paid,r.cur,{noSym:true})}</span><span class="chev" style="visibility:hidden">›</span></div>
+      <div class="rw"><span class="g"><span class="n">Falta na mesa</span>
+        ${others.length?`<span class="lbl">${esc(names(others,r))} ainda não ${others.length===1?'pagou':'pagaram'}</span>`:''}</span>
+        <i class="lead"></i><span class="amt">${money(remaining,r.cur,{noSym:true})}</span><span class="chev" style="visibility:hidden">›</span></div>
+      ${s.unassigned.length?`<div class="rw"><span class="g"><span class="n" style="color:var(--warn)">${s.unassigned.length} item sem dono</span>
+        <span class="lbl">${esc(s.unassigned.map(i=>i.n).join(', '))} — entra na conta de quem assumir</span></span>
+        <i class="lead"></i><span class="amt" style="color:var(--warn)">${money(s.unassignedTotal,r.cur,{noSym:true})}</span><span class="chev" style="visibility:hidden">›</span></div>`:''}
+    </div>
   </div>`;
-  el('settleb').querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{
-    const d=el('x'+b.dataset.x); d.hidden=!d.hidden;});
   el('settleb').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{
     b.textContent='Copiado'; setTimeout(()=>b.textContent='Copiar Pix',1500);});
   el('settleb').querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{
-    const t=settlePlan(balances(focus)).transfers[+b.dataset.p];
-    focus.payments.push({by:t.from,amount:t.amount,confirmed:true});
+    // In production the PSP webhook confirms this; here the tap stands in for it.
+    focus.payments.push({by:ME,amount:myDue(focus),confirmed:true});
     refresh(); renderSettle(); if(stateOf(focus).done)burst();});
+  el('settleb').querySelectorAll('[data-t]').forEach(c=>c.onclick=()=>{
+    const e=focus.extras.find(x=>x.id===c.dataset.t); e.on=!e.on; refresh(); renderSettle();});
 }
 function closeSheets(){
   document.querySelectorAll('.sh').forEach(s=>s.classList.remove('on'));
@@ -2498,7 +2505,7 @@ el('obNext').onclick=()=>obShow(2);
 document.querySelectorAll('[data-door]').forEach(b=>b.onclick=()=>obFinish(b.dataset.door));
 
 function drawProof(){
-  const r=RACHAS.find(x=>x.id==='gui'), sp=split(r);
+  const r=RACHAS.find(x=>x.closed)||RACHAS[0], sp=split(r);
   const n=sp.shares.length, word=['','uma','duas','três','quatro','cinco'][n]||n;
   const cells=sp.shares.map((sh,i)=>
     `<span style="animation-delay:${200+i*100}ms">
@@ -2532,7 +2539,7 @@ const COL=[0,226,452,678,904,1130], ROW=[58,428,798,1168];
 /* Miniatures. Real classes, real copy, real numbers where they matter — the
    point of the map is to be checkable against the app, not to be pretty. */
 function minis(){
-  const r=RACHAS[0], sp=split(r), gui=RACHAS.find(x=>x.id==='gui');
+  const r=RACHAS[0], sp=split(r), gui=RACHAS.find(x=>x.closed)||RACHAS[0];
   const money=(c,cur)=>brl(c,cur||CUR.BRL);
   const dish=(n,seed,size)=>`<canvas data-mdish="${esc(n)}" data-mseed="${esc(seed)}"
     data-msize="${size}" style="width:96%;height:96%"></canvas>`;
