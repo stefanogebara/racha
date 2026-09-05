@@ -551,6 +551,12 @@ function Dish({ name }: { name: string }) {
   return <i className="dish" style={dishMask(cat)} aria-hidden="true" />;
 }
 
+/**
+ * `?embed=1` — a landing mostra a conta ao vivo como um ESTADO, não como o app
+ * inteiro: fica a comanda, a divisão e o valor do Pix; somem campos, carteiras
+ * e rodapé (CSS `.shell.embed`). Nada muda no comportamento; só no que aparece.
+ */
+const EMBED = new URLSearchParams(window.location.search).get('embed') === '1';
 function Shell({ children }: { children: React.ReactNode }) {
-  return <main className="shell">{children}</main>;
+  return <main className={EMBED ? 'shell embed' : 'shell'}>{children}</main>;
 }

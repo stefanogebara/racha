@@ -1,65 +1,114 @@
 /**
- * Raiz sem token de mesa = primeira impressão (desktop, prospect, investidor,
- * revisor de KYC clicando o "site do recebedor"). Antes era uma linha morta
- * ("Escaneie o QR…"); agora é uma mini-landing com demo ao vivo.
+ * A landing — raiz sem token de mesa.
  *
- * Decisão de produto (não mudar sem re-decidir): DINER NÃO TEM LOGIN — "sem
- * app, sem cadastro" é o wedge (pesquisa sunday/inKind: fricção no checkout
- * mata a adoção na mesa). Login existe onde ganha o lugar: dono (/admin) e,
- * no saldo da casa, identidade progressiva por telefone (OTP de recuperação
- * é o v2 anotado em docs/house-accounts).
+ * Uma composição, um trilho. Grade de 12: títulos nas colunas 1–4, conteúdo
+ * nas 5–12, em toda seção. O herói é uma linha só: manchete à esquerda, o
+ * produto AO VIVO à direita — numa moldura de tela, não num telefone de
+ * mentira (o cliente usa o navegador; não tem app). A prova (a conta da demo
+ * dividida por três, ao centavo) é a peça central, em seção própria, largura
+ * toda: três partes em três colunas iguais, a legenda presa à parte de ouro.
+ * Serif itálica só na manchete e nos numerais; UM acento na página. A
+ * ilustração fica onde trabalha — nas linhas da conta, dentro do produto.
  */
 import { LangToggle, useT } from './lang';
+import { money } from './i18n';
+import { splitEqualLocal } from './split';
 
-const DEMO_MESA = '/?t=demoracha';
+const DEMO = '/?t=demoracha';
+const EMBED = `${DEMO}&embed=1`; // o mesmo produto, mostrado como um estado
+const PROOF_TOTAL = 23710;   // a conta da demo, em centavos
+const PROOF_PEOPLE = 3;
+
+// "1 · Scanned" → "Scanned": o ordinal vem da espinha, não do texto.
+const stripOrdinal = (s: string) => s.replace(/^\d+\s*·\s*/, '');
 
 export default function Home() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const parts = Array.from({ length: PROOF_PEOPLE }, (_, i) => splitEqualLocal(PROOF_TOTAL, PROOF_PEOPLE, i)).sort((a, b) => a - b);
+  const fmt = (c: number) => money(c, lang);
+  const steps = [
+    [t('home.step1'), t('home.step1d')],
+    [t('home.step2'), t('home.step2d')],
+    [t('home.step3'), t('home.pixDirect')],
+  ];
+  const claims = [t('land.house0'), t('land.house2'), t('land.house3'), t('land.house1'), t('land.house4')];
+
   return (
-    <main className="shell">
-      {/* O herói da landing: marca em serif itálico, uma frase, uma ação. */}
-      <header className="hero">
-        <span className="marca">racha</span>
-        <h1>{t('home.h1')}</h1>
-        <p className="sub">{t('home.lede')}</p>
-        <div className="acoes">
-          <a className="cta" href={DEMO_MESA}>{t('home.demo')}</a>
-          <a className="ghost" href="/admin">{t('home.iAmVenue')}</a>
-        </div>
+    <main className="landing">
+      <header className="topo env">
+        <a className="marca" href="/">racha</a>
+        <nav>
+          <a href="/admin">{t('land.nav')}</a>
+          <LangToggle compact />
+        </nav>
       </header>
 
-      <section className="card">
-        <div className="t-secao"><h2>{t('home.how')}</h2></div>
-        <div className="passo">
-          <b>{t('home.step1')}</b>
-          <span>{t('home.step1d')}</span>
+      <section className="heroi env">
+        <div className="copy">
+          <p className="eyebrow">{t('land.eyebrow')}</p>
+          <h1>
+            <span>{t('land.h1a')}</span>
+            <em>{t('land.h1b')}</em>
+          </h1>
+          <p className="sub">{t('land.sub')}</p>
+          <a className="btn" href={DEMO}>{t('land.try')}</a>
+          {/* Os três gestos vivem ao lado do produto que os mostra. */}
+          <ol className="passos">
+            {steps.map(([title, desc], i) => (
+              <li key={i}>
+                <span className="num">{String(i + 1).padStart(2, '0')}</span>
+                <span className="tit">{stripOrdinal(title)}</span>
+                <span className="desc">{desc}</span>
+              </li>
+            ))}
+          </ol>
         </div>
-        <div className="passo">
-          <b>{t('home.step2')}</b>
-          <span>{t('home.step2d')}</span>
-        </div>
-        <div className="passo">
-          <b>{t('home.step3')}</b>
-          <span>{t('home.pixDirect')}</span>
-        </div>
-        <p className="muted small">
-          {t('home.legal')}
-        </p>
+
+        {/* O produto de verdade, rodando, INTEIRO — da conta ao botão de pagar.
+            Moldura de fio, sem bisel, sem 9:41: é uma página web, e isso é o
+            argumento. Passa da dobra de propósito; quem rola vê o resto. */}
+        <a className="tela" href={DEMO} aria-label="Racha — demo ao vivo">
+          <iframe title="Racha — demo ao vivo" src={EMBED} loading="eager" tabIndex={-1} />
+        </a>
       </section>
 
-      <section className="card">
-        <div className="t-secao"><h2>{t('home.houseBalance')}</h2></div>
-        <p className="muted">
-          {t('home.balancePitch')}
+      <section className="prova env">
+        <p className="eyebrow">{t('land.proofTitle')}</p>
+        <p className="eq">
+          <span className="n">{fmt(PROOF_TOTAL)}</span>
+          <span className="op" aria-label="÷"><i /><b /><i /></span>
+          <span className="n">{PROOF_PEOPLE}</span>
+          <span className="op igual" aria-label="="><b /><b /></span>
         </p>
+        {/* Três colunas da grade (1, 5, 9): a parte de ouro cai na coluna onde a
+            tela do herói começa. A legenda é uma linha inteira, não um sussurro. */}
+        <ol className="partes">
+          {parts.map((c, i) => (
+            <li key={i} className={c !== parts[0] ? 'acento' : undefined}><span className="n">{fmt(c)}</span></li>
+          ))}
+        </ol>
+        <p className="cap">{t('land.proofCap')}</p>
       </section>
 
-      <footer className="foot" style={{ flexDirection: 'column', gap: 6, textAlign: 'center' }}>
-        <LangToggle compact />
+      {/* Para a casa: prosa, não outra lista numerada. Cinco frases, uma voz. */}
+      <section className="secao env grade casa">
+        <h2 className="h2">{t('land.venueTitle')}</h2>
+        <div>
+          <div className="manifesto">
+            {claims.map((c, i) => <p key={i}>{c}</p>)}
+          </div>
+          <a className="link" href="/admin">{t('land.openPanel')} <span aria-hidden="true">→</span></a>
+        </div>
+      </section>
+
+      <footer className="rodape env">
+        <hr />
         <span>{t('app.tagline')}</span>
-        <span>
-          Racha — 65.087.663 Stefano Chap Chap Gebara · CNPJ 65.087.663/0001-30 · São Paulo, SP
-        </span>
+        <nav>
+          <a href={DEMO}>{t('land.try')}</a>
+          <a href="/admin">{t('land.nav')}</a>
+        </nav>
+        <span className="legal">Racha · CNPJ 65.087.663/0001-30 · São Paulo, SP</span>
       </footer>
     </main>
   );

@@ -41,6 +41,7 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'share.item',   // "item" / "item"
     'gate.email',   // "e-mail" nos dois
     'card.demoCard',// "•••• 4242 (demo)" — número, não frase
+    'cat.couvert',  // "Couvert" é francês nas duas
   ]);
   const copied = entries.filter(([k, p]) => p.en === p.pt && !same.has(k)).map(([k]) => k);
   assert.deepEqual(copied, [], `chaves não traduzidas: ${copied.join(', ')}`);

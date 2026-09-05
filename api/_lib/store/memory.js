@@ -72,7 +72,7 @@ function createMemoryStore() {
     });
     return venues.get(id);
   }
-  function _mkTable(venueId, label) {
+  function _mkTable(venueId, label, fixedToken) {
     if (!venues.has(venueId)) throw new Error('unknown venue');
     if (!label || !String(label).trim()) throw new Error('table label required');
     const trimmed = String(label).trim();
@@ -84,7 +84,10 @@ function createMemoryStore() {
         throw new Error('duplicate table label');
       }
     }
-    const qrToken = crypto.randomUUID().replace(/-/g, '');
+    // A fixed token is a SEED-ONLY affordance: prod tables always rotate
+    // random tokens. The landing's live phone points at `demoracha`, which the
+    // Supabase store has and the memory store otherwise would not.
+    const qrToken = fixedToken || crypto.randomUUID().replace(/-/g, '');
     const id = crypto.randomUUID();
     const row = { id, venueId, label: trimmed, qrToken, qrRotatedAt: null, active: true, training: false };
     tables.set(qrToken, row);
@@ -139,7 +142,7 @@ function createMemoryStore() {
 
     // --- tables / QR --------------------------------------------------------
     async createTable(venueId, label) { return _mkTable(venueId, label); },
-    seedTable(venueId, label) { return _mkTable(venueId, label); },
+    seedTable(venueId, label, fixedToken) { return _mkTable(venueId, label, fixedToken); },
     async listTables(venueId) {
       return [...tableById.values()]
         .filter((t) => t.venueId === venueId)

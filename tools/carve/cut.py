@@ -73,7 +73,7 @@ def fit(ink):
     # to earn mass, and a solid salad bowl is allowed to stay the heaviest thing
     # in the book. Never past the canvas — scaling past it silently CROPS, which
     # is what made five of these come out at an identical 4.3%.
-    s = min(max((TARGET_MASS / max(at1, 1e-4)) ** 0.5, 0.70), 1.0 / BOX)
+    s = min(max((TARGET_MASS / max(at1, 1e-4)) ** 0.5, 0.62), 1.0 / BOX)
     inner = min(int(round(OUT * BOX * s)), OUT)
     small = Image.fromarray((sq * 255).astype(np.uint8)).resize((inner, inner), Image.LANCZOS)
     out = Image.new('L', (OUT, OUT), 0)

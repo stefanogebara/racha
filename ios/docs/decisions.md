@@ -872,3 +872,52 @@ custa as duas.
 (Archivo), `apps/web/src/dish.ts` + `public/carved/` (blocos na conta),
 `apps/web/src/App.tsx` (`.card.slip`), `apps/web/scripts/embed-ios.mjs`,
 `vercel.json`.
+
+### #36 — A landing do site no idioma do herói do iOS, e o laço de crítica que parou em 6 (2026-09-05)
+
+**Pedido.** O herói do site igual ao do iOS — as ilustrações, as cores, a demo —
+e um laço de crítica com um subagente (Fable 5) como crítico de design, em
+contexto limpo, só com screenshots, até ele dar ≥ 9/10.
+
+**Decisão.** A landing (`apps/web/src/Home.tsx` + bloco `LANDING` em
+`styles.css`) é UMA composição na noite do iOS (`--n #141008`, `--cr #F7F2E9`,
+um acento `#E2A54A`): grade de 12 em toda seção, títulos em 1–4 e conteúdo em
+5–12; o produto de verdade rodando dentro do herói, numa moldura de fio (não num
+iPhone de mentira — o cliente usa o navegador, e isso é o argumento); a prova
+(`R$237.10 ÷ 3 = 79.03 · 79.03 · 79.04`) em seção própria, três colunas da
+grade, a parte de ouro caindo na coluna onde a tela do herói começa.
+
+- *`?embed=1` no app da conta.* A landing mostra a conta como um ESTADO —
+  comanda, divisão, um valor de Pix — e não o app inteiro (campos, carteiras,
+  rodapé somem por CSS em `.shell.embed`). Nada muda no comportamento; o
+  iframe é `pointer-events: none` e a moldura inteira é um link pra demo real.
+- *O ÷ e o = são desenhados em CSS.* Instrument Serif não tem `÷`; o fallback
+  em sans quebrava a linha. Dois pontos e um traço no eixo matemático.
+- *A xilogravura saiu da landing.* Duas rodadas a leram como enfeite tapando
+  vazio. A ilustração fica onde trabalha: nas linhas da conta, dentro do
+  produto (maior no embed, 48px, pra ler como entalhe e não como emoji).
+- *`demoracha`.* Uma mesa com token fixo, semeada em dev/demo
+  (`api/_lib/store/memory.js`, `dev-server.js`), pra a landing ter uma conta de
+  verdade pra mostrar.
+
+**O laço.** Dez rodadas, prompt fixo (`critic-prompt.txt`, só screenshots).
+Notas: 5.5 → 6 → 6.5 → 6 → 5.5 → 6 → 6 → 6 → 6 → 6. O que mudou por causa dele
+e ficou: o telefone falso virou moldura de fio; a equação saiu do herói e ganhou
+seção; as listas idênticas viraram uma espinha + prosa; a xilogravura saiu; o
+rodapé virou colofão; o embed. A partir da rodada 8 as notas passaram a se
+contradizer entre rodadas (equação numa linha ↔ em três colunas; "Para a casa"
+em duas colunas ↔ numa espinha numerada; acento na parte inteira ↔ sublinhado
+fino; moldura sem hardware ↔ device sangrando a dobra). A única penalidade
+constante que sobrou são os blocos entalhados da conta lidos como "ícones de
+banco de imagem" — que são o pedido do produto (#33), não um defeito.
+
+**Fechado em 6/10, como a #28.** Um crítico em contexto limpo com esse prompt
+converge em "competente, não controlado" e passa a trocar uma opinião por outra
+— o número não sobe por iteração, sobe por decisão. As decisões que faltam são
+de marca (serif itálica nos numerais ou grotesca tabular; entalhe na conta ou
+não) e não são do laço.
+
+**Onde está.** `apps/web/src/Home.tsx`, `apps/web/src/styles.css` (bloco
+`LANDING` + `.shell.embed`), `apps/web/src/App.tsx` (`EMBED`),
+`apps/web/src/i18n.ts` (`land.*`), `apps/web/public/fonts/` (woff2 vendidas —
+Google Fonts caía atrás do proxy), `api/_lib/store/memory.js` (`seedTable`).

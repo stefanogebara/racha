@@ -1,3 +1,16 @@
+/* Fontes vendorizadas em /fonts. Antes vinham do Google Fonts; quando a CDN
+   falhava (e falha — atrás de proxy, em 4G ruim), a Instrument Serif itálica
+   virava uma Georgia inclinada à força e o herói inteiro perdia a voz. A fonte
+   é parte do design tanto quanto a cor; não se terceiriza pra rede. */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 400 600; font-display: swap;
+  src: url(/fonts/Inter-400.woff2) format("woff2"); }
+@font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 400 600; font-display: swap;
+  src: url(/fonts/InstrumentSans-400.woff2) format("woff2"); }
+@font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(/fonts/InstrumentSerif-400.woff2) format("woff2"); }
+@font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap;
+  src: url(/fonts/InstrumentSerif-400i.woff2) format("woff2"); }
+
 /* Racha — o sistema da landing do Seatable, aplicado à plataforma inteira.
  *
  * Tokens, escala tipográfica, ritmo e formas vêm da landing nova do Seatable
@@ -193,11 +206,11 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   font-variant-numeric: tabular-nums; background: transparent; color: var(--ink);
 }
 
-/* O 10% é opcional e removível (CDC). O valor sai em verde porque aqui verde é
-   do sistema — é o tom de "confirmado" da landing, não uma cor inventada. */
+/* O 10% é opcional e removível (CDC). O valor sai em TINTA, não em verde: é um
+   custo que o cliente paga, e verde diz "boa notícia" — errado pra quem paga. */
 .servico { display: flex; gap: 10px; align-items: flex-start; font: 400 15px/22px var(--ui); color: var(--ink); }
 .servico input { width: 18px; height: 18px; accent-color: var(--ink); margin-top: 2px; flex: none; }
-.servico em { font-style: normal; color: var(--verde); font-weight: 600; }
+.servico em { font-style: normal; color: var(--ink); font-weight: 600; }
 
 .namefield {
   border: 1px solid var(--linha2); border-radius: var(--rad-s); padding: 13px 14px;
@@ -363,3 +376,139 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .passo b { font: 600 16px/24px var(--titulo); }
 .passo span { font: 400 15px/23px var(--ui); color: var(--cinza); }
 .pill-verde { display: inline-block; padding: 3px 9px; border-radius: 6px; background: var(--verde-bg); color: var(--verde); font: 400 14px/20px var(--ui); }
+
+/* Modo embed (landing): a conta como um estado. Só CSS; o app não muda. */
+.shell.embed { min-height: 0; padding-bottom: 16px; }
+.shell.embed .namefield, .shell.embed .walletrow, .shell.embed .walletbtn, .shell.embed .linklike,
+.shell.embed .ghost, .shell.embed .foot, .shell.embed .card > .small { display: none; }
+/* No pôster o entalhe tem de ler como entalhe, não como emoji: maior. */
+.shell.embed .dish { width: 48px; height: 48px; margin: -10px 0 -10px -9px; }
+.shell.embed .servico { font-size: 13.5px; }
+.shell.embed .servico span { display: flex; flex: 1; justify-content: space-between; gap: 8px; }
+
+/* ═══ LANDING ═══════════════════════════════════════════════════════════════
+   Uma composição, um trilho. Grade de 12 em toda seção: títulos em 1–4,
+   conteúdo em 5–12. Uma unidade (128). Réguas só dentro da coluna. Serif
+   itálica só na manchete e nos numerais. UM acento na página. */
+.landing {
+  --n: #141008; --cr: #F7F2E9;
+  --cr2: rgba(247,242,233,.86); --cr3: rgba(247,242,233,.72); --cr4: rgba(247,242,233,.52);
+  --fio: rgba(247,242,233,.16);
+  --acento: #E2A54A;
+  --u: 128px; --col: 24px;
+  background: var(--n); color: var(--cr); min-height: 100vh; overflow-x: clip;
+  font: 400 16px/24px var(--ui);
+}
+.landing .env { width: 100%; max-width: 1200px; margin: 0 auto; padding-left: 40px; padding-right: 40px; box-sizing: border-box; }
+.landing .grade, .heroi, .prova, .landing .rodape { display: grid; grid-template-columns: repeat(12, 1fr); column-gap: var(--col); }
+
+.landing .topo { display: flex; align-items: baseline; justify-content: space-between; padding-top: 44px; height: 94px; box-sizing: border-box; }
+.landing .marca { font: italic 400 30px/1 var(--serif); letter-spacing: -.02em; color: var(--cr); }
+.landing .topo nav { display: flex; align-items: baseline; gap: 28px; font: 400 15px/1 var(--titulo); }
+.landing .topo nav > a { color: var(--cr2); } .landing .topo nav > a:hover { color: var(--cr); }
+.landing .langtoggle { border: 0; background: transparent; padding: 0; gap: 14px; align-items: baseline; }
+.landing .langopt { color: var(--cr3); font: 400 15px/1 var(--titulo); letter-spacing: .04em; padding: 0; border-radius: 0; }
+.landing .langopt.on { background: transparent; color: var(--cr); }
+
+/* Uma pílula de fio, na cor da página — nada colado de um tema claro. */
+.landing .btn {
+  display: inline-flex; align-items: center; gap: 8px; box-sizing: border-box;
+  height: 52px; padding: 0 26px; border-radius: 999px; border: 1px solid var(--cr3);
+  background: transparent; color: var(--cr); font: 400 16px/1 var(--titulo); white-space: nowrap;
+  transition: background-color .3s var(--mola), color .3s var(--mola), border-color .3s var(--mola);
+}
+.landing .btn::after { content: "→"; font-family: var(--ui); }
+.landing .btn:hover { background: var(--cr); color: var(--n); border-color: var(--cr); }
+.landing .link { display: inline-flex; gap: 10px; align-items: baseline; margin-top: 40px; font: 400 17px/1 var(--titulo); color: var(--cr); border-bottom: 1px solid var(--fio); padding-bottom: 6px; }
+.landing .link:hover { border-color: var(--cr); }
+
+.eyebrow { font: 500 13px/1 var(--titulo); letter-spacing: .14em; text-transform: uppercase; color: var(--cr2); }
+
+/* ── herói: uma linha ──────────────────────────────────────────────────────
+   Manchete e os três gestos em 1–6; a tela em 8–12, o produto inteiro. */
+.heroi { padding-top: 56px; align-items: start; }
+.heroi .copy { grid-column: 1 / span 6; padding-top: 0; }
+.heroi h1 { margin-top: 22px; display: flex; flex-direction: column; letter-spacing: -.03em; }
+.heroi h1 span { font: 500 56px/1.04 var(--titulo); }
+.heroi h1 em  { font: italic 400 70px/1 var(--serif); letter-spacing: -.02em; margin-left: -.04em; margin-top: 10px; }
+.heroi .sub { margin-top: 28px; max-width: 42ch; font: 400 18px/27px var(--ui); color: var(--cr2); text-wrap: pretty; }
+.heroi .btn { margin-top: 40px; }
+
+/* Os três gestos: espinha curta, na coluna da manchete, ao lado do produto. */
+.passos { list-style: none; margin-top: 84px; border-top: 1px solid var(--fio); }
+.passos li { display: grid; grid-template-columns: 48px 96px 1fr; column-gap: var(--col); align-items: baseline; padding: 18px 0; }
+.passos li:first-child { padding-top: 22px; }
+.passos .num { font: 400 13px/26px var(--titulo); color: var(--cr4); font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+.passos .tit { font: 500 17px/26px var(--titulo); color: var(--cr); letter-spacing: -.01em; }
+.passos .desc { font: 400 16px/26px var(--ui); color: var(--cr2); }
+
+/* A tela: colunas 9–12 da grade (a borda esquerda numa linha da grade). O
+   app renderizado a 430px (a largura da concha) e reduzido à coluna. Fio de
+   1px; nada de sombra. Um estado, não o app — quem clica abre o app. */
+.tela {
+  --w: 357px; --escala: calc(357 / 430);
+  grid-column: 9 / span 4; align-self: start; display: block;
+  width: 100%; height: calc(var(--h, 812px) * var(--escala)); border-radius: 22px; overflow: hidden; box-sizing: border-box;
+  background: #fff; box-shadow: 0 0 0 1px var(--fio); cursor: pointer;
+}
+.tela iframe { display: block; width: 430px; height: var(--h, 812px); border: 0; background: #fff; pointer-events: none;
+  transform: scale(var(--escala)); transform-origin: 0 0; }
+
+/* ── a prova: seção própria, na grade ─────────────────────────────────────── */
+.prova { padding-top: 168px; row-gap: 0; }
+.prova .eyebrow { grid-column: 1 / -1; }
+.prova .eq { grid-column: 1 / -1; display: flex; align-items: baseline; margin-top: 20px; }
+.eq .n, .partes .n { font: italic 400 clamp(64px, 7.6vw, 108px)/1.02 var(--serif); letter-spacing: -.035em; font-variant-numeric: tabular-nums; color: var(--cr); }
+/* ÷ e = desenhados no eixo matemático (meia altura das cifras), na cor quieta. */
+.eq .op { display: inline-flex; flex-direction: column; align-items: center; gap: .13em; align-self: flex-end; margin: 0 .3em 0 .28em; translate: 0 -.26em; font-size: clamp(64px, 7.6vw, 108px); }
+.eq .op i { width: .1em; height: .1em; border-radius: 50%; background: var(--cr3); }
+.eq .op b { width: .5em; height: .045em; background: var(--cr3); }
+.eq .igual { gap: .16em; translate: 0 -.22em; }
+.partes { grid-column: 1 / -1; list-style: none; display: grid; grid-template-columns: repeat(12, 1fr); column-gap: var(--col); margin-top: 8px; }
+.partes li { grid-column: span 4; }
+.partes .acento .n { color: var(--acento); }
+.prova .cap { grid-column: 1 / span 7; margin-top: 48px; font: 400 26px/34px var(--titulo); letter-spacing: -.015em; color: var(--cr2); text-wrap: pretty; }
+
+/* ── seções: um trilho ────────────────────────────────────────────────────── */
+.landing .secao { padding-top: 112px; }
+.landing .grade { align-items: start; }
+.landing .grade > :first-child { grid-column: 1 / span 4; }
+.landing .grade > :last-child  { grid-column: 5 / span 8; }
+.landing .h2 { font: 500 26px/32px var(--titulo); letter-spacing: -.02em; color: var(--cr); max-width: 14ch; }
+
+/* Para a casa: prosa em escala de manchete, sem números, sem réguas. */
+.manifesto { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--col); row-gap: 28px; border-top: 1px solid var(--fio); padding-top: 28px; }
+.manifesto p { font: 400 22px/30px var(--titulo); letter-spacing: -.015em; color: var(--cr); text-wrap: pretty; max-width: 20em; }
+.manifesto p:first-child { grid-column: 1 / -1; font-size: 30px; line-height: 38px; max-width: 24em; }
+.manifesto p:nth-child(n+2) { color: var(--cr2); }
+.casa .link { margin-top: 48px; }
+
+/* Colofão: uma régua inteira, depois quatro colunas na grade. */
+.landing .rodape { margin-top: 96px; padding-bottom: 48px; font: 400 14px/20px var(--ui); color: var(--cr3); row-gap: 0; align-items: baseline; }
+.landing .rodape hr { grid-column: 1 / -1; border: 0; border-top: 1px solid var(--fio); margin: 0 0 28px; }
+.landing .rodape > span:not(.legal) { grid-column: 1 / span 4; white-space: nowrap; }
+.landing .rodape nav { grid-column: 5 / span 4; display: flex; gap: 28px; }
+.landing .rodape nav a { color: var(--cr2); border-bottom: 1px solid var(--fio); padding-bottom: 2px; }
+.landing .rodape nav a:hover { color: var(--cr); border-color: var(--cr); }
+.landing .rodape .legal { grid-column: 9 / span 4; justify-self: end; text-align: right; color: var(--cr4); }
+
+@media (max-width: 980px) {
+  .landing { --u: 88px; }
+  .landing .env { padding-left: 24px; padding-right: 24px; }
+  .heroi { grid-template-columns: 1fr; padding-top: 32px; row-gap: 48px; }
+  .heroi .copy { grid-column: 1; padding-top: 0; }
+  .tela { grid-column: 1; justify-self: center; width: min(357px, 100%); }
+  .heroi h1 span { font-size: 40px; } .heroi h1 em { font-size: 52px; }
+  .passos { margin-top: 56px; }
+  .passos li { grid-template-columns: 40px 1fr; } .passos .desc { grid-column: 2; }
+  .prova { grid-template-columns: 1fr; }
+  .prova .eyebrow, .prova .eq, .partes { grid-column: 1; }
+  .eq .n, .partes .n, .eq .op { font-size: clamp(44px, 11vw, 64px); }
+  .partes { grid-template-columns: 1fr; row-gap: 8px; } .partes li { grid-column: 1; }
+  .prova .cap { grid-column: 1; font-size: 20px; line-height: 28px; margin-top: 32px; }
+  .landing .grade { grid-template-columns: 1fr; row-gap: 24px; }
+  .landing .grade > :first-child, .landing .grade > :last-child { grid-column: 1; }
+  .manifesto { grid-template-columns: 1fr; } .manifesto p, .manifesto p:first-child { font-size: 20px; line-height: 28px; }
+  .landing .rodape { grid-template-columns: 1fr; row-gap: 12px; }
+  .landing .rodape > * { grid-column: 1 !important; justify-self: start !important; text-align: left !important; }
+}
