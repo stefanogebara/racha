@@ -1,0 +1,219 @@
+/**
+ * O dicionário e a matemática de apresentação — puro, sem React, sem DOM.
+ *
+ * Separado do `.tsx` de propósito e não por gosto: o `node --test` do Node 22
+ * tira TIPOS sozinho, mas não transforma JSX. Com o dicionário dentro do
+ * arquivo de componentes, nada disto seria testável sem trazer um bundler pro
+ * caminho dos testes. É a mesma regra do `_lib/` do servidor: o que é puro fica
+ * puro e é testado à exaustão.
+ */
+export type Lang = 'en' | 'pt';
+export const LANGS: Lang[] = ['en', 'pt'];
+export const STORAGE_KEY = 'racha-lang';
+
+type Pair = { en: string; pt: string };
+
+/** `{name}` é substituído pelos valores passados em `vars`. */
+export function fill(s: string, vars?: Record<string, string | number>): string {
+  if (!vars) return s;
+  return s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+}
+
+export const DICT = {
+  // ── cabeçalho / geral ───────────────────────────────────────────────────
+  'app.tagline':      { en: 'racha · no app, no sign-up',      pt: 'racha · sem app, sem cadastro' },
+  'lang.label':       { en: 'Language',                        pt: 'Idioma' },
+  'lang.en':          { en: 'English',                         pt: 'Inglês' },
+  'lang.pt':          { en: 'Português',                       pt: 'Português' },
+  'common.loading':   { en: 'loading the bill…',               pt: 'carregando a conta…' },
+  'common.back':      { en: '← back to the bill',              pt: '← voltar pra conta' },
+  'common.optional':  { en: 'optional',                        pt: 'opcional' },
+
+  // ── a conta ─────────────────────────────────────────────────────────────
+  'check.yours':      { en: 'Your bill',                       pt: 'Sua conta' },
+  'check.tapYours':   { en: ' · tap what was yours',           pt: ' · toque o que foi seu' },
+  'check.total':      { en: 'Total',                           pt: 'Total' },
+  'check.paidSoFar':  { en: '{paid} already paid — {left} to go',
+                        pt: '{paid} já pagos — falta {left}' },
+  'check.allPaid':    { en: 'Bill fully paid. Have a good night!',
+                        pt: 'Conta paga por completo. Boa noite!' },
+  'check.offline':    { en: 'no connection — amounts may be out of date',
+                        pt: 'sem conexão — valores podem estar desatualizados' },
+
+  // ── sua parte ───────────────────────────────────────────────────────────
+  'share.title':      { en: 'Your share',                      pt: 'Sua parte' },
+  'share.equal':      { en: 'Equally',                         pt: 'Igual' },
+  'share.byItem':     { en: 'By item',                         pt: 'Por item' },
+  'share.custom':     { en: 'Other amount',                    pt: 'Outro valor' },
+  'share.splitAmong': { en: 'Split among',                     pt: 'Dividir entre' },
+  'share.people':     { en: 'people',                          pt: 'pessoas' },
+  'share.fewer':      { en: 'fewer people',                    pt: 'menos pessoas' },
+  'share.more':       { en: 'more people',                     pt: 'mais pessoas' },
+  'share.each':       { en: '{amount} each',                   pt: '{amount} por pessoa' },
+  'share.overTotal':  { en: ' — the split is over the bill total, not over what is left',
+                        pt: ' — a divisão é sobre o total da conta, não sobre o que falta' },
+  'share.pickItems':  { en: 'Tap the items that were yours in the bill above — service follows your share.',
+                        pt: 'Toque os itens que foram seus na conta ↑ — o serviço acompanha a sua parte.' },
+  'share.picked':     { en: '{n} {noun} · your share {amount}', pt: '{n} {noun} · sua parte {amount}' },
+  'share.item':       { en: 'item',                            pt: 'item' },
+  'share.items':      { en: 'items',                           pt: 'itens' },
+  'share.capped':     { en: 'Adjusted to what is still owed ({left}) — the rest is already paid.',
+                        pt: 'Ajustado pro que ainda falta na conta ({left}) — o resto já foi pago.' },
+
+  // ── serviço (CDC: sempre removível) ─────────────────────────────────────
+  'servico.label':    { en: 'Staff service ({pct}% of your share) — optional',
+                        pt: 'Serviço da equipe ({pct}% da sua parte) — opcional' },
+
+  // ── identificação ───────────────────────────────────────────────────────
+  'payer.name':       { en: 'Your name (optional)',            pt: 'Seu nome (opcional)' },
+  'payer.cpf':        { en: 'Your CPF (required to pay)',      pt: 'Seu CPF (obrigatório pra pagar)' },
+  'payer.cpfHint':    { en: 'Enter your CPF (11 digits) to enable payment.',
+                        pt: 'Preencha seu CPF (11 dígitos) pra liberar o pagamento.' },
+
+  // ── pagar ───────────────────────────────────────────────────────────────
+  'pay.cta':          { en: 'Pay {amount} with Pix',           pt: 'Pagar {amount} com Pix' },
+  'pay.retry':        { en: '{error} — the bill was refreshed, check the amount and try again.',
+                        pt: '{error} — a conta foi atualizada, confira o valor e tente de novo.' },
+  'pix.title':        { en: 'Pay with Pix',                    pt: 'Pague com Pix' },
+  'pix.includesTip':  { en: 'includes {amount} of service for the staff',
+                        pt: 'inclui {amount} de serviço para a equipe' },
+  'pix.copy':         { en: 'Copy Pix code',                   pt: 'Copiar código Pix' },
+  'pix.copied':       { en: 'Code copied ✓',                   pt: 'Código copiado ✓' },
+  'pix.how':          { en: 'Open your bank app, choose Pix copy-and-paste and paste the code.',
+                        pt: 'Abra o app do seu banco, escolha Pix copia-e-cola e cole o código.' },
+  'pix.aria':         { en: 'Pix copy and paste',              pt: 'Pix copia e cola' },
+  'pix.stillValid':   { en: 'no connection — the code below is still valid',
+                        pt: 'sem conexão — o código abaixo continua valendo' },
+  'pix.simulate':     { en: '✓ Simulate bank confirmation (demo)',
+                        pt: '✓ Simular confirmação do banco (demo)' },
+  'pix.simulating':   { en: 'confirming…',                     pt: 'confirmando…' },
+
+  // ── pago ────────────────────────────────────────────────────────────────
+  'paid.title':       { en: 'Payment confirmed',               pt: 'Pagamento confirmado' },
+  'paid.thanks':      { en: 'Thanks, {name}! ',                pt: 'Valeu, {name}! ' },
+  'paid.yours':       { en: 'Your share is paid.',             pt: 'Sua parte está paga.' },
+  'paid.progress':    { en: '{paid} of {total} paid',          pt: '{paid} de {total} pagos' },
+  'paid.left':        { en: ' — {left} to go',                 pt: ' — falta {left}' },
+  'paid.closed':      { en: ' — bill closed 🎉',               pt: ' — conta fechada 🎉' },
+  'paid.payMore':     { en: 'Pay another share',               pt: 'Pagar mais uma parte' },
+
+  // ── saldo da casa ───────────────────────────────────────────────────────
+  'house.pay':        { en: 'Pay with balance ({amount} available)',
+                        pt: 'Pagar com saldo ({amount} disponível)' },
+  'house.discover':   { en: 'Discover the house balance',      pt: 'Conheça o saldo da casa' },
+  'house.bonus':      { en: 'Discover the house balance — get {pct}% bonus',
+                        pt: 'Conheça o saldo da casa — ganhe {pct}% de bônus' },
+
+  // ── erros do servidor, por código ───────────────────────────────────────
+  'err.check_not_found':  { en: 'Bill not found.',             pt: 'Conta não encontrada.' },
+  'err.check_closed':     { en: 'This bill is already closed.', pt: 'Esta conta já foi fechada.' },
+  'err.amount_over':      { en: 'Amount is more than what is left ({left}).',
+                            pt: 'Valor acima do que falta ({left}).' },
+  'err.amount_invalid':   { en: 'Invalid amount.',             pt: 'Valor inválido.' },
+  'err.zero_charge':      { en: 'Nothing to charge.',          pt: 'Cobrança de valor zero.' },
+  'err.rate_limited':     { en: 'Too many attempts — wait a few minutes.',
+                            pt: 'Muitas tentativas — aguarde alguns minutos.' },
+  'err.no_card':          { en: 'This restaurant does not take card yet.',
+                            pt: 'Este restaurante ainda não aceita cartão.' },
+  'err.generic':          { en: 'Something went wrong. Try again.',
+                            pt: 'Algo deu errado. Tente de novo.' },
+
+  // ── landing (/) ─────────────────────────────────────────────────────────
+  'home.how':         { en: 'How it works',                    pt: 'Como funciona' },
+  'home.scan':        { en: 'Scan the QR on your table…',      pt: 'Escaneie o QR…' },
+  'home.forVenues':   { en: 'For restaurants and bars',        pt: 'Para restaurantes e bares' },
+  'home.pixDirect':   { en: 'Pix straight into the restaurant’s account',
+                        pt: 'Pix direto na conta do restaurante' },
+  'home.houseBalance':{ en: 'House balance',                   pt: 'Saldo da casa' },
+
+  // ── painel do restaurante ───────────────────────────────────────────────
+  'panel.loading':    { en: 'loading the floor…',              pt: 'carregando o salão…' },
+  'panel.activation': { en: 'Activation — last 7 days',        pt: 'Ativação — últimos 7 dias' },
+  'panel.noMovement': { en: 'no movement in the last 7 days.', pt: 'sem movimento nos últimos 7 dias.' },
+  'panel.recon':      { en: 'Reconciliation',                  pt: 'Conciliação' },
+  'panel.reconOk':    { en: 'Everything matches ✓ — {n} bills checked at {time}',
+                        pt: 'Tudo bate ✓ — {n} contas conferidas às {time}' },
+  'panel.reconDrift': { en: 'Mismatch between the ledger and the payments.',
+                        pt: 'Divergência entre o registro e os pagamentos.' },
+  'panel.reconManual':{ en: 'This does not fix itself, on purpose.',
+                        pt: 'Isso não corrige sozinho, de propósito.' },
+  'panel.noAnomaly':  { en: 'no anomalies ✓',                  pt: 'nenhuma anomalia ✓' },
+  'panel.tip':        { en: 'staff service (payroll)',         pt: 'serviço da equipe (folha)' },
+
+  // ── carteira ────────────────────────────────────────────────────────────
+  'wallet.open':      { en: 'Open your wallet',                pt: 'Abrir sua carteira' },
+  'wallet.create':    { en: 'Create wallet',                   pt: 'Criar carteira' },
+  'wallet.yourName':  { en: 'Your name',                       pt: 'Seu nome' },
+  'wallet.phone':     { en: 'Phone with area code (digits only)',
+                        pt: 'Telefone com DDD (só números)' },
+  'wallet.balance':   { en: 'Your balance',                    pt: 'Seu saldo' },
+  'wallet.topUp':     { en: 'Top up balance',                  pt: 'Carregar saldo' },
+  'wallet.topUpPix':  { en: 'Top up with Pix',                 pt: 'Carregar com Pix' },
+  'wallet.pitch':     { en: 'Top up by Pix and pay the bill straight from your phone.',
+                        pt: 'Carregue saldo por Pix e pague a conta direto do celular.' },
+  'wallet.paidBal':   { en: 'Paid balance',                    pt: 'Saldo pago' },
+  'wallet.bonus':     { en: 'Promotional bonus',               pt: 'Bônus promocional' },
+  'wallet.refundable':{ en: 'Paid balance never expires and is refundable.',
+                        pt: 'Saldo pago não expira e é reembolsável.' },
+  'wallet.noMoves':   { en: 'no activity yet.',                pt: 'nenhuma movimentação ainda.' },
+  'wallet.exists':    { en: 'Account already exists — ask for your link at the counter',
+                        pt: 'Conta já existe — peça seu link no balcão' },
+  'wallet.badLink':   { en: 'Invalid link — ask for a new one at the counter.',
+                        pt: 'Link inválido — peça um novo no balcão.' },
+  'wallet.atTable':   { en: 'Pay at the table',                pt: 'Pagamento na mesa' },
+
+  // ── pagar com saldo ─────────────────────────────────────────────────────
+  'housepay.cta':     { en: 'Pay with balance',                pt: 'Pagar com saldo' },
+  'housepay.done':    { en: 'Paid with balance',               pt: 'Pago com saldo' },
+  'housepay.tipApart':{ en: 'Staff service (tip) goes separately, by Pix.',
+                        pt: 'O serviço da equipe (gorjeta) vai separado, pelo Pix.' },
+
+  // ── carteiras de cartão ─────────────────────────────────────────────────
+  'card.gpayOut':     { en: 'Google Pay unavailable',          pt: 'Google Pay indisponível' },
+  'card.gpayFail':    { en: 'could not load Google Pay',       pt: 'não deu para carregar o Google Pay' },
+  'card.demoNote':    { en: 'simulation (demo) — no real charge is made',
+                        pt: 'simulação (demo) — nenhuma cobrança real é feita' },
+  'card.validateFail':{ en: 'could not validate the payment',  pt: 'não deu para validar o pagamento' },
+  'card.incomplete':  { en: 'payment not completed',           pt: 'pagamento não concluído' },
+  'card.word':        { en: 'card',                            pt: 'cartão' },
+
+  // ── login do restaurante ────────────────────────────────────────────────
+  'gate.title':       { en: 'racha · restaurant area',         pt: 'racha · área do restaurante' },
+  'gate.signUp':      { en: 'Create account',                  pt: 'Criar conta' },
+  'gate.haveAccount': { en: 'I already have an account',       pt: 'Já tenho conta' },
+  'gate.forgot':      { en: 'Forgot password',                 pt: 'Esqueci a senha' },
+  'gate.emailFirst':  { en: 'Type your e-mail first.',         pt: 'Digite seu e-mail primeiro.' },
+  'gate.resetSent':   { en: 'We sent a reset link to your e-mail.',
+                        pt: 'Enviamos um link de redefinição pro seu e-mail.' },
+  'gate.created':     { en: 'Account created! Check your e-mail to confirm, then sign in.',
+                        pt: 'Conta criada! Confira seu e-mail pra confirmar e depois entre.' },
+
+  // ── cartões de QR ───────────────────────────────────────────────────────
+  'qr.scanToPay':     { en: 'Scan to see the bill, split it and pay by Pix',
+                        pt: 'Escaneie para ver a conta, dividir e pagar no Pix' },
+  'qr.sheetNote':     { en: 'racha · one card per table, 2 per A4 sheet',
+                        pt: 'racha · um cartão por mesa, 2 por folha A4' },
+} satisfies Record<string, Pair>;
+
+export type Key = keyof typeof DICT;
+
+
+/**
+ * Dinheiro. A MOEDA não muda com o idioma — a conta é em reais nos dois casos,
+ * e "R$" continua "R$". O que muda é a separação: um leitor de inglês lê
+ * "R$ 1.234,56" como mil e duzentos reais e trinta e quatro centavos errados.
+ */
+export function money(cents: number, lang: Lang): string {
+  return (cents / 100).toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US', {
+    style: 'currency', currency: 'BRL',
+  });
+}
+
+/** Tradução de um erro do servidor pelo CÓDIGO, com o texto dele como reserva. */
+export function tError(lang: Lang, code: string | undefined, fallback: string,
+                       vars?: Record<string, string | number>): string {
+  const key = `err.${code}` as Key;
+  if (code && key in DICT) return fill(DICT[key][lang], vars);
+  return fallback;   // servidor antigo ou erro novo: o texto cru é melhor que nada
+}
+

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+
+import { LangToggle } from './lang';import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
 import AdminRecipient from './AdminRecipient';
@@ -102,7 +103,7 @@ function Onboarding() {
           {busy ? 'criando…' : 'Criar restaurante'}
         </button>
       </section>
-      <footer className="foot"><span>racha · gestão</span></footer>
+      <footer className="foot"><span>racha · gestão</span><LangToggle compact /></footer>
     </main>
   );
 }
@@ -145,7 +146,7 @@ function VenueAdminSurface({ venueId }: { venueId: string }) {
         <ManageView admin={admin} venueId={venueId} onPrint={setPrinting} onConfigure={() => setMode('wizard')} />
       )}
 
-      <footer className="foot"><span>racha · o QR de cada mesa abre a conta do cliente</span></footer>
+      <footer className="foot"><span>racha · o QR de cada mesa abre a conta do cliente</span><LangToggle compact /></footer>
     </main>
   );
 }

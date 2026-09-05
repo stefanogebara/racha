@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { LangToggle, useT } from './lang';
 import { brl, type PanelAtivacao } from './api';
 import { authedReq, signOut } from './auth';
 
@@ -37,6 +38,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function Panel() {
+  const { t } = useT();
   const venueId = useMemo(
     () => new URLSearchParams(window.location.search).get('v') ?? '',
     [],
@@ -60,7 +62,7 @@ export default function Panel() {
   }, [refresh]);
 
   if (error) return <main className="shell wide"><p className="muted center">{error}</p></main>;
-  if (!data) return <main className="shell wide"><p className="muted center">carregando o salão…</p></main>;
+  if (!data) return <main className="shell wide"><p className="muted center">{t('panel.loading')}</p></main>;
 
   return (
     <main className="shell wide">
@@ -76,7 +78,7 @@ export default function Panel() {
         </div>
         <div className="stat">
           <b className="mono">{brl(data.today.tipsCents)}</b>
-          <span>serviço da equipe (folha)</span>
+          <span>{t('panel.tip')}</span>
         </div>
         <div className="stat">
           <b className="mono">{data.today.anomalies}</b>
@@ -113,6 +115,7 @@ export default function Panel() {
       </section>
 
       <footer className="foot">
+        <LangToggle compact />
         <span>racha · painel atualiza sozinho a cada 4s</span>
       </footer>
     </main>
@@ -134,11 +137,12 @@ const hhmm = (iso: string) =>
  * a que quebra restaurante.
  */
 function Conciliacao({ r }: { r: Reconcile | undefined }) {
+  const { t } = useT();
   if (!r) return null; // backend antigo ainda no ar — o resto do painel segue de pé
   const vermelho = r.severity === 'critical' || r.severity === 'high';
   return (
     <section className="panel">
-      <p className="label">Conciliação</p>
+      <p className="label">{t('panel.recon')}</p>
       {vermelho ? (
         <>
           <p className="small" style={{ color: 'var(--red, #a3231f)' }}>
@@ -176,14 +180,15 @@ const ddmm = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
 
 /** Últimos 7 dias de uso — barras CSS proporcionais ao valor, sem lib de gráfico. */
 function Ativacao({ a }: { a: PanelAtivacao | undefined }) {
+  const { t } = useT();
   if (!a) return null; // backend antigo ainda no ar — o resto do painel segue de pé
   const vazio = a.semana.pagamentos === 0 && a.semana.contas === 0;
   const teto = Math.max(1, ...a.dias.map((d) => d.valorCents));
   return (
     <section className="panel">
-      <p className="label">Ativação — últimos 7 dias</p>
+      <p className="label">{t('panel.activation')}</p>
       {vazio ? (
-        <p className="muted small">sem movimento nos últimos 7 dias.</p>
+        <p className="muted small">{t('panel.noMovement')}</p>
       ) : (
         <>
           {a.dias.map((d) => (

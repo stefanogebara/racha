@@ -9,10 +9,12 @@
  * no saldo da casa, identidade progressiva por telefone (OTP de recuperação
  * é o v2 anotado em docs/house-accounts).
  */
+import { useT } from './lang';
 
 const DEMO_MESA = '/?t=demoracha';
 
 export default function Home() {
+  const { t } = useT();
   return (
     <main className="shell">
       <header className="head">
@@ -21,7 +23,7 @@ export default function Home() {
       </header>
 
       <section className="card">
-        <p className="label">Para restaurantes e bares</p>
+        <p className="label">{t('home.forVenues')}</p>
         <h1 style={{ margin: '4px 0 8px', fontSize: 28, lineHeight: 1.15 }}>
           A conta da mesa, resolvida no Pix.
         </h1>
@@ -39,7 +41,7 @@ export default function Home() {
       </section>
 
       <section className="card">
-        <p className="label">Como funciona</p>
+        <p className="label">{t('home.how')}</p>
         <div className="checkrow">
           <span>1 · Escaneou</span>
           <span className="muted small">o QR da mesa abre a conta na hora</span>
@@ -50,7 +52,7 @@ export default function Home() {
         </div>
         <div className="checkrow">
           <span>3 · Pagou</span>
-          <span className="muted small">Pix direto na conta do restaurante</span>
+          <span className="muted small">{t('home.pixDirect')}</span>
         </div>
         <p className="muted small">
           Serviço da equipe (gorjeta) rastreado separado, do jeito que a lei
@@ -60,7 +62,7 @@ export default function Home() {
       </section>
 
       <section className="card">
-        <p className="label">Saldo da casa</p>
+        <p className="label">{t('home.houseBalance')}</p>
         <p className="muted">
           Seu cliente carrega saldo via Pix e ganha bônus (ex.: +15%).
           Fidelidade que vira caixa antecipado — o saldo pago não expira e é

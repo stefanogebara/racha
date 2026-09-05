@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+
+import { LangToggle } from './lang';import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, brl, dmy, parseBrlToCents, HouseAccountView, HouseConfig, HouseLedgerEntry, HouseLoadResult } from './api';
 import { storeWallet } from './house';
 
@@ -222,7 +223,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
           .map((e, i) => <LedgerRow key={i} entry={e} />)}
       </section>
 
-      <footer className="foot"><span>racha · saldo da casa</span></footer>
+      <footer className="foot"><span>racha · saldo da casa</span><LangToggle compact /></footer>
     </Shell>
   );
 }
@@ -315,7 +316,7 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
           {config.validityDays} dias. Válido somente no {config.venueName}.
         </p>
       </section>
-      <footer className="foot"><span>racha · saldo da casa</span></footer>
+      <footer className="foot"><span>racha · saldo da casa</span><LangToggle compact /></footer>
     </Shell>
   );
 }

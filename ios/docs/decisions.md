@@ -690,3 +690,65 @@ pro código em vez de sumir.
 `ios/Racha/Imagery/CarvedSet.swift`, `DishImageView.swift`, `ios/lab/food.js`
 (`loadCarvedSet`, `printBlock`), `ios/lab/img/carved/`,
 `ios/scripts/check-carved-set.py`, `tools/carve/`.
+
+## 34 — Duas línguas, uma chave, inglês por padrão (2026-09-05)
+
+**Decisão.** A plataforma web inteira — cliente, painel, admin, carteira — fala
+inglês e português, com seletor no rodapé de toda tela e a escolha valendo pra
+todas elas. **Inglês é o padrão**, por pedido de produto.
+
+**A escolha que importa: o par é a unidade.** O dicionário guarda `{ en, pt }`
+JUNTOS em cada chave, em vez de dois objetos paralelos. Com dois objetos,
+acrescentar uma frase em inglês e esquecer a portuguesa **compila, passa no
+teste, e só aparece como uma frase em inglês no meio de uma tela em português**
+— no telefone de um cliente, num bar, na hora de pagar. Com o par, falta um
+lado e o TypeScript recusa. É o mesmo princípio do resto do repositório: o modo
+de falha silencioso é o inimigo, então tira-se o silêncio.
+
+**O servidor não manda texto de tela.** As mensagens de erro da API eram em
+português e iam direto pra UI — traduzir texto livre no cliente é impossível.
+Agora o servidor manda um `code` estável (`amount_over`, `check_closed`…) mais
+os **centavos crus**, e quem traduz e formata é o cliente, que sabe o idioma. Um
+servidor que formata dinheiro já escolheu uma língua por um leitor que ele não
+enxerga. Código desconhecido cai no texto cru do servidor — melhor que uma tela
+em branco quando o servidor for mais novo que o cliente.
+
+**O que NÃO é traduzido.** O rótulo da mesa ("Mesa 7", "Varanda 2") e as linhas
+do cardápio ("Picanha na chapa") são palavras do restaurante. A moldura da
+interface traduz; a placa da casa, não. Traduzir "Varanda 2" seria reescrever a
+sinalização de um cliente nosso.
+
+**A moeda não muda; a separação, sim.** A conta é em reais nos dois idiomas —
+trocar de língua não converte dinheiro. Mas "R$ 1.234,56" lido por um falante de
+inglês vale mil vezes menos do que é. Então `Intl` formata BRL com a separação
+do idioma: `R$ 1.234,56` / `R$1,234.56`.
+
+**Detalhes que custaram decisão:**
+
+- *O dicionário saiu do `.tsx` pro `.ts`.* O `node --test` do Node 22 tira tipos
+  sozinho mas **não transforma JSX** — com o dicionário junto dos componentes,
+  nada disso seria testável sem trazer um bundler pro caminho dos testes. E os
+  dois arquivos não podem se chamar `i18n`: o resolvedor escolhe o `.ts` e some
+  com os componentes sem dizer por quê. Ficou `i18n.ts` (puro) e `lang.tsx`
+  (React), na mesma regra do `_lib/` do servidor.
+- *O teste de placeholders.* `share.each` com `{amount}` num idioma e `{valor}`
+  no outro passa em qualquer teste de renderização e imprime `{valor}` literal
+  na tela. O teste compara os conjuntos de `{…}` entre as duas línguas.
+- *O teste de "tradução idêntica"* pega a chave copiada e não traduzida. Três
+  são iguais de verdade — `Total`, `item`, `Português` — e estão numa lista
+  nomeada uma a uma, porque o jeito fácil de fazer esse teste passar é inventar
+  uma tradução, e aí ele deixa de valer alguma coisa.
+- *Dois botões, não um `select`.* Com duas opções, um menu esconde metade da
+  resposta atrás de um toque.
+
+**Ressalva de produto, registrada.** Padrão inglês num produto de mesa
+brasileiro significa que quem escaneia o QR num bar em Olímpia cai numa tela em
+inglês. Detectar o idioma do navegador (e cair no inglês quando não for pt) é
+uma linha em `readStored()` e serviria o cliente brasileiro sem tirar a escolha
+de ninguém. Foi pedido inglês como padrão e é o que está no ar; a alternativa
+fica anotada aqui pra quando o produto quiser.
+
+**Onde está.** `apps/web/src/i18n.ts` (dicionário, `money`, `tError`),
+`apps/web/src/lang.tsx` (contexto, `useT`, `LangToggle`),
+`apps/web/test/i18n.test.ts`, `api/_app/router.js` (códigos de erro),
+`apps/web/src/api.ts` (`ApiError.code`/`vars`), `CLAUDE.md`.

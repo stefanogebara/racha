@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, ApiError, brl, parseBrlToCents, CheckView, ChargeResult } from './api';
+import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
+import { LangToggle, money, tError, useT } from './lang';
 import Home from './Home';
 import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
@@ -20,6 +21,11 @@ import { computeShare, splitEqualLocal, type SplitMode } from './split';
 type Step = 'conta' | 'pagar' | 'pago' | 'saldo';
 
 export default function App() {
+  const { t, lang } = useT();
+  // A moeda não muda com o idioma — a conta é em reais nos dois casos. O que
+  // muda é a separação de milhar e decimal, senão um leitor de inglês lê
+  // "R$ 1.234,56" errado por uma ordem de grandeza.
+  const brl = useCallback((c: number) => money(c, lang), [lang]);
   const token = useMemo(
     () => new URLSearchParams(window.location.search).get('t') ?? '',
     [],
@@ -104,9 +110,10 @@ export default function App() {
       // conta carregada, a falha vira um aviso discreto e a tela fica de pé;
       // só a PRIMEIRA carga pode falhar em tela cheia, porque aí não há tela.
       setStale(true);
-      setError((e as Error).message);
+      const err = e as ApiError;
+      setError(tError(lang, err.code, err.message));
     }
-  }, [token]);
+  }, [token, lang]);
 
   useEffect(() => {
     if (!polling) return;
@@ -156,7 +163,7 @@ export default function App() {
   // Sem token de mesa = visita direta (desktop/prospect/KYC) → landing.
   if (!token) return <Home />;
   if (error && !view) return <Shell><p className="muted center">{error}</p></Shell>;
-  if (!view) return <Shell><p className="muted center">carregando a conta…</p></Shell>;
+  if (!view) return <Shell><p className="muted center">{t('common.loading')}</p></Shell>;
 
   const { venue, table, state } = view;
   const remaining = Math.max(0, state.totalCents - state.paidCents);
@@ -205,7 +212,11 @@ export default function App() {
     } catch (e) {
       // Alguém pagou primeiro (ou a conta mudou): recarrega e deixa o diner na
       // mesma tela, com o número já atualizado, pra tocar de novo.
-      setPayError((e as Error).message);
+      const err = e as ApiError;
+      // Os valores vêm do servidor em centavos crus; quem formata é quem sabe
+      // o idioma. Ver o comentário do amount_over no router.
+      setPayError(tError(lang, err.code, err.message,
+        err.vars ? { left: brl(Number(err.vars.leftCents ?? 0)) } : undefined));
       refresh();
     }
   }
@@ -241,29 +252,29 @@ export default function App() {
           <span className="venue">{venue.name}</span>
           <span className="mesa">{table.label}</span>
         </header>
-        {stale && <p className="muted small center">sem conexão — o código abaixo continua valendo</p>}
+        {stale && <p className="muted small center">{t('pix.stillValid')}</p>}
         <section className="pixcard">
-          <p className="label">Pague com Pix</p>
+          <p className="label">{t('pix.title')}</p>
           <p className="bigmoney">{brl(charge.amountCents + charge.tipCents)}</p>
           {charge.tipCents > 0 && (
-            <p className="muted small">inclui {brl(charge.tipCents)} de serviço para a equipe</p>
+            <p className="muted small">{t('pix.includesTip', { amount: brl(charge.tipCents) })}</p>
           )}
-          <div className="codebox" aria-label="Pix copia e cola">
+          <div className="codebox" aria-label={t('pix.aria')}>
             {(charge.copiaECola ?? '').slice(0, 64)}…
           </div>
           <button className="cta" onClick={onCopy}>
-            {copied ? 'Código copiado ✓' : 'Copiar código Pix'}
+            {copied ? t('pix.copied') : t('pix.copy')}
           </button>
           <p className="muted small center">
-            Abra o app do seu banco, escolha Pix copia-e-cola e cole o código.
+            {t('pix.how')}
           </p>
           {!demoGone && (
             <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
-              {confirming ? 'confirmando…' : '✓ Simular confirmação do banco (demo)'}
+              {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>
           )}
           {confirmError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{confirmError}</p>}
-          <button className="linklike" onClick={() => setStep('conta')}>← voltar pra conta</button>
+          <button className="linklike" onClick={() => setStep('conta')}>{t('common.back')}</button>
         </section>
       </Shell>
     );
@@ -274,20 +285,20 @@ export default function App() {
       <Shell>
         <section className="paid">
           <div className="paidmark">✓</div>
-          <h2>Pagamento confirmado</h2>
+          <h2>{t('paid.title')}</h2>
           <p className="muted">
-            {payerLabel ? `Valeu, ${payerLabel}! ` : ''}Sua parte está paga.
+            {payerLabel ? t('paid.thanks', { name: payerLabel }) : ''}{t('paid.yours')}
           </p>
           <div className="progresswrap">
             <div className="progressbar"><span style={{ width: `${progress}%` }} /></div>
             <p className="muted small">
-              {brl(state.paidCents)} de {brl(state.totalCents)} pagos
-              {remaining > 0 ? ` — falta ${brl(remaining)}` : ' — conta fechada 🎉'}
+              {t('paid.progress', { paid: brl(state.paidCents), total: brl(state.totalCents) })}
+              {remaining > 0 ? t('paid.left', { left: brl(remaining) }) : t('paid.closed')}
             </p>
           </div>
           {remaining > 0 && (
             <button className="cta" onClick={() => { setSelectedItems(new Set()); setStep('conta'); refresh(); }}>
-              Pagar mais uma parte
+              {t('paid.payMore')}
             </button>
           )}
         </section>
@@ -334,11 +345,11 @@ export default function App() {
         <span className="mesa">{table.label}</span>
       </header>
 
-      {stale && <p className="muted small center">sem conexão — valores podem estar desatualizados</p>}
+      {stale && <p className="muted small center">{t('check.offline')}</p>}
       <section className="card">
         <p className="label">
-          Sua conta
-          {mode === 'item' && remaining > 0 && <span className="muted small"> · toque o que foi seu</span>}
+          {t('check.yours')}
+          {mode === 'item' && remaining > 0 && <span className="muted small">{t('check.tapYours')}</span>}
         </p>
         <ul className={mode === 'item' && remaining > 0 ? 'items pickable' : 'items'}>
           {view.check.items.map((i) => {
@@ -368,13 +379,13 @@ export default function App() {
           })}
         </ul>
         <div className="totalrow">
-          <span>Total</span>
+          <span>{t('check.total')}</span>
           <span className="mono">{brl(state.totalCents)}</span>
         </div>
         {state.paidCents > 0 && (
           <div className="progresswrap">
             <div className="progressbar"><span style={{ width: `${progress}%` }} /></div>
-            <p className="muted small">{brl(state.paidCents)} já pagos — falta {brl(remaining)}</p>
+            <p className="muted small">{t('check.paidSoFar', { paid: brl(state.paidCents), left: brl(remaining) })}</p>
           </div>
         )}
       </section>
@@ -382,45 +393,49 @@ export default function App() {
       {remaining === 0 ? (
         <section className="card center">
           <p className="bigmoney">🎉</p>
-          <p>Conta paga por completo. Boa noite!</p>
+          <p>{t('check.allPaid')}</p>
         </section>
       ) : (
         <section className="card">
-          <p className="label">Sua parte</p>
+          <p className="label">{t('share.title')}</p>
           <div className="modes modes3" role="tablist">
             <button role="tab" aria-selected={mode === 'igual'} className={mode === 'igual' ? 'mode on' : 'mode'} onClick={() => setMode('igual')}>
-              Igual
+              {t('share.equal')}
             </button>
             <button role="tab" aria-selected={mode === 'item'} className={mode === 'item' ? 'mode on' : 'mode'} onClick={() => setMode('item')}>
-              Por item
+              {t('share.byItem')}
             </button>
             <button role="tab" aria-selected={mode === 'valor'} className={mode === 'valor' ? 'mode on' : 'mode'} onClick={() => setMode('valor')}>
-              Outro valor
+              {t('share.custom')}
             </button>
           </div>
 
           {mode === 'igual' && (
             <div className="stepperrow">
-              <span>Dividir entre</span>
+              <span>{t('share.splitAmong')}</span>
               <div className="stepper">
-                <button aria-label="menos pessoas" onClick={() => setPeople(Math.max(1, people - 1))}>−</button>
+                <button aria-label={t('share.fewer')} onClick={() => setPeople(Math.max(1, people - 1))}>−</button>
                 <strong>{people}</strong>
-                <button aria-label="mais pessoas" onClick={() => setPeople(Math.min(20, people + 1))}>+</button>
+                <button aria-label={t('share.more')} onClick={() => setPeople(Math.min(20, people + 1))}>+</button>
               </div>
-              <span>pessoas</span>
+              <span>{t('share.people')}</span>
             </div>
           )}
           {mode === 'igual' && (
             <p className="muted small itemhint">
-              {brl(splitEqualLocal(state.totalCents, people, 0))} por pessoa
-              {state.paidCents > 0 ? ' — a divisão é sobre o total da conta, não sobre o que falta' : ''}
+              {t('share.each', { amount: brl(splitEqualLocal(state.totalCents, people, 0)) })}
+              {state.paidCents > 0 ? t('share.overTotal') : ''}
             </p>
           )}
           {mode === 'item' && (
             <p className="muted small itemhint">
               {selectedItems.size === 0
-                ? 'Toque os itens que foram seus na conta ↑ — o serviço acompanha a sua parte.'
-                : `${selectedItems.size} ${selectedItems.size === 1 ? 'item' : 'itens'} · sua parte ${brl(cappedBase)}`}
+                ? t('share.pickItems')
+                : t('share.picked', {
+                    n: selectedItems.size,
+                    noun: t(selectedItems.size === 1 ? 'share.item' : 'share.items'),
+                    amount: brl(cappedBase),
+                  })}
             </p>
           )}
           {mode === 'valor' && (
@@ -437,38 +452,38 @@ export default function App() {
           <label className="servico">
             <input type="checkbox" checked={servicoOn} onChange={(e) => setServicoOn(e.target.checked)} />
             <span>
-              Serviço da equipe ({(venue.servicoBp / 100).toFixed(0)}% da sua parte) — opcional
+              {t('servico.label', { pct: (venue.servicoBp / 100).toFixed(0) })}
               <em>{servicoOn && servicoCents > 0 ? ` +${brl(servicoCents)}` : ''}</em>
             </span>
           </label>
 
           {share.capped && cappedBase > 0 && (
-            <p className="muted small">Ajustado pro que ainda falta na conta ({brl(remaining)}) — o resto já foi pago.</p>
+            <p className="muted small">{t('share.capped', { left: brl(remaining) })}</p>
           )}
 
           <input
-            className="namefield" maxLength={60} placeholder="Seu nome (opcional)"
+            className="namefield" maxLength={60} placeholder={t('payer.name')}
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
           <input
             id="cpf-field"
             className="namefield" inputMode="numeric" maxLength={14}
-            placeholder="Seu CPF (obrigatório pra pagar)"
+            placeholder={t('payer.cpf')}
             style={cpfHint && cpfDigits.length !== 11 ? { borderColor: 'var(--burgundy)' } : undefined}
             value={cpf}
             onChange={(e) => { setCpf(e.target.value); if (e.target.value.replace(/\D/g, '').length === 11) setCpfHint(false); }}
           />
           {cpfHint && cpfDigits.length !== 11 && (
-            <p className="small" style={{ color: 'var(--burgundy)' }}>Preencha seu CPF (11 dígitos) pra liberar o pagamento.</p>
+            <p className="small" style={{ color: 'var(--burgundy)' }}>{t('payer.cpfHint')}</p>
           )}
 
           {payError && (
             <p className="small" style={{ color: 'var(--burgundy)' }}>
-              {payError} — a conta foi atualizada, confira o valor e tente de novo.
+              {t('pay.retry', { error: payError })}
             </p>
           )}
           <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
-            Pagar {brl(totalToPay)} com Pix
+            {t('pay.cta', { amount: brl(totalToPay) })}
           </button>
           <WalletButtons
             token={token}
@@ -493,7 +508,7 @@ export default function App() {
           )}
           {house && house.balanceCents > 0 && (
             <button className="ghost" onClick={() => setStep('saldo')}>
-              Pagar com saldo ({brl(house.balanceCents)} disponível)
+              {t('house.pay', { amount: brl(house.balanceCents) })}
             </button>
           )}
           {!house && houseBonusBp !== null && (
@@ -502,15 +517,16 @@ export default function App() {
               onClick={() => { window.location.href = `/carteira?new=${encodeURIComponent(token)}`; }}
             >
               {houseBonusBp > 0
-                ? `Conheça o saldo da casa — ganhe ${(houseBonusBp / 100).toLocaleString('pt-BR')}% de bônus`
-                : 'Conheça o saldo da casa'}
+                ? t('house.bonus', { pct: (houseBonusBp / 100).toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US') })
+                : t('house.discover')}
             </button>
           )}
         </section>
       )}
 
       <footer className="foot">
-        <span>racha · sem app, sem cadastro</span>
+        <span>{t('app.tagline')}</span>
+        <LangToggle compact />
       </footer>
     </Shell>
   );

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useT } from './lang';
 import { QRCodeSVG } from 'qrcode.react';
 import type { TablesView, VenueTable } from './api';
 import { authedReq as req } from './auth';
@@ -20,6 +21,7 @@ const mesaTitle = (label: string) =>
   /^mesa\b/i.test(label.trim()) ? label.trim() : `Mesa ${label.trim()}`;
 
 export default function Qrs() {
+  const { t } = useT();
   const venueId = useMemo(() => new URLSearchParams(window.location.search).get('v') ?? '', []);
   const [data, setData] = useState<TablesView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,12 +68,13 @@ export default function Qrs() {
         </section>
       )}
 
-      <footer className="foot noprint"><span>racha · um cartão por mesa, 2 por folha A4</span></footer>
+      <footer className="foot noprint"><span>{t('qr.sheetNote')}</span></footer>
     </main>
   );
 }
 
 function QrCard({ venueName, table }: { venueName: string; table: VenueTable }) {
+  const { t } = useT();
   return (
     <article className="qrcard">
       <p className="qrvenue">{venueName}</p>
@@ -79,7 +82,7 @@ function QrCard({ venueName, table }: { venueName: string; table: VenueTable }) 
         <QRCodeSVG value={`${PROD_ORIGIN}/?t=${table.qrToken}`} size={190} level="M" marginSize={2} />
       </div>
       <h2 className="qrmesa">{mesaTitle(table.label)}</h2>
-      <p className="qrhint">Escaneie para ver a conta, dividir e pagar no Pix</p>
+      <p className="qrhint">{t('qr.scanToPay')}</p>
       <p className="qrperks">💳 Google Pay · 💰 Saldo da casa com bônus</p>
       <span className="qrbrand">racha</span>
     </article>

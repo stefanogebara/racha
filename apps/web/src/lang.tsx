@@ -1,0 +1,75 @@
+/**
+ * A casca React do idioma: contexto, hook e o seletor.
+ *
+ * O dicionário e a formatação vivem em `./i18n` — puros, sem React, e testados
+ * lá. O nome é outro de propósito: com os dois chamados `i18n`, o resolvedor
+ * escolhe o `.ts` e some com os componentes sem dizer por quê. Quem importa
+ * `./lang` quer React; quem importa `./i18n` quer as strings.
+ */
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { DICT, LANGS, STORAGE_KEY, fill, type Key, type Lang } from './i18n';
+
+export { DICT, LANGS, money, tError } from './i18n';
+export type { Key, Lang } from './i18n';
+
+/* ── contexto ─────────────────────────────────────────────────────────────── */
+
+function readStored(): Lang {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY);
+    if (v === 'en' || v === 'pt') return v;
+  } catch { /* storage bloqueado → fica no padrão */ }
+  return 'en';   // padrão do produto
+}
+
+const LangContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({
+  lang: 'en', setLang: () => {},
+});
+
+export function LangProvider({ children }: { children: React.ReactNode }) {
+  const [lang, setLangState] = useState<Lang>(readStored);
+  const setLang = useCallback((l: Lang) => {
+    setLangState(l);
+    try { localStorage.setItem(STORAGE_KEY, l); } catch { /* segue sem lembrar */ }
+    document.documentElement.lang = l === 'pt' ? 'pt-BR' : 'en';
+  }, []);
+  useEffect(() => { document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en'; }, [lang]);
+  const value = useMemo(() => ({ lang, setLang }), [lang, setLang]);
+  return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
+}
+
+export function useLang() { return useContext(LangContext); }
+
+export function useT() {
+  const { lang, setLang } = useLang();
+  const t = useCallback(
+    (key: Key, vars?: Record<string, string | number>) => fill(DICT[key][lang], vars),
+    [lang],
+  );
+  return { t, lang, setLang };
+}
+
+/**
+ * O seletor. Dois botões, não um menu: com duas opções, um `select` esconde
+ * metade da resposta atrás de um toque. Fica no rodapé em toda tela da
+ * plataforma — perto do fim, longe do botão de pagar.
+ */
+export function LangToggle({ compact = false }: { compact?: boolean }) {
+  const { lang, setLang } = useLang();
+  return (
+    <div className="langtoggle" role="group" aria-label={DICT['lang.label'][lang]}>
+      {LANGS.map((l) => (
+        <button
+          key={l}
+          type="button"
+          className={l === lang ? 'langopt on' : 'langopt'}
+          aria-pressed={l === lang}
+          lang={l === 'pt' ? 'pt-BR' : 'en'}
+          onClick={() => setLang(l)}
+        >
+          {compact ? l.toUpperCase() : DICT[`lang.${l}` as Key][lang]}
+        </button>
+      ))}
+    </div>
+  );
+}

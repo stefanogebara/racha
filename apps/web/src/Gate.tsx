@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useT, LangToggle } from './lang';
 import { onSession, signIn, signUp, signInWithGoogle, resetPassword, supabase } from './auth';
 
 /**
@@ -22,6 +23,7 @@ export default function Gate({ children }: { children: ReactNode }) {
 }
 
 function Login({ onDone }: { onDone: () => void }) {
+  const { t } = useT();
   const [mode, setMode] = useState<'in' | 'up'>('in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -96,10 +98,10 @@ function Login({ onDone }: { onDone: () => void }) {
           <button className="linklike" onClick={swap}>
             {mode === 'in' ? 'Criar conta' : 'Já tenho conta'}
           </button>
-          {mode === 'in' && <button className="linklike" onClick={forgot} disabled={busy}>Esqueci a senha</button>}
+          {mode === 'in' && <button className="linklike" onClick={forgot} disabled={busy}>{t('gate.forgot')}</button>}
         </div>
       </section>
-      <footer className="foot"><span>racha · área do restaurante</span></footer>
+      <footer className="foot"><span>{t('gate.title')}</span><LangToggle compact /></footer>
     </main>
   );
 }

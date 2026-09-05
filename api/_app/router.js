@@ -291,7 +291,7 @@ async function route(req, res) {
     if (req.method === 'GET' && url.pathname === '/api/check') {
       const token = url.searchParams.get('t') || '';
       let data = await store.getCheckByQrToken(token);
-      if (!data) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      if (!data) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       // Confirm-on-read: heal a missed webhook. If money is still owed, re-ask
       // the PSP about this check's pending charges (throttled per check,
       // best-effort — a slow/absent gateway must NEVER break the read). The
@@ -326,7 +326,7 @@ async function route(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/pay') {
       const body = JSON.parse(await readBody(req) || '{}');
       const view = await store.getCheckByQrToken(body.token || '');
-      if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
       // pelo PSP real — dinheiro fake mesmo com o app em live.
       const isDemo = (body.token || '') === DEMO_TABLE_TOKEN;
@@ -365,20 +365,23 @@ async function route(req, res) {
       const b = JSON.parse(await readBody(req) || '{}');
       if ((b.token || '') === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, error: 'a demo não usa cartão' });
       const view = await store.getCheckByQrToken(b.token || '');
-      if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       const venue = await store.getVenueForCheck(view.check.id);
       if (!venue || !venue.stripeAccountId || !/^acct_/.test(venue.stripeAccountId)) {
-        return json(res, 400, { success: false, error: 'este restaurante ainda não aceita cartão' });
+        return json(res, 400, { success: false, error: 'este restaurante ainda não aceita cartão', code: 'no_card' });
       }
       const amountCents = b.amountCents;
       const tipCents = b.tipCents ?? 0;
-      if (!Number.isSafeInteger(amountCents) || amountCents < 0) return json(res, 400, { success: false, error: 'amountCents inválido' });
+      if (!Number.isSafeInteger(amountCents) || amountCents < 0) return json(res, 400, { success: false, error: 'amountCents inválido', code: 'amount_invalid' });
       if (!Number.isSafeInteger(tipCents) || tipCents < 0) return json(res, 400, { success: false, error: 'tipCents inválido' });
-      if (amountCents + tipCents === 0) return json(res, 400, { success: false, error: 'cobrança de valor zero' });
+      if (amountCents + tipCents === 0) return json(res, 400, { success: false, error: 'cobrança de valor zero', code: 'zero_charge' });
       const state = reduce(await store.loadEvents(view.check.id));
-      if (!state || state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada' });
+      if (!state || state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada', code: 'check_closed' });
       const remaining = remainingCents(state);
-      if (amountCents > remaining) return json(res, 400, { success: false, error: `valor acima do que falta (${remaining} centavos)` });
+      if (amountCents > remaining) return json(res, 400, { success: false, error: `valor acima do que falta (${remaining} centavos)`,
+        // Centavos crus, não texto formatado: quem escolhe "R$ 12,34" ou
+        // "R$ 12.34" é o cliente, que sabe o idioma. Servidor não formata dinheiro.
+        code: 'amount_over', vars: { leftCents: remaining } });
       try {
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
         const charge = await stripePsp.createWalletCharge({
@@ -451,7 +454,7 @@ async function route(req, res) {
     }
     if (req.method === 'POST' && url.pathname === '/api/house/open') {
       if (!rateLimitOpen(req)) {
-        return json(res, 429, { success: false, error: 'Muitas tentativas — aguarde alguns minutos' });
+        return json(res, 429, { success: false, error: 'Muitas tentativas — aguarde alguns minutos', code: 'rate_limited' });
       }
       const b = JSON.parse(await readBody(req) || '{}');
       const data = await houseSvc.openAccount({
@@ -615,7 +618,7 @@ async function route(req, res) {
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.accountId) return json(res, 400, { success: false, error: 'accountId é obrigatório' });
       const venueId = await houseSvc.venueIdForAccount(b.accountId);
-      if (!venueId) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      if (!venueId) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const data = url.pathname.endsWith('refund')
@@ -669,7 +672,7 @@ async function route(req, res) {
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.checkId) return json(res, 400, { success: false, error: 'checkId é obrigatório' });
       const venue = await store.getVenueForCheck(b.checkId);
-      if (!venue) return json(res, 404, { success: false, error: 'conta não encontrada' });
+      if (!venue) return json(res, 404, { success: false, error: 'conta não encontrada', code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, venue.id); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       try {
