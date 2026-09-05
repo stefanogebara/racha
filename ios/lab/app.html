@@ -19,7 +19,7 @@
   /* The canvas is the bar at night: umbra, nearly black, warm, with one low
      light. Everything that used to be paper is now the dark table; the paper
      is reserved for the one object that is actually paper — the comanda. */
-  --night:#141008; --night-2:#1B1410; --night-3:#231B13;
+  --night:#141008; --night-2:#221B13; --night-3:#2A2118;
   /* One ground, one surface step. Depth is a hairline and a shade, not a light. */
   --surf:#1C1610; --surf-hi:#241C15;
   --cream:#F7F2E9;
@@ -32,7 +32,7 @@
      open, and nothing else. */
   /* One red, warm: the vermilion of a cordel cover, not a coral. Two tones of
      the same hue — this one on the table, a deeper one on the paper. */
-  --act:#DC4A2E; --act-2:#B93A22; --pos:rgba(247,242,233,.54);
+  --act:#E85C40; --act-2:#C4482E; --pos:rgba(247,242,233,.54);
   /* The paper is a duller, warmer cream than the action: three things were
      wearing the same colour and only one of them is a button. */
   --paper:#EEE5D3;
@@ -161,7 +161,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* A section rule in the ledger: the label and the hairline are one object. */
 .mi.rule{display:flex;align-items:center;gap:10px;color:var(--ink-3);
   font-size:12.5px;letter-spacing:0;text-transform:none;font-weight:500}
-.mi.rule::after{content:'';flex:1;height:1px;background:var(--rule)}
+.mi.rule::after{display:none}
 
 
 /* ── layers ───────────────────────────────────────────────────────────── */
@@ -190,14 +190,17 @@ b .cy,.net .cy{color:var(--ink-4)}
 .net b{font-family:var(--sans);font-stretch:62%;font-weight:850;font-size:104px;text-transform:uppercase;
   line-height:.86;letter-spacing:-.016em;font-variant-numeric:tabular-nums;display:block}
 .net .lbl{font-size:13.5px;color:var(--ink-2)}
+/* Red on the figure itself when the money is leaving you — the one rule, applied
+   first where it matters most. */
+.net b.owe,.standing b.owe{color:var(--act)}
+.net b.owe .cy,.standing b.owe .cy{color:var(--act);opacity:.7}
 /* Where the figure comes from: one row per open racha, in that racha's own
    currency. The poster number is the sum of the rows you can check it against. */
 .pos{display:flex;flex-direction:column;margin-top:10px;font-size:13.5px}
-.pos div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0;
-  border-top:1px solid var(--rule-2)}
+.pos div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 0}
 .pos .st{font-size:12.5px;color:var(--ink-3);margin-right:8px}
 .pos .cur{font-size:12.5px;color:var(--ink-3)}
-.pos div:first-child{border-top:none;padding-top:0}
+.pos div:first-child{padding-top:0}
 .pos .mo{font-size:14px}
 .pos .owe .mo{color:var(--act)}
 .pos .mo .cy{font-size:.85em}
@@ -210,7 +213,7 @@ b .cy,.net .cy{color:var(--ink-4)}
   border-radius:var(--rad);position:relative;isolation:isolate;
   transition:opacity .6s var(--ease),border-color .6s var(--ease)}
 /* Settled recedes — the picture and the figure, not the words. */
-.tile.done .shot{opacity:.7}
+.tile.done{border-color:var(--rule-2)}
 .tile.done .cap .t{color:var(--ink-2)}
 .tile:hover{border-color:rgba(247,242,233,.26)}
 /* The racha that is live carries a luminous border: a conic gradient turning
@@ -240,8 +243,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .cap .amt{font-family:var(--sans);font-size:14px;color:var(--ink)}
 .cap .v .st{font-size:12px;color:var(--ink-3)}
 .cap .v.owe .amt{color:var(--act)}
-.cap .v.quit{justify-content:flex-end}
-.cap .v.quit .amt{color:var(--ink-3);font-size:12.5px}
+.cap .v.quit .st{color:var(--ink-3)}
 .dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block;
   vertical-align:baseline;margin-bottom:1px;margin-right:6px;box-sizing:border-box}
 .dot.o{background:var(--ink-2)}
@@ -269,10 +271,10 @@ b .cy,.net .cy{color:var(--ink-4)}
    a second right margin on the same screen is the whole game lost: the point
    of the form is that the figures make a column you can run your eye down. */
 .led{display:flex;flex-direction:column;gap:0;font-size:14px;color:var(--ink-2)}
-.led>div{padding:10px 0;border-top:1px solid var(--rule-2)}
+.led>div{padding:9px 0}
 .led>div:first-child{border-top:none;padding-top:0}
 .led .mo,.slip .mo{font-size:15px;line-height:1;color:var(--ink)}
-.led .flag{font-size:12.5px;color:var(--act);margin-left:8px;white-space:nowrap}
+.led .flag{display:none}
 .led .dim .mo{color:var(--ink-4)}
 .led div{display:flex;gap:0;align-items:baseline;justify-content:space-between}
 .led div span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
@@ -283,7 +285,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .led .gap{display:none}
 /* Where you stand. The one figure on this screen you actually came for, given
    the room the rest of the page was leaving empty anyway. */
-.standing{display:flex;flex-direction:column;gap:6px;padding:26px 0 0}
+.standing{display:flex;flex-direction:column;gap:6px;padding:24px 0 0}
 .standing b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:104px;line-height:.86;
   letter-spacing:-.016em;text-transform:uppercase;display:block}
 .standing .lbl{font-size:13px;color:var(--ink-2)}
@@ -291,7 +293,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .cardtop{display:flex;justify-content:space-between;align-items:flex-start}
 .back{background:none;border:none;padding:6px 10px 6px 0;margin-left:-2px;cursor:pointer;
   color:var(--ink-2);font:inherit;font-size:13px;display:flex;align-items:center;gap:6px}
-.cardmeta{display:flex;flex-direction:column;gap:16px;padding-top:26px}
+.cardmeta{display:flex;flex-direction:column;gap:16px;padding-top:24px}
 .cardgap{flex:1;min-height:8px}
 .cardmeta h2{font-family:var(--serif);font-weight:400;font-size:40px;
   line-height:.98;letter-spacing:-.02em}
@@ -314,9 +316,10 @@ b .cy,.net .cy{color:var(--ink-4)}
   color:var(--night);padding:0;height:54px;border-radius:var(--rad);
   background:var(--cream);transition:transform .6s var(--ease),background .3s}
 .go:active{transform:scale(.985)}
-.go.sec{background:none;color:var(--ink-2);height:auto;padding:12px 0 0;font-weight:500;font-size:13.5px}
-.go.sec span{display:inline-block;border-bottom:1px solid var(--ink-4);padding-bottom:1px}
-.go.sec:hover{color:var(--ink)}
+/* The second action: a ghost of the first. Same height and radius, no fill. */
+.go.sec{background:none;color:var(--ink);height:48px;margin-top:10px;font-weight:500;font-size:15px;
+  border:1px solid var(--rule)}
+.go.sec:hover{border-color:var(--ink-4)}
 .go:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 
 /* ── thread ───────────────────────────────────────────────────────────── */
@@ -326,17 +329,16 @@ b .cy,.net .cy{color:var(--ink-4)}
 #thread{display:flex;flex-direction:column;background:transparent}
 
 
-.th-top{padding:56px 24px 12px;display:flex;flex-direction:column;gap:11px;
-  border-bottom:1px solid var(--rule-2)}
+.th-top{padding:56px 24px 12px;display:flex;flex-direction:column;gap:11px}
 .th-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .th-row .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;line-height:1.04;letter-spacing:-.02em}
 .tot{background:none;border:none;font:inherit;color:inherit;cursor:pointer;padding:0;
   display:flex;flex-direction:column;align-items:flex-end;gap:2px}
 .tot b{font-family:var(--sans);font-weight:500;font-size:13px;color:var(--ink-2);padding:6px 0}
 .scr.sheeted .tot{opacity:0}
-.slipwrap{padding:24px 24px 0;flex:none}
-.msgs{flex:1;overflow-y:auto;scrollbar-width:none;padding:20px 24px 10px;
-  display:flex;flex-direction:column;gap:18px}
+.slipwrap{padding:18px 24px 0;flex:none}
+.msgs{flex:1;overflow-y:auto;scrollbar-width:none;padding:22px 24px 8px;
+  display:flex;flex-direction:column;gap:13px}
 .msgs::-webkit-scrollbar{display:none}
 /* The bill itself, set as the slip it is. Mono figures, hairline rules, and a
    total that is ruled off — the one place in the app that looks like paper
@@ -345,7 +347,7 @@ b .cy,.net .cy{color:var(--ink-4)}
   background:var(--paper);padding:16px 16px 15px;align-self:stretch;position:relative;border-radius:var(--rad-s);
   /* paper on a dark table: the ink tokens flip inside it, and it alone may cast a shadow */
   --ink:#211C16;--ink-2:#4A4134;--ink-3:#6E6454;--ink-4:#968B76;--p-hi:var(--paper);
-  --rule:rgba(33,28,22,.12);--rule-2:rgba(33,28,22,.07);--act:#A8331C;
+  --rule:rgba(33,28,22,.14);--rule-2:rgba(33,28,22,.07);--act:#B23A1F;
   --leader:radial-gradient(circle at 1px 50%,#968B76 .8px,transparent .9px);
   box-shadow:none}
 /* Flat. A perforated edge drawn in CSS is the ticket icon every template
@@ -363,8 +365,8 @@ b .cy,.net .cy{color:var(--ink-4)}
 .rw .lead{flex:1 1 auto;min-width:12px}
 .slip .slip-h>i,.slip .slip-h{gap:14px}
 .slip .dim{color:var(--ink-4)}
-.slip .open{color:var(--act)}
-.slip-h{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+.slip .open{color:var(--ink-2)}
+.slip-h{font-size:12px;font-weight:500;letter-spacing:0;text-transform:none;
   color:var(--ink-3);padding-bottom:9px;justify-content:space-between!important;
   border-bottom:1px solid var(--rule);margin-bottom:2px}
 .slip-t{border-top:1px solid var(--ink);margin-top:6px;padding-top:9px;
@@ -408,8 +410,8 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* the edit ribbon — the product's promise, on screen */
 /* What the agent changed, as a record: a surface, one line per edit, the undo
    a real button. Not a quote — the quotes hang off a rule; this sits in a box. */
-.ed{display:flex;gap:12px;align-items:flex-start;width:100%;padding:10px 12px;
-  background:var(--surf);border:1px solid var(--rule-2);border-radius:var(--rad-s);
+.ed{display:flex;gap:12px;align-items:flex-start;width:100%;padding:9px 12px;
+  background:var(--surf);border:none;border-radius:var(--rad-s);
   animation:ep .34s var(--ease)}
 @keyframes ep{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .ed.x{opacity:.5}
@@ -431,31 +433,33 @@ b .cy,.net .cy{color:var(--ink-4)}
   display:flex;flex-direction:column;gap:10px;border-top:none}
 /* Suggestions are a line of things you could say, set as text. A row of pills
    is the one thing every assistant template ships with. */
-.chips{display:flex;flex-wrap:wrap;gap:4px 18px;flex:none;margin:2px 0 0;padding:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;flex:none;margin:2px 0 0;padding:0}
 .chips::-webkit-scrollbar{display:none}
 /* Pills: frosted glass, a border you can see. The same object as the state
    eyebrow, because they are the same kind of thing — a small, tappable fact. */
 /* The text button: full ink, a hairline under it. The one affordance a line of
    text needs to read as something you can press, and the same one Desfazer,
    the suggestions and the racha's second action all use. */
-.chip{font:inherit;font-size:13.5px;font-weight:500;white-space:nowrap;cursor:pointer;padding:4px 0 3px;
-  background:none;border:none;border-bottom:1px solid var(--ink-4);color:var(--ink);
+.chip{font:inherit;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;padding:8px 13px;
+  background:var(--surf);border:1px solid var(--rule);border-radius:999px;color:var(--ink);
   transition:border-color .3s var(--ease)}
-.chip:hover{border-color:var(--ink)}
+.chip:hover{border-color:var(--ink-4)}
 .chip[disabled]{opacity:.35;cursor:default}
 /* The suggested action is marked by ink weight, not by borrowing the brand
    colour. Oxblood is reserved for the one primary action on a screen. */
 .chip.a{color:var(--ink)}
-.ed button{border-bottom:1px solid var(--ink-4);padding-bottom:1px;line-height:1.3}
-.inp{display:flex;gap:14px;align-items:center;border-bottom:1px solid var(--rule);padding-bottom:8px}
+.ed button{color:var(--ink)}
+.inp{display:flex;gap:10px;align-items:center}
 /* The prompt is a line to write on, not a box to type in. */
-.fake{flex:1;font-size:15px;color:var(--ink-3);padding:0 0 1px;height:44px;display:flex;align-items:center;
-  background:none;border:none;border-radius:0}
+.fake{flex:1;font-size:15px;color:var(--ink-3);padding:0 14px;height:44px;display:flex;align-items:center;
+  background:var(--surf);border:1px solid var(--rule);border-radius:var(--rad)}
 /* A solid black disc is the stock assistant-composer send button, and it was
    the only pure black anywhere in this file. The send is a mark on the page. */
-.rnd{border:none;background:var(--cream);cursor:pointer;flex:none;font:inherit;font-size:14px;
-  font-weight:600;color:var(--night);padding:0 14px;height:36px;border-radius:var(--rad-s);letter-spacing:-.008em}
-.rnd:hover{background:#fff}
+/* The send mark waits for text: a surface with an arrow in the quiet ink until
+   there is something to send, then the cream fill. */
+.rnd{border:1px solid var(--rule);background:var(--surf);cursor:pointer;flex:none;width:44px;height:44px;
+  border-radius:var(--rad);color:var(--ink-4);display:grid;place-items:center;padding:0}
+.rnd.ready{background:var(--cream);color:var(--night);border-color:var(--cream)}
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
 .sh{position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.42);opacity:0;
@@ -465,8 +469,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 
 .shb{position:relative;z-index:1;width:100%;max-height:calc(100% - 118px);overflow-y:auto;overscroll-behavior:contain;
   scrollbar-width:none;background:var(--night-2);border-radius:var(--rad) var(--rad) 0 0;transform-origin:bottom;
-  border-top:1px solid var(--rule);
-  padding:16px 24px calc(24px + 34px);display:flex;
+  padding:22px 24px calc(24px + 34px);display:flex;
   flex-direction:column;gap:18px;transform:translateY(22px);
 
   transition:transform .34s var(--ease)}
@@ -477,13 +480,15 @@ b .cy,.net .cy{color:var(--ink-4)}
 .shb::-webkit-scrollbar{display:none}
 .shh{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;
   background:var(--night-2);padding:2px 0 8px;z-index:2}
+.shb::before{content:'';position:absolute;top:8px;left:50%;width:36px;height:5px;margin-left:-18px;
+  border-radius:3px;background:var(--ink-4)}
 
 .shh .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;letter-spacing:-.022em}
 .shh button{font:inherit;font-size:13px;font-weight:500;background:none;border:none;color:var(--ink-2);
   cursor:pointer;padding:4px 0}
 .shh button:hover{color:var(--ink)}
 .sec{display:flex;flex-direction:column;gap:0}
-.sec>div,.sec>.rw{padding:9px 0;border-bottom:1px solid var(--rule-2)}
+.sec>div,.sec>.rw{padding:11px 0}
 .sec>div:last-child,.sec>.rw:last-child{border-bottom:none}
 .sec>.mi{padding-bottom:9px}
 .rw{display:flex;align-items:flex-start;gap:11px;width:100%;background:none;border:none;
@@ -493,9 +498,11 @@ button.rw{cursor:pointer}
 .rw .g .n{font-size:14.5px}
 .rw .amt{font-family:var(--sans);font-size:16px;padding-top:2px;
   font-variant-numeric:tabular-nums}
-.der{display:flex;flex-direction:column;gap:7px;padding:0 0 12px 14px!important;margin-top:8px;
-  font-size:12.5px;color:var(--ink-2);border-bottom:none!important;
-  border-left:1px solid var(--rule);margin-left:2px}
+.rw .chev{color:var(--ink-4);font-size:18px;line-height:1;padding-top:1px;width:10px;text-align:center;
+  transition:transform .3s var(--ease)}
+.rw .chev.on{transform:rotate(90deg)}
+.der{display:flex;flex-direction:column;gap:7px;padding:0 0 10px 16px!important;margin-top:6px;
+  font-size:12.5px;color:var(--ink-2);border-bottom:none!important}
 .der div{padding:0!important;border:none!important}
 .der[hidden],[hidden]{display:none!important}
 .der div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
@@ -721,7 +728,8 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
               <circle cx="9.5" cy="10.5" r="3.2"/><path d="M6.5 4.5l1.2-2h3.6l1.2 2"/></svg>
           </button>
           <div class="fake">fala aí…</div>
-          <button class="rnd" aria-label="Enviar">Enviar</button>
+          <button class="rnd" aria-label="Enviar" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
         </div>
       </div>
     </section>
@@ -1008,7 +1016,7 @@ const RACHAS=[
    extras:[{id:'sv',label:'Serviço',kind:'pct',bp:1000,base:'cons',on:true,tip:true},
            {id:'cv',label:'Couvert',kind:'head',cents:1200,base:'heads',on:true}],
    payments:[{by:ME,amount:15000,confirmed:true}]},
-  {id:'gui',title:'Churrasco no Gui',kind:'Churrasco',date:'05 SET',cur:CUR.BRL,settled:true,
+  {id:'gui',title:'Churrasco no Gui',kind:'Churrasco',date:'5 SET',cur:CUR.BRL,settled:true,
    people:[ME,'Gui','Ju'],hero:'Linguiça',
    items:[
      {n:'Picanha',q:1,total:18900,claims:{[ME]:1,Gui:1,Ju:1}},
@@ -1032,7 +1040,7 @@ const RACHAS=[
      {n:'Gasolina',q:1,total:22000,claims:{[ME]:1,Gui:1,Pedro:1}}],
    extras:[{id:'sv',label:'Serviço',kind:'pct',bp:1000,base:'cons',on:true,tip:true}],
    payments:[{by:'Gui',amount:52800,confirmed:true}]},
-  {id:'sh',title:'Show no Circo',kind:'Rolê',date:'09 AGO',cur:CUR.BRL,settled:true,
+  {id:'sh',title:'Show no Circo',kind:'Rolê',date:'9 AGO',cur:CUR.BRL,settled:true,
    people:[ME,'Ju'],hero:'Ingresso',
    items:[
      {n:'Ingresso',q:2,total:24000,claims:{[ME]:1,Ju:1}},
@@ -1134,7 +1142,7 @@ function heroTarget(){
   // its illustration. Square, because the drawing is square.
   const pad=24, w=b.width-pad*2, h=Math.round(w*0.50);
   el('card').style.setProperty('--heroh', h+'px');
-  el('card').style.setProperty('--heroframe', '0');   // the plate sits on the page
+  el('scr').style.setProperty('--heroframe', '0');    // the plate sits on the page (#hero is #card's sibling)
   return{x:pad,y:96,w,h};
 }
 const lerp=(a,b,t)=>a+(b-a)*t;
@@ -1267,7 +1275,7 @@ function renderGrid(){
   el('net').innerHTML = (!rows.length)
     ? `<b style="font-size:64px">Tudo quite</b>`
     : `<span class="lbl">${net<0?'Em reais, entre amigos, você deve':net>0?'Em reais, entre amigos, te devem':'Em reais, entre amigos, quite'}</span>
-       ${net?`<b>${money(Math.abs(net))}</b>`:''}
+       ${net?`<b class="${net<0?'owe':''}">${money(Math.abs(net))}</b>`:''}
        <div class="pos">${rows.map(({r,v,d})=>`<div class="${v<0||(!v&&d)?'owe':''}">
          <span class="n">${esc(r.title)}${r.cur!==CUR.BRL?` <span class="cur">em ${esc(r.cur.name)}</span>`:''}</span>
          <span><span class="st">${v<0?'você deve':v>0?'te devem':'falta pagar à mesa'}</span>${
@@ -1289,8 +1297,8 @@ function renderGrid(){
         <span class="t">${esc(r.title)}</span>
         <span class="lbl">${r.date.toLowerCase()} · ${r.people.length} pessoas</span>
         <span class="v ${done?'quit':v<0||(!v&&d)?'owe':''}">
-          <span class="st">${done?'':v<0?'você deve':v>0?'te devem':d?'falta pagar':'em aberto'}</span>
-          ${done?`<span class="amt">quite</span>`:(v||d)?`<span class="amt">${money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</span>`:''}</span>
+          <span class="st">${done?'quite':v<0?'você deve':v>0?'te devem':d?'falta pagar':'em aberto'}</span>
+          ${done?'':(v||d)?`<span class="amt">${money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</span>`:''}</span>
       </span></button>`;}).join('');
 
   document.querySelectorAll('.tile canvas').forEach(cv=>{
@@ -1322,16 +1330,17 @@ function renderCard(){
     <div class="standing">
       ${(()=>{const v=myPosition(r);
         return done||!v?`<span class="lbl">${done?'Fechado':'Entre vocês'}</span><b>Quite</b>`
-        :`<span class="lbl">${v<0?'Você deve':'Te devem'}</span><b>${money(Math.abs(v),r.cur)}</b>`;})()}
+        :`<span class="lbl">${v<0?'Você deve':'Te devem'}</span><b class="${v<0?'owe':''}">${money(Math.abs(v),r.cur)}</b>`;})()}
     </div>
     <div class="cardmeta">
       <div class="led">
         <div><span>Sua parte</span><i></i><span>${money(mine?mine.owed:0,r.cur,{noSym:true})}</span></div>
         <div><span>Você pagou</span><i></i><span>${money(mine?mine.paid:0,r.cur,{noSym:true})}</span></div>
         <div><span>A conta</span><i></i><span>${money(s.total,r.cur,{noSym:true})}</span></div>
-        ${remaining?`<div><span>Falta pagar na mesa${s.unassigned.length
-            ?`<span class="flag">${s.unassigned.length} sem dono</span>`:''}</span><i></i>
+        ${remaining?`<div><span>Falta pagar na mesa</span><i></i>
           <span>${money(remaining,r.cur,{noSym:true})}</span></div>`:''}
+        ${s.unassigned.length?`<div><span>${s.unassigned.length} ${s.unassigned.length>1?'itens':'item'} sem dono</span><i></i>
+          <span>${money(s.unassignedTotal,r.cur,{noSym:true})}</span></div>`:''}
       </div>
     </div>
     <div class="cardgap"></div>
@@ -1400,7 +1409,7 @@ function comanda(r){ return String(fnv(r.id)%9000+1000); }
 function threadHead(){
   const r=focus,{s}=stateOf(r);
   return `<div class="slip">
-    <div class="slip-h"><span>Comanda ${comanda(r)}</span><span>${esc(r.date)}</span></div>
+    <div class="slip-h"><span>Comanda ${comanda(r)}</span><span>${esc(r.date.toLowerCase())}</span></div>
     ${s.shares.map(sh=>`<div><span>${esc(sh.p===ME?'Você':sh.p)}</span><i></i>
       <span>${money(sh.total,r.cur,{noSym:true})}</span></div>`).join('')}
     ${s.unassigned.length?`<div class="open"><span>${s.unassigned.length} sem dono</span><i></i>
@@ -1430,7 +1439,7 @@ function renderMsgs(){
 function renderChips(){
   const r=focus,{s,plan}=stateOf(r),out=[];
   if(s.unassigned.length)out.push({t:`Divide entre todos`,k:'assign',a:1});
-  if(plan.transfers.length)out.push({t:'Acertar',k:'settle',a:1});
+  if(plan.transfers.length)out.push({t:'Quem paga quem?',k:'settle',a:1});
   if(r.extras.some(e=>e.tip&&e.on))out.push({t:'Tirar serviço',k:'notip'});
   else if(r.extras.some(e=>e.tip))out.push({t:'Pôr serviço',k:'tip'});
   out.push({t:'Quanto eu pago?',k:'mine'});
@@ -1438,7 +1447,9 @@ function renderChips(){
   // Three. A suggestion row that runs off the edge is not a row of
   // suggestions, it is a list that has been squeezed into one — and the
   // chip sliced by the bezel is the first thing anyone notices.
-  el('chips').innerHTML=out.slice(0,3).map(o=>`<button class="chip ${o.a?'a':''}" data-k="${o.k}">${esc(o.t)}</button>`).join('');
+  // Two. A third wraps the row and pushes the first line of the conversation
+  // under the slip; two suggestions that fit are a row, three that wrap are a list.
+  el('chips').innerHTML=out.slice(0,2).map(o=>`<button class="chip ${o.a?'a':''}" data-k="${o.k}">${esc(o.t)}</button>`).join('');
   el('chips').querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>turn(b.dataset.k));
 }
 
@@ -1528,7 +1539,8 @@ function renderLedger(){
             bl.net===0 ? 'quite'
             : bl.paid ? 'pagou '+brl(bl.paid,r.cur)+(bl.net<0?', falta '+brl(-bl.net,r.cur):'')
             : bl.net>0 ? 'a receber '+brl(bl.net,r.cur) : 'ainda não pagou'}</span></span>
-          <i class="lead"></i><span class="amt">${money(sh.total,r.cur,{noSym:true})}</span></button>
+          <i class="lead"></i><span class="amt">${money(sh.total,r.cur,{noSym:true})}</span>
+          <span class="chev ${i===0?'on':''}" aria-hidden="true">›</span></button>
           <div class="der" id="d${i}" ${i===0?'':'hidden'}>
             <div><span>Consumo</span><span>${money(sh.consumption,r.cur,{noSym:true})}</span></div>
             ${sh.extras.map(e=>`<div><span>${esc(e.label)}</span><span>${money(e.amount,r.cur,{noSym:true})}</span></div>`).join('')}
@@ -1540,7 +1552,7 @@ function renderLedger(){
         return r.items.map((it,i)=>{const ow=Object.keys(it.claims);
         return `<div class="rw">
           <span class="g"><span class="n">${it.q>1?`<span class="num" style="color:var(--ink-3)">${it.q}× </span>`:''}${esc(it.n)}</span>
-          ${!ow.length?'<span style="font-size:12px;color:var(--act)">sem dono</span>'
+          ${!ow.length?'<span class="lbl">sem dono</span>'
             :`<span class="lbl">${esc(owners(it,r))}</span>`}</span>
           <i class="lead"></i><span style="font-size:14px">${money(it.total,r.cur,{noSym:true})}</span></div>`;}).join('');})()}</div>
 
@@ -1562,7 +1574,8 @@ function renderLedger(){
     </div>`:''}
   </div>`;
   el('ledgerb').querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{
-    const d=el('d'+b.dataset.d); d.hidden=!d.hidden;});
+    const d=el('d'+b.dataset.d); d.hidden=!d.hidden;
+    const c=b.querySelector('.chev'); if(c)c.classList.toggle('on',!d.hidden);});
   el('ledgerb').querySelectorAll('[data-t]').forEach(c=>{
     const go=()=>{const e=focus.extras.find(x=>x.id===c.dataset.t);e.on=!e.on;refresh();renderLedger();};
     c.onclick=go; c.onkeydown=ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();go();}};});

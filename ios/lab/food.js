@@ -46,7 +46,7 @@ export function rng(seed) {
    block turns to a blot, so the small cut is the silhouette and the two or
    three gouges that carry the subject's identity — which is exactly what a
    printer cutting a small block would do.                                   */
-function lodFor(S) { return S < 64 ? 0 : S < 132 ? 1 : 2; }
+function lodFor(S) { return S < 64 ? 0 : S < 200 ? 1 : 2; }
 
 /* ── the block edge ───────────────────────────────────────────────────────
    Contours are faceted and slightly irregular. A blade cuts in straight
@@ -683,8 +683,12 @@ export function paint(c, name, S, seedKey = name, { paper = PAPER, ink = INK, fi
   c.lineJoin = 'round'; c.lineCap = 'round'; c.miterLimit = 2;
   if (fit) {
     const fitted = fitOf(recipe), [x0, y0, x1, y1] = fitted, bw = x1 - x0, bh = y1 - y0;
-    const boost = Math.min(1.30, Math.max(1, Math.sqrt(0.52 / Math.max(0.05, fitted.fill || 0.5))));
-    const k = Math.min(0.80 / bw, (BASE - CAP) / bh) * boost;
+    // Fit the box, then correct towards equal ink: the area a subject prints at
+    // the fitted size, against one target for the whole set. A tram comes down,
+    // a skewer comes up, and the fourteen blocks weigh the same on the page.
+    const kFit = Math.min(0.80 / bw, (BASE - CAP) / bh);
+    const area = (fitted.fill || 0.5) * bw * bh * kFit * kFit;
+    const k = kFit * Math.min(1.18, Math.max(0.74, Math.sqrt(0.185 / Math.max(0.02, area))));
     c.save();
     c.translate(0.5 - (x0 + bw / 2) * k, BASE - y1 * k); c.scale(k, k);
     c.__cw /= k; c.__chip /= k; c.__fit = true;
