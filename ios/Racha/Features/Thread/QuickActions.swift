@@ -19,8 +19,8 @@ struct QuickActions: View {
                         onAsk("divide o que sobrou por igual entre todo mundo")
                     }
                 }
-                if !state.balances.allSatisfy(\.isSettled) {
-                    chip("Acertar", icon: "arrow.left.arrow.right", tint: Palette.burgundy, action: onSettle)
+                if !state.remainingOnTable.isZero {
+                    chip("Pagar minha parte", icon: "qrcode", tint: Palette.action, action: onSettle)
                 }
                 chip("Quanto eu pago?", icon: "person.fill", tint: Palette.stone) {
                     onAsk("quanto eu pago?")

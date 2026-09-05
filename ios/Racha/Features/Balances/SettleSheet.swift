@@ -1,20 +1,23 @@
 import SwiftUI
 
-/// "Quem paga quem", and then a way to actually pay.
+/// Pay your part.
 ///
-/// The list is the minimal transfer set, so a table of six people usually
-/// resolves in two or three payments rather than fifteen. Each row expands into
-/// a Pix copia-e-cola the receiver's bank will accept — which is the difference
-/// between an app that computes a settlement and an app that ends one.
+/// The product's one money action. The sheet shows what you still owe the house
+/// for this table, the 10% inside it with the way out (CDC — it is optional and
+/// the control is here, not three taps away), a Pix BR Code payable to the
+/// venue's own key, and the state of the table: what the house already has, who
+/// has not paid yet, what is still unowned. Nothing here moves money between
+/// friends and nothing here is held by us — the Pix goes to the restaurant, and
+/// in production the PSP's webhook is what confirms it; "Já paguei" stands in
+/// for that webhook in the demo.
+///
+/// The type keeps its old name so the call sites compile unchanged.
 struct SettleSheet: View {
     let rachaID: UUID
 
     @Environment(RachaRepository.self) private var repository
-    @Environment(AppSettings.self) private var settings
-    @Environment(Navigator.self) private var navigator
     @Environment(\.dismiss) private var dismiss
-    @State private var copiedTransfer: Transfer?
-    @State private var askingKeyFor: Participant?
+    @State private var copied = false
 
     private var state: RachaState? { repository.state(rachaID) }
 
@@ -24,264 +27,190 @@ struct SettleSheet: View {
                 PaperBackground()
                 if let state { content(state) }
             }
-            .navigationTitle("Acertar")
+            .navigationTitle("Pagar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Pronto") { dismiss() }.font(Typo.bodyMedium)
+                    Button("Fechar") { dismiss() }.font(Typo.bodyMedium)
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationBackground(.clear)
-        .sheet(item: $askingKeyFor) { person in
-            PixKeyPrompt(rachaID: rachaID, person: person)
-        }
     }
 
     private func content(_ state: RachaState) -> some View {
-        let plan = state.settlement
+        let me = repository.meID
+        let due = state.due(of: me)
         return ScrollView {
-            VStack(spacing: 14) {
-                if plan.transfers.isEmpty && plan.residual.isZero {
-                    allSquare
-                } else {
-                    if !plan.residual.isZero {
-                        // Money still owed to the restaurant is not a debt between
-                        // friends and no transfer can clear it. Saying so plainly
-                        // prevents the "why doesn't this add up" moment.
-                        GlassCard(cornerRadius: 20, padding: 16) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .foregroundStyle(Palette.amber)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Ainda falta pagar \(BRL.format(plan.residual, currency: state.currency))")
-                                        .font(Typo.bodyMedium).money()
-                                        .foregroundStyle(Palette.charcoal)
-                                    Text("Isso é da conta, não é dívida entre vocês.")
-                                        .font(Typo.caption)
-                                        .foregroundStyle(Palette.stone)
-                                }
-                            }
-                        }
-                    }
-
-                    ForEach(plan.transfers) { transfer in
-                        TransferRow(transfer: transfer,
-                                    state: state,
-                                    meID: repository.meID,
-                                    city: settings.myCity,
-                                    onNeedKey: { askingKeyFor = $0 },
-                                    onPaid: { markPaid(transfer) })
-                    }
-
-                    if plan.transfers.count > 1 {
-                        Text("\(plan.transfers.count) transferências resolvem tudo — é o mínimo possível.")
-                            .font(Typo.caption)
-                            .foregroundStyle(Palette.stone)
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                Color.clear.frame(height: 20)
+            VStack(alignment: .leading, spacing: 22) {
+                myPart(state, due: due)
+                if !due.isZero { payment(state, due: due) }
+                table(state)
+                Color.clear.frame(height: 34)
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 24)
             .padding(.top, 10)
         }
         .scrollIndicators(.hidden)
     }
 
-    private var allSquare: some View {
-        GlassCard(cornerRadius: 24, padding: 30) {
-            VStack(spacing: 12) {
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 42))
-                    .foregroundStyle(Palette.emeraldBright)
-                Text("Tudo quite")
+    // MARK: Your part
+
+    private func myPart(_ state: RachaState, due: Cents) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text([ "Sua parte", state.venue?.name ?? state.title, state.venue?.tableLabel ]
+                    .compactMap { $0 }.joined(separator: " · "))
+                .metaLabel()
+            if due.isZero {
+                Text("Paga")
                     .font(Typo.display)
-                    .foregroundStyle(Palette.charcoal)
-                Text("Ninguém deve nada pra ninguém.")
-                    .font(Typo.body)
-                    .foregroundStyle(Palette.stone)
+                    .foregroundStyle(Palette.ink)
+                Text("\(BRL.format(state.paid(by: repository.meID), currency: state.currency)) recebidos pela casa.")
+                    .font(Typo.small)
+                    .foregroundStyle(Palette.ink3)
+            } else {
+                Text(BRL.format(due, currency: state.currency))
+                    .font(Typo.display).money()
+                    .foregroundStyle(Palette.ink)
+                if let tip = state.extras.first(where: { $0.isGratuity && $0.isEnabled }) {
+                    let mine = state.split.share(for: repository.meID)?.extras
+                        .first { $0.extraID == tip.id }?.amount ?? .zero
+                    HStack(spacing: 6) {
+                        Text("Inclui \(BRL.format(mine, currency: state.currency)) de serviço, que vai pra equipe da casa. É opcional:")
+                            .font(Typo.small)
+                            .foregroundStyle(Palette.ink3)
+                        Button("tirar") { toggle(tip, on: false) }
+                            .font(Typo.small.weight(.medium))
+                            .foregroundStyle(Palette.ink)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                } else if let tip = state.extras.first(where: { $0.isGratuity && !$0.isEnabled }) {
+                    HStack(spacing: 6) {
+                        Text("Sem o serviço.").font(Typo.small).foregroundStyle(Palette.ink3)
+                        Button("pôr de volta") { toggle(tip, on: true) }
+                            .font(Typo.small.weight(.medium))
+                            .foregroundStyle(Palette.ink)
+                    }
+                }
             }
-            .frame(maxWidth: .infinity)
         }
     }
 
-    /// Recording a settlement transfer as a payment by the debtor: it moves their
-    /// net toward zero exactly as a real payment would, and it is a ledger event
-    /// like everything else, so it is undoable.
-    private func markPaid(_ transfer: Transfer) {
-        guard let state else { return }
-        Task {
-            let payment = Payment(payerID: transfer.from, amount: transfer.amount,
-                                  method: .pix,
-                                  note: "acerto com \(state.participant(transfer.to)?.shortName ?? "")",
-                                  confirmedAt: Date())
-            let who = state.participant(transfer.from)?.shortName ?? "alguém"
-            try? await repository.append(
-                rachaID, .paymentRecorded(payment),
-                summary: "\(who) acertou \(BRL.format(transfer.amount, currency: state.currency))")
-            Haptics.shared.money()
+    // MARK: The Pix, to the house
 
+    private func payment(_ state: RachaState, due: Cents) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let venue = state.venue,
+               let me = state.participant(repository.meID),
+               let payload = PixPayload.forVenue(venue, amount: due, comanda: state.comanda, payer: me) {
+                Text(payload)
+                    .font(Typo.mono)
+                    .foregroundStyle(Palette.ink3)
+                    .lineLimit(3)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Palette.surface)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(Palette.rule, lineWidth: 1)
+                    }
+                HStack(spacing: 8) {
+                    RachaButton(title: copied ? "Copiado ✓" : "Copiar Pix", icon: copied ? nil : "doc.on.doc") {
+                        UIPasteboard.general.string = payload
+                        Haptics.shared.money()
+                        withAnimation(Motion.snappy) { copied = true }
+                    }
+                    RachaButton(title: "Já paguei", style: .quiet) { markPaid(due) }
+                }
+                Text("O Pix vai direto pro \(venue.name). O Racha não segura dinheiro de ninguém.")
+                    .font(Typo.small)
+                    .foregroundStyle(Palette.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Esta mesa ainda não tem o Pix da casa. Escaneie o QR da mesa de novo, ou pague no caixa e registre aqui.")
+                    .font(Typo.small)
+                    .foregroundStyle(Palette.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+                RachaButton(title: "Já paguei no caixa", style: .quiet) { markPaid(due) }
+            }
+        }
+    }
+
+    // MARK: The table
+
+    private func table(_ state: RachaState) -> some View {
+        let others = state.unpaidParticipants.filter { $0.id != repository.meID }
+        let split = state.split
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("A mesa").receiptLabel().padding(.bottom, 9)
+            row("Já pago à casa", nil, state.confirmedPaid, state.currency)
+            row("Falta na mesa",
+                others.isEmpty ? nil
+                    : "\(others.map(\.shortName).joinedPtBR()) ainda não \(others.count == 1 ? "pagou" : "pagaram")",
+                state.remainingOnTable, state.currency)
+            if split.hasUnassigned {
+                row("\(split.unassigned.count) \(split.unassigned.count == 1 ? "item" : "itens") sem dono",
+                    split.unassigned.compactMap { state.item($0)?.name }.joined(separator: ", ")
+                        + " — entra na conta de quem assumir",
+                    split.unassignedWithExtras, state.currency, tint: Palette.warn)
+            }
+        }
+    }
+
+    private func row(_ title: String, _ detail: String?, _ amount: Cents, _ currency: Currency,
+                     tint: Color = Palette.ink) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 11) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(Typo.body).foregroundStyle(tint)
+                if let detail {
+                    Text(detail).metaLabel().fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 12)
+            Text(BRL.format(amount, currency: currency, symbol: false))
+                .font(Typo.body).money()
+                .foregroundStyle(tint)
+        }
+        .padding(.vertical, 11)
+    }
+
+    // MARK: Actions
+
+    /// The demo's stand-in for the PSP webhook: a confirmed payment by me, to the
+    /// house, for what I still owe. A ledger event like everything else, so it is
+    /// undoable and reconcilable.
+    private func markPaid(_ due: Cents) {
+        guard let state, !due.isZero else { return }
+        Task {
+            let payment = Payment(payerID: repository.meID, amount: due, method: .pix,
+                                  note: "Pix pra casa", confirmedAt: Date())
+            try? await repository.append(rachaID, .paymentRecorded(payment),
+                                         summary: "Você pagou \(BRL.format(due, currency: state.currency))")
+            Haptics.shared.money()
             if let after = repository.state(rachaID), after.isSettled, after.settledAt == nil {
                 try? await repository.append(rachaID, .settled(at: Date()), origin: .system,
-                                             summary: "Racha fechado")
+                                             summary: "Mesa fechada")
             }
+        }
+    }
+
+    private func toggle(_ extra: Extra, on: Bool) {
+        Task {
+            try? await repository.append(rachaID, .extraToggled(id: extra.id, enabled: on),
+                                         summary: on ? "Serviço na conta" : "Serviço fora da conta")
+            Haptics.shared.tick()
         }
     }
 }
 
-/// One "X paga Y", expanding into a payable Pix code.
-struct TransferRow: View {
-    var transfer: Transfer
-    var state: RachaState
-    var meID: Participant.ID
-    var city: String
-    var onNeedKey: (Participant) -> Void
-    var onPaid: () -> Void
-
-    @State private var expanded = false
-    @State private var copied = false
-
-    private var from: Participant? { state.participant(transfer.from) }
-    private var to: Participant? { state.participant(transfer.to) }
-    private var isMine: Bool { transfer.from == meID }
-
-    var body: some View {
-        GlassCard(cornerRadius: 20, padding: 16, refract: false) {
-            VStack(spacing: 12) {
-                HStack(spacing: 12) {
-                    if let from { AvatarBubble(participant: from, size: 34, isMe: isMine) }
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Palette.stone.opacity(0.6))
-                    if let to { AvatarBubble(participant: to, size: 34, isMe: transfer.to == meID) }
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(headline)
-                            .font(Typo.bodyMedium)
-                            .foregroundStyle(Palette.charcoal)
-                            .lineLimit(1)
-                        Text(BRL.format(transfer.amount, currency: state.currency))
-                            .font(Typo.serifBody).money()
-                            .foregroundStyle(isMine ? Palette.burgundy : Palette.charcoal)
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    Haptics.shared.tick()
-                    withAnimation(Motion.fluid) { expanded.toggle() }
-                }
-
-                if expanded {
-                    VStack(spacing: 10) {
-                        if let payload {
-                            Text(payload)
-                                .font(Typo.mono)
-                                .foregroundStyle(Palette.stone)
-                                .lineLimit(3)
-                                .truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10)
-                                .background {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color.white.opacity(0.5))
-                                }
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .strokeBorder(Palette.hairline, lineWidth: 1)
-                                }
-
-                            HStack(spacing: 8) {
-                                RachaButton(title: copied ? "Copiado ✓" : "Copiar Pix",
-                                            icon: copied ? nil : "doc.on.doc") {
-                                    UIPasteboard.general.string = payload
-                                    Haptics.shared.money()
-                                    withAnimation(Motion.snappy) { copied = true }
-                                }
-                                RachaButton(title: "Já pagou", style: .quiet) {
-                                    withAnimation(Motion.fluid) { onPaid() }
-                                }
-                            }
-                        } else if let to {
-                            VStack(spacing: 8) {
-                                Text("\(to.shortName) não tem chave Pix salva.")
-                                    .font(Typo.small)
-                                    .foregroundStyle(Palette.stone)
-                                RachaButton(title: "Adicionar chave", icon: "key") { onNeedKey(to) }
-                                RachaButton(title: "Já pagou", style: .quiet) { onPaid() }
-                            }
-                        }
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-            }
-        }
-    }
-
-    private var headline: String {
-        let payer = isMine ? "Você" : (from?.shortName ?? "?")
-        let receiver = transfer.to == meID ? "você" : (to?.shortName ?? "?")
-        return "\(payer) → \(receiver)"
-    }
-
-    private var payload: String? {
-        guard let from, let to else { return nil }
-        return PixPayload.forSettlement(transfer: transfer, receiver: to, sender: from,
-                                        rachaTitle: state.title, city: city)
-    }
-}
-
-/// Ask for a Pix key. The app never guesses one — see the note in `PixPayload`.
-struct PixKeyPrompt: View {
-    let rachaID: UUID
-    let person: Participant
-
-    @Environment(RachaRepository.self) private var repository
-    @Environment(\.dismiss) private var dismiss
-    @State private var key = ""
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                PaperBackground()
-                VStack(spacing: 16) {
-                    Text("Chave Pix de \(person.shortName)")
-                        .font(Typo.serifBody)
-                        .foregroundStyle(Palette.charcoal)
-                    TextField("CPF, telefone, e-mail ou chave aleatória", text: $key)
-                        .font(Typo.body)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .padding(14)
-                        .background {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.white.opacity(0.6))
-                        }
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(Palette.inputBorder, lineWidth: 1)
-                        }
-                    RachaButton(title: "Salvar") {
-                        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmed.isEmpty else { return }
-                        Task {
-                            try? await repository.append(
-                                rachaID, .pixKeySet(id: person.id, key: trimmed),
-                                summary: "Chave Pix de \(person.shortName) salva")
-                            dismiss()
-                        }
-                    }
-                    Spacer()
-                }
-                .padding(20)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
-            }
-        }
-        .presentationDetents([.height(280)])
+extension Array where Element == String {
+    /// "Gui e Pedro", "você, Gui e Ju" — the list the way it is said.
+    func joinedPtBR() -> String {
+        guard count > 1 else { return first ?? "" }
+        return dropLast().joined(separator: ", ") + " e " + (last ?? "")
     }
 }

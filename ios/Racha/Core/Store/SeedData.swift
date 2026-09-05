@@ -1,11 +1,11 @@
 import Foundation
 
-/// Three rachas on first launch.
+/// Four tables on first launch.
 ///
 /// Not a tutorial — a populated app. Someone opening Racha for the first time
-/// should see the timeline working, with a settled one, an open one, and a trip
-/// in another currency, so the shape of the product is obvious before they type
-/// anything. It is also what makes the simulator worth looking at.
+/// should see the product's shape before they type anything: one table open
+/// right now, with a part to pay and people who have not paid yet, and three
+/// tables before it, closed, each one paid to the house by everyone at it.
 ///
 /// Every number here goes through the same engine as real money. The seed cannot
 /// contain an unbalanced split, because the projection would flag it.
@@ -13,79 +13,26 @@ enum SeedData {
 
     @MainActor
     static func install(into repository: RachaRepository) async {
-        await seedChurrasco(repository)
-        await seedJantar(repository)
-        await seedViagem(repository)
+        await seedCantina(repository)
+        await seedChoperia(repository)
+        await seedPeixaria(repository)
+        await seedBarDoZe(repository)      // last, so it is the most recent: the table you are at
     }
 
-    // MARK: A settled churrasco — shows the "fechado" state
+    // MARK: The table you are at — Bar do Zé, mesa 12
 
     @MainActor
-    private static func seedChurrasco(_ repo: RachaRepository) async {
-        guard let id = try? await repo.createRacha(title: "Churrasco no Gui", kind: .churrasco,
-                                                   meName: "Você") else { return }
-        let gui = Participant(name: "Gui", pixKey: "gui@exemplo.com")
-        let ju = Participant(name: "Ju", pixKey: "+5511988887777")
-        await add(repo, id, [
-            (.participantAdded(gui), "Gui entrou no racha"),
-            (.participantAdded(ju), "Ju entrou no racha")
-        ])
-
-        let picanha = LineItem(name: "Picanha", quantity: 1, unitPrice: Cents(18900), category: .carne)
-        let linguica = LineItem(name: "Linguiça", quantity: 2, unitPrice: Cents(2400), category: .carne)
-        let carvao = LineItem(name: "Carvão e gelo", quantity: 1, unitPrice: Cents(4200), category: .other)
-        let cerveja = LineItem(name: "Cerveja (fardo)", quantity: 2, unitPrice: Cents(5900), category: .cerveja)
-
-        await add(repo, id, [
-            (.itemsAdded([picanha, linguica, carvao, cerveja]), "4 itens adicionados")
-        ])
-
-        let everyone = [repo.meID, gui.id, ju.id]
-        for item in [picanha, linguica, carvao] {
-            await add(repo, id, [(.claimsSet(itemID: item.id,
-                                             claims: everyone.map { Claim(itemID: item.id, personID: $0) }),
-                                  "\(item.name) → todo mundo")])
-        }
-        // Ju doesn't drink — the classic reason an equal split is wrong.
-        await add(repo, id, [(.claimsSet(itemID: cerveja.id,
-                                         claims: [repo.meID, gui.id].map { Claim(itemID: cerveja.id, personID: $0) }),
-                              "Cerveja → você e o Gui")])
-
-        // The host paid everything up front, then the others settled up.
-        guard let state = repo.state(id) else { return }
-        let total = state.split.total
-        await add(repo, id, [
-            (.paymentRecorded(Payment(payerID: gui.id, amount: total, method: .cartao,
-                                      note: "pagou tudo no mercado", confirmedAt: Date().addingTimeInterval(-86_400 * 6))),
-             "Gui pagou \(BRL.format(total))")
-        ])
-
-        guard let afterHost = repo.state(id) else { return }
-        for transfer in afterHost.settlement.transfers {
-            let who = afterHost.participant(transfer.from)?.shortName ?? "alguém"
-            await add(repo, id, [
-                (.paymentRecorded(Payment(payerID: transfer.from, amount: transfer.amount,
-                                          method: .pix, note: "acerto",
-                                          confirmedAt: Date().addingTimeInterval(-86_400 * 5))),
-                 "\(who) acertou \(BRL.format(transfer.amount))")
-            ])
-        }
-        await add(repo, id, [(.settled(at: Date().addingTimeInterval(-86_400 * 5)), "Racha fechado")])
-    }
-
-    // MARK: An open dinner — the main demo surface
-
-    @MainActor
-    private static func seedJantar(_ repo: RachaRepository) async {
-        guard let id = try? await repo.createRacha(title: "Bar do Zé", kind: .jantar,
-                                                   meName: "Você") else { return }
-        let gui = Participant(name: "Gui", pixKey: "gui@exemplo.com")
-        let ju = Participant(name: "Ju", pixKey: "+5511988887777")
+    private static func seedBarDoZe(_ repo: RachaRepository) async {
+        guard let id = try? await repo.createRacha(title: "Bar do Zé", kind: .jantar, meName: "Você") else { return }
+        let gui = Participant(name: "Gui")
+        let ju = Participant(name: "Ju")
         let pedro = Participant(name: "Pedro")
         await add(repo, id, [
-            (.participantAdded(gui), "Gui entrou no racha"),
-            (.participantAdded(ju), "Ju entrou no racha"),
-            (.participantAdded(pedro), "Pedro entrou no racha")
+            (.venueSet(Venue(name: "Bar do Zé", legalName: "BAR DO ZE LTDA", city: "SAO PAULO",
+                             pixKey: "pix@bardoze.com.br", table: 12)), "Mesa 12 do Bar do Zé"),
+            (.participantAdded(gui), "Gui sentou"),
+            (.participantAdded(ju), "Ju sentou"),
+            (.participantAdded(pedro), "Pedro sentou")
         ])
 
         let picanha = LineItem(name: "Picanha na chapa", quantity: 1, unitPrice: Cents(12900), category: .carne)
@@ -96,16 +43,16 @@ enum SeedData {
         let pudim = LineItem(name: "Pudim", quantity: 1, unitPrice: Cents(1800), category: .sobremesa)
 
         await add(repo, id, [
-            (.itemsAdded([picanha, farofa, vinagrete, chopp, caipirinha, pudim]), "6 itens da nota"),
-            (.extraAdded(Extra.servico()), "Serviço 10% da nota"),
+            (.itemsAdded([picanha, farofa, vinagrete, chopp, caipirinha, pudim]), "6 itens da comanda"),
+            (.extraAdded(Extra.servico()), "Serviço 10% da casa"),
             (.extraAdded(Extra.couvert(Cents(1200))), "Couvert R$ 12,00 por pessoa")
         ])
 
-        let table = [repo.meID, gui.id, ju.id]
+        let trio = [repo.meID, gui.id, ju.id]
         for item in [picanha, farofa, vinagrete] {
             await add(repo, id, [(.claimsSet(itemID: item.id,
-                                             claims: table.map { Claim(itemID: item.id, personID: $0) }),
-                                  "\(item.name) → você, Gui, Ju")])
+                                             claims: trio.map { Claim(itemID: item.id, personID: $0) }),
+                                  "\(item.name): você, Gui e Ju")])
         }
         // Pedro arrived late and only drank — the exact case from the brief.
         await add(repo, id, [
@@ -113,56 +60,138 @@ enum SeedData {
                 Claim(itemID: chopp.id, personID: gui.id, weight: 2),
                 Claim(itemID: chopp.id, personID: pedro.id, weight: 1),
                 Claim(itemID: chopp.id, personID: repo.meID, weight: 1)
-            ]), "Chopp → Gui×2, Pedro, você"),
+            ]), "Chopp: Gui ×2, Pedro e você"),
             (.claimsSet(itemID: caipirinha.id, claims: [
                 Claim(itemID: caipirinha.id, personID: ju.id),
                 Claim(itemID: caipirinha.id, personID: pedro.id)
-            ]), "Caipirinha → Ju e Pedro")
+            ]), "Caipirinha: Ju e Pedro")
         ])
-        // The pudim is left unclaimed on purpose: the timeline's "sem dono" badge
-        // and the thread's opening suggestion both need a real case to point at.
+        // The pudim is left unclaimed on purpose: the "sem dono" state and the
+        // thread's opening question both need a real case to point at.
 
+        // Ju has already paid the house her part; you, Gui and Pedro have not.
+        guard let state = repo.state(id) else { return }
+        let juPart = state.share(of: ju.id)
         await add(repo, id, [
-            (.paymentRecorded(Payment(payerID: repo.meID, amount: Cents(15000), method: .pix,
-                                      note: "adiantei", confirmedAt: Date())),
-             "Você pagou R$ 150,00")
+            (.paymentRecorded(Payment(payerID: ju.id, amount: juPart, method: .pix,
+                                      note: "Pix pra casa", confirmedAt: Date())),
+             "Ju pagou \(BRL.format(juPart))")
         ])
     }
 
-    // MARK: A trip in euros — multi-currency
+    // MARK: Closed tables — everyone paid the house their own part
 
     @MainActor
-    private static func seedViagem(_ repo: RachaRepository) async {
-        guard let id = try? await repo.createRacha(title: "Lisboa", kind: .viagem,
-                                                   currency: .eur, meName: "Você") else { return }
-        let ju = Participant(name: "Ju", pixKey: "+5511988887777")
+    private static func seedCantina(_ repo: RachaRepository) async {
+        guard let id = try? await repo.createRacha(title: "Cantina da Vila", kind: .jantar, meName: "Você") else { return }
+        let ju = Participant(name: "Ju")
         await add(repo, id, [
-            (.participantAdded(ju), "Ju entrou no racha"),
-            (.fxRateSet(FXRate(from: "EUR", to: "BRL", microsPerUnit: 6_213_500, capturedAt: Date())),
-             "1 EUR travado em R$ 6,21")
+            (.venueSet(Venue(name: "Cantina da Vila", legalName: "CANTINA DA VILA LTDA", city: "SAO PAULO",
+                             pixKey: "financeiro@cantinadavila.com.br", table: 4)), "Mesa 4 da Cantina da Vila"),
+            (.participantAdded(ju), "Ju sentou")
         ])
-
-        let airbnb = LineItem(name: "Airbnb — 3 noites", quantity: 3, unitPrice: Cents(8400), category: .hospedagem)
-        let aluguel = LineItem(name: "Aluguel de carro", quantity: 1, unitPrice: Cents(11200), category: .transporte)
-        let jantar = LineItem(name: "Jantar na Bica", quantity: 1, unitPrice: Cents(6750), category: .peixe)
-        let ingresso = LineItem(name: "Ingresso Mosteiro", quantity: 2, unitPrice: Cents(1000), category: .ingresso)
-
-        await add(repo, id, [(.itemsAdded([airbnb, aluguel, jantar, ingresso]), "4 gastos da viagem")])
-
+        let file = LineItem(name: "Filé à parmegiana", quantity: 2, unitPrice: Cents(7900), category: .carne)
+        let salada = LineItem(name: "Salada da casa", quantity: 1, unitPrice: Cents(2900), category: .salada)
+        let chopp = LineItem(name: "Chopp 300ml", quantity: 3, unitPrice: Cents(1200), category: .cerveja)
+        let pudim = LineItem(name: "Pudim", quantity: 1, unitPrice: Cents(1600), category: .sobremesa)
+        await add(repo, id, [
+            (.itemsAdded([file, salada, chopp, pudim]), "4 itens da comanda"),
+            (.extraAdded(Extra.servico()), "Serviço 10% da casa")
+        ])
         let both = [repo.meID, ju.id]
-        for item in [airbnb, aluguel, jantar, ingresso] {
-            await add(repo, id, [(.claimsSet(itemID: item.id,
-                                             claims: both.map { Claim(itemID: item.id, personID: $0) }),
-                                  "\(item.name) → dividido")])
-        }
         await add(repo, id, [
-            (.paymentRecorded(Payment(payerID: repo.meID, amount: Cents(36400), method: .cartao,
-                                      note: "cartão da viagem", confirmedAt: Date())),
-             "Você pagou € 364,00")
+            (.claimsSet(itemID: file.id, claims: both.map { Claim(itemID: file.id, personID: $0) }), "Filé: você e Ju"),
+            (.claimsSet(itemID: salada.id, claims: both.map { Claim(itemID: salada.id, personID: $0) }), "Salada: você e Ju"),
+            (.claimsSet(itemID: chopp.id, claims: [Claim(itemID: chopp.id, personID: repo.meID, weight: 2),
+                                                   Claim(itemID: chopp.id, personID: ju.id, weight: 1)]), "Chopp: você ×2 e Ju"),
+            (.claimsSet(itemID: pudim.id, claims: [Claim(itemID: pudim.id, personID: ju.id)]), "Pudim: Ju")
         ])
+        await closeTable(repo, id, daysAgo: 6)
     }
 
-    // MARK: Helper
+    @MainActor
+    private static func seedChoperia(_ repo: RachaRepository) async {
+        guard let id = try? await repo.createRacha(title: "Choperia Central", kind: .jantar, meName: "Você") else { return }
+        let gui = Participant(name: "Gui")
+        let pedro = Participant(name: "Pedro")
+        await add(repo, id, [
+            (.venueSet(Venue(name: "Choperia Central", legalName: "CHOPERIA CENTRAL LTDA", city: "SAO PAULO",
+                             pixKey: "pix@choperiacentral.com.br", table: 22)), "Mesa 22 da Choperia Central"),
+            (.participantAdded(gui), "Gui sentou"),
+            (.participantAdded(pedro), "Pedro sentou")
+        ])
+        let chopp = LineItem(name: "Chopp 500ml", quantity: 6, unitPrice: Cents(1600), category: .cerveja)
+        let linguica = LineItem(name: "Linguiça na chapa", quantity: 1, unitPrice: Cents(4200), category: .petisco)
+        let batata = LineItem(name: "Batata frita", quantity: 1, unitPrice: Cents(3400), category: .petisco)
+        let caipirinha = LineItem(name: "Caipirinha de limão", quantity: 2, unitPrice: Cents(2400), category: .drink)
+        await add(repo, id, [
+            (.itemsAdded([chopp, linguica, batata, caipirinha]), "4 itens da comanda"),
+            (.extraAdded(Extra.servico()), "Serviço 10% da casa")
+        ])
+        let all = [repo.meID, gui.id, pedro.id]
+        await add(repo, id, [
+            (.claimsSet(itemID: chopp.id, claims: [Claim(itemID: chopp.id, personID: gui.id, weight: 3),
+                                                   Claim(itemID: chopp.id, personID: pedro.id, weight: 2),
+                                                   Claim(itemID: chopp.id, personID: repo.meID, weight: 1)]), "Chopp: Gui ×3, Pedro ×2 e você"),
+            (.claimsSet(itemID: linguica.id, claims: all.map { Claim(itemID: linguica.id, personID: $0) }), "Linguiça: todo mundo"),
+            (.claimsSet(itemID: batata.id, claims: all.map { Claim(itemID: batata.id, personID: $0) }), "Batata: todo mundo"),
+            (.claimsSet(itemID: caipirinha.id, claims: [Claim(itemID: caipirinha.id, personID: repo.meID),
+                                                        Claim(itemID: caipirinha.id, personID: pedro.id)]), "Caipirinha: você e Pedro")
+        ])
+        await closeTable(repo, id, daysAgo: 12)
+    }
+
+    @MainActor
+    private static func seedPeixaria(_ repo: RachaRepository) async {
+        guard let id = try? await repo.createRacha(title: "Peixaria do Porto", kind: .jantar, meName: "Você") else { return }
+        let ju = Participant(name: "Ju")
+        let gui = Participant(name: "Gui")
+        let pedro = Participant(name: "Pedro")
+        await add(repo, id, [
+            (.venueSet(Venue(name: "Peixaria do Porto", legalName: "PEIXARIA DO PORTO LTDA", city: "SANTOS",
+                             pixKey: "pix@peixariadoporto.com.br", table: 7)), "Mesa 7 da Peixaria do Porto"),
+            (.participantAdded(ju), "Ju sentou"),
+            (.participantAdded(gui), "Gui sentou"),
+            (.participantAdded(pedro), "Pedro sentou")
+        ])
+        let peixe = LineItem(name: "Peixe na brasa", quantity: 2, unitPrice: Cents(8200), category: .peixe)
+        let farofa = LineItem(name: "Farofa de dendê", quantity: 1, unitPrice: Cents(1800), category: .acompanhamento)
+        let caipirinha = LineItem(name: "Caipirinha de caju", quantity: 3, unitPrice: Cents(2400), category: .drink)
+        let cerveja = LineItem(name: "Cerveja 600ml", quantity: 4, unitPrice: Cents(1500), category: .cerveja)
+        await add(repo, id, [
+            (.itemsAdded([peixe, farofa, caipirinha, cerveja]), "4 itens da comanda"),
+            (.extraAdded(Extra.servico()), "Serviço 10% da casa"),
+            (.extraAdded(Extra.couvert(Cents(800))), "Couvert R$ 8,00 por pessoa")
+        ])
+        let all = [repo.meID, ju.id, gui.id, pedro.id]
+        await add(repo, id, [
+            (.claimsSet(itemID: peixe.id, claims: all.map { Claim(itemID: peixe.id, personID: $0) }), "Peixe: todo mundo"),
+            (.claimsSet(itemID: farofa.id, claims: all.map { Claim(itemID: farofa.id, personID: $0) }), "Farofa: todo mundo"),
+            (.claimsSet(itemID: caipirinha.id, claims: [repo.meID, gui.id, pedro.id].map { Claim(itemID: caipirinha.id, personID: $0) }), "Caipirinha: você, Gui e Pedro"),
+            (.claimsSet(itemID: cerveja.id, claims: [Claim(itemID: cerveja.id, personID: gui.id, weight: 2),
+                                                     Claim(itemID: cerveja.id, personID: pedro.id, weight: 2)]), "Cerveja: Gui ×2 e Pedro ×2")
+        ])
+        await closeTable(repo, id, daysAgo: 20)
+    }
+
+    // MARK: Helpers
+
+    /// Everyone pays the house their own part, and the table closes. This is the
+    /// only way a table closes in the product: the house has all of it.
+    @MainActor
+    private static func closeTable(_ repo: RachaRepository, _ id: UUID, daysAgo: Double) async {
+        guard let state = repo.state(id) else { return }
+        let when = Date().addingTimeInterval(-86_400 * daysAgo)
+        for share in state.split.shares where !share.total.isZero {
+            let who = state.participant(share.personID)?.shortName ?? "alguém"
+            await add(repo, id, [
+                (.paymentRecorded(Payment(payerID: share.personID, amount: share.total, method: .pix,
+                                          note: "Pix pra casa", confirmedAt: when)),
+                 "\(who) pagou \(BRL.format(share.total))")
+            ])
+        }
+        await add(repo, id, [(.settled(at: when), "Mesa fechada")])
+    }
 
     @MainActor
     private static func add(_ repo: RachaRepository, _ id: UUID,

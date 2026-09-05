@@ -17,6 +17,9 @@ struct RachaState: Identifiable, Equatable, Sendable {
     var extras: [Extra] = []
     var payments: [Payment] = []
     var fxRates: [String: FXRate] = [:]
+    /// The house and the table. Nil for a racha that is not a table (a legacy
+    /// friends' split); the pay sheet then has no one to pay.
+    var venue: Venue? = nil
 
     var coverAssetKey: String?
     var notes: [String] = []
@@ -46,13 +49,35 @@ struct RachaState: Identifiable, Equatable, Sendable {
 
     var settlement: SettlementPlan { SettleUp.plan(balances) }
 
-    /// A racha is settled when the bill is fully covered and nobody is owed
-    /// anything by anybody. Both halves matter: the restaurant being paid does not
-    /// mean the friend who fronted it has been made whole.
+    /// A table is closed when the house has all of it and nothing is left
+    /// unowned. Each diner pays the venue their own part, so there is no second
+    /// half to wait for: the restaurant being paid *is* the racha being done.
+    /// (Money between friends — one person covering another — is tracked by
+    /// `settlement` as information, and never blocks the close.)
     var isSettled: Bool {
-        let s = settlement
-        return s.isComplete && !split.hasUnassigned && !items.isEmpty
+        !items.isEmpty && remainingOnTable.isZero && !split.hasUnassigned
     }
+
+    /// The slip's number: four digits, stable per racha, the thing people call
+    /// out across a loud room. Derived, so the log never has to carry it.
+    var comanda: String { String(abs(id.uuidString.folded.stableHash) % 9000 + 1000) }
+
+    /// What the house is still owed for this table.
+    var remainingOnTable: Cents { (split.total - confirmedPaid).clampedNonNegative }
+
+    /// What one person's share came to.
+    func share(of person: Participant.ID) -> Cents { split.share(for: person)?.total ?? .zero }
+
+    /// What one person has paid the house, confirmed.
+    func paid(by person: Participant.ID) -> Cents {
+        payments.filter { $0.payerID == person && $0.isConfirmed }.map(\.amount).total
+    }
+
+    /// What one person still owes the house: their share less what they paid.
+    func due(of person: Participant.ID) -> Cents { (share(of: person) - paid(by: person)).clampedNonNegative }
+
+    /// Everyone who has not yet paid their part in full, in seating order.
+    var unpaidParticipants: [Participant] { participants.filter { !due(of: $0.id).isZero } }
 
     /// The user's own position: what they paid, what they owed, what's outstanding.
     func position(of me: Participant.ID) -> NetBalance? {

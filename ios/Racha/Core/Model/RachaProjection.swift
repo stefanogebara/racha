@@ -134,6 +134,9 @@ enum RachaProjection {
         case .fxRateSet(let rate):
             s.fxRates[rate.from.uppercased()] = rate
 
+        case .venueSet(let venue):
+            s.venue = venue
+
         case .coverImageSet(let key):
             s.coverAssetKey = key
 

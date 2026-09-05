@@ -1,20 +1,12 @@
 import SwiftUI
 
-/// Every racha, as a contact sheet.
+/// The first screen is the table you are sitting at.
 ///
-/// This replaces the old stack of full-width cards. Three things changed and
-/// each was a real complaint about the previous design:
-///
-/// - **Uniform tiles, two columns.** The old layout leaned on varying card
-///   heights for rhythm, which reads as decoration rather than structure — the
-///   size of a card said nothing true about the racha. A uniform grid says the
-///   items are peers, which they are, and lets the pictures carry the page.
-/// - **Image first, chrome last.** Each tile is a cut-out dish on a sheet of
-///   paper with the caption beneath, so the gallery reads as a set of objects
-///   rather than a list of containers.
-/// - **One number at the top.** What the user is owed across everything open,
-///   in the serif, large. It is the number people open the app for; everything
-///   else on this screen is navigation.
+/// Racha is pay-at-table: the QR on the table opens the bill, the conversation
+/// splits it, and each person pays the house their own part. So the home screen
+/// leads with the one open table — your part as the figure, what the table still
+/// lacks and who has not paid, and the one action, Pagar — and puts the tables
+/// before it underneath as history. With no table open, it asks you to scan.
 struct GalleryView: View {
     var namespace: Namespace.ID
 
@@ -22,100 +14,137 @@ struct GalleryView: View {
     @Environment(Navigator.self) private var navigator
     @State private var showingNew = false
     @State private var showingSettings = false
+    @State private var paying = false
+    @State private var payingID: UUID?
 
     private var states: [RachaState] { repository.allStates }
-    private var history: HistoryIndex {
-        HistoryIndex.build(from: states, meID: repository.meID)
-    }
+    /// The table you are at: the most recent one that is not closed.
+    private var current: RachaState? { states.first { !$0.isSettled } }
+    private var past: [RachaState] { states.filter { $0.id != current?.id } }
 
-    private let columns = [GridItem(.flexible(), spacing: 18),
-                           GridItem(.flexible(), spacing: 18)]
+    private let columns = [GridItem(.flexible(), spacing: 12),
+                           GridItem(.flexible(), spacing: 12)]
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 22) {
-                header.padding(.horizontal, 22)
+            LazyVStack(alignment: .leading, spacing: 32) {
+                header.padding(.horizontal, 24)
 
-                if states.isEmpty {
-                    EmptyGallery { showingNew = true }.padding(.horizontal, 22)
+                if let table = current {
+                    now(table).padding(.horizontal, 24)
                 } else {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
-                        ForEach(states) { state in
-                            Button {
-                                Haptics.shared.press()
-                                navigator.open(state.id)
-                            } label: {
-                                RachaTile(state: state, meID: repository.meID, namespace: namespace)
-                            }
-                            .buttonStyle(TileButtonStyle())
-                        }
-                    }
-                    .padding(.horizontal, 22)
+                    scanPrompt.padding(.horizontal, 24)
                 }
 
-                Color.clear.frame(height: 80)
+                if !past.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Mesas anteriores").metaLabel()
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                            ForEach(past) { state in
+                                Button {
+                                    Haptics.shared.press()
+                                    navigator.open(state.id)
+                                } label: {
+                                    RachaTile(state: state, meID: repository.meID, namespace: namespace)
+                                }
+                                .buttonStyle(TileButtonStyle())
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                }
+
+                Color.clear.frame(height: 58)
             }
-            .padding(.top, 56)
+            .padding(.top, 58)
         }
         .scrollIndicators(.hidden)
-        .safeAreaInset(edge: .bottom) {
-            RachaButton(title: "Novo racha", icon: "plus") {
-                Haptics.shared.press(); showingNew = true
-            }
-            .padding(.horizontal, 22)
-            .padding(.bottom, 8)
-        }
         .sheet(isPresented: $showingNew) { NewRachaSheet() }
         .sheet(isPresented: $showingSettings) { SettingsSheet() }
+        .sheet(isPresented: $paying) { if let id = payingID { SettleSheet(rachaID: id) } }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(Self.month.string(from: Date())).receiptLabel()
-                    Text("Rachas")
-                        .font(Typo.galleryTitle)
-                        .foregroundStyle(Palette.ink)
-                }
-                Spacer()
-                Button { showingSettings = true } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundStyle(Palette.ink3)
-                }
+        HStack(alignment: .center) {
+            Text("Rachas")
+                .font(Typo.tileTitle)
+                .foregroundStyle(Palette.ink)
+            Spacer()
+            Button("Ajustes") { showingSettings = true }
+                .font(Typo.bodyMedium)
+                .foregroundStyle(Palette.ink2)
                 .buttonStyle(.plain)
-                .accessibilityLabel("Ajustes")
-            }
-
-            let net = history.netPosition
-            if net.isZero {
-                Text("Tudo quite")
-                    .font(Typo.display)
-                    .foregroundStyle(Palette.positive)
-            } else {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(net.isNegative ? "Você deve" : "Te devem").receiptLabel()
-                    AnimatedMoney(cents: net.magnitude,
-                                  font: Typo.galleryNet,
-                                  color: net.isNegative ? Palette.action : Palette.ink)
-                    if !history.outstanding.isEmpty {
-                        Text(history.outstanding.prefix(3).map(\.name.firstWord)
-                                .joined(separator: " · "))
-                            .font(Typo.caption)
-                            .foregroundStyle(Palette.ink3)
-                    }
-                }
-            }
         }
     }
 
-    private static let month: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "pt_BR")
-        f.dateFormat = "MMMM yyyy"
-        return f
-    }()
+    /// The table you are at.
+    private func now(_ table: RachaState) -> some View {
+        let me = repository.meID
+        let due = table.due(of: me)
+        let others = table.unpaidParticipants.filter { $0.id != me }
+        return VStack(alignment: .leading, spacing: 6) {
+            Text([table.venue?.name ?? table.title, table.venue?.tableLabel, "agora"]
+                    .compactMap { $0 }.joined(separator: " · "))
+                .metaLabel()
+            Text(due.isZero ? "Sua parte, paga" : "Sua parte")
+                .metaLabel()
+                .padding(.top, 6)
+            AnimatedMoney(cents: due.isZero ? table.share(of: me) : due,
+                          font: Typo.hero,
+                          color: Palette.ink)
+            Text(tableLine(table, others: others))
+                .font(Typo.small)
+                .foregroundStyle(Palette.ink3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
+            if !due.isZero {
+                RachaButton(title: "Pagar \(BRL.format(due, currency: table.currency))", icon: nil) {
+                    Haptics.shared.press(); payingID = table.id; paying = true
+                }
+                .padding(.top, 22)
+            }
+            RachaButton(title: "Abrir a conversa", icon: nil, style: .ghost) {
+                Haptics.shared.press(); navigator.open(table.id)
+            }
+            .padding(.top, due.isZero ? 22 : 10)
+        }
+    }
+
+    private func tableLine(_ table: RachaState, others: [Participant]) -> String {
+        var parts: [String] = []
+        if table.remainingOnTable.isZero {
+            parts.append("Mesa paga")
+        } else {
+            var line = "Falta \(BRL.format(table.remainingOnTable, currency: table.currency)) na mesa"
+            if !others.isEmpty {
+                line += " · \(others.map(\.shortName).joinedPtBR()) ainda não \(others.count == 1 ? "pagou" : "pagaram")"
+            }
+            parts.append(line)
+        }
+        let unowned = table.split.unassigned.count
+        if unowned > 0 { parts.append("\(unowned) \(unowned == 1 ? "item" : "itens") sem dono") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// No table open: the QR is the way in. The scanner lands with the POS
+    /// adapter; until then this opens the manual sheet, which is the same racha
+    /// without the house's Pix.
+    private var scanPrompt: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Nenhuma mesa aberta").metaLabel()
+            Text("Sentou? Escaneia.")
+                .font(Typo.display)
+                .foregroundStyle(Palette.ink)
+            Text("O QR da mesa abre a conta item por item. Você fala o que foi de quem, e cada um paga a casa direto no Pix.")
+                .font(Typo.body)
+                .foregroundStyle(Palette.ink3)
+                .fixedSize(horizontal: false, vertical: true)
+            RachaButton(title: "Escanear o QR da mesa", icon: "qrcode.viewfinder") {
+                Haptics.shared.press(); showingNew = true
+            }
+            .padding(.top, 8)
+        }
+    }
 }
 
 /// A tile presses by dimming and settling, not by scaling — twelve tiles that
@@ -129,19 +158,20 @@ private struct TileButtonStyle: ButtonStyle {
     }
 }
 
+/// Kept for the onboarding flow, which shows it before the first table exists.
 struct EmptyGallery: View {
     var onCreate: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Nada por aqui ainda")
+            Text("Sentou? Escaneia.")
                 .font(Typo.display)
                 .foregroundStyle(Palette.ink)
-            Text("Um racha é uma conversa. Manda a foto da nota, ou só fala o que rolou — “a picanha foi eu, o Gui e a Ju”.")
+            Text("O QR da mesa abre a conta item por item. Você fala o que foi de quem — “a picanha foi eu, o Gui e a Ju” — e cada um paga a casa direto.")
                 .font(Typo.body)
                 .foregroundStyle(Palette.ink3)
                 .fixedSize(horizontal: false, vertical: true)
-            RachaButton(title: "Começar", icon: "sparkles", action: onCreate)
+            RachaButton(title: "Escanear o QR da mesa", icon: "qrcode.viewfinder", action: onCreate)
                 .padding(.top, 4)
         }
         .padding(.vertical, 20)

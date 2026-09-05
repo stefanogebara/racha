@@ -68,6 +68,8 @@ struct RachaEvent: Identifiable, Codable, Sendable, Equatable {
         case paymentRemoved(Payment.ID)
 
         case fxRateSet(FXRate)
+        /// The table this racha is: venue, table number, the house's Pix.
+        case venueSet(Venue?)
         case coverImageSet(assetKey: String?)
         case noteAdded(String)
         case settled(at: Date)

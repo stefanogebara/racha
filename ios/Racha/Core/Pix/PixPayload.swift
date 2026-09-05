@@ -14,8 +14,9 @@ import Foundation
 ///
 /// - It never routes a gratuity to a personal key. CLAUDE.md non-negotiable #2:
 ///   the 10% is employee remuneration settled to the restaurant's CNPJ through
-///   payroll. `PixPayload.forSettlement` builds *friend-to-friend* transfers only,
-///   which is a different thing entirely from paying a restaurant bill.
+///   payroll. `PixPayload.forVenue` pays the *house*, gratuity included, to the
+///   house's own key; `forSettlement` builds friend-to-friend transfers for the
+///   case where one person covered another, and never carries the 10%.
 /// - It never invents a key. A payload without a real key would produce a QR that
 ///   scans and then fails in the bank app, which is worse than no QR.
 enum PixPayload {
@@ -66,6 +67,24 @@ enum PixPayload {
 
         payload += "6304"
         return payload + crc16(payload)
+    }
+
+    /// A diner's share, payable to the house. This is the product's payment: the
+    /// venue's key, the venue's legal name, the amount of one person's part, and
+    /// the comanda as the reference so the restaurant can reconcile it. Returns
+    /// nil when the venue has no key on file — the sheet then says so instead of
+    /// showing a code that cannot work.
+    static func forVenue(_ venue: Venue, amount: Cents, comanda: String,
+                         payer: Participant) -> String? {
+        guard let key = venue.pixKey, !key.isEmpty, amount.raw > 0 else { return nil }
+        return build(Input(
+            key: key,
+            receiverName: venue.legalName,
+            city: venue.city,
+            amount: amount,
+            reference: "RACHA\(comanda)",
+            message: "\(venue.name) — parte de \(payer.shortName)"
+        ))
     }
 
     /// A friend-to-friend settlement code, built from the transfer plan. Returns

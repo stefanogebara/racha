@@ -433,3 +433,38 @@ acerto P2P é exatamente o fluxo de fundos que o produto de mesa evita. O brief
 do iOS pediu o app de amigos; a estratégia do repo é a mesa. Os dois podem
 dividir a conversa, a comanda e a xilogravura. Não podem dividir a primeira
 tela. Isso é uma decisão de produto, e é de quem manda no produto.
+
+## 29 — A mesa é o racha (2026-09-05)
+
+**Contexto.** Vinte e duas rodadas de crítica depois, o board tinha virado um
+razão entre amigos: viagem em euros, praia, "Pagar pro Gui", saldo líquido entre
+pessoas. O crítico apontou duas vezes, fora do brief, que isso é um Splitwise e
+que acerto P2P é exatamente o fluxo de fundos que o produto de mesa evita. Estava
+certo. A estratégia do repositório é pagar na mesa: QR na mesa, cada um paga a
+casa a própria parte pelo split do PSP, ninguém segura dinheiro.
+
+**Decisão.** O app iOS é o lado do cliente do produto de mesa. A primeira tela é
+a mesa em que você está: sua parte como a figura, o que falta na mesa e quem
+ainda não pagou, e uma ação, Pagar. O Pix vai pra chave **da casa** (`Venue`),
+com a comanda como referência pra conciliação. A mesa fecha quando a casa tem
+tudo e nada está sem dono. Mesas anteriores viram histórico. A conversa, a
+comanda, a xilogravura e o motor de centavos ficam como estão — a decisão muda o
+hub e a sheet de pagamento, não o resto.
+
+**Contra o quê.** Manter o app de amigos: funciona, é legal (Pix entre amigos
+nas chaves deles, sem nós no meio), mas é outro negócio, com outra primeira tela
+e outra razão de existir — e o gate de adoção (25% das comandas em oito semanas)
+mede mesas, não viagens. Fazer os dois: podem dividir conversa, comanda e
+desenho; não podem dividir a primeira tela.
+
+**O que faria mudar de ideia.** O piloto mostrar que a mesa se divide *antes* de
+sentar (o grupo já tem um racha aberto e o QR é só um evento nele). Aí a mesa
+vira um capítulo do racha e o hub volta a ser a lista — mas com os pagamentos
+continuando a ir pra casa, nunca entre amigos.
+
+**Onde está.** Protótipo: `ios/lab/app.html` (semente de quatro mesas, `myDue`,
+`current()`, sheet Pagar). Swift: `Venue.swift`, `venueSet`, `RachaState`
+(`due(of:)`, `remainingOnTable`, `unpaidParticipants`, `isSettled` pela regra da
+mesa, `comanda`), `PixPayload.forVenue`, `SettleSheet` reescrita como a sheet
+Pagar, `GalleryView` como a mesa atual + mesas anteriores, `SeedData` com quatro
+mesas. Nada compilado; `verification.md`.

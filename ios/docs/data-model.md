@@ -85,11 +85,28 @@ base: .consumption | .consumptionPlusEarlierExtras | .equalHeads
 `base` existe porque "10% do quê" é uma pergunta real e frequentemente discutida
 numa mesa brasileira. Deixar implícito seria escolher por todo mundo.
 
+### Mesa
+
+```
+Venue { name, legalName, city, pixKey, table }
+```
+
+O racha é uma mesa. `venueSet` carrega a casa (nome, razão social e cidade pro
+payload do Pix, a chave Pix **do restaurante**, o número da mesa impresso no QR).
+A chave nunca é de um garçom nem de um amigo (CLAUDE.md #2 e #4): o Pix de cada
+parte vai pra casa, pelo split do PSP; a gente não segura nada.
+
 ### Pagamento
 
 ```
 Payment { id, payerID, amount, method, note, confirmedAt, createdAt }
 ```
+
+Um pagamento é de uma pessoa **pra casa**. `due(of:)` = parte da pessoa − o que
+ela já pagou; `remainingOnTable` = total − tudo que a casa já recebeu;
+`unpaidParticipants` = quem ainda não pagou a própria parte. Um `paymentRecorded`
+por um amigo cobrindo outro continua sendo um pagamento à casa — quem deve a
+quem entre amigos sai do `settlement`, como informação, e nunca trava a mesa.
 
 `isConfirmed` separa "eu disse que ia pagar" de "caiu". Saldo só conta dinheiro
 confirmado, então um toque otimista nunca faz dívida sumir.
@@ -126,10 +143,13 @@ NetBalance { personID, paid, owed, net }     net = paid − owed
 SettlementPlan { transfers, residual }
 ```
 
-`residual` é o que o grupo ainda deve ao restaurante. Nenhuma transferência entre
-amigos consegue zerar isso, então sai separado em vez de ser empurrado pra dívida
-de alguém. Um racha só está fechado quando `residual == 0` **e** ninguém deve a
-ninguém — o restaurante ter sido pago não significa que quem adiantou foi ressarcido.
+`residual` é o que o grupo ainda deve ao restaurante (o mesmo número que
+`remainingOnTable`). O plano de transferências entre amigos existe pro caso de
+alguém ter coberto a parte de outro; é informação, não bloqueio.
+
+**A mesa fecha quando a casa tem tudo e nada está sem dono** (`isSettled`). Cada
+um paga a própria parte à casa, então não há segunda metade a esperar: o
+restaurante pago *é* o racha fechado. (Decisão #29.)
 
 ## Histórico entre rachas
 

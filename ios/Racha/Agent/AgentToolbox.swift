@@ -501,6 +501,9 @@ struct AgentToolbox {
             "itens_sem_dono": .array(unassigned),
             "sem_dono_cents": .int(split.unassignedTotal.raw),
             "servico_sem_dono_cents": .int(split.unassignedExtras.raw),
+            "falta_na_mesa_cents": .int(s.remainingOnTable.raw),
+            "quem_falta_pagar": .array(s.unpaidParticipants.map { .string($0.name) }),
+            "mesa": s.venue?.table.map { .int($0) } ?? .null,
             "fechado": .bool(s.isSettled),
             "conferido": .bool(split.isBalanced)
         ]

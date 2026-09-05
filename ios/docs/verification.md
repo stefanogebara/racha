@@ -111,7 +111,16 @@ Nada disso dá pra afirmar daqui:
    como chão claro e agora recebe a mesa — a comanda em especial precisa dos
    tokens `slip*`. `scripts/fetch-fonts.sh` baixa o Archivo variável; falta
    registrá-lo em `INFOPLIST_KEY_UIAppFonts`.
-8. **`unassignedExtras`.** Dois testes novos em `SplitEngineTests` (o serviço
+8. **A mesa (decisão #29).** `Venue`/`venueSet` no modelo, `RachaState.due/
+   remainingOnTable/unpaidParticipants/isSettled/comanda`, `PixPayload.forVenue`,
+   a `SettleSheet` reescrita como Pagar, `GalleryView` e `RachaTile` novos,
+   `SeedData` com quatro mesas. Tudo escrito sem compilador. Pontos que só o Xcode
+   confirma: `Font.weight(_:)` nos botões de texto da sheet, o `@Environment`
+   do `Navigator` na galeria, e se `allStates` devolve a mesa mais recente
+   primeiro (é o que `current` assume). Teste manual: abrir, ver "Bar do Zé ·
+   Mesa 12 · agora", Pagar → Copiar Pix → validar o BR Code num app de banco em
+   modo de teste (a chave é fictícia; o CRC tem que bater).
+9. **`unassignedExtras`.** Dois testes novos em `SplitEngineTests` (o serviço
    incide no item sem dono; couvert e valor fixo não vazam pro balde) e uma
    asserção nova na propriedade de 400 contas. Escritos, não executados.
 
