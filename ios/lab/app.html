@@ -2,7 +2,7 @@
 <title>Racha iOS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900&family=Newsreader:opsz,ital,wght@6..72,0,400;6..72,1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900&display=swap">
 
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
@@ -19,25 +19,27 @@
   /* The canvas is the bar at night: umbra, nearly black, warm, with one low
      light. Everything that used to be paper is now the dark table; the paper
      is reserved for the one object that is actually paper — the comanda. */
-  --night:#141008; --night-2:#1B1309; --night-3:#26190C;
+  --night:#141008; --night-2:#1B1410; --night-3:#231B13;
+  /* One ground, one surface step. Depth is a hairline and a shade, not a light. */
+  --surf:#1C1610; --surf-hi:#241C15;
   --cream:#F7F2E9;
   --p-0:var(--night); --p-hi:var(--night-2); --p-1:var(--night-2); --p-2:var(--night-3);
   /* Ink is cream on the night. Four values; the two quiet ones by alpha so they
      sit on any glow the canvas puts under them. */
-  --ink:var(--cream); --ink-2:rgba(247,242,233,.74); --ink-3:rgba(247,242,233,.54);
-  --ink-4:rgba(247,242,233,.34);
+  --ink:var(--cream); --ink-2:rgba(247,242,233,.78); --ink-3:rgba(247,242,233,.60);
+  --ink-4:rgba(247,242,233,.38);
   /* One accent. Lifted off oxblood so it reads on umbra; it means money still
      open, and nothing else. */
   --act:#E8475F; --act-2:#C93650; --pos:rgba(247,242,233,.54);
   /* Glass: a border you can see, a fill you can barely see. Depth comes from
      translucency and layering, never from a drop shadow — except under paper. */
-  --rule:rgba(247,242,233,.14); --rule-2:rgba(247,242,233,.08);
-  --glass:rgba(247,242,233,.045); --glass-hi:rgba(247,242,233,.085);
+  --rule:rgba(247,242,233,.12); --rule-2:rgba(247,242,233,.07);
+  --glass:var(--surf); --glass-hi:var(--surf-hi);
   /* One family, three widths. The poster cut is Archivo at width 62 / weight
      900 — compressed and black, the way a bar chalkboard is lettered — the
      headline cut sits at width 92 / 500, and body at width 100 / 400. */
   --sans:'Archivo',ui-sans-serif,system-ui,sans-serif;
-  --serif:'Newsreader',Georgia,'Times New Roman',serif;
+  --serif:var(--sans); /* one family. The serif accent is gone: a voice that appears on one screen is a costume, not a role. */
   --leader:radial-gradient(circle at 1px 50%,var(--ink-4) .8px,transparent .9px);
   /* Motion: one curve, unhurried. */
   --ease:cubic-bezier(.22,1,.36,1);
@@ -68,7 +70,7 @@ body{
 /* ── page chrome ──────────────────────────────────────────────────────── */
 .top{width:100%;max-width:880px;display:flex;flex-wrap:wrap;align-items:flex-end;
   justify-content:space-between;gap:16px}
-.top h1{font-family:var(--serif);font-weight:400;line-height:.94;
+.top h1{font-family:var(--sans);font-stretch:92%;font-weight:500;line-height:.94;
   font-size:clamp(32px,4.6vw,46px);letter-spacing:-.015em;text-wrap:balance}
 .top h1 i{font-style:italic;color:var(--act)}
 .top p{font-size:13px;line-height:1.55;color:var(--pg-mute);max-width:44ch;margin-top:9px}
@@ -94,10 +96,17 @@ body{
   transition:transform .6s var(--ease)}
 .isl{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:112px;height:32px;
   border-radius:99px;background:#000;z-index:90;pointer-events:none}
+/* The status bar and the home indicator: the phone's own chrome, drawn here so
+   the frame is honest about where the content may and may not go. */
+.sbar{position:absolute;top:0;left:0;right:0;height:50px;z-index:95;pointer-events:none;
+  display:flex;align-items:center;justify-content:space-between;padding:6px 30px 0 34px;
+  color:var(--ink);font-size:15px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.sb-r{display:flex;align-items:center;gap:7px}
+.homei{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:134px;height:5px;
+  border-radius:99px;background:rgba(247,242,233,.55);z-index:95;pointer-events:none}
 
 /* ── type ─────────────────────────────────────────────────────────────── */
-.ser{font-family:var(--serif);font-weight:400;letter-spacing:-.006em;
-  font-variation-settings:'opsz' 44}
+.ser{font-family:var(--sans);font-stretch:92%;font-weight:500;letter-spacing:-.02em}
 /* The poster cut: compressed, black, line-height under one. Used for the one
    figure or the one word a screen is about — never for two things at once. */
 .poster{font-family:var(--sans);font-stretch:62%;font-weight:900;line-height:.85;
@@ -107,8 +116,8 @@ body{
 /* Display and text are the same design at two optical sizes: the display cut
    is finer and tighter, the text cut is sturdier and wider — which is what a
    serif family is for, and what using one display face at every size loses. */
-.disp{font-variation-settings:'opsz' 60}
-.txt{font-variation-settings:'opsz' 14}
+.disp{}
+.txt{}
 .mono{font-variant-numeric:tabular-nums}
 .num{font-variant-numeric:tabular-nums}
 /* Money is always the serif, and the serif's figures are uniform width, so a
@@ -117,7 +126,7 @@ body{
   white-space:nowrap;font-variant-numeric:tabular-nums;position:relative}
 .mo>i{font-style:normal}
 
-.fig{font-family:var(--serif)}
+.fig{font-family:var(--sans)}
 /* The currency mark is a unit, not a numeral: optically smaller, raised, and
    set back from the figure so the eye lands on the amount. */
 .cy{font-size:.60em;letter-spacing:.02em;margin-right:.24em;color:var(--ink-3);
@@ -125,8 +134,8 @@ body{
 /* The two poster figures keep the poster cut all the way through the money
    markup — .mo would otherwise pull them back to the body width. */
 .standing b .mo,.net b .mo{font-stretch:inherit;font-weight:inherit;letter-spacing:inherit}
-.standing .cy,.net .cy{font-size:.42em;margin-right:.22em;position:relative;top:-.16em;
-  font-stretch:78%;font-weight:600;letter-spacing:.01em}
+.standing .cy,.net .cy{font-size:.34em;margin-right:.18em;vertical-align:baseline;
+  font-stretch:80%;font-weight:700;letter-spacing:.01em}
 .cap .amt .cy{display:inline-block;min-width:1.5em;text-align:right}
 
 b .cy,.net .cy{color:var(--ink-4)}
@@ -140,48 +149,60 @@ b .cy,.net .cy{color:var(--ink-4)}
 .mi{font-size:10.5px;font-weight:500;letter-spacing:.10em;
   text-transform:uppercase;color:var(--ink-4)}
 /* A section rule in the ledger: the label and the hairline are one object. */
-.mi.rule{display:flex;align-items:center;gap:10px;color:var(--ink-4)}
+.mi.rule{display:flex;align-items:center;gap:10px;color:var(--ink-3);
+  font-size:12.5px;letter-spacing:0;text-transform:none;font-weight:500}
 .mi.rule::after{content:'';flex:1;height:1px;background:var(--rule)}
 
 
 /* ── layers ───────────────────────────────────────────────────────────── */
 /* The sheet runs out under a wash of its own stock. */
-.pageend{position:absolute;left:0;right:0;bottom:0;height:76px;z-index:12;pointer-events:none;
-  background:linear-gradient(180deg,transparent,var(--night) 62%);opacity:var(--pageend,1);
-  transition:opacity .6s var(--ease)}
+.pageend{display:none}
 .layer{position:absolute;inset:0;z-index:10;
   transition:transform .34s var(--ease),filter .34s ease}
 .scr.sheeted .layer,.scr.sheeted #hero,.scr.sheeted #paper{
   transform:scale(.972);transform-origin:top center}
-#grid{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:56px 0 64px}
+#grid{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:58px 0 calc(24px + 34px)}
 #grid::-webkit-scrollbar{display:none}
 #card,#thread{pointer-events:none;opacity:0}
 
 /* grid header */
-.gh{padding:0 24px 24px;display:flex;flex-direction:column;gap:14px}
-.gh-row{display:flex;align-items:flex-start;justify-content:space-between}
-.gh-row .ser{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:40px;line-height:.85;
-  letter-spacing:-.004em;text-transform:uppercase}
+.gh{padding:0 24px 28px;display:flex;flex-direction:column;gap:22px}
+.gh-row{display:flex;align-items:center;justify-content:space-between;min-height:24px}
+/* The wordmark is a mark, not a headline: the screen has one poster and it is
+   the figure. Same row, same height, as the chevron bar on every other screen. */
+.gh-row .ser{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:19px;line-height:1;
+  letter-spacing:.02em;text-transform:uppercase}
 .icon{background:none;border:none;padding:5px;margin:-5px;cursor:pointer;color:var(--ink-3);
   display:grid;place-items:center}
 .icon:focus-visible{outline:2px solid var(--act);outline-offset:2px;border-radius:6px}
-.net{display:flex;flex-direction:column;gap:3px;padding-top:2px}
-.net b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:96px;text-transform:uppercase;
-  line-height:.92;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.net .who{font-size:12px;color:var(--ink-3);line-height:1.45}
+.net{display:flex;flex-direction:column;gap:6px;padding-top:2px}
+.net b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:104px;text-transform:uppercase;
+  line-height:.86;letter-spacing:-.016em;font-variant-numeric:tabular-nums;display:block}
+.net .lbl{font-size:13px;color:var(--ink-2)}
+/* Where the figure comes from: one row per open racha, in that racha's own
+   currency. The poster number is the sum of the rows you can check it against. */
+.pos{display:flex;flex-direction:column;margin-top:14px;font-size:13.5px}
+.pos div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0;
+  border-top:1px solid var(--rule-2)}
+.pos div:first-child{border-top:none;padding-top:0}
+.pos .mo{font-size:14px}
+.pos .owe .mo{color:var(--act)}
+.pos .n{color:var(--ink-2)}
 
 /* the contact sheet — uniform tiles, image first, no card chrome */
 .sheet{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 24px}
-.tile{background:var(--glass);border:1px solid var(--rule);padding:10px 12px 13px;font:inherit;
+.tile{background:var(--surf);border:1px solid var(--rule);padding:10px 12px 13px;font:inherit;
   color:inherit;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:9px;
   border-radius:16px;position:relative;isolation:isolate;
   transition:opacity .6s var(--ease),border-color .6s var(--ease)}
+/* Settled recedes. You should not have to read the word to know. */
+.tile.done{opacity:.55}
 .tile:hover{border-color:rgba(247,242,233,.26)}
 /* The racha that is live carries a luminous border: a conic gradient turning
    behind a 1px ring. A border that moves reads as a thing with a pulse. */
 .tile.live::after{content:'';position:absolute;inset:-1px;border-radius:17px;padding:1px;
-  background:conic-gradient(from var(--spin,0deg),rgba(247,242,233,.55),rgba(247,242,233,.06) 25%,
-    rgba(247,242,233,.06) 55%,rgba(247,242,233,.40) 78%,rgba(247,242,233,.55));
+  background:conic-gradient(from var(--spin,0deg),rgba(247,242,233,.42),rgba(247,242,233,.06) 25%,
+    rgba(247,242,233,.06) 55%,rgba(247,242,233,.30) 78%,rgba(247,242,233,.42));
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;
   animation:spin 7s linear infinite}
@@ -194,12 +215,15 @@ b .cy,.net .cy{color:var(--ink-4)}
    as an object photographed on paper — not as an image in a box. */
 .shot::before{content:'';position:absolute;inset:0;background:none}
 .shot canvas{position:relative;width:96%;height:96%}
-.cap{display:flex;flex-direction:column;gap:3px}
+.cap{display:flex;flex-direction:column;gap:3px;margin-top:auto}
 .cap .t{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:17px;line-height:1.1;
   letter-spacing:-.012em;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;
   overflow:hidden}
 .cap .v{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
-.cap .amt{font-family:var(--sans);font-size:14px;color:var(--ink-2)}
+.cap .amt{font-family:var(--sans);font-size:14px;color:var(--ink)}
+.cap .v .st{font-size:12px;color:var(--ink-3)}
+.cap .v.owe .amt{color:var(--act)}
+.cap .v.quit .amt{color:var(--ink-4)}
 .dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block;
   vertical-align:baseline;margin-bottom:1px;margin-right:6px;box-sizing:border-box}
 .dot.o{background:var(--ink-2)}
@@ -208,44 +232,50 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* ── the flying tile (grid ⇄ card) ────────────────────────────────────── */
 #hero{position:absolute;z-index:40;pointer-events:none;opacity:0;
   display:grid;place-items:center;border-radius:16px;overflow:hidden}
-#hero::before{content:'';position:absolute;inset:0;background:var(--glass);
+#hero::before{content:'';position:absolute;inset:0;background:var(--surf);
   box-shadow:inset 0 0 0 1px var(--rule);border-radius:16px;opacity:var(--heroframe,1);
   transition:opacity .6s var(--ease)}
 #hero canvas{position:relative;width:96%;height:96%}
 
 /* ── card ─────────────────────────────────────────────────────────────── */
-#card{display:flex;flex-direction:column;padding:56px 24px 32px;gap:0}
+#card{display:flex;flex-direction:column;padding:56px 24px calc(24px + 34px);gap:0}
 .cardmeta h2+.who-row{margin-top:-4px}
 /* Picture above, name below, both hanging off the same left margin. A cover. */
 .herorow{display:flex;flex-direction:column;gap:20px;align-items:flex-start}
 .heroslot{height:var(--heroh,220px);width:100%;flex:none}
 .herofacts{display:flex;flex-direction:column;gap:7px;align-self:stretch}
-.herofacts h2{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:60px;text-transform:uppercase;
-  line-height:.98;letter-spacing:-.022em;text-wrap:balance}
+.herofacts h2{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:34px;
+  line-height:1.02;letter-spacing:-.024em;text-wrap:balance}
 
 /* Everything below the picture hangs on one right edge. On a ledger aesthetic
    a second right margin on the same screen is the whole game lost: the point
    of the form is that the figures make a column you can run your eye down. */
-.led{display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--ink-2)}
+.led{display:flex;flex-direction:column;gap:0;font-size:14px;color:var(--ink-2)}
+.led>div{padding:10px 0;border-top:1px solid var(--rule-2)}
+.led>div:first-child{border-top:none;padding-top:0}
 .led .mo,.slip .mo{font-size:15px;line-height:1;color:var(--ink)}
+.led .flag{font-size:12px;color:var(--act);margin-left:8px;white-space:nowrap}
+.led .flag::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;
+  background:var(--act);margin:0 6px 1px 0;vertical-align:middle}
 .led .dim .mo{color:var(--ink-4)}
-.led div{display:flex;gap:0;align-items:baseline}
+.led div{display:flex;gap:0;align-items:baseline;justify-content:space-between}
 .led div span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
 .led div span:last-child{flex:none}
+.led div i{flex:1}
 .led .strong{font-size:14.5px;color:var(--ink)}
 .led .dim{color:var(--ink-4)}
-.led .gap{display:block;height:1px;background:var(--rule-2);margin:6px 0 5px}
+.led .gap{display:none}
 /* Where you stand. The one figure on this screen you actually came for, given
    the room the rest of the page was leaving empty anyway. */
 .standing{display:flex;flex-direction:column;gap:5px;padding-bottom:4px}
-.standing b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:118px;line-height:.85;
-  letter-spacing:-.006em;text-transform:uppercase}
-.standing .lbl{font-size:13px}
+.standing b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:104px;line-height:.86;
+  letter-spacing:-.016em;text-transform:uppercase;display:block}
+.standing .lbl{font-size:13px;color:var(--ink-2)}
 .standing .open{color:var(--ink)}
 .cardtop{display:flex;justify-content:space-between;align-items:flex-start}
 .back{background:none;border:none;padding:6px 10px 6px 0;margin-left:-2px;cursor:pointer;
   color:var(--ink-2);font:inherit;font-size:13px;display:flex;align-items:center;gap:6px}
-.cardmeta{display:flex;flex-direction:column;gap:16px;padding-top:26px}
+.cardmeta{display:flex;flex-direction:column;gap:16px;padding-top:28px}
 .cardgap{flex:1;min-height:8px}
 .cardmeta h2{font-family:var(--serif);font-weight:400;font-size:40px;
   line-height:.98;letter-spacing:-.02em}
@@ -264,8 +294,8 @@ b .cy,.net .cy{color:var(--ink-4)}
 .stateline{display:flex;justify-content:space-between;gap:14px;font-size:12px;color:var(--ink-3)}
 .stateline .open{color:var(--ink-2)}
 .go{margin-top:0;width:100%;border:none;cursor:pointer;
-  font-family:var(--sans);font-weight:500;font-size:16px;letter-spacing:-.005em;
-  color:var(--night);padding:0;height:52px;border-radius:14px;
+  font-family:var(--sans);font-weight:600;font-size:16px;letter-spacing:-.008em;
+  color:var(--night);padding:0;height:54px;border-radius:14px;
   background:var(--cream);transition:transform .6s var(--ease),background .3s}
 .go:active{transform:scale(.985)}
 .go:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
@@ -283,8 +313,8 @@ b .cy,.net .cy{color:var(--ink-4)}
 .th-row .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;line-height:1.04;letter-spacing:-.02em}
 .tot{background:none;border:none;font:inherit;color:inherit;cursor:pointer;padding:0;
   display:flex;flex-direction:column;align-items:flex-end;gap:2px}
-.tot b{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;
-  font-variant-numeric:tabular-nums}
+.tot b{font-family:var(--sans);font-weight:500;font-size:13px;color:var(--ink-2);
+  padding:6px 0;border-bottom:1px solid var(--ink-4)}
 .slipwrap{padding:24px 24px 0;flex:none}
 .msgs{flex:1;overflow-y:auto;scrollbar-width:none;padding:16px 24px 10px;
   display:flex;flex-direction:column;gap:16px;justify-content:flex-end}
@@ -293,38 +323,36 @@ b .cy,.net .cy{color:var(--ink-4)}
    total that is ruled off — the one place in the app that looks like paper
    because it is standing in for paper. */
 .slip{display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--ink-2);
-  background:var(--cream);padding:16px 16px 15px;align-self:stretch;position:relative;
+  background:var(--cream);padding:16px 16px 15px;align-self:stretch;position:relative;border-radius:3px;
   /* paper on a dark table: the ink tokens flip inside it, and it alone may cast a shadow */
   --ink:#211C16;--ink-2:#4A4134;--ink-3:#6E6454;--ink-4:#968B76;--p-hi:var(--cream);
   --rule:rgba(33,28,22,.12);--rule-2:rgba(33,28,22,.07);--act:#8E1231;
   --leader:radial-gradient(circle at 1px 50%,#968B76 .8px,transparent .9px);
-  box-shadow:0 18px 40px rgba(0,0,0,.38),0 2px 6px rgba(0,0,0,.25)}
-/* The torn edge of a pad. Scalloped, not dashed: a perforation is a row of
-   holes the paper was pulled through, and it reads at the top of the slip the
-   way it reads on the real thing. */
-.slip::before,.slip::after{content:'';position:absolute;left:0;right:0;height:5px;
-  background:radial-gradient(circle at 4px 0,transparent 3.4px,var(--p-hi) 3.5px) 0 0/8px 5px repeat-x}
-.slip::before{top:-5px;transform:scaleY(-1)}
-.slip::after{bottom:-5px}
+  box-shadow:none}
+/* Flat. A perforated edge drawn in CSS is the ticket icon every template
+   ships; the slip is paper because it is the one cream thing on a dark table,
+   and that is enough. */
 .slip div{display:flex;align-items:baseline;gap:0}
 .slip div span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
 /* Dot leaders. The eye needs a rail to run along between a name and a figure,
    which is why every printed bill in the world has them and no app does. */
-.slip div i,.led div i,.rw .lead{flex:1 1 auto;min-width:16px;align-self:center;height:1px;
+/* Dot leaders live on the comanda and nowhere else. They are how a printed
+   bill runs the eye from a name to a figure; on every other row of the app
+   they were wallpaper. */
+.slip div i{flex:1 1 auto;min-width:16px;align-self:center;height:1px;
   margin:0 9px;opacity:.62;background:var(--leader) right center/4px 1px repeat-x}
+.rw .lead{flex:1 1 auto;min-width:12px}
 .slip .slip-h i,.slip .slip-h{gap:14px}
 .slip .dim{color:var(--ink-4)}
 .slip .open{color:var(--act)}
-.slip-h{font-size:10px;font-weight:500;letter-spacing:.13em;text-transform:uppercase;
-  color:var(--ink-4);padding-bottom:9px;justify-content:space-between!important;
+.slip-h{font-size:10.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-3);padding-bottom:9px;justify-content:space-between!important;
   border-bottom:1px solid var(--rule);margin-bottom:2px}
 .slip-t{border-top:1px solid var(--ink);margin-top:6px;padding-top:9px;
   color:var(--ink);font-size:13.5px}
 .slip-t i{opacity:0}
 /* The rule between the bill and the talking about it. */
-.daymark{display:flex;align-items:center;gap:12px;font-size:10px;font-weight:500;
-  letter-spacing:.10em;text-transform:uppercase;color:var(--ink-4);flex:none}
-.daymark::before,.daymark::after{content:'';flex:1;height:1px;background:var(--rule-2)}
+.daymark{display:none}
 .m{display:flex;flex-direction:column;gap:8px;max-width:86%}
 .m.u{align-self:flex-end;align-items:flex-end}
 /* Messages are slips of paper, not iOS bubbles. Square corners keep the whole
@@ -336,15 +364,19 @@ b .cy,.net .cy{color:var(--ink-4)}
    saying nothing that the words themselves did not. */
 /* The person's words, in the serif italic — the one place the serif speaks,
    the way Air gives its cursive to the emotional phrase and nothing else. */
+/* The person's words, in the headline cut: larger, full ink, hung off a
+   hairline. The reply is the same family a size down in the second ink — two
+   voices told apart by weight and colour, which is how a printed interview
+   does it, not by a change of typeface. */
 .u .b{background:none;color:var(--ink);padding:0 0 0 14px;text-align:left;
-  border-left:1px solid var(--ink-4);font-family:var(--serif);font-style:italic;
-  font-variation-settings:'opsz' 30;font-size:22px;line-height:1.22;letter-spacing:-.008em}
+  border-left:1px solid var(--ink-4);font-family:var(--sans);font-stretch:92%;font-weight:500;
+  font-size:20px;line-height:1.25;letter-spacing:-.018em}
 .m.u{align-items:flex-start;align-self:flex-start;max-width:92%}
 /* The agent does not speak from inside a box. Five container styles inside
    two hundred pixels is what made this screen read as a chat app wearing an
    editorial costume; the reply is simply set on the page. */
 .a .b{background:none;border:none;padding:0;color:var(--ink-2);max-width:100%;
-  font-size:15px;line-height:1.5}
+  font-size:15px;line-height:1.5;font-variant-numeric:tabular-nums}
 .m.a{max-width:100%}
 .tok{opacity:0;animation:tk .38s var(--ease) forwards}
 @keyframes tk{from{opacity:0;filter:blur(3px);transform:translateY(3px)}
@@ -359,20 +391,20 @@ b .cy,.net .cy{color:var(--ink-4)}
 .ed .r{width:1px;align-self:stretch;background:var(--ink-4);flex:none}
 .ed.x .r{background:var(--ink-4)}
 .ed .c{flex:1;display:flex;flex-direction:column;gap:3px}
-.ed .c .s{font-size:12.5px;line-height:1.4}
+.ed .c .s{font-size:12.5px;line-height:1.4;font-variant-numeric:tabular-nums}
 .ed.x .c .s{text-decoration:line-through;color:var(--ink-3)}
 .ed .c .d{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.ed button{font:inherit;font-size:12px;background:var(--glass);color:var(--ink);
-  cursor:pointer;padding:6px 11px;flex:none;align-self:flex-start;line-height:1.2;
-  border:1px solid var(--rule);border-radius:99px}
-.ed button:hover{border-color:rgba(247,242,233,.3)}
+.ed button{font:inherit;font-size:12.5px;background:none;color:var(--ink-2);
+  cursor:pointer;padding:0;flex:none;align-self:flex-start;line-height:1.4;border:none;
+  text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ink-4)}
+.ed button:hover{color:var(--ink)}
 .wk{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;font-size:12px;
   color:var(--ink-3)}
 .wk i{width:5px;height:5px;border-radius:50%;background:var(--act);display:block;
   animation:bl 1s ease-in-out infinite}
 @keyframes bl{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 
-.comp{padding:12px 24px calc(20px + env(safe-area-inset-bottom));
+.comp{padding:12px 24px calc(16px + 34px);
   display:flex;flex-direction:column;gap:10px;border-top:none}
 .chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;flex:none;
   gap:8px;margin:6px -24px 0;padding:0 56px 0 24px;
@@ -382,8 +414,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* Pills: frosted glass, a border you can see. The same object as the state
    eyebrow, because they are the same kind of thing — a small, tappable fact. */
 .chip{font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;padding:9px 14px;
-  background:var(--glass);border:1px solid var(--rule);border-radius:99px;color:var(--ink);
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  background:var(--surf);border:1px solid var(--rule);border-radius:99px;color:var(--ink);
   transition:border-color .6s var(--ease),background .6s var(--ease)}
 .chip:hover{border-color:rgba(247,242,233,.3);background:var(--glass-hi)}
 .chip[disabled]{opacity:.35;cursor:default}
@@ -392,12 +423,12 @@ b .cy,.net .cy{color:var(--ink-4)}
 .chip.a{color:var(--ink);border-color:var(--ink-4)}
 .inp{display:flex;gap:8px;align-items:center}
 .fake{flex:1;font-size:15px;color:var(--ink-3);padding:0 16px;height:48px;display:flex;align-items:center;
-  background:var(--glass);border:1px solid var(--rule);border-radius:16px}
+  background:var(--surf);border:1px solid var(--rule);border-radius:14px}
 /* A solid black disc is the stock assistant-composer send button, and it was
    the only pure black anywhere in this file. The send is a mark on the page. */
-.rnd{border:1px solid var(--rule);background:var(--glass);cursor:pointer;flex:none;font:inherit;font-size:13px;
-  font-weight:500;color:var(--ink);padding:0 16px;height:48px;border-radius:16px}
-.rnd:hover{color:var(--ink)}
+.rnd{border:none;background:var(--cream);cursor:pointer;flex:none;font:inherit;font-size:14px;
+  font-weight:600;color:var(--night);padding:0 18px;height:48px;border-radius:14px;letter-spacing:-.008em}
+.rnd:hover{background:#fff}
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
 .sh{position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.42);opacity:0;
@@ -407,7 +438,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 
 .shb{position:relative;z-index:1;width:100%;max-height:calc(100% - 118px);overflow-y:auto;overscroll-behavior:contain;
   scrollbar-width:none;background:var(--night-2);border-radius:20px 20px 0 0;transform-origin:bottom;
-  border-top:1px solid var(--rule);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border-top:1px solid var(--rule);
   padding:16px 24px calc(62px + env(safe-area-inset-bottom));display:flex;
   flex-direction:column;gap:18px;transform:translateY(22px);
 
@@ -415,13 +446,12 @@ b .cy,.net .cy{color:var(--ink-4)}
 .sh.on .shb{transform:none}
 /* The last row runs under a wash of the sheet's own paper, so content reads as
    continuing past the edge instead of being cut through the digits. */
-.sh::after{content:'';position:absolute;left:0;right:0;bottom:0;z-index:2;
-  height:120px;background:linear-gradient(180deg,transparent,var(--night-2) 46%);pointer-events:none}
+.sh::after{display:none}
 .shb::-webkit-scrollbar{display:none}
 .shh{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;
   background:var(--night-2);padding:2px 0 8px;z-index:2}
 
-.shh .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:21px;letter-spacing:-.02em}
+.shh .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;letter-spacing:-.022em}
 .shh button{font:inherit;font-size:13px;background:none;border:none;color:var(--ink-2);
   cursor:pointer;padding:4px 0}
 .shh button:hover{color:var(--ink)}
@@ -433,11 +463,11 @@ b .cy,.net .cy{color:var(--ink-4)}
   font:inherit;color:inherit;text-align:left;padding:0}
 button.rw{cursor:pointer}
 .rw .g{flex:0 1 auto;display:flex;flex-direction:column;gap:2px;min-width:0}
-.rw .g .n{font-size:14px}
+.rw .g .n{font-size:14.5px}
 .rw .amt{font-family:var(--sans);font-size:16px;padding-top:2px;
   font-variant-numeric:tabular-nums}
-.der{display:flex;flex-direction:column;gap:6px;padding:0 0 12px 14px!important;margin-top:7px;
-  font-size:11.5px;color:var(--ink-3);border-bottom:none!important;
+.der{display:flex;flex-direction:column;gap:7px;padding:0 0 12px 14px!important;margin-top:8px;
+  font-size:12.5px;color:var(--ink-2);border-bottom:none!important;
   border-left:1px solid var(--rule);margin-left:2px}
 .der div{padding:0!important;border:none!important}
 .der[hidden],[hidden]{display:none!important}
@@ -464,8 +494,7 @@ button.rw{cursor:pointer}
 
 /* avatars — initials on a warm disc, one hue per person, forever */
 .av{display:grid;place-items:center;color:var(--ink-2);flex:none;
-  font-family:var(--serif);font-weight:500;letter-spacing:.04em;line-height:1;
-  font-variation-settings:'opsz' 14}
+  font-family:var(--sans);font-weight:600;letter-spacing:.04em;line-height:1}
 .avs{display:flex;gap:3px}.avs .av{margin-left:0!important}
 .avs .av:first-child{margin-left:0}
 
@@ -627,6 +656,11 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
 <div class="dev">
   <div class="scr" id="scr">
     <canvas id="paper" aria-hidden="true"></canvas>
+    <div class="sbar" aria-hidden="true"><span class="sb-t">21:47</span>
+      <span class="sb-r"><svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx=".6"/><rect x="4.5" y="5" width="3" height="6" rx=".6"/><rect x="9" y="2.5" width="3" height="8.5" rx=".6"/><rect x="13.5" y="0" width="3" height="11" rx=".6" opacity=".35"/></svg>
+      <svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 3.6a9.5 9.5 0 0 1 13 0"/><path d="M4 6.3a5.8 5.8 0 0 1 8 0"/><path d="M6.5 9a2.2 2.2 0 0 1 3 0"/></svg>
+      <svg width="27" height="12" viewBox="0 0 27 12" fill="none"><rect x=".6" y=".6" width="22.8" height="10.8" rx="3" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2"/><rect x="25" y="3.7" width="1.6" height="4.6" rx=".8" fill="currentColor" fill-opacity=".45"/><rect x="2.2" y="2.2" width="3.2" height="7.6" rx="1.2" fill="#E8475F"/></svg></span></div>
+    <div class="homei" aria-hidden="true"></div>
 
     <section class="layer" id="grid" aria-label="Todos os rachas">
       <div class="gh">
@@ -659,7 +693,7 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
               <circle cx="9.5" cy="10.5" r="3.2"/><path d="M6.5 4.5l1.2-2h3.6l1.2 2"/></svg>
           </button>
           <div class="fake">fala aí…</div>
-          <button class="rnd" aria-label="Enviar">enviar</button>
+          <button class="rnd" aria-label="Enviar">Enviar</button>
         </div>
       </div>
     </section>
@@ -948,7 +982,7 @@ const RACHAS=[
      {n:'Cerveja (fardo)',q:2,total:11800,claims:{[ME]:1,Gui:1}}],
    extras:[],payments:[{by:'Gui',amount:39700,confirmed:true}]},
   {id:'lx',title:'Lisboa',kind:'Viagem',date:'22 AGO',cur:CUR.EUR,
-   people:[ME,'Ju'],hero:'Jantar na Bica',
+   people:[ME,'Ju'],hero:'Aluguel de carro',
    items:[
      {n:'Airbnb — 3 noites',q:3,total:25200,claims:{[ME]:1,Ju:1}},
      {n:'Aluguel de carro',q:1,total:11200,claims:{[ME]:1,Ju:1}},
@@ -978,7 +1012,7 @@ const RACHAS=[
    extras:[],payments:[{by:ME,amount:13440,confirmed:true}]},
 ];
 /* The churrasco settled: everyone squared with the host afterwards. */
-(()=>{['gui','fe'].forEach(id=>{const g=RACHAS.find(r=>r.id===id);
+(()=>{['gui','fe','sh'].forEach(id=>{const g=RACHAS.find(r=>r.id===id);
   settlePlan(balances(g)).transfers.forEach(t=>
     g.payments.push({by:t.from,amount:t.amount,confirmed:true}));});})();
 
@@ -1010,29 +1044,17 @@ function stateOf(r){
    spacing a receipt has. Drawn once; no animation, no colour orbs.
    ══════════════════════════════════════════════════════════════════════════ */
 function drawPaper(){
-  // The room, not a sheet. Umbra, with one warm light low and to the left —
-  // the lamp over the table — a cooler spill high and right, and a little
-  // smoke: the soft, slow drift Air does with clouds, done here with what a
-  // bar actually has in the air. Then grain, so the dark is a surface.
+  // A flat table. The one light in the room is the paper on it — not a lamp
+  // painted into the corner of every screen. Grain only, so the dark is a
+  // surface and not a value.
   const cv=el('paper'),box=cv.getBoundingClientRect();
   const w=Math.max(1,box.width|0),h=Math.max(1,box.height|0),dpr=Math.min(devicePixelRatio||1,2);
   cv.width=w*dpr; cv.height=h*dpr;
   const c=cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0);
-  const base=c.createLinearGradient(0,0,0,h);
-  base.addColorStop(0,'#100C07'); base.addColorStop(.55,'#141008'); base.addColorStop(1,'#1A1109');
-  c.fillStyle=base; c.fillRect(0,0,w,h);
-  const glow=(x,y,r,col,a)=>{const g=c.createRadialGradient(x,y,0,x,y,r);
-    g.addColorStop(0,col.replace('A',a)); g.addColorStop(1,col.replace('A','0'));
-    c.fillStyle=g; c.fillRect(0,0,w,h);};
-  glow(w*.18,h*1.02,Math.max(w,h)*.95,'rgba(255,150,60,A)',.20);   // the lamp
-  glow(w*.92,h*-.05,Math.max(w,h)*.6,'rgba(247,242,233,A)',.05);   // spill from the bar
+  c.fillStyle='#141008'; c.fillRect(0,0,w,h);
   const R=rng(0x5EED);
-  for(let i=0;i<7;i++){                                              // smoke
-    const x=R()*w,y=h*(.15+R()*.8),r=w*(.22+R()*.3);
-    glow(x,y,r,'rgba(247,242,233,A)',.018+R()*.02);
-  }
   const img=c.getImageData(0,0,cv.width,cv.height),d=img.data;
-  for(let i=0;i<d.length;i+=4){const n=(R()-.5)*7; d[i]+=n; d[i+1]+=n; d[i+2]+=n;}
+  for(let i=0;i<d.length;i+=4){const n=(R()-.5)*5; d[i]+=n; d[i+1]+=n; d[i+2]+=n;}
   c.putImageData(img,0,0);
 }
 
@@ -1055,8 +1077,10 @@ function still(r){
   while(pick.length<3) pick.push(r.hero);
   // Landscape band: three subjects at one size on one horizon, filling the
   // measure. `s` is a fraction of the short side, so the drawings stay square.
-  const S=0.90, X=[0.205,0.500,0.795];
-  return pick.map((name,i)=>({name,x:X[i],y:0.520,s:S,z:i===1?2:i}));
+  // Now that every block is printed at one size, the three sit shoulder to
+  // shoulder — a plate's width apart, the middle one a step forward.
+  const S=0.80, X=[0.190,0.500,0.810];
+  return pick.map((name,i)=>({name,x:X[i],y:0.500,s:S,z:i===1?2:i}));
 }
 /* The stock each block is printed on, read off the live stylesheet so a
    change to the palette cannot leave the gouges a shade off the surface. */
@@ -1069,7 +1093,7 @@ function heroTarget(){
   // Two thirds of the width, not all of it. A picture that fills the screen
   // is a poster; the subject of this screen is the split, and the picture is
   // its illustration. Square, because the drawing is square.
-  const pad=24, w=b.width-pad*2, h=Math.round(w*0.62);
+  const pad=24, w=b.width-pad*2, h=Math.round(w*0.54);
   el('card').style.setProperty('--heroh', h+'px');
   el('card').style.setProperty('--heroframe', '0');   // the plate sits on the page
   return{x:pad,y:96,w,h};
@@ -1170,31 +1194,49 @@ function toThread(){ renderThread(); goto(2); }
 /* ══════════════════════════════════════════════════════════════════════════
    RENDER
    ══════════════════════════════════════════════════════════════════════════ */
+/* What a racha means for me, in its own currency: what the plan moves to me
+   minus what it moves from me. Zero when settled, or when nothing is mine. */
+function myPosition(r){
+  let v=0; settlePlan(balances(r)).transfers.forEach(t=>{
+    if(t.to===ME)v+=t.amount; if(t.from===ME)v-=t.amount;});
+  return v;
+}
+/* What I still have to put on the table myself: my share, less what I paid,
+   less what the plan already routes through friends. Money owed to the bar,
+   not to a person — which is why it is not in the friend figure. */
+function myDue(r){
+  const b=balances(r).find(x=>x.p===ME); if(!b)return 0;
+  return Math.max(0,b.owed-b.paid-Math.max(0,-myPosition(r)));
+}
+/* "você, Gui e Ju" — the canonical name order is the racha's own. */
+function names(ps,r){
+  const o=ps.slice().sort((a,b)=>r.people.indexOf(a)-r.people.indexOf(b)).map(p=>p===ME?'você':p);
+  return o.length<2?o.join(''):o.slice(0,-1).join(', ')+' e '+o[o.length-1];
+}
 function renderGrid(){
-  let owed=0,owe=0;
-  RACHAS.forEach(r=>settlePlan(balances(r)).transfers.forEach(t=>{
-    if(t.to===ME)owed+=t.amount; if(t.from===ME)owe+=t.amount;}));
-  const net=owed-owe;
-  const names=[...new Set(RACHAS.flatMap(r=>settlePlan(balances(r)).transfers
-    .filter(t=>t.to===ME).map(t=>t.from)))];
-  el('net').innerHTML = net===0
-    ? `<b style="color:var(--pos);font-size:34px">Tudo quite</b>`
-    : `<div class="lbl">${net<0?'Você deve':'Te devem'}</div>
-       <b>${money(net<0?-Math.abs(net):Math.abs(net))}</b>
-       ${names.length?`<span class="who">${esc(names.join(' · '))}</span>`:''}`;
+  // One figure, in reais. Euros are not added to reais: a racha in another
+  // currency gets its own row, and stays out of the poster number.
+  const rows=RACHAS.map(r=>({r,v:myPosition(r),d:myDue(r)})).filter(x=>x.v||x.d);
+  const net=rows.filter(x=>x.r.cur===CUR.BRL).reduce((s,x)=>s+x.v,0);
+  el('net').innerHTML = (!rows.length)
+    ? `<b style="font-size:64px">Tudo quite</b>`
+    : `<span class="lbl">${net<0?'Você deve':net>0?'Te devem':'Entre vocês, quite'}</span>
+       ${net?`<b>${money(Math.abs(net))}</b>`:''}
+       <div class="pos">${rows.map(({r,v,d})=>`<div class="${v<0||(!v&&d)?'owe':''}">
+         <span class="n">${esc(r.title)} · ${v<0?'você deve':v>0?'te devem':'falta pagar'}</span>
+         ${money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</div>`).join('')}</div>`;
 
   el('tiles').innerHTML=RACHAS.map(r=>{
-    const{s,done}=stateOf(r);
-    return `<button class="tile${!done&&r===RACHAS.find(x=>!stateOf(x).done)?' live':''}" data-id="${r.id}" aria-label="${esc(r.title)}">
+    const{done}=stateOf(r),v=myPosition(r),d=myDue(r);
+    const live=!done&&r===RACHAS.find(x=>!stateOf(x).done);
+    return `<button class="tile${live?' live':''}${done?' done':''}" data-id="${r.id}" aria-label="${esc(r.title)}">
       <span class="shot"><canvas data-dish="${esc(r.hero)}" data-seed="${r.id}|${esc(r.hero)}"></canvas></span>
       <span class="cap">
         <span class="t">${esc(r.title)}</span>
-        <span class="lbl">${r.date.toLowerCase()} · ${r.people.length} pessoas${
-          r.cur!==CUR.BRL?' · em '+r.cur.name:''}</span>
-        <span class="v">
-          <span style="font-size:11.5px;color:${done?'var(--ink-4)':'var(--ink-2)'};
-            font-weight:${done?400:500}">${done?'quite':'aberto'}</span>
-          <span class="amt">${money(s.total,r.cur,{noSym:r.cur===CUR.BRL})}</span></span>
+        <span class="lbl">${r.date.toLowerCase()} · ${r.people.length} pessoas</span>
+        <span class="v ${done?'quit':v<0||(!v&&d)?'owe':''}">
+          <span class="st">${done?'quite':v<0?'você deve':v>0?'te devem':d?'falta pagar':'em aberto'}</span>
+          ${done?'':(v||d)?`<span class="amt">${money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</span>`:''}</span>
       </span></button>`;}).join('');
 
   document.querySelectorAll('.tile canvas').forEach(cv=>{
@@ -1225,19 +1267,19 @@ function renderCard(){
     </div>
     <div class="cardmeta">
       <div class="led">
-        <div class="strong"><span>A conta</span><i></i><span>${money(s.total,r.cur)}</span></div>
-        <div class="gap"></div>
-        <div><span>Paguei</span><i></i><span>${money(mine?mine.paid:0,r.cur,{noSym:true})}</span></div>
-        <div><span>Devia</span><i></i><span>${money(mine?mine.owed:0,r.cur,{noSym:true})}</span></div>
+        <div><span>Sua parte</span><i></i><span>${money(mine?mine.owed:0,r.cur,{noSym:true})}</span></div>
+        <div><span>Você pagou</span><i></i><span>${money(mine?mine.paid:0,r.cur,{noSym:true})}</span></div>
+        <div><span>A conta</span><i></i><span>${money(s.total,r.cur,{noSym:true})}</span></div>
+        ${remaining?`<div><span>Falta pagar na mesa${s.unassigned.length
+            ?`<span class="flag">${s.unassigned.length} sem dono</span>`:''}</span><i></i>
+          <span>${money(remaining,r.cur,{noSym:true})}</span></div>`:''}
       </div>
-      </div>
+    </div>
     <div class="cardgap" style="max-height:34px"></div>
     <div class="standing">
-      ${done?`<span class="lbl">Fechado</span><b class="ser disp">Tudo quite</b>`
-        :`<span class="lbl">${s.unassigned.length
-            ? s.unassigned.length+' item sem dono \u00b7 ainda falta'
-            : 'Pago '+brl(paid,r.cur)+' \u00b7 ainda falta'}</span>
-          <b class="ser disp open">${money(remaining,r.cur)}</b>`}
+      ${(()=>{const v=myPosition(r);
+        return done||!v?`<span class="lbl">${done?'Fechado':'Nesta conta'}</span><b>Quite</b>`
+        :`<span class="lbl">${v<0?'Você deve':'Te devem'}</span><b>${money(Math.abs(v),r.cur)}</b>`;})()}
     </div>
     <div class="cardgap"></div>
     <button class="go" id="gothread">${done?'Ver a conversa':'Dividir a conta'}</button>`;
@@ -1260,8 +1302,7 @@ function renderThread(){
         <div class="ser">${esc(r.title)}</div>
         <div class="lbl" style="margin-top:3px">${r.people.length} pessoas · ${r.items.length} itens</div>
       </div>
-      <button class="tot" id="opentot"><span class="lbl">Total</span>
-        <b>${money(s.total,r.cur)}</b></button>
+      <button class="tot" id="opentot"><b>A conta</b></button>
     </div>
 `;
   el('back2').onclick=()=>goto(1);
@@ -1296,7 +1337,7 @@ function comanda(r){ return String(fnv(r.id)%9000+1000); }
 function threadHead(){
   const r=focus,{s}=stateOf(r);
   return `<div class="slip">
-    <div class="slip-h"><span>Comanda ${comanda(r)}</span><span>em ${esc(r.cur.name)}</span></div>
+    <div class="slip-h"><span>Comanda ${comanda(r)}</span><span>${esc(r.date)}</span></div>
     ${s.shares.map(sh=>`<div><span>${esc(sh.p===ME?'Você':sh.p)}</span><i></i>
       <span>${money(sh.total,r.cur,{noSym:true})}</span></div>`).join('')}
     ${s.unassigned.length?`<div class="open"><span>${s.unassigned.length} sem dono</span><i></i>
@@ -1307,14 +1348,13 @@ function threadHead(){
 function renderMsgs(){
   const chips=el('chips');
   el('slip').innerHTML=threadHead();
-  el('msgs').innerHTML=(msgs.length?`<div class="daymark"><span>${
-    esc(focus.date.toLowerCase())}</span></div>`:'')+msgs.map((m,i)=>{
+  el('msgs').innerHTML=msgs.map((m,i)=>{
     if(m.role==='w')return `<div class="wk"><i></i>${esc(m.text)}</div>`;
     const eds=(m.edits||[]).map((e,j)=>`
       <div class="ed ${e.x?'x':''}"><span class="r"></span>
         <span class="c"><span class="s">${esc(e.s)}</span>
         ${e.d?`<span class="d">${e.d>0?'+':''}${brl(e.d,focus.cur)} na sua parte</span>`:''}</span>
-        ${e.x?'':`<button data-u="${i}:${j}">desfazer</button>`}</div>`).join('');
+        ${e.x?'':`<button data-u="${i}:${j}">Desfazer</button>`}</div>`).join('');
     return `<div class="m ${m.role==='u'?'u':'a'}">
       ${m.text?`<div class="b">${m.html||esc(m.text)}</div>`:''}${eds}</div>`;}).join('');
   el('msgs').querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{
@@ -1326,7 +1366,7 @@ function renderMsgs(){
 }
 function renderChips(){
   const r=focus,{s,plan}=stateOf(r),out=[];
-  if(s.unassigned.length)out.push({t:`${s.unassigned.length} sem dono`,k:'assign',a:1});
+  if(s.unassigned.length)out.push({t:`${esc(s.unassigned[0].n)} é de quem?`,k:'assign',a:1});
   if(plan.transfers.length)out.push({t:'Acertar',k:'settle',a:1});
   if(r.extras.some(e=>e.tip&&e.on))out.push({t:'Tirar serviço',k:'notip'});
   else if(r.extras.some(e=>e.tip))out.push({t:'Pôr serviço',k:'tip'});
@@ -1417,11 +1457,11 @@ function renderLedger(){
   const r=focus,{s,b}=stateOf(r),rd=s.shares.filter(x=>x.rounding);
   el('ledgerb').innerHTML=`
   <div style="display:flex;flex-direction:column;gap:22px">
-    <div class="sec"><span class="mi rule">Quem deve o quê — em ${esc(r.cur.name)}</span>
+    <div class="sec"><span class="mi rule">Quem deve o quê</span>
       ${s.shares.map((sh,i)=>{const bl=b.find(x=>x.p===sh.p);
         return `<div><button class="rw" data-d="${i}">
           <span class="g"><span class="n">${esc(sh.p===ME?'Você':sh.p)}</span>
-          <span style="font-size:11.5px;color:var(--ink-3)">${
+          <span style="font-size:12.5px;color:var(--ink-3)">${
             bl.net===0 ? 'quite'
             : bl.paid ? 'pagou '+brl(bl.paid,r.cur)+(bl.net<0?', falta '+brl(-bl.net,r.cur):'')
             : bl.net>0 ? 'a receber '+brl(bl.net,r.cur) : 'ainda não pagou'}</span></span>
@@ -1433,16 +1473,16 @@ function renderLedger(){
       <div class="tt"><span>Total</span><span>${money(s.total,r.cur)}</span></div></div>
 
     <div class="sec"><span class="mi rule">Itens</span>
-      ${usualOf(r)?`<p class="nt" style="padding:0 0 4px">Sem indicação, o item foi de ${
-        esc(usualOf(r).map(p=>p===ME?'você':p).join(', '))}.</p>`:''}
+      ${usualOf(r)?`<p class="nt" style="padding:0 0 4px">Itens sem indicação ficam com ${
+        esc(names(usualOf(r),r))}.</p>`:''}
       ${(()=>{const usual=(usualOf(r)||[]).join('\u0000');
         return r.items.map((it,i)=>{const ow=Object.keys(it.claims);
         const same=!!usual&&ow.slice().sort().join('\u0000')===usual;
         return `<div class="rw">
           <span class="g"><span class="n">${it.q>1?`<span class="num" style="color:var(--ink-3)">${it.q}× </span>`:''}${esc(it.n)}</span>
           ${!ow.length?'<span style="font-size:11.5px;color:var(--act)">sem dono</span>'
-            :same?'':`<span class="lbl">${esc(ow.map(p=>p===ME?'você':p).join(' · '))}</span>`}</span>
-          <i class="lead"></i><span style="font-size:13px">${money(it.total,r.cur,{noSym:true})}</span></div>`;}).join('');})()}</div>
+            :same?'':`<span class="lbl">${esc(names(ow,r).replace(' e ',' · ').replace(/, /g,' · '))}</span>`}</span>
+          <i class="lead"></i><span style="font-size:14px">${money(it.total,r.cur,{noSym:true})}</span></div>`;}).join('');})()}</div>
 
     ${r.extras.length?`<div class="sec"><span class="mi rule">Extras</span>
       ${r.extras.map(e=>`<div class="rw">

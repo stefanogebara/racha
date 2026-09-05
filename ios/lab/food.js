@@ -128,9 +128,16 @@ export function rrect(c, x, y, w, h, r) {
 
 /** Ink left standing. The paper halo is the uncut channel a printer leaves
     between two forms so they do not run together on the sheet. */
+/* Paper is not a colour: it is where the ink is not. Every mark that takes ink
+   away erases the canvas, so whatever the block is printed on shows through.
+   On cream stock this changes nothing; on a dark table it is the difference
+   between a print and a sticker with a white halo around it. */
+function erase(c, fn) { c.save(); c.globalCompositeOperation = 'destination-out'; fn(); c.restore(); }
+const PAPER_FILL = '#000';   // any opaque colour: with destination-out only its alpha matters
+
 export function block(c, shape) {
   shape(c);
-  c.strokeStyle = c.__paper; c.lineWidth = c.__cw * 4.2; c.stroke();
+  erase(c, () => { c.strokeStyle = PAPER_FILL; c.lineWidth = c.__cw * 4.2; c.stroke(); });
   c.fillStyle = c.__ink; c.fill();
 }
 
@@ -138,15 +145,15 @@ export function block(c, shape) {
     through the black, not a black line on the white. */
 export function gouge(c, shape, k = 1) {
   if (c.__lod < 1) return;
-  shape(c); c.strokeStyle = c.__paper; c.lineWidth = c.__cw * 1.15 * k;
-  c.lineCap = 'round'; c.stroke();
+  shape(c);
+  erase(c, () => { c.strokeStyle = PAPER_FILL; c.lineWidth = c.__cw * 1.15 * k; c.lineCap = 'round'; c.stroke(); });
 }
 
 /** A gouge that survives the small cut, for the two or three lines that carry
     the subject's identity. */
 export function keyGouge(c, shape, k = 1) {
-  shape(c); c.strokeStyle = c.__paper; c.lineWidth = c.__cw * 1.25 * k;
-  c.lineCap = 'round'; c.stroke();
+  shape(c);
+  erase(c, () => { c.strokeStyle = PAPER_FILL; c.lineWidth = c.__cw * 1.25 * k; c.lineCap = 'round'; c.stroke(); });
 }
 
 /** Tone: parallel gouges, clipped to a shape. Chunky and slightly uneven —
@@ -158,7 +165,7 @@ export function cut(c, shape, { gap = 0.072, band = null, ang = -0.62, k = 1 } =
   shape(c); c.clip();
   if (band) { const [x0, y0, x1, y1] = band; c.beginPath(); c.rect(x0, y0, x1 - x0, y1 - y0); c.clip(); }
   c.translate(0.5, 0.5); c.rotate(ang); c.translate(-0.5, -0.5);
-  c.strokeStyle = c.__paper; c.lineCap = 'butt';
+  c.globalCompositeOperation = 'destination-out'; c.strokeStyle = PAPER_FILL; c.lineCap = 'butt';
   let i = 0;
   for (let x = -0.7; x < 1.8; x += gap, i++) {
     // the run is not perfectly even: the blade wanders and the gouges vary
@@ -193,6 +200,7 @@ export function speck(c, shape, R, n = 26) {
     the same length — that shared horizon is most of what makes fourteen
     unrelated objects read as one set. */
 export function ground(c) {
+  if (c.__fit) return;             // paint() draws it after the subject is fitted
   c.fillStyle = c.__ink;
   const h = c.__cw * 1.5;
   c.fillRect(0.10, BASE - h / 2, 0.80, h);
@@ -579,10 +587,10 @@ const KEYS = [
   [/lingui|linguí|salsich|chouri|sausage/i,                 'linguica'],
   [/pudim|sobremes|doce|brigadeir|pave|pavê|mousse|bolo/i,  'pudim'],
   [/peixe|fish|salmao|salmão|tilapi|camarao|camarão|moqueca/i, 'peixe'],
+  [/carro|uber|gasolin|combust|pedagio|pedágio|taxi|viagem/i,'carro'],
   [/alugue|casa|apart|airbnb|chave|hosped|hotel|pousada/i,  'chave'],
   [/ingress|show|cinema|teatro|balada|festa|ticket/i,       'ingresso'],
   [/mercad|compra|feira|superm|grocer|carvao|carvão|fardo/i,'fardo'],
-  [/carro|uber|gasolin|combust|pedagio|pedágio|taxi|viagem/i,'carro'],
 ];
 
 export function recipeFor(name) {
@@ -607,8 +615,30 @@ export function drawFood(canvas, name, S, seedKey = name, opts = {}) {
 }
 
 /** Paint into an already-transformed context occupying [0,S]². */
-export function paint(c, name, S, seedKey = name, { paper = PAPER, ink = INK } = {}) {
-  const lod = lodFor(S);
+/* Every subject is printed into the same box — 0.80 wide, from CAP down to
+   BASE — bottom-anchored on the ground. Measured once per recipe from the
+   drawing itself, so a skewer laid on the diagonal and a mound of farofa come
+   out at one size, the way a set of stamps does. */
+const FIT = new Map();
+export function fitOf(recipe) {
+  if (FIT.has(recipe)) return FIT.get(recipe);
+  const S = 160, cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(S, S)
+    : Object.assign(document.createElement('canvas'), { width: S, height: S });
+  const c = cv.getContext('2d');
+  c.save(); c.scale(S, S);
+  c.__lod = 2; c.__ink = '#000'; c.__k = 7; c.__cw = 0.0185; c.__chip = 0; c.__fit = true;
+  RECIPES[recipe](c, rng(fnv(recipe)));
+  c.restore();
+  const d = c.getImageData(0, 0, S, S).data;
+  let x0 = S, y0 = S, x1 = 0, y1 = 0;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) if (d[(y * S + x) * 4 + 3] > 40) {
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  const box = x1 > x0 ? [x0 / S, y0 / S, (x1 + 1) / S, (y1 + 1) / S] : [0.1, CAP, 0.9, BASE];
+  FIT.set(recipe, box); return box;
+}
+
+export function paint(c, name, S, seedKey = name, { paper = PAPER, ink = INK, fit = true, ground: withGround = true } = {}) {
+  const lod = lodFor(S), recipe = recipeFor(name);
   c.save();
   c.scale(S, S);
   c.__lod = lod; c.__paper = paper; c.__ink = ink; c.__k = fnv(seedKey) & 63;
@@ -617,7 +647,19 @@ export function paint(c, name, S, seedKey = name, { paper = PAPER, ink = INK } =
   // The block chips less on a small cut: there is no room for it to.
   c.__chip = lod === 0 ? 0 : lod === 1 ? 0.0030 : 0.0042;
   c.lineJoin = 'round'; c.lineCap = 'round'; c.miterLimit = 2;
-  RECIPES[recipeFor(name)](c, rng(fnv(seedKey)));
+  if (fit) {
+    const [x0, y0, x1, y1] = fitOf(recipe), bw = x1 - x0, bh = y1 - y0;
+    const k = Math.min(0.80 / bw, (BASE - CAP) / bh);
+    c.save();
+    c.translate(0.5 - (x0 + bw / 2) * k, BASE - y1 * k); c.scale(k, k);
+    c.__cw /= k; c.__chip /= k; c.__fit = true;
+    RECIPES[recipe](c, rng(fnv(seedKey)));
+    c.restore();
+    c.__fit = false;
+    if (withGround) ground(c);
+  } else {
+    RECIPES[recipe](c, rng(fnv(seedKey)));
+  }
   c.restore();
 }
 
@@ -634,11 +676,17 @@ export function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAP
   const c = canvas.getContext('2d');
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W_, H_);
+  let horizon = null, cw = 0;
   [...plan].sort((a, b) => a.z - b.z).forEach((item, i) => {
-    const side = Math.min(W_, H_) * item.s;
+    const side = Math.min(W_, H_) * item.s, top = item.y * H_ - side / 2;
     c.save();
-    c.translate(item.x * W_ - side / 2, item.y * H_ - side / 2);
-    paint(c, item.name, side, seedKey + '|' + item.name + '|' + i, { paper, ink });
+    c.translate(item.x * W_ - side / 2, top);
+    paint(c, item.name, side, seedKey + '|' + item.name + '|' + i, { paper, ink, ground: false });
     c.restore();
+    horizon = top + BASE * side; cw = Math.max(0.0185, 1.35 / side) * 1.5 * side;
   });
+  // One ground under the whole table, not three short ones under three dishes.
+  if (horizon !== null) {
+    c.fillStyle = ink; c.fillRect(W_ * 0.04, horizon - cw / 2, W_ * 0.92, cw);
+  }
 }
