@@ -24,7 +24,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const FLAT = `.dev{padding:0!important;background:none!important;box-shadow:none!important;
   border-radius:0!important;--w:400px!important;--h:868px!important}
 .scr{border-radius:44px!important}
-.isl{display:none!important}`;
+.isl{display:block!important}`;
 (async () => {
   const frames = views.map(([v,label], idx) => {
     const cell = document.createElement('div'); cell.className = 'cell';

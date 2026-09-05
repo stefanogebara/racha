@@ -26,8 +26,8 @@
   --p-0:var(--night); --p-hi:var(--night-2); --p-1:var(--night-2); --p-2:var(--night-3);
   /* Ink is cream on the night. Four values; the two quiet ones by alpha so they
      sit on any glow the canvas puts under them. */
-  --ink:var(--cream); --ink-2:rgba(247,242,233,.78); --ink-3:rgba(247,242,233,.60);
-  --ink-4:rgba(247,242,233,.38);
+  --ink:var(--cream); --ink-2:rgba(247,242,233,.80); --ink-3:rgba(247,242,233,.66);
+  --ink-4:rgba(247,242,233,.42);
   /* One accent. Lifted off oxblood so it reads on umbra; it means money still
      open, and nothing else. */
   /* One red, warm: the vermilion of a cordel cover, not a coral. Two tones of
@@ -37,7 +37,7 @@
      wearing the same colour and only one of them is a button. */
   --paper:#EEE5D3;
   /* Two radii. */
-  --r:12px; --r-s:6px;
+  --rad:12px; --rad-s:6px;
   /* Glass: a border you can see, a fill you can barely see. Depth comes from
      translucency and layering, never from a drop shadow — except under paper. */
   --rule:rgba(247,242,233,.12); --rule-2:rgba(247,242,233,.07);
@@ -116,7 +116,7 @@ body{
 .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;letter-spacing:-.02em}
 /* The poster cut: compressed, black, line-height under one. Used for the one
    figure or the one word a screen is about — never for two things at once. */
-.poster{font-family:var(--sans);font-stretch:62%;font-weight:900;line-height:.85;
+.poster{font-family:var(--sans);font-stretch:62%;font-weight:850;line-height:.85;
   letter-spacing:-.006em;text-transform:uppercase}
 /* The headline cut. */
 .hd{font-family:var(--sans);font-stretch:92%;font-weight:500;line-height:1.02;letter-spacing:-.022em}
@@ -141,10 +141,11 @@ body{
 /* The two poster figures keep the poster cut all the way through the money
    markup — .mo would otherwise pull them back to the body width. */
 .standing b .mo,.net b .mo{font-stretch:inherit;font-weight:inherit;letter-spacing:inherit}
-.standing .cy,.net .cy{font-size:.42em;margin-right:.14em;vertical-align:baseline;
-  font-stretch:62%;font-weight:900;letter-spacing:0;color:var(--ink-3)}
-/* The decimal comma of a compressed black face carries too much air after it. */
-.standing b .dc,.net b .dc{margin:0 -.05em 0 -.015em}
+.standing .cy,.net .cy{font-size:.42em;margin-right:.24em;vertical-align:baseline;
+  font-stretch:62%;font-weight:850;letter-spacing:0;color:var(--ink-3)}
+/* The decimal comma of a compressed black face is as heavy as a digit and
+   carries too much air after it: a lighter cut of the same glyph, pulled in. */
+.standing b .dc,.net b .dc{margin:0 -.05em 0 -.015em;font-weight:500}
 .cap .amt .cy{display:inline-block;min-width:1.5em;text-align:right}
 
 b .cy,.net .cy{color:var(--ink-4)}
@@ -175,17 +176,18 @@ b .cy,.net .cy{color:var(--ink-4)}
 #card,#thread{pointer-events:none;opacity:0}
 
 /* grid header */
-.gh{padding:0 24px 22px;display:flex;flex-direction:column;gap:20px}
+.gh{padding:0 24px 18px;display:flex;flex-direction:column;gap:18px}
 .gh-row{display:flex;align-items:center;justify-content:space-between;min-height:24px}
 /* The wordmark is a mark, not a headline: the screen has one poster and it is
    the figure. Same row, same height, as the chevron bar on every other screen. */
-.gh-row .ser{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:23px;line-height:1;
+.gh-row .ser{font-family:var(--sans);font-stretch:62%;font-weight:850;font-size:23px;line-height:1;
   letter-spacing:.005em;text-transform:uppercase}
 .icon{background:none;border:none;padding:5px;margin:-5px;cursor:pointer;color:var(--ink-3);
   display:grid;place-items:center}
 .icon:focus-visible{outline:2px solid var(--act);outline-offset:2px;border-radius:6px}
 .net{display:flex;flex-direction:column;gap:6px;padding-top:2px}
-.net b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:104px;text-transform:uppercase;
+.net .go{margin-top:14px}
+.net b{font-family:var(--sans);font-stretch:62%;font-weight:850;font-size:104px;text-transform:uppercase;
   line-height:.86;letter-spacing:-.016em;font-variant-numeric:tabular-nums;display:block}
 .net .lbl{font-size:13.5px;color:var(--ink-2)}
 /* Where the figure comes from: one row per open racha, in that racha's own
@@ -193,6 +195,8 @@ b .cy,.net .cy{color:var(--ink-4)}
 .pos{display:flex;flex-direction:column;margin-top:10px;font-size:13.5px}
 .pos div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0;
   border-top:1px solid var(--rule-2)}
+.pos .st{font-size:12.5px;color:var(--ink-3);margin-right:8px}
+.pos .cur{font-size:12.5px;color:var(--ink-3)}
 .pos div:first-child{border-top:none;padding-top:0}
 .pos .mo{font-size:14px}
 .pos .owe .mo{color:var(--act)}
@@ -201,17 +205,17 @@ b .cy,.net .cy{color:var(--ink-4)}
 
 /* the contact sheet — uniform tiles, image first, no card chrome */
 .sheet{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 24px}
-.tile{background:var(--surf);border:1px solid var(--rule);padding:10px 12px 13px;font:inherit;
+.tile{background:var(--surf);border:1px solid var(--rule);padding:10px 14px 14px;font:inherit;
   color:inherit;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:9px;
-  border-radius:var(--r);position:relative;isolation:isolate;
+  border-radius:var(--rad);position:relative;isolation:isolate;
   transition:opacity .6s var(--ease),border-color .6s var(--ease)}
 /* Settled recedes — the picture and the figure, not the words. */
-.tile.done .shot{opacity:.45}
+.tile.done .shot{opacity:.7}
 .tile.done .cap .t{color:var(--ink-2)}
 .tile:hover{border-color:rgba(247,242,233,.26)}
 /* The racha that is live carries a luminous border: a conic gradient turning
    behind a 1px ring. A border that moves reads as a thing with a pulse. */
-.tile.live::after{content:'';position:absolute;inset:-1px;border-radius:calc(var(--r) + 1px);padding:1px;
+.tile.live::after{content:'';position:absolute;inset:-1px;border-radius:calc(var(--rad) + 1px);padding:1px;
   background:conic-gradient(from var(--spin,0deg),rgba(247,242,233,.42),rgba(247,242,233,.06) 25%,
     rgba(247,242,233,.06) 55%,rgba(247,242,233,.30) 78%,rgba(247,242,233,.42));
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
@@ -220,12 +224,14 @@ b .cy,.net .cy{color:var(--ink-4)}
 @property --spin{syntax:'<angle>';inherits:false;initial-value:0deg}
 @keyframes spin{to{--spin:360deg}}
 .tile:focus-visible{outline:2px solid var(--act);outline-offset:6px;border-radius:8px}
-.shot{position:relative;aspect-ratio:1;display:grid;place-items:center;
-  border-radius:var(--r-s);overflow:hidden;margin:0 -2px}
+.shot{position:relative;aspect-ratio:1.22;display:grid;place-items:center;
+  border-radius:var(--rad-s);overflow:hidden;margin:0 -4px}
 /* The tile ground is a lighter sheet of the same stock, so the cut-out reads
    as an object photographed on paper — not as an image in a box. */
 .shot::before{content:'';position:absolute;inset:0;background:none}
-.shot canvas{position:relative;width:96%;height:96%}
+/* Zero until drawn: a blank canvas is 300px wide by default and would size the
+   grid column before the block has a chance to. drawFood sets the real size inline. */
+.shot canvas{position:relative;width:0;height:0}
 .cap{display:flex;flex-direction:column;gap:3px;margin-top:auto}
 .cap .t{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:17px;line-height:1.1;
   letter-spacing:-.012em;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;
@@ -243,9 +249,9 @@ b .cy,.net .cy{color:var(--ink-4)}
 
 /* ── the flying tile (grid ⇄ card) ────────────────────────────────────── */
 #hero{position:absolute;z-index:40;pointer-events:none;opacity:0;
-  display:grid;place-items:center;border-radius:var(--r);overflow:hidden}
+  display:grid;place-items:center;border-radius:var(--rad);overflow:hidden}
 #hero::before{content:'';position:absolute;inset:0;background:var(--surf);
-  box-shadow:inset 0 0 0 1px var(--rule);border-radius:var(--r);opacity:var(--heroframe,1);
+  box-shadow:inset 0 0 0 1px var(--rule);border-radius:var(--rad);opacity:var(--heroframe,1);
   transition:opacity .6s var(--ease)}
 #hero canvas{position:relative;width:96%;height:96%}
 
@@ -266,8 +272,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .led>div{padding:10px 0;border-top:1px solid var(--rule-2)}
 .led>div:first-child{border-top:none;padding-top:0}
 .led .mo,.slip .mo{font-size:15px;line-height:1;color:var(--ink)}
-.led .flag{font-size:11.5px;color:var(--act);margin-left:8px;white-space:nowrap;
-  border:1px solid var(--act);border-radius:var(--r-s);padding:1px 6px;font-weight:500}
+.led .flag{font-size:12.5px;color:var(--act);margin-left:8px;white-space:nowrap}
 .led .dim .mo{color:var(--ink-4)}
 .led div{display:flex;gap:0;align-items:baseline;justify-content:space-between}
 .led div span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
@@ -306,9 +311,12 @@ b .cy,.net .cy{color:var(--ink-4)}
 .stateline .open{color:var(--ink-2)}
 .go{margin-top:0;width:100%;border:none;cursor:pointer;
   font-family:var(--sans);font-weight:600;font-size:16px;letter-spacing:-.008em;
-  color:var(--night);padding:0;height:54px;border-radius:var(--r);
+  color:var(--night);padding:0;height:54px;border-radius:var(--rad);
   background:var(--cream);transition:transform .6s var(--ease),background .3s}
 .go:active{transform:scale(.985)}
+.go.sec{background:none;color:var(--ink-2);height:auto;padding:12px 0 0;font-weight:500;font-size:13.5px}
+.go.sec span{display:inline-block;border-bottom:1px solid var(--ink-4);padding-bottom:1px}
+.go.sec:hover{color:var(--ink)}
 .go:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 
 /* ── thread ───────────────────────────────────────────────────────────── */
@@ -334,7 +342,7 @@ b .cy,.net .cy{color:var(--ink-4)}
    total that is ruled off — the one place in the app that looks like paper
    because it is standing in for paper. */
 .slip{display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--ink-2);
-  background:var(--paper);padding:16px 16px 15px;align-self:stretch;position:relative;border-radius:var(--r-s);
+  background:var(--paper);padding:16px 16px 15px;align-self:stretch;position:relative;border-radius:var(--rad-s);
   /* paper on a dark table: the ink tokens flip inside it, and it alone may cast a shadow */
   --ink:#211C16;--ink-2:#4A4134;--ink-3:#6E6454;--ink-4:#968B76;--p-hi:var(--paper);
   --rule:rgba(33,28,22,.12);--rule-2:rgba(33,28,22,.07);--act:#A8331C;
@@ -383,7 +391,7 @@ b .cy,.net .cy{color:var(--ink-4)}
    The person's line is a marginal note, hung off a hairline in the second ink;
    the reply is set in full ink with its figures in tabular semibold. */
 .u .b{background:none;color:var(--ink-3);padding:0 0 0 12px;text-align:left;
-  border-left:1px solid var(--ink-4);font-family:var(--sans);font-weight:400;
+  border-left:1px solid var(--ink-3);font-family:var(--sans);font-weight:400;
   font-size:14.5px;line-height:1.45;letter-spacing:0}
 .m.u{align-items:flex-start;align-self:flex-start;max-width:92%}
 /* The agent does not speak from inside a box. Five container styles inside
@@ -401,7 +409,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* What the agent changed, as a record: a surface, one line per edit, the undo
    a real button. Not a quote — the quotes hang off a rule; this sits in a box. */
 .ed{display:flex;gap:12px;align-items:flex-start;width:100%;padding:10px 12px;
-  background:var(--surf);border:1px solid var(--rule-2);border-radius:var(--r-s);
+  background:var(--surf);border:1px solid var(--rule-2);border-radius:var(--rad-s);
   animation:ep .34s var(--ease)}
 @keyframes ep{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .ed.x{opacity:.5}
@@ -410,10 +418,9 @@ b .cy,.net .cy{color:var(--ink-4)}
 .ed .c .s{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:pre-line}
 .ed.x .c .s{text-decoration:line-through;color:var(--ink-3)}
 .ed .c .d{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.ed button{font:inherit;font-size:12.5px;font-weight:500;background:var(--surf-hi);color:var(--ink);
-  cursor:pointer;padding:6px 10px;flex:none;align-self:flex-start;line-height:1.2;
-  border:1px solid var(--rule);border-radius:var(--r-s)}
-.ed button:hover{border-color:var(--ink-4)}
+.ed button{font:inherit;font-size:13px;font-weight:500;background:none;color:var(--ink-2);
+  cursor:pointer;padding:0;flex:none;align-self:flex-start;line-height:1.45;border:none}
+.ed button:hover{color:var(--ink)}
 .wk{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;font-size:12px;
   color:var(--ink-3)}
 .wk i{width:5px;height:5px;border-radius:50%;background:var(--act);display:block;
@@ -424,26 +431,30 @@ b .cy,.net .cy{color:var(--ink-4)}
   display:flex;flex-direction:column;gap:10px;border-top:none}
 /* Suggestions are a line of things you could say, set as text. A row of pills
    is the one thing every assistant template ships with. */
-.chips{display:flex;flex-wrap:wrap;gap:6px 0;flex:none;margin:2px 0 0;padding:0}
+.chips{display:flex;flex-wrap:wrap;gap:4px 18px;flex:none;margin:2px 0 0;padding:0}
 .chips::-webkit-scrollbar{display:none}
 /* Pills: frosted glass, a border you can see. The same object as the state
    eyebrow, because they are the same kind of thing — a small, tappable fact. */
-.chip{font:inherit;font-size:13.5px;font-weight:500;white-space:nowrap;cursor:pointer;padding:4px 0;
-  background:none;border:none;color:var(--ink-2);transition:color .3s var(--ease)}
-.chip+.chip::before{content:'·';color:var(--ink-4);margin:0 9px;font-weight:400}
-.chip:hover{color:var(--ink)}
+/* The text button: full ink, a hairline under it. The one affordance a line of
+   text needs to read as something you can press, and the same one Desfazer,
+   the suggestions and the racha's second action all use. */
+.chip{font:inherit;font-size:13.5px;font-weight:500;white-space:nowrap;cursor:pointer;padding:4px 0 3px;
+  background:none;border:none;border-bottom:1px solid var(--ink-4);color:var(--ink);
+  transition:border-color .3s var(--ease)}
+.chip:hover{border-color:var(--ink)}
 .chip[disabled]{opacity:.35;cursor:default}
 /* The suggested action is marked by ink weight, not by borrowing the brand
    colour. Oxblood is reserved for the one primary action on a screen. */
 .chip.a{color:var(--ink)}
-.inp{display:flex;gap:14px;align-items:center}
+.ed button{border-bottom:1px solid var(--ink-4);padding-bottom:1px;line-height:1.3}
+.inp{display:flex;gap:14px;align-items:center;border-bottom:1px solid var(--rule);padding-bottom:8px}
 /* The prompt is a line to write on, not a box to type in. */
 .fake{flex:1;font-size:15px;color:var(--ink-3);padding:0 0 1px;height:44px;display:flex;align-items:center;
-  background:none;border:none;border-bottom:1px solid var(--rule);border-radius:0}
+  background:none;border:none;border-radius:0}
 /* A solid black disc is the stock assistant-composer send button, and it was
    the only pure black anywhere in this file. The send is a mark on the page. */
 .rnd{border:none;background:var(--cream);cursor:pointer;flex:none;font:inherit;font-size:14px;
-  font-weight:600;color:var(--night);padding:0 16px;height:40px;border-radius:var(--r);letter-spacing:-.008em}
+  font-weight:600;color:var(--night);padding:0 14px;height:36px;border-radius:var(--rad-s);letter-spacing:-.008em}
 .rnd:hover{background:#fff}
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
@@ -453,7 +464,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .sh.on{opacity:1;pointer-events:auto}
 
 .shb{position:relative;z-index:1;width:100%;max-height:calc(100% - 118px);overflow-y:auto;overscroll-behavior:contain;
-  scrollbar-width:none;background:var(--night-2);border-radius:var(--r) var(--r) 0 0;transform-origin:bottom;
+  scrollbar-width:none;background:var(--night-2);border-radius:var(--rad) var(--rad) 0 0;transform-origin:bottom;
   border-top:1px solid var(--rule);
   padding:16px 24px calc(24px + 34px);display:flex;
   flex-direction:column;gap:18px;transform:translateY(22px);
@@ -491,7 +502,7 @@ button.rw{cursor:pointer}
 .tt{display:flex;justify-content:space-between;padding:15px 0 0!important;margin-top:4px;
   border-top:1px solid var(--ink)!important;border-bottom:none!important;font-size:15px}
 .tt .mo{font-size:17px}
-.thm{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:var(--r-s);
+.thm{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:var(--rad-s);
   background:var(--glass);position:relative;box-shadow:inset 0 0 0 1px var(--rule-2)}
 .thm canvas{width:88%;height:88%}
 .ck{width:18px;height:18px;flex:none;border:1.5px solid var(--ink-4);border-radius:2px;
@@ -675,7 +686,7 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
     <div class="sbar" aria-hidden="true"><span class="sb-t">21:47</span>
       <span class="sb-r"><svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx=".6"/><rect x="4.5" y="5" width="3" height="6" rx=".6"/><rect x="9" y="2.5" width="3" height="8.5" rx=".6"/><rect x="13.5" y="0" width="3" height="11" rx=".6" opacity=".35"/></svg>
       <svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 3.6a9.5 9.5 0 0 1 13 0"/><path d="M4 6.3a5.8 5.8 0 0 1 8 0"/><path d="M6.5 9a2.2 2.2 0 0 1 3 0"/></svg>
-      <svg width="27" height="12" viewBox="0 0 27 12" fill="none"><rect x=".6" y=".6" width="22.8" height="10.8" rx="3" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2"/><rect x="25" y="3.7" width="1.6" height="4.6" rx=".8" fill="currentColor" fill-opacity=".45"/><rect x="2.2" y="2.2" width="3.2" height="7.6" rx="1.2" fill="currentColor" fill-opacity=".55"/></svg></span></div>
+      <svg width="27" height="12" viewBox="0 0 27 12" fill="none"><rect x=".6" y=".6" width="22.8" height="10.8" rx="3" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2"/><rect x="25" y="3.7" width="1.6" height="4.6" rx=".8" fill="currentColor" fill-opacity=".45"/><rect x="2.2" y="2.2" width="13.4" height="7.6" rx="1.2" fill="currentColor" fill-opacity=".8"/></svg></span></div>
     <div class="homei" aria-hidden="true"></div>
 
     <section class="layer" id="grid" aria-label="Todos os rachas">
@@ -789,11 +800,11 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
 
     <div class="sh" id="ledger" aria-label="A conta">
       <div class="shb"><div class="shh"><span class="ser">A conta</span>
-        <button data-x>Pronto</button></div><div id="ledgerb"></div></div>
+        <button data-x>Fechar</button></div><div id="ledgerb"></div></div>
     </div>
     <div class="sh" id="settle" aria-label="Acertar">
       <div class="shb"><div class="shh"><span class="ser">Acertar</span>
-        <button data-x>Pronto</button></div><div id="settleb"></div></div>
+        <button data-x>Fechar</button></div><div id="settleb"></div></div>
     </div>
   </div>
 </div>
@@ -1020,7 +1031,7 @@ const RACHAS=[
      {n:'Chopp 500ml',q:6,total:9600,claims:{Gui:3,Pedro:2,[ME]:1}},
      {n:'Gasolina',q:1,total:22000,claims:{[ME]:1,Gui:1,Pedro:1}}],
    extras:[{id:'sv',label:'Serviço',kind:'pct',bp:1000,base:'cons',on:true,tip:true}],
-   payments:[{by:'Gui',amount:20000,confirmed:true}]},
+   payments:[{by:'Gui',amount:52800,confirmed:true}]},
   {id:'sh',title:'Show no Circo',kind:'Rolê',date:'09 AGO',cur:CUR.BRL,settled:true,
    people:[ME,'Ju'],hero:'Ingresso',
    items:[
@@ -1105,7 +1116,9 @@ function still(r){
   // measure. `s` is a fraction of the short side, so the drawings stay square.
   // Now that every block is printed at one size, the three sit shoulder to
   // shoulder — a plate's width apart, the middle one a step forward.
-  const S=0.74, X=[0.200,0.500,0.800];
+  // The middle subject overlaps both neighbours by a clear margin: a tangent
+  // edge is the one thing worse than either overlapping or not.
+  const S=0.80, X=[0.215,0.500,0.785];
   return pick.map((name,i)=>({name,x:X[i],y:0.530,s:S,z:i===1?2:i}));
 }
 /* The stock each block is printed on, read off the live stylesheet so a
@@ -1237,8 +1250,9 @@ function myDue(r){
 /* "você · Gui ×2 · Pedro" — who had an item, in the racha's own name order,
    with the weights the split actually used. One notation, everywhere. */
 function owners(it,r){
-  return Object.keys(it.claims).sort((a,b)=>r.people.indexOf(a)-r.people.indexOf(b))
-    .map(p=>(p===ME?'você':p)+(it.claims[p]>1?' ×'+it.claims[p]:'')).join(' · ');
+  const o=Object.keys(it.claims).sort((a,b)=>r.people.indexOf(a)-r.people.indexOf(b))
+    .map(p=>(p===ME?'você':p)+(it.claims[p]>1?' ×'+it.claims[p]:''));
+  return o.length<2?o.join(''):o.slice(0,-1).join(', ')+' e '+o[o.length-1];
 }
 /* "você, Gui e Ju" — the canonical name order is the racha's own. */
 function names(ps,r){
@@ -1252,11 +1266,19 @@ function renderGrid(){
   const net=rows.filter(x=>x.r.cur===CUR.BRL).reduce((s,x)=>s+x.v,0);
   el('net').innerHTML = (!rows.length)
     ? `<b style="font-size:64px">Tudo quite</b>`
-    : `<span class="lbl">${net<0?'Entre amigos, você deve':net>0?'Entre amigos, te devem':'Entre amigos, quite'}</span>
+    : `<span class="lbl">${net<0?'Em reais, entre amigos, você deve':net>0?'Em reais, entre amigos, te devem':'Em reais, entre amigos, quite'}</span>
        ${net?`<b>${money(Math.abs(net))}</b>`:''}
        <div class="pos">${rows.map(({r,v,d})=>`<div class="${v<0||(!v&&d)?'owe':''}">
-         <span class="n">${esc(r.title)} · ${v<0?'você deve':v>0?'te devem':'falta pagar à mesa'}</span>
-         ${money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</div>`).join('')}</div>`;
+         <span class="n">${esc(r.title)}${r.cur!==CUR.BRL?` <span class="cur">em ${esc(r.cur.name)}</span>`:''}</span>
+         <span><span class="st">${v<0?'você deve':v>0?'te devem':'falta pagar à mesa'}</span>${
+           money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</span></div>`).join('')}
+       </div>
+       ${(()=>{ // the one money action the hub has: pay who you owe, or collect
+         const pay=rows.find(x=>x.v<0&&x.r.cur===CUR.BRL), get=rows.find(x=>x.v>0&&x.r.cur===CUR.BRL);
+         const who=x=>{const t=settlePlan(balances(x.r)).transfers.find(t=>t.from===ME); return t?t.to:'';};
+         return pay?`<button class="go" id="hubgo" data-id="${pay.r.id}">Pagar ${brl(-pay.v,pay.r.cur)} pro ${esc(who(pay))}</button>`
+           :get?`<button class="go" id="hubgo" data-id="${get.r.id}">Cobrar ${brl(get.v,get.r.cur)}</button>`:'';})()}`;
+  const hg=el('hubgo'); if(hg)hg.onclick=()=>{focus=RACHAS.find(r=>r.id===hg.dataset.id);openSheet('settle');};
 
   el('tiles').innerHTML=RACHAS.map(r=>{
     const{done}=stateOf(r),v=myPosition(r),d=myDue(r);
@@ -1272,9 +1294,9 @@ function renderGrid(){
       </span></button>`;}).join('');
 
   document.querySelectorAll('.tile canvas').forEach(cv=>{
-    const box=cv.parentElement.getBoundingClientRect();
-    drawFood(cv,cv.dataset.dish,Math.max(60,Math.round(box.width*.96)),cv.dataset.seed,{paper:STOCK.hi,ink:STOCK.ink});
-    cv.style.width='96%'; cv.style.height='96%';
+    const box=cv.parentElement.getBoundingClientRect(), side=Math.max(60,Math.round(Math.min(box.width,box.height)));
+    drawFood(cv,cv.dataset.dish,side,cv.dataset.seed,{paper:STOCK.hi,ink:STOCK.ink});
+    cv.style.width=side+'px'; cv.style.height=side+'px';
   });
   document.querySelectorAll('.tile').forEach(b=>b.onclick=()=>open(b.dataset.id));
 }
@@ -1293,8 +1315,8 @@ function renderCard(){
       <div class="heroslot"></div>
       <div class="herofacts">
         <h2>${esc(r.title)}</h2>
-        <span class="lbl">${esc(r.date.toLowerCase())} · ${
-          esc(r.people.map(p=>p===ME?'você':p).join(', '))}</span>
+        <span class="lbl">${esc(r.date.toLowerCase())}, com ${
+          esc(names(r.people.filter(p=>p!==ME),r))}</span>
       </div>
     </div>
     <div class="standing">
@@ -1313,10 +1335,14 @@ function renderCard(){
       </div>
     </div>
     <div class="cardgap"></div>
-    <button class="go" id="gothread">${done?'Ver a conversa'
-      :r.items.some(i=>Object.keys(i.claims).length)?'Abrir a conversa':'Dividir a conta'}</button>`;
+    ${(()=>{const v=myPosition(r);
+      if(done)return `<button class="go" id="gothread">Ver a conversa</button>`;
+      if(v)return `<button class="go" id="gomoney">${v<0?'Pagar':'Cobrar'} ${brl(Math.abs(v),r.cur)}</button>
+        <button class="go sec" id="gothread"><span>Abrir a conversa</span></button>`;
+      return `<button class="go" id="gothread">${r.items.some(i=>Object.keys(i.claims).length)?'Abrir a conversa':'Dividir a conta'}</button>`;})()}`;
   el('back').onclick=toGrid;
   el('gothread').onclick=toThread;
+  const gm=el('gomoney'); if(gm)gm.onclick=()=>openSheet('settle');
 }
 
 const msgs=[];
@@ -1332,7 +1358,7 @@ function renderThread(){
           stroke-width="1.9"><path d="M8 2L3.5 6.5L8 11"/></svg></button>
       <div style="flex:1;min-width:0">
         <div class="ser">${esc(r.title)}</div>
-        <div class="lbl" style="margin-top:3px">${r.people.length} pessoas · ${r.items.length} itens</div>
+        <div class="lbl" style="margin-top:3px">${r.people.length} pessoas, ${r.items.length} itens</div>
       </div>
       <button class="tot" id="opentot"><b>A conta</b></button>
     </div>
@@ -1349,8 +1375,13 @@ function seedThread(){
   msgs.push({role:'a',text:`Picanha na chapa dividida em três: ${brl(4300,r.cur)} pra cada um.`});
   msgs.push({role:'u',text:'o Pedro chegou depois, só bebeu'});
   msgs.push({role:'a',text:`Pedro entrou nos chopps e na caipirinha. Ficou em ${brl(ped.total,r.cur)} com o serviço e o couvert.`,
-    edits:[{s:'Chopp → Gui ×2, Pedro, você\nCaipirinha → Ju, Pedro',d:null,
+    edits:[{s:'Chopp: Gui ×2, Pedro e você\nCaipirinha: Ju e Pedro',d:null,
       revert:()=>{delete ch.claims.Pedro;delete ca.claims.Pedro;}}]});
+  const un=split(r);
+  if(un.unassigned.length){
+    msgs.push({role:'u',text:'e o pudim?'});
+    msgs.push({role:'a',text:`O pudim ainda não tem dono: ${brl(un.unassignedTotal,r.cur)} com o serviço. Divido entre todo mundo?`});
+  }
 }
 /* What each extra came to across everybody. Summed from the allocated shares
    rather than recomputed from the rate, so the figure on screen is the money
@@ -1398,7 +1429,7 @@ function renderMsgs(){
 }
 function renderChips(){
   const r=focus,{s,plan}=stateOf(r),out=[];
-  if(s.unassigned.length)out.push({t:`${esc(s.unassigned[0].n)} é de quem?`,k:'assign',a:1});
+  if(s.unassigned.length)out.push({t:`Divide entre todos`,k:'assign',a:1});
   if(plan.transfers.length)out.push({t:'Acertar',k:'settle',a:1});
   if(r.extras.some(e=>e.tip&&e.on))out.push({t:'Tirar serviço',k:'notip'});
   else if(r.extras.some(e=>e.tip))out.push({t:'Pôr serviço',k:'tip'});

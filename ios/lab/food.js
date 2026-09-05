@@ -418,11 +418,8 @@ RECIPES.peixe = (c, R) => {
     for (let i = 0; i <= 14; i++) { const a = -1.05 + 2.10 * i / 14;
       p.push([0.5 - L * 0.60 + Math.cos(a) * h * 0.62, cy + Math.sin(a) * h * 0.62]); }
     poly(k, p); }, 1.2);
-  // scales: chevrons gouged into the flank
-  if (c.__lod >= 2) for (let r = 0; r < 3; r++) for (let q = 0; q < 4; q++) {
-    const sx = 0.5 - L * 0.30 + q * 0.085, sy = cy - h * 0.42 + r * h * 0.44;
-    gouge(c, k => poly(k, [[sx - 0.030, sy + 0.020], [sx, sy - 0.014], [sx + 0.030, sy + 0.020]]), 0.75);
-  }
+  // the belly takes the set's one tone; scales are a second vocabulary
+  cut(c, fish, { band: [0.5 - L * 0.50, cy + h * 0.05, 0.5 + L * 0.60, 1] });
   // the eye is a hole in the block
   if (c.__lod > 0) { c.save(); ell(c, 0.5 - L * 0.78, cy - h * 0.20, 0.020, 0.020);
     c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL; c.fill(); c.restore(); }
@@ -575,11 +572,10 @@ RECIPES.bonde = (c, R) => {
   block(c, k => poly(k, [[0.118, top + 0.012], [0.882, top + 0.012],
                          [0.862, top - 0.030], [0.138, top - 0.030]], true));
   if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
-    [0.198, 0.352, 0.506, 0.660].forEach(x => { rrect(c, x, top + 0.070, 0.128, 0.150, 0.012); c.fill(); });
+    [0.205, 0.415, 0.625].forEach(x => { rrect(c, x, top + 0.066, 0.170, 0.170, 0.012); c.fill(); });
     c.restore(); }
-  // the waist rule and the skirt tone
-  keyGouge(c, k => poly(k, [[0.160, top + 0.256], [0.840, top + 0.256]]), 1.0);
-  cut(c, body, { band: [0.15, top + 0.262, 0.85, 1] });
+  // the skirt takes the tone
+  cut(c, body, { band: [0.15, top + 0.272, 0.85, 1] });
   block(c, k => ell(k, 0.300, gy, wr, wr));
   block(c, k => ell(k, 0.700, gy, wr, wr));
   if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
