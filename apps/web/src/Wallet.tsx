@@ -16,11 +16,11 @@ import { storeWallet } from './house';
 const PRESETS_CENTS = [5000, 10000, 20000];
 
 // A API manda type curto ('load' | 'redeem' | 'refund') + label humano.
-const LEDGER_LABEL: Record<string, string> = {
-  load: 'Recarga',
-  redeem: 'Pagamento na mesa',
-  refund: 'Reembolso',
-};
+/** Tipo de lançamento → chave do dicionário. O texto sai traduzido na hora de
+    renderizar, não aqui: um mapa de strings fixas volta a ser uma língua só. */
+const LEDGER_KEY = {
+  load: 'ledger.load', redeem: 'ledger.redeem', refund: 'ledger.refund',
+} as const;
 
 export default function Wallet() {
   const { t } = useT();
@@ -129,11 +129,11 @@ function WalletView({ accountToken }: { accountToken: string }) {
           <p className="bigmoney">{brl(charge.amountCents)}</p>
           {charge.bonusCents > 0 && (
             <>
-              <p className="small pos">+{brl(charge.bonusCents)} de bônus quando o pagamento confirmar</p>
-              <p className="muted small">Bônus válido por {config.validityDays} dias após a confirmação.</p>
+              <p className="small pos">{t('wallet.bonusOnConfirm', { amount: brl(charge.bonusCents) })}</p>
+              <p className="muted small">{t('wallet.bonusDays', { days: config.validityDays })}</p>
             </>
           )}
-          <p className="muted small">Saldo pago não expira e é reembolsável.</p>
+          <p className="muted small">{t('wallet.refundable')}</p>
           <div className="codebox" aria-label={t('pix.aria')}>
             {charge.copiaECola.slice(0, 64)}…
           </div>
@@ -149,7 +149,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
             </button>
           )}
           {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
-          <p className="muted small">Válido somente no {venue.name}.</p>
+          <p className="muted small">{t('wallet.onlyAt', { venue: venue.name })}</p>
           <button className="linklike" onClick={() => { setCharge(null); refresh(); }}>← voltar pra carteira</button>
         </section>
       </Shell>
@@ -164,9 +164,9 @@ function WalletView({ accountToken }: { accountToken: string }) {
       </header>
 
       <section className="card">
-        <p className="label">Seu saldo</p>
+        <p className="label">{t('wallet.balance')}</p>
         <p className="bigmoney center">{brl(account.totalCents)}</p>
-        <p className="muted small center">Válido somente no {venue.name}.</p>
+        <p className="muted small center">{t('wallet.onlyAt', { venue: venue.name })}</p>
         <div className="checkrow">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
             <span>{t('wallet.paidBal')}</span>
@@ -178,7 +178,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
           <div className="checkrow" key={i}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
               <span>{t('wallet.bonus')}</span>
-              <span className="muted small">expira em {dmy(lot.expiresAt)}</span>
+              <span className="muted small">{t('wallet.expires', { date: dmy(lot.expiresAt) })}</span>
             </div>
             <span className="mono pos">{brl(lot.remainingCents)}</span>
           </div>
@@ -208,12 +208,12 @@ function WalletView({ accountToken }: { accountToken: string }) {
         </div>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
         <button className="cta" disabled={amountCents == null || amountCents === 0} onClick={onLoad}>
-          Carregar {brl(amountCents ?? 0)}
+          {t('wallet.doTopUp', { amount: brl(amountCents ?? 0) })}
         </button>
         <p className="muted small">
-          Saldo pago não expira e é reembolsável.
+          {t('wallet.refundable')}
           {config.bonusBp > 0
-            ? ` Bônus válido por ${config.validityDays} dias após a confirmação.`
+            ? ' ' + t('wallet.bonusDays', { days: config.validityDays })
             : ''}
         </p>
       </section>
@@ -226,17 +226,19 @@ function WalletView({ accountToken }: { accountToken: string }) {
           .map((e, i) => <LedgerRow key={i} entry={e} />)}
       </section>
 
-      <footer className="foot"><span>racha · saldo da casa</span><LangToggle compact /></footer>
+      <footer className="foot"><span>{t('wallet.brand')}</span><LangToggle compact /></footer>
     </Shell>
   );
 }
 
 function LedgerRow({ entry }: { entry: HouseLedgerEntry }) {
-  const title = LEDGER_LABEL[entry.type] ?? entry.label;
+  const { t } = useT();
+  const key = LEDGER_KEY[entry.type as keyof typeof LEDGER_KEY];
+  const title = key ? t(key) : entry.label;
   const sign = entry.type === 'load' ? '+' : '−';
   // Recarga com bônus: mostra o bônus como sublinha.
   const detail = entry.type === 'load' && (entry.bonusCents ?? 0) > 0
-    ? ` · +${brl(entry.bonusCents!)} de bônus`
+    ? t('wallet.bonusLine', { amount: brl(entry.bonusCents!) })
     : entry.label && entry.label !== title ? ` · ${entry.label}` : '';
   return (
     <div className="checkrow">
@@ -283,7 +285,7 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
   if (dead) return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
   if (!config) return <Shell><p className="muted center">carregando…</p></Shell>;
   if (!config.enabled) {
-    return <Shell><p className="muted center">O {config.venueName} ainda não oferece saldo da casa.</p></Shell>;
+    return <Shell><p className="muted center">{t('wallet.noHouse', { venue: config.venueName })}</p></Shell>;
   }
 
   const pct = (config.bonusBp / 100).toLocaleString('pt-BR');
@@ -292,13 +294,13 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
     <Shell>
       <header className="head">
         <span className="venue">{config.venueName}</span>
-        <span className="mesa">saldo da casa</span>
+        <span className="mesa">{t('home.houseBalance')}</span>
       </header>
       <section className="card">
         <p className="label">Abrir sua carteira</p>
         <p className="small">
           {config.bonusBp > 0
-            ? `Carregue saldo por Pix e ganhe ${pct}% de bônus em cada recarga.`
+            ? t('wallet.pitchBonus', { pct })
             : 'Carregue saldo por Pix e pague a conta direto do celular.'}
         </p>
         <input
@@ -316,11 +318,11 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
           {busy ? 'criando…' : 'Criar carteira'}
         </button>
         <p className="muted small">
-          Saldo pago não expira e é reembolsável. O bônus promocional vale por{' '}
+          {t('wallet.refundable')} O bônus promocional vale por{' '}
           {config.validityDays} dias. Válido somente no {config.venueName}.
         </p>
       </section>
-      <footer className="foot"><span>racha · saldo da casa</span><LangToggle compact /></footer>
+      <footer className="foot"><span>{t('wallet.brand')}</span><LangToggle compact /></footer>
     </Shell>
   );
 }

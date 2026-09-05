@@ -4,8 +4,8 @@
   "description": "See the bill, split it and pay with Pix — no sign-up.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#141008",
-  "theme_color": "#141008",
+  "background_color": "#FFFFFF",
+  "theme_color": "#18191B",
   "icons": [
     {
       "src": "/icon-192.png",

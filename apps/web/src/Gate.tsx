@@ -74,7 +74,7 @@ function Login({ onDone }: { onDone: () => void }) {
         <span className="mesa">painel do dono</span>
       </header>
       <section className="card">
-        <p className="label">{mode === 'in' ? 'Entrar' : 'Criar conta'}</p>
+        <p className="label">{mode === 'in' ? t('gate.signIn') : t('gate.signUp')}</p>
 
         <button className="ghost" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 600 }}
           disabled={busy} onClick={google}>
@@ -84,19 +84,19 @@ function Login({ onDone }: { onDone: () => void }) {
 
         <input className="namefield" type="email" placeholder={t('gate.email')} value={email}
           onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
-        <input className="namefield" type="password" placeholder={mode === 'up' ? 'crie uma senha' : 'senha'} value={password}
+        <input className="namefield" type="password" placeholder={mode === 'up' ? t('gate.newPassword') : t('gate.password')} value={password}
           onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
 
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
         {notice && <p className="muted small" style={{ color: 'var(--green, #15803d)' }}>{notice}</p>}
 
         <button className="cta" disabled={busy || !email.trim() || !password} onClick={submit}>
-          {busy ? '…' : (mode === 'in' ? 'Entrar' : 'Criar conta')}
+          {busy ? '…' : (mode === 'in' ? t('gate.signIn') : t('gate.signUp'))}
         </button>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
           <button className="linklike" onClick={swap}>
-            {mode === 'in' ? 'Criar conta' : 'Já tenho conta'}
+            {mode === 'in' ? t('gate.signUp') : t('gate.haveAccount')}
           </button>
           {mode === 'in' && <button className="linklike" onClick={forgot} disabled={busy}>{t('gate.forgot')}</button>}
         </div>

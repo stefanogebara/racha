@@ -248,6 +248,25 @@ export const DICT = {
 
   // ── cartão (demo) ───────────────────────────────────────────────────────
   'card.demoCard':    { en: '•••• 4242 (demo)',                pt: '•••• 4242 (demo)' },
+
+  'gate.newPassword': { en: 'create a password',              pt: 'crie uma senha' },
+  'wallet.bonusOnConfirm': { en: '+{amount} bonus when the payment confirms',
+                             pt: '+{amount} de bônus quando o pagamento confirmar' },
+  'wallet.bonusLine': { en: ' · +{amount} bonus',             pt: ' · +{amount} de bônus' },
+  'wallet.pitchBonus': { en: 'Top up by Pix and get {pct}% bonus on every top-up.',
+                         pt: 'Carregue saldo por Pix e ganhe {pct}% de bônus em cada recarga.' },
+  'wallet.rulesFull':  { en: 'Paid balance never expires and is refundable. The promotional bonus is valid for {days} days. Valid only at {venue}.',
+                         pt: 'Saldo pago não expira e é reembolsável. O bônus promocional vale por {days} dias. Válido somente no {venue}.' },
+
+  'ledger.load':   { en: 'Top-up',        pt: 'Recarga' },
+  'ledger.redeem': { en: 'Paid at table', pt: 'Pagamento na mesa' },
+  'ledger.refund': { en: 'Refund',        pt: 'Reembolso' },
+
+  'wallet.bonusDays': { en: 'Bonus valid for {days} days after confirmation.',
+                        pt: 'Bônus válido por {days} dias após a confirmação.' },
+  'wallet.brand':     { en: 'racha · house balance',    pt: 'racha · saldo da casa' },
+  'wallet.noHouse':   { en: '{venue} does not offer a house balance yet.',
+                        pt: 'O {venue} ainda não oferece saldo da casa.' },
 } satisfies Record<string, Pair>;
 
 export type Key = keyof typeof DICT;

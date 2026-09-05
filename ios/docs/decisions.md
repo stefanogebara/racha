@@ -753,7 +753,60 @@ fica anotada aqui pra quando o produto quiser.
 `apps/web/test/i18n.test.ts`, `api/_app/router.js` (códigos de erro),
 `apps/web/src/api.ts` (`ApiError.code`/`vars`), `CLAUDE.md`.
 
-## 35 — A plataforma web estava vestindo a roupa do Seatable (2026-09-05)
+## 35 — A plataforma web adota o sistema da landing do Seatable (2026-09-05)
+
+**Contexto e correção de rumo.** A versão anterior desta decisão argumentava o
+contrário: que a plataforma vestia a roupa do Seatable e devia usar a linguagem
+própria do Racha (chão quase preto, creme como tinta, Archivo). Foi construída
+e rejeitada por quem manda no produto. **A decisão de marca é: mesma casa,
+mesma cara** — as duas vendem pela mesma máquina (Olímpia), e duas identidades
+custam duas identidades.
+
+**Decisão.** A plataforma inteira usa os tokens da landing nova do Seatable,
+valor por valor: tinta `#18191B` sobre papel `#F9F9F9`/branco, **Inter** no
+corpo (16/24), **Instrument Sans** em títulos e botões, **Instrument Serif
+itálico** como voz de marca, cartão de raio 20px com fio `#DBDBDB`, botão
+pílula preta de 9999px, verde `#448F52` sobre `#DBEDDF` para confirmado.
+
+**O que sobreviveu do Racha.** A comanda continua sendo o objeto que carrega o
+dinheiro — agora branca sobre o papel, um degrau acima do resto. E os blocos
+entalhados (#33) continuam ilustrando as linhas da conta: tinta preta sobre
+papel claro é, aliás, onde xilogravura nasceu.
+
+**Detalhes que custaram decisão:**
+
+- *`--claro` (#ACADAE) é cinza de TÍTULO, não de rótulo.* Na landing ele carrega
+  um h2 de 42px; num rótulo de 13px vira ilegível. Os rótulos usam `--cinza`.
+- *O passo numerado é empilhado, não em duas colunas.* "1 · Escaneou" ao lado de
+  uma frase de duas linhas quebra a frase em pedaços curtos e a leitura trava.
+- *A marca do herói é 58px, não 96px.* A landing é desktop; 96px num shell de
+  430px dá uma palavra por linha. Mesma proporção, número diferente.
+- *`LEDGER_LABEL` virou `LEDGER_KEY`.* Um mapa de strings fixas em português é
+  uma língua só disfarçada de dado; o texto agora sai traduzido na renderização.
+- *Salada de idioma continua sendo defeito de design*, e sobreviveu a duas
+  passadas: a carteira ainda dizia "SEU SALDO" e "Bônus válido por 90 dias" em
+  modo inglês. Agora há uma varredura automática que abre cada tela em inglês e
+  procura palavras que só existem em português.
+
+**Contra o quê.** A linguagem própria (decisão #35 anterior, hoje revertida):
+mais distinta, saiu de 21 rodadas de crítica, e é a do app iOS. Perdeu para uma
+decisão de marca, que não é técnica e não é minha.
+
+**O que ficou por resolver.** O app iOS (`Palette.swift`, `Typography.swift`, o
+protótipo em `/ios`) continua na linguagem noturna. As duas superfícies agora
+divergem — o que é aceitável enquanto o app não está publicado, e é dívida
+declarada no dia em que estiver.
+
+**Onde está.** `apps/web/src/styles.css` (reescrito nos tokens da landing),
+`apps/web/index.html` (Inter + Instrument Sans + Instrument Serif),
+`apps/web/src/Home.tsx` (herói), `apps/web/src/Wallet.tsx`, `Gate.tsx`,
+`apps/web/src/i18n.ts`.
+
+## 35-a — [REVERTIDA] A plataforma web veste a linguagem do Racha (2026-09-05)
+
+> **Revertida pela #35.** Fica registrada porque o raciocínio continua válido
+> para o app iOS, e porque uma decisão desfeita sem registro vira a mesma
+> discussão daqui a três meses.
 
 **O achado.** A primeira linha do `apps/web/src/styles.css` dizia, literalmente:
 *"Racha — Warm Glass (Seatable design system, DESIGN.md is canon)"*. Vidro

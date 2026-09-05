@@ -1,420 +1,365 @@
-/* Racha — a noite do bar.
+/* Racha — o sistema da landing do Seatable, aplicado à plataforma inteira.
  *
- * Esta folha era "Warm Glass (Seatable design system)": vidro translúcido,
- * orbes quentes, branco morno, esmeralda pra dinheiro. Era a roupa de OUTRO
- * produto — o CLAUDE.md define o Racha como produto separado do Seatable, e o
- * design foi a única coisa que não tinha se separado.
+ * Tokens, escala tipográfica, ritmo e formas vêm da landing nova do Seatable
+ * (mesma casa, mesma máquina de vendas). Tinta quase preta sobre papel claro,
+ * Instrument Sans nos títulos, Inter no corpo, Instrument Serif itálico como
+ * voz de marca, cartão de 20px com fio fino, botão pílula preta.
  *
- * A linguagem daqui saiu de 21 rodadas de crítica cega (decisões #26–28) e é
- * curta o bastante pra caber num parágrafo:
- *
- *   O chão é uma mesa quase preta e quente, não papel. Num OLED, a 15% de
- *   bateria, num bar escuro, chão escuro é a escolha honesta — e deixa UM
- *   objeto creme, a comanda, ser a única luz da tela, do jeito que a comanda é
- *   o único papel de uma mesa de verdade.
- *
- *   Tinta é creme, em quatro forças. DUAS cores carregam significado e nada
- *   mais carrega: vermelhão = dinheiro saindo do seu bolso, âmbar = pergunta
- *   em aberto (item sem dono). NÃO HÁ VERDE. Quitado é uma palavra e um peso,
- *   não uma cor — e verde gastado em "+R$ 10,66 de serviço" rouba o lugar de
- *   uma cor que deveria significar alguma coisa.
- *
- *   Uma família. Archivo é variável no eixo de largura, então cartaz (62/850),
- *   título (92/500) e corpo (100/400) são três larguras, não três fontes. A
- *   crítica matou a segunda família.
- *
- * Portado de ios/Racha/Design/Palette.swift, valor por valor.
+ * O que ficou de Racha: a comanda continua sendo o objeto que carrega o
+ * dinheiro, e os blocos entalhados continuam ilustrando as linhas da conta —
+ * agora tinta preta sobre papel, que é onde xilogravura nasceu.
  */
 
 :root {
-  /* O chão e seus degraus. Profundidade é um fio de cabelo e um tom, não luz. */
-  --night:        #141008;
-  --surface:      #1E1812;
-  --surface-high: #282016;
-  --sheet:        #221B13;
+  /* Paleta — direto da landing. */
+  --ink:     #18191B;
+  --cinza:   #6A6A6C;
+  --claro:   #ACADAE;
+  --papel:   #F9F9F9;
+  --branco:  #FFFFFF;
+  --linha:   #C4C4C4;
+  --linha2:  #DBDBDB;
+  --fundo2:  #F2F2F2;
+  --verde-bg:#DBEDDF;
+  --verde:   #448F52;
+  --azul:    #3B7BF6;
+  --azul2:   #2F6FE8;
+  /* Vermelho só onde a lei/erro exige atenção — não é cor de marca. */
+  --alerta:  #B42318;
+  --alerta-bg: #FEF3F2;
 
-  /* Tinta: creme em quatro forças. As quietas por alfa, pra sentarem em qualquer superfície. */
-  --cream:  #F7F2E9;
-  --ink:    var(--cream);
-  --ink-2:  rgba(247, 242, 233, 0.88);
-  --ink-3:  rgba(247, 242, 233, 0.62);
-  --ink-4:  rgba(247, 242, 233, 0.40);
+  --ui:     "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --titulo: "Instrument Sans", "Inter", sans-serif;
+  --serif:  "Instrument Serif", Georgia, serif;
+  --mola:   cubic-bezier(.23, 1, .32, 1);
 
-  /* Dinheiro saindo do seu bolso. O vermelhão de capa de cordel — quente, não coral. */
-  --action:      #E85C40;
-  --action-dark: #C4482E;
-  /* Pergunta em aberto: item que ninguém assumiu. A cor da lâmpada. */
-  --warn:        #E2A54A;
+  --rad:   20px;   /* cartão */
+  --rad-s: 10px;   /* controle */
 
-  /* Fios que dá pra ver. Num OLED uma borda de 8 níveis desaparece. */
-  --rule:  rgba(247, 242, 233, 0.17);
-  --rule-2: rgba(247, 242, 233, 0.09);
-
-  /* O único objeto de papel: a comanda. Mais fosca e mais quente que o creme da
-     tinta, pra que uma comanda e um botão nunca vistam a mesma cor. Tem a
-     própria rampa de tinta e os próprios dois tons semânticos, porque sentam na luz. */
-  --slip:        #EEE5D3;
-  --slip-ink:    #211C16;
-  --slip-ink-2:  #4A4134;
-  --slip-ink-3:  #6E6454;
-  --slip-ink-4:  #968B76;
-  --slip-rule:   rgba(33, 28, 22, 0.14);
-  --slip-action: #B23A1F;
-  --slip-warn:   #8A5A10;
-
-  --rad:   14px;
-  --rad-s: 10px;
-
-  /* Nomes antigos, mapeados no sistema acima. Sessenta call sites não migram
-     numa tarde; quem pediu "paper" como chão recebe a mesa, quem pediu
-     "charcoal" como texto recebe creme. */
-  --warm-white: var(--night);
+  /* Nomes antigos, mapeados. Sessenta call sites não migram numa tarde. */
+  --warm-white: var(--branco);
   --charcoal:   var(--ink);
-  --stone:      var(--ink-3);
-  --burgundy:      var(--action);
-  --burgundy-dark: var(--action-dark);
-  --emerald:        var(--ink-3);
-  --emerald-bright: var(--ink-3);
-  --glass-card:   var(--surface);
-  --glass-panel:  var(--surface);
-  --glass-subtle: var(--surface-high);
-  --glass-border: var(--rule);
-  --glass-border-subtle: var(--rule-2);
-  --glass-border-input:  var(--rule);
-  --muted: var(--ink-3);
-  --paper: var(--night);
+  --stone:      var(--cinza);
+  --muted:      var(--cinza);
+  --paper:      var(--branco);
+  --burgundy:      var(--ink);
+  --burgundy-dark: #2A2B2E;
+  --emerald:        var(--verde);
+  --emerald-bright: var(--verde);
+  --glass-card:   var(--papel);
+  --glass-panel:  var(--papel);
+  --glass-subtle: var(--fundo2);
+  --glass-border: var(--linha2);
+  --glass-border-subtle: rgba(0,0,0,.06);
+  --glass-border-input:  var(--linha2);
+  --rule:  var(--linha2);
+  --rule-2: rgba(0,0,0,.06);
+  --slip:  var(--branco);
+  --slip-ink: var(--ink);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
+  background: var(--branco);
   color: var(--ink);
-  /* Uma família só, no eixo de largura. Sem Archivo, o fallback do sistema
-     ainda dá o contraste de largura por font-stretch. */
-  font-family: 'Archivo', ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-variant-numeric: tabular-nums;   /* dinheiro em coluna, sempre */
+  font: 400 16px/24px var(--ui);
   -webkit-font-smoothing: antialiased;
-  font-synthesis: none;
 }
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-
-/* O chão: mesa lisa. Sem orbe, sem gradiente radial — uma mesa não tem luz de
-   estúdio. O calor vem do próprio quase-preto, não de uma camada por cima. */
-body { background: var(--night); }
+a { color: inherit; text-decoration: none; }
+button, textarea, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
 select.namefield { appearance: none; -webkit-appearance: none; background-image: none; cursor: pointer; }
 
 .shell {
   max-width: 430px; margin: 0 auto; min-height: 100dvh;
-  padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
-  display: flex; flex-direction: column; gap: 12px;
+  padding: 20px 20px calc(28px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 16px;
 }
-.shell.wide { max-width: 860px; }
+.shell.wide { max-width: 826px; }
 
-.head { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 4px 4px; }
-/* Cartaz: a largura estreita e o peso alto são o que dá voz de cartaz sem
-   trocar de fonte. */
-.venue {
-  font-size: 30px; font-weight: 800; font-stretch: 62%;
-  letter-spacing: -0.005em; line-height: 1;
-}
-.mesa { color: var(--ink-3); font-size: 13px; font-stretch: 92%; }
+/* ── cabeçalho: a marca em serif itálico, como na landing ────────────────── */
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 2px 2px; }
+.venue { font: italic 400 34px/1 var(--serif); letter-spacing: -.01em; color: var(--ink); }
+.mesa  { font: 400 15px/1 var(--titulo); color: var(--cinza); white-space: nowrap; }
 
-/* ── superfícies ────────────────────────────────────────────────────────────
-   Tudo é escuro por padrão. O claro é reservado. */
+/* ── superfícies: papel com fio fino, 20px ──────────────────────────────── */
 .card, .pixcard, .paid, .panel, .stat, .qrcard {
-  background: var(--surface);
-  border: 1px solid var(--rule-2);
+  background: var(--papel);
+  border: 1px solid var(--linha2);
   border-radius: var(--rad);
-  padding: 18px 16px;
-  display: flex; flex-direction: column; gap: 12px;
+  padding: 24px 22px;
+  display: flex; flex-direction: column; gap: 14px;
 }
-
-/* A COMANDA. O único objeto de papel da tela, e por isso o único claro. É ela
-   que carrega o que a casa vai cobrar; o resto são controles. */
-.card.slip {
-  background: var(--slip);
-  color: var(--slip-ink);
-  border: none;
-  /* Papel tem espessura: uma sombra baixa e uma borda inferior mais escura,
-     não um brilho. */
-  box-shadow: 0 1px 0 rgba(0,0,0,.25), 0 10px 28px rgba(0,0,0,.35);
-}
-.card.slip .label   { color: var(--slip-ink-3); }
-.card.slip .muted   { color: var(--slip-ink-3); }
-.card.slip .items li { border-bottom-color: var(--slip-rule); }
-.card.slip .totalrow { border-top-color: var(--slip-ink); }
-.card.slip .progressbar { background: rgba(33,28,22,.12); }
-.card.slip .progressbar span { background: var(--slip-ink-2); }
+/* A comanda é branca — um degrau mais clara que o resto, e é o que carrega o
+   número que a casa vai cobrar. */
+.card.slip { background: var(--branco); }
 
 .label {
-  font-size: 10px; font-weight: 700; font-stretch: 92%;
-  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3);
+  /* --claro é o cinza de TÍTULO de seção da landing, grande. Num rótulo de
+     13px ele fica ilegível, então o rótulo usa o cinza de corpo. */
+  font: 400 13px/1 var(--titulo); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--cinza);
 }
 
-.items { list-style: none; display: flex; flex-direction: column; gap: 0; }
+.items { list-style: none; display: flex; flex-direction: column; }
 .items li {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
-  font-size: 15px; line-height: 1.3;
-  border-bottom: 1px solid var(--rule-2); padding: 9px 0;
+  font: 400 16px/24px var(--ui);
+  border-bottom: 1px solid rgba(0,0,0,.06); padding: 12px 0;
 }
 .items li:last-child { border-bottom: none; }
 
-/* O bloco entalhado da linha (decisão #33). Máscara alfa tingida pela tinta da
-   superfície — o mesmo arquivo serve creme na noite e quase-preto na comanda. */
+/* O bloco entalhado da linha. Tinta preta sobre papel — onde xilogravura nasceu. */
 .dish {
-  /* 38, não 30: a máscara carrega margem própria (o bloco ocupa ~74% do
-     quadrado), então o desenho visível é bem menor que a caixa. A 30px virava
-     borrão. */
-  flex: none; width: 38px; height: 38px; margin: -4px 0 -4px -4px;
+  flex: none; width: 38px; height: 38px; margin: -5px 0 -5px -5px;
   background-color: currentColor;
   -webkit-mask-size: contain; mask-size: contain;
   -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
   -webkit-mask-position: center; mask-position: center;
-  opacity: .92;
+  opacity: .9;
 }
-.iwrap { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1; }
+.iwrap { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 .iwrap > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Toda coluna de número tem borda direita. */
 .mono { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 
 .totalrow {
   display: flex; justify-content: space-between; align-items: baseline;
-  font-weight: 700; font-size: 18px; font-stretch: 92%;
-  border-top: 1.5px solid var(--ink); padding-top: 11px; margin-top: 3px;
+  font: 600 20px/28px var(--titulo);
+  border-top: 1px solid var(--ink); padding-top: 14px; margin-top: 4px;
 }
 
-.progresswrap { display: flex; flex-direction: column; gap: 6px; }
-.progressbar { height: 5px; border-radius: 99px; background: rgba(247,242,233,.10); overflow: hidden; }
-/* Sem verde. O progresso é tinta — quitado é peso, não cor. */
-.progressbar span { display: block; height: 100%; background: var(--ink-3); border-radius: 99px; transition: width .4s ease; }
+.progresswrap { display: flex; flex-direction: column; gap: 8px; }
+.progressbar { height: 6px; border-radius: 99px; background: var(--fundo2); overflow: hidden; }
+.progressbar span { display: block; height: 100%; background: var(--verde); border-radius: 99px; transition: width .4s var(--mola); }
 
 /* ── controles ──────────────────────────────────────────────────────────── */
-.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .mode {
-  padding: 11px 8px; border-radius: 999px;
-  border: 1px solid var(--rule); background: transparent;
-  font-size: 13px; font-weight: 500; font-stretch: 92%; color: var(--ink-3);
-  font-family: inherit; cursor: pointer;
+  padding: 11px 10px; border-radius: var(--rad-s);
+  border: 1px solid var(--linha2); background: var(--branco);
+  font: 400 14px/1 var(--titulo); color: var(--cinza);
+  cursor: pointer; transition: background-color .2s var(--mola), color .2s var(--mola);
 }
-.mode.on { border-color: var(--ink); color: var(--night); background: var(--ink); font-weight: 600; }
+.mode.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 .modes3 { grid-template-columns: 1fr 1fr 1fr; }
-.modes3 .mode { padding: 10px 4px; font-size: 12.5px; }
+.modes3 .mode { padding: 11px 4px; font-size: 13px; }
 
-.items.pickable { gap: 5px; }
+.items.pickable { gap: 6px; }
 .items.pickable li { border-bottom: none; padding: 0; }
 .itempick {
   display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 9px 11px; border-radius: var(--rad-s);
-  border: 1px solid var(--rule-2); background: transparent;
-  font-size: 15px; line-height: 1.3; color: inherit;
-  font-family: inherit; text-align: left; cursor: pointer;
-  transition: border-color .15s ease, background .15s ease;
+  padding: 10px 12px; border-radius: var(--rad-s);
+  border: 1px solid var(--linha2); background: var(--branco);
+  font: 400 16px/24px var(--ui); color: var(--ink);
+  text-align: left; cursor: pointer;
+  transition: border-color .15s var(--mola), background-color .15s var(--mola);
 }
 .itempick .tick {
-  flex: none; width: 20px; height: 20px; border-radius: 6px;
+  flex: none; width: 22px; height: 22px; border-radius: 6px;
   display: grid; place-items: center;
-  border: 1px solid var(--rule); background: transparent;
-  font-size: 12px; font-weight: 700; color: var(--ink-4);
+  border: 1px solid var(--linha2); background: var(--branco);
+  font-size: 13px; font-weight: 600; color: var(--claro);
 }
 .itempick .iname { flex: 1; }
-/* Marcado é tinta cheia, não uma cor nova. */
-.itempick.on { border-color: var(--ink-3); background: rgba(247,242,233,.06); }
-.itempick.on .tick { border-color: var(--ink); background: var(--ink); color: var(--night); }
-.card.slip .itempick { border-color: var(--slip-rule); }
-.card.slip .itempick .tick { border-color: var(--slip-rule); color: var(--slip-ink-4); }
-.card.slip .itempick.on { border-color: var(--slip-ink-3); background: rgba(33,28,22,.05); }
-.card.slip .itempick.on .tick { border-color: var(--slip-ink); background: var(--slip-ink); color: var(--slip); }
+.itempick.on { border-color: var(--verde); background: var(--verde-bg); }
+.itempick.on .tick { border-color: var(--verde); background: var(--verde); color: #fff; }
 .itemhint { margin-top: 2px; }
 
-.stepperrow { display: flex; align-items: center; gap: 12px; font-size: 15px; }
+.stepperrow { display: flex; align-items: center; gap: 12px; font: 400 16px/24px var(--ui); }
 .stepper {
   display: flex; align-items: center; gap: 12px;
-  border: 1px solid var(--rule); border-radius: var(--rad-s);
-  background: transparent; padding: 5px 8px;
+  border: 1px solid var(--linha2); border-radius: var(--rad-s);
+  background: var(--branco); padding: 5px 8px;
 }
 .stepper button {
-  width: 32px; height: 32px; border-radius: 8px; border: none;
-  background: rgba(247,242,233,.08); font-size: 19px; font-weight: 600; color: var(--ink);
-  font-family: inherit; cursor: pointer;
+  width: 32px; height: 32px; border-radius: 8px; border: 0;
+  background: var(--fundo2); font-size: 19px; color: var(--ink); cursor: pointer;
 }
-.stepper strong { min-width: 20px; text-align: center; font-size: 17px; font-weight: 600; }
+.stepper strong { min-width: 22px; text-align: center; font: 600 17px/1 var(--titulo); }
 
 .customrow {
   display: flex; align-items: center; gap: 8px;
-  border: 1px solid var(--rule); border-radius: var(--rad-s);
-  background: transparent; padding: 10px 12px;
+  border: 1px solid var(--linha2); border-radius: var(--rad-s);
+  background: var(--branco); padding: 12px 14px;
 }
-.customrow label { color: var(--ink-3); font-weight: 600; }
+.customrow label { color: var(--cinza); }
 .customrow input {
-  border: none; outline: none; font-size: 20px; width: 100%;
+  border: 0; outline: none; font-size: 20px; width: 100%;
   font-variant-numeric: tabular-nums; background: transparent; color: var(--ink);
-  font-family: inherit;
 }
 
-/* O 10% é opcional e removível (CDC). O valor sai em TINTA, não em cor: é
-   dinheiro seu, e não uma boa notícia verde. */
-.servico { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink-2); line-height: 1.35; }
-/* O check NÃO usa o vermelhão: vermelhão é a ação de pagar, uma por tela. Um
-   marcador de opção que veste a cor do botão disputa a atenção com ele. */
-.servico input { width: 17px; height: 17px; accent-color: var(--ink-3); margin-top: 2px; flex: none; }
-.servico em { font-style: normal; color: var(--ink); font-weight: 600; }
+/* O 10% é opcional e removível (CDC). O valor sai em verde porque aqui verde é
+   do sistema — é o tom de "confirmado" da landing, não uma cor inventada. */
+.servico { display: flex; gap: 10px; align-items: flex-start; font: 400 15px/22px var(--ui); color: var(--ink); }
+.servico input { width: 18px; height: 18px; accent-color: var(--ink); margin-top: 2px; flex: none; }
+.servico em { font-style: normal; color: var(--verde); font-weight: 600; }
 
 .namefield {
-  border: 1px solid var(--rule); border-radius: var(--rad-s); padding: 12px;
-  font-size: 15px; background: transparent; color: var(--ink); font-family: inherit;
+  border: 1px solid var(--linha2); border-radius: var(--rad-s); padding: 13px 14px;
+  font: 400 16px/24px var(--ui); background: var(--branco); color: var(--ink);
 }
-.namefield::placeholder { color: var(--ink-4); }
-.namefield:focus-visible { outline: none; border-color: var(--ink-3); }
+.namefield::placeholder { color: var(--claro); }
+.namefield:focus-visible { outline: none; border-color: var(--ink); }
 
-/* A ação: vermelhão. Uma por tela. */
+/* A ação: pílula preta, como na landing. */
 .cta {
-  border: none; border-radius: 999px; padding: 16px;
-  background: var(--action); color: #FFF6F2;
-  font-size: 16px; font-weight: 700; font-stretch: 92%;
-  letter-spacing: -0.005em; font-family: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 48px; padding: 0 18px; border: 1px solid transparent; border-radius: 9999px;
+  background: var(--ink); color: #fff; font: 400 16px/1 var(--titulo); cursor: pointer;
+  transition: transform .15s var(--mola), background-color .3s var(--mola);
 }
-.cta:active { transform: translateY(1px); background: var(--action-dark); }
-.cta:disabled { background: rgba(247,242,233,.10); color: var(--ink-4); cursor: default; }
+.cta:hover { background: #2A2B2E; }
+.cta:active { transform: scale(.98); }
+.cta:disabled { background: var(--fundo2); color: var(--claro); cursor: default; transform: none; }
 
 .ghost {
-  border: 1px solid var(--rule); border-radius: 999px; padding: 12px;
-  background: transparent; color: var(--ink-3); font-size: 13px; font-family: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; padding: 0 16px; border-radius: 9999px;
+  border: 1px solid var(--linha2); background: var(--branco);
+  color: var(--ink); font: 400 15px/1 var(--titulo); cursor: pointer;
 }
-.linklike { border: none; background: none; color: var(--ink-3); font-size: 14px; padding: 6px; font-family: inherit; cursor: pointer; }
+.ghost:hover { background: var(--papel); }
+.linklike { border: 0; background: none; color: var(--cinza); font: 400 15px/1 var(--ui); padding: 8px 4px; cursor: pointer; }
+.linklike:hover { color: var(--ink); }
 
 .walletrow { display: flex; gap: 8px; }
 .walletbtn {
-  flex: 1; border-radius: 999px; padding: 13px; font-size: 15px; font-weight: 600;
-  font-family: inherit; cursor: pointer; border: 1px solid transparent; letter-spacing: -0.005em;
+  flex: 1; border-radius: 9999px; padding: 13px; font: 500 15px/1 var(--ui);
+  cursor: pointer; border: 1px solid transparent;
 }
-/* Convenção das marcas — Apple e Google mandam no próprio botão, mesmo aqui. */
 .walletbtn.apple { background: #000; color: #fff; }
-.walletbtn.gpay { background: #fff; color: #1F1F1F; border-color: rgba(0,0,0,.12); }
-.walletbtn:disabled { opacity: 0.4; cursor: default; }
+.walletbtn.gpay { background: #fff; color: #1F1F1F; border-color: var(--linha2); }
+.walletbtn:disabled { opacity: .4; cursor: default; }
 
 .sheetoverlay {
-  position: fixed; inset: 0; background: rgba(10, 8, 4, 0.62);
+  position: fixed; inset: 0; background: rgba(24,25,27,.42);
   display: flex; align-items: flex-end; justify-content: center; z-index: 60;
 }
 .sheet {
-  background: var(--sheet); color: var(--ink); width: min(430px, 100%);
-  border-top: 1px solid var(--rule);
-  border-radius: var(--rad) var(--rad) 0 0; padding: 20px 20px 28px;
-  display: flex; flex-direction: column; gap: 12px;
+  background: var(--branco); width: min(430px, 100%);
+  border-radius: var(--rad) var(--rad) 0 0; padding: 24px 22px 30px;
+  display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 -8px 40px rgba(24,25,27,.14);
 }
 
-/* A tela do Pix: o código é a comanda desta tela. */
-.pixcard { text-align: center; align-items: stretch; }
-.bigmoney {
-  font-size: 46px; font-weight: 800; font-stretch: 62%;
-  letter-spacing: -0.015em; font-variant-numeric: tabular-nums; line-height: 1;
-}
+/* Pix */
+.pixcard { text-align: center; align-items: stretch; background: var(--branco); }
+.bigmoney { font: italic 400 52px/1 var(--serif); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .codebox {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px;
-  color: var(--ink-3); background: var(--night);
-  border: 1px solid var(--rule-2); border-radius: var(--rad-s); padding: 12px;
+  font: 400 12px/18px ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--cinza); background: var(--papel);
+  border: 1px solid var(--linha2); border-radius: var(--rad-s); padding: 14px;
   word-break: break-all; text-align: left;
 }
 
-.paid { align-items: center; text-align: center; gap: 14px; padding: 40px 16px; }
-/* Sem disco verde. O ✓ é tinta sobre a mesa — quitado é peso, não festa. */
+.paid { align-items: center; text-align: center; gap: 16px; padding: 44px 22px; background: var(--branco); }
 .paidmark {
   width: 64px; height: 64px; border-radius: 50%;
-  border: 1.5px solid var(--ink); color: var(--ink); font-size: 30px;
+  background: var(--verde-bg); color: var(--verde); font-size: 30px;
   display: grid; place-items: center;
 }
-.paid h2 { font-size: 25px; font-weight: 700; font-stretch: 92%; }
+.paid h2 { font: italic 400 30px/1.15 var(--serif); }
 .paid .progresswrap { width: 100%; }
 
-/* ── painel do restaurante ─────────────────────────────────────────────── */
-.statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.stat { padding: 13px 12px; gap: 3px; }
-.stat b { font-size: 23px; font-weight: 700; font-stretch: 62%; font-variant-numeric: tabular-nums; }
-.stat span { font-size: 11px; color: var(--ink-3); font-stretch: 92%; }
+/* ── painel ─────────────────────────────────────────────────────────────── */
+.statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.stat { padding: 18px 16px; gap: 4px; }
+.stat b { font: italic 400 28px/1 var(--serif); font-variant-numeric: tabular-nums; }
+.stat span { font: 400 13px/18px var(--ui); color: var(--cinza); }
 
 .checkrow {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  padding: 11px 2px; border-bottom: 1px solid var(--rule-2); font-size: 14px;
+  padding: 14px 2px; border-bottom: 1px solid rgba(0,0,0,.06); font: 400 15px/22px var(--ui);
 }
 .checkrow:last-child { border-bottom: none; }
-.pill {
-  border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 600;
-  font-stretch: 92%; letter-spacing: .02em; white-space: nowrap;
-}
-/* Os estados da mesa. Só "parcial" ganha cor: é a única que faz alguém andar
-   até a mesa. As outras são peso de tinta. */
-.pill.aberta  { background: transparent; color: var(--ink-3); border: 1px solid var(--rule); }
-.pill.parcial { background: rgba(226,165,74,.16); color: var(--warn); }
-.pill.paga    { background: rgba(247,242,233,.10); color: var(--ink-2); }
-.pill.fechada { background: transparent; color: var(--ink-4); border: 1px solid var(--rule-2); }
+.pill { border-radius: 6px; padding: 3px 9px; font: 400 14px/20px var(--ui); white-space: nowrap; }
+.pill.aberta  { background: var(--fundo2); color: var(--cinza); }
+.pill.parcial { background: #FDF3D7; color: #8A6410; }
+.pill.paga    { background: var(--verde-bg); color: var(--verde); }
+.pill.fechada { background: var(--fundo2); color: var(--claro); }
 
-.actrow { display: grid; grid-template-columns: 42px 1fr max-content; align-items: center; gap: 10px; }
-.actbar { height: 5px; border-radius: 99px; background: rgba(247,242,233,.08); overflow: hidden; }
-.actbar span { display: block; height: 100%; background: var(--ink-3); border-radius: 99px; }
+.actrow { display: grid; grid-template-columns: 46px 1fr max-content; align-items: center; gap: 12px; }
+.actbar { height: 6px; border-radius: 99px; background: var(--fundo2); overflow: hidden; }
+.actbar span { display: block; height: 100%; background: var(--verde); border-radius: 99px; }
 
 .foot {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  color: var(--ink-4); font-size: 11px; letter-spacing: .04em; padding-top: 6px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  color: var(--claro); font: 400 13px/20px var(--ui); padding-top: 8px;
 }
-.muted { color: var(--ink-3); }
-.small { font-size: 13px; }
+.muted { color: var(--cinza); }
+.small { font-size: 14px; line-height: 21px; }
 .center { text-align: center; }
 
-/* QR: o cartão da mesa é papel — vai ser impresso. */
-.qrprint { align-items: center; text-align: center; gap: 10px; }
-.qrbox { background: #fff; padding: 14px; border-radius: var(--rad-s); display: grid; place-items: center; }
+/* QR */
+.qrprint { align-items: center; text-align: center; gap: 12px; }
+.qrbox { background: #fff; padding: 14px; border-radius: var(--rad-s); border: 1px solid var(--linha2); display: grid; place-items: center; }
 
-.qrgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.qrcard {
-  background: var(--slip); color: var(--slip-ink); border: none;
-  box-shadow: 0 1px 0 rgba(0,0,0,.25), 0 10px 28px rgba(0,0,0,.35);
-  padding: 22px 16px 14px;
-  align-items: center; text-align: center; gap: 8px; break-inside: avoid;
-}
-.qrcard .qrvenue { font-size: 21px; font-weight: 800; font-stretch: 62%; }
-.qrcard .qrmesa  { font-size: 30px; font-weight: 700; font-stretch: 62%; }
-.qrcard .qrhint  { font-size: 13px; color: var(--slip-ink-2); }
-.qrcard .qrperks { font-size: 12px; color: var(--slip-ink-3); }
-.qrcard .qrbrand { font-size: 10px; color: var(--slip-ink-4); letter-spacing: 0.2em; margin-top: 4px; }
+.qrgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.qrcard { background: var(--branco); align-items: center; text-align: center; gap: 10px; break-inside: avoid; padding: 28px 20px 18px; }
+.qrcard .qrvenue { font: italic 400 26px/1 var(--serif); }
+.qrcard .qrmesa  { font: 600 30px/1 var(--titulo); letter-spacing: -.02em; }
+.qrcard .qrhint  { font: 400 15px/22px var(--ui); color: var(--cinza); }
+.qrcard .qrperks { font: 400 14px/20px var(--ui); color: var(--cinza); }
+.qrcard .qrbrand { font: 400 12px/1 var(--ui); color: var(--claro); letter-spacing: .18em; margin-top: 6px; }
 
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-/* "pos" era verde. Dinheiro que entra é tinta cheia; o sinal + já diz a direção. */
-.pos { color: var(--ink); font-weight: 600; }
-.cfggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.cfggrid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-3); }
+.pos { color: var(--verde); font-weight: 600; }
+.cfggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cfggrid label { display: flex; flex-direction: column; gap: 6px; font: 400 14px/20px var(--ui); color: var(--cinza); }
 
 @media (prefers-reduced-motion: reduce) { .progressbar span { transition: none; } }
 
-/* Impressão: só os cartões de QR, preto no branco. */
 @media print {
   body { background: #fff !important; }
   .shell { max-width: none; }
   .noprint, .linklike, .cta, .langtoggle { display: none !important; }
-  .pixcard { border: none; background: #fff; color: #000; }
   .qrspage { padding: 0; gap: 0; display: block; }
   .qrgrid { gap: 8mm; }
-  .qrcard {
-    background: #fff; color: #000; border: 1pt solid #999; border-radius: 12pt;
-    box-shadow: none; padding: 10mm 6mm 6mm; break-inside: avoid; page-break-inside: avoid;
-  }
-  .qrcard .qrhint, .qrcard .qrperks, .qrcard .qrbrand { color: #000; }
-  .qrcard .qrbox { padding: 0; }
+  .qrcard { border: 1pt solid #999; border-radius: 12pt; padding: 10mm 6mm 6mm; break-inside: avoid; page-break-inside: avoid; }
+  .qrcard .qrbox { padding: 0; border: none; }
 }
 
-/* ── seletor de idioma ────────────────────────────────────────────────────
-   Dois botões, não um menu: com duas opções um <select> esconde metade da
-   resposta atrás de um toque. Discreto — rodapé, longe do botão de pagar. */
-.langtoggle { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--rule-2); border-radius: 999px; }
+/* Seletor de idioma — pílula discreta, no rodapé. */
+.langtoggle { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--linha2); border-radius: 9999px; background: var(--branco); }
 .langopt {
-  appearance: none; border: 0; background: none; cursor: pointer; font: inherit;
-  font-size: 10px; font-weight: 600; letter-spacing: .06em; line-height: 1;
-  padding: 5px 8px; border-radius: 999px; color: var(--ink-4);
+  border: 0; background: none; cursor: pointer;
+  font: 400 12px/1 var(--titulo); letter-spacing: .04em;
+  padding: 6px 10px; border-radius: 9999px; color: var(--cinza);
 }
-.langopt.on { background: var(--ink-3); color: var(--night); }
-.langopt:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
-.card.slip .langtoggle { border-color: var(--slip-rule); }
-.card.slip .langopt { color: var(--slip-ink-4); }
-.card.slip .langopt.on { background: var(--slip-ink); color: var(--slip); }
+.langopt.on { background: var(--ink); color: #fff; }
+.langopt:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* ── o herói, no ritmo da landing ────────────────────────────────────────
+   Marca grande em serif itálico, subtítulo em Instrument Sans, e ar em volta.
+   As medidas são as da landing reduzidas pro shell de 430px — mesma proporção,
+   não o mesmo número: 96px de marca num telefone vira uma palavra por linha. */
+.hero { padding: 44px 0 8px; text-align: center; display: flex; flex-direction: column; gap: 0; }
+.hero .marca { font: italic 400 58px/1 var(--serif); letter-spacing: -.03em; }
+.hero h1 {
+  margin-top: 22px; font: 400 30px/38px var(--titulo);
+  letter-spacing: -.02em; text-wrap: balance;
+}
+.hero .sub {
+  margin-top: 14px; font: 400 17px/26px var(--ui); color: var(--cinza);
+  text-wrap: pretty; max-width: 46ch; margin-left: auto; margin-right: auto;
+}
+.hero .acoes { margin-top: 26px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Seções da landing: título centralizado em cinza-claro, corpo em cinza. */
+.t-secao { text-align: center; margin-bottom: 4px; }
+.t-secao h2 { font: 600 22px/30px var(--titulo); color: var(--claro); letter-spacing: -.01em; }
+.t-secao p { margin-top: 6px; font: 400 15px/23px var(--ui); color: var(--cinza); }
+
+/* Passo numerado — a régua da landing, em coluna. */
+/* Empilhado, não em duas colunas: "1 · Escaneou" ao lado de uma frase de duas
+   linhas quebra a frase em pedaços curtos e a leitura trava. */
+.passo { display: flex; flex-direction: column; gap: 3px; padding: 14px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+.passo:last-of-type { border-bottom: none; }
+.passo b { font: 600 16px/24px var(--titulo); }
+.passo span { font: 400 15px/23px var(--ui); color: var(--cinza); }
+.pill-verde { display: inline-block; padding: 3px 9px; border-radius: 6px; background: var(--verde-bg); color: var(--verde); font: 400 14px/20px var(--ui); }

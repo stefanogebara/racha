@@ -17,40 +17,30 @@ export default function Home() {
   const { t } = useT();
   return (
     <main className="shell">
-      <header className="head">
-        <span className="venue">racha</span>
-        <span className="mesa">{t('home.tagline')}</span>
+      {/* O herói da landing: marca em serif itálico, uma frase, uma ação. */}
+      <header className="hero">
+        <span className="marca">racha</span>
+        <h1>{t('home.h1')}</h1>
+        <p className="sub">{t('home.lede')}</p>
+        <div className="acoes">
+          <a className="cta" href={DEMO_MESA}>{t('home.demo')}</a>
+          <a className="ghost" href="/admin">{t('home.iAmVenue')}</a>
+        </div>
       </header>
 
       <section className="card">
-        <p className="label">{t('home.forVenues')}</p>
-        <h1 style={{ margin: '4px 0 8px', fontSize: 28, lineHeight: 1.15 }}>
-          {t('home.h1')}
-        </h1>
-        <p className="muted">
-          {t('home.lede')}
-        </p>
-        <a className="cta" style={{ textAlign: 'center', textDecoration: 'none' }} href={DEMO_MESA}>
-          {t('home.demo')}
-        </a>
-        <a className="ghost" style={{ textAlign: 'center', textDecoration: 'none' }} href="/admin">
-          {t('home.iAmVenue')}
-        </a>
-      </section>
-
-      <section className="card">
-        <p className="label">{t('home.how')}</p>
-        <div className="checkrow">
-          <span>{t('home.step1')}</span>
-          <span className="muted small">{t('home.step1d')}</span>
+        <div className="t-secao"><h2>{t('home.how')}</h2></div>
+        <div className="passo">
+          <b>{t('home.step1')}</b>
+          <span>{t('home.step1d')}</span>
         </div>
-        <div className="checkrow">
-          <span>{t('home.step2')}</span>
-          <span className="muted small">{t('home.step2d')}</span>
+        <div className="passo">
+          <b>{t('home.step2')}</b>
+          <span>{t('home.step2d')}</span>
         </div>
-        <div className="checkrow">
-          <span>{t('home.step3')}</span>
-          <span className="muted small">{t('home.pixDirect')}</span>
+        <div className="passo">
+          <b>{t('home.step3')}</b>
+          <span>{t('home.pixDirect')}</span>
         </div>
         <p className="muted small">
           {t('home.legal')}
@@ -58,7 +48,7 @@ export default function Home() {
       </section>
 
       <section className="card">
-        <p className="label">{t('home.houseBalance')}</p>
+        <div className="t-secao"><h2>{t('home.houseBalance')}</h2></div>
         <p className="muted">
           {t('home.balancePitch')}
         </p>
