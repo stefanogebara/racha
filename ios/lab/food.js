@@ -230,11 +230,13 @@ RECIPES.picanha = (c, R) => {
   block(c, k => poly(k, [at(-0.02, -0.011), at(1.02, -0.011),
                          at(1.02, 0.011), at(-0.02, 0.011)], true));
   [0.235, 0.500, 0.765].forEach((t, i) => {
-    const [cx, cy] = at(t), w = 0.112 - i * 0.005, h = 0.086;
-    const piece = k => { k.save(); k.translate(cx, cy); k.rotate(ang);
-      curve(k, [[-w, 0], [-w * 0.70, -h], [0, -h * 1.16], [w * 0.72, -h * 0.94],
-                [w, 0.008], [w * 0.68, h * 0.98], [0, h * 1.14], [-w * 0.70, h * 0.96]], true);
-      k.restore(); };
+    const [cx, cy] = at(t), w = 0.118 - i * 0.008, h = 0.082 + i * 0.006;
+    // three different chunks: a blade does not cut the same piece twice
+    const P = [
+      [[-w, -0.010], [-w * 0.62, -h], [w * 0.10, -h * 1.10], [w * 0.86, -h * 0.70], [w, 0.030], [w * 0.60, h], [-w * 0.20, h * 1.06], [-w * 0.84, h * 0.66]],
+      [[-w, 0.012], [-w * 0.78, -h * 0.84], [-w * 0.08, -h * 1.12], [w * 0.74, -h * 0.90], [w, -0.020], [w * 0.80, h * 0.80], [w * 0.06, h * 1.10], [-w * 0.66, h * 0.90]],
+      [[-w * 0.96, -0.030], [-w * 0.50, -h * 1.02], [w * 0.20, -h * 0.96], [w * 0.92, -h * 0.56], [w * 0.98, 0.040], [w * 0.44, h * 1.04], [-w * 0.30, h * 0.98], [-w * 0.90, h * 0.58]]][i];
+    const piece = k => { k.save(); k.translate(cx, cy); k.rotate(ang); poly(k, P, true); k.restore(); };
     block(c, piece);
     // the fat cap, cut out of the top edge of each piece
     keyGouge(c, k => { k.save(); k.translate(cx, cy); k.rotate(ang);
@@ -726,6 +728,6 @@ export function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAP
   });
   // One ground under the whole table, not three short ones under three dishes.
   if (horizon !== null) {
-    c.fillStyle = ink; c.fillRect(W_ * 0.04, horizon - cw / 2, W_ * 0.92, cw);
+    c.fillStyle = ink; c.fillRect(0, horizon - cw / 2, W_, cw);
   }
 }

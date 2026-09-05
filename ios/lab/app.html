@@ -33,6 +33,10 @@
   /* One red, warm: the vermilion of a cordel cover, not a coral. Two tones of
      the same hue — this one on the table, a deeper one on the paper. */
   --act:#E85C40; --act-2:#C4482E; --pos:rgba(247,242,233,.54);
+  /* The second and last semantic colour. Red is money leaving you; amber is a
+     question still open — an item nobody has claimed. The lamp's colour, so it
+     sits in the room. */
+  --warn:#E2A54A;
   /* The paper is a duller, warmer cream than the action: three things were
      wearing the same colour and only one of them is a button. */
   --paper:#EEE5D3;
@@ -176,7 +180,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 #card,#thread{pointer-events:none;opacity:0}
 
 /* grid header */
-.gh{padding:0 24px 18px;display:flex;flex-direction:column;gap:18px}
+.gh{padding:0 24px 32px;display:flex;flex-direction:column;gap:18px}
 .gh-row{display:flex;align-items:center;justify-content:space-between;min-height:24px}
 /* The wordmark is a mark, not a headline: the screen has one poster and it is
    the figure. Same row, same height, as the chevron bar on every other screen. */
@@ -186,7 +190,7 @@ b .cy,.net .cy{color:var(--ink-4)}
   display:grid;place-items:center}
 .icon:focus-visible{outline:2px solid var(--act);outline-offset:2px;border-radius:6px}
 .net{display:flex;flex-direction:column;gap:6px;padding-top:2px}
-.net .go{margin-top:14px}
+.net .go{margin-top:22px}
 .net b{font-family:var(--sans);font-stretch:62%;font-weight:850;font-size:104px;text-transform:uppercase;
   line-height:.86;letter-spacing:-.016em;font-variant-numeric:tabular-nums;display:block}
 .net .lbl{font-size:13.5px;color:var(--ink-2)}
@@ -275,6 +279,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .led>div:first-child{border-top:none;padding-top:0}
 .led .mo,.slip .mo{font-size:15px;line-height:1;color:var(--ink)}
 .led .flag{display:none}
+.led .warn,.led .warn .mo{color:var(--warn)}
 .led .dim .mo{color:var(--ink-4)}
 .led div{display:flex;gap:0;align-items:baseline;justify-content:space-between}
 .led div span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
@@ -313,11 +318,11 @@ b .cy,.net .cy{color:var(--ink-4)}
 .stateline .open{color:var(--ink-2)}
 .go{margin-top:0;width:100%;border:none;cursor:pointer;
   font-family:var(--sans);font-weight:600;font-size:16px;letter-spacing:-.008em;
-  color:var(--night);padding:0;height:54px;border-radius:var(--rad);
+  color:var(--night);padding:0;height:52px;border-radius:var(--rad);display:grid;place-items:center;
   background:var(--cream);transition:transform .6s var(--ease),background .3s}
 .go:active{transform:scale(.985)}
 /* The second action: a ghost of the first. Same height and radius, no fill. */
-.go.sec{background:none;color:var(--ink);height:48px;margin-top:10px;font-weight:500;font-size:15px;
+.go.sec{background:none;color:var(--ink);height:52px;margin-top:10px;font-weight:500;font-size:15px;
   border:1px solid var(--rule)}
 .go.sec:hover{border-color:var(--ink-4)}
 .go:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
@@ -347,7 +352,7 @@ b .cy,.net .cy{color:var(--ink-4)}
   background:var(--paper);padding:16px 16px 15px;align-self:stretch;position:relative;border-radius:var(--rad-s);
   /* paper on a dark table: the ink tokens flip inside it, and it alone may cast a shadow */
   --ink:#211C16;--ink-2:#4A4134;--ink-3:#6E6454;--ink-4:#968B76;--p-hi:var(--paper);
-  --rule:rgba(33,28,22,.14);--rule-2:rgba(33,28,22,.07);--act:#B23A1F;
+  --rule:rgba(33,28,22,.14);--rule-2:rgba(33,28,22,.07);--act:#B23A1F;--warn:#8A5A10;
   --leader:radial-gradient(circle at 1px 50%,#968B76 .8px,transparent .9px);
   box-shadow:none}
 /* Flat. A perforated edge drawn in CSS is the ticket icon every template
@@ -365,7 +370,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .rw .lead{flex:1 1 auto;min-width:12px}
 .slip .slip-h>i,.slip .slip-h{gap:14px}
 .slip .dim{color:var(--ink-4)}
-.slip .open{color:var(--ink-2)}
+.slip .open{color:var(--warn)}
 .slip-h{font-size:12px;font-weight:500;letter-spacing:0;text-transform:none;
   color:var(--ink-3);padding-bottom:9px;justify-content:space-between!important;
   border-bottom:1px solid var(--rule);margin-bottom:2px}
@@ -433,7 +438,7 @@ b .cy,.net .cy{color:var(--ink-4)}
   display:flex;flex-direction:column;gap:10px;border-top:none}
 /* Suggestions are a line of things you could say, set as text. A row of pills
    is the one thing every assistant template ships with. */
-.chips{display:flex;flex-wrap:wrap;gap:8px;flex:none;margin:2px 0 0;padding:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;flex:none;margin:-4px 0 0;padding:0}
 .chips::-webkit-scrollbar{display:none}
 /* Pills: frosted glass, a border you can see. The same object as the state
    eyebrow, because they are the same kind of thing — a small, tappable fact. */
@@ -457,9 +462,8 @@ b .cy,.net .cy{color:var(--ink-4)}
    the only pure black anywhere in this file. The send is a mark on the page. */
 /* The send mark waits for text: a surface with an arrow in the quiet ink until
    there is something to send, then the cream fill. */
-.rnd{border:1px solid var(--rule);background:var(--surf);cursor:pointer;flex:none;width:44px;height:44px;
-  border-radius:var(--rad);color:var(--ink-4);display:grid;place-items:center;padding:0}
-.rnd.ready{background:var(--cream);color:var(--night);border-color:var(--cream)}
+.rnd{border:none;background:var(--cream);cursor:pointer;flex:none;height:44px;padding:0 16px;
+  border-radius:var(--rad);color:var(--night);font:inherit;font-size:14px;font-weight:600}
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
 .sh{position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.42);opacity:0;
@@ -501,12 +505,12 @@ button.rw{cursor:pointer}
 .rw .chev{color:var(--ink-4);font-size:18px;line-height:1;padding-top:1px;width:10px;text-align:center;
   transition:transform .3s var(--ease)}
 .rw .chev.on{transform:rotate(90deg)}
-.der{display:flex;flex-direction:column;gap:7px;padding:0 0 10px 16px!important;margin-top:6px;
+.der{display:flex;flex-direction:column;gap:7px;padding:0 18px 10px 16px!important;margin-top:6px;
   font-size:12.5px;color:var(--ink-2);border-bottom:none!important}
 .der div{padding:0!important;border:none!important}
 .der[hidden],[hidden]{display:none!important}
 .der div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
-.tt{display:flex;justify-content:space-between;padding:15px 0 0!important;margin-top:4px;
+.tt{display:flex;justify-content:space-between;padding:15px 18px 0 0!important;margin-top:4px;
   border-top:1px solid var(--ink)!important;border-bottom:none!important;font-size:15px}
 .tt .mo{font-size:17px}
 .thm{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:var(--rad-s);
@@ -718,9 +722,8 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
     <section class="layer" id="thread" aria-label="Conversa">
       <div class="th-top" id="thtop"></div>
       <div class="slipwrap" id="slip"></div>
-      <div class="msgs" id="msgs"></div>
+      <div class="msgs" id="msgs"><div class="chips" id="chips"></div></div>
       <div class="comp">
-        <div class="chips" id="chips"></div>
         <div class="inp">
           <button class="icon" aria-label="Foto da nota" hidden>
             <svg width="19" height="19" viewBox="0 0 19 19" fill="none" stroke="currentColor"
@@ -728,8 +731,7 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
               <circle cx="9.5" cy="10.5" r="3.2"/><path d="M6.5 4.5l1.2-2h3.6l1.2 2"/></svg>
           </button>
           <div class="fake">fala aí…</div>
-          <button class="rnd" aria-label="Enviar" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-            stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
+          <button class="rnd" aria-label="Enviar" hidden>Enviar</button>
         </div>
       </div>
     </section>
@@ -1116,9 +1118,14 @@ function tileRect(id){
 function still(r){
   // The tile's subject leads, so the tile that flies up becomes the left
   // third of the table it lands on.
+  // Legibility first: a glass or a skewer reads from across the room; a mound
+  // of farofa does not. The tile's subject leads either way.
+  const RANK={chopp:1,caipirinha:2,picanha:3,pudim:4,peixe:5,linguica:6,bonde:7,carro:8,chave:9,
+    ingresso:10,fardo:11,carvao:12,farofa:13,vinagrete:14,prato:15};
   const seen=new Set([recipeFor(r.hero)]), pick=[r.hero];
-  for(const it of r.items){ const k=recipeFor(it.n);
-    if(!seen.has(k)){ seen.add(k); pick.push(it.n); } if(pick.length===3) break; }
+  const rest=r.items.map(it=>it.n).filter(n=>{const k=recipeFor(n); if(seen.has(k))return false; seen.add(k); return true;})
+    .sort((a,b)=>(RANK[recipeFor(a)]||99)-(RANK[recipeFor(b)]||99));
+  pick.push(...rest.slice(0,2));
   while(pick.length<3) pick.push(r.hero);
   // Landscape band: three subjects at one size on one horizon, filling the
   // measure. `s` is a fraction of the short side, so the drawings stay square.
@@ -1274,18 +1281,13 @@ function renderGrid(){
   const net=rows.filter(x=>x.r.cur===CUR.BRL).reduce((s,x)=>s+x.v,0);
   el('net').innerHTML = (!rows.length)
     ? `<b style="font-size:64px">Tudo quite</b>`
-    : `<span class="lbl">${net<0?'Em reais, entre amigos, você deve':net>0?'Em reais, entre amigos, te devem':'Em reais, entre amigos, quite'}</span>
+    : `<span class="lbl">${net<0?'Entre amigos, você deve':net>0?'Entre amigos, te devem':'Entre amigos, quite'}</span>
        ${net?`<b class="${net<0?'owe':''}">${money(Math.abs(net))}</b>`:''}
-       <div class="pos">${rows.map(({r,v,d})=>`<div class="${v<0||(!v&&d)?'owe':''}">
-         <span class="n">${esc(r.title)}${r.cur!==CUR.BRL?` <span class="cur">em ${esc(r.cur.name)}</span>`:''}</span>
-         <span><span class="st">${v<0?'você deve':v>0?'te devem':'falta pagar à mesa'}</span>${
-           money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</span></div>`).join('')}
-       </div>
-       ${(()=>{ // the one money action the hub has: pay who you owe, or collect
+       ${(()=>{ // the one money action the hub has: settle with the person you owe, or collect
          const pay=rows.find(x=>x.v<0&&x.r.cur===CUR.BRL), get=rows.find(x=>x.v>0&&x.r.cur===CUR.BRL);
          const who=x=>{const t=settlePlan(balances(x.r)).transfers.find(t=>t.from===ME); return t?t.to:'';};
-         return pay?`<button class="go" id="hubgo" data-id="${pay.r.id}">Pagar ${brl(-pay.v,pay.r.cur)} pro ${esc(who(pay))}</button>`
-           :get?`<button class="go" id="hubgo" data-id="${get.r.id}">Cobrar ${brl(get.v,get.r.cur)}</button>`:'';})()}`;
+         return pay?`<button class="go" id="hubgo" data-id="${pay.r.id}">Acertar com ${esc(who(pay))}</button>`
+           :get?`<button class="go" id="hubgo" data-id="${get.r.id}">Cobrar</button>`:'';})()}`;
   const hg=el('hubgo'); if(hg)hg.onclick=()=>{focus=RACHAS.find(r=>r.id===hg.dataset.id);openSheet('settle');};
 
   el('tiles').innerHTML=RACHAS.map(r=>{
@@ -1339,7 +1341,7 @@ function renderCard(){
         <div><span>A conta</span><i></i><span>${money(s.total,r.cur,{noSym:true})}</span></div>
         ${remaining?`<div><span>Falta pagar na mesa</span><i></i>
           <span>${money(remaining,r.cur,{noSym:true})}</span></div>`:''}
-        ${s.unassigned.length?`<div><span>${s.unassigned.length} ${s.unassigned.length>1?'itens':'item'} sem dono</span><i></i>
+        ${s.unassigned.length?`<div class="warn"><span>${s.unassigned.length} ${s.unassigned.length>1?'itens':'item'} sem dono</span><i></i>
           <span>${money(s.unassignedTotal,r.cur,{noSym:true})}</span></div>`:''}
       </div>
     </div>
@@ -1381,15 +1383,15 @@ function seedThread(){
   const r=focus,ped=split(r).shares.find(x=>x.p==='Pedro');
   const ch=r.items.find(i=>i.n.startsWith('Chopp')),ca=r.items.find(i=>i.n.startsWith('Caipir'));
   msgs.push({role:'u',text:'divide a picanha entre eu, o Gui e a Ju'});
-  msgs.push({role:'a',text:`Picanha na chapa dividida em três: ${brl(4300,r.cur)} pra cada um.`});
+  msgs.push({role:'a',text:`Picanha dividida em três: ${brl(4300,r.cur)} cada.`});
   msgs.push({role:'u',text:'o Pedro chegou depois, só bebeu'});
-  msgs.push({role:'a',text:`Pedro entrou nos chopps e na caipirinha. Ficou em ${brl(ped.total,r.cur)} com o serviço e o couvert.`,
+  msgs.push({role:'a',text:`Pedro entrou nos chopps e na caipirinha: ${brl(ped.total,r.cur)}, com serviço e couvert.`,
     edits:[{s:'Chopp: Gui ×2, Pedro e você\nCaipirinha: Ju e Pedro',d:null,
       revert:()=>{delete ch.claims.Pedro;delete ca.claims.Pedro;}}]});
   const un=split(r);
   if(un.unassigned.length){
     msgs.push({role:'u',text:'e o pudim?'});
-    msgs.push({role:'a',text:`O pudim ainda não tem dono: ${brl(un.unassignedTotal,r.cur)} com o serviço. Divido entre todo mundo?`});
+    msgs.push({role:'a',text:`O pudim ainda não tem dono — ${brl(un.unassignedTotal,r.cur)} com o serviço. Divido entre todo mundo?`});
   }
 }
 /* What each extra came to across everybody. Summed from the allocated shares
@@ -1419,6 +1421,7 @@ function threadHead(){
 }
 function renderMsgs(){
   el('slip').innerHTML=threadHead();
+  const chips=el('chips');           // lives inside #msgs; keep it across the re-render
   el('msgs').innerHTML=msgs.map((m,i)=>{
     if(m.role==='w')return `<div class="wk"><i></i>${esc(m.text)}</div>`;
     const eds=(m.edits||[]).map((e,j)=>`
@@ -1434,11 +1437,12 @@ function renderMsgs(){
     const[i,j]=b.dataset.u.split(':').map(Number);
     msgs[i].edits[j].revert(); msgs[i].edits[j].x=true; refresh();
   });
+  el('msgs').append(chips);         // the answers you could give ride under the question
   el('msgs').scrollTop=el('msgs').scrollHeight;
 }
 function renderChips(){
   const r=focus,{s,plan}=stateOf(r),out=[];
-  if(s.unassigned.length)out.push({t:`Divide entre todos`,k:'assign',a:1});
+  if(s.unassigned.length)out.push({t:`Sim, entre todos`,k:'assign',a:1});
   if(plan.transfers.length)out.push({t:'Quem paga quem?',k:'settle',a:1});
   if(r.extras.some(e=>e.tip&&e.on))out.push({t:'Tirar serviço',k:'notip'});
   else if(r.extras.some(e=>e.tip))out.push({t:'Pôr serviço',k:'tip'});
@@ -1551,10 +1555,11 @@ function renderLedger(){
       ${(()=>{
         return r.items.map((it,i)=>{const ow=Object.keys(it.claims);
         return `<div class="rw">
-          <span class="g"><span class="n">${it.q>1?`<span class="num" style="color:var(--ink-3)">${it.q}× </span>`:''}${esc(it.n)}</span>
-          ${!ow.length?'<span class="lbl">sem dono</span>'
+          <span class="g"><span class="n">${esc(it.n)}${it.q>1?` <span class="num" style="color:var(--ink-3)">×${it.q}</span>`:''}</span>
+          ${!ow.length?'<span class="lbl" style="color:var(--warn)">sem dono</span>'
             :`<span class="lbl">${esc(owners(it,r))}</span>`}</span>
-          <i class="lead"></i><span style="font-size:14px">${money(it.total,r.cur,{noSym:true})}</span></div>`;}).join('');})()}</div>
+          <i class="lead"></i><span style="font-size:14px">${money(it.total,r.cur,{noSym:true})}</span>
+          <span class="chev" aria-hidden="true" style="visibility:hidden">›</span></div>`;}).join('');})()}</div>
 
     ${r.extras.length?`<div class="sec"><span class="mi rule">Extras</span>
       ${r.extras.map(e=>`<div class="rw">
