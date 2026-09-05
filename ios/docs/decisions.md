@@ -873,7 +873,7 @@ custa as duas.
 `apps/web/src/App.tsx` (`.card.slip`), `apps/web/scripts/embed-ios.mjs`,
 `vercel.json`.
 
-### #36 — A landing do site no idioma do herói do iOS, e o laço de crítica que parou em 6 (2026-09-05)
+## 36 — A landing do site no idioma do herói do iOS, e o laço de crítica que parou em 6 (2026-09-05)
 
 **Pedido.** O herói do site igual ao do iOS — as ilustrações, as cores, a demo —
 e um laço de crítica com um subagente (Fable 5) como crítico de design, em
