@@ -1,368 +1,420 @@
-/* Racha — Warm Glass (Seatable design system, DESIGN.md is canon).
-   Body = warm-white + 4 warm orbs; surfaces = translucent glass with
-   backdrop blur; burgundy for action, emerald/amber/red semantic-only. */
+/* Racha — a noite do bar.
+ *
+ * Esta folha era "Warm Glass (Seatable design system)": vidro translúcido,
+ * orbes quentes, branco morno, esmeralda pra dinheiro. Era a roupa de OUTRO
+ * produto — o CLAUDE.md define o Racha como produto separado do Seatable, e o
+ * design foi a única coisa que não tinha se separado.
+ *
+ * A linguagem daqui saiu de 21 rodadas de crítica cega (decisões #26–28) e é
+ * curta o bastante pra caber num parágrafo:
+ *
+ *   O chão é uma mesa quase preta e quente, não papel. Num OLED, a 15% de
+ *   bateria, num bar escuro, chão escuro é a escolha honesta — e deixa UM
+ *   objeto creme, a comanda, ser a única luz da tela, do jeito que a comanda é
+ *   o único papel de uma mesa de verdade.
+ *
+ *   Tinta é creme, em quatro forças. DUAS cores carregam significado e nada
+ *   mais carrega: vermelhão = dinheiro saindo do seu bolso, âmbar = pergunta
+ *   em aberto (item sem dono). NÃO HÁ VERDE. Quitado é uma palavra e um peso,
+ *   não uma cor — e verde gastado em "+R$ 10,66 de serviço" rouba o lugar de
+ *   uma cor que deveria significar alguma coisa.
+ *
+ *   Uma família. Archivo é variável no eixo de largura, então cartaz (62/850),
+ *   título (92/500) e corpo (100/400) são três larguras, não três fontes. A
+ *   crítica matou a segunda família.
+ *
+ * Portado de ios/Racha/Design/Palette.swift, valor por valor.
+ */
 
 :root {
-  --warm-white: #FAFAF9;
-  --burgundy: #9F1239;
-  --burgundy-dark: #881337;
-  --charcoal: #1C1917;
-  --stone: #706A65;
-  --glass-card: rgba(255, 255, 255, 0.62);
-  --glass-panel: rgba(255, 255, 255, 0.55);
-  --glass-subtle: rgba(255, 255, 255, 0.40);
-  --glass-border: rgba(255, 255, 255, 0.70);
-  --glass-border-subtle: rgba(28, 25, 23, 0.06);
-  --glass-border-input: rgba(28, 25, 23, 0.12);
-  --emerald: #059669;   /* semantic positive (AA on glass) */
-  --emerald-bright: #10B981;
-  --shadow-card: 0 1px 2px rgba(28, 25, 23, 0.04), 0 8px 24px rgba(28, 25, 23, 0.04);
+  /* O chão e seus degraus. Profundidade é um fio de cabelo e um tom, não luz. */
+  --night:        #141008;
+  --surface:      #1E1812;
+  --surface-high: #282016;
+  --sheet:        #221B13;
+
+  /* Tinta: creme em quatro forças. As quietas por alfa, pra sentarem em qualquer superfície. */
+  --cream:  #F7F2E9;
+  --ink:    var(--cream);
+  --ink-2:  rgba(247, 242, 233, 0.88);
+  --ink-3:  rgba(247, 242, 233, 0.62);
+  --ink-4:  rgba(247, 242, 233, 0.40);
+
+  /* Dinheiro saindo do seu bolso. O vermelhão de capa de cordel — quente, não coral. */
+  --action:      #E85C40;
+  --action-dark: #C4482E;
+  /* Pergunta em aberto: item que ninguém assumiu. A cor da lâmpada. */
+  --warn:        #E2A54A;
+
+  /* Fios que dá pra ver. Num OLED uma borda de 8 níveis desaparece. */
+  --rule:  rgba(247, 242, 233, 0.17);
+  --rule-2: rgba(247, 242, 233, 0.09);
+
+  /* O único objeto de papel: a comanda. Mais fosca e mais quente que o creme da
+     tinta, pra que uma comanda e um botão nunca vistam a mesma cor. Tem a
+     própria rampa de tinta e os próprios dois tons semânticos, porque sentam na luz. */
+  --slip:        #EEE5D3;
+  --slip-ink:    #211C16;
+  --slip-ink-2:  #4A4134;
+  --slip-ink-3:  #6E6454;
+  --slip-ink-4:  #968B76;
+  --slip-rule:   rgba(33, 28, 22, 0.14);
+  --slip-action: #B23A1F;
+  --slip-warn:   #8A5A10;
+
+  --rad:   14px;
+  --rad-s: 10px;
+
+  /* Nomes antigos, mapeados no sistema acima. Sessenta call sites não migram
+     numa tarde; quem pediu "paper" como chão recebe a mesa, quem pediu
+     "charcoal" como texto recebe creme. */
+  --warm-white: var(--night);
+  --charcoal:   var(--ink);
+  --stone:      var(--ink-3);
+  --burgundy:      var(--action);
+  --burgundy-dark: var(--action-dark);
+  --emerald:        var(--ink-3);
+  --emerald-bright: var(--ink-3);
+  --glass-card:   var(--surface);
+  --glass-panel:  var(--surface);
+  --glass-subtle: var(--surface-high);
+  --glass-border: var(--rule);
+  --glass-border-subtle: var(--rule-2);
+  --glass-border-input:  var(--rule);
+  --muted: var(--ink-3);
+  --paper: var(--night);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  color: var(--charcoal);
-  font-family: 'DM Sans', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  color: var(--ink);
+  /* Uma família só, no eixo de largura. Sem Archivo, o fallback do sistema
+     ainda dá o contraste de largura por font-stretch. */
+  font-family: 'Archivo', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-variant-numeric: tabular-nums;   /* dinheiro em coluna, sempre */
   -webkit-font-smoothing: antialiased;
   font-synthesis: none;
 }
-
-/* "Resolver agora ↓" desliza até o passo — o fluxo do setup vira contínuo. */
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
-/* <select> reaproveita o visual do input de texto (.namefield). */
+/* O chão: mesa lisa. Sem orbe, sem gradiente radial — uma mesa não tem luz de
+   estúdio. O calor vem do próprio quase-preto, não de uma camada por cima. */
+body { background: var(--night); }
+
 select.namefield { appearance: none; -webkit-appearance: none; background-image: none; cursor: pointer; }
 
-body {
-  background-color: var(--warm-white);
-  background-image:
-    radial-gradient(ellipse 65% 45% at 12% 18%, rgba(217, 119, 6, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 55% 40% at 88% 22%, rgba(245, 158, 11, 0.15) 0%, transparent 60%),
-    radial-gradient(ellipse 75% 50% at 50% 95%, rgba(159, 18, 57, 0.12) 0%, transparent 65%),
-    radial-gradient(ellipse 45% 35% at 90% 80%, rgba(120, 53, 15, 0.10) 0%, transparent 55%);
-  background-attachment: fixed;
-}
-
 .shell {
-  max-width: 430px;
-  margin: 0 auto;
-  min-height: 100dvh;
+  max-width: 430px; margin: 0 auto; min-height: 100dvh;
   padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  display: flex; flex-direction: column; gap: 12px;
 }
 .shell.wide { max-width: 860px; }
 
-.head { display: flex; align-items: baseline; justify-content: space-between; padding: 10px 4px 2px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 4px 4px; }
+/* Cartaz: a largura estreita e o peso alto são o que dá voz de cartaz sem
+   trocar de fonte. */
 .venue {
-  font-family: 'Instrument Serif', Georgia, serif;
-  font-weight: 400;
-  font-size: 30px;
-  letter-spacing: -0.01em;
+  font-size: 30px; font-weight: 800; font-stretch: 62%;
+  letter-spacing: -0.005em; line-height: 1;
 }
-.mesa { color: var(--stone); font-size: 14px; }
+.mesa { color: var(--ink-3); font-size: 13px; font-stretch: 92%; }
 
-/* Glass tiers */
-.card, .pixcard, .paid {
-  background: var(--glass-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
-  box-shadow: var(--shadow-card);
+/* ── superfícies ────────────────────────────────────────────────────────────
+   Tudo é escuro por padrão. O claro é reservado. */
+.card, .pixcard, .paid, .panel, .stat, .qrcard {
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rad);
   padding: 18px 16px;
   display: flex; flex-direction: column; gap: 12px;
 }
-.panel {
-  background: var(--glass-panel);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.65);
-  border-radius: 20px;
-  box-shadow: var(--shadow-card);
-  padding: 18px 16px;
-  display: flex; flex-direction: column; gap: 12px;
+
+/* A COMANDA. O único objeto de papel da tela, e por isso o único claro. É ela
+   que carrega o que a casa vai cobrar; o resto são controles. */
+.card.slip {
+  background: var(--slip);
+  color: var(--slip-ink);
+  border: none;
+  /* Papel tem espessura: uma sombra baixa e uma borda inferior mais escura,
+     não um brilho. */
+  box-shadow: 0 1px 0 rgba(0,0,0,.25), 0 10px 28px rgba(0,0,0,.35);
 }
+.card.slip .label   { color: var(--slip-ink-3); }
+.card.slip .muted   { color: var(--slip-ink-3); }
+.card.slip .items li { border-bottom-color: var(--slip-rule); }
+.card.slip .totalrow { border-top-color: var(--slip-ink); }
+.card.slip .progressbar { background: rgba(33,28,22,.12); }
+.card.slip .progressbar span { background: var(--slip-ink-2); }
 
 .label {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--stone);
+  font-size: 10px; font-weight: 700; font-stretch: 92%;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3);
 }
 
-.items { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.items { list-style: none; display: flex; flex-direction: column; gap: 0; }
 .items li {
-  display: flex; justify-content: space-between; gap: 12px;
-  font-size: 15px; line-height: 1.35;
-  border-bottom: 1px dashed var(--glass-border-subtle); padding-bottom: 8px;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  font-size: 15px; line-height: 1.3;
+  border-bottom: 1px solid var(--rule-2); padding: 9px 0;
 }
-.items li:last-child { border-bottom: none; padding-bottom: 0; }
+.items li:last-child { border-bottom: none; }
 
-.mono { font-variant-numeric: tabular-nums; }
+/* O bloco entalhado da linha (decisão #33). Máscara alfa tingida pela tinta da
+   superfície — o mesmo arquivo serve creme na noite e quase-preto na comanda. */
+.dish {
+  /* 38, não 30: a máscara carrega margem própria (o bloco ocupa ~74% do
+     quadrado), então o desenho visível é bem menor que a caixa. A 30px virava
+     borrão. */
+  flex: none; width: 38px; height: 38px; margin: -4px 0 -4px -4px;
+  background-color: currentColor;
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  opacity: .92;
+}
+.iwrap { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1; }
+.iwrap > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Toda coluna de número tem borda direita. */
+.mono { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 
 .totalrow {
-  display: flex; justify-content: space-between;
-  font-weight: 700; font-size: 17px;
-  border-top: 2px solid var(--charcoal); padding-top: 10px;
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-weight: 700; font-size: 18px; font-stretch: 92%;
+  border-top: 1.5px solid var(--ink); padding-top: 11px; margin-top: 3px;
 }
 
 .progresswrap { display: flex; flex-direction: column; gap: 6px; }
-.progressbar { height: 8px; border-radius: 99px; background: rgba(28, 25, 23, 0.08); overflow: hidden; }
-.progressbar span { display: block; height: 100%; background: var(--emerald-bright); border-radius: 99px; transition: width .4s ease; }
+.progressbar { height: 5px; border-radius: 99px; background: rgba(247,242,233,.10); overflow: hidden; }
+/* Sem verde. O progresso é tinta — quitado é peso, não cor. */
+.progressbar span { display: block; height: 100%; background: var(--ink-3); border-radius: 99px; transition: width .4s ease; }
 
-/* Mode chips — glass chips, 46px radius (designed, not lazy) */
-.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* ── controles ──────────────────────────────────────────────────────────── */
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .mode {
-  padding: 11px; border-radius: 46px;
-  border: 1px solid var(--glass-border-subtle);
-  background: var(--glass-subtle);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  font-size: 14px; font-weight: 600; color: var(--stone);
-  font-family: inherit;
+  padding: 11px 8px; border-radius: 999px;
+  border: 1px solid var(--rule); background: transparent;
+  font-size: 13px; font-weight: 500; font-stretch: 92%; color: var(--ink-3);
+  font-family: inherit; cursor: pointer;
 }
-.mode.on { border-color: var(--charcoal); color: var(--charcoal); background: rgba(255, 255, 255, 0.78); }
-
-/* 3-up modes (Igual · Por item · Outro valor) — tighter so the labels fit */
+.mode.on { border-color: var(--ink); color: var(--night); background: var(--ink); font-weight: 600; }
 .modes3 { grid-template-columns: 1fr 1fr 1fr; }
-.modes3 .mode { padding: 10px 4px; font-size: 13px; }
+.modes3 .mode { padding: 10px 4px; font-size: 12.5px; }
 
-/* Split por item: os itens da conta viram tocáveis */
-.items.pickable { gap: 6px; }
-.items.pickable li { border-bottom: none; padding-bottom: 0; }
+.items.pickable { gap: 5px; }
+.items.pickable li { border-bottom: none; padding: 0; }
 .itempick {
   display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 10px 12px; border-radius: 12px;
-  border: 1px solid var(--glass-border-input);
-  background: rgba(255, 255, 255, 0.42);
-  font-size: 15px; line-height: 1.3; color: var(--charcoal);
+  padding: 9px 11px; border-radius: var(--rad-s);
+  border: 1px solid var(--rule-2); background: transparent;
+  font-size: 15px; line-height: 1.3; color: inherit;
   font-family: inherit; text-align: left; cursor: pointer;
   transition: border-color .15s ease, background .15s ease;
 }
 .itempick .tick {
-  flex: none; width: 22px; height: 22px; border-radius: 7px;
+  flex: none; width: 20px; height: 20px; border-radius: 6px;
   display: grid; place-items: center;
-  border: 1px solid var(--glass-border-input);
-  background: rgba(255, 255, 255, 0.6);
-  font-size: 13px; font-weight: 700; color: var(--stone);
+  border: 1px solid var(--rule); background: transparent;
+  font-size: 12px; font-weight: 700; color: var(--ink-4);
 }
 .itempick .iname { flex: 1; }
-.itempick.on { border-color: var(--emerald); background: rgba(16, 185, 129, 0.09); }
-.itempick.on .tick { border-color: var(--emerald); background: var(--emerald); color: #fff; }
+/* Marcado é tinta cheia, não uma cor nova. */
+.itempick.on { border-color: var(--ink-3); background: rgba(247,242,233,.06); }
+.itempick.on .tick { border-color: var(--ink); background: var(--ink); color: var(--night); }
+.card.slip .itempick { border-color: var(--slip-rule); }
+.card.slip .itempick .tick { border-color: var(--slip-rule); color: var(--slip-ink-4); }
+.card.slip .itempick.on { border-color: var(--slip-ink-3); background: rgba(33,28,22,.05); }
+.card.slip .itempick.on .tick { border-color: var(--slip-ink); background: var(--slip-ink); color: var(--slip); }
 .itemhint { margin-top: 2px; }
 
 .stepperrow { display: flex; align-items: center; gap: 12px; font-size: 15px; }
 .stepper {
-  display: flex; align-items: center; gap: 14px;
-  border: 1px solid var(--glass-border-input); border-radius: 12px;
-  background: rgba(255, 255, 255, 0.5);
-  padding: 6px 10px;
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--rule); border-radius: var(--rad-s);
+  background: transparent; padding: 5px 8px;
 }
 .stepper button {
-  width: 34px; height: 34px; border-radius: 10px; border: none;
-  background: rgba(28, 25, 23, 0.06); font-size: 20px; font-weight: 700; color: var(--charcoal);
-  font-family: inherit;
+  width: 32px; height: 32px; border-radius: 8px; border: none;
+  background: rgba(247,242,233,.08); font-size: 19px; font-weight: 600; color: var(--ink);
+  font-family: inherit; cursor: pointer;
 }
-.stepper strong { min-width: 20px; text-align: center; font-size: 17px; }
+.stepper strong { min-width: 20px; text-align: center; font-size: 17px; font-weight: 600; }
 
 .customrow {
   display: flex; align-items: center; gap: 8px;
-  border: 1px solid var(--glass-border-input); border-radius: 8px;
-  background: rgba(255, 255, 255, 0.5);
-  padding: 10px 12px;
+  border: 1px solid var(--rule); border-radius: var(--rad-s);
+  background: transparent; padding: 10px 12px;
 }
-.customrow label { color: var(--stone); font-weight: 600; }
+.customrow label { color: var(--ink-3); font-weight: 600; }
 .customrow input {
   border: none; outline: none; font-size: 20px; width: 100%;
-  font-variant-numeric: tabular-nums; background: transparent; color: var(--charcoal);
+  font-variant-numeric: tabular-nums; background: transparent; color: var(--ink);
   font-family: inherit;
 }
 
-.servico { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--charcoal); }
-.servico input { width: 18px; height: 18px; accent-color: var(--emerald); margin-top: 1px; }
-.servico em { font-style: normal; color: var(--emerald); font-weight: 600; }
+/* O 10% é opcional e removível (CDC). O valor sai em TINTA, não em cor: é
+   dinheiro seu, e não uma boa notícia verde. */
+.servico { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink-2); line-height: 1.35; }
+/* O check NÃO usa o vermelhão: vermelhão é a ação de pagar, uma por tela. Um
+   marcador de opção que veste a cor do botão disputa a atenção com ele. */
+.servico input { width: 17px; height: 17px; accent-color: var(--ink-3); margin-top: 2px; flex: none; }
+.servico em { font-style: normal; color: var(--ink); font-weight: 600; }
 
 .namefield {
-  border: 1px solid var(--glass-border-input); border-radius: 8px; padding: 12px;
-  font-size: 15px; background: rgba(255, 255, 255, 0.5); color: var(--charcoal);
-  font-family: inherit;
+  border: 1px solid var(--rule); border-radius: var(--rad-s); padding: 12px;
+  font-size: 15px; background: transparent; color: var(--ink); font-family: inherit;
 }
-.namefield::placeholder { color: var(--stone); }
+.namefield::placeholder { color: var(--ink-4); }
+.namefield:focus-visible { outline: none; border-color: var(--ink-3); }
 
-/* Primary CTA — burgundy filled pill */
+/* A ação: vermelhão. Uma por tela. */
 .cta {
-  border: none; border-radius: 100px; padding: 16px;
-  background: var(--burgundy); color: #fff; font-size: 16px; font-weight: 700;
-  letter-spacing: -0.01em; font-family: inherit;
-  box-shadow: 0 6px 18px rgba(159, 18, 57, 0.28);
+  border: none; border-radius: 999px; padding: 16px;
+  background: var(--action); color: #FFF6F2;
+  font-size: 16px; font-weight: 700; font-stretch: 92%;
+  letter-spacing: -0.005em; font-family: inherit; cursor: pointer;
 }
-.cta:active { transform: translateY(1px); background: var(--burgundy-dark); }
-.cta:disabled { background: rgba(28, 25, 23, 0.12); color: var(--stone); box-shadow: none; }
+.cta:active { transform: translateY(1px); background: var(--action-dark); }
+.cta:disabled { background: rgba(247,242,233,.10); color: var(--ink-4); cursor: default; }
 
 .ghost {
-  border: 1px dashed var(--glass-border-input); border-radius: 46px; padding: 12px;
-  background: transparent; color: var(--stone); font-size: 13px; font-family: inherit;
+  border: 1px solid var(--rule); border-radius: 999px; padding: 12px;
+  background: transparent; color: var(--ink-3); font-size: 13px; font-family: inherit; cursor: pointer;
 }
-.linklike { border: none; background: none; color: var(--stone); font-size: 14px; padding: 6px; font-family: inherit; }
+.linklike { border: none; background: none; color: var(--ink-3); font-size: 14px; padding: 6px; font-family: inherit; cursor: pointer; }
 
-/* Wallet payments (Apple Pay / Google Pay) — convenções das marcas: pill
-   preta da Apple, pill clara com borda do Google. */
 .walletrow { display: flex; gap: 8px; }
 .walletbtn {
-  flex: 1; border-radius: 100px; padding: 13px; font-size: 15px; font-weight: 600;
-  font-family: inherit; cursor: pointer; border: 1px solid transparent;
-  letter-spacing: -0.01em;
+  flex: 1; border-radius: 999px; padding: 13px; font-size: 15px; font-weight: 600;
+  font-family: inherit; cursor: pointer; border: 1px solid transparent; letter-spacing: -0.005em;
 }
-.walletbtn.apple { background: var(--charcoal); color: #fff; }
-.walletbtn.gpay { background: #fff; color: var(--charcoal); border-color: var(--glass-border-input); }
-.walletbtn:disabled { opacity: 0.5; cursor: default; }
+/* Convenção das marcas — Apple e Google mandam no próprio botão, mesmo aqui. */
+.walletbtn.apple { background: #000; color: #fff; }
+.walletbtn.gpay { background: #fff; color: #1F1F1F; border-color: rgba(0,0,0,.12); }
+.walletbtn:disabled { opacity: 0.4; cursor: default; }
+
 .sheetoverlay {
-  position: fixed; inset: 0; background: rgba(28, 25, 23, 0.45);
+  position: fixed; inset: 0; background: rgba(10, 8, 4, 0.62);
   display: flex; align-items: flex-end; justify-content: center; z-index: 60;
 }
 .sheet {
-  background: var(--warm-white); width: min(430px, 100%);
-  border-radius: 18px 18px 0 0; padding: 20px 20px 28px;
+  background: var(--sheet); color: var(--ink); width: min(430px, 100%);
+  border-top: 1px solid var(--rule);
+  border-radius: var(--rad) var(--rad) 0 0; padding: 20px 20px 28px;
   display: flex; flex-direction: column; gap: 12px;
-  box-shadow: 0 -8px 32px rgba(28, 25, 23, 0.18);
 }
 
-.pixcard { text-align: center; }
+/* A tela do Pix: o código é a comanda desta tela. */
+.pixcard { text-align: center; align-items: stretch; }
 .bigmoney {
-  font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
-  font-size: 46px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  font-size: 46px; font-weight: 800; font-stretch: 62%;
+  letter-spacing: -0.015em; font-variant-numeric: tabular-nums; line-height: 1;
 }
 .codebox {
-  font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px;
-  color: var(--stone); background: rgba(255, 255, 255, 0.5);
-  border: 1px solid var(--glass-border-subtle);
-  border-radius: 10px; padding: 12px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px;
+  color: var(--ink-3); background: var(--night);
+  border: 1px solid var(--rule-2); border-radius: var(--rad-s); padding: 12px;
   word-break: break-all; text-align: left;
 }
 
 .paid { align-items: center; text-align: center; gap: 14px; padding: 40px 16px; }
+/* Sem disco verde. O ✓ é tinta sobre a mesa — quitado é peso, não festa. */
 .paidmark {
-  width: 72px; height: 72px; border-radius: 50%;
-  background: var(--emerald-bright); color: #fff; font-size: 40px;
+  width: 64px; height: 64px; border-radius: 50%;
+  border: 1.5px solid var(--ink); color: var(--ink); font-size: 30px;
   display: grid; place-items: center;
-  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
 }
-.paid h2 { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 26px; }
+.paid h2 { font-size: 25px; font-weight: 700; font-stretch: 92%; }
 .paid .progresswrap { width: 100%; }
 
-/* Restaurant panel */
-.statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.stat {
-  background: var(--glass-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--glass-border); border-radius: 16px;
-  box-shadow: var(--shadow-card);
-  padding: 14px; display: flex; flex-direction: column; gap: 4px;
-}
-.stat b {
-  font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
-  font-size: 24px; font-variant-numeric: tabular-nums;
-}
-.stat span { font-size: 12px; color: var(--stone); }
+/* ── painel do restaurante ─────────────────────────────────────────────── */
+.statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat { padding: 13px 12px; gap: 3px; }
+.stat b { font-size: 23px; font-weight: 700; font-stretch: 62%; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 11px; color: var(--ink-3); font-stretch: 92%; }
 
 .checkrow {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  padding: 12px 4px; border-bottom: 1px dashed var(--glass-border-subtle);
-  font-size: 14px;
+  padding: 11px 2px; border-bottom: 1px solid var(--rule-2); font-size: 14px;
 }
 .checkrow:last-child { border-bottom: none; }
 .pill {
-  border-radius: 46px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+  border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 600;
+  font-stretch: 92%; letter-spacing: .02em; white-space: nowrap;
 }
-.pill.aberta { background: rgba(28, 25, 23, 0.07); color: var(--stone); }
-.pill.parcial { background: rgba(245, 158, 11, 0.18); color: #92400E; }
-.pill.paga { background: rgba(16, 185, 129, 0.16); color: #065F46; }
-.pill.fechada { background: rgba(28, 25, 23, 0.09); color: var(--charcoal); }
+/* Os estados da mesa. Só "parcial" ganha cor: é a única que faz alguém andar
+   até a mesa. As outras são peso de tinta. */
+.pill.aberta  { background: transparent; color: var(--ink-3); border: 1px solid var(--rule); }
+.pill.parcial { background: rgba(226,165,74,.16); color: var(--warn); }
+.pill.paga    { background: rgba(247,242,233,.10); color: var(--ink-2); }
+.pill.fechada { background: transparent; color: var(--ink-4); border: 1px solid var(--rule-2); }
 
-/* Ativação (painel) — barras CSS por dia, proporcionais ao valor; sem lib de gráfico */
 .actrow { display: grid; grid-template-columns: 42px 1fr max-content; align-items: center; gap: 10px; }
-.actbar { height: 8px; border-radius: 99px; background: rgba(28, 25, 23, 0.08); overflow: hidden; }
-.actbar span { display: block; height: 100%; background: var(--emerald); border-radius: 99px; }
+.actbar { height: 5px; border-radius: 99px; background: rgba(247,242,233,.08); overflow: hidden; }
+.actbar span { display: block; height: 100%; background: var(--ink-3); border-radius: 99px; }
 
-.foot { text-align: center; color: var(--stone); font-size: 12px; padding-top: 4px; }
-.muted { color: var(--stone); }
+.foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  color: var(--ink-4); font-size: 11px; letter-spacing: .04em; padding-top: 6px;
+}
+.muted { color: var(--ink-3); }
 .small { font-size: 13px; }
 .center { text-align: center; }
 
-/* QR print card */
+/* QR: o cartão da mesa é papel — vai ser impresso. */
 .qrprint { align-items: center; text-align: center; gap: 10px; }
-.qrbox {
-  background: #fff; padding: 16px; border-radius: 16px;
-  border: 1px solid var(--glass-border-subtle);
-  display: grid; place-items: center;
-}
+.qrbox { background: #fff; padding: 14px; border-radius: var(--rad-s); display: grid; place-items: center; }
 
-/* /qrs — folha com o cartão de cada mesa (A6-ish, 2 por linha no A4) */
 .qrgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .qrcard {
-  background: var(--glass-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
-  box-shadow: var(--shadow-card);
+  background: var(--slip); color: var(--slip-ink); border: none;
+  box-shadow: 0 1px 0 rgba(0,0,0,.25), 0 10px 28px rgba(0,0,0,.35);
   padding: 22px 16px 14px;
-  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px;
-  break-inside: avoid;
+  align-items: center; text-align: center; gap: 8px; break-inside: avoid;
 }
-.qrcard .qrvenue {
-  font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
-  font-size: 22px; letter-spacing: -0.01em;
-}
-.qrcard .qrmesa { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 30px; }
-.qrcard .qrhint { font-size: 13px; }
-.qrcard .qrperks { font-size: 12px; color: var(--stone); }
-.qrcard .qrbrand { font-size: 11px; color: var(--stone); letter-spacing: 0.18em; margin-top: 4px; }
+.qrcard .qrvenue { font-size: 21px; font-weight: 800; font-stretch: 62%; }
+.qrcard .qrmesa  { font-size: 30px; font-weight: 700; font-stretch: 62%; }
+.qrcard .qrhint  { font-size: 13px; color: var(--slip-ink-2); }
+.qrcard .qrperks { font-size: 12px; color: var(--slip-ink-3); }
+.qrcard .qrbrand { font-size: 10px; color: var(--slip-ink-4); letter-spacing: 0.2em; margin-top: 4px; }
 
-/* House accounts — saldo da casa (carteira + admin) */
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.pos { color: var(--emerald); font-weight: 600; }
+/* "pos" era verde. Dinheiro que entra é tinta cheia; o sinal + já diz a direção. */
+.pos { color: var(--ink); font-weight: 600; }
 .cfggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.cfggrid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--stone); }
+.cfggrid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-3); }
 
-@media (prefers-reduced-motion: reduce) {
-  .progressbar span { transition: none; }
-}
+@media (prefers-reduced-motion: reduce) { .progressbar span { transition: none; } }
 
-/* Printing: only the QR cards, black on white, no glass/gradient */
+/* Impressão: só os cartões de QR, preto no branco. */
 @media print {
   body { background: #fff !important; }
   .shell { max-width: none; }
-  .noprint, .linklike, .cta { display: none !important; }
-  .pixcard { border: none; box-shadow: none; backdrop-filter: none; background: #fff; }
-
-  /* /qrs — papel branco, tinta preta; borda fina como guia de corte,
-     e cada cartão inteiro numa página (break-inside: avoid). */
+  .noprint, .linklike, .cta, .langtoggle { display: none !important; }
+  .pixcard { border: none; background: #fff; color: #000; }
   .qrspage { padding: 0; gap: 0; display: block; }
   .qrgrid { gap: 8mm; }
   .qrcard {
-    background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none;
-    border: 1pt solid #999; border-radius: 12pt; box-shadow: none;
-    color: #000;
-    padding: 10mm 6mm 6mm;
-    break-inside: avoid; page-break-inside: avoid;
+    background: #fff; color: #000; border: 1pt solid #999; border-radius: 12pt;
+    box-shadow: none; padding: 10mm 6mm 6mm; break-inside: avoid; page-break-inside: avoid;
   }
   .qrcard .qrhint, .qrcard .qrperks, .qrcard .qrbrand { color: #000; }
-  .qrcard .qrbox { border: none; padding: 0; }
+  .qrcard .qrbox { padding: 0; }
 }
 
-/* ── seletor de idioma ──────────────────────────────────────────────────────
+/* ── seletor de idioma ────────────────────────────────────────────────────
    Dois botões, não um menu: com duas opções um <select> esconde metade da
-   resposta atrás de um toque. Discreto de propósito — fica no rodapé, longe
-   do botão de pagar, e nunca compete com uma ação de dinheiro. */
-.langtoggle { display: inline-flex; gap: 2px; padding: 2px;
-  border: 1px solid var(--rule, rgba(0,0,0,.12)); border-radius: 999px; }
-.langopt { appearance: none; border: 0; background: none; cursor: pointer;
-  font: inherit; font-size: 11px; letter-spacing: .04em; line-height: 1;
-  padding: 5px 9px; border-radius: 999px; color: var(--muted, #6E6454); }
-.langopt.on { background: var(--ink, #211C16); color: var(--paper, #FAFAF9); }
-.langopt:focus-visible { outline: 2px solid var(--burgundy); outline-offset: 1px; }
-.foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+   resposta atrás de um toque. Discreto — rodapé, longe do botão de pagar. */
+.langtoggle { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--rule-2); border-radius: 999px; }
+.langopt {
+  appearance: none; border: 0; background: none; cursor: pointer; font: inherit;
+  font-size: 10px; font-weight: 600; letter-spacing: .06em; line-height: 1;
+  padding: 5px 8px; border-radius: 999px; color: var(--ink-4);
+}
+.langopt.on { background: var(--ink-3); color: var(--night); }
+.langopt:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+.card.slip .langtoggle { border-color: var(--slip-rule); }
+.card.slip .langopt { color: var(--slip-ink-4); }
+.card.slip .langopt.on { background: var(--slip-ink); color: var(--slip); }

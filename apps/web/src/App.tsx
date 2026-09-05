@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
 import { LangToggle, money, tError, useT } from './lang';
+import { dishFor, dishMask } from './dish';
 import Home from './Home';
 import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
@@ -346,7 +347,9 @@ export default function App() {
       </header>
 
       {stale && <p className="muted small center">{t('check.offline')}</p>}
-      <section className="card">
+      {/* A comanda. O único objeto claro da tela, porque é o único papel de uma
+          mesa de verdade — e é ela que carrega o que a casa vai cobrar. */}
+      <section className="card slip">
         <p className="label">
           {t('check.yours')}
           {mode === 'item' && remaining > 0 && <span className="muted small">{t('check.tapYours')}</span>}
@@ -356,7 +359,10 @@ export default function App() {
             if (mode !== 'item' || remaining === 0) {
               return (
                 <li key={i.id}>
-                  <span>{i.name}</span>
+                  <span className="iwrap">
+                    <Dish name={i.name} />
+                    <span>{i.name}</span>
+                  </span>
                   <span className="mono">{brl(i.priceCents)}</span>
                 </li>
               );
@@ -371,6 +377,7 @@ export default function App() {
                   onClick={() => toggleItem(i.id)}
                 >
                   <span className="tick" aria-hidden="true">{picked ? '✓' : '+'}</span>
+                  <Dish name={i.name} />
                   <span className="iname">{i.name}</span>
                   <span className="mono">{brl(i.priceCents)}</span>
                 </button>
@@ -530,6 +537,18 @@ export default function App() {
       </footer>
     </Shell>
   );
+}
+
+/**
+ * O bloco entalhado da linha (decisão #33). Máscara alfa aplicada por CSS mask,
+ * então a tinta vem do `currentColor` de onde a linha estiver — o mesmo arquivo
+ * imprime quase-preto na comanda e creme na mesa, sem uma segunda cópia.
+ * Linha sem figura honesta (serviço, taxa) simplesmente não ganha uma.
+ */
+function Dish({ name }: { name: string }) {
+  const cat = dishFor(name);
+  if (!cat) return null;
+  return <i className="dish" style={dishMask(cat)} aria-hidden="true" />;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

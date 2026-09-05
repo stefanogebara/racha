@@ -193,6 +193,61 @@ export const DICT = {
                         pt: 'Escaneie para ver a conta, dividir e pagar no Pix' },
   'qr.sheetNote':     { en: 'racha · one card per table, 2 per A4 sheet',
                         pt: 'racha · um cartão por mesa, 2 por folha A4' },
+
+  // ── landing, texto de venda ─────────────────────────────────────────────
+  'home.tagline':     { en: 'pay at the table',                pt: 'pagamento na mesa' },
+  'home.h1':          { en: 'The table’s bill, settled on Pix.',
+                        pt: 'A conta da mesa, resolvida no Pix.' },
+  'home.lede':        { en: 'Your guest scans the QR, splits it however they like and pays in seconds — no app, no sign-up, no waiting for the card machine. Card via Google\u00a0Pay and prepaid balance with bonus, on the same QR.',
+                        pt: 'O cliente escaneia o QR, divide como quiser e paga em segundos — sem app, sem cadastro, sem esperar a maquininha. Cartão via Google\u00a0Pay e saldo pré-pago com bônus, no mesmo QR.' },
+  'home.demo':        { en: 'See the live demo',               pt: 'Ver a demonstração ao vivo' },
+  'home.iAmVenue':    { en: 'I’m a restaurant — go to the panel',
+                        pt: 'Sou restaurante — entrar no painel' },
+  'home.step1':       { en: '1 · Scanned',                     pt: '1 · Escaneou' },
+  'home.step1d':      { en: 'the table QR opens the bill right away',
+                        pt: 'o QR da mesa abre a conta na hora' },
+  'home.step2':       { en: '2 · Split',                       pt: '2 · Dividiu' },
+  'home.step2d':      { en: 'equally or by amount — each their own share',
+                        pt: 'igual ou por valor — cada um a sua parte' },
+  'home.step3':       { en: '3 · Paid',                        pt: '3 · Pagou' },
+  'home.legal':       { en: 'Staff service (tip) tracked separately, the way the law requires. The table turns faster at the rush — and nobody waits for a card machine passed hand to hand.',
+                        pt: 'Serviço da equipe (gorjeta) rastreado separado, do jeito que a lei pede. A mesa gira mais rápido no rush — e ninguém fica esperando maquininha passar de mão em mão.' },
+  'home.balancePitch':{ en: 'Your guest tops up by Pix and earns a bonus (e.g. +15%). Loyalty that becomes cash up front — the paid balance never expires and is refundable; the bonus is promotional, with a clear expiry.',
+                        pt: 'Seu cliente carrega saldo via Pix e ganha bônus (ex.: +15%). Fidelidade que vira caixa antecipado — o saldo pago não expira e é reembolsável; o bônus é promocional, com validade clara.' },
+
+  // ── carteira, continuação ───────────────────────────────────────────────
+  'wallet.statement': { en: 'Statement',                       pt: 'Extrato' },
+  'wallet.topUpEntry':{ en: 'Top-up',                          pt: 'Recarga' },
+  'wallet.bonusOf':   { en: 'of bonus',                        pt: 'de bônus' },
+  'wallet.otherAmt':  { en: 'other amount',                    pt: 'outro valor' },
+  'wallet.onlyAt':    { en: 'Valid only at {venue}.',          pt: 'Válido somente no {venue}.' },
+  'wallet.expires':   { en: 'expires on {date}',               pt: 'expira em {date}' },
+  'wallet.neverExp':  { en: 'never expires and is refundable', pt: 'não expira e é reembolsável' },
+  'wallet.rules':     { en: 'Paid balance never expires and is refundable. Bonus valid for 90 days after confirmation.',
+                        pt: 'Saldo pago não expira e é reembolsável. Bônus válido por 90 dias após a confirmação.' },
+  'wallet.doTopUp':   { en: 'Top up {amount}',                 pt: 'Carregar {amount}' },
+
+  // ── login ───────────────────────────────────────────────────────────────
+  'gate.google':      { en: 'Continue with Google',            pt: 'Continuar com Google' },
+  'gate.orEmail':     { en: 'or with e-mail',                  pt: 'ou com e-mail' },
+  'gate.email':       { en: 'e-mail',                          pt: 'e-mail' },
+  'gate.password':    { en: 'password',                        pt: 'senha' },
+  'gate.signIn':      { en: 'Sign in',                         pt: 'Entrar' },
+  'gate.ownerPanel':  { en: 'owner panel',                     pt: 'painel do dono' },
+
+  // ── admin ───────────────────────────────────────────────────────────────
+  'admin.title':      { en: 'racha · management',              pt: 'racha · gestão' },
+  'admin.suggested':  { en: 'Suggested service',               pt: 'Serviço sugerido' },
+  'admin.saved':      { en: 'saved ✓',                         pt: 'salvo ✓' },
+  'admin.houseOn':    { en: 'Guests can top up prepaid balance with a bonus',
+                        pt: 'Clientes podem carregar saldo pré-pago com bônus' },
+  'admin.point':      { en: 'Point the camera · pay your share with Pix',
+                        pt: 'Aponte a câmera · pague sua parte por Pix' },
+  'qr.perks':         { en: '💳 Google Pay · 💰 House balance with bonus',
+                        pt: '💳 Google Pay · 💰 Saldo da casa com bônus' },
+
+  // ── cartão (demo) ───────────────────────────────────────────────────────
+  'card.demoCard':    { en: '•••• 4242 (demo)',                pt: '•••• 4242 (demo)' },
 } satisfies Record<string, Pair>;
 
 export type Key = keyof typeof DICT;

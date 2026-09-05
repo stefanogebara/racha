@@ -1,5 +1,6 @@
 
-import { LangToggle } from './lang';import { useEffect, useMemo, useRef, useState } from 'react';
+import { LangToggle, useT } from './lang';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
 import AdminRecipient from './AdminRecipient';
@@ -27,6 +28,7 @@ export default function Admin() {
 
 // ---------------------------------------------------------------- onboarding
 function Onboarding() {
+  const { t } = useT();
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
   const [cnpj, setCnpj] = useState('');
@@ -87,7 +89,7 @@ function Onboarding() {
           </span>
         )}
         <label className="servico" style={{ alignItems: 'center' }}>
-          <span style={{ flex: 1 }}>Serviço sugerido</span>
+          <span style={{ flex: 1 }}>{t('admin.suggested')}</span>
           <div className="stepper">
             <button aria-label="menos" onClick={() => setServico(Math.max(0, servico - 1))}>−</button>
             <strong>{servico}%</strong>
@@ -103,7 +105,7 @@ function Onboarding() {
           {busy ? 'criando…' : 'Criar restaurante'}
         </button>
       </section>
-      <footer className="foot"><span>racha · gestão</span><LangToggle compact /></footer>
+      <footer className="foot"><span>{t('admin.title')}</span><LangToggle compact /></footer>
     </main>
   );
 }
@@ -225,6 +227,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
 
 // --------------------------------------------------------------- print card
 function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; table: VenueTable; origin: string; onClose: () => void }) {
+  const { t } = useT();
   const url = `${origin}/?t=${table.qrToken}`;
   return (
     <main className="shell">
@@ -234,7 +237,7 @@ function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; tab
         <div className="qrbox">
           <QRCodeSVG value={url} size={220} level="M" marginSize={2} />
         </div>
-        <p className="muted small">Aponte a câmera · pague sua parte por Pix</p>
+        <p className="muted small">{t('admin.point')}</p>
         <p className="muted" style={{ fontSize: 11, wordBreak: 'break-all' }}>{url}</p>
         <button className="cta" onClick={() => window.print()}>Imprimir</button>
         <button className="linklike" onClick={onClose}>← voltar</button>

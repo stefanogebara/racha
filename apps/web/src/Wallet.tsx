@@ -1,5 +1,6 @@
 
-import { LangToggle } from './lang';import { useCallback, useEffect, useMemo, useState } from 'react';
+import { LangToggle, useT } from './lang';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, brl, dmy, parseBrlToCents, HouseAccountView, HouseConfig, HouseLedgerEntry, HouseLoadResult } from './api';
 import { storeWallet } from './house';
 
@@ -22,16 +23,18 @@ const LEDGER_LABEL: Record<string, string> = {
 };
 
 export default function Wallet() {
+  const { t } = useT();
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const accountToken = params.get('t');
   const newToken = params.get('new');
   if (newToken) return <OpenWallet tableToken={newToken} />;
   if (accountToken) return <WalletView accountToken={accountToken} />;
-  return <Shell><p className="muted center">Link inválido — peça um novo no balcão.</p></Shell>;
+  return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
 }
 
 // ------------------------------------------------------------------ carteira
 function WalletView({ accountToken }: { accountToken: string }) {
+  const { t } = useT();
   const [view, setView] = useState<HouseAccountView | null>(null);
   const [dead, setDead] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -99,7 +102,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
     }
   }
 
-  if (dead) return <Shell><p className="muted center">Link inválido — peça um novo no balcão.</p></Shell>;
+  if (dead) return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
   if (!view && loadFailed) {
     return (
       <Shell>
@@ -122,7 +125,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
           <span className="mesa">carteira</span>
         </header>
         <section className="pixcard">
-          <p className="label">Carregar com Pix</p>
+          <p className="label">{t('wallet.topUpPix')}</p>
           <p className="bigmoney">{brl(charge.amountCents)}</p>
           {charge.bonusCents > 0 && (
             <>
@@ -131,7 +134,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
             </>
           )}
           <p className="muted small">Saldo pago não expira e é reembolsável.</p>
-          <div className="codebox" aria-label="Pix copia e cola">
+          <div className="codebox" aria-label={t('pix.aria')}>
             {charge.copiaECola.slice(0, 64)}…
           </div>
           <button className="cta" onClick={onCopy}>
@@ -166,15 +169,15 @@ function WalletView({ accountToken }: { accountToken: string }) {
         <p className="muted small center">Válido somente no {venue.name}.</p>
         <div className="checkrow">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
-            <span>Saldo pago</span>
-            <span className="muted small">não expira e é reembolsável</span>
+            <span>{t('wallet.paidBal')}</span>
+            <span className="muted small">{t('wallet.neverExp')}</span>
           </div>
           <span className="mono">{brl(account.principalCents)}</span>
         </div>
         {account.lots.map((lot, i) => (
           <div className="checkrow" key={i}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
-              <span>Bônus promocional</span>
+              <span>{t('wallet.bonus')}</span>
               <span className="muted small">expira em {dmy(lot.expiresAt)}</span>
             </div>
             <span className="mono pos">{brl(lot.remainingCents)}</span>
@@ -183,7 +186,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
       </section>
 
       <section className="card">
-        <p className="label">Carregar saldo</p>
+        <p className="label">{t('wallet.topUp')}</p>
         <div className="chips">
           {PRESETS_CENTS.map((c) => (
             <button
@@ -198,7 +201,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
         <div className="customrow">
           <label htmlFor="recarga">R$</label>
           <input
-            id="recarga" inputMode="decimal" placeholder="outro valor"
+            id="recarga" inputMode="decimal" placeholder={t('wallet.otherAmt')}
             value={custom}
             onChange={(e) => { setCustom(e.target.value); setChip(null); }}
           />
@@ -216,8 +219,8 @@ function WalletView({ accountToken }: { accountToken: string }) {
       </section>
 
       <section className="card">
-        <p className="label">Extrato</p>
-        {account.ledger.length === 0 && <p className="muted small">nenhuma movimentação ainda.</p>}
+        <p className="label">{t('wallet.statement')}</p>
+        {account.ledger.length === 0 && <p className="muted small">{t('wallet.noMoves')}</p>}
         {[...account.ledger]
           .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '')) // mais recente primeiro
           .map((e, i) => <LedgerRow key={i} entry={e} />)}
@@ -252,6 +255,7 @@ function LedgerRow({ entry }: { entry: HouseLedgerEntry }) {
 
 // ------------------------------------------------------------ abrir carteira
 function OpenWallet({ tableToken }: { tableToken: string }) {
+  const { t } = useT();
   const [config, setConfig] = useState<HouseConfig | null>(null);
   const [dead, setDead] = useState(false);
   const [name, setName] = useState('');
@@ -276,7 +280,7 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
     }
   }
 
-  if (dead) return <Shell><p className="muted center">Link inválido — peça um novo no balcão.</p></Shell>;
+  if (dead) return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
   if (!config) return <Shell><p className="muted center">carregando…</p></Shell>;
   if (!config.enabled) {
     return <Shell><p className="muted center">O {config.venueName} ainda não oferece saldo da casa.</p></Shell>;
@@ -298,12 +302,12 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
             : 'Carregue saldo por Pix e pague a conta direto do celular.'}
         </p>
         <input
-          className="namefield" maxLength={60} placeholder="Seu nome"
+          className="namefield" maxLength={60} placeholder={t('wallet.yourName')}
           value={name} onChange={(e) => setName(e.target.value)}
         />
         <input
           className="namefield" type="tel" inputMode="numeric"
-          placeholder="Telefone com DDD (só números)"
+          placeholder={t('wallet.phone')}
           value={phone}
           onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 13))}
         />

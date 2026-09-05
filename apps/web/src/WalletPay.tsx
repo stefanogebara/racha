@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+
+import { useT } from './lang';import { useEffect, useState } from 'react';
 import { api, ApiError, brl } from './api';
 
 /**
@@ -82,6 +83,7 @@ export default function WalletButtons({
   venueName: string;
   onPaid: () => void;
 }) {
+  const { t } = useT();
   const [sheet, setSheet] = useState<Wallet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -208,13 +210,13 @@ export default function WalletButtons({
             )}
             <div className="checkrow">
               <span className="muted small">cartão</span>
-              <span className="mono muted small">•••• 4242 (demo)</span>
+              <span className="mono muted small">{t('card.demoCard')}</span>
             </div>
             <button className="cta" disabled={busy} onClick={() => demoAuthorize(sheet)}>
               {busy ? 'autorizando…' : `Pagar ${brl(total)}`}
             </button>
             <button className="linklike" disabled={busy} onClick={() => setSheet(null)}>cancelar</button>
-            <p className="muted small center">simulação (demo) — nenhuma cobrança real é feita</p>
+            <p className="muted small center">{t('card.demoNote')}</p>
           </div>
         </div>
       )}

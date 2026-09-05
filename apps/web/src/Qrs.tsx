@@ -83,7 +83,7 @@ function QrCard({ venueName, table }: { venueName: string; table: VenueTable }) 
       </div>
       <h2 className="qrmesa">{mesaTitle(table.label)}</h2>
       <p className="qrhint">{t('qr.scanToPay')}</p>
-      <p className="qrperks">💳 Google Pay · 💰 Saldo da casa com bônus</p>
+      <p className="qrperks">{t('qr.perks')}</p>
       <span className="qrbrand">racha</span>
     </article>
   );

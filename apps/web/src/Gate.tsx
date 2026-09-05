@@ -78,11 +78,11 @@ function Login({ onDone }: { onDone: () => void }) {
 
         <button className="ghost" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 600 }}
           disabled={busy} onClick={google}>
-          <span aria-hidden="true" style={{ fontWeight: 700, color: '#4285F4' }}>G</span> Continuar com Google
+          <span aria-hidden="true" style={{ fontWeight: 700, color: '#4285F4' }}>G</span> {t('gate.google')}
         </button>
-        <div className="muted small" style={{ textAlign: 'center', margin: '2px 0' }}>ou com e-mail</div>
+        <div className="muted small" style={{ textAlign: 'center', margin: '2px 0' }}>{t('gate.orEmail')}</div>
 
-        <input className="namefield" type="email" placeholder="e-mail" value={email}
+        <input className="namefield" type="email" placeholder={t('gate.email')} value={email}
           onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
         <input className="namefield" type="password" placeholder={mode === 'up' ? 'crie uma senha' : 'senha'} value={password}
           onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />

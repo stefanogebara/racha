@@ -752,3 +752,70 @@ fica anotada aqui pra quando o produto quiser.
 `apps/web/src/lang.tsx` (contexto, `useT`, `LangToggle`),
 `apps/web/test/i18n.test.ts`, `api/_app/router.js` (códigos de erro),
 `apps/web/src/api.ts` (`ApiError.code`/`vars`), `CLAUDE.md`.
+
+## 35 — A plataforma web estava vestindo a roupa do Seatable (2026-09-05)
+
+**O achado.** A primeira linha do `apps/web/src/styles.css` dizia, literalmente:
+*"Racha — Warm Glass (Seatable design system, DESIGN.md is canon)"*. Vidro
+translúcido, quatro orbes quentes de fundo, branco morno, DM Sans + Instrument
+Serif, esmeralda pra dinheiro. O CLAUDE.md define o Racha como **produto
+separado do Seatable** — repositório próprio, Supabase próprio, marca própria —
+e o design foi a única coisa que nunca tinha se separado. Enquanto isso, 21
+rodadas de crítica cega (decisões #26–28) construíram uma linguagem própria que
+existia só no app iOS e no protótipo.
+
+**Decisão.** Portar a linguagem do Racha pra plataforma web inteira — cliente,
+painel, admin, carteira, login, cartões de QR — direto do `Palette.swift`, valor
+por valor.
+
+**O movimento estrutural: a comanda é o único papel.** O chão virou a mesa
+quase preta e quente. Todo cartão é escuro. **Um** objeto é claro: a conta.
+É o que faz a comanda ser a única luz da tela, do jeito que a comanda é o único
+papel de uma mesa de verdade — e o que ela carrega é justamente o número que a
+casa vai cobrar. Antes, a conta e o painel de controles eram o mesmo cartão de
+vidro, com o mesmo peso.
+
+**Matei o verde, e isso é o ponto.** Esmeralda estava em `+R$ 10,66` de serviço,
+no saldo, na barra de progresso, no item marcado e no ✓ de pago. Verde não
+significa nada na gramática do Racha — e gastá-lo em "serviço" rouba o lugar de
+uma cor que deveria significar alguma coisa. Ficaram duas: **vermelhão** =
+dinheiro saindo do seu bolso (uma ação por tela), **âmbar** = pergunta em aberto.
+Quitado é uma palavra e um peso de tinta, não uma cor. O disco verde do ✓ virou
+um círculo de tinta.
+
+**Detalhes que custaram decisão:**
+
+- *Os blocos entalhados entraram por `mask`, não por `<img>`.* A tinta vem do
+  `currentColor` de onde a linha estiver, então o MESMO arquivo imprime
+  quase-preto na comanda e creme na mesa. Um `<img>` exigiria duas cópias.
+- *38px, não 30.* A máscara carrega margem própria (o desenho ocupa ~74% do
+  quadrado), então a caixa precisa ser maior que o desenho. A 30px virava borrão
+  — visto no navegador, não deduzido.
+- *O check do serviço perdeu o vermelhão.* Vermelhão é a ação de pagar, uma por
+  tela; um marcador de opção vestindo a cor do botão disputa atenção com ele.
+- *Só "parcial" tem cor entre os estados da mesa.* É o único que faz alguém
+  andar até lá. Aberta, paga e fechada são peso de tinta.
+- *Os nomes antigos continuam mapeados* (`--burgundy` → `--action`,
+  `--emerald` → `--ink-3`, `--charcoal` → `--ink`). Sessenta call sites não
+  migram numa tarde, e um `--emerald` que resolve pra tinta é melhor que um
+  `--emerald` que continua verde.
+- *Salada de idioma é defeito de design.* A tela tinha "FOR RESTAURANTS AND
+  BARS" em cima de "A conta da mesa, resolvida no Pix". Meia tradução lê como
+  quebrado por mais correta que esteja a paleta — então a #34 foi terminada
+  aqui, em Home, Gate, Carteira, Admin e QRs.
+
+**O protótipo iOS virou uma rota do site.** `ios/racha-ios.html` é o arquivo
+único que É a fonte do design. Um `prebuild` copia ele pra `/ios` no mesmo
+deploy, então o link de preview do PR mostra as duas coisas — a plataforma web e
+o app nativo — sem precisar de um Mac. Se o arquivo sumir, o script avisa e
+segue: um preview faltando não pode derrubar o deploy de um produto que cobra
+dinheiro.
+
+**Contra o quê.** Manter o Warm Glass: já estava pronto, já era coerente, e é um
+bom sistema — para o Seatable. Duas marcas com uma cara só é a economia que
+custa as duas.
+
+**Onde está.** `apps/web/src/styles.css` (reescrito), `apps/web/index.html`
+(Archivo), `apps/web/src/dish.ts` + `public/carved/` (blocos na conta),
+`apps/web/src/App.tsx` (`.card.slip`), `apps/web/scripts/embed-ios.mjs`,
+`vercel.json`.
