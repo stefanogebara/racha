@@ -42,6 +42,14 @@ struct SplitResult: Equatable, Sendable {
     /// ("faltam 2 itens sem dono"), and the reason `total` can exceed the shares.
     var unassigned: [LineItem.ID]
     var unassignedTotal: Cents
+    /// What the house charges on those items: a 10% serviço applies to the pudim
+    /// whether or not anyone has owned up to it. These centavos belong to nobody
+    /// yet, so they ride with the unowned bucket rather than with a person — and
+    /// `total` stays equal to the total the restaurant printed on the slip.
+    var unassignedExtras: Cents = .zero
+
+    /// The unowned bucket as the slip shows it: items plus the house's extras on them.
+    var unassignedWithExtras: Cents { unassignedTotal + unassignedExtras }
 
     /// The invariant that can actually fail, and therefore the one worth asserting:
     /// **no centavo of a claimed item may disappear between the item and the people**.
@@ -50,7 +58,7 @@ struct SplitResult: Equatable, Sendable {
     /// parts sum to that extra — so folding them in would only hide this signal.)
     var isBalanced: Bool {
         claimedTotal + unassignedTotal == itemsTotal
-            && shares.map(\.total).total + unassignedTotal == total
+            && shares.map(\.total).total + unassignedTotal + unassignedExtras == total
     }
 
     /// Everything still without an owner, in reais-facing terms.
@@ -76,9 +84,11 @@ enum SplitEngine {
     static func split(_ racha: RachaState) -> SplitResult {
         let people = racha.participants.map(\.id)
         guard !people.isEmpty else {
-            return SplitResult(shares: [], total: racha.itemsTotal,
+            let houseExtras = unownedExtras(on: racha.itemsTotal, extras: racha.extras)
+            return SplitResult(shares: [], total: racha.itemsTotal + houseExtras,
                                itemsTotal: racha.itemsTotal, claimedTotal: .zero,
-                               unassigned: racha.items.map(\.id), unassignedTotal: racha.itemsTotal)
+                               unassigned: racha.items.map(\.id), unassignedTotal: racha.itemsTotal,
+                               unassignedExtras: houseExtras)
         }
         let indexOf = Dictionary(uniqueKeysWithValues: people.enumerated().map { ($1, $0) })
 
@@ -180,12 +190,35 @@ enum SplitEngine {
                         roundingAdjustment: Cents(rounding[slot]))
         }
 
-        let grandTotal = shares.map(\.total).total + unassignedTotal
+        // ---- 3. The house's cut of what nobody owns yet -----------------------
+        let houseExtras = unownedExtras(on: unassignedTotal, extras: racha.extras)
+
+        let grandTotal = shares.map(\.total).total + unassignedTotal + houseExtras
         let result = SplitResult(shares: shares, total: grandTotal,
                                  itemsTotal: racha.itemsTotal,
                                  claimedTotal: consumption.total,
-                                 unassigned: unassigned, unassignedTotal: unassignedTotal)
+                                 unassigned: unassigned, unassignedTotal: unassignedTotal,
+                                 unassignedExtras: houseExtras)
         assert(result.isBalanced, "split lost money: \(result)")
         return result
+    }
+
+    /// Percentage extras on the unowned items. Only percentages: a fixed amount or
+    /// a couvert is already spread over the people present in full, so nothing of
+    /// it is left over for the bucket. `.consumptionPlusEarlierExtras` compounds
+    /// here exactly as it does per person, so the bucket's 10%-on-top-of-couvert
+    /// is computed the same way the shares' is.
+    static func unownedExtras(on unownedItems: Cents, extras: [Extra]) -> Cents {
+        var accrued = Cents.zero
+        for extra in extras where extra.isEnabled {
+            guard case .percentage(let bp) = extra.kind else { continue }
+            let base: Cents
+            switch extra.base {
+            case .consumptionPlusEarlierExtras: base = unownedItems + accrued
+            case .consumption, .equalHeads: base = unownedItems
+            }
+            accrued += Allocator.basisPoints(base.clampedNonNegative, bp)
+        }
+        return accrued
     }
 }

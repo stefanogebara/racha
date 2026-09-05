@@ -97,7 +97,7 @@ confirmado, então um toque otimista nunca faz dívida sumir.
 ## Divisão
 
 ```
-SplitResult { shares, total, itemsTotal, claimedTotal, unassigned, unassignedTotal }
+SplitResult { shares, total, itemsTotal, claimedTotal, unassigned, unassignedTotal, unassignedExtras }
 PersonShare { personID, consumption, extras[], roundingAdjustment }
 ```
 
@@ -105,7 +105,14 @@ A invariante que **pode** falhar, e por isso é a que vale assertar:
 
 ```
 claimedTotal + unassignedTotal == itemsTotal
+Σ shares.total + unassignedTotal + unassignedExtras == total
 ```
+
+`unassignedExtras` é o que a casa cobra sobre o que ainda não tem dono: o 10%
+incide no pudim que ninguém reivindicou, com ou sem dono. Esses centavos não
+são de ninguém ainda, então andam com o balde sem dono — e o `total` continua
+igual ao total que o restaurante imprimiu na comanda (achado da rodada 17 de
+crítica: sem isso a conta do app fechava R$ 1,80 abaixo da conta da mesa).
 
 Nenhum centavo de item reivindicado some entre o item e as pessoas. Participante
 derrubado, peso errado, regressão no alocador — tudo aparece aqui. (Extras não

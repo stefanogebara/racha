@@ -117,6 +117,41 @@ struct SplitEngineTests {
         #expect(split.isBalanced)
     }
 
+    @Test("o serviço da casa incide no item sem dono, e o total é o da comanda")
+    func unassignedCarriesHouseExtras() {
+        // The restaurant prints 10% on everything on the slip, including the pudim
+        // nobody has claimed. If the bucket did not carry that 10%, the app's total
+        // would come out R$ 2,50 short of the bill on the table.
+        let a = Participant(name: "A")
+        let mine = LineItem(name: "Meu", unitPrice: Cents(1000))
+        let orphan = LineItem(name: "Órfão", unitPrice: Cents(2500))
+        let state = makeState(items: [mine, orphan],
+                              claims: [mine.id: [Claim(itemID: mine.id, personID: a.id)]],
+                              people: [a],
+                              extras: [Extra.servico(bp: 1000)])
+        let split = state.split
+        #expect(split.unassignedTotal == Cents(2500))
+        #expect(split.unassignedExtras == Cents(250))
+        #expect(split.unassignedWithExtras == Cents(2750))
+        #expect(split.share(for: a.id)?.total == Cents(1100))
+        #expect(split.total == Cents(1100 + 2750))
+        #expect(split.isBalanced)
+    }
+
+    @Test("couvert e valor fixo não sobram pro balde sem dono")
+    func fixedExtrasDoNotLeakIntoUnassigned() {
+        let a = Participant(name: "A")
+        let orphan = LineItem(name: "Órfão", unitPrice: Cents(2500))
+        let state = makeState(items: [orphan], claims: [:], people: [a],
+                              extras: [Extra.couvert(Cents(1200)),
+                                       Extra(label: "Rolha", kind: .fixed(Cents(3000)))])
+        let split = state.split
+        #expect(split.unassignedExtras == .zero)
+        #expect(split.share(for: a.id)?.total == Cents(4200))
+        #expect(split.total == Cents(4200 + 2500))
+        #expect(split.isBalanced)
+    }
+
     @Test("propriedade: qualquer conta gerada fecha exatamente")
     func randomBillsAlwaysBalance() {
         var rng = SplitMix64(seed: 20260904)
@@ -145,6 +180,7 @@ struct SplitEngineTests {
             let split = state.split
             #expect(split.isBalanced, "iteração \(iteration) não fechou")
             #expect(split.claimedTotal + split.unassignedTotal == split.itemsTotal)
+            #expect(split.shares.map(\.total).total + split.unassignedWithExtras == split.total)
             for share in split.shares {
                 #expect(share.consumption.raw >= 0, "consumo negativo na iteração \(iteration)")
             }

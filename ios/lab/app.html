@@ -881,7 +881,9 @@ function split(r){
   let unEx=0;
   (r.extras||[]).forEach((e,pos)=>{
     if(!e.on)return;
-    if(e.kind==='pct'&&e.base!=='heads') unEx+=bpc(unT,e.bp);
+    // Percentages only, on any base — the house's rate does not care how the
+    // group chose to spread it; fixed amounts and couvert are already spread in full.
+    if(e.kind==='pct') unEx+=bpc(e.base==='plus'?unT+unEx:unT,e.bp);
     let base;
     if(e.base==='heads') base=allocEqual(P.reduce((s,p)=>s+cons[p],0),P.length,pos).parts;
     else if(e.base==='plus') base=P.map(p=>cons[p]+ex[p].reduce((s,x)=>s+x.amount,0));

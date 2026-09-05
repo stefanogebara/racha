@@ -500,6 +500,7 @@ struct AgentToolbox {
             "falta_cents": .int((split.total - s.confirmedPaid).clampedNonNegative.raw),
             "itens_sem_dono": .array(unassigned),
             "sem_dono_cents": .int(split.unassignedTotal.raw),
+            "servico_sem_dono_cents": .int(split.unassignedExtras.raw),
             "fechado": .bool(s.isSettled),
             "conferido": .bool(split.isBalanced)
         ]
