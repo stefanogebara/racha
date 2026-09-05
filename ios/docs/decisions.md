@@ -386,3 +386,50 @@ identidade.
 15% de bateria é a favor; contraste da comanda creme sobre umbra é a favor; a
 legibilidade do corpo de 15px em creme a 62% é a dúvida que uma captura não
 resolve.
+
+## 28 — Parar o loop de crítica em 6/10, e por quê isso não é desistir (2026-09-05)
+
+**Contexto.** Oito rodadas com o crítico Fable 5.1 (15–22), todas 6/10, depois
+de catorze com o Opus (5,5–6,5). A instrução era seguir até 9. O relato completo
+está em `design-critique-loop.md`; o que importa aqui é a decisão.
+
+**O que as oito rodadas produziram.** Quase tudo que está certo no design atual:
+a mesa lisa no lugar da vinheta, o papel que apaga em vez de pintar (o halo das
+xilogravuras era o canal de separação pintado na cor do papel), uma família
+tipográfica, a comanda chata, a cor como gramática (vermelhão = dinheiro saindo
+do seu bolso, âmbar = pergunta em aberto, e nada mais), dois raios, uma ação de
+dinheiro em cada tela, uma borda direita pra todo número — e três bugs de
+dinheiro que uma revisão de design não tinha obrigação de achar: euros somados
+em reais no hub; um racha "quitado" sem o pagamento que quita; o item sem dono
+sem o 10% da casa, com o total da comanda R$ 1,80 abaixo do da mesa. Os três
+estão corrigidos no protótipo e no motor Swift (`unassignedExtras`).
+
+**O que as oito rodadas não moveram.** A nota. E, a partir da rodada 19, as
+listas passaram a se contradizer entre rodadas (barra de status pedida na 16,
+"cosplay" na 21; pílulas pedidas na 17, "template" na 21; o vermelho tirado de
+"sem dono" na 18, "estado mais acionável tipografado como neutro" na 19). Um
+crítico sem memória redecide gosto a cada rodada; a nota mede a distância até
+uma entrega de estúdio, e essa distância tem dois componentes que pixel nenhum
+move: um conjunto de pictogramas desenhado em código não tem "uma mão só" (é
+uma encomenda pra um ilustrador, não uma rodada), e a conversa — fala, resposta,
+sugestões, prompt — é o brief, não um template a remover.
+
+**Decisão.** Parar aqui, com o estado verificado e documentado, e devolver a
+decisão a quem pode olhar um telefone: o próximo ganho de nota é humano
+(ilustrador, um bar escuro, uma escolha de produto), não mais uma rodada.
+
+**Contra o quê.** Continuar rodando: cada rodada custa cinco minutos e devolve
+uma lista real; mas da 19 em diante a lista marginal foi uma borda de 4px, uma
+elipse de três pontos e a reabertura das pílulas. Trocar o crítico de novo: o
+padrão se repetiu com dois modelos; o teto é do método (captura + contexto
+zerado + barra de estúdio), não do modelo.
+
+**O que faria mudar de ideia.** Um conjunto de pictogramas de verdade no lugar
+das receitas. Com ele, vale uma rodada — porque aí a lista muda de natureza.
+
+**Fora do brief, mas anotado.** O crítico disse duas vezes, com razão, que este
+board é um razão entre amigos (Lisboa, praia, euros, "Pagar pro Gui") e que
+acerto P2P é exatamente o fluxo de fundos que o produto de mesa evita. O brief
+do iOS pediu o app de amigos; a estratégia do repo é a mesa. Os dois podem
+dividir a conversa, a comanda e a xilogravura. Não podem dividir a primeira
+tela. Isso é uma decisão de produto, e é de quem manda no produto.

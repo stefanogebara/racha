@@ -134,59 +134,94 @@ that visibly equals 158,40 − 59,90); no money action on three of four screens
 filled, and text with a hairline); the fish's scales as a second carving
 grammar; a Beetle standing in for Lisboa (now the eléctrico).
 
-What this critic did not do is contradict itself between rounds the way the
-earlier one did. Its lists shifted because the artifact shifted; the residue each
-time was smaller and more specific. Where it was wrong it was wrong about intent
-("the low battery is an unintentional signal" — it was a nod to the brief; it is
-gone anyway, because a reader cannot tell the difference and the critic is the
-reader).
+**Rounds 19–22 (6, 6, 6, 6).** Four more rounds, each a real list, each scored
+the same. Round 19 verified two regressions of mine at the pixel (a ghost
+button whose label sat at the top because the racha screen overflowed the frame
+and the flex column shrank it to 30px; a numeric column broken by a chevron slot
+I had reserved 3px too narrow) — both fixed at the root. It also asked for the
+one thing this product must never bury: the 10% is optional by law, and the
+control had drifted into a sub-row. It is a visible button now, and the
+suggestion chips answer the question the agent actually asked. Rounds 20–22 kept
+finding things — a hero and a CTA that disagreed on the hub, "sem dono" typeset
+as neutral one round after the previous round had asked me to take the red off
+it, a sheet without elevation, content under the home indicator — and each fix
+held. The score did not move.
+
+By round 20 this critic had also begun to contradict itself across rounds, the
+way the first one had: round 16 asked for a status bar so the frame would be
+honest; round 21 called the status bar "presentation cosplay". Round 17 called
+the text-link suggestions "indistinguishable from body copy" and asked for
+pills; round 21 called the pills the chat template. Round 18 wanted "quite" in
+the amount slot; round 21 wanted it left; round 22 wanted it centred. Round 18
+asked for the red to come off "sem dono"; round 19 said the most actionable
+state was typeset as neutral. Round 20 praised the hero illustration as one of
+the two ownable assets; round 22 asked to shrink it to a 40px mark. None of
+these notes is wrong on its own. Together they are a critic with no memory
+re-deciding taste questions each round, and a score that measures the distance
+to a bar — a Koto or Porto Rocha deliverable — that a code-drawn prototype in a
+headless browser does not reach by iterating.
 
 ## Where it stopped
 
-The critic never reached 9/10. Scores ran 5.5 → 6 → 6 → 6 → 5.5 → 6 → 5.5 → 6 →
-6 → 5.5 → 6 → 6 → 6 → **6.5**, across fourteen rounds — the last, after the
-woodcut and the craft pass that followed it, the highest of the run.
+Neither critic reached 9/10.
+
+| critic | rounds | scores |
+|---|---|---|
+| Opus 4.6 | 1–14 | 5.5 → 6 → 6 → 6 → 5.5 → 6 → 5.5 → 6 → 6 → 5.5 → 6 → 6 → 6 → 6.5 |
+| Fable 5.1 | 15–22 | 6 → 6 → 6 → 6 → 6 → 6 → 6 → 6 |
 
 That pattern is worth being honest about rather than grinding against. Reading
-the transcripts together, three things are going on:
+all twenty-two transcripts together, four things are going on:
 
-1. **Real, fixable defects** — most of the list above. The loop found these
-   reliably and they are fixed.
+1. **Real, fixable defects.** Most of both lists. The loop found these reliably
+   — including three money bugs a design review had no business catching (euros
+   summed into reais; a "settled" racha with no settling payment; the unowned
+   pudim carrying no service, so the slip's total was R$ 1,80 short of the
+   restaurant's) — and they are fixed, in the prototype and in the Swift engine.
 
-2. **Contradictions between rounds.** Round 8 asked for the currency mark to
-   hang outside the numeric column; round 9 called the resulting gutter ragged.
-   Round 6 asked the accent to recur through the system; round 9 called that
-   "four reds". Round 5 asked the presentation board to break its metronome;
-   round 6 called the resulting unequal frames sloppy. Each note is defensible;
-   they cannot all be satisfied at once, and chasing each new one in turn walks
-   in a circle.
+2. **Contradictions between rounds.** Listed above for both critics. Each note
+   is defensible; they cannot all be satisfied at once, and chasing each new one
+   in turn walks in a circle. This is structural: a critic with no memory
+   re-litigates every taste decision from scratch.
 
-3. **Claims that are not true of the artifact.** Later rounds assert the figures
-   are not tabular (they are, by construction, and it is measurable), that the
-   ledger columns are set in a sans (they are the serif), and that the `R$` has
-   four treatments (it has one rule, applied proportionally, plus one deliberate
-   optical compensation at display size). A critic reading a downscaled
-   screenshot of four phone screens at once will misread fine type, and it
-   scores what it thinks it sees.
+3. **Claims that are not true of the artifact.** The first critic misread fine
+   type on a downscaled board. The second zoomed and measured, and was almost
+   never wrong about what was on the screen — but it was sometimes wrong about
+   intent, and a reader cannot tell the difference, so those were fixed too.
 
-There is also a floor that a screenshot-only loop cannot get under. Every round
-from the third onward independently identified the genre — cream ground,
-editorial serif, hairline rules, one wine accent — as "the most-generated
-aesthetic in existence". That judgement is about the category, not the
-execution, and it caps the score no matter how well the category is executed.
-Escaping it means changing the aesthetic, not refining it — and the aesthetic
-was the brief.
+4. **Two blockers that no round of pixel work moves.** Every Fable round named
+   the pictogram set as "a collection, not a family" — and it is right that
+   fourteen recipes drawn in code do not have one hand the way a set an
+   illustrator cut in an afternoon would. And several rounds named the
+   conversation itself — a person's line, an agent's answer, suggestions, a
+   prompt — as "the chat template"; the conversation is the brief. The first is
+   a commission. The second is a decision the brief already made.
+
+The score is not the useful output of this loop. The lists are. Twenty-two
+rounds of them produced most of what is good about the current design and
+caught three money bugs; that is a good return on a critic that costs five
+minutes a round. It is also the argument for stopping at a plateau instead of
+running it forever: from round 19 on, the marginal round found a 4px edge and a
+three-period ellipsis, and re-decided the chips.
 
 ## What I would do next, with a human in the loop
 
-- Finish the woodcut set. Two of the fourteen blocks (the place setting and the
-  fish) still read at a different level of abstraction from the rest, which the
-  last round named exactly. A human cutting these would fix that in an afternoon.
-- The relief form is much darker than the line form. Nobody has yet looked at it
-  on a phone in a dark bar at low brightness, which is the environment this
-  product was designed for, and it is the one check a screenshot cannot make.
-- Decide the currency-mark question once, with someone who can look at a phone
-  rather than a contact sheet. It is the single most re-litigated detail here.
-- Test the ink ramp in an actual dark bar. Two rounds called the quiet greys
-  below the legibility floor; two others called the same values well-judged. A
-  screenshot cannot settle that and a phone at 15% brightness can.
+- **Commission the pictogram set.** Fourteen blocks, one hand, one grid, the
+  ground line as the motif. The woodcut grammar in `food.js` (solid mass, gouges
+  that erase, one hatch, faceted contour) is the brief for the illustrator, and
+  the recipes are the reference — but the set needs a person. This is the
+  single item every round of the second critic put first.
+- **Look at it on a phone in a bar.** The night palette was chosen for an OLED
+  at 15% brightness in a dark room. Nobody has looked at cream at 62% on umbra
+  there. It is the one check a screenshot cannot make, and two rounds guessed
+  opposite answers to it.
+- **Decide what the hub is.** The second critic said twice, correctly and
+  outside its brief, that this board is a friends' ledger — Lisboa, Praia,
+  euros, "Pagar pro Gui" — and that peer-to-peer settlement is exactly the
+  fund flow the pay-at-table product avoids. The iOS brief asked for the
+  friends' app; the repo's strategy is the table. The two can share a
+  conversation, a comanda and a woodcut. They cannot share a first screen.
+- **Compile it.** The Swift side now carries the night palette, Archivo in three
+  widths and the flat ground as tokens (`Palette.swift`, `Typography.swift`,
+  `Racha.metal`), with the old names mapped so the views still build. Nothing
+  here has seen a compiler; `verification.md` says what to run.

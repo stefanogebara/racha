@@ -102,6 +102,18 @@ Nada disso dá pra afirmar daqui:
 5. **O háptico de fechamento.** A curva de intensidade foi escrita de ouvido, sem
    ouvido.
 6. **Uma nota de verdade** fotografada e lida pelo agente ponta a ponta.
+7. **A noite do bar no Swift.** `Palette.swift`, `Typography.swift` e o
+   `paperGround` do `Racha.metal` foram portados do protótipo (`ios/lab`) no
+   nível dos tokens, com os nomes antigos mapeados pros valores novos. Dois
+   pontos só um compilador confirma: o `UIFontDescriptor` com
+   `kCTFontVariationAttribute` pra pedir Archivo a largura 62 / peso 850 (o
+   fallback é SF `.width(.compressed)`), e cada view que usava `Palette.paper`
+   como chão claro e agora recebe a mesa — a comanda em especial precisa dos
+   tokens `slip*`. `scripts/fetch-fonts.sh` baixa o Archivo variável; falta
+   registrá-lo em `INFOPLIST_KEY_UIAppFonts`.
+8. **`unassignedExtras`.** Dois testes novos em `SplitEngineTests` (o serviço
+   incide no item sem dono; couvert e valor fixo não vazam pro balde) e uma
+   asserção nova na propriedade de 400 contas. Escritos, não executados.
 
 ## Se algo estiver quebrado
 
