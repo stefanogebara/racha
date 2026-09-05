@@ -21,13 +21,13 @@
      is reserved for the one object that is actually paper — the comanda. */
   --night:#141008; --night-2:#221B13; --night-3:#2A2118;
   /* One ground, one surface step. Depth is a hairline and a shade, not a light. */
-  --surf:#1C1610; --surf-hi:#241C15;
+  --surf:#1E1812; --surf-hi:#282016;
   --cream:#F7F2E9;
   --p-0:var(--night); --p-hi:var(--night-2); --p-1:var(--night-2); --p-2:var(--night-3);
   /* Ink is cream on the night. Four values; the two quiet ones by alpha so they
      sit on any glow the canvas puts under them. */
-  --ink:var(--cream); --ink-2:rgba(247,242,233,.80); --ink-3:rgba(247,242,233,.66);
-  --ink-4:rgba(247,242,233,.42);
+  --ink:var(--cream); --ink-2:rgba(247,242,233,.88); --ink-3:rgba(247,242,233,.62);
+  --ink-4:rgba(247,242,233,.40);
   /* One accent. Lifted off oxblood so it reads on umbra; it means money still
      open, and nothing else. */
   /* One red, warm: the vermilion of a cordel cover, not a coral. Two tones of
@@ -44,7 +44,7 @@
   --rad:12px; --rad-s:6px;
   /* Glass: a border you can see, a fill you can barely see. Depth comes from
      translucency and layering, never from a drop shadow — except under paper. */
-  --rule:rgba(247,242,233,.12); --rule-2:rgba(247,242,233,.07);
+  --rule:rgba(247,242,233,.17); --rule-2:rgba(247,242,233,.09);
   --glass:var(--surf); --glass-hi:var(--surf-hi);
   /* One family, three widths. The poster cut is Archivo at width 62 / weight
      900 — compressed and black, the way a bar chalkboard is lettered — the
@@ -146,11 +146,11 @@ body{
    markup — .mo would otherwise pull them back to the body width. */
 .standing b .mo,.net b .mo{font-stretch:inherit;font-weight:inherit;letter-spacing:inherit}
 .standing .cy,.net .cy{font-size:.42em;margin-right:.24em;vertical-align:baseline;
-  font-stretch:62%;font-weight:850;letter-spacing:0;color:var(--ink-3)}
+  font-stretch:62%;font-weight:850;letter-spacing:0;color:currentColor;opacity:.55}
 /* The decimal comma of a compressed black face is as heavy as a digit and
    carries too much air after it: a lighter cut of the same glyph, pulled in. */
 .standing b .dc,.net b .dc{margin:0 -.05em 0 -.015em;font-weight:500}
-.cap .amt .cy{display:inline-block;min-width:1.5em;text-align:right}
+.cap .amt .cy{display:inline-block;min-width:1.5em;text-align:right;color:currentColor;opacity:.6;font-size:.9em}
 
 b .cy,.net .cy{color:var(--ink-4)}
 /* A quiet label. Most things that used to shout in letterspaced caps say it
@@ -184,8 +184,8 @@ b .cy,.net .cy{color:var(--ink-4)}
 .gh-row{display:flex;align-items:center;justify-content:space-between;min-height:24px}
 /* The wordmark is a mark, not a headline: the screen has one poster and it is
    the figure. Same row, same height, as the chevron bar on every other screen. */
-.gh-row .ser{font-family:var(--sans);font-stretch:62%;font-weight:850;font-size:23px;line-height:1;
-  letter-spacing:.005em;text-transform:uppercase}
+.gh-row .ser{font-family:var(--sans);font-stretch:100%;font-weight:600;font-size:17px;line-height:1;
+  letter-spacing:-.012em}
 .icon{background:none;border:none;padding:5px;margin:-5px;cursor:pointer;color:var(--ink-3);
   display:grid;place-items:center}
 .icon:focus-visible{outline:2px solid var(--act);outline-offset:2px;border-radius:6px}
@@ -197,7 +197,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* Red on the figure itself when the money is leaving you — the one rule, applied
    first where it matters most. */
 .net b.owe,.standing b.owe{color:var(--act)}
-.net b.owe .cy,.standing b.owe .cy{color:var(--act);opacity:.7}
+.net b.owe .cy,.standing b.owe .cy{color:currentColor;opacity:.55}
 /* Where the figure comes from: one row per open racha, in that racha's own
    currency. The poster number is the sum of the rows you can check it against. */
 .pos{display:flex;flex-direction:column;margin-top:10px;font-size:13.5px}
@@ -265,7 +265,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 #card{display:flex;flex-direction:column;padding:56px 24px calc(24px + 34px);gap:0}
 .cardmeta h2+.who-row{margin-top:-4px}
 /* Picture above, name below, both hanging off the same left margin. A cover. */
-.herorow{display:flex;flex-direction:column;gap:20px;align-items:flex-start}
+.herorow{display:flex;flex-direction:column;gap:16px;align-items:flex-start}
 .heroslot{height:var(--heroh,220px);width:100%;flex:none}
 .herofacts{display:flex;flex-direction:column;gap:6px;align-self:stretch}
 .herofacts h2{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:34px;
@@ -275,7 +275,7 @@ b .cy,.net .cy{color:var(--ink-4)}
    a second right margin on the same screen is the whole game lost: the point
    of the form is that the figures make a column you can run your eye down. */
 .led{display:flex;flex-direction:column;gap:0;font-size:14px;color:var(--ink-2)}
-.led>div{padding:9px 0}
+.led>div{padding:8px 0}
 .led>div:first-child{border-top:none;padding-top:0}
 .led .mo,.slip .mo{font-size:15px;line-height:1;color:var(--ink)}
 .led .flag{display:none}
@@ -290,7 +290,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .led .gap{display:none}
 /* Where you stand. The one figure on this screen you actually came for, given
    the room the rest of the page was leaving empty anyway. */
-.standing{display:flex;flex-direction:column;gap:6px;padding:24px 0 0}
+.standing{display:flex;flex-direction:column;gap:6px;padding:18px 0 0}
 .standing b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:104px;line-height:.86;
   letter-spacing:-.016em;text-transform:uppercase;display:block}
 .standing .lbl{font-size:13px;color:var(--ink-2)}
@@ -298,7 +298,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .cardtop{display:flex;justify-content:space-between;align-items:flex-start}
 .back{background:none;border:none;padding:6px 10px 6px 0;margin-left:-2px;cursor:pointer;
   color:var(--ink-2);font:inherit;font-size:13px;display:flex;align-items:center;gap:6px}
-.cardmeta{display:flex;flex-direction:column;gap:16px;padding-top:24px}
+.cardmeta{display:flex;flex-direction:column;gap:16px;padding-top:18px}
 .cardgap{flex:1;min-height:8px}
 .cardmeta h2{font-family:var(--serif);font-weight:400;font-size:40px;
   line-height:.98;letter-spacing:-.02em}
@@ -318,7 +318,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .stateline .open{color:var(--ink-2)}
 .go{margin-top:0;width:100%;border:none;cursor:pointer;
   font-family:var(--sans);font-weight:600;font-size:16px;letter-spacing:-.008em;
-  color:var(--night);padding:0;height:52px;border-radius:var(--rad);display:grid;place-items:center;
+  color:var(--night);padding:0;height:52px;border-radius:var(--rad);display:grid;place-items:center;flex:none;
   background:var(--cream);transition:transform .6s var(--ease),background .3s}
 .go:active{transform:scale(.985)}
 /* The second action: a ghost of the first. Same height and radius, no fill. */
@@ -505,12 +505,14 @@ button.rw{cursor:pointer}
 .rw .chev{color:var(--ink-4);font-size:18px;line-height:1;padding-top:1px;width:10px;text-align:center;
   transition:transform .3s var(--ease)}
 .rw .chev.on{transform:rotate(90deg)}
-.der{display:flex;flex-direction:column;gap:7px;padding:0 18px 10px 16px!important;margin-top:6px;
+.der{display:flex;flex-direction:column;gap:7px;padding:0 21px 10px 16px!important;margin-top:6px;
   font-size:12.5px;color:var(--ink-2);border-bottom:none!important}
 .der div{padding:0!important;border:none!important}
 .der[hidden],[hidden]{display:none!important}
 .der div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
-.tt{display:flex;justify-content:space-between;padding:15px 18px 0 0!important;margin-top:4px;
+.der div.tip{cursor:pointer}
+.der div.tip .lbl{font-size:12px;color:var(--ink-3);margin-left:4px}
+.tt{display:flex;justify-content:space-between;padding:15px 21px 0 0!important;margin-top:4px;
   border-top:1px solid var(--ink)!important;border-bottom:none!important;font-size:15px}
 .tt .mo{font-size:17px}
 .thm{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:var(--rad-s);
@@ -1853,7 +1855,7 @@ function heroTarget(){
   // Two thirds of the width, not all of it. A picture that fills the screen
   // is a poster; the subject of this screen is the split, and the picture is
   // its illustration. Square, because the drawing is square.
-  const pad=24, w=b.width-pad*2, h=Math.round(w*0.50);
+  const pad=24, w=b.width-pad*2, h=Math.round(w*0.44);
   el('card').style.setProperty('--heroh', h+'px');
   el('scr').style.setProperty('--heroframe', '0');    // the plate sits on the page (#hero is #card's sibling)
   return{x:pad,y:96,w,h};
@@ -2120,7 +2122,7 @@ function threadHead(){
     <div class="slip-h"><span>Comanda ${comanda(r)}</span><span>${esc(r.date.toLowerCase())}</span></div>
     ${s.shares.map(sh=>`<div><span>${esc(sh.p===ME?'Você':sh.p)}</span><i></i>
       <span>${money(sh.total,r.cur,{noSym:true})}</span></div>`).join('')}
-    ${s.unassigned.length?`<div class="open"><span>${s.unassigned.length} sem dono</span><i></i>
+    ${s.unassigned.length?`<div class="open"><span>${s.unassigned.length} ${s.unassigned.length>1?'itens':'item'} sem dono</span><i></i>
       <span>${money(s.unassignedTotal,r.cur,{noSym:true})}</span></div>`:''}
     <div class="slip-t"><span>Total</span><i></i><span>${money(s.total,r.cur)}</span></div>
   </div>`;
@@ -2149,9 +2151,11 @@ function renderMsgs(){
 function renderChips(){
   const r=focus,{s,plan}=stateOf(r),out=[];
   if(s.unassigned.length)out.push({t:`Sim, entre todos`,k:'assign',a:1});
-  if(plan.transfers.length)out.push({t:'Quem paga quem?',k:'settle',a:1});
+  // The 10% is optional by law (CDC) and the way out of it is never more than
+  // one tap from the bill — so it stays in the first two suggestions.
   if(r.extras.some(e=>e.tip&&e.on))out.push({t:'Tirar serviço',k:'notip'});
   else if(r.extras.some(e=>e.tip))out.push({t:'Pôr serviço',k:'tip'});
+  if(plan.transfers.length)out.push({t:'Quem paga quem?',k:'settle',a:1});
   out.push({t:'Quanto eu pago?',k:'mine'});
   out.push({t:'Quem me deve?',k:'owed'});
   // Three. A suggestion row that runs off the edge is not a row of
@@ -2253,7 +2257,9 @@ function renderLedger(){
           <span class="chev ${i===0?'on':''}" aria-hidden="true">›</span></button>
           <div class="der" id="d${i}" ${i===0?'':'hidden'}>
             <div><span>Consumo</span><span>${money(sh.consumption,r.cur,{noSym:true})}</span></div>
-            ${sh.extras.map(e=>`<div><span>${esc(e.label)}</span><span>${money(e.amount,r.cur,{noSym:true})}</span></div>`).join('')}
+            ${sh.extras.map(e=>{const x=r.extras.find(z=>z.label===e.label);
+              return `<div${x&&x.tip?` class="tip" data-t="${x.id}" role="button" tabindex="0"`:''}><span>${esc(e.label)}${
+                x&&x.tip?' <span class="lbl">opcional · tirar</span>':''}</span><span>${money(e.amount,r.cur,{noSym:true})}</span></div>`;}).join('')}
           </div></div>`;}).join('')}
       <div class="tt"><span>Total</span><span>${money(s.total,r.cur)}</span></div></div>
 
