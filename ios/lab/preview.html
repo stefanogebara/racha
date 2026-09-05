@@ -17,7 +17,7 @@
   /* The canvas is the bar at night: umbra, nearly black, warm, with one low
      light. Everything that used to be paper is now the dark table; the paper
      is reserved for the one object that is actually paper — the comanda. */
-  --night:#141008; --night-2:#221B13; --night-3:#2A2118;
+  --night:#141008; --night-2:#261E15; --night-3:#2E251A;
   /* One ground, one surface step. Depth is a hairline and a shade, not a light. */
   --surf:#1E1812; --surf-hi:#282016;
   --cream:#F7F2E9;
@@ -173,7 +173,7 @@ b .cy,.net .cy{color:var(--ink-4)}
   transition:transform .34s var(--ease),filter .34s ease}
 .scr.sheeted .layer,.scr.sheeted #hero,.scr.sheeted #paper{
   transform:scale(.972);transform-origin:top center}
-#grid{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:58px 0 calc(24px + 34px)}
+#grid{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:58px 0 calc(24px + 34px);bottom:34px}
 #grid::-webkit-scrollbar{display:none}
 #card,#thread{pointer-events:none;opacity:0}
 
@@ -245,6 +245,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .cap .amt{font-family:var(--sans);font-size:14px;color:var(--ink)}
 .cap .v .st{font-size:12px;color:var(--ink-3)}
 .cap .v.owe .amt{color:var(--act)}
+.cap .v.quit{justify-content:flex-end}
 .cap .v.quit .st{color:var(--ink-3)}
 .dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block;
   vertical-align:baseline;margin-bottom:1px;margin-right:6px;box-sizing:border-box}
@@ -350,7 +351,7 @@ b .cy,.net .cy{color:var(--ink-4)}
   background:var(--paper);padding:16px 16px 15px;align-self:stretch;position:relative;border-radius:var(--rad-s);
   /* paper on a dark table: the ink tokens flip inside it, and it alone may cast a shadow */
   --ink:#211C16;--ink-2:#4A4134;--ink-3:#6E6454;--ink-4:#968B76;--p-hi:var(--paper);
-  --rule:rgba(33,28,22,.14);--rule-2:rgba(33,28,22,.07);--act:#B23A1F;--warn:#8A5A10;
+  --rule:rgba(33,28,22,.14);--rule-2:rgba(33,28,22,.07);--act:#B23A1F;--warn:#6E4508;
   --leader:radial-gradient(circle at 1px 50%,#968B76 .8px,transparent .9px);
   box-shadow:none}
 /* Flat. A perforated edge drawn in CSS is the ticket icon every template
@@ -471,7 +472,8 @@ b .cy,.net .cy{color:var(--ink-4)}
 
 .shb{position:relative;z-index:1;width:100%;max-height:calc(100% - 118px);overflow-y:auto;overscroll-behavior:contain;
   scrollbar-width:none;background:var(--night-2);border-radius:var(--rad) var(--rad) 0 0;transform-origin:bottom;
-  padding:22px 24px calc(24px + 34px);display:flex;
+  border-top:1px solid var(--rule);box-shadow:0 -16px 40px rgba(0,0,0,.5);
+  padding:22px 24px 0;display:flex;
   flex-direction:column;gap:18px;transform:translateY(22px);
 
   transition:transform .34s var(--ease)}
@@ -484,6 +486,10 @@ b .cy,.net .cy{color:var(--ink-4)}
   background:var(--night-2);padding:2px 0 8px;z-index:2}
 .shb::before{content:'';position:absolute;top:8px;left:50%;width:36px;height:5px;margin-left:-18px;
   border-radius:3px;background:var(--ink-4)}
+/* The safe area is a surface, not a suggestion: content stops at it. */
+.shb::after{content:'';position:sticky;bottom:0;flex:none;height:34px;margin:0 -24px;
+  background:var(--night-2)}
+.homeband{position:absolute;left:0;right:0;bottom:0;height:34px;background:var(--night);z-index:20;pointer-events:none}
 
 .shh .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;letter-spacing:-.022em}
 .shh button{font:inherit;font-size:13px;font-weight:500;background:none;border:none;color:var(--ink-2);
@@ -508,8 +514,11 @@ button.rw{cursor:pointer}
 .der div{padding:0!important;border:none!important}
 .der[hidden],[hidden]{display:none!important}
 .der div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
-.der div.tip{cursor:pointer}
-.der div.tip .lbl{font-size:12px;color:var(--ink-3);margin-left:4px}
+/* The text button inside a row: full ink, a hairline under it, so the one
+   control the law says must be there is visibly a control. */
+.tb{background:none;border:none;border-bottom:1px solid var(--ink-4);padding:0 0 1px;margin-left:8px;
+  font:inherit;font-size:12.5px;font-weight:500;color:var(--ink);cursor:pointer;line-height:1.2}
+.tb:hover{border-color:var(--ink)}
 .tt{display:flex;justify-content:space-between;padding:15px 21px 0 0!important;margin-top:4px;
   border-top:1px solid var(--ink)!important;border-bottom:none!important;font-size:15px}
 .tt .mo{font-size:17px}
@@ -715,6 +724,7 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
     </section>
 
     <div class="pageend" aria-hidden="true"></div>
+    <div class="homeband" aria-hidden="true"></div>
     <div id="hero" aria-hidden="true"></div>
 
     <section class="layer" id="card" aria-label="Racha"></section>
@@ -1725,7 +1735,7 @@ const RACHAS=[
            {id:'cv',label:'Couvert',kind:'head',cents:1200,base:'heads',on:true}],
    payments:[{by:ME,amount:15000,confirmed:true}]},
   {id:'gui',title:'Churrasco no Gui',kind:'Churrasco',date:'5 SET',cur:CUR.BRL,settled:true,
-   people:[ME,'Gui','Ju'],hero:'Linguiça',
+   people:[ME,'Gui','Ju'],hero:'Picanha',
    items:[
      {n:'Picanha',q:1,total:18900,claims:{[ME]:1,Gui:1,Ju:1}},
      {n:'Linguiça',q:2,total:4800,claims:{[ME]:1,Gui:1,Ju:1}},
@@ -2024,7 +2034,7 @@ function renderCard(){
     <div class="cardtop">
       <button class="back" id="back">
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor"
-          stroke-width="1.9"><path d="M8 2L3.5 6.5L8 11"/></svg>Rachas</button>
+          stroke-width="1.9"><path d="M8 2L3.5 6.5L8 11"/></svg></button>
     </div>
     <div class="cardgap"></div>
     <div class="herorow">
@@ -2148,12 +2158,12 @@ function renderMsgs(){
 }
 function renderChips(){
   const r=focus,{s,plan}=stateOf(r),out=[];
-  if(s.unassigned.length)out.push({t:`Sim, entre todos`,k:'assign',a:1});
-  // The 10% is optional by law (CDC) and the way out of it is never more than
-  // one tap from the bill — so it stays in the first two suggestions.
+  // The two answers to the question the agent just asked. The 10% keeps its
+  // own visible control on the bill (CDC); it is not a reply to "divido?".
+  if(s.unassigned.length){out.push({t:`Sim, entre todos`,k:'assign',a:1});out.push({t:'Não, deixa em aberto',k:'later'});}
+  if(plan.transfers.length)out.push({t:'Quem paga quem?',k:'settle',a:1});
   if(r.extras.some(e=>e.tip&&e.on))out.push({t:'Tirar serviço',k:'notip'});
   else if(r.extras.some(e=>e.tip))out.push({t:'Pôr serviço',k:'tip'});
-  if(plan.transfers.length)out.push({t:'Quem paga quem?',k:'settle',a:1});
   out.push({t:'Quanto eu pago?',k:'mine'});
   out.push({t:'Quem me deve?',k:'owed'});
   // Three. A suggestion row that runs off the edge is not a row of
@@ -2173,10 +2183,10 @@ function turn(k){
   const before=mine();
   const said={assign:'divide o que sobrou',settle:'quem paga quem?',notip:'tira o serviço',
     tip:'põe o serviço de volta',mine:'quanto eu pago?',owed:'quem me deve?',
-    foto:'📷 nota do Bar do Zé'};
+    later:'não, deixa em aberto',foto:'📷 nota do Bar do Zé'};
   const lab={assign:'dividindo',settle:'fechando as contas',notip:'ajustando o serviço',
     tip:'ajustando o serviço',mine:'conferindo a conta',owed:'lembrando',
-    foto:'lendo a nota'};
+    later:'anotando',foto:'lendo a nota'};
   msgs.push({role:'u',text:said[k]});
   msgs.push({role:'w',text:lab[k]});
   renderMsgs();
@@ -2213,6 +2223,9 @@ function turn(k){
       const L=p.transfers.map(t=>`${t.from===ME?'você paga':t.from+' paga'} ${brl(t.amount,r.cur)} ${t.to===ME?'pra você':'pro '+t.to}`);
       stream(`${p.transfers.length===1?'Uma transferência resolve':p.transfers.length+' transferências resolvem'} tudo: ${L.join('; ')}.${p.residual?` Ainda faltam ${brl(p.residual,r.cur)} da conta — isso é do bar, não é dívida entre vocês.`:''}`,
         ()=>{done();openSheet('settle');});
+    }else if(k==='later'){
+      const u=split(r);
+      stream(`Beleza. ${u.unassigned.map(i=>i.n).join(', ')} ${u.unassigned.length>1?'ficam':'fica'} em aberto — ${brl(u.unassignedTotal,r.cur)} que ainda não ${u.unassigned.length>1?'são':'é'} de ninguém. Aparece na comanda até alguém assumir.`);
     }else if(k==='mine'){
       const sh=split(r).shares.find(x=>x.p===ME);
       const ex=sh.extras.map(e=>`${e.label} ${brl(e.amount,r.cur)}`).join(' + ');
@@ -2256,8 +2269,8 @@ function renderLedger(){
           <div class="der" id="d${i}" ${i===0?'':'hidden'}>
             <div><span>Consumo</span><span>${money(sh.consumption,r.cur,{noSym:true})}</span></div>
             ${sh.extras.map(e=>{const x=r.extras.find(z=>z.label===e.label);
-              return `<div${x&&x.tip?` class="tip" data-t="${x.id}" role="button" tabindex="0"`:''}><span>${esc(e.label)}${
-                x&&x.tip?' <span class="lbl">opcional · tirar</span>':''}</span><span>${money(e.amount,r.cur,{noSym:true})}</span></div>`;}).join('')}
+              return `<div><span>${esc(e.label)}${
+                x&&x.tip?` <button class="tb" data-t="${x.id}">tirar</button>`:''}</span><span>${money(e.amount,r.cur,{noSym:true})}</span></div>`;}).join('')}
           </div></div>`;}).join('')}
       <div class="tt"><span>Total</span><span>${money(s.total,r.cur)}</span></div></div>
 
