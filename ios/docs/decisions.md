@@ -516,3 +516,46 @@ e revogável, pro próprio cliente. Aí o hop direto vira defensável.
 `DemoTableSource`, `CheckImport`, `RachaEnvironment`), `Features/Scan/`
 (`ScannerView`, `ScanFlow`), `RachaTests/TableSourceTests.swift`,
 `scripts/check-pos-contract.py`.
+
+## 31 — A conciliação diária tinha canário, mas ninguém abria a gaiola (2026-09-05)
+
+**Contexto.** Painel do restaurante. Antes de construir tela nova, fui procurar o
+que faltava contra os inegociáveis. O #8 diz: conciliação diária, PSP × nossos
+splits, por venue, ao centavo, com alerta alto em drift ≥ R$ 0,01.
+
+**O que eu achei.** `reconcileVenue` e `reconcileVenueHouse` existiam e eram
+testados. O único caller era `GET /api/house/admin` — ou seja, rodava só se o
+dono de uma casa *com conta-corrente* abrisse aquela página. E o
+`AdminHouse.tsx` nem exibia `data.reconcile`. Não havia cron. Um canário que
+ninguém olha é um canário decorativo: o inegociável estava escrito, o código
+estava escrito, e mesmo assim o sistema não conciliava nada.
+
+**Decisão.** `api/_lib/checks/reconcile-daily.js` varre todos os venues; cron do
+Vercel às 04:10; drift ou erro pagina pela ponte da Olímpia; o painel mostra o
+resultado da última varredura.
+
+**Detalhes que custaram decisão:**
+
+- *Verde também aparece.* "Tudo bate ✓ — N contas conferidas às HH:MM". Se o
+  painel só falasse em vermelho, "nada apareceu" e "nada foi conferido" ficariam
+  idênticos na tela — que é exatamente o modo de falha do canário anterior.
+- *Um venue que explode não derruba a varredura.* Vira um achado
+  `venue_reconcile_threw` crítico e a varredura continua. O contrário deixaria
+  as casas depois dele na ordem alfabética sem conciliação nenhuma, em silêncio.
+- *Serial de propósito.* Varredura noturna não precisa de paralelismo e não vale
+  martelar o banco por 30 segundos de latência.
+- *Se a ponte de alerta falhar, o relatório inteiro vai pro stderr.* Perder o
+  drift porque o notificador caiu seria trocar um silêncio por outro.
+- *Throttle de 60s no painel.* O painel faz poll a cada 4s; sem isso, abrir a
+  aba re-varreria tudo a cada carga.
+- *"Isso não corrige sozinho, de propósito."* Está escrito na tela vermelha.
+  Conciliação que auto-ajusta é conciliação que esconde bug de dinheiro.
+
+**Contra o quê.** Rodar dentro do webhook, a cada pagamento. Pega drift mais
+cedo e acopla o caminho do dinheiro à checagem — um erro na conciliação viraria
+um pagamento recusado. A varredura fica fora do caminho crítico.
+
+**Onde está.** `api/_lib/checks/reconcile-daily.js`, `api/_lib/notify.js`
+(`notifyFounderReconcile`), `api/_app/router.js` (`/api/cron/reconcile`),
+`vercel.json`, `apps/web/src/Panel.tsx` (`Conciliacao`),
+`api/__tests__/reconcile-daily.test.js`.

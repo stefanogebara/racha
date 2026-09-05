@@ -105,4 +105,42 @@ async function notifyPreviaBeacon({ pl, event }) {
   }
 }
 
-module.exports = { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon };
+/**
+ * Conciliação vermelha → FUNDADOR.
+ *
+ * A regra #8 do CLAUDE.md diz "canário vermelho PAGINA; nunca só loga". Um
+ * stderr num cron da Vercel é exatamente "só logar": ninguém acorda com isso.
+ * Então drift vai pela mesma ponte da Olímpia que já entrega WhatsApp e e-mail.
+ *
+ * Best-effort e nunca lança — mas, diferente dos outros avisos, se a ponte
+ * falhar isto ESCREVE o relatório inteiro no stderr antes de desistir: um
+ * alerta de dinheiro que não sai não pode também sumir.
+ */
+async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked = 0,
+                                        driftCents = 0, worstSeverity = 'ok' }) {
+  const secret = process.env.RACHA_NOTIFY_SECRET;
+  if (!secret) {
+    process.stderr.write(`RECONCILE ALERT (sem RACHA_NOTIFY_SECRET):\n${mensagem}\n`);
+    return { skipped: true, reason: 'no_secret' };
+  }
+  try {
+    const res = await fetch(`${NOTIFY_URL}/api/racha-notify`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
+      body: JSON.stringify({
+        event: 'reconcile_drift',
+        mensagem, venuesRed, venuesChecked, driftCents, worstSeverity,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      process.stderr.write(`RECONCILE ALERT (ponte ${res.status}):\n${mensagem}\n`);
+    }
+    return { ok: res.ok, status: res.status, data };
+  } catch (e) {
+    process.stderr.write(`RECONCILE ALERT (ponte falhou: ${String(e.message).slice(0, 120)}):\n${mensagem}\n`);
+    return { ok: false, error: e.message };
+  }
+}
+
+module.exports = { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon, notifyFounderReconcile };

@@ -31,12 +31,14 @@ const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
 const { createChargeService } = require('../_lib/pay/create-charge');
-const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon } = require('../_lib/notify');
+const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
+        notifyFounderReconcile } = require('../_lib/notify');
 const { montarRadar } = require('../_lib/activation/radar');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
 const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
+const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
@@ -247,6 +249,19 @@ function podeEnviarAviso() {
 // instance (Fluid Compute reuse makes this bite). Stops a pending charge from
 // firing a gateway call on every 4s diner poll while still healing fast.
 const reconcileThrottle = new Map(); // checkId → nextAllowedMs
+// O painel recarrega a cada 4s; conciliar o restaurante inteiro a cada recarga
+// seria varrer o banco quinze vezes por minuto pra mostrar o mesmo verde. Uma
+// vez por minuto por casa mantém o número honesto e o custo no chão.
+const panelReconThrottle = new Map(); // venueId → { at, result }
+function panelReconcileCached(venueId) {
+  const hit = panelReconThrottle.get(venueId);
+  if (hit && Date.now() - hit.at < 60_000) return hit.result;
+  return null;
+}
+function panelReconcileStore(venueId, result) {
+  if (panelReconThrottle.size > 500) panelReconThrottle.clear();
+  panelReconThrottle.set(venueId, { at: Date.now(), result });
+}
 function shouldReconcileNow(checkId) {
   const now = Date.now();
   if (now < (reconcileThrottle.get(checkId) || 0)) return false;
@@ -617,6 +632,25 @@ async function route(req, res) {
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const data = await store.getPanelView(venueId);
       if (!data) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      // A conciliação vive AQUI, no painel do restaurante, e não só na página de
+      // conta-corrente: quem precisa saber que o dinheiro bate é quem recebe o
+      // dinheiro. Cacheada por 60s (o painel recarrega a cada 4s).
+      let recon = panelReconcileCached(venueId);
+      if (!recon) {
+        const r = await reconcileOneVenue(store, { id: venueId, name: data.venue.name });
+        recon = {
+          severity: r.severity,
+          driftCents: r.driftCents,
+          checksChecked: r.checksChecked,
+          accountsChecked: r.accountsChecked,
+          findings: r.findings.slice(0, 5).map((f) => ({
+            severity: f.severity, code: f.code, message: f.message,
+          })),
+          at: new Date().toISOString(),
+        };
+        panelReconcileStore(venueId, recon);
+      }
+      data.reconcile = recon;
       return json(res, 200, { success: true, data });
     }
     if (req.method === 'POST' && url.pathname === '/api/checks') {
@@ -833,6 +867,45 @@ async function route(req, res) {
         process.stderr.write(`[reconcile-cron] confirmed=${result.confirmed} checked=${result.checked} errors=${result.errors}\n`);
       }
       return json(res, 200, { success: true, data: result });
+    }
+
+    // --- cron: conciliação diária --------------------------------------------
+    // A regra #8 do CLAUDE.md: "Conciliação desde o dia 1. Job diário: razão do
+    // PSP vs nossos splits, por restaurante, ao centavo. Drift ≥ R$0,01 alerta
+    // alto. Um canário vermelho PAGINA; nunca só loga."
+    //
+    // O canário existia e era testado, mas o único caller era GET /api/house/admin
+    // — ou seja, rodava só se o dono de uma casa com conta-corrente abrisse
+    // aquela página. Isto é o job.
+    //
+    // ?dry=1 devolve o relatório sem avisar ninguém (inspeção sem acordar
+    // ninguém); ?test=1 inclui restaurantes de teste.
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/reconcile') {
+      if (process.env.CRON_SECRET) {
+        if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+          return json(res, 401, { success: false, error: 'unauthorized' });
+        }
+      } else if (!rateLimitOpen(req)) {
+        return json(res, 429, { success: false, error: 'calma lá' });
+      }
+      const report = await reconcileAllVenues(store, { includeTest: url.searchParams.get('test') === '1' });
+      const mensagem = formatReconcileAlert(report);
+      let envio = null;
+      if (mensagem && url.searchParams.get('dry') !== '1') {
+        envio = await notifyFounderReconcile({
+          mensagem,
+          venuesRed: report.venuesRed,
+          venuesChecked: report.venuesChecked,
+          driftCents: report.totalDriftCents,
+          worstSeverity: report.worstSeverity,
+        });
+      }
+      // Verde também sai no log: um canário que só fala quando está ruim é
+      // indistinguível de um canário quebrado.
+      process.stderr.write(
+        `[reconcile-cron] casas=${report.venuesChecked} vermelhas=${report.venuesRed} `
+        + `pior=${report.worstSeverity} drift=${report.totalDriftCents}¢\n`);
+      return json(res, 200, { success: true, data: { ...report, mensagem, envio } });
     }
 
     // --- cron: radar de ativação ---------------------------------------------

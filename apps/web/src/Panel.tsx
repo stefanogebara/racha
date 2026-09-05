@@ -8,8 +8,18 @@ import { authedReq, signOut } from './auth';
  * fetch carries the owner's token and the API enforces venue ownership.
  */
 
+interface Reconcile {
+  severity: 'ok' | 'info' | 'high' | 'critical';
+  driftCents: number;
+  checksChecked: number;
+  accountsChecked: number;
+  findings: Array<{ severity: string; code: string; message: string }>;
+  at: string;
+}
+
 interface PanelData {
   venue: { name: string };
+  reconcile?: Reconcile;
   checks: Array<{
     checkId: string;
     tableLabel: string;
@@ -74,6 +84,8 @@ export default function Panel() {
         </div>
       </section>
 
+      <Conciliacao r={data.reconcile} />
+
       <Ativacao a={data.ativacao} />
 
       <section className="panel">
@@ -104,6 +116,55 @@ export default function Panel() {
         <span>racha · painel atualiza sozinho a cada 4s</span>
       </footer>
     </main>
+  );
+}
+
+// -------------------------------------------------------------- conciliação
+
+/** 'HH:MM' local a partir do ISO — só a hora interessa aqui. */
+const hhmm = (iso: string) =>
+  new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+/**
+ * O dinheiro bate?
+ *
+ * Duas contagens independentes do mesmo dinheiro — o log de eventos e a tabela
+ * de pagamentos — conferidas ao centavo. Verde é informação, não enfeite: sem
+ * ele, "não apareceu nada" e "não conferi nada" são a mesma tela, e a segunda é
+ * a que quebra restaurante.
+ */
+function Conciliacao({ r }: { r: Reconcile | undefined }) {
+  if (!r) return null; // backend antigo ainda no ar — o resto do painel segue de pé
+  const vermelho = r.severity === 'critical' || r.severity === 'high';
+  return (
+    <section className="panel">
+      <p className="label">Conciliação</p>
+      {vermelho ? (
+        <>
+          <p className="small" style={{ color: 'var(--red, #a3231f)' }}>
+            <strong>
+              {r.driftCents > 0
+                ? `${brl(r.driftCents)} de diferença entre o que o app registrou e o que foi pago.`
+                : 'Divergência entre o registro e os pagamentos.'}
+            </strong>
+          </p>
+          {r.findings.map((f, i) => (
+            <p className="muted small" key={i}>· {f.message}</p>
+          ))}
+          <p className="muted small">
+            Isso não corrige sozinho, de propósito. Fale com a gente antes de fechar o caixa.
+          </p>
+        </>
+      ) : (
+        <p className="small">
+          Tudo bate ✓ <span className="muted">
+            — {r.checksChecked} {r.checksChecked === 1 ? 'conta conferida' : 'contas conferidas'}
+            {r.accountsChecked > 0 && `, ${r.accountsChecked} ${r.accountsChecked === 1 ? 'saldo' : 'saldos'}`}
+            {' '}às {hhmm(r.at)}
+          </span>
+        </p>
+      )}
+    </section>
   );
 }
 
