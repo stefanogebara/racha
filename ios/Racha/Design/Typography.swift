@@ -1,113 +1,128 @@
 import SwiftUI
+import CoreText
 
-/// Two faces, and a rule for each.
+/// One family, three widths.
 ///
-/// - **Newsreader** carries language and money. It is one family with an
-///   optical-size axis, so display and text are the same design cut twice —
-///   which is what a serif family is for, and what using a single display face
-///   at every size throws away.
-/// - **DM Sans** carries the interface: labels, buttons, metadata.
+/// Archivo is a variable face with a width axis, so the poster cut (width 62,
+/// weight 850 — compressed and black, the way a bar chalkboard is lettered), the
+/// headline cut (92 / 500) and the body cut (100 / 400) are one design at three
+/// widths, not three typefaces. The critique loop killed the second family: a
+/// voice that shows up on one screen is a costume, not a role. The figures are
+/// tabular at every width and weight (measured: ten digits identical to the
+/// hundredth of a pixel), which is what lets a column of amounts align on the
+/// comma because the typeface says so.
 ///
-/// The face changed for a reason worth writing down. Instrument Serif is a
-/// display cut with proportional figures: its "1" is 54% the width of its "0".
-/// Measured, not guessed — the digits come out at 13.8, 7.5, 12.1, 11.1, 11.8,
-/// 11.5, 12.1, 10.9, 13.0, 12.1 points at 30pt. That means no column of amounts
-/// set in it can ever line up on the comma, no matter how it is aligned, and
-/// hand-tabularising it with fixed cells only leaves the "1"s rattling inside
-/// their boxes. Newsreader's figures are uniform width by construction (16.83
-/// at 30pt, every digit), so a right-aligned column aligns because the typeface
-/// says so and not because the layout is fighting it. In an app whose whole
-/// claim is that the money is exact to the centavo, the figures have to
-/// corroborate the claim.
+/// The poster cut is used for exactly one thing per screen — the figure the
+/// screen is about — and never for two things at once.
 ///
-/// The mono is gone. It had been doing display, ledger and label duty at once,
-/// and a default coder mono is the signature of a machine-made mockup; the two
-/// faces above cover every job it held.
-///
-/// `.monospacedDigit()` is still applied to every number. Without it a
-/// live-updating total shivers as digits change width, which reads as instability
-/// in exactly the place a person needs to feel none.
+/// Without the bundled font the app falls back to San Francisco with its width
+/// variants (`.compressed` for the poster, `.condensed` for the headline), which
+/// keeps the hierarchy intact and loses only the voice.
 enum Typo {
+    /// Kept for the one onboarding call site that picks a face by name.
     enum Face: String {
-        case serif = "Newsreader-Regular"
-        case serifMedium = "Newsreader-Medium"
-        case sans = "DMSans-Regular"
-        case sansMedium = "DMSans-Medium"
-        case sansBold = "DMSans-Bold"
-        case mono = "Newsreader-Regular"   // Pix payloads; nothing else needs it
+        case serif = "poster"       // the display cut; there is no serif any more
+        case serifMedium = "headline"
+        case sans = "body"
+        case sansMedium = "bodyMedium"
+        case sansBold = "bodySemibold"
+        case mono = "body"          // Pix payloads; tabular body is enough
     }
 
-    /// Falls back to the system face when the bundled font is missing, so a build
-    /// without the font files still renders correctly (just less warmly).
+    enum Cut { case poster, headline, body, bodyMedium, bodySemibold }
+
+    static let family = "Archivo"
+    private static let wdth: UInt32 = 0x77647468   // 'wdth'
+    private static let wght: UInt32 = 0x77676874   // 'wght'
+
+    private static var bundled: Bool = { UIFont(name: family, size: 12) != nil }()
+
+    /// The variable font at a given width and weight, via CoreText variation
+    /// attributes; SwiftUI has no API for a width axis on a custom face.
+    static func archivo(_ size: CGFloat, width: CGFloat, weight: CGFloat) -> Font? {
+        guard bundled else { return nil }
+        let variation: [NSNumber: NSNumber] = [NSNumber(value: wdth): NSNumber(value: Double(width)),
+                                               NSNumber(value: wght): NSNumber(value: Double(weight))]
+        var attrs: [UIFontDescriptor.AttributeName: Any] = [.name: family]
+        attrs[UIFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String)] = variation
+        let descriptor = UIFontDescriptor(fontAttributes: attrs)
+        return Font(UIFont(descriptor: descriptor, size: size))
+    }
+
+    static func font(_ cut: Cut, _ size: CGFloat) -> Font {
+        switch cut {
+        case .poster:
+            return archivo(size, width: 62, weight: 850)
+                ?? .system(size: size, weight: .black).width(.compressed)
+        case .headline:
+            return archivo(size, width: 92, weight: 500)
+                ?? .system(size: size, weight: .medium).width(.condensed)
+        case .body:
+            return archivo(size, width: 100, weight: 400) ?? .system(size: size, weight: .regular)
+        case .bodyMedium:
+            return archivo(size, width: 100, weight: 500) ?? .system(size: size, weight: .medium)
+        case .bodySemibold:
+            return archivo(size, width: 100, weight: 600) ?? .system(size: size, weight: .semibold)
+        }
+    }
+
+    /// Legacy signature kept for the onboarding view.
     static func font(_ face: Face, _ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
-        if UIFont(name: face.rawValue, size: size) != nil {
-            return .custom(face.rawValue, size: size, relativeTo: style)
-        }
         switch face {
-        case .serif: return .system(size: size, weight: .regular, design: .serif)
-        case .serifMedium: return .system(size: size, weight: .medium, design: .serif)
-        case .mono: return .system(size: size, weight: .regular, design: .monospaced)
-        case .sansBold: return .system(size: size, weight: .bold)
-        case .sansMedium: return .system(size: size, weight: .medium)
-        case .sans: return .system(size: size, weight: .regular)
+        case .serif: return font(.headline, size)
+        case .serifMedium: return font(.headline, size)
+        case .sans, .mono: return font(.body, size)
+        case .sansMedium: return font(.bodyMedium, size)
+        case .sansBold: return font(.bodySemibold, size)
         }
     }
 
-    // Display — the serif, only for money and place names.
-    static var hero: Font { font(.serif, 46, relativeTo: .largeTitle) }
-    static var display: Font { font(.serif, 34, relativeTo: .title) }
-    static var venue: Font { font(.serif, 30, relativeTo: .title2) }
-    static var serifBody: Font { font(.serif, 22, relativeTo: .title3) }
+    // The one poster per screen.
+    static var hero: Font { font(.poster, 104) }
+    static var galleryNet: Font { font(.poster, 104) }
 
-    // Text
-    static var body: Font { font(.sans, 15) }
-    static var bodyMedium: Font { font(.sansMedium, 15) }
-    static var small: Font { font(.sans, 13, relativeTo: .footnote) }
-    static var caption: Font { font(.sans, 12, relativeTo: .caption) }
-    static var button: Font { font(.sansBold, 16, relativeTo: .headline) }
-    static var mono: Font { font(.mono, 12, relativeTo: .caption) }
+    // Headlines: the venue, the sheet title, the thread title.
+    static var display: Font { font(.headline, 34) }
+    static var venue: Font { font(.headline, 34) }
+    static var galleryTitle: Font { font(.headline, 22) }
+    static var onboardTitle: Font { font(.headline, 34) }
+    static var tileTitle: Font { font(.headline, 17) }
+    /// The person's own words in the thread: the headline cut, a size up from body.
+    static var serifBody: Font { font(.body, 14.5) }
 
-    /// The one caps label in the system. It marks a section of a bill, and it
-    /// appears at most twice on a screen — when every label shouts, none of them
-    /// is a signal, and a page of letterspaced small caps is the house style of
-    /// generated "editorial" work.
-    static var label: Font { font(.sansMedium, 9.5, relativeTo: .caption2) }
+    // Text.
+    static var body: Font { font(.body, 15) }
+    static var bodyMedium: Font { font(.bodyMedium, 15) }
+    static var small: Font { font(.body, 13) }
+    static var caption: Font { font(.body, 12.5) }
+    static var button: Font { font(.bodySemibold, 16) }
+    static var mono: Font { font(.body, 12) }
+    static var tileAmount: Font { font(.body, 14) }
+    static var proofTotal: Font { font(.headline, 25) }
+    static var proofPart: Font { font(.body, 16) }
 
-    /// Quiet metadata: a date, a list of names, a state. Sentence case.
-    static var meta: Font { font(.sans, 11.5, relativeTo: .caption) }
-
-    static var receipt: Font { font(.sansMedium, 9.5, relativeTo: .caption2) }
-    static var tileTitle: Font { font(.serif, 20, relativeTo: .title3) }
-    static var tileAmount: Font { font(.serif, 15, relativeTo: .body) }
-    static var galleryTitle: Font { font(.serif, 26, relativeTo: .title) }
-    static var galleryNet: Font { font(.serif, 46, relativeTo: .largeTitle) }
-
-    // First run.
-    static var onboardTitle: Font { font(.serif, 40, relativeTo: .largeTitle) }
-    static var proofTotal: Font { font(.serif, 25, relativeTo: .title2) }
-    static var proofPart: Font { font(.serif, 16, relativeTo: .body) }
+    /// Section labels speak plainly: sentence case, no tracking. The only
+    /// letterspaced caps left in the product is the wordmark.
+    static var label: Font { font(.bodyMedium, 12.5) }
+    static var meta: Font { font(.body, 12.5) }
+    static var receipt: Font { font(.bodyMedium, 12.5) }
 }
 
 extension View {
-    /// The section label. One spec, used for section rules in the ledger and
-    /// nowhere else.
+    /// A section label: sentence case, the quiet ink, no rule.
     func receiptLabel() -> some View {
-        self.font(Typo.receipt)
-            .tracking(1.24)
-            .textCase(.uppercase)
-            .foregroundStyle(Palette.ink4)
+        self.font(Typo.receipt).foregroundStyle(Palette.ink3)
     }
 
-    /// Quiet metadata. Sentence case, no tracking — this is what most of the
-    /// interface's small text used to be shouting in caps.
+    /// Quiet metadata.
     func metaLabel() -> some View {
         self.font(Typo.meta).foregroundStyle(Palette.ink3)
     }
 
-    /// Section label, kept as an alias so older call sites keep compiling.
     func rachaLabel() -> some View { receiptLabel() }
 
-    /// Every number in the app goes through this. See the note above.
+    /// Every number in the app goes through this. Archivo's figures are tabular by
+    /// construction; `.monospacedDigit()` keeps the system fallback honest too.
     func money() -> some View {
         self.monospacedDigit()
     }

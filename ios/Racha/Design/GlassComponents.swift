@@ -36,8 +36,8 @@ struct GlassCard<Content: View>: View {
                     .strokeBorder(rimGradient, lineWidth: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .shadow(color: Palette.charcoal.opacity(0.04), radius: 1, y: 1)
-            .shadow(color: Palette.charcoal.opacity(0.04), radius: 24, y: 8)
+            // No shadow. Depth on the table is a hairline and a shade; only the
+            // paper comanda is allowed to cast one.
     }
 
     private var surface: some View {

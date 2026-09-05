@@ -88,24 +88,17 @@ static inline float sdRoundedBox(float2 p, float2 halfSize, float radius) {
                                  float2 size, float time, float warmth) {
     float2 uv = position / size;
 
-    const float3 base = float3(0.969, 0.949, 0.914);   // #F7F2E9
-
-    // Fibre: two octaves stretched along different axes so it never tiles into
-    // a visible weave.
+    // The table, not a sheet: umbra, warm, flat. The critique loop's loudest
+    // finding was that a lamp glow painted into the corner of every screen is
+    // the signature of generated dark mode — so there is no light here at all.
+    // The only light in the room is the paper on the table. Grain only, so the
+    // dark is a surface and not a value. `warmth` and `uv` are kept for the
+    // shader's signature; they no longer move anything.
+    const float3 base = float3(0.078, 0.063, 0.031);   // #141008
     float fibre = fbm(float2(position.x * 0.055, position.y * 0.011)) * 0.6
                 + fbm(float2(position.x * 0.009, position.y * 0.047)) * 0.4;
-    float3 c = base + (fibre - 0.5) * 0.030 * float3(1.0, 0.94, 0.84);
-
-    // Ruled spacing, at the threshold of visibility.
-    float rule = smoothstep(0.55, 1.0, fract(position.y / 26.0));
-    c -= rule * 0.006;
-
-    // Press: a broad highlight up and left, falling into a warm edge shadow.
-    float d = length((uv - float2(0.34, 0.24)) * float2(1.0, 1.25));
-    float lit = 1.0 - smoothstep(0.0, 1.25, d);
-    c += lit * 0.020;
-    float edge = smoothstep(0.55, 1.15, length(uv - 0.5) * 1.7);
-    c -= edge * float3(0.055, 0.070, 0.095) * warmth;
+    float3 c = base + (fibre - 0.5) * 0.012 * float3(1.0, 0.94, 0.84);
+    (void)uv; (void)warmth;
 
     // Dither: without it the press falloff bands on an OLED panel.
     c += (hash21(position) - 0.5) / 255.0;

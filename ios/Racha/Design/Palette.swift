@@ -1,84 +1,93 @@
 import SwiftUI
 
-/// Racha's colours, ported from `apps/web/src/styles.css` so the phone and the
-/// web app are recognisably the same product.
+/// Racha's colours — the bar at night.
 ///
-/// The system is "Warm Glass": a warm-white ground with four soft orbs bleeding
-/// through it, and surfaces that are translucent rather than opaque. Burgundy is
-/// the only action colour; emerald, amber and red are semantic only — a green
-/// button that doesn't mean "paid" would break the one thing the colour says.
+/// The ground is a warm near-black table, not paper: on an OLED at 15% battery
+/// in a dark bar, dark ground is the honest choice, and it leaves the one cream
+/// object — the comanda — to be the only light on the screen, the way the slip
+/// is the only paper on a real table. Ink is cream, in four strengths. Two
+/// colours carry meaning and nothing else does: vermilion for money leaving your
+/// pocket, amber for a question still open (an item nobody has claimed). There is
+/// no green: settled is a word and a weight, not a colour.
+///
+/// Ported from `ios/lab/app.html` after twenty-one rounds of blind critique; the
+/// reasoning is in `docs/design-critique-loop.md` and `docs/decisions.md` #27–28.
 enum Palette {
-    // The ground is paper, not a gradient. Three cuts of the same warm stock:
-    // the tile sheet is lit (paperHigh → paperLow), the app ground sits between
-    // them. Colour in this app comes from the food, never from the chrome.
-    static let paper       = Color(hex: 0xF7F2E9)
-    static let paperHigh   = Color(hex: 0xFCF9F3)
-    static let paperMid    = Color(hex: 0xF1EADD)
-    static let paperLow    = Color(hex: 0xE7DECB)
+    // The ground and its one step up. Depth is a hairline and a shade, not a light.
+    static let night       = Color(hex: 0x141008)
+    static let surface     = Color(hex: 0x1E1812)
+    static let surfaceHigh = Color(hex: 0x282016)
+    static let sheet       = Color(hex: 0x221B13)
 
-    // Four values of ink, and no more. The two quiet ones were originally set
-    // light enough to read as texture rather than as text, which is a defect in
-    // an app whose job is telling someone what they owe, in a bar, at night.
-    static let ink         = Color(hex: 0x211C16)
-    static let ink2        = Color(hex: 0x4A4134)
-    static let ink3        = Color(hex: 0x6E6454)
-    static let ink4        = Color(hex: 0x968B76)
+    // Ink: cream, four strengths. The quiet ones by alpha so they sit on any surface.
+    static let cream       = Color(hex: 0xF7F2E9)
+    static let ink         = cream
+    static let ink2        = cream.opacity(0.88)
+    static let ink3        = cream.opacity(0.62)
+    static let ink4        = cream.opacity(0.40)
 
-    /// The one action colour. It means "the thing that closes this out", and it
-    /// appears once per screen.
-    ///
-    /// There is deliberately no success green. A stock emerald belongs to a
-    /// component library, not to a palette of bone and oxblood — it was the
-    /// clearest sign in the interface that something had been dropped in rather
-    /// than drawn. Settled state is carried by the word and by ink weight,
-    /// which is how the rest of this design carries everything.
-    static let action      = Color(hex: 0x8E1231)
-    static let actionDark  = Color(hex: 0x6E0C25)
-    static let positive    = Color(hex: 0x4A4136)
+    /// Money leaving your pocket. The vermilion of a cordel cover — warm, not coral.
+    static let action      = Color(hex: 0xE85C40)
+    static let actionDark  = Color(hex: 0xC4482E)
+    /// A question still open: an item nobody has claimed. The lamp's colour.
+    static let warn        = Color(hex: 0xE2A54A)
+    /// Settled. Carried by the word and by ink weight; this is the quiet ink.
+    static let positive    = ink3
 
-    static let warmWhite   = Color(hex: 0xFAFAF9)
-    static let burgundy    = Color(hex: 0x9F1239)
-    static let burgundyDark = Color(hex: 0x881337)
-    static let charcoal    = Color(hex: 0x1C1917)
-    static let stone       = Color(hex: 0x706A65)
-    static let emerald     = Color(hex: 0x059669)
-    static let emeraldBright = Color(hex: 0x10B981)
-    static let amber       = Color(hex: 0xD97706)
-    static let amberSoft   = Color(hex: 0xF59E0B)
-    static let sienna      = Color(hex: 0x78350F)
+    // Hairlines you can see. On an OLED an 8-level border disappears.
+    static let rule        = cream.opacity(0.17)
+    static let rule2       = cream.opacity(0.09)
 
-    // Glass tiers, same alphas as the web app's --glass-* tokens.
-    static let glassCard    = Color.white.opacity(0.62)
-    static let glassPanel   = Color.white.opacity(0.55)
-    static let glassSubtle  = Color.white.opacity(0.40)
-    static let glassBorder  = Color.white.opacity(0.70)
-    static let hairline     = Color(hex: 0x211C16).opacity(0.07)
-    static let inputBorder  = Color(hex: 0x1C1917).opacity(0.12)
+    // The one paper object: the comanda. Duller and warmer than the action cream,
+    // so a slip and a button never wear the same colour. Its own ink ramp and its
+    // own two semantic tones, because they sit on light.
+    static let slip        = Color(hex: 0xEEE5D3)
+    static let slipInk     = Color(hex: 0x211C16)
+    static let slipInk2    = Color(hex: 0x4A4134)
+    static let slipInk3    = Color(hex: 0x6E6454)
+    static let slipInk4    = Color(hex: 0x968B76)
+    static let slipRule    = Color(hex: 0x211C16).opacity(0.14)
+    static let slipAction  = Color(hex: 0xB23A1F)
+    static let slipWarn    = Color(hex: 0x8A5A10)
 
-    /// The four orbs from the web `body` background, as normalised positions,
-    /// radii and colours. Fed to the mesh-gradient shader rather than drawn as
-    /// four blurred circles — see `Racha.metal`.
-    static let orbs: [(center: SIMD2<Float>, radius: SIMD2<Float>, color: SIMD4<Float>)] = [
-        (SIMD2(0.12, 0.18), SIMD2(0.65, 0.45), SIMD4(0.851, 0.467, 0.024, 0.18)),  // amber 600
-        (SIMD2(0.88, 0.22), SIMD2(0.55, 0.40), SIMD4(0.961, 0.620, 0.043, 0.15)),  // amber 500
-        (SIMD2(0.50, 0.95), SIMD2(0.75, 0.50), SIMD4(0.624, 0.071, 0.224, 0.12)),  // burgundy
-        (SIMD2(0.90, 0.80), SIMD2(0.45, 0.35), SIMD4(0.471, 0.208, 0.059, 0.10))   // sienna
-    ]
+    // ── Legacy names, mapped onto the system above ─────────────────────────
+    // The views were written against the web app's warm-glass names. Rather than
+    // touch sixty files blind, the old names resolve to the new values; a view
+    // that asked for "paper" as a ground gets the table, one that asked for
+    // "charcoal" as text gets cream. Migrate call sites to the names above as
+    // each view is next opened.
+    static let paper        = night
+    static let paperHigh    = surface
+    static let paperMid     = surface
+    static let paperLow     = surfaceHigh
+    static let warmWhite    = surface
+    static let charcoal     = ink
+    static let stone        = ink3
+    static let burgundy     = action
+    static let burgundyDark = actionDark
+    static let amber        = warn
+    static let amberSoft    = warn
+    static let sienna       = warn
+    /// No green in the system. "Paid" is the word, set in ink.
+    static let emerald      = ink
+    static let emeraldBright = ink
 
-    /// A stable colour per person.
-    ///
-    /// Kept for the few places a person still needs a mark of their own, but the
-    /// ledger no longer uses it: four discs in four shades of the same wine are
-    /// four indistinguishable discs, read by their letter and nothing else, and
-    /// in a list that already prints everybody's name they were saying the same
-    /// thing twice. Ink, not hue.
+    // Surfaces: a flat step, not translucency. Kept as names for the glass card.
+    static let glassCard    = cream.opacity(0.045)
+    static let glassPanel   = cream.opacity(0.04)
+    static let glassSubtle  = cream.opacity(0.03)
+    static let glassBorder  = rule
+    static let hairline     = rule
+    static let inputBorder  = rule
+
+    /// Kept for the mesh shader's signature; the ground no longer draws them.
+    static let orbs: [(center: SIMD2<Float>, radius: SIMD2<Float>, color: SIMD4<Float>)] = []
+
+    /// A stable colour per person. Warm, low-saturation, readable on the table.
     static func avatar(seed: Int) -> Color {
         let hue = Double((seed * 47) % 360) / 360.0
-        let warm = 0.02 + hue * 0.20            // 7°–79°: rust through gold
-        let alternate = 0.92 + hue * 0.08       // 331°–360°: wine
-        let useAlternate = (seed / 7) % 3 == 0
-        return Color(hue: useAlternate ? alternate.truncatingRemainder(dividingBy: 1.0) : warm,
-                     saturation: 0.55, brightness: 0.72)
+        let warm = 0.05 + hue * 0.10            // 18°–54°: amber through gold
+        return Color(hue: warm, saturation: 0.45, brightness: 0.80)
     }
 }
 
