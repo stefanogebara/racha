@@ -86,6 +86,61 @@ the round after the woodcut called them "true linocut" and complained only that
 two of the fourteen did not yet match the grammar. That is a much narrower
 problem than the one it replaced.
 
+## Rounds 15–18: a stronger critic, and the reference that changed the sky
+
+The user switched the critic to Fable 5.1 and pointed at air.inc as the
+reference. The analysis of that site is in `reference-air-inc.md`; decision #27
+records what was taken from it — the *system* (one continuous atmosphere, one
+family in several cuts at a 16:1 size ratio, glass layering, a cursive accent for
+one phrase, 24px as the unit) and not the sky. Racha's equivalent of Air's sky
+is the bar at night: a warm near-black table, and the comanda as the one cream
+object because it is the one object that is paper.
+
+The new critic is better in exactly the way that matters: it zooms. It saved
+thirteen crops of the board, sampled colours, and did the arithmetic on every
+figure before scoring. Its findings were correspondingly harder to argue with.
+
+**Round 15 (6/10).** Its loudest tells were all mine: the identical warm
+vignette on all four frames ("the loudest AI tell on the board"), the white
+sticker-halo around every woodcut, a half-skeuomorph receipt with CSS sawtooth
+edges, three type voices without stated roles, and dot leaders on every row of
+every screen. It also found that the home figure (46,15) was summing euros into
+reais. The halo turned out to be the paper-coloured separation channel `block()`
+strokes around each form — invisible on cream stock, a black outline on dark.
+Every mark that takes ink away now erases the canvas (`destination-out`), so the
+paper is wherever the ink is not, on any ground. The vignette went; the receipt
+went flat; Newsreader went; the leaders stayed only on the comanda; the hub
+figure became the friend balance in reais, with one row per racha in that
+racha's own currency.
+
+**Round 16 (6/10).** The finding that mattered: the comanda's total was R$ 1,80
+short of what the restaurant would print, because the unowned pudim carried no
+10% service. That was a money bug, not a design note, and it existed in the Swift
+engine too. `SplitResult` now carries `unassignedExtras` — the house's
+percentages on what nobody has claimed — and the total on the slip is the total
+on the table (`fbac45e`). The rest of the round was finish: two reds of
+different hue, five corner radii, currency marks under 8px, the poster buried at
+82% of the screen, the chat's polarity inverted (the loud voice was the person,
+the quiet one carried the money).
+
+**Round 17 (6/10).** The critic described "arch-top cards" as a decorative
+motif overused on three screens. They were a bug: my new radius token `--r:12px`
+collided with the device shell's own `--r:56px`, so every card, button and sheet
+inside the phone had a 56px radius. Renamed, and the two radii became two radii.
+The rest: the same 59,90 as the poster on two consecutive screens (fixed in the
+seed — Gui paid the whole beach, so the hub is now a portfolio figure, 98,50,
+that visibly equals 158,40 − 59,90); no money action on three of four screens
+(each screen now has one: Pagar, Cobrar, Enviar); four button styles (now two:
+filled, and text with a hairline); the fish's scales as a second carving
+grammar; a Beetle standing in for Lisboa (now the eléctrico).
+
+What this critic did not do is contradict itself between rounds the way the
+earlier one did. Its lists shifted because the artifact shifted; the residue each
+time was smaller and more specific. Where it was wrong it was wrong about intent
+("the low battery is an unintentional signal" — it was a nod to the brief; it is
+gone anyway, because a reader cannot tell the difference and the critic is the
+reader).
+
 ## Where it stopped
 
 The critic never reached 9/10. Scores ran 5.5 → 6 → 6 → 6 → 5.5 → 6 → 5.5 → 6 →
