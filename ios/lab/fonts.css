@@ -1,0 +1,17 @@
+/* Vendored so the critique board renders identically offline. Both faces are
+   SIL Open Font License: Archivo (Omnibus-Type), Newsreader (Production Type). */
+@font-face{
+  font-family:'Newsreader';
+  font-style:normal;
+  font-weight:200 800;
+  font-display:swap;
+  src:url(fonts/newsreader-400.woff2) format('woff2-variations');
+}
+@font-face{
+  font-family:'Archivo';
+  font-style:normal;
+  font-weight:100 900;
+  font-stretch:62% 125%;
+  font-display:swap;
+  src:url(fonts/Archivo.woff2) format('woff2-variations');
+}

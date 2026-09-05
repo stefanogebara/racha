@@ -2,7 +2,7 @@
 <title>Racha iOS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500&family=Newsreader:opsz,ital,wght@6..72,0,400;6..72,1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900&family=Newsreader:opsz,ital,wght@6..72,0,400;6..72,1,400&display=swap">
 
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
@@ -16,28 +16,36 @@
    ══════════════════════════════════════════════════════════════════════════ */
 
 :root{
-  /* Stock. Warmer than a flat off-white so the cut-outs sit on something. */
-  --p-hi:#FCF9F3; --p-0:#F7F2E9; --p-1:#F1EADD; --p-2:#E7DECB; --p-edge:#D9CDB4;
-  /* Ink. */
-  --ink:#211C16; --ink-2:#4A4134; --ink-3:#6E6454; --ink-4:#968B76;
-  /* The two semantic colours, and nothing else. */
-  /* One hue. A stock success-green belongs to a component library, not to a
-     palette of bone and oxblood — it was the clearest sign that something had
-     been dropped in rather than drawn. Settled state is now carried by ink
-     weight and by the word, which is what the rest of the interface does. */
-  --act:#8E1231; --act-2:#6E0C25; --pos:#4A4136;
-  --rule:rgba(33,28,22,.10); --rule-2:rgba(33,28,22,.06);
+  /* The canvas is the bar at night: umbra, nearly black, warm, with one low
+     light. Everything that used to be paper is now the dark table; the paper
+     is reserved for the one object that is actually paper — the comanda. */
+  --night:#141008; --night-2:#1B1309; --night-3:#26190C;
+  --cream:#F7F2E9;
+  --p-0:var(--night); --p-hi:var(--night-2); --p-1:var(--night-2); --p-2:var(--night-3);
+  /* Ink is cream on the night. Four values; the two quiet ones by alpha so they
+     sit on any glow the canvas puts under them. */
+  --ink:var(--cream); --ink-2:rgba(247,242,233,.74); --ink-3:rgba(247,242,233,.54);
+  --ink-4:rgba(247,242,233,.34);
+  /* One accent. Lifted off oxblood so it reads on umbra; it means money still
+     open, and nothing else. */
+  --act:#E8475F; --act-2:#C93650; --pos:rgba(247,242,233,.54);
+  /* Glass: a border you can see, a fill you can barely see. Depth comes from
+     translucency and layering, never from a drop shadow — except under paper. */
+  --rule:rgba(247,242,233,.14); --rule-2:rgba(247,242,233,.08);
+  --glass:rgba(247,242,233,.045); --glass-hi:rgba(247,242,233,.085);
+  /* One family, three widths. The poster cut is Archivo at width 62 / weight
+     900 — compressed and black, the way a bar chalkboard is lettered — the
+     headline cut sits at width 92 / 500, and body at width 100 / 400. */
+  --sans:'Archivo',ui-sans-serif,system-ui,sans-serif;
   --serif:'Newsreader',Georgia,'Times New Roman',serif;
-  --grain:radial-gradient(rgba(33,28,22,.035) .6px,transparent .7px);
-  /* One rule for the leader, and it is anchored to the viewport rather than to
-     each row, so the dots keep a single phase down the whole column instead of
-     restarting under every label. */
   --leader:radial-gradient(circle at 1px 50%,var(--ink-4) .8px,transparent .9px);
-  --ruled:repeating-linear-gradient(180deg,transparent 0 25px,rgba(120,102,72,.032) 25px 26px);
+  /* Motion: one curve, unhurried. */
+  --ease:cubic-bezier(.22,1,.36,1);
+  --u:24px;
 
-  /* The page around the device. */
-  --pg:#E4DED2; --pg-ink:#2A241C; --pg-mute:#7C7263; --pg-rule:rgba(42,36,28,.14);
-  --bez-a:#312A22; --bez-b:#12100D;
+  /* The board around the device. */
+  --pg:#0C0907; --pg-ink:#EFE9DE; --pg-mute:#8F8676; --pg-rule:rgba(239,233,222,.13);
+  --bez-a:#3A332A; --bez-b:#080706;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --pg:#141210; --pg-ink:#EFE9DE; --pg-mute:#8F8676; --pg-rule:rgba(239,233,222,.13);
@@ -51,7 +59,7 @@
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{
   background:var(--pg); color:var(--pg-ink); min-height:100vh;
-  font-family:'DM Sans',ui-sans-serif,system-ui,sans-serif;
+  font-family:var(--sans);font-stretch:100%;
   -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
   display:flex; flex-direction:column; align-items:center; gap:24px;
   padding:30px 20px 52px;
@@ -81,15 +89,21 @@ body{
 @media(max-width:470px){.dev{--w:min(400px,calc(100vw - 36px));--h:calc(var(--w)*2.17);
   --r:calc(var(--w)*.14);padding:calc(var(--w)*.025)}}
 .scr{position:relative;width:100%;height:100%;overflow:hidden;
-  border-radius:calc(var(--r) - 10px);background:var(--p-0);color:var(--ink);isolation:isolate}
+  border-radius:calc(var(--r) - 10px);background:var(--night);color:var(--ink);isolation:isolate}
 #paper{position:absolute;inset:0;z-index:0;width:100%;height:100%;display:block;
-  transition:transform .34s cubic-bezier(.2,.9,.25,1)}
+  transition:transform .6s var(--ease)}
 .isl{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:112px;height:32px;
   border-radius:99px;background:#000;z-index:90;pointer-events:none}
 
 /* ── type ─────────────────────────────────────────────────────────────── */
 .ser{font-family:var(--serif);font-weight:400;letter-spacing:-.006em;
   font-variation-settings:'opsz' 44}
+/* The poster cut: compressed, black, line-height under one. Used for the one
+   figure or the one word a screen is about — never for two things at once. */
+.poster{font-family:var(--sans);font-stretch:62%;font-weight:900;line-height:.85;
+  letter-spacing:-.006em;text-transform:uppercase}
+/* The headline cut. */
+.hd{font-family:var(--sans);font-stretch:92%;font-weight:500;line-height:1.02;letter-spacing:-.022em}
 /* Display and text are the same design at two optical sizes: the display cut
    is finer and tighter, the text cut is sturdier and wider — which is what a
    serif family is for, and what using one display face at every size loses. */
@@ -99,27 +113,31 @@ body{
 .num{font-variant-numeric:tabular-nums}
 /* Money is always the serif, and the serif's figures are uniform width, so a
    right-aligned column lines up on the comma with nothing else asked of it. */
-.mo{background:none;font-family:var(--serif);font-weight:400;letter-spacing:0;white-space:nowrap;
-  font-variant-numeric:tabular-nums;font-variation-settings:'opsz' 24;position:relative}
+.mo{background:none;font-family:var(--sans);font-stretch:96%;font-weight:500;letter-spacing:-.01em;
+  white-space:nowrap;font-variant-numeric:tabular-nums;position:relative}
 .mo>i{font-style:normal}
 
 .fig{font-family:var(--serif)}
 /* The currency mark is a unit, not a numeral: optically smaller, raised, and
    set back from the figure so the eye lands on the amount. */
-.cy{font-size:.62em;letter-spacing:.02em;margin-right:.26em;color:var(--ink-3);
-  font-family:inherit;font-variation-settings:'opsz' 16}
-.standing .cy,.net .cy{font-size:.42em;margin-right:.22em;position:relative;top:-.16em}
+.cy{font-size:.60em;letter-spacing:.02em;margin-right:.24em;color:var(--ink-3);
+  font-family:inherit;font-weight:500;font-stretch:100%}
+/* The two poster figures keep the poster cut all the way through the money
+   markup — .mo would otherwise pull them back to the body width. */
+.standing b .mo,.net b .mo{font-stretch:inherit;font-weight:inherit;letter-spacing:inherit}
+.standing .cy,.net .cy{font-size:.42em;margin-right:.22em;position:relative;top:-.16em;
+  font-stretch:78%;font-weight:600;letter-spacing:.01em}
 .cap .amt .cy{display:inline-block;min-width:1.5em;text-align:right}
 
 b .cy,.net .cy{color:var(--ink-4)}
 /* A quiet label. Most things that used to shout in letterspaced caps say it
    at 11.5px in sentence case instead — an eyebrow only means something when
    there are one or two of them on a screen. */
-.lbl{font-size:11.5px;line-height:1.45;color:var(--ink-3);letter-spacing:0}
+.lbl{font-size:12.5px;line-height:1.45;color:var(--ink-3);letter-spacing:0;font-weight:400}
 .nt{color:var(--ink-3)}
 /* The receipt-voiced micro label. This one detail does most of the work of
    making the interface feel like a bill rather than a generic app. */
-.mi{font-size:9.5px;font-weight:500;letter-spacing:.13em;
+.mi{font-size:10.5px;font-weight:500;letter-spacing:.10em;
   text-transform:uppercase;color:var(--ink-4)}
 /* A section rule in the ledger: the label and the hairline are one object. */
 .mi.rule{display:flex;align-items:center;gap:10px;color:var(--ink-4)}
@@ -129,10 +147,10 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* ── layers ───────────────────────────────────────────────────────────── */
 /* The sheet runs out under a wash of its own stock. */
 .pageend{position:absolute;left:0;right:0;bottom:0;height:76px;z-index:12;pointer-events:none;
-  background:linear-gradient(180deg,transparent,var(--p-0) 62%);opacity:var(--pageend,1);
-  transition:opacity .2s ease}
+  background:linear-gradient(180deg,transparent,var(--night) 62%);opacity:var(--pageend,1);
+  transition:opacity .6s var(--ease)}
 .layer{position:absolute;inset:0;z-index:10;
-  transition:transform .34s cubic-bezier(.2,.9,.25,1),filter .34s ease}
+  transition:transform .34s var(--ease),filter .34s ease}
 .scr.sheeted .layer,.scr.sheeted #hero,.scr.sheeted #paper{
   transform:scale(.972);transform-origin:top center}
 #grid{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:56px 0 64px}
@@ -140,36 +158,48 @@ b .cy,.net .cy{color:var(--ink-4)}
 #card,#thread{pointer-events:none;opacity:0}
 
 /* grid header */
-.gh{padding:0 22px 22px;display:flex;flex-direction:column;gap:14px}
+.gh{padding:0 24px 24px;display:flex;flex-direction:column;gap:14px}
 .gh-row{display:flex;align-items:flex-start;justify-content:space-between}
-.gh-row .ser{font-size:26px;line-height:1}
+.gh-row .ser{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:40px;line-height:.85;
+  letter-spacing:-.004em;text-transform:uppercase}
 .icon{background:none;border:none;padding:5px;margin:-5px;cursor:pointer;color:var(--ink-3);
   display:grid;place-items:center}
 .icon:focus-visible{outline:2px solid var(--act);outline-offset:2px;border-radius:6px}
 .net{display:flex;flex-direction:column;gap:3px;padding-top:2px}
-.net b{font-family:var(--serif);font-weight:400;font-size:46px;
+.net b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:96px;text-transform:uppercase;
   line-height:.92;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .net .who{font-size:12px;color:var(--ink-3);line-height:1.45}
 
 /* the contact sheet — uniform tiles, image first, no card chrome */
-.sheet{display:grid;grid-template-columns:1fr 1fr;gap:26px 13px;padding:0 22px}
-.tile{background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;
-  text-align:left;display:flex;flex-direction:column;gap:9px;
-  transition:opacity .2s ease}
+.sheet{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 24px}
+.tile{background:var(--glass);border:1px solid var(--rule);padding:10px 12px 13px;font:inherit;
+  color:inherit;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:9px;
+  border-radius:16px;position:relative;isolation:isolate;
+  transition:opacity .6s var(--ease),border-color .6s var(--ease)}
+.tile:hover{border-color:rgba(247,242,233,.26)}
+/* The racha that is live carries a luminous border: a conic gradient turning
+   behind a 1px ring. A border that moves reads as a thing with a pulse. */
+.tile.live::after{content:'';position:absolute;inset:-1px;border-radius:17px;padding:1px;
+  background:conic-gradient(from var(--spin,0deg),rgba(247,242,233,.55),rgba(247,242,233,.06) 25%,
+    rgba(247,242,233,.06) 55%,rgba(247,242,233,.40) 78%,rgba(247,242,233,.55));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;
+  animation:spin 7s linear infinite}
+@property --spin{syntax:'<angle>';inherits:false;initial-value:0deg}
+@keyframes spin{to{--spin:360deg}}
 .tile:focus-visible{outline:2px solid var(--act);outline-offset:6px;border-radius:8px}
 .shot{position:relative;aspect-ratio:1;display:grid;place-items:center;
-  border-radius:2px;overflow:hidden}
+  border-radius:10px;overflow:hidden;margin:0 -2px}
 /* The tile ground is a lighter sheet of the same stock, so the cut-out reads
    as an object photographed on paper — not as an image in a box. */
-.shot::before{content:'';position:absolute;inset:0;background:var(--p-hi);
-  box-shadow:inset 0 0 0 1px var(--rule-2)}
+.shot::before{content:'';position:absolute;inset:0;background:none}
 .shot canvas{position:relative;width:96%;height:96%}
 .cap{display:flex;flex-direction:column;gap:3px}
-.cap .t{font-family:var(--serif);font-size:20px;line-height:1.08;
+.cap .t{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:17px;line-height:1.1;
   letter-spacing:-.012em;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;
   overflow:hidden}
 .cap .v{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
-.cap .amt{font-family:var(--serif);font-size:16px;color:var(--ink-2)}
+.cap .amt{font-family:var(--sans);font-size:14px;color:var(--ink-2)}
 .dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block;
   vertical-align:baseline;margin-bottom:1px;margin-right:6px;box-sizing:border-box}
 .dot.o{background:var(--ink-2)}
@@ -177,20 +207,20 @@ b .cy,.net .cy{color:var(--ink-4)}
 
 /* ── the flying tile (grid ⇄ card) ────────────────────────────────────── */
 #hero{position:absolute;z-index:40;pointer-events:none;opacity:0;
-  display:grid;place-items:center;border-radius:2px;overflow:hidden}
-#hero::before{content:'';position:absolute;inset:0;background:var(--p-hi);
-  box-shadow:inset 0 0 0 1px var(--rule-2);opacity:var(--heroframe,1);
-  transition:opacity .2s ease}
+  display:grid;place-items:center;border-radius:16px;overflow:hidden}
+#hero::before{content:'';position:absolute;inset:0;background:var(--glass);
+  box-shadow:inset 0 0 0 1px var(--rule);border-radius:16px;opacity:var(--heroframe,1);
+  transition:opacity .6s var(--ease)}
 #hero canvas{position:relative;width:96%;height:96%}
 
 /* ── card ─────────────────────────────────────────────────────────────── */
-#card{display:flex;flex-direction:column;padding:54px 22px 32px;gap:0}
+#card{display:flex;flex-direction:column;padding:56px 24px 32px;gap:0}
 .cardmeta h2+.who-row{margin-top:-4px}
 /* Picture above, name below, both hanging off the same left margin. A cover. */
 .herorow{display:flex;flex-direction:column;gap:20px;align-items:flex-start}
 .heroslot{height:var(--heroh,220px);width:100%;flex:none}
 .herofacts{display:flex;flex-direction:column;gap:7px;align-self:stretch}
-.herofacts h2{font-family:var(--serif);font-weight:400;font-size:40px;
+.herofacts h2{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:60px;text-transform:uppercase;
   line-height:.98;letter-spacing:-.022em;text-wrap:balance}
 
 /* Everything below the picture hangs on one right edge. On a ledger aesthetic
@@ -204,11 +234,13 @@ b .cy,.net .cy{color:var(--ink-4)}
 .led div span:last-child{flex:none}
 .led .strong{font-size:14.5px;color:var(--ink)}
 .led .dim{color:var(--ink-4)}
-.led .gap{display:block;height:1px;background:var(--rule);margin:5px 0 4px}
+.led .gap{display:block;height:1px;background:var(--rule-2);margin:6px 0 5px}
 /* Where you stand. The one figure on this screen you actually came for, given
    the room the rest of the page was leaving empty anyway. */
 .standing{display:flex;flex-direction:column;gap:5px;padding-bottom:4px}
-.standing b{font-size:52px;line-height:.92;letter-spacing:-.028em;font-weight:400}
+.standing b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:118px;line-height:.85;
+  letter-spacing:-.006em;text-transform:uppercase}
+.standing .lbl{font-size:13px}
 .standing .open{color:var(--ink)}
 .cardtop{display:flex;justify-content:space-between;align-items:flex-start}
 .back{background:none;border:none;padding:6px 10px 6px 0;margin-left:-2px;cursor:pointer;
@@ -228,41 +260,45 @@ b .cy,.net .cy{color:var(--ink-4)}
 .state.led .bar{display:block}
 .bar{height:1.5px;background:var(--rule);position:relative;overflow:hidden}
 .bar i{position:absolute;inset:0 auto 0 0;background:var(--ink-3);
-  transition:width .8s cubic-bezier(.2,.9,.25,1)}
+  transition:width .8s var(--ease)}
 .stateline{display:flex;justify-content:space-between;gap:14px;font-size:12px;color:var(--ink-3)}
 .stateline .open{color:var(--ink-2)}
 .go{margin-top:0;width:100%;border:none;cursor:pointer;
-  font-family:var(--serif);font-weight:400;font-size:17px;letter-spacing:.022em;
-  color:var(--p-hi);padding:15px;border-radius:0;
-  background:var(--ink);transition:background .16s}
-.go:active{background:var(--ink-2)}
+  font-family:var(--sans);font-weight:500;font-size:16px;letter-spacing:-.005em;
+  color:var(--night);padding:0;height:52px;border-radius:14px;
+  background:var(--cream);transition:transform .6s var(--ease),background .3s}
+.go:active{transform:scale(.985)}
 .go:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 
 /* ── thread ───────────────────────────────────────────────────────────── */
 /* The stock is the same sheet on every screen. The thread used to paint an
    opaque panel over the grain, which is why two of the four screens felt like
    a different material. */
-#thread{display:flex;flex-direction:column;background:var(--p-0);
-  background-image:var(--ruled),var(--grain);background-size:auto,180px 180px}
-.shb{background-image:var(--ruled),var(--grain);background-size:auto,180px 180px}
-.slip{background-image:var(--ruled);background-size:auto}
-.th-top{padding:54px 22px 12px;display:flex;flex-direction:column;gap:11px;
+#thread{display:flex;flex-direction:column;background:transparent}
+
+
+.th-top{padding:56px 24px 12px;display:flex;flex-direction:column;gap:11px;
   border-bottom:1px solid var(--rule-2)}
 .th-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.th-row .ser{font-size:23px;line-height:1.04}
+.th-row .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;line-height:1.04;letter-spacing:-.02em}
 .tot{background:none;border:none;font:inherit;color:inherit;cursor:pointer;padding:0;
   display:flex;flex-direction:column;align-items:flex-end;gap:2px}
-.tot b{font-family:var(--serif);font-weight:400;font-size:22px;
+.tot b{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;
   font-variant-numeric:tabular-nums}
-.slipwrap{padding:21px 22px 0;flex:none}
-.msgs{flex:1;overflow-y:auto;scrollbar-width:none;padding:16px 22px 10px;
+.slipwrap{padding:24px 24px 0;flex:none}
+.msgs{flex:1;overflow-y:auto;scrollbar-width:none;padding:16px 24px 10px;
   display:flex;flex-direction:column;gap:16px;justify-content:flex-end}
 .msgs::-webkit-scrollbar{display:none}
 /* The bill itself, set as the slip it is. Mono figures, hairline rules, and a
    total that is ruled off — the one place in the app that looks like paper
    because it is standing in for paper. */
 .slip{display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--ink-2);
-  background:var(--p-hi);padding:15px 15px 14px;align-self:stretch;position:relative}
+  background:var(--cream);padding:16px 16px 15px;align-self:stretch;position:relative;
+  /* paper on a dark table: the ink tokens flip inside it, and it alone may cast a shadow */
+  --ink:#211C16;--ink-2:#4A4134;--ink-3:#6E6454;--ink-4:#968B76;--p-hi:var(--cream);
+  --rule:rgba(33,28,22,.12);--rule-2:rgba(33,28,22,.07);--act:#8E1231;
+  --leader:radial-gradient(circle at 1px 50%,#968B76 .8px,transparent .9px);
+  box-shadow:0 18px 40px rgba(0,0,0,.38),0 2px 6px rgba(0,0,0,.25)}
 /* The torn edge of a pad. Scalloped, not dashed: a perforation is a row of
    holes the paper was pulled through, and it reads at the top of the slip the
    way it reads on the real thing. */
@@ -294,94 +330,98 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* Messages are slips of paper, not iOS bubbles. Square corners keep the whole
    screen inside the same two radii as everything else, and stop the thread
    from reading as a generic chat app dropped into an editorial shell. */
-.b{font-size:14.5px;line-height:1.46;padding:11px 14px;border-radius:2px}
+.b{font-size:15px;line-height:1.5;padding:0;border-radius:0}
 /* The person's own words are marginalia on the bill, not a chat bubble. A
    full-width saturated slab was the heaviest mass on the screen and it was
    saying nothing that the words themselves did not. */
-.u .b{background:none;color:var(--ink);padding:2px 0 2px 13px;text-align:left;
-  border-left:2px solid var(--ink-4);font-family:var(--serif);
-  font-size:19px;line-height:1.28;letter-spacing:-.01em}
+/* The person's words, in the serif italic — the one place the serif speaks,
+   the way Air gives its cursive to the emotional phrase and nothing else. */
+.u .b{background:none;color:var(--ink);padding:0 0 0 14px;text-align:left;
+  border-left:1px solid var(--ink-4);font-family:var(--serif);font-style:italic;
+  font-variation-settings:'opsz' 30;font-size:22px;line-height:1.22;letter-spacing:-.008em}
 .m.u{align-items:flex-start;align-self:flex-start;max-width:92%}
 /* The agent does not speak from inside a box. Five container styles inside
    two hundred pixels is what made this screen read as a chat app wearing an
    editorial costume; the reply is simply set on the page. */
 .a .b{background:none;border:none;padding:0;color:var(--ink-2);max-width:100%;
-  font-size:14px;line-height:1.5}
+  font-size:15px;line-height:1.5}
 .m.a{max-width:100%}
-.tok{opacity:0;animation:tk .38s cubic-bezier(.2,.9,.25,1) forwards}
+.tok{opacity:0;animation:tk .38s var(--ease) forwards}
 @keyframes tk{from{opacity:0;filter:blur(3px);transform:translateY(3px)}
   to{opacity:1;filter:blur(0);transform:none}}
 
 /* the edit ribbon — the product's promise, on screen */
-.ed{display:flex;gap:11px;align-items:flex-start;width:100%;padding:11px 0;
-  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
-  animation:ep .34s cubic-bezier(.2,.9,.25,1)}
+.ed{display:flex;gap:12px;align-items:flex-start;width:100%;padding:12px 0;
+  border-top:1px solid var(--rule-2);border-bottom:1px solid var(--rule-2);
+  animation:ep .34s var(--ease)}
 @keyframes ep{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .ed.x{opacity:.5}
-.ed .r{width:2px;align-self:stretch;background:var(--ink-4);flex:none}
+.ed .r{width:1px;align-self:stretch;background:var(--ink-4);flex:none}
 .ed.x .r{background:var(--ink-4)}
 .ed .c{flex:1;display:flex;flex-direction:column;gap:3px}
 .ed .c .s{font-size:12.5px;line-height:1.4}
 .ed.x .c .s{text-decoration:line-through;color:var(--ink-3)}
 .ed .c .d{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.ed button{font:inherit;font-size:11.5px;background:none;color:var(--ink-2);
-  cursor:pointer;padding:0 0 4px;flex:none;align-self:flex-start;line-height:1.35;
-  border:none;box-shadow:0 5px 0 -3px var(--ink-4)}
-.ed button:hover{color:var(--ink);box-shadow:0 4px 0 -3px var(--ink)}
+.ed button{font:inherit;font-size:12px;background:var(--glass);color:var(--ink);
+  cursor:pointer;padding:6px 11px;flex:none;align-self:flex-start;line-height:1.2;
+  border:1px solid var(--rule);border-radius:99px}
+.ed button:hover{border-color:rgba(247,242,233,.3)}
 .wk{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;font-size:12px;
   color:var(--ink-3)}
 .wk i{width:5px;height:5px;border-radius:50%;background:var(--act);display:block;
   animation:bl 1s ease-in-out infinite}
 @keyframes bl{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 
-.comp{padding:10px 22px calc(18px + env(safe-area-inset-bottom));
-  display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--rule-2)}
-.chips{display:flex;gap:18px;overflow-x:auto;scrollbar-width:none;flex:none;
-  gap:18px;margin:5px -22px 0;padding:0 56px 0 22px;
+.comp{padding:12px 24px calc(20px + env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;gap:10px;border-top:none}
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;flex:none;
+  gap:8px;margin:6px -24px 0;padding:0 56px 0 24px;
   -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 62px),transparent calc(100% - 10px));
   mask-image:linear-gradient(90deg,#000 calc(100% - 62px),transparent calc(100% - 10px))}
 .chips::-webkit-scrollbar{display:none}
-.chip{font:inherit;font-size:12.5px;white-space:nowrap;cursor:pointer;padding:5px 0;
-  background:none;border:none;color:var(--ink-2);
-  box-shadow:0 4px 0 -3px var(--ink-4)}
-.chip:hover{color:var(--ink);box-shadow:0 4px 0 -3px var(--ink)}
+/* Pills: frosted glass, a border you can see. The same object as the state
+   eyebrow, because they are the same kind of thing — a small, tappable fact. */
+.chip{font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;padding:9px 14px;
+  background:var(--glass);border:1px solid var(--rule);border-radius:99px;color:var(--ink);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  transition:border-color .6s var(--ease),background .6s var(--ease)}
+.chip:hover{border-color:rgba(247,242,233,.3);background:var(--glass-hi)}
 .chip[disabled]{opacity:.35;cursor:default}
 /* The suggested action is marked by ink weight, not by borrowing the brand
    colour. Oxblood is reserved for the one primary action on a screen. */
 .chip.a{color:var(--ink);border-color:var(--ink-4)}
-.inp{display:flex;gap:10px;align-items:center}
-.fake{flex:1;font-size:14.5px;color:var(--ink-4);padding:12px 0;
-  border-bottom:1px solid var(--rule)}
+.inp{display:flex;gap:8px;align-items:center}
+.fake{flex:1;font-size:15px;color:var(--ink-3);padding:0 16px;height:48px;display:flex;align-items:center;
+  background:var(--glass);border:1px solid var(--rule);border-radius:16px}
 /* A solid black disc is the stock assistant-composer send button, and it was
    the only pure black anywhere in this file. The send is a mark on the page. */
-.rnd{border:none;background:none;cursor:pointer;flex:none;font:inherit;font-size:13px;
-  color:var(--ink-3);padding:6px 0}
+.rnd{border:1px solid var(--rule);background:var(--glass);cursor:pointer;flex:none;font:inherit;font-size:13px;
+  font-weight:500;color:var(--ink);padding:0 16px;height:48px;border-radius:16px}
 .rnd:hover{color:var(--ink)}
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
-.sh{position:absolute;inset:0;z-index:60;background:none;opacity:0;
+.sh{position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.42);opacity:0;
 
-  pointer-events:none;transition:opacity .28s ease;display:flex;align-items:flex-end}
+  pointer-events:none;transition:opacity .5s var(--ease);display:flex;align-items:flex-end}
 .sh.on{opacity:1;pointer-events:auto}
-.sh::before{content:'';position:absolute;inset:0;background:#7A5A2E;opacity:.13;
-  mix-blend-mode:multiply;pointer-events:none}
+
 .shb{position:relative;z-index:1;width:100%;max-height:calc(100% - 118px);overflow-y:auto;overscroll-behavior:contain;
-  scrollbar-width:none;background:var(--p-0);border-radius:2px 2px 0 0;transform-origin:bottom;
-  box-shadow:0 -1px 0 var(--ink-4);
-  padding:14px 22px calc(62px + env(safe-area-inset-bottom));display:flex;
+  scrollbar-width:none;background:var(--night-2);border-radius:20px 20px 0 0;transform-origin:bottom;
+  border-top:1px solid var(--rule);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  padding:16px 24px calc(62px + env(safe-area-inset-bottom));display:flex;
   flex-direction:column;gap:18px;transform:translateY(22px);
 
-  transition:transform .34s cubic-bezier(.2,.9,.25,1)}
+  transition:transform .34s var(--ease)}
 .sh.on .shb{transform:none}
 /* The last row runs under a wash of the sheet's own paper, so content reads as
    continuing past the edge instead of being cut through the digits. */
 .sh::after{content:'';position:absolute;left:0;right:0;bottom:0;z-index:2;
-  height:120px;background:linear-gradient(180deg,transparent,var(--p-0) 46%);pointer-events:none}
+  height:120px;background:linear-gradient(180deg,transparent,var(--night-2) 46%);pointer-events:none}
 .shb::-webkit-scrollbar{display:none}
 .shh{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;
-  background:var(--p-0);padding:2px 0 8px;z-index:2}
+  background:var(--night-2);padding:2px 0 8px;z-index:2}
 
-.shh .ser{font-size:21px}
+.shh .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:21px;letter-spacing:-.02em}
 .shh button{font:inherit;font-size:13px;background:none;border:none;color:var(--ink-2);
   cursor:pointer;padding:4px 0}
 .shh button:hover{color:var(--ink)}
@@ -394,19 +434,19 @@ b .cy,.net .cy{color:var(--ink-4)}
 button.rw{cursor:pointer}
 .rw .g{flex:0 1 auto;display:flex;flex-direction:column;gap:2px;min-width:0}
 .rw .g .n{font-size:14px}
-.rw .amt{font-family:var(--serif);font-size:17px;padding-top:1px;
+.rw .amt{font-family:var(--sans);font-size:16px;padding-top:2px;
   font-variant-numeric:tabular-nums}
-.der{display:flex;flex-direction:column;gap:5px;padding:0 0 11px 14px!important;
+.der{display:flex;flex-direction:column;gap:6px;padding:0 0 12px 14px!important;margin-top:7px;
   font-size:11.5px;color:var(--ink-3);border-bottom:none!important;
   border-left:1px solid var(--rule);margin-left:2px}
 .der div{padding:0!important;border:none!important}
 .der[hidden],[hidden]{display:none!important}
 .der div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
 .tt{display:flex;justify-content:space-between;padding:15px 0 0!important;margin-top:4px;
-  border-top:1.5px solid var(--ink)!important;border-bottom:none!important;font-size:15px}
+  border-top:1px solid var(--ink)!important;border-bottom:none!important;font-size:15px}
 .tt .mo{font-size:17px}
-.thm{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:2px;
-  background:var(--p-hi);position:relative;box-shadow:inset 0 0 0 1px var(--rule-2)}
+.thm{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:10px;
+  background:var(--glass);position:relative;box-shadow:inset 0 0 0 1px var(--rule-2)}
 .thm canvas{width:88%;height:88%}
 .ck{width:18px;height:18px;flex:none;border:1.5px solid var(--ink-4);border-radius:2px;
   display:grid;place-items:center;cursor:pointer;color:var(--p-hi);font-size:10px;
@@ -441,7 +481,7 @@ button.rw{cursor:pointer}
 .ob{position:absolute;inset:0;display:flex;flex-direction:column;
   padding:58px 26px calc(26px + env(safe-area-inset-bottom));
   opacity:0;pointer-events:none;
-  transition:opacity .34s ease, transform .44s cubic-bezier(.2,.9,.25,1)}
+  transition:opacity .34s ease, transform .44s var(--ease)}
 .ob.on{opacity:1;pointer-events:auto;transform:none}
 .ob.before{transform:translateX(28px)}
 .ob.after{transform:translateX(-28px)}
@@ -496,7 +536,7 @@ button.rw{cursor:pointer}
 .parts span{background:var(--p-0);display:flex;flex-direction:column;gap:3px;
   padding:10px 0 11px;align-items:center;
   opacity:0;transform:translateY(7px);
-  animation:pin .5s cubic-bezier(.2,.9,.25,1) forwards}
+  animation:pin .5s var(--ease) forwards}
 @keyframes pin{to{opacity:1;transform:none}}
 .parts span i{font-family:'JetBrains Mono',monospace;font-style:normal;font-size:8.5px;
   letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3)}
@@ -1333,7 +1373,7 @@ const RECIPE_NAMES = Object.keys(RECIPES);
    Several blocks on one baseline, the way a cordel cover groups them: no
    depth, no scaling by distance. They overlap, and the uncut channel of paper
    each one carries is the only cue that one is in front of another.         */
-function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAPER } = {}) {
+function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAPER, ink = INK } = {}) {
   const dpr = Math.min(globalThis.devicePixelRatio || 1, 3);
   canvas.width = Math.round(W_ * dpr); canvas.height = Math.round(H_ * dpr);
   canvas.style.width = W_ + 'px'; canvas.style.height = H_ + 'px';
@@ -1344,7 +1384,7 @@ function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAPER } = 
     const side = Math.min(W_, H_) * item.s;
     c.save();
     c.translate(item.x * W_ - side / 2, item.y * H_ - side / 2);
-    paint(c, item.name, side, seedKey + '|' + item.name + '|' + i, { paper });
+    paint(c, item.name, side, seedKey + '|' + item.name + '|' + i, { paper, ink });
     c.restore();
   });
 }
@@ -1587,29 +1627,29 @@ function stateOf(r){
    spacing a receipt has. Drawn once; no animation, no colour orbs.
    ══════════════════════════════════════════════════════════════════════════ */
 function drawPaper(){
+  // The room, not a sheet. Umbra, with one warm light low and to the left —
+  // the lamp over the table — a cooler spill high and right, and a little
+  // smoke: the soft, slow drift Air does with clouds, done here with what a
+  // bar actually has in the air. Then grain, so the dark is a surface.
   const cv=el('paper'),box=cv.getBoundingClientRect();
   const w=Math.max(1,box.width|0),h=Math.max(1,box.height|0),dpr=Math.min(devicePixelRatio||1,2);
   cv.width=w*dpr; cv.height=h*dpr;
   const c=cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0);
-  c.fillStyle='#F7F2E9'; c.fillRect(0,0,w,h);
-  // Long-wavelength fibre.
+  const base=c.createLinearGradient(0,0,0,h);
+  base.addColorStop(0,'#100C07'); base.addColorStop(.55,'#141008'); base.addColorStop(1,'#1A1109');
+  c.fillStyle=base; c.fillRect(0,0,w,h);
+  const glow=(x,y,r,col,a)=>{const g=c.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0,col.replace('A',a)); g.addColorStop(1,col.replace('A','0'));
+    c.fillStyle=g; c.fillRect(0,0,w,h);};
+  glow(w*.18,h*1.02,Math.max(w,h)*.95,'rgba(255,150,60,A)',.20);   // the lamp
+  glow(w*.92,h*-.05,Math.max(w,h)*.6,'rgba(247,242,233,A)',.05);   // spill from the bar
   const R=rng(0x5EED);
-  for(let i=0;i<520;i++){
-    const x=R()*w,y=R()*h,len=4+R()*22,a=R()*Math.PI;
-    c.strokeStyle=`rgba(120,102,72,${.007+R()*.015})`; c.lineWidth=.5+R()*.5;
-    c.beginPath(); c.moveTo(x,y); c.lineTo(x+Math.cos(a)*len,y+Math.sin(a)*len); c.stroke();
+  for(let i=0;i<7;i++){                                              // smoke
+    const x=R()*w,y=h*(.15+R()*.8),r=w*(.22+R()*.3);
+    glow(x,y,r,'rgba(247,242,233,A)',.018+R()*.02);
   }
-  // Ruled spacing, at the threshold of visibility — the receipt's own rhythm.
-  c.strokeStyle='rgba(120,102,72,.032)'; c.lineWidth=1;
-  for(let y=0;y<h;y+=26){c.beginPath();c.moveTo(0,y+.5);c.lineTo(w,y+.5);c.stroke();}
-  // Press vignette: the sheet is lit from above-left and falls off at the edges.
-  const g=c.createRadialGradient(w*.34,h*.24,Math.min(w,h)*.1,w*.5,h*.55,Math.max(w,h)*.86);
-  g.addColorStop(0,'rgba(255,253,246,.5)'); g.addColorStop(.55,'rgba(255,253,246,0)');
-  g.addColorStop(1,'rgba(96,78,48,.11)');
-  c.fillStyle=g; c.fillRect(0,0,w,h);
-  // Grain.
   const img=c.getImageData(0,0,cv.width,cv.height),d=img.data;
-  for(let i=0;i<d.length;i+=4){const n=(R()-.5)*13; d[i]+=n; d[i+1]+=n; d[i+2]+=n;}
+  for(let i=0;i<d.length;i+=4){const n=(R()-.5)*7; d[i]+=n; d[i+1]+=n; d[i+2]+=n;}
   c.putImageData(img,0,0);
 }
 
@@ -1638,17 +1678,18 @@ function still(r){
 /* The stock each block is printed on, read off the live stylesheet so a
    change to the palette cannot leave the gouges a shade off the surface. */
 const STOCK = (()=>{ const s=getComputedStyle(document.documentElement);
-  return {hi:s.getPropertyValue('--p-hi').trim()||'#FCF9F3',
-          p0:s.getPropertyValue('--p-0').trim()||'#F7F2E9'}; })();
+  // On dark stock the block prints the other way round: cream ink, and the
+  // gouges show the table through. Same recipes, inverse impression.
+  return {hi:'#1B1309', p0:'#141008', ink:s.getPropertyValue('--cream').trim()||'#F7F2E9'}; })();
 function heroTarget(){
   const b=el('scr').getBoundingClientRect();
   // Two thirds of the width, not all of it. A picture that fills the screen
   // is a poster; the subject of this screen is the split, and the picture is
   // its illustration. Square, because the drawing is square.
-  const pad=22, w=b.width-pad*2, h=Math.round(w*0.62);
+  const pad=24, w=b.width-pad*2, h=Math.round(w*0.62);
   el('card').style.setProperty('--heroh', h+'px');
   el('card').style.setProperty('--heroframe', '0');   // the plate sits on the page
-  return{x:pad,y:92,w,h};
+  return{x:pad,y:96,w,h};
 }
 const lerp=(a,b,t)=>a+(b-a)*t;
 
@@ -1731,7 +1772,7 @@ function open(id){
   // on one shared ground line, at one shared size, so the rules run together
   // into a single horizon rather than three stacked drawings.
   const t=heroTarget();
-  drawStill(cv, still(r), Math.round(t.w), Math.round(t.h), r.id, {paper:STOCK.p0});
+  drawStill(cv, still(r), Math.round(t.w), Math.round(t.h), r.id, {paper:STOCK.p0,ink:STOCK.ink});
   cv.style.width='100%'; cv.style.height='100%';
   renderCard(); renderThread();
   applyZ(Z); goto(1);
@@ -1761,7 +1802,7 @@ function renderGrid(){
 
   el('tiles').innerHTML=RACHAS.map(r=>{
     const{s,done}=stateOf(r);
-    return `<button class="tile" data-id="${r.id}" aria-label="${esc(r.title)}">
+    return `<button class="tile${!done&&r===RACHAS.find(x=>!stateOf(x).done)?' live':''}" data-id="${r.id}" aria-label="${esc(r.title)}">
       <span class="shot"><canvas data-dish="${esc(r.hero)}" data-seed="${r.id}|${esc(r.hero)}"></canvas></span>
       <span class="cap">
         <span class="t">${esc(r.title)}</span>
@@ -1775,7 +1816,7 @@ function renderGrid(){
 
   document.querySelectorAll('.tile canvas').forEach(cv=>{
     const box=cv.parentElement.getBoundingClientRect();
-    drawFood(cv,cv.dataset.dish,Math.max(60,Math.round(box.width*.96)),cv.dataset.seed,{paper:STOCK.hi});
+    drawFood(cv,cv.dataset.dish,Math.max(60,Math.round(box.width*.96)),cv.dataset.seed,{paper:STOCK.hi,ink:STOCK.ink});
     cv.style.width='96%'; cv.style.height='96%';
   });
   document.querySelectorAll('.tile').forEach(b=>b.onclick=()=>open(b.dataset.id));
@@ -2252,9 +2293,9 @@ function drawOnb(){
     {name:'Chopp 500ml',      x:.17, y:.38, s:.60, z:.15},
     {name:'Farofa da casa',   x:.82, y:.55, s:.54, z:.30},
     {name:'Picanha na chapa', x:.50, y:.62, s:.88, z:.90},
-  ], Math.max(220,box.width), 268, 'abertura', {paper:STOCK.p0});
+  ], Math.max(220,box.width), 268, 'abertura', {paper:STOCK.p0,ink:STOCK.ink});
   document.querySelectorAll('.door canvas').forEach(cv=>{
-    drawFood(cv,cv.dataset.dish,52,cv.dataset.seed,{paper:STOCK.hi});
+    drawFood(cv,cv.dataset.dish,52,cv.dataset.seed,{paper:STOCK.hi,ink:STOCK.ink});
     cv.style.width='90%';cv.style.height='90%';
   });
 }
@@ -2491,7 +2532,7 @@ function buildFlow(){
         <figcaption><b>${n.t}</b><span>${n.s}</span></figcaption></figure>`).join('');
 
   cv.querySelectorAll('[data-mdish]').forEach(c=>{
-    drawFood(c,c.dataset.mdish,+c.dataset.msize,c.dataset.mseed,{paper:STOCK.hi});
+    drawFood(c,c.dataset.mdish,+c.dataset.msize,c.dataset.mseed,{paper:STOCK.hi,ink:STOCK.ink});
     c.style.width='96%'; c.style.height='96%';
   });
 }

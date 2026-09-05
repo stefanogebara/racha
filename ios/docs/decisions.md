@@ -336,3 +336,53 @@ na folha — e é o que separa os sujeitos que se sobrepõem na natureza-morta.
 **O que faria mudar de ideia.** Se a massa preta pesar demais numa tela de bar
 com 15% de bateria e brilho baixo. A gravura é muito mais escura que a linha; é
 a checagem que precisa de um telefone de verdade, não de uma captura.
+
+## 27 — A noite do bar, não o papel creme (2026-09-05)
+
+**Contexto.** Catorze rodadas de crítica cega bateram no mesmo teto: da terceira em
+diante, toda rodada identificou o *gênero* — creme, serifa editorial, filete, um
+vinho — como "a estética mais gerada que existe". Isso é julgamento sobre a
+categoria, não sobre a execução; refinar a categoria não passa por ele. O
+usuário apontou o air.inc como referência. A análise está em
+`reference-air-inc.md`; o que importa aqui é o que ela mudou.
+
+**O que o air.inc faz que nós não fazíamos.**
+Uma atmosfera contínua em vez de seções com fundo; uma família tipográfica em
+quatro cortes, com um corte comprimido super-preto a 259px contra corpo de 16px
+(16:1 — o nosso era 4:1); cartões de vidro com borda de 1px translúcida e sem
+sombra; demos como *UI fantasma monocromática atrás de conteúdo real colorido*;
+a frase emocional no cursivo de acento; 24px como unidade e uma tela inteira
+para uma palavra só.
+
+**Decisão.** Traduzir o *sistema*, não o céu.
+
+- **Tela.** O equivalente de Racha ao céu do Air é o bar à noite: uma tela
+  escura e quente (`#141008`, umbra quase preta) com uma fonte de luz baixa, e
+  a comanda creme como a única superfície clara — o papel que o Air reserva ao
+  seu formulário branco. Para a xilogravura é a impressão natural em papel
+  escuro: tinta creme, o bloco invertido, sem mudar uma receita.
+- **Tipo.** Archivo, variável, com eixo de largura. `wdth 62 · 900` para a
+  figura-cartaz (~120px em 390, entrelinha .85); `wdth 92 · 500` para títulos;
+  `wdth 100 · 400` para corpo. Uma voz em três larguras, como o Control do Air.
+  Algarismos tabulares em toda largura e peso — medido: dez dígitos idênticos ao
+  centésimo de pixel. A Newsreader sobrevive como *acento*, do jeito que o Air
+  usa o cursivo: itálica, para a fala da pessoa, nunca para o corpo.
+- **Camadas.** Vidro no lugar de filete: cartões com borda `rgba(creme,.14)`,
+  desfoque de fundo, lavagem interna; o racha aberto com a borda luminosa
+  (gradiente cônico girando); linhas fantasma de baixo contraste atrás das
+  figuras a força total.
+- **Espaço.** 24px como unidade. Calha de página 24. Vão de seção 48. A figura
+  do cartaz fica com um terço da tela.
+- **Movimento.** `cubic-bezier(.22,1,.36,1)` a 0,6–0,9s para tudo que não é o
+  morph de mola.
+
+**Por que isso não é "vidro escuro genérico".** Quente, não frio — umbra, não
+azul-marinho nem roxo; nenhum néon; disciplina de raio (16 cartão, 12 botão,
+pílula, mais nada); uma só fonte de luz, baixa; e os dois objetos que só podem
+ser deste produto — a comanda de papel e a xilogravura — fazendo o trabalho de
+identidade.
+
+**O que faria mudar de ideia.** Um telefone num bar escuro. Tela escura em OLED a
+15% de bateria é a favor; contraste da comanda creme sobre umbra é a favor; a
+legibilidade do corpo de 15px em creme a 62% é a dúvida que uma captura não
+resolve.

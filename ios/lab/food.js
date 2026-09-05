@@ -627,7 +627,7 @@ export const RECIPE_NAMES = Object.keys(RECIPES);
    Several blocks on one baseline, the way a cordel cover groups them: no
    depth, no scaling by distance. They overlap, and the uncut channel of paper
    each one carries is the only cue that one is in front of another.         */
-export function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAPER } = {}) {
+export function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAPER, ink = INK } = {}) {
   const dpr = Math.min(globalThis.devicePixelRatio || 1, 3);
   canvas.width = Math.round(W_ * dpr); canvas.height = Math.round(H_ * dpr);
   canvas.style.width = W_ + 'px'; canvas.style.height = H_ + 'px';
@@ -638,7 +638,7 @@ export function drawStill(canvas, plan, W_, H_, seedKey = 'still', { paper = PAP
     const side = Math.min(W_, H_) * item.s;
     c.save();
     c.translate(item.x * W_ - side / 2, item.y * H_ - side / 2);
-    paint(c, item.name, side, seedKey + '|' + item.name + '|' + i, { paper });
+    paint(c, item.name, side, seedKey + '|' + item.name + '|' + i, { paper, ink });
     c.restore();
   });
 }
