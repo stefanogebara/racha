@@ -30,7 +30,14 @@
   --ink-4:rgba(247,242,233,.38);
   /* One accent. Lifted off oxblood so it reads on umbra; it means money still
      open, and nothing else. */
-  --act:#E8475F; --act-2:#C93650; --pos:rgba(247,242,233,.54);
+  /* One red, warm: the vermilion of a cordel cover, not a coral. Two tones of
+     the same hue — this one on the table, a deeper one on the paper. */
+  --act:#DC4A2E; --act-2:#B93A22; --pos:rgba(247,242,233,.54);
+  /* The paper is a duller, warmer cream than the action: three things were
+     wearing the same colour and only one of them is a button. */
+  --paper:#EEE5D3;
+  /* Two radii. */
+  --r:12px; --r-s:6px;
   /* Glass: a border you can see, a fill you can barely see. Depth comes from
      translucency and layering, never from a drop shadow — except under paper. */
   --rule:rgba(247,242,233,.12); --rule-2:rgba(247,242,233,.07);
@@ -129,13 +136,15 @@ body{
 .fig{font-family:var(--sans)}
 /* The currency mark is a unit, not a numeral: optically smaller, raised, and
    set back from the figure so the eye lands on the amount. */
-.cy{font-size:.60em;letter-spacing:.02em;margin-right:.24em;color:var(--ink-3);
+.cy{font-size:.78em;letter-spacing:.01em;margin-right:.22em;color:var(--ink-3);
   font-family:inherit;font-weight:500;font-stretch:100%}
 /* The two poster figures keep the poster cut all the way through the money
    markup — .mo would otherwise pull them back to the body width. */
 .standing b .mo,.net b .mo{font-stretch:inherit;font-weight:inherit;letter-spacing:inherit}
-.standing .cy,.net .cy{font-size:.34em;margin-right:.18em;vertical-align:baseline;
-  font-stretch:80%;font-weight:700;letter-spacing:.01em}
+.standing .cy,.net .cy{font-size:.42em;margin-right:.14em;vertical-align:baseline;
+  font-stretch:62%;font-weight:900;letter-spacing:0;color:var(--ink-3)}
+/* The decimal comma of a compressed black face carries too much air after it. */
+.standing b .dc,.net b .dc{margin:0 -.05em 0 -.015em}
 .cap .amt .cy{display:inline-block;min-width:1.5em;text-align:right}
 
 b .cy,.net .cy{color:var(--ink-4)}
@@ -146,7 +155,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .nt{color:var(--ink-3)}
 /* The receipt-voiced micro label. This one detail does most of the work of
    making the interface feel like a bill rather than a generic app. */
-.mi{font-size:10.5px;font-weight:500;letter-spacing:.10em;
+.mi{font-size:11px;font-weight:500;letter-spacing:.10em;
   text-transform:uppercase;color:var(--ink-4)}
 /* A section rule in the ledger: the label and the hairline are one object. */
 .mi.rule{display:flex;align-items:center;gap:10px;color:var(--ink-3);
@@ -166,41 +175,43 @@ b .cy,.net .cy{color:var(--ink-4)}
 #card,#thread{pointer-events:none;opacity:0}
 
 /* grid header */
-.gh{padding:0 24px 28px;display:flex;flex-direction:column;gap:22px}
+.gh{padding:0 24px 22px;display:flex;flex-direction:column;gap:20px}
 .gh-row{display:flex;align-items:center;justify-content:space-between;min-height:24px}
 /* The wordmark is a mark, not a headline: the screen has one poster and it is
    the figure. Same row, same height, as the chevron bar on every other screen. */
-.gh-row .ser{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:19px;line-height:1;
-  letter-spacing:.02em;text-transform:uppercase}
+.gh-row .ser{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:23px;line-height:1;
+  letter-spacing:.005em;text-transform:uppercase}
 .icon{background:none;border:none;padding:5px;margin:-5px;cursor:pointer;color:var(--ink-3);
   display:grid;place-items:center}
 .icon:focus-visible{outline:2px solid var(--act);outline-offset:2px;border-radius:6px}
 .net{display:flex;flex-direction:column;gap:6px;padding-top:2px}
 .net b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:104px;text-transform:uppercase;
   line-height:.86;letter-spacing:-.016em;font-variant-numeric:tabular-nums;display:block}
-.net .lbl{font-size:13px;color:var(--ink-2)}
+.net .lbl{font-size:13.5px;color:var(--ink-2)}
 /* Where the figure comes from: one row per open racha, in that racha's own
    currency. The poster number is the sum of the rows you can check it against. */
-.pos{display:flex;flex-direction:column;margin-top:14px;font-size:13.5px}
+.pos{display:flex;flex-direction:column;margin-top:10px;font-size:13.5px}
 .pos div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0;
   border-top:1px solid var(--rule-2)}
 .pos div:first-child{border-top:none;padding-top:0}
 .pos .mo{font-size:14px}
 .pos .owe .mo{color:var(--act)}
+.pos .mo .cy{font-size:.85em}
 .pos .n{color:var(--ink-2)}
 
 /* the contact sheet — uniform tiles, image first, no card chrome */
 .sheet{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 24px}
 .tile{background:var(--surf);border:1px solid var(--rule);padding:10px 12px 13px;font:inherit;
   color:inherit;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:9px;
-  border-radius:16px;position:relative;isolation:isolate;
+  border-radius:var(--r);position:relative;isolation:isolate;
   transition:opacity .6s var(--ease),border-color .6s var(--ease)}
-/* Settled recedes. You should not have to read the word to know. */
-.tile.done{opacity:.55}
+/* Settled recedes — the picture and the figure, not the words. */
+.tile.done .shot{opacity:.45}
+.tile.done .cap .t{color:var(--ink-2)}
 .tile:hover{border-color:rgba(247,242,233,.26)}
 /* The racha that is live carries a luminous border: a conic gradient turning
    behind a 1px ring. A border that moves reads as a thing with a pulse. */
-.tile.live::after{content:'';position:absolute;inset:-1px;border-radius:17px;padding:1px;
+.tile.live::after{content:'';position:absolute;inset:-1px;border-radius:calc(var(--r) + 1px);padding:1px;
   background:conic-gradient(from var(--spin,0deg),rgba(247,242,233,.42),rgba(247,242,233,.06) 25%,
     rgba(247,242,233,.06) 55%,rgba(247,242,233,.30) 78%,rgba(247,242,233,.42));
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
@@ -210,7 +221,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 @keyframes spin{to{--spin:360deg}}
 .tile:focus-visible{outline:2px solid var(--act);outline-offset:6px;border-radius:8px}
 .shot{position:relative;aspect-ratio:1;display:grid;place-items:center;
-  border-radius:10px;overflow:hidden;margin:0 -2px}
+  border-radius:var(--r-s);overflow:hidden;margin:0 -2px}
 /* The tile ground is a lighter sheet of the same stock, so the cut-out reads
    as an object photographed on paper — not as an image in a box. */
 .shot::before{content:'';position:absolute;inset:0;background:none}
@@ -223,7 +234,8 @@ b .cy,.net .cy{color:var(--ink-4)}
 .cap .amt{font-family:var(--sans);font-size:14px;color:var(--ink)}
 .cap .v .st{font-size:12px;color:var(--ink-3)}
 .cap .v.owe .amt{color:var(--act)}
-.cap .v.quit .amt{color:var(--ink-4)}
+.cap .v.quit{justify-content:flex-end}
+.cap .v.quit .amt{color:var(--ink-3);font-size:12.5px}
 .dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block;
   vertical-align:baseline;margin-bottom:1px;margin-right:6px;box-sizing:border-box}
 .dot.o{background:var(--ink-2)}
@@ -231,9 +243,9 @@ b .cy,.net .cy{color:var(--ink-4)}
 
 /* ── the flying tile (grid ⇄ card) ────────────────────────────────────── */
 #hero{position:absolute;z-index:40;pointer-events:none;opacity:0;
-  display:grid;place-items:center;border-radius:16px;overflow:hidden}
+  display:grid;place-items:center;border-radius:var(--r);overflow:hidden}
 #hero::before{content:'';position:absolute;inset:0;background:var(--surf);
-  box-shadow:inset 0 0 0 1px var(--rule);border-radius:16px;opacity:var(--heroframe,1);
+  box-shadow:inset 0 0 0 1px var(--rule);border-radius:var(--r);opacity:var(--heroframe,1);
   transition:opacity .6s var(--ease)}
 #hero canvas{position:relative;width:96%;height:96%}
 
@@ -243,7 +255,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* Picture above, name below, both hanging off the same left margin. A cover. */
 .herorow{display:flex;flex-direction:column;gap:20px;align-items:flex-start}
 .heroslot{height:var(--heroh,220px);width:100%;flex:none}
-.herofacts{display:flex;flex-direction:column;gap:7px;align-self:stretch}
+.herofacts{display:flex;flex-direction:column;gap:6px;align-self:stretch}
 .herofacts h2{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:34px;
   line-height:1.02;letter-spacing:-.024em;text-wrap:balance}
 
@@ -254,20 +266,19 @@ b .cy,.net .cy{color:var(--ink-4)}
 .led>div{padding:10px 0;border-top:1px solid var(--rule-2)}
 .led>div:first-child{border-top:none;padding-top:0}
 .led .mo,.slip .mo{font-size:15px;line-height:1;color:var(--ink)}
-.led .flag{font-size:12px;color:var(--act);margin-left:8px;white-space:nowrap}
-.led .flag::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;
-  background:var(--act);margin:0 6px 1px 0;vertical-align:middle}
+.led .flag{font-size:11.5px;color:var(--act);margin-left:8px;white-space:nowrap;
+  border:1px solid var(--act);border-radius:var(--r-s);padding:1px 6px;font-weight:500}
 .led .dim .mo{color:var(--ink-4)}
 .led div{display:flex;gap:0;align-items:baseline;justify-content:space-between}
 .led div span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
 .led div span:last-child{flex:none}
-.led div i{flex:1}
+.led div>i{flex:1}
 .led .strong{font-size:14.5px;color:var(--ink)}
 .led .dim{color:var(--ink-4)}
 .led .gap{display:none}
 /* Where you stand. The one figure on this screen you actually came for, given
    the room the rest of the page was leaving empty anyway. */
-.standing{display:flex;flex-direction:column;gap:5px;padding-bottom:4px}
+.standing{display:flex;flex-direction:column;gap:6px;padding:26px 0 0}
 .standing b{font-family:var(--sans);font-stretch:62%;font-weight:900;font-size:104px;line-height:.86;
   letter-spacing:-.016em;text-transform:uppercase;display:block}
 .standing .lbl{font-size:13px;color:var(--ink-2)}
@@ -275,7 +286,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .cardtop{display:flex;justify-content:space-between;align-items:flex-start}
 .back{background:none;border:none;padding:6px 10px 6px 0;margin-left:-2px;cursor:pointer;
   color:var(--ink-2);font:inherit;font-size:13px;display:flex;align-items:center;gap:6px}
-.cardmeta{display:flex;flex-direction:column;gap:16px;padding-top:28px}
+.cardmeta{display:flex;flex-direction:column;gap:16px;padding-top:26px}
 .cardgap{flex:1;min-height:8px}
 .cardmeta h2{font-family:var(--serif);font-weight:400;font-size:40px;
   line-height:.98;letter-spacing:-.02em}
@@ -295,7 +306,7 @@ b .cy,.net .cy{color:var(--ink-4)}
 .stateline .open{color:var(--ink-2)}
 .go{margin-top:0;width:100%;border:none;cursor:pointer;
   font-family:var(--sans);font-weight:600;font-size:16px;letter-spacing:-.008em;
-  color:var(--night);padding:0;height:54px;border-radius:14px;
+  color:var(--night);padding:0;height:54px;border-radius:var(--r);
   background:var(--cream);transition:transform .6s var(--ease),background .3s}
 .go:active{transform:scale(.985)}
 .go:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
@@ -313,20 +324,20 @@ b .cy,.net .cy{color:var(--ink-4)}
 .th-row .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;line-height:1.04;letter-spacing:-.02em}
 .tot{background:none;border:none;font:inherit;color:inherit;cursor:pointer;padding:0;
   display:flex;flex-direction:column;align-items:flex-end;gap:2px}
-.tot b{font-family:var(--sans);font-weight:500;font-size:13px;color:var(--ink-2);
-  padding:6px 0;border-bottom:1px solid var(--ink-4)}
+.tot b{font-family:var(--sans);font-weight:500;font-size:13px;color:var(--ink-2);padding:6px 0}
+.scr.sheeted .tot{opacity:0}
 .slipwrap{padding:24px 24px 0;flex:none}
-.msgs{flex:1;overflow-y:auto;scrollbar-width:none;padding:16px 24px 10px;
-  display:flex;flex-direction:column;gap:16px;justify-content:flex-end}
+.msgs{flex:1;overflow-y:auto;scrollbar-width:none;padding:20px 24px 10px;
+  display:flex;flex-direction:column;gap:18px}
 .msgs::-webkit-scrollbar{display:none}
 /* The bill itself, set as the slip it is. Mono figures, hairline rules, and a
    total that is ruled off — the one place in the app that looks like paper
    because it is standing in for paper. */
 .slip{display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--ink-2);
-  background:var(--cream);padding:16px 16px 15px;align-self:stretch;position:relative;border-radius:3px;
+  background:var(--paper);padding:16px 16px 15px;align-self:stretch;position:relative;border-radius:var(--r-s);
   /* paper on a dark table: the ink tokens flip inside it, and it alone may cast a shadow */
-  --ink:#211C16;--ink-2:#4A4134;--ink-3:#6E6454;--ink-4:#968B76;--p-hi:var(--cream);
-  --rule:rgba(33,28,22,.12);--rule-2:rgba(33,28,22,.07);--act:#8E1231;
+  --ink:#211C16;--ink-2:#4A4134;--ink-3:#6E6454;--ink-4:#968B76;--p-hi:var(--paper);
+  --rule:rgba(33,28,22,.12);--rule-2:rgba(33,28,22,.07);--act:#A8331C;
   --leader:radial-gradient(circle at 1px 50%,#968B76 .8px,transparent .9px);
   box-shadow:none}
 /* Flat. A perforated edge drawn in CSS is the ticket icon every template
@@ -339,18 +350,18 @@ b .cy,.net .cy{color:var(--ink-4)}
 /* Dot leaders live on the comanda and nowhere else. They are how a printed
    bill runs the eye from a name to a figure; on every other row of the app
    they were wallpaper. */
-.slip div i{flex:1 1 auto;min-width:16px;align-self:center;height:1px;
+.slip div>i{flex:1 1 auto;min-width:16px;align-self:center;height:1px;
   margin:0 9px;opacity:.62;background:var(--leader) right center/4px 1px repeat-x}
 .rw .lead{flex:1 1 auto;min-width:12px}
-.slip .slip-h i,.slip .slip-h{gap:14px}
+.slip .slip-h>i,.slip .slip-h{gap:14px}
 .slip .dim{color:var(--ink-4)}
 .slip .open{color:var(--act)}
-.slip-h{font-size:10.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+.slip-h{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
   color:var(--ink-3);padding-bottom:9px;justify-content:space-between!important;
   border-bottom:1px solid var(--rule);margin-bottom:2px}
 .slip-t{border-top:1px solid var(--ink);margin-top:6px;padding-top:9px;
   color:var(--ink);font-size:13.5px}
-.slip-t i{opacity:0}
+.slip-t>i{opacity:0}
 /* The rule between the bill and the talking about it. */
 .daymark{display:none}
 .m{display:flex;flex-direction:column;gap:8px;max-width:86%}
@@ -368,36 +379,41 @@ b .cy,.net .cy{color:var(--ink-4)}
    hairline. The reply is the same family a size down in the second ink — two
    voices told apart by weight and colour, which is how a printed interview
    does it, not by a change of typeface. */
-.u .b{background:none;color:var(--ink);padding:0 0 0 14px;text-align:left;
-  border-left:1px solid var(--ink-4);font-family:var(--sans);font-stretch:92%;font-weight:500;
-  font-size:20px;line-height:1.25;letter-spacing:-.018em}
+/* The question is quiet and the answer is loud: the answer carries the money.
+   The person's line is a marginal note, hung off a hairline in the second ink;
+   the reply is set in full ink with its figures in tabular semibold. */
+.u .b{background:none;color:var(--ink-3);padding:0 0 0 12px;text-align:left;
+  border-left:1px solid var(--ink-4);font-family:var(--sans);font-weight:400;
+  font-size:14.5px;line-height:1.45;letter-spacing:0}
 .m.u{align-items:flex-start;align-self:flex-start;max-width:92%}
 /* The agent does not speak from inside a box. Five container styles inside
    two hundred pixels is what made this screen read as a chat app wearing an
    editorial costume; the reply is simply set on the page. */
-.a .b{background:none;border:none;padding:0;color:var(--ink-2);max-width:100%;
-  font-size:15px;line-height:1.5;font-variant-numeric:tabular-nums}
+.a .b{background:none;border:none;padding:0;color:var(--ink);max-width:100%;
+  font-size:16.5px;line-height:1.42;letter-spacing:-.008em;font-variant-numeric:tabular-nums}
+.a .b .amt{font-weight:600;white-space:nowrap}
 .m.a{max-width:100%}
 .tok{opacity:0;animation:tk .38s var(--ease) forwards}
 @keyframes tk{from{opacity:0;filter:blur(3px);transform:translateY(3px)}
   to{opacity:1;filter:blur(0);transform:none}}
 
 /* the edit ribbon — the product's promise, on screen */
-.ed{display:flex;gap:12px;align-items:flex-start;width:100%;padding:12px 0;
-  border-top:1px solid var(--rule-2);border-bottom:1px solid var(--rule-2);
+/* What the agent changed, as a record: a surface, one line per edit, the undo
+   a real button. Not a quote — the quotes hang off a rule; this sits in a box. */
+.ed{display:flex;gap:12px;align-items:flex-start;width:100%;padding:10px 12px;
+  background:var(--surf);border:1px solid var(--rule-2);border-radius:var(--r-s);
   animation:ep .34s var(--ease)}
 @keyframes ep{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .ed.x{opacity:.5}
-.ed .r{width:1px;align-self:stretch;background:var(--ink-4);flex:none}
-.ed.x .r{background:var(--ink-4)}
+.ed .r{display:none}
 .ed .c{flex:1;display:flex;flex-direction:column;gap:3px}
-.ed .c .s{font-size:12.5px;line-height:1.4;font-variant-numeric:tabular-nums}
+.ed .c .s{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:pre-line}
 .ed.x .c .s{text-decoration:line-through;color:var(--ink-3)}
 .ed .c .d{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.ed button{font:inherit;font-size:12.5px;background:none;color:var(--ink-2);
-  cursor:pointer;padding:0;flex:none;align-self:flex-start;line-height:1.4;border:none;
-  text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ink-4)}
-.ed button:hover{color:var(--ink)}
+.ed button{font:inherit;font-size:12.5px;font-weight:500;background:var(--surf-hi);color:var(--ink);
+  cursor:pointer;padding:6px 10px;flex:none;align-self:flex-start;line-height:1.2;
+  border:1px solid var(--rule);border-radius:var(--r-s)}
+.ed button:hover{border-color:var(--ink-4)}
 .wk{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;font-size:12px;
   color:var(--ink-3)}
 .wk i{width:5px;height:5px;border-radius:50%;background:var(--act);display:block;
@@ -406,28 +422,28 @@ b .cy,.net .cy{color:var(--ink-4)}
 
 .comp{padding:12px 24px calc(16px + 34px);
   display:flex;flex-direction:column;gap:10px;border-top:none}
-.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;flex:none;
-  gap:8px;margin:6px -24px 0;padding:0 56px 0 24px;
-  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 62px),transparent calc(100% - 10px));
-  mask-image:linear-gradient(90deg,#000 calc(100% - 62px),transparent calc(100% - 10px))}
+/* Suggestions are a line of things you could say, set as text. A row of pills
+   is the one thing every assistant template ships with. */
+.chips{display:flex;flex-wrap:wrap;gap:6px 0;flex:none;margin:2px 0 0;padding:0}
 .chips::-webkit-scrollbar{display:none}
 /* Pills: frosted glass, a border you can see. The same object as the state
    eyebrow, because they are the same kind of thing — a small, tappable fact. */
-.chip{font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;padding:9px 14px;
-  background:var(--surf);border:1px solid var(--rule);border-radius:99px;color:var(--ink);
-  transition:border-color .6s var(--ease),background .6s var(--ease)}
-.chip:hover{border-color:rgba(247,242,233,.3);background:var(--glass-hi)}
+.chip{font:inherit;font-size:13.5px;font-weight:500;white-space:nowrap;cursor:pointer;padding:4px 0;
+  background:none;border:none;color:var(--ink-2);transition:color .3s var(--ease)}
+.chip+.chip::before{content:'·';color:var(--ink-4);margin:0 9px;font-weight:400}
+.chip:hover{color:var(--ink)}
 .chip[disabled]{opacity:.35;cursor:default}
 /* The suggested action is marked by ink weight, not by borrowing the brand
    colour. Oxblood is reserved for the one primary action on a screen. */
-.chip.a{color:var(--ink);border-color:var(--ink-4)}
-.inp{display:flex;gap:8px;align-items:center}
-.fake{flex:1;font-size:15px;color:var(--ink-3);padding:0 16px;height:48px;display:flex;align-items:center;
-  background:var(--surf);border:1px solid var(--rule);border-radius:14px}
+.chip.a{color:var(--ink)}
+.inp{display:flex;gap:14px;align-items:center}
+/* The prompt is a line to write on, not a box to type in. */
+.fake{flex:1;font-size:15px;color:var(--ink-3);padding:0 0 1px;height:44px;display:flex;align-items:center;
+  background:none;border:none;border-bottom:1px solid var(--rule);border-radius:0}
 /* A solid black disc is the stock assistant-composer send button, and it was
    the only pure black anywhere in this file. The send is a mark on the page. */
 .rnd{border:none;background:var(--cream);cursor:pointer;flex:none;font:inherit;font-size:14px;
-  font-weight:600;color:var(--night);padding:0 18px;height:48px;border-radius:14px;letter-spacing:-.008em}
+  font-weight:600;color:var(--night);padding:0 16px;height:40px;border-radius:var(--r);letter-spacing:-.008em}
 .rnd:hover{background:#fff}
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
@@ -437,9 +453,9 @@ b .cy,.net .cy{color:var(--ink-4)}
 .sh.on{opacity:1;pointer-events:auto}
 
 .shb{position:relative;z-index:1;width:100%;max-height:calc(100% - 118px);overflow-y:auto;overscroll-behavior:contain;
-  scrollbar-width:none;background:var(--night-2);border-radius:20px 20px 0 0;transform-origin:bottom;
+  scrollbar-width:none;background:var(--night-2);border-radius:var(--r) var(--r) 0 0;transform-origin:bottom;
   border-top:1px solid var(--rule);
-  padding:16px 24px calc(62px + env(safe-area-inset-bottom));display:flex;
+  padding:16px 24px calc(24px + 34px);display:flex;
   flex-direction:column;gap:18px;transform:translateY(22px);
 
   transition:transform .34s var(--ease)}
@@ -452,7 +468,7 @@ b .cy,.net .cy{color:var(--ink-4)}
   background:var(--night-2);padding:2px 0 8px;z-index:2}
 
 .shh .ser{font-family:var(--sans);font-stretch:92%;font-weight:500;font-size:22px;letter-spacing:-.022em}
-.shh button{font:inherit;font-size:13px;background:none;border:none;color:var(--ink-2);
+.shh button{font:inherit;font-size:13px;font-weight:500;background:none;border:none;color:var(--ink-2);
   cursor:pointer;padding:4px 0}
 .shh button:hover{color:var(--ink)}
 .sec{display:flex;flex-direction:column;gap:0}
@@ -475,7 +491,7 @@ button.rw{cursor:pointer}
 .tt{display:flex;justify-content:space-between;padding:15px 0 0!important;margin-top:4px;
   border-top:1px solid var(--ink)!important;border-bottom:none!important;font-size:15px}
 .tt .mo{font-size:17px}
-.thm{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:10px;
+.thm{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:var(--r-s);
   background:var(--glass);position:relative;box-shadow:inset 0 0 0 1px var(--rule-2)}
 .thm canvas{width:88%;height:88%}
 .ck{width:18px;height:18px;flex:none;border:1.5px solid var(--ink-4);border-radius:2px;
@@ -659,7 +675,7 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
     <div class="sbar" aria-hidden="true"><span class="sb-t">21:47</span>
       <span class="sb-r"><svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx=".6"/><rect x="4.5" y="5" width="3" height="6" rx=".6"/><rect x="9" y="2.5" width="3" height="8.5" rx=".6"/><rect x="13.5" y="0" width="3" height="11" rx=".6" opacity=".35"/></svg>
       <svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 3.6a9.5 9.5 0 0 1 13 0"/><path d="M4 6.3a5.8 5.8 0 0 1 8 0"/><path d="M6.5 9a2.2 2.2 0 0 1 3 0"/></svg>
-      <svg width="27" height="12" viewBox="0 0 27 12" fill="none"><rect x=".6" y=".6" width="22.8" height="10.8" rx="3" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2"/><rect x="25" y="3.7" width="1.6" height="4.6" rx=".8" fill="currentColor" fill-opacity=".45"/><rect x="2.2" y="2.2" width="3.2" height="7.6" rx="1.2" fill="#E8475F"/></svg></span></div>
+      <svg width="27" height="12" viewBox="0 0 27 12" fill="none"><rect x=".6" y=".6" width="22.8" height="10.8" rx="3" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2"/><rect x="25" y="3.7" width="1.6" height="4.6" rx=".8" fill="currentColor" fill-opacity=".45"/><rect x="2.2" y="2.2" width="3.2" height="7.6" rx="1.2" fill="currentColor" fill-opacity=".55"/></svg></span></div>
     <div class="homei" aria-hidden="true"></div>
 
     <section class="layer" id="grid" aria-label="Todos os rachas">
@@ -669,7 +685,7 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
             <div class="ser">Rachas</div>
           </div>
           <button class="icon" aria-label="Ajustes"
-            style="font:inherit;font-size:11.5px;color:var(--ink-3);padding:2px 0">Ajustes</button>
+            style="font:inherit;font-size:13px;font-weight:500;color:var(--ink-2);padding:2px 0">Ajustes</button>
         </div>
         <div class="net" id="net"></div>
       </div>
@@ -684,8 +700,9 @@ body.flowmode .dev,body.flowmode .cap-p,body.flowmode .keys{display:none}
     <section class="layer" id="thread" aria-label="Conversa">
       <div class="th-top" id="thtop"></div>
       <div class="slipwrap" id="slip"></div>
-      <div class="msgs" id="msgs"><div class="chips" id="chips"></div></div>
+      <div class="msgs" id="msgs"></div>
       <div class="comp">
+        <div class="chips" id="chips"></div>
         <div class="inp">
           <button class="icon" aria-label="Foto da nota" hidden>
             <svg width="19" height="19" viewBox="0 0 19 19" fill="none" stroke="currentColor"
@@ -939,8 +956,11 @@ function keyGouge(c, shape, k = 1) {
 /** Tone: parallel gouges, clipped to a shape. Chunky and slightly uneven —
     the fine, even hatching of an engraving is a different tool entirely, and
     at this scale it is also the texture that reads as generated. */
-function cut(c, shape, { gap = 0.072, band = null, ang = -0.62, k = 1 } = {}) {
+function cut(c, shape, { band = null } = {}) {
   if (c.__lod < 2) return;
+  // One grammar for tone across the whole set: one gap, one angle, one width.
+  // A recipe may say where the tone goes (the band); never what it looks like.
+  const gap = 0.072, ang = -0.62, k = 1;
   c.save();
   shape(c); c.clip();
   if (band) { const [x0, y0, x1, y1] = band; c.beginPath(); c.rect(x0, y0, x1 - x0, y1 - y0); c.clip(); }
@@ -962,7 +982,7 @@ function cut(c, shape, { gap = 0.072, band = null, ang = -0.62, k = 1 } = {}) {
 function speck(c, shape, R, n = 26) {
   if (c.__lod < 2) return;
   c.save(); shape(c); c.clip();
-  c.fillStyle = c.__paper;
+  c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
   for (let i = 0; i < n; i++) {
     const x = R(), y = R(), r = 0.004 + R() * 0.008;
     c.beginPath();
@@ -1033,7 +1053,7 @@ RECIPES.chopp = (c, R) => {
   const foam = top + 0.150;
   // the head, taken out of the glass in one wide sweep — a gouge, not a shape
   if (c.__lod > 0) {
-    c.save(); glass(c); c.clip(); c.fillStyle = c.__paper;
+    c.save(); glass(c); c.clip(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     const p = [[0.5 - hwT, top + 0.020], [0.5 + hwT, top + 0.020]];
     curve(c, [[0.5 + wAt(foam), foam - 0.010], [0.5 + 0.070, foam - 0.044],
               [0.5 - 0.010, foam + 0.006], [0.5 - 0.085, foam - 0.040],
@@ -1058,7 +1078,7 @@ RECIPES.caipirinha = (c, R) => {
   block(c, glass);
   const fill = top + 0.086;
   if (c.__lod > 0) {
-    c.save(); glass(c); c.clip(); c.fillStyle = c.__paper;
+    c.save(); glass(c); c.clip(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     // the air above the drink
     poly(c, [[0.5 - hwT - 0.02, top + 0.024], [0.5 + hwT + 0.02, top + 0.024],
              [0.5 + hwT + 0.02, fill], [0.5 - hwT - 0.02, fill]], true); c.fill();
@@ -1127,7 +1147,7 @@ RECIPES.vinagrete = (c, R) => {
     poly(k, p, true); };
   block(c, whole);
   if (c.__lod > 0) {                       // the dice, cut back out of the heap
-    c.save(); whole(c); c.clip(); c.fillStyle = c.__paper;
+    c.save(); whole(c); c.clip(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     heap.forEach(([x, y, s]) => { rrect(c, x - s / 2, y - s / 2, s * 0.72, s * 0.72, 0.005); c.fill(); });
     c.restore();
   }
@@ -1167,7 +1187,7 @@ RECIPES.pudim = (c, R) => {
   // the top face and the hole through it
   block(c, k => ell(k, 0.5, top, rT, rT * 0.26));
   if (c.__lod > 0) { c.save(); ell(c, 0.5, top, 0.052, 0.052 * 0.28);
-    c.fillStyle = c.__paper; c.fill(); c.restore(); }
+    c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL; c.fill(); c.restore(); }
   keyGouge(c, k => ell(k, 0.5, top, rT * 0.995, rT * 0.26), 0.7);
   gouge(c, k => curve(k, [[0.5 - rT + 0.024, top + 0.040], [0.5 - rT - 0.010, top + 0.132],
                           [0.5 - rB + 0.058, top + 0.240]]), 1.5);
@@ -1202,7 +1222,7 @@ RECIPES.peixe = (c, R) => {
   }
   // the eye is a hole in the block
   if (c.__lod > 0) { c.save(); ell(c, 0.5 - L * 0.78, cy - h * 0.20, 0.020, 0.020);
-    c.fillStyle = c.__paper; c.fill(); c.restore(); }
+    c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL; c.fill(); c.restore(); }
   ground(c);
 };
 
@@ -1253,7 +1273,7 @@ RECIPES.prato = (c, R) => {
 RECIPES.chave = (c, R) => {
   const cy = 0.520;
   block(c, k => ell(k, 0.272, cy, 0.118, 0.118));
-  c.save(); ell(c, 0.272, cy, 0.054, 0.054); c.fillStyle = c.__paper; c.fill(); c.restore();
+  c.save(); ell(c, 0.272, cy, 0.054, 0.054); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL; c.fill(); c.restore();
   block(c, k => poly(k, [[0.382, cy - 0.038], [0.796, cy - 0.038],
                          [0.796, cy + 0.038], [0.382, cy + 0.038]], true));
   block(c, k => poly(k, [[0.634, cy + 0.038], [0.676, cy + 0.038],
@@ -1276,7 +1296,7 @@ RECIPES.ingresso = (c, R) => {
   block(c, tick);
   if (c.__lod > 0) {
     // the field of the ticket is the paper it is printed on
-    c.save(); tick(c); c.clip(); c.fillStyle = c.__paper;
+    c.save(); tick(c); c.clip(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     const q = [[x + t, y + t], [x + w - t, y + t]];
     for (let i = 0; i <= 12; i++) { const a = -1.5708 + Math.PI * i / 12;
       q.push([x + w - t - Math.cos(a) * n * 0.82, y + h / 2 + Math.sin(a) * n * 0.82]); }
@@ -1323,7 +1343,7 @@ RECIPES.carro = (c, R) => {
     [0.322, gy - 0.248], [0.618, gy - 0.258], [0.734, gy - 0.130],
     [0.876, gy - 0.100], [0.888, gy - 0.018]], true);
   block(c, shell);
-  if (c.__lod > 0) { c.save(); c.fillStyle = c.__paper;
+  if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     poly(c, [[0.346, gy - 0.134], [0.396, gy - 0.226],
              [0.504, gy - 0.230], [0.504, gy - 0.134]], true); c.fill();
     poly(c, [[0.536, gy - 0.134], [0.536, gy - 0.230],
@@ -1332,9 +1352,38 @@ RECIPES.carro = (c, R) => {
   cut(c, shell, { gap: 0.062, band: [0.10, gy - 0.106, 0.92, 1], k: 0.8 });
   block(c, k => ell(k, 0.294, gy, wr, wr));
   block(c, k => ell(k, 0.716, gy, wr, wr));
-  if (c.__lod > 0) { c.save(); c.fillStyle = c.__paper;
+  if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     ell(c, 0.294, gy, wr * 0.40, wr * 0.40); c.fill();
     ell(c, 0.716, gy, wr * 0.40, wr * 0.40); c.fill(); c.restore(); }
+  ground(c);
+};
+
+/** Bonde — the Lisbon eléctrico, side elevation. A tall box on two wheels
+    with a trolley pole; the windows are taken out of the block. */
+RECIPES.bonde = (c, R) => {
+  const gy = BASE - 0.046, wr = 0.052, top = BASE - 0.430, bot = BASE - 0.070;
+  const body = k => rrect(k, 0.150, top, 0.700, bot - top, 0.055);
+  // the pole first, so the body buries its foot
+  block(c, k => poly(k, [[0.480, top + 0.010], [0.500, top - 0.006],
+                         [0.664, CAP + 0.052], [0.648, CAP + 0.040]], true));
+  block(c, k => ell(k, 0.658, CAP + 0.046, 0.016, 0.016));
+  block(c, body);
+  // the roof: a shallow slab set a little wider than the body
+  block(c, k => poly(k, [[0.118, top + 0.012], [0.882, top + 0.012],
+                         [0.862, top - 0.030], [0.138, top - 0.030]], true));
+  if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
+    [0.198, 0.352, 0.506, 0.660].forEach(x => { rrect(c, x, top + 0.070, 0.128, 0.150, 0.012); c.fill(); });
+    c.restore(); }
+  // the waist rule and the skirt tone
+  keyGouge(c, k => poly(k, [[0.160, top + 0.256], [0.840, top + 0.256]]), 1.0);
+  cut(c, body, { band: [0.15, top + 0.262, 0.85, 1] });
+  block(c, k => ell(k, 0.300, gy, wr, wr));
+  block(c, k => ell(k, 0.700, gy, wr, wr));
+  if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
+    ell(c, 0.300, gy, wr * 0.38, wr * 0.38); c.fill();
+    ell(c, 0.700, gy, wr * 0.38, wr * 0.38); c.fill();
+    ell(c, 0.836, bot - 0.058, 0.017, 0.017); c.fill();          // the headlamp
+    c.restore(); }
   ground(c);
 };
 
@@ -1367,6 +1416,7 @@ const KEYS = [
   [/lingui|linguí|salsich|chouri|sausage/i,                 'linguica'],
   [/pudim|sobremes|doce|brigadeir|pave|pavê|mousse|bolo/i,  'pudim'],
   [/peixe|fish|salmao|salmão|tilapi|camarao|camarão|moqueca/i, 'peixe'],
+  [/bonde|tram|el[eé]tric|lisboa/i,                        'bonde'],
   [/carro|uber|gasolin|combust|pedagio|pedágio|taxi|viagem/i,'carro'],
   [/alugue|casa|apart|airbnb|chave|hosped|hotel|pousada/i,  'chave'],
   [/ingress|show|cinema|teatro|balada|festa|ticket/i,       'ingresso'],
@@ -1413,7 +1463,12 @@ function fitOf(recipe) {
   let x0 = S, y0 = S, x1 = 0, y1 = 0;
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) if (d[(y * S + x) * 4 + 3] > 40) {
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  let ink = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) ink++;
   const box = x1 > x0 ? [x0 / S, y0 / S, (x1 + 1) / S, (y1 + 1) / S] : [0.1, CAP, 0.9, BASE];
+  // How much of its own box the subject fills. A skewer on the diagonal fills a
+  // third; a tram fills most. The sparse ones are printed a little larger than
+  // the box says, so the set matches by mass and not only by extent.
+  box.fill = ink / Math.max(1, (x1 - x0 + 1) * (y1 - y0 + 1));
   FIT.set(recipe, box); return box;
 }
 
@@ -1425,11 +1480,12 @@ function paint(c, name, S, seedKey = name, { paper = PAPER, ink = INK, fit = tru
   // The gouge widens as the block shrinks, so it never closes up in the print.
   c.__cw = Math.max(0.0185, 1.35 / S) * (lod === 0 ? 1.5 : lod === 1 ? 1.15 : 1);
   // The block chips less on a small cut: there is no room for it to.
-  c.__chip = lod === 0 ? 0 : lod === 1 ? 0.0030 : 0.0042;
+  c.__chip = lod === 0 ? 0 : lod === 1 ? 0.0014 : 0.0022;
   c.lineJoin = 'round'; c.lineCap = 'round'; c.miterLimit = 2;
   if (fit) {
-    const [x0, y0, x1, y1] = fitOf(recipe), bw = x1 - x0, bh = y1 - y0;
-    const k = Math.min(0.80 / bw, (BASE - CAP) / bh);
+    const fitted = fitOf(recipe), [x0, y0, x1, y1] = fitted, bw = x1 - x0, bh = y1 - y0;
+    const boost = Math.min(1.30, Math.max(1, Math.sqrt(0.52 / Math.max(0.05, fitted.fill || 0.5))));
+    const k = Math.min(0.80 / bw, (BASE - CAP) / bh) * boost;
     c.save();
     c.translate(0.5 - (x0 + bw / 2) * k, BASE - y1 * k); c.scale(k, k);
     c.__cw /= k; c.__chip /= k; c.__fit = true;
@@ -1509,7 +1565,7 @@ function money(c,cur=CUR.BRL,{noSym=false}={}){
   const bare=neg?t.slice(1):t;
   return `<span class="mo">${neg?'\u2212':''}`
     + `<i class="cy"${noSym?' aria-hidden="true" style="visibility:hidden"':''}>${cur.sym}</i>`
-    + bare + `</span>`;
+    + bare.replace(',','<i class="dc">,</i>') + `</span>`;
 }
 function split(r){
   const P=r.people,cons={},round={};
@@ -1523,8 +1579,13 @@ function split(r){
     a.rc.forEach(i=>round[ns[i]]++);
   });
   const ex={}; P.forEach(p=>ex[p]=[]);
+  // The 10% is charged on the pudim whether or not anyone has owned up to it,
+  // so the unowned bucket carries its own service: the slip's total has to be
+  // the total the restaurant printed, to the centavo.
+  let unEx=0;
   (r.extras||[]).forEach((e,pos)=>{
     if(!e.on)return;
+    if(e.kind==='pct'&&e.base!=='heads') unEx+=bpc(unT,e.bp);
     let base;
     if(e.base==='heads') base=allocEqual(P.reduce((s,p)=>s+cons[p],0),P.length,pos).parts;
     else if(e.base==='plus') base=P.map(p=>cons[p]+ex[p].reduce((s,x)=>s+x.amount,0));
@@ -1544,7 +1605,7 @@ function split(r){
   const itemsTotal=r.items.reduce((s,i)=>s+i.total,0);
   const claimed=P.reduce((s,p)=>s+cons[p],0);
   console.assert(claimed+unT===itemsTotal,'split lost money');
-  return{shares,total:shares.reduce((s,x)=>s+x.total,0)+unT,itemsTotal,unassigned:un,unassignedTotal:unT};
+  return{shares,total:shares.reduce((s,x)=>s+x.total,0)+unT+unEx,itemsTotal,unassigned:un,unassignedTotal:unT+unEx};
 }
 function balances(r){
   const s=split(r),paid={}; r.people.forEach(p=>paid[p]=0);
@@ -1627,7 +1688,7 @@ const ME='Você';
 const PIXKEY={[ME]:'voce@exemplo.com',Gui:'gui@exemplo.com',Ju:'+5511988887777'};
 const RACHAS=[
   {id:'ze',title:'Bar do Zé',kind:'Jantar',date:'12 SET',cur:CUR.BRL,
-   people:[ME,'Gui','Ju','Pedro'],hero:'Picanha na chapa',
+   people:[ME,'Gui','Ju','Pedro'],hero:'Chopp 500ml',
    items:[
      {n:'Picanha na chapa',q:1,total:12900,claims:{[ME]:1,Gui:1,Ju:1}},
      {n:'Farofa da casa',q:1,total:2200,claims:{[ME]:1,Gui:1,Ju:1}},
@@ -1647,7 +1708,7 @@ const RACHAS=[
      {n:'Cerveja (fardo)',q:2,total:11800,claims:{[ME]:1,Gui:1}}],
    extras:[],payments:[{by:'Gui',amount:39700,confirmed:true}]},
   {id:'lx',title:'Lisboa',kind:'Viagem',date:'22 AGO',cur:CUR.EUR,
-   people:[ME,'Ju'],hero:'Aluguel de carro',
+   people:[ME,'Ju'],hero:'Bonde de Lisboa',
    items:[
      {n:'Airbnb — 3 noites',q:3,total:25200,claims:{[ME]:1,Ju:1}},
      {n:'Aluguel de carro',q:1,total:11200,claims:{[ME]:1,Ju:1}},
@@ -1736,7 +1797,9 @@ function tileRect(id){
 }
 /** Which three dishes stand for this racha, laid out left to right. */
 function still(r){
-  const seen=new Set(), pick=[];
+  // The tile's subject leads, so the tile that flies up becomes the left
+  // third of the table it lands on.
+  const seen=new Set([recipeFor(r.hero)]), pick=[r.hero];
   for(const it of r.items){ const k=recipeFor(it.n);
     if(!seen.has(k)){ seen.add(k); pick.push(it.n); } if(pick.length===3) break; }
   while(pick.length<3) pick.push(r.hero);
@@ -1744,8 +1807,8 @@ function still(r){
   // measure. `s` is a fraction of the short side, so the drawings stay square.
   // Now that every block is printed at one size, the three sit shoulder to
   // shoulder — a plate's width apart, the middle one a step forward.
-  const S=0.80, X=[0.190,0.500,0.810];
-  return pick.map((name,i)=>({name,x:X[i],y:0.500,s:S,z:i===1?2:i}));
+  const S=0.74, X=[0.200,0.500,0.800];
+  return pick.map((name,i)=>({name,x:X[i],y:0.530,s:S,z:i===1?2:i}));
 }
 /* The stock each block is printed on, read off the live stylesheet so a
    change to the palette cannot leave the gouges a shade off the surface. */
@@ -1758,7 +1821,7 @@ function heroTarget(){
   // Two thirds of the width, not all of it. A picture that fills the screen
   // is a poster; the subject of this screen is the split, and the picture is
   // its illustration. Square, because the drawing is square.
-  const pad=24, w=b.width-pad*2, h=Math.round(w*0.54);
+  const pad=24, w=b.width-pad*2, h=Math.round(w*0.50);
   el('card').style.setProperty('--heroh', h+'px');
   el('card').style.setProperty('--heroframe', '0');   // the plate sits on the page
   return{x:pad,y:96,w,h};
@@ -1873,6 +1936,12 @@ function myDue(r){
   const b=balances(r).find(x=>x.p===ME); if(!b)return 0;
   return Math.max(0,b.owed-b.paid-Math.max(0,-myPosition(r)));
 }
+/* "você · Gui ×2 · Pedro" — who had an item, in the racha's own name order,
+   with the weights the split actually used. One notation, everywhere. */
+function owners(it,r){
+  return Object.keys(it.claims).sort((a,b)=>r.people.indexOf(a)-r.people.indexOf(b))
+    .map(p=>(p===ME?'você':p)+(it.claims[p]>1?' ×'+it.claims[p]:'')).join(' · ');
+}
 /* "você, Gui e Ju" — the canonical name order is the racha's own. */
 function names(ps,r){
   const o=ps.slice().sort((a,b)=>r.people.indexOf(a)-r.people.indexOf(b)).map(p=>p===ME?'você':p);
@@ -1885,10 +1954,10 @@ function renderGrid(){
   const net=rows.filter(x=>x.r.cur===CUR.BRL).reduce((s,x)=>s+x.v,0);
   el('net').innerHTML = (!rows.length)
     ? `<b style="font-size:64px">Tudo quite</b>`
-    : `<span class="lbl">${net<0?'Você deve':net>0?'Te devem':'Entre vocês, quite'}</span>
+    : `<span class="lbl">${net<0?'Entre amigos, você deve':net>0?'Entre amigos, te devem':'Entre amigos, quite'}</span>
        ${net?`<b>${money(Math.abs(net))}</b>`:''}
        <div class="pos">${rows.map(({r,v,d})=>`<div class="${v<0||(!v&&d)?'owe':''}">
-         <span class="n">${esc(r.title)} · ${v<0?'você deve':v>0?'te devem':'falta pagar'}</span>
+         <span class="n">${esc(r.title)} · ${v<0?'você deve':v>0?'te devem':'falta pagar à mesa'}</span>
          ${money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</div>`).join('')}</div>`;
 
   el('tiles').innerHTML=RACHAS.map(r=>{
@@ -1900,8 +1969,8 @@ function renderGrid(){
         <span class="t">${esc(r.title)}</span>
         <span class="lbl">${r.date.toLowerCase()} · ${r.people.length} pessoas</span>
         <span class="v ${done?'quit':v<0||(!v&&d)?'owe':''}">
-          <span class="st">${done?'quite':v<0?'você deve':v>0?'te devem':d?'falta pagar':'em aberto'}</span>
-          ${done?'':(v||d)?`<span class="amt">${money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</span>`:''}</span>
+          <span class="st">${done?'':v<0?'você deve':v>0?'te devem':d?'falta pagar':'em aberto'}</span>
+          ${done?`<span class="amt">quite</span>`:(v||d)?`<span class="amt">${money(Math.abs(v||d),r.cur,{noSym:r.cur===CUR.BRL})}</span>`:''}</span>
       </span></button>`;}).join('');
 
   document.querySelectorAll('.tile canvas').forEach(cv=>{
@@ -1919,7 +1988,7 @@ function renderCard(){
     <div class="cardtop">
       <button class="back" id="back">
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor"
-          stroke-width="1.15"><path d="M8 2L3.5 6.5L8 11"/></svg>Rachas</button>
+          stroke-width="1.9"><path d="M8 2L3.5 6.5L8 11"/></svg>Rachas</button>
     </div>
     <div class="cardgap"></div>
     <div class="herorow">
@@ -1929,6 +1998,11 @@ function renderCard(){
         <span class="lbl">${esc(r.date.toLowerCase())} · ${
           esc(r.people.map(p=>p===ME?'você':p).join(', '))}</span>
       </div>
+    </div>
+    <div class="standing">
+      ${(()=>{const v=myPosition(r);
+        return done||!v?`<span class="lbl">${done?'Fechado':'Entre vocês'}</span><b>Quite</b>`
+        :`<span class="lbl">${v<0?'Você deve':'Te devem'}</span><b>${money(Math.abs(v),r.cur)}</b>`;})()}
     </div>
     <div class="cardmeta">
       <div class="led">
@@ -1940,14 +2014,9 @@ function renderCard(){
           <span>${money(remaining,r.cur,{noSym:true})}</span></div>`:''}
       </div>
     </div>
-    <div class="cardgap" style="max-height:34px"></div>
-    <div class="standing">
-      ${(()=>{const v=myPosition(r);
-        return done||!v?`<span class="lbl">${done?'Fechado':'Nesta conta'}</span><b>Quite</b>`
-        :`<span class="lbl">${v<0?'Você deve':'Te devem'}</span><b>${money(Math.abs(v),r.cur)}</b>`;})()}
-    </div>
     <div class="cardgap"></div>
-    <button class="go" id="gothread">${done?'Ver a conversa':'Dividir a conta'}</button>`;
+    <button class="go" id="gothread">${done?'Ver a conversa'
+      :r.items.some(i=>Object.keys(i.claims).length)?'Abrir a conversa':'Dividir a conta'}</button>`;
   el('back').onclick=toGrid;
   el('gothread').onclick=toThread;
 }
@@ -1962,7 +2031,7 @@ function renderThread(){
     <div class="th-row">
       <button class="back" id="back2" style="padding:0;margin-top:5px">
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor"
-          stroke-width="1.15"><path d="M8 2L3.5 6.5L8 11"/></svg></button>
+          stroke-width="1.9"><path d="M8 2L3.5 6.5L8 11"/></svg></button>
       <div style="flex:1;min-width:0">
         <div class="ser">${esc(r.title)}</div>
         <div class="lbl" style="margin-top:3px">${r.people.length} pessoas · ${r.items.length} itens</div>
@@ -1982,7 +2051,7 @@ function seedThread(){
   msgs.push({role:'a',text:`Picanha na chapa dividida em três: ${brl(4300,r.cur)} pra cada um.`});
   msgs.push({role:'u',text:'o Pedro chegou depois, só bebeu'});
   msgs.push({role:'a',text:`Pedro entrou nos chopps e na caipirinha. Ficou em ${brl(ped.total,r.cur)} com o serviço e o couvert.`,
-    edits:[{s:'Chopp → Gui×2, Pedro, você · Caipirinha → Ju, Pedro',d:null,
+    edits:[{s:'Chopp → Gui ×2, Pedro, você\nCaipirinha → Ju, Pedro',d:null,
       revert:()=>{delete ch.claims.Pedro;delete ca.claims.Pedro;}}]});
 }
 /* What each extra came to across everybody. Summed from the allocated shares
@@ -2011,7 +2080,6 @@ function threadHead(){
   </div>`;
 }
 function renderMsgs(){
-  const chips=el('chips');
   el('slip').innerHTML=threadHead();
   el('msgs').innerHTML=msgs.map((m,i)=>{
     if(m.role==='w')return `<div class="wk"><i></i>${esc(m.text)}</div>`;
@@ -2020,13 +2088,14 @@ function renderMsgs(){
         <span class="c"><span class="s">${esc(e.s)}</span>
         ${e.d?`<span class="d">${e.d>0?'+':''}${brl(e.d,focus.cur)} na sua parte</span>`:''}</span>
         ${e.x?'':`<button data-u="${i}:${j}">Desfazer</button>`}</div>`).join('');
+    const body=m.html||(m.role==='a'
+      ?esc(m.text).replace(/(R\$|€) ?[\d.]+,\d\d/g,x=>`<span class="amt">${x}</span>`):esc(m.text));
     return `<div class="m ${m.role==='u'?'u':'a'}">
-      ${m.text?`<div class="b">${m.html||esc(m.text)}</div>`:''}${eds}</div>`;}).join('');
+      ${m.text?`<div class="b">${body}</div>`:''}${eds}</div>`;}).join('');
   el('msgs').querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{
     const[i,j]=b.dataset.u.split(':').map(Number);
     msgs[i].edits[j].revert(); msgs[i].edits[j].x=true; refresh();
   });
-  el('msgs').append(chips);          // the suggestions ride with the last answer
   el('msgs').scrollTop=el('msgs').scrollHeight;
 }
 function renderChips(){
@@ -2138,15 +2207,12 @@ function renderLedger(){
       <div class="tt"><span>Total</span><span>${money(s.total,r.cur)}</span></div></div>
 
     <div class="sec"><span class="mi rule">Itens</span>
-      ${usualOf(r)?`<p class="nt" style="padding:0 0 4px">Itens sem indicação ficam com ${
-        esc(names(usualOf(r),r))}.</p>`:''}
-      ${(()=>{const usual=(usualOf(r)||[]).join('\u0000');
+      ${(()=>{
         return r.items.map((it,i)=>{const ow=Object.keys(it.claims);
-        const same=!!usual&&ow.slice().sort().join('\u0000')===usual;
         return `<div class="rw">
           <span class="g"><span class="n">${it.q>1?`<span class="num" style="color:var(--ink-3)">${it.q}× </span>`:''}${esc(it.n)}</span>
-          ${!ow.length?'<span style="font-size:11.5px;color:var(--act)">sem dono</span>'
-            :same?'':`<span class="lbl">${esc(names(ow,r).replace(' e ',' · ').replace(/, /g,' · '))}</span>`}</span>
+          ${!ow.length?'<span style="font-size:12px;color:var(--act)">sem dono</span>'
+            :`<span class="lbl">${esc(owners(it,r))}</span>`}</span>
           <i class="lead"></i><span style="font-size:14px">${money(it.total,r.cur,{noSym:true})}</span></div>`;}).join('');})()}</div>
 
     ${r.extras.length?`<div class="sec"><span class="mi rule">Extras</span>

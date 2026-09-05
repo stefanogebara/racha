@@ -1,15 +1,15 @@
 <meta charset="utf-8">
 <style>
- html,body{margin:0;background:#0B0907;height:100%;
+ html,body{margin:0;background:#2A2420;height:100%;
    font-family:-apple-system,'Helvetica Neue',sans-serif}
  .row{display:flex;height:100%;align-items:flex-start;justify-content:center;gap:30px;
    padding-top:96px;box-sizing:border-box}
  iframe{border:0;width:400px;height:868px;flex:none;transform-origin:top left}
  .cell{display:flex;flex-direction:column;align-items:flex-start;gap:14px}
- .shell{overflow:hidden;flex:none;box-shadow:0 0 0 1px rgba(247,242,233,.16)}
+ .shell{overflow:hidden;flex:none;border-radius:44px}
  /* The board whispers relative to the product: the captions must not borrow
     the in-product label treatment, or the deck and the UI speak in one voice. */
- .cap{font-size:11px;letter-spacing:0;color:rgba(247,242,233,.45)}
+ .cap{font-size:11px;letter-spacing:0;color:rgba(247,242,233,.55);padding-left:4px}
 </style>
 <div class="row" id="row"></div>
 <script>
@@ -23,7 +23,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 // 2016 mockup template, and it was reading louder than anything inside it.
 const FLAT = `.dev{padding:0!important;background:none!important;box-shadow:none!important;
   border-radius:0!important;--w:400px!important;--h:868px!important}
-.scr{border-radius:0!important}
+.scr{border-radius:44px!important}
 .isl{display:none!important}`;
 (async () => {
   const frames = views.map(([v,label], idx) => {

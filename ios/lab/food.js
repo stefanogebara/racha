@@ -159,8 +159,11 @@ export function keyGouge(c, shape, k = 1) {
 /** Tone: parallel gouges, clipped to a shape. Chunky and slightly uneven —
     the fine, even hatching of an engraving is a different tool entirely, and
     at this scale it is also the texture that reads as generated. */
-export function cut(c, shape, { gap = 0.072, band = null, ang = -0.62, k = 1 } = {}) {
+export function cut(c, shape, { band = null } = {}) {
   if (c.__lod < 2) return;
+  // One grammar for tone across the whole set: one gap, one angle, one width.
+  // A recipe may say where the tone goes (the band); never what it looks like.
+  const gap = 0.072, ang = -0.62, k = 1;
   c.save();
   shape(c); c.clip();
   if (band) { const [x0, y0, x1, y1] = band; c.beginPath(); c.rect(x0, y0, x1 - x0, y1 - y0); c.clip(); }
@@ -182,7 +185,7 @@ export function cut(c, shape, { gap = 0.072, band = null, ang = -0.62, k = 1 } =
 export function speck(c, shape, R, n = 26) {
   if (c.__lod < 2) return;
   c.save(); shape(c); c.clip();
-  c.fillStyle = c.__paper;
+  c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
   for (let i = 0; i < n; i++) {
     const x = R(), y = R(), r = 0.004 + R() * 0.008;
     c.beginPath();
@@ -253,7 +256,7 @@ RECIPES.chopp = (c, R) => {
   const foam = top + 0.150;
   // the head, taken out of the glass in one wide sweep — a gouge, not a shape
   if (c.__lod > 0) {
-    c.save(); glass(c); c.clip(); c.fillStyle = c.__paper;
+    c.save(); glass(c); c.clip(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     const p = [[0.5 - hwT, top + 0.020], [0.5 + hwT, top + 0.020]];
     curve(c, [[0.5 + wAt(foam), foam - 0.010], [0.5 + 0.070, foam - 0.044],
               [0.5 - 0.010, foam + 0.006], [0.5 - 0.085, foam - 0.040],
@@ -278,7 +281,7 @@ RECIPES.caipirinha = (c, R) => {
   block(c, glass);
   const fill = top + 0.086;
   if (c.__lod > 0) {
-    c.save(); glass(c); c.clip(); c.fillStyle = c.__paper;
+    c.save(); glass(c); c.clip(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     // the air above the drink
     poly(c, [[0.5 - hwT - 0.02, top + 0.024], [0.5 + hwT + 0.02, top + 0.024],
              [0.5 + hwT + 0.02, fill], [0.5 - hwT - 0.02, fill]], true); c.fill();
@@ -347,7 +350,7 @@ RECIPES.vinagrete = (c, R) => {
     poly(k, p, true); };
   block(c, whole);
   if (c.__lod > 0) {                       // the dice, cut back out of the heap
-    c.save(); whole(c); c.clip(); c.fillStyle = c.__paper;
+    c.save(); whole(c); c.clip(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     heap.forEach(([x, y, s]) => { rrect(c, x - s / 2, y - s / 2, s * 0.72, s * 0.72, 0.005); c.fill(); });
     c.restore();
   }
@@ -387,7 +390,7 @@ RECIPES.pudim = (c, R) => {
   // the top face and the hole through it
   block(c, k => ell(k, 0.5, top, rT, rT * 0.26));
   if (c.__lod > 0) { c.save(); ell(c, 0.5, top, 0.052, 0.052 * 0.28);
-    c.fillStyle = c.__paper; c.fill(); c.restore(); }
+    c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL; c.fill(); c.restore(); }
   keyGouge(c, k => ell(k, 0.5, top, rT * 0.995, rT * 0.26), 0.7);
   gouge(c, k => curve(k, [[0.5 - rT + 0.024, top + 0.040], [0.5 - rT - 0.010, top + 0.132],
                           [0.5 - rB + 0.058, top + 0.240]]), 1.5);
@@ -422,7 +425,7 @@ RECIPES.peixe = (c, R) => {
   }
   // the eye is a hole in the block
   if (c.__lod > 0) { c.save(); ell(c, 0.5 - L * 0.78, cy - h * 0.20, 0.020, 0.020);
-    c.fillStyle = c.__paper; c.fill(); c.restore(); }
+    c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL; c.fill(); c.restore(); }
   ground(c);
 };
 
@@ -473,7 +476,7 @@ RECIPES.prato = (c, R) => {
 RECIPES.chave = (c, R) => {
   const cy = 0.520;
   block(c, k => ell(k, 0.272, cy, 0.118, 0.118));
-  c.save(); ell(c, 0.272, cy, 0.054, 0.054); c.fillStyle = c.__paper; c.fill(); c.restore();
+  c.save(); ell(c, 0.272, cy, 0.054, 0.054); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL; c.fill(); c.restore();
   block(c, k => poly(k, [[0.382, cy - 0.038], [0.796, cy - 0.038],
                          [0.796, cy + 0.038], [0.382, cy + 0.038]], true));
   block(c, k => poly(k, [[0.634, cy + 0.038], [0.676, cy + 0.038],
@@ -496,7 +499,7 @@ RECIPES.ingresso = (c, R) => {
   block(c, tick);
   if (c.__lod > 0) {
     // the field of the ticket is the paper it is printed on
-    c.save(); tick(c); c.clip(); c.fillStyle = c.__paper;
+    c.save(); tick(c); c.clip(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     const q = [[x + t, y + t], [x + w - t, y + t]];
     for (let i = 0; i <= 12; i++) { const a = -1.5708 + Math.PI * i / 12;
       q.push([x + w - t - Math.cos(a) * n * 0.82, y + h / 2 + Math.sin(a) * n * 0.82]); }
@@ -543,7 +546,7 @@ RECIPES.carro = (c, R) => {
     [0.322, gy - 0.248], [0.618, gy - 0.258], [0.734, gy - 0.130],
     [0.876, gy - 0.100], [0.888, gy - 0.018]], true);
   block(c, shell);
-  if (c.__lod > 0) { c.save(); c.fillStyle = c.__paper;
+  if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     poly(c, [[0.346, gy - 0.134], [0.396, gy - 0.226],
              [0.504, gy - 0.230], [0.504, gy - 0.134]], true); c.fill();
     poly(c, [[0.536, gy - 0.134], [0.536, gy - 0.230],
@@ -552,9 +555,38 @@ RECIPES.carro = (c, R) => {
   cut(c, shell, { gap: 0.062, band: [0.10, gy - 0.106, 0.92, 1], k: 0.8 });
   block(c, k => ell(k, 0.294, gy, wr, wr));
   block(c, k => ell(k, 0.716, gy, wr, wr));
-  if (c.__lod > 0) { c.save(); c.fillStyle = c.__paper;
+  if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
     ell(c, 0.294, gy, wr * 0.40, wr * 0.40); c.fill();
     ell(c, 0.716, gy, wr * 0.40, wr * 0.40); c.fill(); c.restore(); }
+  ground(c);
+};
+
+/** Bonde — the Lisbon eléctrico, side elevation. A tall box on two wheels
+    with a trolley pole; the windows are taken out of the block. */
+RECIPES.bonde = (c, R) => {
+  const gy = BASE - 0.046, wr = 0.052, top = BASE - 0.430, bot = BASE - 0.070;
+  const body = k => rrect(k, 0.150, top, 0.700, bot - top, 0.055);
+  // the pole first, so the body buries its foot
+  block(c, k => poly(k, [[0.480, top + 0.010], [0.500, top - 0.006],
+                         [0.664, CAP + 0.052], [0.648, CAP + 0.040]], true));
+  block(c, k => ell(k, 0.658, CAP + 0.046, 0.016, 0.016));
+  block(c, body);
+  // the roof: a shallow slab set a little wider than the body
+  block(c, k => poly(k, [[0.118, top + 0.012], [0.882, top + 0.012],
+                         [0.862, top - 0.030], [0.138, top - 0.030]], true));
+  if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
+    [0.198, 0.352, 0.506, 0.660].forEach(x => { rrect(c, x, top + 0.070, 0.128, 0.150, 0.012); c.fill(); });
+    c.restore(); }
+  // the waist rule and the skirt tone
+  keyGouge(c, k => poly(k, [[0.160, top + 0.256], [0.840, top + 0.256]]), 1.0);
+  cut(c, body, { band: [0.15, top + 0.262, 0.85, 1] });
+  block(c, k => ell(k, 0.300, gy, wr, wr));
+  block(c, k => ell(k, 0.700, gy, wr, wr));
+  if (c.__lod > 0) { c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = PAPER_FILL;
+    ell(c, 0.300, gy, wr * 0.38, wr * 0.38); c.fill();
+    ell(c, 0.700, gy, wr * 0.38, wr * 0.38); c.fill();
+    ell(c, 0.836, bot - 0.058, 0.017, 0.017); c.fill();          // the headlamp
+    c.restore(); }
   ground(c);
 };
 
@@ -587,6 +619,7 @@ const KEYS = [
   [/lingui|linguí|salsich|chouri|sausage/i,                 'linguica'],
   [/pudim|sobremes|doce|brigadeir|pave|pavê|mousse|bolo/i,  'pudim'],
   [/peixe|fish|salmao|salmão|tilapi|camarao|camarão|moqueca/i, 'peixe'],
+  [/bonde|tram|el[eé]tric|lisboa/i,                        'bonde'],
   [/carro|uber|gasolin|combust|pedagio|pedágio|taxi|viagem/i,'carro'],
   [/alugue|casa|apart|airbnb|chave|hosped|hotel|pousada/i,  'chave'],
   [/ingress|show|cinema|teatro|balada|festa|ticket/i,       'ingresso'],
@@ -633,7 +666,12 @@ export function fitOf(recipe) {
   let x0 = S, y0 = S, x1 = 0, y1 = 0;
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) if (d[(y * S + x) * 4 + 3] > 40) {
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  let ink = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) ink++;
   const box = x1 > x0 ? [x0 / S, y0 / S, (x1 + 1) / S, (y1 + 1) / S] : [0.1, CAP, 0.9, BASE];
+  // How much of its own box the subject fills. A skewer on the diagonal fills a
+  // third; a tram fills most. The sparse ones are printed a little larger than
+  // the box says, so the set matches by mass and not only by extent.
+  box.fill = ink / Math.max(1, (x1 - x0 + 1) * (y1 - y0 + 1));
   FIT.set(recipe, box); return box;
 }
 
@@ -645,11 +683,12 @@ export function paint(c, name, S, seedKey = name, { paper = PAPER, ink = INK, fi
   // The gouge widens as the block shrinks, so it never closes up in the print.
   c.__cw = Math.max(0.0185, 1.35 / S) * (lod === 0 ? 1.5 : lod === 1 ? 1.15 : 1);
   // The block chips less on a small cut: there is no room for it to.
-  c.__chip = lod === 0 ? 0 : lod === 1 ? 0.0030 : 0.0042;
+  c.__chip = lod === 0 ? 0 : lod === 1 ? 0.0014 : 0.0022;
   c.lineJoin = 'round'; c.lineCap = 'round'; c.miterLimit = 2;
   if (fit) {
-    const [x0, y0, x1, y1] = fitOf(recipe), bw = x1 - x0, bh = y1 - y0;
-    const k = Math.min(0.80 / bw, (BASE - CAP) / bh);
+    const fitted = fitOf(recipe), [x0, y0, x1, y1] = fitted, bw = x1 - x0, bh = y1 - y0;
+    const boost = Math.min(1.30, Math.max(1, Math.sqrt(0.52 / Math.max(0.05, fitted.fill || 0.5))));
+    const k = Math.min(0.80 / bw, (BASE - CAP) / bh) * boost;
     c.save();
     c.translate(0.5 - (x0 + bw / 2) * k, BASE - y1 * k); c.scale(k, k);
     c.__cw /= k; c.__chip /= k; c.__fit = true;
