@@ -5,7 +5,7 @@ import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
 import StripeWalletPay from './StripeWalletPay';
 import { clearStoredWallet, readStoredWallet } from './house';
-import { computeShare, type SplitMode } from './split';
+import { computeShare, splitEqualLocal, type SplitMode } from './split';
 
 /**
  * Racha diner flow — one screen, three acts:
@@ -47,7 +47,15 @@ export default function App() {
   }, [prospectPl]);
   useEffect(() => { sendBeacon('opened'); }, [sendBeacon]);
   const [view, setView] = useState<CheckView | null>(null);
+  // `error` é fatal: a conta não carrega, não há tela pra mostrar. `payError` é
+  // recuperável e NUNCA pode substituir a tela — a corrida mais comum da mesa é
+  // duas pessoas tocando "Pagar R$50" ao mesmo tempo: uma ganha, a outra leva
+  // 400 do servidor ("valor acima do que falta"). Isso é um aviso pra tentar de
+  // novo com o valor novo, não um beco sem saída.
   const [error, setError] = useState<string | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
+  // A última atualização falhou, mas ainda temos a conta em mãos.
+  const [stale, setStale] = useState(false);
 
   const [mode, setMode] = useState<SplitMode>('igual');
   const [people, setPeople] = useState(2);
@@ -88,7 +96,14 @@ export default function App() {
     try {
       setView(await api.getCheck(token));
       setError(null);
+      setStale(false);
     } catch (e) {
+      // Um blip de sinal NÃO pode apagar a tela. O caso real: o diner copia o
+      // código Pix, troca pro app do banco, o 4G do bar oscila, ele volta — e o
+      // poll de 4s já trocou o código por "Failed to fetch". Se já existe uma
+      // conta carregada, a falha vira um aviso discreto e a tela fica de pé;
+      // só a PRIMEIRA carga pode falhar em tela cheia, porque aí não há tela.
+      setStale(true);
       setError((e as Error).message);
     }
   }, [token]);
@@ -140,7 +155,7 @@ export default function App() {
 
   // Sem token de mesa = visita direta (desktop/prospect/KYC) → landing.
   if (!token) return <Home />;
-  if (error) return <Shell><p className="muted center">{error}</p></Shell>;
+  if (error && !view) return <Shell><p className="muted center">{error}</p></Shell>;
   if (!view) return <Shell><p className="muted center">carregando a conta…</p></Shell>;
 
   const { venue, table, state } = view;
@@ -155,8 +170,10 @@ export default function App() {
     .reduce((s, i) => s + i.priceCents, 0);
   // Split proporcional em TODO modo: o serviço é sempre % da SUA parte
   // (split.ts espelha o backend). Quem paga mais, paga mais serviço.
+  // A parte igual sai do TOTAL da conta, não do que falta — senão cada pessoa
+  // que paga depois paga menos que a anterior e a mesa nunca fecha (ver split.ts).
   const share = computeShare({
-    mode, remaining, people, customCents, selectedCents,
+    mode, totalCents: state.totalCents, remaining, people, customCents, selectedCents,
     servicoOn, servicoBp: venue.servicoBp,
   });
   const cappedBase = share.base;
@@ -178,6 +195,7 @@ export default function App() {
       return;
     }
     setCpfHint(false);
+    setPayError(null);
     try {
       setPaidBaseline(state.paidCents); // baseline ANTES da minha cobrança cair
       const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null, cpfDigits);
@@ -185,7 +203,10 @@ export default function App() {
       setStep('pagar');
       setCopied(false);
     } catch (e) {
-      setError((e as Error).message);
+      // Alguém pagou primeiro (ou a conta mudou): recarrega e deixa o diner na
+      // mesma tela, com o número já atualizado, pra tocar de novo.
+      setPayError((e as Error).message);
+      refresh();
     }
   }
 
@@ -220,6 +241,7 @@ export default function App() {
           <span className="venue">{venue.name}</span>
           <span className="mesa">{table.label}</span>
         </header>
+        {stale && <p className="muted small center">sem conexão — o código abaixo continua valendo</p>}
         <section className="pixcard">
           <p className="label">Pague com Pix</p>
           <p className="bigmoney">{brl(charge.amountCents + charge.tipCents)}</p>
@@ -312,6 +334,7 @@ export default function App() {
         <span className="mesa">{table.label}</span>
       </header>
 
+      {stale && <p className="muted small center">sem conexão — valores podem estar desatualizados</p>}
       <section className="card">
         <p className="label">
           Sua conta
@@ -387,6 +410,12 @@ export default function App() {
               <span>pessoas</span>
             </div>
           )}
+          {mode === 'igual' && (
+            <p className="muted small itemhint">
+              {brl(splitEqualLocal(state.totalCents, people, 0))} por pessoa
+              {state.paidCents > 0 ? ' — a divisão é sobre o total da conta, não sobre o que falta' : ''}
+            </p>
+          )}
           {mode === 'item' && (
             <p className="muted small itemhint">
               {selectedItems.size === 0
@@ -433,6 +462,11 @@ export default function App() {
             <p className="small" style={{ color: 'var(--burgundy)' }}>Preencha seu CPF (11 dígitos) pra liberar o pagamento.</p>
           )}
 
+          {payError && (
+            <p className="small" style={{ color: 'var(--burgundy)' }}>
+              {payError} — a conta foi atualizada, confira o valor e tente de novo.
+            </p>
+          )}
           <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
             Pagar {brl(totalToPay)} com Pix
           </button>

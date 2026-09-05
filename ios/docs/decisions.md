@@ -559,3 +559,63 @@ um pagamento recusado. A varredura fica fora do caminho crítico.
 (`notifyFounderReconcile`), `api/_app/router.js` (`/api/cron/reconcile`),
 `vercel.json`, `apps/web/src/Panel.tsx` (`Conciliacao`),
 `api/__tests__/reconcile-daily.test.js`.
+
+## 32 — A divisão igual dividia o que faltava, não a conta (2026-09-05)
+
+**O bug, que estava no ar.** No PWA do cliente, o modo "Igual" calculava a parte
+sobre `remaining` — o que ainda falta — em vez de sobre o total da conta. Só o
+primeiro pagante via o número certo. Numa conta de R$ 200 entre 4:
+
+| pagante | via e pagava | devia pagar |
+|---|---|---|
+| 1º | R$ 50,00 | R$ 50,00 |
+| 2º | R$ 37,50 | R$ 50,00 |
+| 3º | R$ 28,13 | R$ 50,00 |
+| 4º | R$ 21,10 | R$ 50,00 |
+
+A casa recebia R$ 136,73 e ficava com R$ 63,27 na mesa, sem ninguém entender por
+quê — cada telefone mostrava um número diferente pra "dividir entre 4", e todo
+mundo achava que tinha pago sua parte. A mesa não fecha e o garçom vira o
+cobrador. Como cada pagamento individual era válido, nada no servidor reclamava.
+
+**Decisão.** `shareBaseCents` no modo `igual` divide `totalCents`. O teto
+(`splitEqualLocal(total, n, 0)`) é intencional: cada telefone calcula sozinho,
+sem saber quantos já pagaram, então não dá pra distribuir o centavo do resto por
+posição. Se todos arredondassem pra baixo, a conta fecharia com resto e a mesa
+não fecharia nunca. Com o teto, o buraco vai todo pro último pagante, que já era
+limitado ao que falta — o desconto dele é sempre menor que 1 centavo por pessoa
+(< R$ 0,20 numa mesa de 20), e **ninguém paga mais do que o número que a tela
+prometeu**.
+
+**Por que ninguém pegou isso.** `split.ts` é uma SEGUNDA implementação da
+matemática que já existe em `api/_lib/checks/split-engine.js`, e o cabeçalho
+dela promete que as duas "concordam ao centavo". Nada verificava a promessa.
+Uma segunda implementação sem teste de paridade é só uma divergência com um
+comentário em cima. Agora `apps/web/test/split.test.ts` roda no `node --test`
+(Node 22 tira os tipos sozinho — zero build, zero dependência nova) e prova, em
+milhares de casos: paridade de `splitEqual` e `servicoCents` com o backend, e a
+propriedade que o código violava — **N pagantes em "igual" fecham a conta
+exatamente**. Restaurando a linha antiga, 3 dos 10 testes quebram.
+
+**Dois outros achados do mesmo caminho:**
+
+- *Erro de pagamento virava beco sem saída.* A corrida mais comum da mesa é duas
+  pessoas tocando "Pagar R$ 50" ao mesmo tempo: uma ganha, a outra leva 400 do
+  servidor ("valor acima do que falta"). O `catch` jogava isso no `error` fatal,
+  que era checado antes de tudo — a tela inteira virava uma frase. Agora
+  `payError` é inline, recarrega a conta e deixa a pessoa tocar de novo.
+- *Um blip de 4G apagava o código Pix.* O poll de 4s escrevia no mesmo `error`
+  fatal. O caso real: o cliente copia o código, troca pro app do banco, o sinal
+  do bar oscila, ele volta — e no lugar do Pix está "Failed to fetch".
+  Verificado no Chromium, abortando `/api/check`: antes a tela virava a frase,
+  agora fica de pé com "sem conexão — o código abaixo continua valendo", e o
+  aviso some quando o sinal volta. Só a PRIMEIRA carga falha em tela cheia,
+  porque aí realmente não há tela.
+
+**O service worker que não entrou.** "PWA" convida a cachear tudo, mas o cliente
+que escaneia o QR é sempre visita nova num cache vazio: o SW não ajuda em nada
+na única carga que importa, e cacheia dado de dinheiro que muda a cada 4
+segundos. O manifest fica (dá pra instalar `/carteira`); service worker, não.
+
+**Onde está.** `apps/web/src/split.ts`, `apps/web/src/App.tsx`,
+`apps/web/test/split.test.ts`, `apps/web/tsconfig.test.json`, `jest.config.js`.

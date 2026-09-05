@@ -22,12 +22,18 @@ export function splitEqualLocal(totalCents: number, parts: number, index: number
 
 /**
  * The diner's consumption base BEFORE serviço, per mode. Never negative.
- * - igual: an equal slice of what's left;
+ * - igual: an equal slice of the CHECK TOTAL — not of what's left. Dividing the
+ *   remainder is the bug that shipped: with R$200 entre 4, the first person paid
+ *   R$50, the second R$37,50, the third R$28,13, and the table ended R$63,27
+ *   short with nobody able to see why. "Dividir entre 4" has to mean R$50 for
+ *   each of the four, every time it's tapped. The cap in computeShare() is what
+ *   keeps the last payer from overpaying;
  * - item:  the sum of the items they tapped as theirs;
  * - valor: the amount they typed (null/invalid → 0, disarms the CTA upstream).
  */
 export function shareBaseCents(opts: {
   mode: SplitMode;
+  totalCents: number;
   remaining: number;
   people: number;
   customCents: number | null;
@@ -35,7 +41,14 @@ export function shareBaseCents(opts: {
 }): number {
   switch (opts.mode) {
     case 'igual':
-      return splitEqualLocal(opts.remaining, Math.max(opts.people, 1), 0);
+      // Index 0 (the ceiling) on purpose. Cada telefone calcula sozinho, sem
+      // saber quantos já pagaram, então não dá pra distribuir o centavo do
+      // resto por posição: se todo mundo arredondasse pra baixo, a conta
+      // fecharia com resto e a mesa não fecharia nunca. Com o teto, o buraco
+      // vai todo pro último, que é limitado ao que falta — o desconto dele é
+      // sempre menor que 1 centavo por pessoa (< R$0,20 numa mesa de 20), e
+      // ninguém paga mais do que o número que a tela prometeu.
+      return splitEqualLocal(Math.max(0, opts.totalCents), Math.max(opts.people, 1), 0);
     case 'item':
       return Math.max(0, opts.selectedCents);
     case 'valor':
@@ -62,6 +75,7 @@ export function servicoCents(baseCents: number, servicoBp: number): number {
  */
 export function computeShare(opts: {
   mode: SplitMode;
+  totalCents: number;
   remaining: number;
   people: number;
   customCents: number | null;
