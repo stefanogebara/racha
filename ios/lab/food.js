@@ -673,10 +673,62 @@ export function fitOf(recipe) {
   FIT.set(recipe, box); return box;
 }
 
+
+/* ── the carved set ───────────────────────────────────────────────────────────
+   Real blocks, one hand, printed once and bundled (decision #33). They are
+   ALPHA MASKS: opaque where the block touched the paper, transparent where it
+   did not — the same thing erase() does here in code, which is why one file
+   prints cream on the night ground and near-black on the comanda.
+
+   Only the table subjects have blocks. The travel ones (bonde, chave, carro…)
+   are off the table product since decision #29 and keep their recipes, so this
+   degrades to the code drawing per-subject rather than all-or-nothing. If the
+   PNGs never load — file://, no network, a typo in the path — every subject
+   falls back and the app still prints. */
+const CARVED_FOR = {
+  picanha: 'carne', linguica: 'carne', peixe: 'peixe', prato: 'massa',
+  chopp: 'cerveja', caipirinha: 'drink', farofa: 'acompanhamento',
+  vinagrete: 'salada', pudim: 'sobremesa',
+};
+const BLOCKS = new Map();
+
+/** Preload the blocks. Never rejects: a missing block is a fallback, not a bug. */
+export function loadCarvedSet(base = 'img/carved/') {
+  const names = [...new Set(Object.values(CARVED_FOR))];
+  return Promise.all(names.map(n => new Promise(res => {
+    const im = new Image();
+    im.onload = () => { BLOCKS.set(n, im); res(n); };
+    im.onerror = () => res(null);
+    im.src = `${base}${n}.png`;
+  }))).then(r => r.filter(Boolean).length);
+}
+
+/** Print a loaded block, inked, into the same box the recipes are fitted to.
+    Not the whole unit square: the recipes live between CAP and BASE and are
+    bottom-anchored on the ground, so a block drawn edge to edge comes out
+    bigger than every drawn subject and hangs below the rule. The mask already
+    carries its own margin, so this only has to place it. */
+function printBlock(c, im, ink) {
+  const S = 256;
+  const cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(S, S)
+    : Object.assign(document.createElement('canvas'), { width: S, height: S });
+  const k = cv.getContext('2d');
+  k.drawImage(im, 0, 0, S, S);
+  k.globalCompositeOperation = 'source-in';   // keep the block's alpha, take our ink
+  k.fillStyle = ink; k.fillRect(0, 0, S, S);
+  // 0.86 of the box, bottom-anchored on BASE like every recipe. A block that
+  // fills its box corner to corner reaches further than any drawn subject does
+  // — the diagonal skewer was hanging past the rule under the hero.
+  const h = (BASE - CAP) * 0.86;
+  c.drawImage(cv, 0.5 - h / 2, BASE - h, h, h);
+}
+
 export function paint(c, name, S, seedKey = name, { paper = PAPER, ink = INK, fit = true, ground: withGround = true } = {}) {
   const lod = lodFor(S), recipe = recipeFor(name);
   c.save();
   c.scale(S, S);
+  const carved = BLOCKS.get(CARVED_FOR[recipe]);
+  if (carved) { printBlock(c, carved, ink); c.restore(); return; }
   c.__lod = lod; c.__paper = paper; c.__ink = ink; c.__k = fnv(seedKey) & 63;
   // The gouge widens as the block shrinks, so it never closes up in the print.
   c.__cw = Math.max(0.0185, 1.35 / S) * (lod === 0 ? 1.5 : lod === 1 ? 1.15 : 1);

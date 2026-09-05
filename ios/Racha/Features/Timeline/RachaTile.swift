@@ -35,6 +35,7 @@ struct RachaTile: View {
     private var plate: some View {
         DishImageView(cacheKey: ImageStyle.cacheKey(for: heroItem),
                       prompt: ImageStyle.prompt(for: heroItem),
+                      category: heroItem.category,
                       cornerRadius: 6,
                       size: 512,
                       inset: 0.04)

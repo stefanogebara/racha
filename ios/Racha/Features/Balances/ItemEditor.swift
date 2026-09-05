@@ -30,6 +30,7 @@ struct ItemEditor: View {
                             VStack(spacing: 12) {
                                 DishImageView(cacheKey: ImageStyle.cacheKey(for: item),
                                               prompt: ImageStyle.prompt(for: item),
+                                              category: item.category,
                                               cornerRadius: 16, size: 512)
                                     .frame(height: 150)
 

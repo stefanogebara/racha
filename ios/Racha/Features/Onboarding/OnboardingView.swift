@@ -275,6 +275,7 @@ private struct DoorRow: View {
             HStack(spacing: 16) {
                 DishImageView(cacheKey: ImageStyle.cacheKey(for: item),
                               prompt: ImageStyle.prompt(for: item),
+                              category: item.category,
                               cornerRadius: 2, size: 256, inset: 0.05)
                     .frame(width: 54, height: 54)
                     .background {
@@ -340,6 +341,7 @@ struct StillLifeView: View {
                     let plan = Self.layout[min(index, Self.layout.count - 1)]
                     DishImageView(cacheKey: ImageStyle.cacheKey(for: item(dish)),
                                   prompt: ImageStyle.prompt(for: item(dish)),
+                                  category: item(dish).category,
                                   cornerRadius: 0, size: 512)
                         .frame(width: geo.size.height * plan.scale,
                                height: geo.size.height * plan.scale)

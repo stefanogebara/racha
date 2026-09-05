@@ -619,3 +619,74 @@ segundos. O manifest fica (dá pra instalar `/carteira`); service worker, não.
 
 **Onde está.** `apps/web/src/split.ts`, `apps/web/src/App.tsx`,
 `apps/web/test/split.test.ts`, `apps/web/tsconfig.test.json`, `jest.config.js`.
+
+## 33 — O conjunto entalhado, e por que ele é provisório (2026-09-05)
+
+**Contexto.** A decisão #28 parou o loop de crítica em 6/10 e nomeou o que pixel
+nenhum movia: *"um conjunto de pictogramas desenhado em código não tem 'uma mão
+só' — é uma encomenda pra um ilustrador, não uma rodada"*. E: *"o que faria
+mudar de ideia: um conjunto de pictogramas de verdade no lugar das receitas."*
+
+**Decisão.** Catorze blocos, um por `ItemCategory` de mesa, gerados num modelo de
+imagem e cortados como máscaras alfa. Entram como **arte provisória, marcada
+como tal.** Xilogravura de cordel é arte popular *viva* — tem gente trabalhando
+em Juazeiro do Norte hoje. Estampar pastiche de arte nordestina gerada por
+máquina num produto brasileiro é uma decisão de marca, não técnica, e a versão
+final dela é uma encomenda a um cordelista. Estes blocos destravam o design
+agora sem fechar essa porta: o `tools/carve/` inteiro está no repositório
+justamente pra que o conjunto seja *substituível*, não um PNG órfão.
+
+**Máscara alfa, não PNG com fundo.** Os arquivos não têm cor: opacos onde o
+bloco encostou no papel, transparentes onde não encostou. É a mesma lógica que o
+`food.js` já usa com `destination-out` — papel é onde a tinta não está. E é o que
+faz um arquivo só servir os dois mundos: creme sobre a noite do app, quase-preto
+sobre a comanda. Um fundo creme assado no arquivo seria um retângulo claro numa
+tela quase preta. `check-carved-set.py` recusa qualquer PNG sem canal alfa,
+porque esse erro é invisível até alguém abrir o app num bar.
+
+**Detalhes que custaram decisão:**
+
+- *Uma imagem por assunto, não uma folha de contato.* A folha garante uma mão só
+  por construção — foi a primeira ideia, e é a certa pro problema errado. Nenhum
+  modelo põe quatro assuntos DIFERENTES numa grade sem repetir um e perder
+  outro: no teste, o peixe apareceu duas vezes e a caipirinha sumiu. Prompt por
+  assunto, mesmo bloco de estilo, mesma semente: a mão continua uma só e dá pra
+  controlar o que sai.
+- *Os dois modos de falha são silenciosos, então viraram teste* (`qc.py`). O
+  arquivo é um PNG válido nos dois casos. **Cor vazada:** o modelo ignora "sem
+  cor" exatamente onde o assunto É a cor dele — limão, folha, suco de laranja —
+  e em escala de cinza aquilo vira tinta média, máscara de lama. Dos 28
+  primeiros, 10 reprovaram; `drink`, `salada` e `suco` reprovaram os dois
+  candidatos e precisaram de prompt novo nomeando as cores que vazavam.
+  **Sombra chapada:** uma gravura em relevo não tem sombra projetada. O sinal é
+  uma mancha grande e sem goiva — massa de tinta neste estilo é sempre cavada.
+- *A sombra sai no limiar, não no prompt.* Três rodadas de "NO cast shadow" não
+  resolveram. Medindo o histograma, as impressões voltam **bimodais**: tinta em
+  L<0,15 e um segundo pico em L~0,45–0,52, que é a sombra. Faz sentido físico —
+  uma gravura de um bloco só é bimodal por construção, ou o bloco encostou no
+  papel ou não encostou, e todo cinza médio é sombreado que o processo não sabe
+  fazer. Rampa curta e baixa: a sombra some inteira, a borda da tinta fica.
+- *Normalização por MASSA, não por caixa.* Os brutos iam de 2,3% a 21,9% de
+  tinta — um espeto na diagonal ao lado de uma tigela sólida não é um conjunto,
+  é um borrão do lado de um arranhão. Corrigido pra 4,3–10,7%. Isto não é
+  invenção: o `paint()` do `food.js` já fazia a mesma correção
+  (`sqrt(0.185/area)`, com trava), e o `cut.py` só portou a ideia.
+- *O bloco é ancorado em BASE, a 0,86 da caixa.* Preenchendo a caixa de canto a
+  canto ele alcança mais longe que qualquer receita desenhada — o espeto na
+  diagonal ficava pendurado abaixo da régua do herói. Visto no Chromium.
+- *Só as categorias de mesa têm bloco.* `servico` e `taxa` não têm figura:
+  inventar uma seria decoração. As de viagem saíram do produto na #29.
+
+**Contra o quê.** Continuar só com as receitas em código: nunca falha, não custa
+nada, funciona sem arquivo — e é exatamente o que oito rodadas seguidas de
+crítico cego apontaram como o teto. As receitas continuam lá, por assunto: o que
+não tem bloco ainda imprime desenhado, e se os PNGs não carregarem tudo volta
+pro código em vez de sumir.
+
+**O que faria mudar de ideia.** Um cordelista de verdade. É pra isso que o
+`tools/carve/` existe: pra este conjunto ser trocável.
+
+**Onde está.** `ios/Racha/Resources/Carved/` (14 máscaras),
+`ios/Racha/Imagery/CarvedSet.swift`, `DishImageView.swift`, `ios/lab/food.js`
+(`loadCarvedSet`, `printBlock`), `ios/lab/img/carved/`,
+`ios/scripts/check-carved-set.py`, `tools/carve/`.

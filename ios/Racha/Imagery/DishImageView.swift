@@ -9,6 +9,10 @@ import SwiftUI
 struct DishImageView: View {
     var cacheKey: String
     var prompt: String
+    /// Which block to print while (or instead of) a photograph. Passed rather
+    /// than parsed back out of the cache key, so a renamed key cannot silently
+    /// turn every row into an empty square.
+    var category: ItemCategory = .other
     var cornerRadius: CGFloat = 14
     var size: Int = 512
     /// Padding around the cut-out, as a fraction of the frame. A subject that
@@ -37,13 +41,22 @@ struct DishImageView: View {
                                               time: clock.time,
                                               seed: seed,
                                               enabled: !reduceMotion))
+            } else if let block = CarvedSet.mask(for: category) {
+                // The carved block, not a grey box with a camera glyph in it.
+                // It is bundled, so it is on screen in the first frame — with no
+                // key, no signal, and nothing to wait for. A generated photo, if
+                // one is ever configured, develops over this; the block is the
+                // design, not the apology for its absence.
+                Image(uiImage: block)
+                    .renderingMode(.template)      // the file is alpha only
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundStyle(Palette.ink)  // ink is chosen here, not baked
+                    .scaleEffect(1 - inset * 2)
             } else {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Palette.glassSubtle)
-                    .overlay {
-                        Image(systemName: "photo")
-                            .foregroundStyle(Palette.stone.opacity(0.35))
-                    }
+                // Genuinely pictureless: serviço, taxa. Nothing is more honest
+                // than the paper.
+                Color.clear
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))

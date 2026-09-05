@@ -285,6 +285,7 @@ struct ItemRow: View {
         HStack(spacing: 12) {
             DishImageView(cacheKey: ImageStyle.cacheKey(for: item),
                           prompt: ImageStyle.prompt(for: item),
+                          category: item.category,
                           cornerRadius: 10, size: 256)
                 .frame(width: 44, height: 44)
 
