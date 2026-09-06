@@ -2,6 +2,16 @@ import SwiftUI
 
 @main
 struct RachaApp: App {
+    #if DEBUG
+    /// Runs before the two properties below, because stored-property
+    /// initialisers run in declaration order and all of them run before any
+    /// `init()` body. Putting the wipe in `init()` (or in `.task`) deleted the
+    /// event directory *after* `EventStore` had created it and after
+    /// `AppSettings` had read UserDefaults — so a reset launch kept its old
+    /// preferences and then failed to write the seed. Order is the fix.
+    private let didReset = DebugRoute.resetIfRequested()
+    #endif
+
     @State private var settings = AppSettings()
     @State private var repository = RachaRepository()
     @State private var navigator = Navigator()
@@ -100,6 +110,23 @@ final class Navigator {
 ///
 /// Routes: `gallery` (seeded), `thread` (the open table), `ledger`, `pay`.
 enum DebugRoute {
+    /// Wipes the event log and every stored preference, so a UI test starts on
+    /// a device that has never run the app. Called before `loadAll`, and only
+    /// when the flag is present — a debug build launched normally keeps its data.
+    @discardableResult
+    static func resetIfRequested() -> Bool {
+        guard UserDefaults.standard.bool(forKey: "racha.resetState") else { return false }
+        let events = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Racha/Events", isDirectory: true)
+        try? FileManager.default.removeItem(at: events)
+        for key in ["racha.onboarded", "racha.myName", "racha.myPix", "racha.myCity",
+                    "racha.imagery", "racha.imageBudget", "racha.meID"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        return true
+    }
+
     @MainActor
     static func apply(settings: AppSettings, repository: RachaRepository, navigator: Navigator) async {
         guard let route = UserDefaults.standard.string(forKey: "racha.debugRoute") else { return }
