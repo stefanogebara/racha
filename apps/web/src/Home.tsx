@@ -7,10 +7,11 @@
  * mentira (o cliente usa o navegador; não tem app). A prova (a conta da demo
  * dividida por três, ao centavo) é a peça central, em seção própria, largura
  * toda: três partes em três colunas iguais, a legenda presa à parte de ouro.
- * Serif itálica só na manchete e nos numerais; UM acento na página. A
- * ilustração fica onde trabalha — nas linhas da conta, dentro do produto.
+ * Serif itálica só na manchete e nos numerais; UM acento na página. Os
+ * entalhes: nas linhas da conta E soltos em volta do telefone (escolha do dono).
  */
 import { LangToggle, useT } from './lang';
+import { dishMask } from './dish';
 import { money } from './i18n';
 import { splitEqualLocal } from './split';
 
@@ -51,7 +52,10 @@ export default function Home() {
             <em>{t('land.h1b')}</em>
           </h1>
           <p className="sub">{t('land.sub')}</p>
-          <a className="btn" href={DEMO}>{t('land.try')}</a>
+          <div className="acoes">
+            <a className="btn" href={DEMO}>{t('land.try')}</a>
+            <a className="btn fantasma" href="/admin">{t('land.forVenues')}</a>
+          </div>
           {/* Os três gestos vivem ao lado do produto que os mostra. */}
           <ol className="passos">
             {steps.map(([title, desc], i) => (
@@ -67,9 +71,17 @@ export default function Home() {
         {/* O produto de verdade, rodando, INTEIRO — da conta ao botão de pagar.
             Moldura de fio, sem bisel, sem 9:41: é uma página web, e isso é o
             argumento. Passa da dobra de propósito; quem rola vê o resto. */}
-        <a className="tela" href={DEMO} aria-label="Racha — demo ao vivo">
-          <iframe title="Racha — demo ao vivo" src={EMBED} loading="eager" tabIndex={-1} />
-        </a>
+        <div className="palco">
+          <a className="tela" href={DEMO} aria-label="Racha — demo ao vivo">
+            <iframe title="Racha — demo ao vivo" src={EMBED} loading="eager" tabIndex={-1} />
+          </a>
+          {/* Os entalhes soltos em volta do telefone — a mesa em volta da conta.
+              Escolha do dono (decisão #36): a ilustração é a marca, fica. */}
+          <i className="flut espeto" style={dishMask('carne')} aria-hidden="true" />
+          <i className="flut chopp" style={dishMask('cerveja')} aria-hidden="true" />
+          <i className="flut tampa" style={dishMask('refrigerante')} aria-hidden="true" />
+          <p className="dica">{t('land.tryHint')}</p>
+        </div>
       </section>
 
       <section className="prova env">

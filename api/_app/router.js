@@ -148,7 +148,8 @@ const reconciler = createChargeReconciler({
 // quebrar (o recebedor de teste não existe em live). Aqui ele roda sempre num
 // MockPsp próprio e se auto-confirma — independente de RACHA_PSP/live. É a única
 // venue cujo dinheiro é fake por design.
-const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || 'demoracha';
+const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck } = require('../_lib/demo');
+const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || DEMO_TOKEN;
 const demoPsp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 const demoCharge = createChargeService({ store, psp: demoPsp });
 const demoWebhook = createWebhookHandler({
@@ -291,6 +292,14 @@ async function route(req, res) {
     if (req.method === 'GET' && url.pathname === '/api/check') {
       const token = url.searchParams.get('t') || '';
       let data = await store.getCheckByQrToken(token);
+      // A mesa da demo se auto-cura: sem mesa (ambiente novo) ou com a conta
+      // fechada (alguém pagou tudo), reabre — o telefone da landing nunca mostra
+      // "conta não encontrada". Só o token fixo da demo; nunca uma mesa real.
+      if (!data && token === DEMO_TABLE_TOKEN) {
+        try { data = await ensureDemoCheck(store, token); } catch (e) {
+          process.stderr.write(`[demo-ensure] ${String(e.message).slice(0, 120)}\n`);
+        }
+      }
       if (!data) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       // Confirm-on-read: heal a missed webhook. If money is still owed, re-ask
       // the PSP about this check's pending charges (throttled per check,
@@ -772,21 +781,8 @@ async function route(req, res) {
     // idempotente e rate-limited — o pior abuso possível é... resetar a demo.
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/demo/reset') {
       if (!rateLimitOpen(req)) return json(res, 429, { success: false, error: 'calma lá' });
-      const view = await store.getCheckByQrToken('demoracha');
-      if (view && view.state.paidCents === 0 && view.state.totalCents === 21310) {
-        return json(res, 200, { success: true, data: { status: 'já fresca' } });
-      }
-      if (view) await store.appendEvent(view.check.id, 'CLOSED', {});
-      const hit = await store.getVenueByTableToken('demoracha');
-      if (!hit) return json(res, 404, { success: false, error: 'demo não existe neste ambiente' });
-      await store.openCheck('demoracha', [
-        { id: 'i1', name: 'Picanha na chapa', priceCents: 8990 },
-        { id: 'i2', name: 'Chopp artesanal (4x)', priceCents: 5560 },
-        { id: 'i3', name: 'Batata rústica', priceCents: 3290 },
-        { id: 'i4', name: 'Refrigerante (2x)', priceCents: 1580 },
-        { id: 'i5', name: 'Pudim da casa', priceCents: 1890 },
-      ]);
-      return json(res, 200, { success: true, data: { status: 'resetada', totalCents: 21310 } });
+      const data = await resetDemoCheck(store, DEMO_TABLE_TOKEN);
+      return json(res, 200, { success: true, data });
     }
 
     // --- cron diário: detecta a virada do KYC do recebedor e avisa o dono -----

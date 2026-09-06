@@ -200,8 +200,20 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at, active: data.active,
       };
     },
-    seedTable(venueId, label) {
-      return this.createTable(venueId, label);
+    async seedTable(venueId, label, fixedToken) {
+      if (!fixedToken) return this.createTable(venueId, label);
+      // Token fixo é affordance SÓ de seed (a mesa pública da demo). Mesas de
+      // produção sempre nascem com token aleatório do default da coluna.
+      const { data, error } = await client
+        .from('venue_tables')
+        .insert({ venue_id: venueId, label: String(label).trim(), qr_token: fixedToken })
+        .select('id, venue_id, label, qr_token, qr_rotated_at, active')
+        .single();
+      throwOn(error, 'seedTable');
+      return {
+        id: data.id, venueId: data.venue_id, label: data.label,
+        qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at, active: data.active,
+      };
     },
     async listTables(venueId) {
       const { data: tabs, error } = await client

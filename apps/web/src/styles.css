@@ -432,7 +432,10 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .heroi h1 span { font: 500 56px/1.04 var(--titulo); }
 .heroi h1 em  { font: italic 400 70px/1 var(--serif); letter-spacing: -.02em; margin-left: -.04em; margin-top: 10px; }
 .heroi .sub { margin-top: 28px; max-width: 42ch; font: 400 18px/27px var(--ui); color: var(--cr2); text-wrap: pretty; }
-.heroi .btn { margin-top: 40px; }
+.heroi .acoes { margin-top: 40px; display: flex; gap: 12px; flex-wrap: wrap; }
+.landing .btn.fantasma { border-color: transparent; color: var(--cr2); padding-left: 14px; }
+.landing .btn.fantasma::after { content: none; }
+.landing .btn.fantasma:hover { background: transparent; color: var(--cr); border-color: var(--fio); }
 
 /* Os três gestos: espinha curta, na coluna da manchete, ao lado do produto. */
 .passos { list-style: none; margin-top: 84px; border-top: 1px solid var(--fio); }
@@ -445,9 +448,17 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 /* A tela: colunas 9–12 da grade (a borda esquerda numa linha da grade). O
    app renderizado a 430px (a largura da concha) e reduzido à coluna. Fio de
    1px; nada de sombra. Um estado, não o app — quem clica abre o app. */
+/* O palco: a tela nas colunas 9–12, os entalhes soltos em volta dela. */
+.palco { grid-column: 9 / span 4; position: relative; align-self: start; }
+.flut { position: absolute; display: block; background-color: var(--cr); opacity: .92; pointer-events: none;
+  -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; }
+.flut.espeto { width: 270px; height: 270px; left: -215px; top: 400px; rotate: 0deg; }
+.flut.chopp  { width: 92px;  height: 92px;  right: -104px; top: 36px; rotate: -6deg; }
+.flut.tampa  { width: 92px; height: 92px; right: -108px; top: 480px; rotate: 14deg; }
+.palco .dica { margin-top: 18px; text-align: center; font: 400 13px/18px var(--ui); color: var(--cr4); }
 .tela {
   --w: 357px; --escala: calc(357 / 430);
-  grid-column: 9 / span 4; align-self: start; display: block;
+  align-self: start; display: block;
   width: 100%; height: calc(var(--h, 812px) * var(--escala)); border-radius: 22px; overflow: hidden; box-sizing: border-box;
   background: #fff; box-shadow: 0 0 0 1px var(--fio); cursor: pointer;
 }
@@ -497,7 +508,8 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   .landing .env { padding-left: 24px; padding-right: 24px; }
   .heroi { grid-template-columns: 1fr; padding-top: 32px; row-gap: 48px; }
   .heroi .copy { grid-column: 1; padding-top: 0; }
-  .tela { grid-column: 1; justify-self: center; width: min(357px, 100%); }
+  .palco { grid-column: 1; justify-self: center; width: min(357px, 100%); }
+  .tela { width: 100%; } .flut { display: none; }
   .heroi h1 span { font-size: 40px; } .heroi h1 em { font-size: 52px; }
   .passos { margin-top: 56px; }
   .passos li { grid-template-columns: 40px 1fr; } .passos .desc { grid-column: 2; }

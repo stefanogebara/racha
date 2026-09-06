@@ -12,6 +12,7 @@
  */
 
 const http = require('http');
+const { DEMO_TOKEN, DEMO_ITEMS } = require('./api/_lib/demo');
 const crypto = require('crypto');
 const { route, store, authClient, useSupabase } = require('./api/_app/router');
 
@@ -37,14 +38,8 @@ const PORT = 8787;
   // The public demo table, same token as prod, so the landing's live phone
   // (`/?t=demoracha`) works locally without a special case.
   if (!useSupabase) {
-    const demo = await store.seedTable(venue.id, 'Mesa demo', 'demoracha');
-    await store.openCheck(demo.qrToken, [
-      { id: 'd1', name: 'Picanha na chapa', priceCents: 8990 },
-      { id: 'd2', name: 'Chopp artesanal (4x)', priceCents: 5560 },
-      { id: 'd3', name: 'Batata rústica', priceCents: 3290 },
-      { id: 'd4', name: 'Caipirinha (2x)', priceCents: 3980 },
-      { id: 'd5', name: 'Pudim da casa', priceCents: 1890 },
-    ]);
+    const demo = await store.seedTable(venue.id, 'Mesa demo', DEMO_TOKEN);
+    await store.openCheck(demo.qrToken, DEMO_ITEMS.map((i) => ({ ...i })));
   }
   await store.openCheck(mesa2.qrToken, [
     { id: 'j1', name: 'Moqueca de peixe', priceCents: 12900 },
