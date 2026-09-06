@@ -117,10 +117,11 @@ async function notifyPreviaBeacon({ pl, event }) {
  * alerta de dinheiro que não sai não pode também sumir.
  */
 async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked = 0,
-                                        driftCents = 0, worstSeverity = 'ok' }) {
+                                        driftCents = 0, worstSeverity = 'ok', heartbeat = false }) {
   const secret = process.env.RACHA_NOTIFY_SECRET;
   if (!secret) {
-    process.stderr.write(`RECONCILE ALERT (sem RACHA_NOTIFY_SECRET):\n${mensagem}\n`);
+    // Batimento sem ponte não merece um bloco de stderr por noite; alerta sim.
+    if (!heartbeat) process.stderr.write(`RECONCILE ALERT (sem RACHA_NOTIFY_SECRET):\n${mensagem}\n`);
     return { skipped: true, reason: 'no_secret' };
   }
   try {
@@ -128,17 +129,22 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
       body: JSON.stringify({
-        event: 'reconcile_drift',
+        // Verde manda 'reconcile_heartbeat': do outro lado, a AUSÊNCIA da batida
+        // noturna é o alarme. Um canário que só fala quando está ruim é
+        // indistinguível de um canário morto (#8).
+        event: heartbeat ? 'reconcile_heartbeat' : 'reconcile_drift',
         mensagem, venuesRed, venuesChecked, driftCents, worstSeverity,
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
+    if (!res.ok && !heartbeat) {
       process.stderr.write(`RECONCILE ALERT (ponte ${res.status}):\n${mensagem}\n`);
     }
     return { ok: res.ok, status: res.status, data };
   } catch (e) {
-    process.stderr.write(`RECONCILE ALERT (ponte falhou: ${String(e.message).slice(0, 120)}):\n${mensagem}\n`);
+    if (!heartbeat) {
+      process.stderr.write(`RECONCILE ALERT (ponte falhou: ${String(e.message).slice(0, 120)}):\n${mensagem}\n`);
+    }
     return { ok: false, error: e.message };
   }
 }

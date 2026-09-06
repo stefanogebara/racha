@@ -492,6 +492,11 @@ export default function App() {
           <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
             {t('pay.cta', { amount: brl(totalToPay) })}
           </button>
+          {/* Na mesa de demonstração a carteira é SIMULADA, mesmo com chave de
+              produção configurada: a folha oficial do Google Pay tokeniza um
+              cartão de verdade e pede CPF de verdade, e aqui não existe conta
+              nenhuma pra pagar. Autorização sob premissa falsa (CDC) e CPF sem
+              base legal (LGPD). O servidor é quem declara `venue.demo`. */}
           <WalletButtons
             token={token}
             amountCents={cappedBase}
@@ -500,6 +505,7 @@ export default function App() {
             payerDocument={cpfDigits}
             disabled={totalToPay === 0}
             venueName={venue.name}
+            simulated={venue.demo === true}
             onPaid={async () => { await refresh(); setStep('pago'); }}
           />
           {venue.acceptsCard && (

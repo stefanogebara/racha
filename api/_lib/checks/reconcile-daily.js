@@ -18,6 +18,14 @@
  *
  * O que ele NÃO faz: consertar. Conciliação que corrige sozinha esconde a causa
  * raiz; aqui ela grita e um humano decide.
+ *
+ * O que ele AINDA NÃO faz, e a #8 pede: comparar com o EXTRATO DO PSP. Hoje os
+ * dois canários cruzam dois registros NOSSOS (log de eventos × tabela de
+ * pagamentos), escritos pelo mesmo webhook — divergência do lado do PSP (valor
+ * liquidado, roteamento do split, gorjeta) é invisível aqui. A terceira perna
+ * (listar liquidações do PSP no período e bater txid a txid) é a próxima
+ * entrega desta promessa; até lá, a promessa está escrita com o tamanho que o
+ * código tem, e não maior.
  */
 
 const { reconcileVenue, reconcileVenueHouse } = require('./reconcile');
@@ -65,7 +73,13 @@ async function reconcileOneVenue(store, venue) {
     return {
       ...base,
       severity: findings.reduce((s, f) => worse(s, f.severity), 'ok'),
-      driftCents: checks.totalDriftCents,
+      // O drift da casa entrava zerado: `checks.totalDriftCents` só cobre a
+      // perna das contas, e o canário de SALDO carrega o dele em `driftCents`
+      // por achado — uma casa com R$500 de drift de saldo alertava "drift 0,00".
+      // Em módulo, e só a perna da casa: a das contas já vem somada em módulo
+      // (reconcile.js:133), e somar os dois sinais aqui cancelava o total.
+      driftCents: checks.totalDriftCents
+        + houseFindings.reduce((sum, f) => sum + Math.abs(Number(f.driftCents) || 0), 0),
       findings,
       checksChecked: checks.checksChecked,
       accountsChecked: house.accountsChecked,

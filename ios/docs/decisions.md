@@ -923,3 +923,93 @@ não) e não são do laço.
 `LANDING` + `.shell.embed`), `apps/web/src/App.tsx` (`EMBED`),
 `apps/web/src/i18n.ts` (`land.*`), `apps/web/public/fonts/` (woff2 vendidas —
 Google Fonts caía atrás do proxy), `api/_lib/store/memory.js` (`seedTable`).
+
+## 37 — O que as duas revisões acharam antes do merge (2026-09-06)
+
+**Pedido.** "review first then merge it" — o portão do CLAUDE.md (código que mexe
+em dinheiro só entra depois de fintech-compliance + security) aplicado de verdade,
+com os dois agentes lendo o diff contra a `main`.
+
+**Acharam dois CRÍTICOS. O portão pagou o próprio custo na primeira vez que rodou.**
+
+**#1 — A demo tokenizava cartão REAL e pedia CPF REAL.** `WalletButtons` era
+renderizado sem guarda em `App.tsx`, enquanto o `StripeWalletPay` logo abaixo já
+era guardado por `venue.acceptsCard` (que o servidor só liga fora da demo). Com
+`VITE_PAGARME_PUBLIC_KEY` setada — o go-live que este PR prepara — o rail abria a
+folha OFICIAL do Google Pay em `PRODUCTION`, com merchant real, cobrando R$237,10
+de uma conta que não existe, depois de exigir 11 dígitos de CPF. O dinheiro não
+se movia (o servidor roteia a demo pro MockPsp), mas a autorização era obtida sob
+premissa falsa (CDC 6º III e 37) e o CPF trafegava sem base legal (LGPD: não há
+contrato a executar numa mesa de demonstração).
+*Correção:* o SERVIDOR declara `venue.demo` no `/api/check`, e a UI passa
+`simulated` pro `WalletPay`, que força a folha simulada mesmo com chave real.
+A demo de vendas continua existindo; o cartão de verdade não.
+
+**#2 — A auto-cura da demo não provava que a mesa era a demo.** O comentário dizia
+"só toca o token fixo da demo; nunca uma mesa real" e nada no código garantia isso:
+a única barreira era `RACHA_DEMO_TABLE_TOKEN` não ser o token de uma mesa de
+verdade. Um typo nessa env e `resetDemoCheck` FECHAVA a conta aberta de uma mesa
+real por uma rota pública sem auth, abrindo uma conta falsa de R$237,10 no lugar.
+Segundo defeito na mesma função: `getVenueByTableToken` filtra `active`, então uma
+mesa demo DESATIVADA fazia `seedVenue` passar e `seedTable` estourar no unique —
+uma venue órfã por request, alimentada por GETs anônimos, e essas órfãs entravam
+na varredura noturna de dinheiro.
+*Correção:* marcador durável (`isTest === true` **e** `pspRecipientId === 'rcpt_demo'`,
+os dois) conferido ANTES de qualquer escrita, em `ensure` e `reset`; `findTableAnyState`
+procura a mesa ignorando `active`, então mesa desativada é erro limpo e não fábrica
+de órfãs; rate limit no ramo de auto-cura do `/api/check`. Sete testes novos,
+incluindo "recusa um token de venue real e NÃO fecha a conta dela".
+
+**#3 — `/api/cron/reconcile` era público sem `CRON_SECRET`, e mandava mesmo assim.**
+O corpo da resposta é o retrato financeiro da plataforma inteira: nome de cada casa,
+drift em centavos, `checkId`, `txid`, `accountId`. Degradava aberto (só rate limit),
+e chamava `notifyFounderReconcile` SEM o `podeEnviarAviso()` que o próprio arquivo
+documenta como regra e que o `/api/cron/activation-radar` respeita — ou seja, um
+estranho podia disparar WhatsApp pro fundador em rajada.
+*Correção:* esta rota fecha por padrão (503 sem segredo, 401 com segredo errado,
+comparação em tempo constante). O rate limiter também mudou: a chave saía do
+PRIMEIRO elemento do `X-Forwarded-For`, que o cliente escreve — `XFF: 1.2.3.<n>`
+dava um balde por request e o limite não existia. Agora sai do `x-real-ip` ou do
+ÚLTIMO hop.
+
+**#4 — O canário não distinguia "verde" de "morto".** `formatReconcileAlert` devolve
+`null` quando ninguém está vermelho, e o cron só avisava quando havia mensagem. Se a
+varredura estourasse — ou se o cron fosse desligado — o silêncio lia exatamente
+igual a "tudo bate". É o modo de falha #7 do CLAUDE.md, o mesmo que custou 12 dias
+no Seatable, dentro do canário que existe pra evitá-lo.
+*Correção:* `try/catch` na varredura que PAGINA como crítico, e batimento
+(`reconcile_heartbeat`) toda noite verde — do lado da Olímpia, a AUSÊNCIA da batida
+é o alarme.
+
+**Também corrigido, achado no mesmo passe:**
+
+- *`createVenue` tinha `cnpj = '00000000000191'` como default* — que é o CNPJ REAL
+  do Banco do Brasil, e ia parar no `tax_id` da conta conectada do Stripe. A migração
+  0002 tornou a coluna nulável exatamente porque CNPJ falso em recibo real é
+  inaceitável; o default sobreviveu à migração. Agora é `null`.
+- *O drift da casa entrava zerado no alerta*: `driftCents` só somava a perna das
+  contas, então uma casa com R$500 de drift de saldo alertava "drift 0,00".
+- *O catch-all ecoava `err.message` em 500* — texto de PostgREST/Postgres indo pro
+  cliente. Agora loga inteiro e devolve `code: 'internal'`.
+- *O store de memória deixava um token fixo re-apontar pra outra venue em silêncio*
+  (o Supabase é protegido pelo unique). Espelhado.
+
+**O que NÃO foi corrigido, e por quê.** A #8 promete "extrato do PSP × nossos splits".
+Os dois canários cruzam dois registros NOSSOS (log de eventos × tabela de pagamentos),
+escritos pelo mesmo webhook — divergência do lado do PSP é invisível. A terceira perna
+é trabalho de verdade e não cabia num passe de correção pré-merge; então o docblock
+foi reescrito pra prometer o tamanho que o código tem, e não maior. Uma promessa
+inflada no comentário é como um canário que nunca dispara: parece cobertura.
+
+**Contra o quê.** Mergear e corrigir depois: o PR já estava verde, o preview no ar, e
+nada disso quebrava o app. Mas os dois CRÍTICOS são exatamente da classe que o
+CLAUDE.md diz não existir aqui — cartão real numa conta de mentira, e uma rota pública
+que podia fechar a conta de uma mesa cheia. "É pequeno" é o argumento que o portão
+existe pra recusar.
+
+**Onde está.** `apps/web/src/WalletPay.tsx` + `App.tsx` + `api.ts` (`simulated`/`demo`),
+`api/_lib/demo.js` (identidade), `api/_lib/store/{memory,supabase}.js`
+(`isTest`, `findTableAnyState`, cnpj, colisão de token), `api/_app/router.js` (cron
+fechado, `segredoConfere`, rate limit por hop confiável, catch-all), `api/_lib/notify.js`
+(batimento), `api/_lib/checks/reconcile-daily.js` (drift, docblock),
+`api/__tests__/demo-ensure.test.js` (7 testes novos).

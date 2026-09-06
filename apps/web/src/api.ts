@@ -4,7 +4,8 @@ export interface CheckItem { id: string; name: string; priceCents: number }
 
 export interface CheckView {
   /** acceptsCard: o restaurante tem conta Stripe conectada (cartão/Apple Pay). */
-  venue: { name: string; servicoBp: number; acceptsCard?: boolean };
+  /** demo: mesa pública de demonstração — dinheiro é do MockPsp, nunca real. */
+  venue: { name: string; servicoBp: number; acceptsCard?: boolean; demo?: boolean };
   table: { label: string };
   check: { id: string; items: CheckItem[] };
   state: {

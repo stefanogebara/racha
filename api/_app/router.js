@@ -219,18 +219,34 @@ async function guardUser(req, res) {
 // (house/open). Fluid Compute reuses instances, so this bites a scripted
 // flood; the per-venue account cap in the service is the durable bound.
 const openBuckets = new Map(); // ip → { count, resetAt }
-function rateLimitOpen(req) {
-  const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
-    || (req.socket && req.socket.remoteAddress) || 'unknown';
+// O PRIMEIRO elemento do X-Forwarded-For é escrito pelo cliente: `XFF: 1.2.3.<n>`
+// dá um balde novo por request e o limite deixa de existir. O hop confiável é o
+// ÚLTIMO (o proxy da Vercel), e x-real-ip quando presente (achado da revisão).
+function clientIp(req) {
+  const real = String(req.headers['x-real-ip'] || '').trim();
+  if (real) return real;
+  const hops = String(req.headers['x-forwarded-for'] || '').split(',').map((h) => h.trim()).filter(Boolean);
+  return hops[hops.length - 1] || (req.socket && req.socket.remoteAddress) || 'unknown';
+}
+function rateLimitBucket(req, prefix, limit) {
+  const key = `${prefix}:${clientIp(req)}`;
   const nowMs = Date.now();
-  const b = openBuckets.get(ip);
+  const b = openBuckets.get(key);
   if (!b || nowMs > b.resetAt) {
-    openBuckets.set(ip, { count: 1, resetAt: nowMs + 10 * 60 * 1000 });
+    openBuckets.set(key, { count: 1, resetAt: nowMs + 10 * 60 * 1000 });
     if (openBuckets.size > 10000) openBuckets.clear(); // memory bound
     return true;
   }
   b.count += 1;
-  return b.count <= 10; // 10 wallet creations / 10 min / IP
+  return b.count <= limit;
+}
+function rateLimitOpen(req) {
+  return rateLimitBucket(req, 'open', 10); // 10 wallet creations / 10 min / IP
+}
+// A auto-cura da demo ESCREVE (venue/mesa/conta) numa rota sem auth. Em estado
+// saudável é no-op; o limite existe pro estado degradado (achado MÉDIO).
+function rateLimitDemoHeal(req) {
+  return rateLimitBucket(req, 'demoheal', 6); // 6 auto-curas / 10 min / IP
 }
 
 /**
@@ -244,6 +260,14 @@ function rateLimitOpen(req) {
  */
 function podeEnviarAviso() {
   return !!process.env.CRON_SECRET;
+}
+
+/** Compara `Authorization: Bearer <x>` com o segredo sem vazar tempo. */
+function segredoConfere(header, secret) {
+  const esperado = Buffer.from(`Bearer ${secret}`);
+  const recebido = Buffer.from(String(header || ''));
+  if (recebido.length !== esperado.length) return false;
+  return crypto.timingSafeEqual(recebido, esperado);
 }
 
 // Confirm-on-read throttle: at most one PSP re-check per check per ~10s per
@@ -295,7 +319,7 @@ async function route(req, res) {
       // A mesa da demo se auto-cura: sem mesa (ambiente novo) ou com a conta
       // fechada (alguém pagou tudo), reabre — o telefone da landing nunca mostra
       // "conta não encontrada". Só o token fixo da demo; nunca uma mesa real.
-      if (!data && token === DEMO_TABLE_TOKEN) {
+      if (!data && token === DEMO_TABLE_TOKEN && rateLimitDemoHeal(req)) {
         try { data = await ensureDemoCheck(store, token); } catch (e) {
           process.stderr.write(`[demo-ensure] ${String(e.message).slice(0, 120)}\n`);
         }
@@ -324,6 +348,14 @@ async function route(req, res) {
       // Sinaliza pro diner se o restaurante aceita cartão/Apple Pay (tem conta
       // Stripe conectada). Só consulta o venue quando o Stripe está ligado — em
       // prod hoje stripePsp é null → nenhuma chamada extra, a flag fica ausente.
+      // A mesa de demonstração se declara PRA UI: sem isto o rail de carteira
+      // abre a folha OFICIAL do Google Pay (ambiente PRODUCTION, merchant real)
+      // e pede CPF de verdade pra uma conta que não existe — autorização obtida
+      // sob premissa falsa (CDC 6º III/37) e CPF sem base legal (LGPD).
+      // Achado CRÍTICO da revisão de compliance.
+      if (token === DEMO_TABLE_TOKEN) {
+        data = { ...data, venue: { ...data.venue, demo: true } };
+      }
       if (stripePsp && token !== DEMO_TABLE_TOKEN) {
         const v = await store.getVenueForCheck(data.check.id);
         if (v && v.stripeAccountId && /^acct_/.test(v.stripeAccountId)) {
@@ -880,14 +912,30 @@ async function route(req, res) {
     // ?dry=1 devolve o relatório sem avisar ninguém (inspeção sem acordar
     // ninguém); ?test=1 inclui restaurantes de teste.
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/reconcile') {
-      if (process.env.CRON_SECRET) {
-        if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-          return json(res, 401, { success: false, error: 'unauthorized' });
-        }
-      } else if (!rateLimitOpen(req)) {
-        return json(res, 429, { success: false, error: 'calma lá' });
+      // Fecha por padrão, ao contrário dos outros crons: o corpo desta rota é o
+      // retrato financeiro da PLATAFORMA inteira (nome de cada casa, drift em
+      // centavos, checkId/txid/accountId). Degradar aberta era divulgação
+      // cross-tenant sem auth — achado ALTO das duas revisões.
+      if (!process.env.CRON_SECRET) {
+        return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
       }
-      const report = await reconcileAllVenues(store, { includeTest: url.searchParams.get('test') === '1' });
+      if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
+        return json(res, 401, { success: false, error: 'unauthorized' });
+      }
+      // Canário morto ≠ canário verde (#8 + #7). Se a varredura EXPLODE, ninguém
+      // saberia: sem isto o catch-all devolvia 500 e o silêncio lia como "tudo
+      // bate". Estourar é o pior estado possível, então pagina como crítico.
+      let report;
+      try {
+        report = await reconcileAllVenues(store, { includeTest: url.searchParams.get('test') === '1' });
+      } catch (e) {
+        const falha = `Conciliação NÃO RODOU: ${String(e && e.message).slice(0, 200)}`;
+        process.stderr.write(`[reconcile-cron] EXPLODIU: ${falha}\n`);
+        await notifyFounderReconcile({
+          mensagem: falha, venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+        });
+        return json(res, 500, { success: false, error: 'reconcile falhou', code: 'reconcile_threw' });
+      }
       const mensagem = formatReconcileAlert(report);
       let envio = null;
       if (mensagem && url.searchParams.get('dry') !== '1') {
@@ -897,6 +945,14 @@ async function route(req, res) {
           venuesChecked: report.venuesChecked,
           driftCents: report.totalDriftCents,
           worstSeverity: report.worstSeverity,
+        });
+      } else if (!mensagem && url.searchParams.get('dry') !== '1') {
+        // Batimento: verde também fala. Do lado da Olímpia, a AUSÊNCIA da batida
+        // noturna é o alarme — que é o único jeito de detectar cron desligado.
+        envio = await notifyFounderReconcile({
+          mensagem: null, heartbeat: true,
+          venuesRed: 0, venuesChecked: report.venuesChecked,
+          driftCents: report.totalDriftCents, worstSeverity: report.worstSeverity,
         });
       }
       // Verde também sai no log: um canário que só fala quando está ruim é
@@ -979,6 +1035,13 @@ async function route(req, res) {
     return json(res, 404, { success: false, error: 'not found' });
   } catch (err) {
     const status = err.statusCode || (err.name === 'WebhookVerificationError' ? 401 : 500);
+    // 4xx são erros de contrato e a mensagem ajuda quem chamou. 500 não mapeado
+    // costuma vir do PostgREST/Postgres (`throwOn`), e ecoar isso pro cliente é
+    // vazar interno: loga inteiro, devolve um código estável.
+    if (status >= 500) {
+      process.stderr.write(`[500] ${url.pathname} ${String(err && err.message).slice(0, 300)}\n`);
+      return json(res, status, { success: false, error: 'erro interno', code: 'internal' });
+    }
     return json(res, status, { success: false, error: err.message });
   }
 }

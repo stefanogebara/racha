@@ -40,7 +40,7 @@ const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
 // One venue shape everywhere (house-account config rides along).
 const VENUE_COLS = 'id, name, city, cnpj, servico_basis_points, psp_recipient_id, pos_provider, active, '
   + 'psp_recipient_status, notify_email, notify_whatsapp, stripe_account_id, '
-  + 'house_enabled, house_bonus_bp, house_validity_days, house_min_load_cents, house_max_load_cents';
+  + 'house_enabled, house_bonus_bp, house_validity_days, house_min_load_cents, house_max_load_cents, is_test';
 function mapVenue(v) {
   if (!v) return null;
   return {
@@ -54,6 +54,9 @@ function mapVenue(v) {
     houseValidityDays: v.house_validity_days,
     houseMinLoadCents: v.house_min_load_cents == null ? undefined : Number(v.house_min_load_cents),
     houseMaxLoadCents: v.house_max_load_cents == null ? undefined : Number(v.house_max_load_cents),
+    // Marcador durável de venue de teste/demo: o `demo.js` exige isto antes de
+    // fechar ou abrir qualquer conta, e o varredor de conciliação a exclui.
+    isTest: v.is_test === true,
   };
 }
 function mapHouseAccount(a) {
@@ -86,7 +89,11 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     client, // exposed for tests/cleanup only
 
     // --- seeding / onboarding ---------------------------------------------
-    async createVenue({ name, cnpj = '00000000000191', city = null, servicoBp = 1000, pspRecipientId = null }) {
+    // cnpj default NULL de propósito: a migração 0002 tornou a coluna nulável
+    // justamente porque CNPJ falso em recibo real é inaceitável — e o default
+    // antigo ('00000000000191') é o CNPJ REAL do Banco do Brasil, que ia parar
+    // no `tax_id` da conta conectada do Stripe (achado da revisão de compliance).
+    async createVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null, isTest = false }) {
       if (!name || !String(name).trim()) throw new Error('venue name required');
       if (!Number.isInteger(servicoBp) || servicoBp < 0 || servicoBp > 3000) {
         throw new Error('servicoBp out of range [0,3000]');
@@ -97,6 +104,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           name: String(name).trim(), cnpj, city,
           servico_basis_points: servicoBp,
           psp_recipient_id: pspRecipientId ?? null,
+          is_test: isTest === true,
         })
         .select('id, name, city, servico_basis_points, psp_recipient_id')
         .single();
@@ -499,6 +507,22 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     // derive from the ledger exactly like the memory store, so both stores
     // present identical views. listHouseAccountsForReconcile exposes the
     // stored columns for the cross-check.
+    /**
+     * A mesa por token IGNORANDO `active` — só pra decidir se ela já existe.
+     * `getVenueByTableToken` filtra por ativa (propriedade de segurança: token
+     * girado/desativado é token morto), e semear com base nesse null cria uma
+     * venue órfã por request quando a mesa existe mas está desativada.
+     */
+    async findTableAnyState(qrToken) {
+      if (!qrToken) return null;
+      const { data, error } = await client
+        .from('venue_tables')
+        .select('id, venue_id, label, qr_token, active')
+        .eq('qr_token', qrToken)
+        .maybeSingle();
+      throwOn(error, 'findTableAnyState');
+      return data ? { id: data.id, venueId: data.venue_id, label: data.label, qrToken: data.qr_token, active: data.active } : null;
+    },
     async getVenueByTableToken(qrToken) {
       if (!qrToken) return null;
       const { data, error } = await client
