@@ -14,7 +14,7 @@ done
 printf '\n'
 if [[ $fail -eq 0 ]]; then
   printf '\033[32mtudo verde\033[0m — mas nada disso compila Swift. Num Mac:\n'
-  printf "  xcodebuild test -scheme Racha -destination 'platform=iOS Simulator,name=iPhone 16 Pro'\n"
+  printf "  xcodebuild test -scheme Racha -destination 'platform=iOS Simulator,name=iPhone 17 Pro'\n"
 else
   printf '\033[31mfalhou\033[0m\n'
 fi
