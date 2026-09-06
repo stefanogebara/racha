@@ -910,6 +910,8 @@ em duas colunas ↔ numa espinha numerada; acento na parte inteira ↔ sublinhad
 fino; moldura sem hardware ↔ device sangrando a dobra). A única penalidade
 constante que sobrou são os blocos entalhados da conta lidos como "ícones de
 banco de imagem" — que são o pedido do produto (#33), não um defeito.
+Confirmado pelo dono em 2026-09-06: os entalhes ficam na conta e no pôster; o
+laço encerra aqui.
 
 **Fechado em 6/10, como a #28.** Um crítico em contexto limpo com esse prompt
 converge em "competente, não controlado" e passa a trocar uma opinião por outra
