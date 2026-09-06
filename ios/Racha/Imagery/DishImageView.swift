@@ -80,6 +80,12 @@ struct DishImageView: View {
             resolve = 1
             return
         }
+        // With no key the engine only knows the procedural plate, and a plate
+        // painted into `image` would sit on top of the carved block for every
+        // row — which is exactly what the simulator showed: fourteen subjects,
+        // one hat. The block IS the design (decision #33); the plate is for
+        // categories that have no block, and for a generator that failed.
+        if !engine.generates, CarvedSet.mask(for: category) != nil { return }
         let loaded = await engine.image(key: cacheKey, prompt: prompt, size: size)
         guard let loaded else { return }
         image = loaded
@@ -139,6 +145,9 @@ struct ImageEngine: Sendable {
 
     static let procedural = ImageEngine(provider: ProceduralImageProvider(),
                                         coverProvider: ProceduralImageProvider())
+
+    /// False when the only thing this engine can draw is the local plate.
+    var generates: Bool { !(provider is ProceduralImageProvider) }
 
     func image(key: String, prompt: String, size: Int) async -> UIImage? {
         await ImageCache.shared.image(key: key, prompt: prompt, provider: provider, size: size)

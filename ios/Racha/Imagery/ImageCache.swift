@@ -54,6 +54,14 @@ actor ImageCache {
                fallback: any ImageProvider = ProceduralImageProvider(),
                size: Int = 1024) async -> UIImage? {
         if let hit = cached(key) { return hit }
+        // The plate is a fallback, not a generation: it must never reach the
+        // disk cache or the spend counter. Before this guard, a keyless launch
+        // wrote a plate per row to disk and every later launch read it back as
+        // if a generator had produced it — which is how the carved blocks
+        // stayed hidden across relaunches on the simulator.
+        if provider is ProceduralImageProvider {
+            return await procedural(key: key, prompt: prompt, fallback: provider, size: size)
+        }
         if let failedAt = failures[key], Date().timeIntervalSince(failedAt) < failureTTL {
             return await procedural(key: key, prompt: prompt, fallback: fallback, size: size)
         }
