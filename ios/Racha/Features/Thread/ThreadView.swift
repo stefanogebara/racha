@@ -60,6 +60,8 @@ struct ThreadView: View {
             switch navigator.takeIntent() {
             case .camera: showingPhotoPicker = true
             case .compose: try? await Task.sleep(for: .seconds(0.45)); composerFocused = true
+            case .ledger: try? await Task.sleep(for: .seconds(0.6)); showingLedger = true
+            case .pay: try? await Task.sleep(for: .seconds(0.6)); showingSettle = true
             case .none: break
             }
         }

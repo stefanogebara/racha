@@ -14,13 +14,22 @@ struct RachaApp: App {
                 .environment(navigator)
                 .environment(\.imageEngine,
                               settings.imageryEnabled ? .fromSettings(settings) : .procedural)
-                .preferredColorScheme(.light)   // the palette is a light palette; see docs/decisions
+                // Decision #27: the ground is the night of the bar, and the
+                // project already declares UIUserInterfaceStyle = Dark. Forcing
+                // .light here (a leftover from the paper palette) made every
+                // system surface disagree with the app: a light keyboard over
+                // the night, and .ultraThinMaterial rendering the thread as an
+                // opaque mid-grey slab. Seen on the simulator.
+                .preferredColorScheme(.dark)
                 .task {
                     await repository.loadAll()
                     // No auto-seed: fabricating a history for someone who never
                     // had one is dishonest, and it makes the gallery's headline
                     // number a lie on first launch. The sample data is installed
                     // only if the person asks for it, from first run.
+                    #if DEBUG
+                    await DebugRoute.apply(settings: settings, repository: repository, navigator: navigator)
+                    #endif
                 }
         }
     }
@@ -46,7 +55,7 @@ final class Navigator {
     /// A one-shot instruction for the next screen to honour — set by first run,
     /// consumed by the thread. Kept here rather than passed down so the thread
     /// does not need to know it was opened by onboarding at all.
-    enum Intent { case camera, compose }
+    enum Intent { case camera, compose, ledger, pay }
     var pendingIntent: Intent?
 
     func takeIntent() -> Intent? {
@@ -80,3 +89,29 @@ final class Navigator {
         }
     }
 }
+
+#if DEBUG
+/// Drives the app to a screen from a launch argument, so a simulator with no
+/// tap tool (and a CI box) can screenshot every surface. Debug builds only; a
+/// release build has no such door. Explicit by construction — this is not the
+/// auto-seed decision #20 rules out, it is a person typing a flag.
+///
+///     xcrun simctl launch <udid> com.racha.ios -racha.onboarded YES -racha.debugRoute pay
+///
+/// Routes: `gallery` (seeded), `thread` (the open table), `ledger`, `pay`.
+enum DebugRoute {
+    @MainActor
+    static func apply(settings: AppSettings, repository: RachaRepository, navigator: Navigator) async {
+        guard let route = UserDefaults.standard.string(forKey: "racha.debugRoute") else { return }
+        if repository.allStates.isEmpty { await SeedData.install(into: repository) }
+        settings.hasOnboarded = true
+        guard route != "gallery", let table = repository.allStates.first(where: { !$0.isSettled }) else { return }
+        switch route {
+        case "ledger": navigator.pendingIntent = .ledger
+        case "pay": navigator.pendingIntent = .pay
+        default: break
+        }
+        navigator.open(table.id)
+    }
+}
+#endif
