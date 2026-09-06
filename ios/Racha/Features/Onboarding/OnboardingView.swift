@@ -118,7 +118,13 @@ struct OnboardingView: View {
         .padding(.horizontal, 26)
         .padding(.top, 58)
         .padding(.bottom, 26)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) { nameFocused = true } }
+        // All three steps live in one ZStack (faded, not removed), so `.onAppear`
+        // here fires at launch and raised the keyboard over the cover — seen on the
+        // simulator. Focus when the step actually arrives, after the slide.
+        .onChange(of: step) { _, now in
+            guard now == 1 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) { nameFocused = true }
+        }
     }
 
     // MARK: 3 — Por onde começar
