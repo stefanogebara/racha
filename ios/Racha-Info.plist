@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged into the generated Info.plist (GENERATE_INFOPLIST_FILE stays on).
+	     Only keys Xcode has no INFOPLIST_KEY_* build setting for live here.
+	     Archivo.ttf is fetched by scripts/fetch-fonts.sh, not committed. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Archivo.ttf</string>
+	</array>
+</dict>
+</plist>

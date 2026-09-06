@@ -6,14 +6,32 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		RA0000000000000000000081 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = RA0000000000000000000050 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = RA0000000000000000000040;
+			remoteInfo = Racha;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		RA0000000000000000000001 /* Racha.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Racha.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		RA0000000000000000000002 /* RachaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RachaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		RA0000000000000000000010 /* Racha */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Racha; sourceTree = "<group>"; };
-		RA0000000000000000000011 /* RachaTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = RachaTests; sourceTree = "<group>"; };
+		RA0000000000000000000010 /* Racha */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Racha;
+			sourceTree = "<group>";
+		};
+		RA0000000000000000000011 /* RachaTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RachaTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -177,16 +195,6 @@
 		};
 /* End PBXTargetDependency section */
 
-/* Begin PBXContainerItemProxy section */
-		RA0000000000000000000081 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = RA0000000000000000000050 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = RA0000000000000000000040;
-			remoteInfo = Racha;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin XCBuildConfiguration section */
 		RA0000000000000000000090 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -259,6 +267,7 @@
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Racha-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Racha;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Pra ler o QR da mesa e a foto da nota.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -292,6 +301,7 @@
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Racha-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Racha;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Pra ler o QR da mesa e a foto da nota.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";

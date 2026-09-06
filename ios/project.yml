@@ -40,6 +40,11 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
         GENERATE_INFOPLIST_FILE: YES
+        # Merged with the generated plist. Holds only keys Xcode has no
+        # INFOPLIST_KEY_* for (UIAppFonts). Lives OUTSIDE Racha/ on purpose:
+        # inside the synchronised folder it would also be copied as a resource
+        # and the build fails with two Info.plist outputs.
+        INFOPLIST_FILE: Racha-Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_CFBundleDisplayName: Racha
