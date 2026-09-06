@@ -67,6 +67,8 @@ export const DICT = {
   // ── identificação ───────────────────────────────────────────────────────
   'payer.name':       { en: 'Your name (optional)',            pt: 'Seu nome (opcional)' },
   'payer.cpf':        { en: 'Your CPF (required to pay)',      pt: 'Seu CPF (obrigatório pra pagar)' },
+  'payer.cpfWhy':     { en: 'The payment provider asks for it to issue the charge. It goes to them, not to the restaurant, and Racha does not store it.',
+                        pt: 'O provedor de pagamento pede pra emitir a cobrança. Vai pra ele, não pro restaurante, e a Racha não guarda.' },
   'payer.cpfHint':    { en: 'Enter your CPF (11 digits) to enable payment.',
                         pt: 'Preencha seu CPF (11 dígitos) pra liberar o pagamento.' },
 
@@ -285,6 +287,7 @@ export const DICT = {
   'land.try':       { en: 'Try the live demo',                pt: 'Experimente a demo ao vivo' },
   'land.tryHint':   { en: 'This phone is the real product. Tap it.',
                       pt: 'Este telefone é o produto de verdade. Toque nele.' },
+  'land.demoFrame':   { en: 'Racha — live demo',                pt: 'Racha — demo ao vivo' },
   'land.forVenues': { en: 'I run a restaurant',               pt: 'Tenho um restaurante' },
   'land.proof1':    { en: 'Pix settles to the restaurant’s own account', pt: 'O Pix cai na conta do próprio restaurante' },
   'land.proof2':    { en: 'Service charge optional, tracked for payroll', pt: 'Serviço opcional, rastreado pra folha' },

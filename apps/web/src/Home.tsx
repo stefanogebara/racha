@@ -16,7 +16,10 @@ import { money } from './i18n';
 import { splitEqualLocal } from './split';
 
 const DEMO = '/?t=demoracha';
-const EMBED = `${DEMO}&embed=1`; // o mesmo produto, mostrado como um estado
+// O idioma vai na URL: o iframe é outro documento e não escuta o seletor daqui.
+// Sem isso a landing em inglês emoldurava um produto em português — a salada de
+// idioma da decisão #35, bem no herói, que é o argumento de venda.
+const embedSrc = (lang: string) => `${DEMO}&embed=1&lang=${lang}`;
 const PROOF_TOTAL = 23710;   // a conta da demo, em centavos
 const PROOF_PEOPLE = 3;
 
@@ -72,8 +75,11 @@ export default function Home() {
             Moldura de fio, sem bisel, sem 9:41: é uma página web, e isso é o
             argumento. Passa da dobra de propósito; quem rola vê o resto. */}
         <div className="palco">
-          <a className="tela" href={DEMO} aria-label="Racha — demo ao vivo">
-            <iframe title="Racha — demo ao vivo" src={EMBED} loading="eager" tabIndex={-1} />
+          <a className="tela" href={`${DEMO}&lang=${lang}`} aria-label={t('land.demoFrame')}>
+            {/* `key` força a remontagem quando o idioma muda: trocar o src de um
+                iframe já montado deixa o documento antigo na tela. */}
+            <iframe key={lang} title={t('land.demoFrame')} src={embedSrc(lang)}
+                    loading="eager" tabIndex={-1} />
           </a>
           {/* Os entalhes soltos em volta do telefone — a mesa em volta da conta.
               Escolha do dono (decisão #36): a ilustração é a marca, fica. */}

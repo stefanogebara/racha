@@ -507,6 +507,15 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   .landing { --u: 88px; }
   .landing .env { padding-left: 24px; padding-right: 24px; }
   .heroi { grid-template-columns: 1fr; padding-top: 32px; row-gap: 48px; }
+  /* Sem isto o herói era 430px de largura num telefone de 390: o `.tela iframe`
+     tem largura FIXA de 430px (o app é desenhado nessa medida e depois reduzido
+     por `transform`, que não muda o tamanho de layout), e um item de grade nasce
+     com `min-width: auto` — então o mínimo do item virou o mínimo da coluna, e a
+     coluna arrastou o TEXTO junto. Resultado visto no navegador a 390px: "Fala o
+     que foi de quem." cortado no "quer", e o corte não dava nem pra rolar, porque
+     o pai esconde o excesso. Numa página que existe pra dizer que o cliente paga
+     pelo telefone, essa é a primeira frase que ele não consegue ler. */
+  .heroi > * { min-width: 0; }
   .heroi .copy { grid-column: 1; padding-top: 0; }
   .palco { grid-column: 1; justify-self: center; width: min(357px, 100%); }
   .tela { width: 100%; } .flut { display: none; }

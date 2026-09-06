@@ -15,6 +15,17 @@ export type { Key, Lang } from './i18n';
 /* ── contexto ─────────────────────────────────────────────────────────────── */
 
 function readStored(): Lang {
+  // `?lang=` wins over the stored choice. It exists for one real case: the
+  // landing embeds the product in an iframe, and an iframe is its own document
+  // — it reads storage once at mount and never hears the parent's toggle. The
+  // hero was an English page wrapped around a Portuguese product.
+  //
+  // It is not a second source of truth: nothing writes it, and the visible app
+  // still stores and reads the person's own choice.
+  try {
+    const url = new URLSearchParams(window.location.search).get('lang');
+    if (url === 'en' || url === 'pt') return url;
+  } catch { /* sem window (teste) → segue pro armazenado */ }
   try {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v === 'en' || v === 'pt') return v;

@@ -480,6 +480,13 @@ export default function App() {
             value={cpf}
             onChange={(e) => { setCpf(e.target.value); if (e.target.value.replace(/\D/g, '').length === 11) setCpfHint(false); }}
           />
+          {/* Por que o CPF. Um número de documento pedido numa tela de pagamento
+              sem dizer pra quê é coleta sem transparência (LGPD art. 9º) — e,
+              num bar, é também o motivo de alguém desistir de pagar. O destino
+              é verdade conferida: `create-charge.js` manda pro PSP e o
+              `registerCharge` NÃO guarda; webhook que traz CPF passa pelo
+              `maskTaxId`. */}
+          <p className="muted small">{t('payer.cpfWhy')}</p>
           {cpfHint && cpfDigits.length !== 11 && (
             <p className="small" style={{ color: 'var(--burgundy)' }}>{t('payer.cpfHint')}</p>
           )}
