@@ -17,6 +17,7 @@ struct StreamingText: View {
     var isStreaming: Bool
 
     @State private var clock = ShaderClock.shared
+    @State private var hold = ClockSubscription()
     @State private var head: CGPoint = .zero
     @State private var lineHeight: CGFloat = 20
     @State private var intensity: Double = 0
@@ -37,20 +38,21 @@ struct StreamingText: View {
             })
             .modifier(TokenStreamModifier(head: head, lineHeight: lineHeight,
                                           time: clock.time, intensity: intensity))
-            .onAppear { if isStreaming && !reduceMotion { clock.subscribe() } }
-            .onDisappear { if intensity > 0 { clock.unsubscribe() } }
+            .onAppear { hold.want(isStreaming && !reduceMotion) }
+            .onDisappear { hold.want(false) }
             .onChange(of: isStreaming) { _, streaming in
                 guard !reduceMotion else { return }
                 if streaming {
-                    clock.subscribe()
+                    hold.want(true)
                     withAnimation(.easeOut(duration: 0.2)) { intensity = 1 }
                 } else {
                     // Decay rather than cut: the last words should cool down, not
-                    // snap from warm to black.
+                    // snap from warm to black. The hold outlives the decay by a
+                    // hair, then ends — once, whatever order things happen in.
                     withAnimation(.easeInOut(duration: 0.5)) { intensity = 0 }
                     Task {
                         try? await Task.sleep(for: .seconds(0.55))
-                        clock.unsubscribe()
+                        hold.want(false)
                     }
                 }
             }

@@ -24,6 +24,7 @@ struct DishImageView: View {
     @State private var image: UIImage?
     @State private var resolve: Double = 0
     @State private var clock = ShaderClock.shared
+    @State private var hold = ClockSubscription()
     /// Per-image seed so twelve cards resolving at once do not do it in lockstep.
     private var seed: Double { Double(cacheKey.stableHash % 997) }
 
@@ -65,8 +66,12 @@ struct DishImageView: View {
                 .strokeBorder(.white.opacity(0.45), lineWidth: 0.5)
         }
         .task(id: cacheKey) { await load() }
-        .onAppear { if !reduceMotion { clock.subscribe() } }
-        .onDisappear { if !reduceMotion { clock.unsubscribe() } }
+        // Frames only while the picture is developing. Before this, every row
+        // held the clock for its whole life, so a fully-resolved gallery kept a
+        // 30fps display link alive and re-rendered every view reading
+        // `clock.time` — forever, behind a screen where nothing moved.
+        .onChange(of: resolve) { _, now in hold.want(!reduceMotion && now > 0 && now < 0.999) }
+        .onDisappear { hold.want(false) }
         .accessibilityHidden(true)   // decorative; the item's name is the label
     }
 

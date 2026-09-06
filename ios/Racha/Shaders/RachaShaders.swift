@@ -94,13 +94,48 @@ final class ShaderClock {
     }
 
     func unsubscribe() {
+        // `max(0, …)` keeps an over-release from going negative, but it cannot
+        // undo the damage: one extra unsubscribe tears the link down for every
+        // other view still animating. The callers own a single `subscribed`
+        // flag each (see `ClockSubscription`) so subscribe and unsubscribe are
+        // always paired.
         subscribers = max(0, subscribers - 1)
         guard subscribers == 0 else { return }
         displayLink?.invalidate()
         displayLink = nil
+        time = 0
     }
 
+    /// How many views are asking for frames. Debug/diagnostic only.
+    var subscriberCount: Int { subscribers }
+
     private func tick() { time = CACurrentMediaTime() - start }
+}
+
+/// One view's hold on the clock, which can only be taken once and given back
+/// once no matter how the view's lifecycle actually plays out.
+///
+/// The bug this exists to prevent was live: `StreamingText` subscribed in
+/// `onAppear` when `isStreaming` and unsubscribed in `onDisappear` when
+/// `intensity > 0` — two different conditions. A bubble that appeared while
+/// streaming and scrolled away cold leaked a subscriber, so the display link
+/// ran at 30fps for the rest of the session; the mirror case released a hold it
+/// never took and froze the animation for every other view on screen.
+@MainActor
+final class ClockSubscription {
+    private var held = false
+
+    func want(_ wanted: Bool) {
+        guard wanted != held else { return }
+        held = wanted
+        if wanted { ShaderClock.shared.subscribe() } else { ShaderClock.shared.unsubscribe() }
+    }
+
+    deinit {
+        // A view can vanish without `onDisappear` (a sheet dismissed while
+        // scrolling, an app backgrounded mid-transition). The hold still ends.
+        if held { Task { @MainActor in ShaderClock.shared.unsubscribe() } }
+    }
 }
 
 /// CADisplayLink needs an ObjC target; this keeps the retain cycle out of the clock.
