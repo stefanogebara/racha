@@ -1,6 +1,6 @@
 
 import { useT } from './lang';import { useEffect, useState } from 'react';
-import { api, ApiError, brl } from './api';
+import { api, ApiError } from './api';
 
 /**
  * Apple Pay / Google Pay — cobrança de CARTÃO tokenizada pelo mesmo portão de
@@ -28,6 +28,17 @@ const REAL = Boolean(PK && ACC);
 // dispensável em TEST. Diferente do acc_ do Pagar.me (gatewayMerchantId).
 const GPAY_MERCHANT_ID = (import.meta.env.VITE_GOOGLE_PAY_MERCHANT_ID as string | undefined) || '';
 
+/// An error thrown from module scope carries a dictionary key; anything else
+/// is already a sentence from the wallet SDK and is shown as it came. The two
+/// keys are listed rather than matched by prefix so the dictionary's Key union
+/// still checks the lookup — a renamed key becomes a compile error here instead
+/// of a raw "card.gpayFail" on someone's screen.
+function asMessage(t: (k: 'card.gpayFail' | 'card.gpayOut') => string, e: unknown): string {
+  const raw = (e as Error).message || '';
+  if (raw === 'card.gpayFail' || raw === 'card.gpayOut') return t(raw);
+  return raw;
+}
+
 // pay.js é singleton — carrega uma vez por página.
 let gpayLoader: Promise<void> | null = null;
 function loadGPayJs(): Promise<void> {
@@ -37,7 +48,10 @@ function loadGPayJs(): Promise<void> {
       s.src = 'https://pay.google.com/gp/p/js/pay.js';
       s.async = true;
       s.onload = () => resolve();
-      s.onerror = () => reject(new Error('não deu para carregar o Google Pay'));
+      // A code, not a sentence: this helper runs outside React and has no
+      // reader. Same rule the server follows (CLAUDE.md) — the side that knows
+      // the language does the translating.
+      s.onerror = () => reject(new Error('card.gpayFail'));
       document.head.appendChild(s);
     });
   }
@@ -59,7 +73,7 @@ const GPAY_CARD_METHOD = {
 
 function gpayClient() {
   const g = (window as unknown as { google?: { payments: { api: { PaymentsClient: new (o: object) => GPayClient } } } }).google;
-  if (!g) throw new Error('Google Pay indisponível');
+  if (!g) throw new Error('card.gpayOut');
   return new g.payments.api.PaymentsClient({
     environment: PK.startsWith('pk_test_') ? 'TEST' : 'PRODUCTION',
   });
@@ -88,7 +102,7 @@ export default function WalletButtons({
   simulated?: boolean;
   onPaid: () => void;
 }) {
-  const { t } = useT();
+  const { t, brl } = useT();
   const real = REAL && !simulated;
   const [sheet, setSheet] = useState<Wallet | null>(null);
   const [busy, setBusy] = useState(false);
@@ -144,7 +158,7 @@ export default function WalletButtons({
       await settle('google_pay', data.paymentMethodData.tokenizationData.token, cpfDigits);
     } catch (e) {
       const status = (e as { statusCode?: string }).statusCode;
-      if (status !== 'CANCELED') setError((e as Error).message); // fechar a sheet não é erro
+      if (status !== 'CANCELED') setError(asMessage(t, e)); // fechar a sheet não é erro
     } finally {
       setBusy(false);
     }
@@ -159,7 +173,7 @@ export default function WalletButtons({
       await settle(wallet, paymentToken);
       setSheet(null);
     } catch (e) {
-      setError((e as Error).message);
+      setError(asMessage(t, e));
     } finally {
       setBusy(false);
     }

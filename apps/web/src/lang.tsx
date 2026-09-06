@@ -7,7 +7,7 @@
  * `./lang` quer React; quem importa `./i18n` quer as strings.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { DICT, LANGS, STORAGE_KEY, fill, type Key, type Lang } from './i18n';
+import { DICT, LANGS, STORAGE_KEY, fill, type Key, type Lang, money } from './i18n';
 
 export { DICT, LANGS, money, tError } from './i18n';
 export type { Key, Lang } from './i18n';
@@ -46,7 +46,21 @@ export function useT() {
     (key: Key, vars?: Record<string, string | number>) => fill(DICT[key][lang], vars),
     [lang],
   );
-  return { t, lang, setLang };
+  // Money and dates come from the same hook as the words, because they are the
+  // same decision (#34): the currency never changes — BRL in both languages,
+  // switching language does not convert money — but the SEPARATION follows the
+  // reader. "R$ 1.234,56" read by an English speaker is worth a thousand times
+  // what it is. Same for "06/12/2026", which is two different days.
+  //
+  // They live here rather than as free functions so a screen cannot forget the
+  // language: there is nothing to pass. Only App.tsx was doing this correctly;
+  // the wallet, the panel and the house-balance flow printed pt-BR to everyone.
+  const brl = useCallback((cents: number) => money(cents, lang), [lang]);
+  const dmy = useCallback(
+    (iso: string) => new Date(iso).toLocaleDateString(lang === 'pt' ? 'pt-BR' : 'en-US'),
+    [lang],
+  );
+  return { t, lang, setLang, brl, dmy };
 }
 
 /**

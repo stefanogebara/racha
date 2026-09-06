@@ -86,7 +86,12 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
     try {
       const view = await fetch(`/api/check?t=${encodeURIComponent(t.qrToken)}`).then((r) => r.json());
       const checkId = view?.data?.check?.id;
-      if (!checkId) { setError('Conta não encontrada.'); return; }
+      // A code, not a sentence. This hook has no language: it runs above the
+      // React tree that knows which one the reader picked. `tError` at the
+      // display site turns it into the right words, and falls back to the raw
+      // text for anything it does not recognise — the same contract the server
+      // follows (CLAUDE.md).
+      if (!checkId) { setError('check_not_found'); return; }
       await req('/api/checks/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkId }) });
       await refresh();
     } catch (e) { setError((e as Error).message); }

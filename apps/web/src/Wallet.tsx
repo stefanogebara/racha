@@ -1,7 +1,7 @@
 
 import { LangToggle, useT } from './lang';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, ApiError, brl, dmy, parseBrlToCents, HouseAccountView, HouseConfig, HouseLedgerEntry, HouseLoadResult } from './api';
+import { api, ApiError, parseBrlToCents, HouseAccountView, HouseConfig, HouseLedgerEntry, HouseLoadResult } from './api';
 import { storeWallet } from './house';
 
 /**
@@ -34,7 +34,7 @@ export default function Wallet() {
 
 // ------------------------------------------------------------------ carteira
 function WalletView({ accountToken }: { accountToken: string }) {
-  const { t } = useT();
+  const { t, brl, dmy } = useT();
   const [view, setView] = useState<HouseAccountView | null>(null);
   const [dead, setDead] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -122,7 +122,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
       <Shell>
         <header className="head">
           <span className="venue">{venue.name}</span>
-          <span className="mesa">carteira</span>
+          <span className="mesa">{t('wallet.header')}</span>
         </header>
         <section className="pixcard">
           <p className="label">{t('wallet.topUpPix')}</p>
@@ -138,14 +138,14 @@ function WalletView({ accountToken }: { accountToken: string }) {
             {charge.copiaECola.slice(0, 64)}…
           </div>
           <button className="cta" onClick={onCopy}>
-            {copied ? 'Código copiado ✓' : 'Copiar código Pix'}
+            {copied ? t('pix.copied') : t('pix.copy')}
           </button>
           <p className="muted small center">
-            Abra o app do seu banco, escolha Pix copia-e-cola e cole o código.
+            {t('pix.how')}
           </p>
           {!demoGone && (
             <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
-              {confirming ? 'confirmando…' : '✓ Simular confirmação do banco (demo)'}
+              {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>
           )}
           {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
@@ -160,7 +160,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
     <Shell>
       <header className="head">
         <span className="venue">{venue.name}</span>
-        <span className="mesa">carteira</span>
+        <span className="mesa">{t('wallet.header')}</span>
       </header>
 
       <section className="card">
@@ -232,7 +232,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
 }
 
 function LedgerRow({ entry }: { entry: HouseLedgerEntry }) {
-  const { t } = useT();
+  const { t, brl, dmy } = useT();
   const key = LEDGER_KEY[entry.type as keyof typeof LEDGER_KEY];
   const title = key ? t(key) : entry.label;
   const sign = entry.type === 'load' ? '+' : '−';
@@ -297,11 +297,11 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
         <span className="mesa">{t('home.houseBalance')}</span>
       </header>
       <section className="card">
-        <p className="label">Abrir sua carteira</p>
+        <p className="label">{t('wallet.open')}</p>
         <p className="small">
           {config.bonusBp > 0
             ? t('wallet.pitchBonus', { pct })
-            : 'Carregue saldo por Pix e pague a conta direto do celular.'}
+            : t('wallet.pitch')}
         </p>
         <input
           className="namefield" maxLength={60} placeholder={t('wallet.yourName')}
@@ -315,7 +315,7 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
         />
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
         <button className="cta" disabled={busy || !name.trim() || phone.length < 10} onClick={submit}>
-          {busy ? 'criando…' : 'Criar carteira'}
+          {busy ? t('wallet.creating') : t('wallet.create')}
         </button>
         <p className="muted small">
           {t('wallet.refundable')} O bônus promocional vale por{' '}

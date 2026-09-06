@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { api } from './api';
+import { useT } from './lang';
 
 /**
  * Apple Pay / Google Pay / cartão via STRIPE (2º rail) — o Express Checkout
@@ -38,6 +39,7 @@ interface InnerProps {
 function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument, onPaid, onError }: InnerProps) {
   const stripe = useStripe();
   const elements = useElements();
+  const { t } = useT();
   const [busy, setBusy] = useState(false);
 
   async function onConfirm() {
@@ -47,7 +49,7 @@ function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument,
     try {
       // 1) valida/coleta os dados do Element (exigência do deferred flow).
       const { error: submitError } = await elements.submit();
-      if (submitError) { onError(submitError.message || 'não deu para validar o pagamento'); setBusy(false); return; }
+      if (submitError) { onError(submitError.message || t('card.validateFail')); setBusy(false); return; }
       // 2) cria o PaymentIntent no backend (destination charge pro restaurante).
       const intent = await api.stripeIntent(token, amountCents, tipCents, payerLabel, payerDocument || undefined);
       // 3) confirma com a carteira (Apple/Google Pay) ou cartão.
@@ -57,7 +59,7 @@ function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument,
         confirmParams: { return_url: window.location.href },
         redirect: 'if_required', // carteira confirma sem sair da página
       });
-      if (error) { onError(error.message || 'pagamento não concluído'); setBusy(false); return; }
+      if (error) { onError(error.message || t('card.incomplete')); setBusy(false); return; }
       onPaid(); // sucesso — o webhook confirma no ledger, o poll mostra o ✓
     } catch (e) {
       onError((e as Error).message);

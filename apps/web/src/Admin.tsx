@@ -1,5 +1,6 @@
 
 import { LangToggle, useT } from './lang';
+import { tError } from './i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
@@ -28,7 +29,7 @@ export default function Admin() {
 
 // ---------------------------------------------------------------- onboarding
 function Onboarding() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
   const [cnpj, setCnpj] = useState('');
@@ -63,7 +64,7 @@ function Onboarding() {
     <main className="shell">
       <header className="head">
         <span className="venue">Racha</span>
-        <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>sair</button>
+        <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </header>
       {mine.length > 0 && (
         <section className="panel">
@@ -100,7 +101,7 @@ function Onboarding() {
           O meio de pagamento (Pix/split) é conectado depois — sem ele, o restaurante
           existe mas ainda não recebe. Isso mantém a Racha fora da custódia de recursos.
         </p>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{tError(lang, error, error)}</p>}
         <button className="cta" disabled={busy || !name.trim() || (cnpj !== '' && !cnpjValid)} onClick={submit}>
           {busy ? 'criando…' : 'Criar restaurante'}
         </button>
@@ -116,6 +117,7 @@ function Onboarding() {
 // pro dia a dia. Os dados/ações vêm todos do hook useVenueAdmin — as duas
 // telas leem da mesma fonte.
 function VenueAdminSurface({ venueId }: { venueId: string }) {
+  const { t } = useT();
   const admin = useVenueAdmin(venueId);
   const [printing, setPrinting] = useState<VenueTable | null>(null);
   const [mode, setMode] = useState<'wizard' | 'manage' | null>(null);
@@ -137,7 +139,7 @@ function VenueAdminSurface({ venueId }: { venueId: string }) {
     <main className="shell wide">
       <header className="head">
         <span className="venue">{admin.venue?.name ?? 'Restaurante'}</span>
-        <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>sair</button>
+        <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </header>
 
       {mode === null && <p className="muted small">carregando…</p>}
@@ -158,6 +160,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
   admin: VenueAdmin; venueId: string; onPrint: (t: VenueTable) => void; onConfigure: () => void;
 }) {
   const [newLabel, setNewLabel] = useState('');
+  const { lang } = useT();
   const { venue, tables, error } = admin;
 
   async function add() { if (await admin.addTable(newLabel)) setNewLabel(''); }
@@ -182,7 +185,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
             onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
           <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>Adicionar</button>
         </div>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{tError(lang, error, error)}</p>}
         {tables.length === 0 && <p className="muted small">nenhuma mesa ainda — adicione a primeira acima.</p>}
         {tables.map((t) => (
           <div className="checkrow" key={t.id}>

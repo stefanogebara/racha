@@ -41,7 +41,7 @@ function Login({ onDone }: { onDone: () => void }) {
       if (mode === 'up') {
         const { needsConfirm } = await signUp(email.trim(), password);
         if (needsConfirm) {
-          setNotice('Conta criada! Confira seu e-mail pra confirmar e depois entre.');
+          setNotice(t('gate.created'));
           setMode('in'); setBusy(false); return;
         }
       } else {
@@ -58,11 +58,11 @@ function Login({ onDone }: { onDone: () => void }) {
   }
 
   async function forgot() {
-    if (!email.trim()) { setError('Digite seu e-mail primeiro.'); return; }
+    if (!email.trim()) { setError(t('gate.emailFirst')); return; }
     setBusy(true); setError(null); setNotice(null);
     try {
       await resetPassword(email.trim());
-      setNotice('Enviamos um link de redefinição pro seu e-mail.');
+      setNotice(t('gate.resetSent'));
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -71,7 +71,7 @@ function Login({ onDone }: { onDone: () => void }) {
     <main className="shell">
       <header className="head">
         <span className="venue">Racha</span>
-        <span className="mesa">painel do dono</span>
+        <span className="mesa">{t('gate.ownerPanel')}</span>
       </header>
       <section className="card">
         <p className="label">{mode === 'in' ? t('gate.signIn') : t('gate.signUp')}</p>

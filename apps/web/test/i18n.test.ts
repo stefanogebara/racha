@@ -85,3 +85,49 @@ test('o padrão da plataforma é inglês', () => {
   // Pedido de produto. Se isto mudar, muda de propósito, não por acidente.
   assert.equal(LANGS[0], 'en');
 });
+
+/**
+ * A componente que escreve português na mão.
+ *
+ * A decisão #34 diz que toda frase de tela passa pelo dicionário, e a #35
+ * chama salada de idioma de defeito de design. Mesmo assim, 22 frases estavam
+ * cravadas em português dentro dos componentes — no portão do painel, na
+ * carteira, no pagamento com saldo — **com a chave já traduzida no dicionário,
+ * ao lado, sem ninguém usando**. Em modo inglês o dono do restaurante lia
+ * "painel do dono".
+ *
+ * Nada quebrava: compila, renderiza, passa nos outros testes. É o modo de
+ * falha silencioso de sempre, então este teste tira o silêncio: se uma frase
+ * portuguesa do dicionário aparece copiada num `.tsx`, o teste diz qual chave
+ * já existia pra ela.
+ */
+test('nenhum componente escreve em português o que o dicionário já traduz', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const src = path.join(import.meta.dirname, '..', 'src');
+
+  // Frases curtas ("Total", "item") aparecem legitimamente em nomes de variável
+  // e em comentários; só frases de verdade são evidência.
+  const phrases = entries
+    .filter(([, pair]) => pair.pt.length >= 9 && pair.pt.includes(' '))
+    .map(([key, pair]) => [key, pair.pt] as const);
+
+  const offenders: string[] = [];
+  for (const file of fs.readdirSync(src)) {
+    if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
+    const lines = fs.readFileSync(path.join(src, file), 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      const trimmed = line.trim();
+      // Comentários são prosa pro próximo humano, e essa prosa é em português
+      // de propósito no repositório inteiro.
+      if (/^(\/\/|\*|\/\*|\{\/\*)/.test(trimmed)) return;
+      for (const [key, pt] of phrases) {
+        if (line.includes(pt)) {
+          offenders.push(`${file}:${i + 1} escreve "${pt}" — use t('${key}')`);
+        }
+      }
+    });
+  }
+
+  assert.deepEqual(offenders, [], `\n${offenders.join('\n')}\n`);
+});

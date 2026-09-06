@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LangToggle, useT } from './lang';
-import { brl, type PanelAtivacao } from './api';
+import { type PanelAtivacao } from './api';
 import { authedReq, signOut } from './auth';
 
 /**
@@ -38,7 +38,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function Panel() {
-  const { t } = useT();
+  const { t, brl } = useT();
   const venueId = useMemo(
     () => new URLSearchParams(window.location.search).get('v') ?? '',
     [],
@@ -68,7 +68,7 @@ export default function Panel() {
     <main className="shell wide">
       <header className="head">
         <span className="venue">{data.venue.name}</span>
-        <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>sair</button>
+        <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </header>
 
       <section className="statgrid">
@@ -82,7 +82,7 @@ export default function Panel() {
         </div>
         <div className="stat">
           <b className="mono">{data.today.anomalies}</b>
-          <span>{data.today.anomalies === 0 ? 'nenhuma anomalia ✓' : 'anomalias — conciliar!'}</span>
+          <span>{data.today.anomalies === 0 ? t('panel.noAnomaly') : t('panel.anomalies')}</span>
         </div>
       </section>
 
@@ -137,7 +137,7 @@ const hhmm = (iso: string) =>
  * a que quebra restaurante.
  */
 function Conciliacao({ r }: { r: Reconcile | undefined }) {
-  const { t } = useT();
+  const { t, brl } = useT();
   if (!r) return null; // backend antigo ainda no ar — o resto do painel segue de pé
   const vermelho = r.severity === 'critical' || r.severity === 'high';
   return (
@@ -148,15 +148,15 @@ function Conciliacao({ r }: { r: Reconcile | undefined }) {
           <p className="small" style={{ color: 'var(--red, #a3231f)' }}>
             <strong>
               {r.driftCents > 0
-                ? `${brl(r.driftCents)} de diferença entre o que o app registrou e o que foi pago.`
-                : 'Divergência entre o registro e os pagamentos.'}
+                ? t('panel.reconDriftAmt', { amount: brl(r.driftCents) })
+                : t('panel.reconDrift')}
             </strong>
           </p>
           {r.findings.map((f, i) => (
             <p className="muted small" key={i}>· {f.message}</p>
           ))}
           <p className="muted small">
-            Isso não corrige sozinho, de propósito. Fale com a gente antes de fechar o caixa.
+            {t('panel.reconManual')} {t('panel.reconCall')}
           </p>
         </>
       ) : (
@@ -180,7 +180,7 @@ const ddmm = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
 
 /** Últimos 7 dias de uso — barras CSS proporcionais ao valor, sem lib de gráfico. */
 function Ativacao({ a }: { a: PanelAtivacao | undefined }) {
-  const { t } = useT();
+  const { t, brl } = useT();
   if (!a) return null; // backend antigo ainda no ar — o resto do painel segue de pé
   const vazio = a.semana.pagamentos === 0 && a.semana.contas === 0;
   const teto = Math.max(1, ...a.dias.map((d) => d.valorCents));

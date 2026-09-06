@@ -1,6 +1,6 @@
 
 import { useT } from './lang';import { useCallback, useEffect, useState } from 'react';
-import { brl, dmy, parseBrlToCents } from './api';
+import { parseBrlToCents } from './api';
 import { authedReq as req } from './auth';
 
 /**
@@ -34,7 +34,7 @@ interface HouseAdminData {
 }
 
 export default function AdminHouse({ venueId }: { venueId: string }) {
-  const { t } = useT();
+  const { t, brl, dmy } = useT();
   const [data, setData] = useState<HouseAdminData | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Campos como string: digitação parcial ("1,5") não pode virar NaN no estado.
@@ -122,7 +122,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
   }
 
   async function refund(a: HouseAdminAccount) {
-    const raw = prompt(`Reembolsar ${a.name}\nSaldo pago disponível: ${brl(a.principalCents)}\n\nValor do reembolso (R$):`);
+    const raw = prompt(`Reembolsar ${a.name}\n${t('wallet.paidBal')}: ${brl(a.principalCents)}\n\nValor do reembolso (R$):`);
     if (raw == null) return;
     const amountCents = parseBrlToCents(raw); // "1.000" = mil reais, nunca R$ 10
     if (amountCents == null || amountCents <= 0) { setError('Informe um valor válido.'); return; }

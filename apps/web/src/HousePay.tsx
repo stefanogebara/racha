@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useT } from './lang';
-import { api, brl, parseBrlToCents, HouseRedeemResult } from './api';
+import { api, parseBrlToCents, HouseRedeemResult } from './api';
 
 /**
  * "Pagar com saldo" — redeem do saldo da casa dentro da tela da conta.
@@ -19,7 +19,7 @@ export default function HousePay({
   onPaid: (r: HouseRedeemResult) => void;
   onBack: () => void;
 }) {
-  const { t } = useT();
+  const { t, brl } = useT();
   const [value, setValue] = useState(
     defaultCents > 0 ? (defaultCents / 100).toFixed(2).replace('.', ',') : '',
   );
@@ -60,7 +60,7 @@ export default function HousePay({
         <div className="paidmark">✓</div>
         <h2>{t('housepay.done')}</h2>
         <p className="muted">{parts.join(' + ')}</p>
-        <button className="cta" onClick={onBack}>← voltar pra conta</button>
+        <button className="cta" onClick={onBack}>{t('common.back')}</button>
       </section>
     );
   }
@@ -89,7 +89,7 @@ export default function HousePay({
         {busy ? 'pagando…' : `Pagar ${brl(amountCents ?? 0)} com saldo`}
       </button>
       <p className="muted small">{t('housepay.tipApart')}</p>
-      <button className="linklike" onClick={onBack}>← voltar pra conta</button>
+      <button className="linklike" onClick={onBack}>{t('common.back')}</button>
     </section>
   );
 }
