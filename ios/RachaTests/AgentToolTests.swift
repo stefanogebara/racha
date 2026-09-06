@@ -199,3 +199,40 @@ struct CategorizerTests {
         #expect(ImageStyle.subject(for: item) == "picanha com fritas")
     }
 }
+
+/// O texto que chega em pedaços tem que ser o texto que saiu.
+///
+/// O `MockTransport` é modo de produção, não stub (decisão #12): sem chave, é
+/// ele que responde — numa demonstração pra um restaurante, é a única voz que a
+/// pessoa ouve. Ele quebrava a frase em pedaços de três palavras e comia um
+/// espaço em cada emenda: "Vou olhar a conta primeiro." chegava na tela como
+/// "Vou olhar aconta primeiro." Visto na tela do simulador, não deduzido.
+@Suite("Fatiamento do streaming")
+struct StreamChunkTests {
+
+    @Test("juntar os pedaços devolve exatamente a frase original")
+    func chunksRebuildTheOriginal() {
+        let samples = [
+            "Vou olhar a conta primeiro.",
+            "Pronto. Dá uma conferida aí em cima — se algo estiver errado, me fala.",
+            "a",
+            "duas palavras",
+            "uma frase com exatamente seis palavras aqui",
+            "R$ 90,10 é a sua parte, com serviço.",
+            "",
+        ]
+        for text in samples {
+            let joined = text.chunkedForStreaming().joined()
+            #expect(joined == text, "reconstruiu \"\(joined)\" a partir de \"\(text)\"")
+        }
+    }
+
+    @Test("nenhum pedaço sai vazio, e a contagem é razoável")
+    func chunksAreSane() {
+        let text = "Dividi a picanha entre você, o Gui e a Ju, e o chopp entre todo mundo."
+        let chunks = text.chunkedForStreaming()
+        #expect(!chunks.isEmpty)
+        #expect(chunks.allSatisfy { !$0.isEmpty })
+        #expect(chunks.count <= text.split(separator: " ").count)
+    }
+}

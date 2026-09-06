@@ -112,13 +112,22 @@ struct MockTransport: AgentTransport {
 
 extension String {
     /// Split into streaming-sized chunks at word boundaries, 2–5 words each.
+    ///
+    /// The chunks must CONCATENATE back to the original, spaces and all. They
+    /// did not: the separator was written only when the current chunk was
+    /// non-empty, so every chunk boundary ate a space. Three words per chunk
+    /// meant one lost space per three words, and the demo — the mode a
+    /// salesperson shows a restaurant — answered "Vou olhar aconta primeiro."
+    ///
+    /// The space belongs to the STREAM, not to the chunk: it is written for
+    /// every word except the very first, wherever the chunk happens to break.
     func chunkedForStreaming() -> [String] {
         var out: [String] = []
         var current = ""
         var wordsInChunk = 0
         let target = 3
-        for word in split(separator: " ", omittingEmptySubsequences: false) {
-            current += (current.isEmpty ? "" : " ") + word
+        for (index, word) in split(separator: " ", omittingEmptySubsequences: false).enumerated() {
+            current += (index == 0 ? "" : " ") + word
             wordsInChunk += 1
             if wordsInChunk >= target {
                 out.append(current)
