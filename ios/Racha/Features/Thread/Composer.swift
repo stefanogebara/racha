@@ -143,7 +143,7 @@ struct ThreadOpener: View {
             out = ["dividir tudo por igual", "adiciona a Uber de 38 reais"]
         } else if state.split.hasUnassigned {
             let names = state.items.filter { state.claims(for: $0.id).isEmpty }
-                .prefix(2).map(\.name.lowercased())
+                .prefix(2).map { $0.name.lowercased() }
             out = names.map { "a \($0) foi minha" }
             out.append("divide o resto por igual")
         } else {
