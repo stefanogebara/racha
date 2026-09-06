@@ -468,14 +468,20 @@ export default function App() {
             <p className="muted small">{t('share.capped', { left: brl(remaining) })}</p>
           )}
 
+          {/* aria-label, não só placeholder: um placeholder some no foco e não
+              é rótulo pra leitor de tela. Numa tela de pagamento, o campo tem
+              que continuar dizendo o que é depois que a pessoa começa a digitar. */}
           <input
             className="namefield" maxLength={60} placeholder={t('payer.name')}
+            aria-label={t('payer.name')}
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
           <input
             id="cpf-field"
             className="namefield" inputMode="numeric" maxLength={14}
             placeholder={t('payer.cpf')}
+            aria-label={t('payer.cpf')}
+            aria-describedby="cpf-why"
             style={cpfHint && cpfDigits.length !== 11 ? { borderColor: 'var(--burgundy)' } : undefined}
             value={cpf}
             onChange={(e) => { setCpf(e.target.value); if (e.target.value.replace(/\D/g, '').length === 11) setCpfHint(false); }}
@@ -486,7 +492,7 @@ export default function App() {
               é verdade conferida: `create-charge.js` manda pro PSP e o
               `registerCharge` NÃO guarda; webhook que traz CPF passa pelo
               `maskTaxId`. */}
-          <p className="muted small">{t('payer.cpfWhy')}</p>
+          <p className="muted small" id="cpf-why">{t('payer.cpfWhy')}</p>
           {cpfHint && cpfDigits.length !== 11 && (
             <p className="small" style={{ color: 'var(--burgundy)' }}>{t('payer.cpfHint')}</p>
           )}

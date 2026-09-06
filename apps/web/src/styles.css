@@ -183,14 +183,20 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .itempick.on .tick { border-color: var(--verde); background: var(--verde); color: #fff; }
 .itemhint { margin-top: 2px; }
 
-.stepperrow { display: flex; align-items: center; gap: 12px; font: 400 16px/24px var(--ui); }
+/* Envolve: com os botões de 44px o "pessoas" passava 10px da borda num
+   telefone de 320. A palavra desce de linha em vez de sair da tela. */
+.stepperrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  font: 400 16px/24px var(--ui); }
 .stepper {
   display: flex; align-items: center; gap: 12px;
   border: 1px solid var(--linha2); border-radius: var(--rad-s);
   background: var(--branco); padding: 5px 8px;
 }
 .stepper button {
-  width: 32px; height: 32px; border-radius: 8px; border: 0;
+  /* 44px é o mínimo do HIG e do WCAG 2.5.5, e este é o controle que decide
+     entre quantas pessoas a conta é dividida — com o telefone numa mão só,
+     num bar, apertado. Era 32. */
+  width: 44px; height: 44px; border-radius: 8px; border: 0;
   background: var(--fundo2); font-size: 19px; color: var(--ink); cursor: pointer;
 }
 .stepper strong { min-width: 22px; text-align: center; font: 600 17px/1 var(--titulo); }
@@ -343,6 +349,16 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   border: 0; background: none; cursor: pointer;
   font: 400 12px/1 var(--titulo); letter-spacing: .04em;
   padding: 6px 10px; border-radius: 9999px; color: var(--cinza);
+  position: relative;
+}
+/* A pílula continua do tamanho que foi desenhada; a ÁREA DE TOQUE cresce por
+   baixo dela. Esticar a própria pílula pra 44px transformava o seletor num par
+   de círculos no rodapé do app e num par de caixas na landing, onde ele é
+   tipografia. O alvo era 24px de altura — abaixo do mínimo do HIG e do
+   WCAG 2.5.5 — num controle que muda a língua da tela inteira. */
+.langopt::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  width: 44px; height: 44px; transform: translate(-50%, -50%);
 }
 .langopt.on { background: var(--ink); color: #fff; }
 .langopt:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
