@@ -262,6 +262,9 @@ function podeEnviarAviso() {
   return !!process.env.CRON_SECRET;
 }
 
+// Throttle do aviso "CRON_SECRET não configurado" (1×/h por instância).
+let avisoCronSecretAte = 0;
+
 /** Compara `Authorization: Bearer <x>` com o segredo sem vazar tempo. */
 function segredoConfere(header, secret) {
   const esperado = Buffer.from(`Bearer ${secret}`);
@@ -917,6 +920,19 @@ async function route(req, res) {
       // centavos, checkId/txid/accountId). Degradar aberta era divulgação
       // cross-tenant sem auth — achado ALTO das duas revisões.
       if (!process.env.CRON_SECRET) {
+        // Fechar por padrão criaria um canário DESLIGADO em silêncio — trocar um
+        // vazamento por um silêncio é o modo de falha #7 outra vez. Então o
+        // estado "não configurado" PAGINA (no máximo 1×/h por instância, senão
+        // a própria rota pública vira o megafone de quem quiser).
+        process.stderr.write('[reconcile-cron] BLOQUEADO: CRON_SECRET não configurado — a conciliação diária NÃO está rodando\n');
+        if (Date.now() > avisoCronSecretAte) {
+          avisoCronSecretAte = Date.now() + 60 * 60 * 1000;
+          await notifyFounderReconcile({
+            mensagem: 'Conciliação diária BLOQUEADA: CRON_SECRET não está configurado na Vercel. '
+              + 'A varredura não roda até setar a env (e a rota ficaria pública sem ela).',
+            venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+          });
+        }
         return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
       }
       if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {

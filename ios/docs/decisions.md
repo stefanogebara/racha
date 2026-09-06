@@ -981,6 +981,15 @@ no Seatable, dentro do canário que existe pra evitá-lo.
 (`reconcile_heartbeat`) toda noite verde — do lado da Olímpia, a AUSÊNCIA da batida
 é o alarme.
 
+**E o próprio fechamento virava um canário desligado em silêncio.** O preview
+confirmou que `CRON_SECRET` NÃO está setado na Vercel — quer dizer, a rota estava
+mesmo pública, e fechá-la desliga a varredura noturna até alguém setar a env.
+Trocar um vazamento por um silêncio é o modo de falha #7 outra vez. Então o estado
+"não configurado" PAGINA (503 + aviso ao fundador, no máximo 1×/h por instância,
+senão a rota pública vira o megafone de quem quiser). **Ação pendente do dono:
+setar `CRON_SECRET` nas env vars do projeto na Vercel** — o agendador da Vercel
+manda `Authorization: Bearer $CRON_SECRET` sozinho depois disso.
+
 **Também corrigido, achado no mesmo passe:**
 
 - *`createVenue` tinha `cnpj = '00000000000191'` como default* — que é o CNPJ REAL
