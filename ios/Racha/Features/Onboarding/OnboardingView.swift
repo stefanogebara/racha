@@ -35,9 +35,17 @@ struct OnboardingView: View {
     var body: some View {
         ZStack {
             PaperBackground()
+            // The three steps stay mounted so they can cross-fade — but an
+            // invisible step is still in the accessibility tree, so VoiceOver
+            // read all three screens at once and the automation runner could
+            // tap a button nobody could see. `opacity: 0` hides a view from
+            // eyes, not from the system; `accessibilityHidden` is the other half.
             cover.opacity(step == 0 ? 1 : 0).offset(x: step == 0 ? 0 : -28)
+                .accessibilityHidden(step != 0)
             askName.opacity(step == 1 ? 1 : 0).offset(x: step == 1 ? 0 : (step < 1 ? 28 : -28))
+                .accessibilityHidden(step != 1)
             doors.opacity(step == 2 ? 1 : 0).offset(x: step == 2 ? 0 : 28)
+                .accessibilityHidden(step != 2)
         }
         .animation(Motion.fluid, value: step)
         .transaction { if step == 0 { $0.disablesAnimations = false } }
@@ -141,11 +149,14 @@ struct OnboardingView: View {
                 VStack(spacing: 0) {
                     DoorRow(dish: "Picanha na chapa", title: "Fotografar a nota",
                             detail: "eu leio os itens e monto a conta") { finish(.camera) }
+                        .accessibilityIdentifier("door.camera")
                     DoorRow(dish: "Chopp 500ml", title: "Só falar o que rolou",
                             detail: "“a picanha foi eu, o Gui e a Ju”") { finish(.talk) }
+                        .accessibilityIdentifier("door.talk")
                     DoorRow(dish: "Vinagrete", title: "Ver um exemplo",
                             detail: "abre rachas prontos pra explorar", quiet: true,
                             isLast: true) { finish(.example) }
+                        .accessibilityIdentifier("door.example")
                 }
             }
             Spacer()

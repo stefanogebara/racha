@@ -81,6 +81,8 @@ struct SettleSheet: View {
                             .font(Typo.small)
                             .foregroundStyle(Palette.ink3)
                         Button("tirar") { toggle(tip, on: false) }
+                            .accessibilityIdentifier("pay.service.remove")
+                            .accessibilityLabel("Tirar o serviço")
                             .font(Typo.small.weight(.medium))
                             .foregroundStyle(Palette.ink)
                     }
@@ -89,6 +91,8 @@ struct SettleSheet: View {
                     HStack(spacing: 6) {
                         Text("Sem o serviço.").font(Typo.small).foregroundStyle(Palette.ink3)
                         Button("pôr de volta") { toggle(tip, on: true) }
+                            .accessibilityIdentifier("pay.service.restore")
+                            .accessibilityLabel("Pôr o serviço de volta")
                             .font(Typo.small.weight(.medium))
                             .foregroundStyle(Palette.ink)
                     }

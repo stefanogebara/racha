@@ -114,6 +114,15 @@ struct RachaButton: View {
                 )
         }
         .frame(height: style == .primary ? 54 : 46)
+        // The press effect needs a raw DragGesture (a Button swallows the touch
+        // location the shader wants), which costs the button its identity: to
+        // VoiceOver, Switch Control and the automation runner this was a piece
+        // of text. Every primary action in the app — Começar, Pagar, Escanear —
+        // was unreachable without sight. The gesture stays; the role comes back.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { action() }
     }
 
     @ViewBuilder private var label: some View {
@@ -233,6 +242,7 @@ struct LiquidProgress: View {
     /// Rises briefly when the value changes, so the surface sloshes on update.
     @State private var energy: Double = 0
     @State private var clock = ShaderClock.shared
+    @State private var hold = ClockSubscription()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -247,12 +257,19 @@ struct LiquidProgress: View {
         }
         .frame(height: height)
         .clipShape(Capsule())
-        .onAppear { if !reduceMotion { clock.subscribe() } }
-        .onDisappear { if !reduceMotion { clock.unsubscribe() } }
+        .onDisappear { hold.want(false) }
         .onChange(of: fill) {
             guard !reduceMotion else { return }
+            // The slosh is a reaction to a payment landing, not an idle state.
+            // Holding the clock for the bar's whole life animated a progress
+            // bar that was not moving.
+            hold.want(true)
             withAnimation(.easeOut(duration: 0.12)) { energy = 1 }
             withAnimation(.easeInOut(duration: 1.4).delay(0.12)) { energy = 0.15 }
+            Task {
+                try? await Task.sleep(for: .seconds(1.8))
+                hold.want(false)
+            }
         }
         .accessibilityElement()
         .accessibilityLabel("Progresso do pagamento")
