@@ -86,7 +86,12 @@ const PORT = 8787;
     if (userId) { await store.addVenueMember(venue.id, userId, 'owner'); ownerLine = `  Login  ${DEMO_EMAIL} / ${DEMO_PASS}`; }
   } else {
     await store.addVenueMember(venue.id, 'demo-user-0000', 'owner');
-    ownerLine = '  Login  (modo memória — auth desligada)';
+    // "auth desligada" era mentira e custava tempo: o Gate do front pede sessão
+    // do Supabase e o `guardUser` do router devolve 501 sem auth configurada.
+    // Em memória o lado do CLIENTE roda inteiro; o lado do DONO não abre. Dizer
+    // isso na hora vale mais que descobrir depois de clicar em três telas.
+    ownerLine = '  Painel/Admin/QRs  precisam de auth — ponha SUPABASE_URL e '
+              + 'SUPABASE_SERVICE_ROLE_KEY no .env (em memória o gate não abre)';
   }
 
   process.stdout.write([
@@ -95,8 +100,10 @@ const PORT = 8787;
     `  Conta  http://localhost:5173/?t=${mesa.qrToken}`,
     `  Conta2 http://localhost:5173/?t=${mesa2.qrToken}`,
     `  Carteira http://localhost:5173/carteira?t=${conta.accountToken}`,
-    `  Painel http://localhost:5173/painel?v=${venue.id}`,
-    `  Admin  http://localhost:5173/admin`,
+    ...(useSupabase ? [
+      `  Painel http://localhost:5173/painel?v=${venue.id}`,
+      `  Admin  http://localhost:5173/admin`,
+    ] : []),
     ownerLine, '', '',
   ].join('\n'));
 })().catch((err) => {
