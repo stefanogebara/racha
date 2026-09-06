@@ -12,9 +12,22 @@
  */
 
 const http = require('http');
+
+// The local server IS the demo, so it says so — before the router is required,
+// because `DEMO_MODE` is read once at module load.
+//
+// Without this the seeded links open a real bill you can never finish paying:
+// "Simulate bank confirmation" 404s and then hides itself, so the flow this
+// file exists to make "clickable end to end" stopped one tap from the end. An
+// explicit opt-out stays, for testing what production does.
+//
+// This file is never deployed (Vercel serves api/index.js), so it cannot turn
+// the forged-webhook route on anywhere that moves real money.
+if (process.env.RACHA_DEMO_MODE === undefined) process.env.RACHA_DEMO_MODE = 'true';
+
 const { ensureDemoCheck } = require('./api/_lib/demo');
 const crypto = require('crypto');
-const { route, store, authClient, useSupabase } = require('./api/_app/router');
+const { route, store, authClient, useSupabase, DEMO_MODE } = require('./api/_app/router');
 
 const PORT = 8787;
 
@@ -77,7 +90,7 @@ const PORT = 8787;
   }
 
   process.stdout.write([
-    '', `Racha demo pronto (${useSupabase ? 'SUPABASE worttfotxasxqjaqwpjf' : 'memória'}):`,
+    '', `Racha demo pronto (${useSupabase ? 'SUPABASE worttfotxasxqjaqwpjf' : 'memória'}${DEMO_MODE ? '' : ', SEM modo demo — a confirmação simulada não existe'}):`,
     `  API    http://localhost:${PORT}`,
     `  Conta  http://localhost:5173/?t=${mesa.qrToken}`,
     `  Conta2 http://localhost:5173/?t=${mesa2.qrToken}`,
