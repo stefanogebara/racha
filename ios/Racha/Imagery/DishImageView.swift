@@ -63,7 +63,7 @@ struct DishImageView: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(.white.opacity(0.45), lineWidth: 0.5)
+                .strokeBorder(Palette.rule2, lineWidth: 0.5)
         }
         .task(id: cacheKey) { await load() }
         // Frames only while the picture is developing. Before this, every row

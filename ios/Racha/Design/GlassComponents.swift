@@ -41,8 +41,14 @@ struct GlassCard<Content: View>: View {
     }
 
     private var surface: some View {
+        // The docblock above opens with "Not `.ultraThinMaterial`" and this line
+        // used to be exactly that. On the night ground (#27) the system material
+        // resolves to a light-grey slab, which is the "looks like Settings"
+        // outcome the card exists to avoid — and it washed the cream text on it
+        // toward illegible. The palette's own answer is a flat step, because
+        // depth here is a hairline and a shade, not a light.
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.ultraThinMaterial)
+            .fill(Palette.surface)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Palette.glassCard)
@@ -179,7 +185,7 @@ struct RachaChip: View {
                 .padding(.vertical, 11)
                 .padding(.horizontal, 16)
                 .background {
-                    Capsule().fill(isOn ? Color.white.opacity(0.78) : Palette.glassSubtle)
+                    Capsule().fill(isOn ? Palette.fieldHigh : Palette.glassSubtle)
                 }
                 .overlay {
                     Capsule().strokeBorder(isOn ? Palette.charcoal : Palette.hairline, lineWidth: 1)

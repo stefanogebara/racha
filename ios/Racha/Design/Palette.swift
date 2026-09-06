@@ -72,6 +72,21 @@ enum Palette {
     static let emerald      = ink
     static let emeraldBright = ink
 
+    /// A surface you can read text on, a step above the ground.
+    ///
+    /// Every field, chip and bubble in the app used to be `Color.white` at
+    /// 60–78% — correct when the ground was paper (before #27), and a hole in
+    /// the design after it: the brightest thing on a near-black screen, with
+    /// `Palette.charcoal` text that now resolves to CREAM. Cream on white. Seen
+    /// on the simulator, in the agent's own bubble.
+    ///
+    /// These are opaque on purpose. Translucency over the night gives a muddy
+    /// grey that changes with whatever is behind it; a flat step is the same
+    /// colour everywhere, which is what makes a form feel built rather than
+    /// floated.
+    static let field        = Color(hex: 0x241D15)
+    static let fieldHigh    = Color(hex: 0x2E2619)
+
     // Surfaces: a flat step, not translucency. Kept as names for the glass card.
     static let glassCard    = cream.opacity(0.045)
     static let glassPanel   = cream.opacity(0.04)

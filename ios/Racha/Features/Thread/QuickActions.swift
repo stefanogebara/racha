@@ -49,7 +49,7 @@ struct QuickActions: View {
             .foregroundStyle(tint)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Capsule().fill(Color.white.opacity(0.6)))
+            .background(Capsule().fill(Palette.field))
             .overlay { Capsule().strokeBorder(tint.opacity(0.22), lineWidth: 1) }
         }
         .buttonStyle(.plain)

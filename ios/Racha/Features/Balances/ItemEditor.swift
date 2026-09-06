@@ -39,7 +39,7 @@ struct ItemEditor: View {
                                     .padding(12)
                                     .background {
                                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .fill(Color.white.opacity(0.6))
+                                            .fill(Palette.field)
                                     }
 
                                 HStack {
@@ -54,7 +54,7 @@ struct ItemEditor: View {
                                 .padding(12)
                                 .background {
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color.white.opacity(0.6))
+                                        .fill(Palette.field)
                                 }
                             }
                         }

@@ -105,7 +105,7 @@ struct SettingsSheet: View {
                 .padding(12)
                 .background {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.white.opacity(0.6))
+                        .fill(Palette.field)
                 }
             if let hint {
                 Text(hint).font(Typo.caption).foregroundStyle(Palette.stone)
@@ -121,7 +121,7 @@ struct SettingsSheet: View {
             .padding(12)
             .background {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.6))
+                    .fill(Palette.field)
             }
     }
 }

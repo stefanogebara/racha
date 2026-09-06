@@ -193,10 +193,64 @@ final class FlowTests: XCTestCase {
 
     // MARK: Settings
 
+    /// The name typed at first run has to be the name the app uses. It is the
+    /// only thing onboarding asks for, and a preference that silently fails to
+    /// stick is worse than one the app never asked about.
+    func testTheNameFromOnboardingReachesSettings() {
+        let app = launch()
+        app.buttons["Começar"].tap()
+        let name = app.textFields["seu nome"]
+        require(name, "o campo de nome")
+        name.tap()
+        name.typeText("Stefano")
+        app.buttons["Continuar"].tap()
+        app.buttons["door.example"].tap()
+        require(app.staticTexts["Mesas anteriores"], "a galeria")
+
+        app.buttons["Ajustes"].tap()
+        let field = app.textFields["Nome"]
+        require(field, "o campo Nome em Ajustes")
+        XCTAssertEqual(field.value as? String, "Stefano",
+                       "o nome do primeiro uso não chegou nos Ajustes")
+        shoot(app, "12-ajustes-nome")
+    }
+
+    /// The API key is a secret. It must never be a plain text field, on a screen
+    /// people open in public with a stranger's eyes over their shoulder.
+    func testTheAgentKeyIsASecureField() {
+        let app = launch(route: "gallery")
+        // Wait for the seed to land before touching anything. Tapping while the
+        // gallery is still growing rows loses the tap: two runs in three failed
+        // without this, and a flaky test is worse than no test.
+        require(app.staticTexts["Bar do Zé · Mesa 12 · agora"], "a mesa aberta")
+        app.buttons["Ajustes"].tap()
+        require(app.staticTexts["Agente"], "a seção do agente")
+        XCTAssertTrue(app.secureTextFields["Chave Anthropic"].exists,
+                      "a chave da Anthropic não está num campo protegido")
+        XCTAssertFalse(app.textFields["Chave Anthropic"].exists,
+                       "a chave da Anthropic está num campo de texto comum")
+    }
+
+    /// Demo mode is a product mode, not a stub (decision #12): with no key at
+    /// all the app must still answer, and the answer must be about this table.
+    func testTheAgentAnswersWithNoKeyConfigured() {
+        let app = launch(route: "thread")
+        require(app.staticTexts["Bar do Zé"], "a conversa")
+        let suggestion = app.buttons["divide o resto por igual"]
+        require(suggestion, "uma sugestão do compositor")
+        suggestion.tap()
+        // MockTransport streams; give it room, then assert the thread grew.
+        let reply = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", "R$")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 12),
+                      "o agente não respondeu nada com dinheiro dentro")
+        shoot(app, "13-agente-demo")
+    }
+
     /// Settings is where the API keys live. It must open and close, and it must
     /// not show a key in the clear.
     func testSettingsOpensAndCloses() {
         let app = launch(route: "gallery")
+        require(app.staticTexts["Bar do Zé · Mesa 12 · agora"], "a mesa aberta")
         let settings = app.buttons["Ajustes"]
         require(settings, "o botão de Ajustes")
         settings.tap()

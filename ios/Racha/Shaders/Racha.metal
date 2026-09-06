@@ -162,13 +162,25 @@ static inline float sdRoundedBox(float2 p, float2 halfSize, float radius) {
     float rim = smoothstep(2.2, 0.0, -d) * facing;
     sampled.rgb += half3(rim * 0.55 * strength);
 
+    // How bright the surface under the glass actually is. Everything below is
+    // scaled by it, because these numbers were tuned when the card was PAPER
+    // and the ground went near-black in decision #27: a fixed +0.16 of light is
+    // a whisper on white and a floodlight on #1E1812. On the simulator the
+    // sweep was a grey band wide enough to sit on top of "deve R$ 107,70".
+    half lum = dot(sampled.rgb, half3(0.2126h, 0.7152h, 0.0722h));
+    half surface = half(0.22h) + lum;   // dark card ≈ 0.33, paper ≈ 1.1
+
     // Specular sweep: one soft band crossing on the diagonal, slow.
     float sweep = sin((position.x + position.y) * 0.006 - time * 0.55 + tiltX * 2.0);
     float band = smoothstep(0.86, 1.0, sweep) * (1.0 - bend) * 0.16 * strength;
-    sampled.rgb += half3(band);
+    sampled.rgb += half3(half(band) * surface);
 
-    // Interior lift so the surface reads as translucent white, not clear.
-    sampled.rgb = mix(sampled.rgb, half3(1.0h), half(0.10 * strength));
+    // Interior lift so the surface reads as translucent, not clear. Toward the
+    // palette's cream rather than pure white — on the night, white reads as a
+    // grey wash, which is the "looks like Settings" failure the card exists to
+    // avoid — and scaled by the same surface term.
+    const half3 cream = half3(0.969h, 0.949h, 0.914h);
+    sampled.rgb = mix(sampled.rgb, cream, half(0.10 * strength) * surface);
     return sampled;
 }
 

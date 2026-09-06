@@ -39,8 +39,11 @@ struct ThreadView: View {
             composer
         }
         .background {
+            // Same as GlassCard: a flat step, not a system material. The thread
+            // is the biggest surface in the app, so a grey slab here is the
+            // whole screen going grey.
             RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Palette.sheet)
                 .overlay {
                     RoundedRectangle(cornerRadius: 30, style: .continuous)
                         .fill(Palette.glassPanel)

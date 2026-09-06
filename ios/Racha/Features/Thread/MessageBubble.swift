@@ -61,7 +61,7 @@ struct MessageBubble: View {
                     UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 6,
                                            bottomTrailingRadius: 20, topTrailingRadius: 20,
                                            style: .continuous)
-                        .fill(Color.white.opacity(0.72))
+                        .fill(Palette.fieldHigh)
                 }
                 .overlay {
                     UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 6,
@@ -209,7 +209,7 @@ struct WorkingIndicator: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .background {
-            Capsule().fill(Color.white.opacity(0.6))
+            Capsule().fill(Palette.field)
         }
         .overlay { Capsule().strokeBorder(Palette.hairline, lineWidth: 1) }
         .onAppear {

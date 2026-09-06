@@ -22,7 +22,7 @@ struct ComposerField: View {
             .padding(.vertical, 12)
             .background {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.white.opacity(0.62))
+                    .fill(Palette.field)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -117,7 +117,7 @@ struct ThreadOpener: View {
                             .foregroundStyle(Palette.charcoal)
                             .padding(.horizontal, 13)
                             .padding(.vertical, 9)
-                            .background(Capsule().fill(Color.white.opacity(0.62)))
+                            .background(Capsule().fill(Palette.field))
                             .overlay { Capsule().strokeBorder(Palette.hairline, lineWidth: 1) }
                     }
                     .buttonStyle(.plain)
