@@ -48,6 +48,40 @@ Fora do compilador, o build e a tela acharam mais:
 - **`R$ 129,25` quebrava em duas linhas** no tile da galeria. O valor ganhou
   `layoutPriority`; o rótulo cede.
 
+## Segunda passada: dirigindo o app de verdade (2026-09-06)
+
+Captura de tela é um quadro sem dedo nenhum dentro. Entrou um alvo de
+**testes de interface** (`RachaUITests`, 11 fluxos) que abre o app num aparelho
+recém-limpo (`-racha.resetState`) e anda por ele. O que ele achou, e o que só
+apareceu quando as telas foram olhadas uma a uma:
+
+- **Nenhum botão era botão.** `RachaButton` precisa de um `DragGesture` cru pro
+  shader de pressão (um `Button` engole a posição do toque), e isso custou o
+  papel dele: pra VoiceOver, pro Controle Assistivo e pro robô, *Começar*,
+  *Pagar* e *Escanear* eram pedaços de texto. Ninguém sem enxergar começava o
+  app. O gesto fica; o papel voltou.
+- **O onboarding lia as três telas ao mesmo tempo.** Os três passos ficam
+  montados pra fazer a transição; `opacity: 0` esconde dos olhos, não do
+  sistema. `accessibilityHidden` no que não é o passo atual.
+- **"Pagar" na galeria não abria nada.** Quatro `.sheet(isPresented:)` no mesmo
+  ScrollView; o SwiftUI honra um. Três eram código morto que lê certo linha a
+  linha. Agora é um `.sheet(item:)`.
+- **O relógio dos shaders nunca parava.** `ShaderClock` é `@Observable` e o
+  display link batia ~30×/s enquanto alguém segurasse: a galeria parada
+  redesenhava pra sempre. Três donos estavam errados, um deles vazando inscrição
+  (e o espelho dele soltando uma que nunca pegou, congelando a animação alheia).
+- **O agente comia um espaço a cada três palavras.** "Vou olhar a conta
+  primeiro." chegava como "Vou olhar aconta primeiro."
+- **A paleta da noite não tinha chegado em onze superfícies.** Campos, chips,
+  compositor e a bolha do agente ainda eram `Color.white`; o texto deles é
+  `Palette.charcoal`, que a migração remapeou pra CREME. Creme sobre branco.
+- **O cartão usava `.ultraThinMaterial`** — a primeira linha do docblock dele
+  diz "Not `.ultraThinMaterial`".
+- **Os números do vidro estavam calibrados no papel.** A varredura especular
+  somava +0,16 fixos e o interior subia 10% na direção do BRANCO: um sussurro
+  sobre papel, um holofote sobre `#1E1812`. A faixa diagonal cobria o
+  "deve R$ 107,70". Agora os dois escalam com a luminância de baixo.
+
 ### Ver qualquer tela sem tocar (só Debug)
 
 O terminal não tem permissão de acessibilidade pra clicar no simulador, então
@@ -159,7 +193,8 @@ nem háptico.
    espessura da onda de choque (46 pt) e a intensidade do grão (0,018) foram
    escolhidos por raciocínio, não por olhar. Provavelmente querem ajuste fino.
 3. **O zoom contínuo.** A resistência do arraste (`pow(0.82)`) e o limiar de
-   flick (260 pt previstos) são números de sensação. Só o polegar decide.
+   flick (260 pt previstos) são números de sensação. Só o polegar decide — o
+   robô toca e arrasta, mas não sente.
 4. **Custo de GPU e bateria.** As mitigações estão documentadas em
    [`shaders.md`](shaders.md), mas não medidas.
 5. **O háptico de fechamento.** A curva de intensidade foi escrita de ouvido, sem
