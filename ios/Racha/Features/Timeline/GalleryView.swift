@@ -13,10 +13,27 @@ struct GalleryView: View {
     @Environment(RachaRepository.self) private var repository
     @Environment(Navigator.self) private var navigator
     @Environment(AppSettings.self) private var settings
-    @State private var showingNew = false
-    @State private var showingSettings = false
-    @State private var paying = false
-    @State private var payingID: UUID?
+    /// One sheet, chosen by value.
+    ///
+    /// This view used to stack four `.sheet(isPresented:)` modifiers on the same
+    /// ScrollView. SwiftUI honours one sheet per view, so three of them were
+    /// dead: tapping "Pagar" set its flag and nothing opened. Found by the flow
+    /// test, not by reading — every one of them looks correct on its own line.
+    /// `.sheet(item:)` also carries the racha id *with* the presentation, so the
+    /// old two-step (`payingID = …; paying = true`) can no longer race.
+    private enum Sheet: Identifiable {
+        case newRacha, settings, pay(UUID), scanner
+        var id: String {
+            switch self {
+            case .newRacha: return "new"
+            case .settings: return "settings"
+            case .pay(let id): return "pay-\(id)"
+            case .scanner: return "scanner"
+            }
+        }
+    }
+
+    @State private var sheet: Sheet?
     @State private var scan = ScanFlow()
 
     private var states: [RachaState] { repository.allStates }
@@ -61,16 +78,27 @@ struct GalleryView: View {
             .padding(.top, 58)
         }
         .scrollIndicators(.hidden)
-        .sheet(isPresented: $showingNew) { NewRachaSheet() }
-        .sheet(isPresented: $showingSettings) { SettingsSheet() }
-        .sheet(isPresented: $paying) { if let id = payingID { SettleSheet(rachaID: id) } }
-        .sheet(isPresented: $scan.isPresentingScanner) {
-            ScannerView { qr in
-                Task {
-                    guard let id = await scan.open(qr, in: repository, meName: settings.myName) else { return }
-                    navigator.open(id)
+        .sheet(item: $sheet) { which in
+            switch which {
+            case .newRacha: NewRachaSheet()
+            case .settings: SettingsSheet()
+            case .pay(let id): SettleSheet(rachaID: id)
+            case .scanner:
+                ScannerView { qr in
+                    Task {
+                        guard let id = await scan.open(qr, in: repository, meName: settings.myName) else { return }
+                        navigator.open(id)
+                    }
                 }
             }
+        }
+        // ScanFlow still owns the flag (the thread can raise the scanner too),
+        // so the two stay in step rather than becoming two truths.
+        .onChange(of: scan.isPresentingScanner) { _, presenting in
+            if presenting { sheet = .scanner } else if sheet?.id == "scanner" { sheet = nil }
+        }
+        .onChange(of: sheet?.id) { _, now in
+            if now != "scanner" { scan.isPresentingScanner = false }
         }
         .overlay { if scan.phase == .reading { readingOverlay } }
         .alert("Não deu", isPresented: .init(get: { if case .failed = scan.phase { return true }; return false },
@@ -88,14 +116,14 @@ struct GalleryView: View {
                 .font(Typo.tileTitle)
                 .foregroundStyle(Palette.ink)
             Spacer()
-            Button { Haptics.shared.press(); scan.isPresentingScanner = true } label: {
+            Button { Haptics.shared.press(); sheet = .scanner } label: {
                 Image(systemName: "qrcode.viewfinder")
                     .font(.system(size: 17, weight: .regular))
                     .foregroundStyle(Palette.ink2)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Escanear a mesa")
-            Button("Ajustes") { showingSettings = true }
+            Button("Ajustes") { sheet = .settings }
                 .font(Typo.bodyMedium)
                 .foregroundStyle(Palette.ink2)
                 .buttonStyle(.plain)
@@ -144,7 +172,7 @@ struct GalleryView: View {
                 .padding(.top, 10)
             if !due.isZero {
                 RachaButton(title: "Pagar \(BRL.format(due, currency: table.currency))", icon: nil) {
-                    Haptics.shared.press(); payingID = table.id; paying = true
+                    Haptics.shared.press(); sheet = .pay(table.id)
                 }
                 .padding(.top, 22)
             }
@@ -185,11 +213,11 @@ struct GalleryView: View {
                 .foregroundStyle(Palette.ink3)
                 .fixedSize(horizontal: false, vertical: true)
             RachaButton(title: "Escanear o QR da mesa", icon: "qrcode.viewfinder") {
-                Haptics.shared.press(); scan.isPresentingScanner = true
+                Haptics.shared.press(); sheet = .scanner
             }
             .padding(.top, 8)
             RachaButton(title: "Abrir sem QR", icon: nil, style: .ghost) {
-                Haptics.shared.press(); showingNew = true
+                Haptics.shared.press(); sheet = .newRacha
             }
         }
     }
