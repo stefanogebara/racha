@@ -174,6 +174,22 @@ final class FlowTests: XCTestCase {
                       "a conta não fechou")
     }
 
+    /// Claiming an item is the move the whole product is named after. It has to
+    /// be reachable as a control, not just as a shape that happens to react.
+    func testAnItemRowOpensTheEditor() {
+        let app = launch(route: "ledger")
+        require(app.staticTexts["A conta"], "a conta")
+        // BEGINSWITH, not CONTAINS: the thread behind the sheet has a suggestion
+        // chip called "a pudim foi minha", and it is not hittable under a sheet.
+        // The row's own label reads "Pudim, sem dono, R$ 18,00".
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Pudim")).firstMatch
+        require(row, "a linha do pudim como controle")
+        row.tap()
+        // The editor carries the item's name and its amount.
+        require(app.textFields["Nome"], "o campo de nome do item")
+        shoot(app, "14-editor-de-item")
+    }
+
     // MARK: The thread
 
     /// The conversation is the product's second half; it must open and accept

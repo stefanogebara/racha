@@ -97,11 +97,20 @@ struct LedgerSheet: View {
                     }
                 }
                 ForEach(state.items) { item in
-                    ItemRow(item: item,
-                            owners: state.claims(for: item.id).compactMap { state.participant($0.personID) },
-                            currency: state.currency)
-                        .contentShape(Rectangle())
-                        .onTapGesture { Haptics.shared.tick(); editingItem = item }
+                    // A Button, not an onTapGesture. Claiming an item is the
+                    // core move of the product ("fala o que foi de quem") and a
+                    // tap gesture is invisible to VoiceOver and Switch Control:
+                    // the row read as text with no way to activate it.
+                    Button {
+                        Haptics.shared.tick(); editingItem = item
+                    } label: {
+                        ItemRow(item: item,
+                                owners: state.claims(for: item.id).compactMap { state.participant($0.personID) },
+                                currency: state.currency)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Toque pra dizer de quem foi")
                 }
             }
         }
@@ -244,6 +253,16 @@ struct ShareRow: View {
                     .foregroundStyle(Palette.charcoal)
             }
             .contentShape(Rectangle())
+            // Same reason as the item rows: this opens the derivation of a
+            // number someone is about to pay, so it has to be reachable.
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(expanded ? "Toque pra fechar a conta dessa parte"
+                                        : "Toque pra ver como essa parte foi calculada")
+            .accessibilityAction {
+                Haptics.shared.tick()
+                withAnimation(Motion.fluid) { expanded.toggle() }
+            }
             .onTapGesture {
                 Haptics.shared.tick()
                 withAnimation(Motion.fluid) { expanded.toggle() }
