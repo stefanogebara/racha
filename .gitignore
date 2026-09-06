@@ -13,3 +13,6 @@ ios/**/*.xcworkspace/xcuserdata/
 ios/Racha/Resources/Fonts/*.ttf
 ios/build/
 ios/DerivedData/
+
+# Playwright MCP scratch output
+.playwright-mcp/
