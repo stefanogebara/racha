@@ -26,7 +26,7 @@ enum Typo {
         case sans = "body"
         case sansMedium = "bodyMedium"
         case sansBold = "bodySemibold"
-        case mono = "body"          // Pix payloads; tabular body is enough
+        case mono = "mono"          // Pix payloads; renders as the tabular body cut
     }
 
     enum Cut { case poster, headline, body, bodyMedium, bodySemibold }
