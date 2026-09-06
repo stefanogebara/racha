@@ -56,12 +56,18 @@ struct RachaTile: View {
                 Text(state.isSettled ? "você pagou" : "sua parte")
                     .font(Typo.caption)
                     .foregroundStyle(Palette.ink3)
+                    .lineLimit(1)
                 Spacer(minLength: 4)
+                // Money never wraps ("R$" on one line, "129,25" on the next —
+                // seen on the simulator at R$ 129,25 in a two-column grid). The
+                // amount wins the width fight; the label yields.
                 Text(BRL.format(state.isSettled ? state.paid(by: meID) : state.due(of: meID),
                                 currency: state.currency))
                     .font(Typo.tileAmount)
                     .money()
                     .foregroundStyle(state.isSettled ? Palette.ink2 : Palette.ink)
+                    .lineLimit(1)
+                    .layoutPriority(1)
             }
         }
     }
