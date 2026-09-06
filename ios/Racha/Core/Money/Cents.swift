@@ -70,7 +70,6 @@ extension Sequence where Element == Cents {
 
 /// Precondition mirroring the backend's `assertCents`: safe, non-negative.
 /// Trips in debug; in release the caller's `clampedNonNegative` keeps money readable.
-@inlinable
 func assertCents(_ v: Cents, _ name: @autoclosure () -> String) {
     assert(v.raw >= 0, "\(name()) must be non-negative centavos, got \(v.raw)")
 }
