@@ -6,3 +6,10 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+
+# iOS
+ios/**/xcuserdata/
+ios/**/*.xcworkspace/xcuserdata/
+ios/Racha/Resources/Fonts/*.ttf
+ios/build/
+ios/DerivedData/

@@ -6,6 +6,7 @@ import Admin from './Admin';
 import Gate from './Gate';
 import Qrs from './Qrs';
 import Wallet from './Wallet';
+import { LangProvider } from './lang';
 import './styles.css';
 
 const path = window.location.pathname;
@@ -18,5 +19,6 @@ const root =
   : <App />;
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>{root}</React.StrictMode>,
+  // O idioma envolve TUDO: cliente, painel e admin leem a mesma escolha.
+  <React.StrictMode><LangProvider>{root}</LangProvider></React.StrictMode>,
 );

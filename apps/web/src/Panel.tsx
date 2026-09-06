@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { LangToggle, useT } from './lang';
 import { brl, type PanelAtivacao } from './api';
 import { authedReq, signOut } from './auth';
 
@@ -8,8 +9,18 @@ import { authedReq, signOut } from './auth';
  * fetch carries the owner's token and the API enforces venue ownership.
  */
 
+interface Reconcile {
+  severity: 'ok' | 'info' | 'high' | 'critical';
+  driftCents: number;
+  checksChecked: number;
+  accountsChecked: number;
+  findings: Array<{ severity: string; code: string; message: string }>;
+  at: string;
+}
+
 interface PanelData {
   venue: { name: string };
+  reconcile?: Reconcile;
   checks: Array<{
     checkId: string;
     tableLabel: string;
@@ -27,6 +38,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function Panel() {
+  const { t } = useT();
   const venueId = useMemo(
     () => new URLSearchParams(window.location.search).get('v') ?? '',
     [],
@@ -50,7 +62,7 @@ export default function Panel() {
   }, [refresh]);
 
   if (error) return <main className="shell wide"><p className="muted center">{error}</p></main>;
-  if (!data) return <main className="shell wide"><p className="muted center">carregando o salão…</p></main>;
+  if (!data) return <main className="shell wide"><p className="muted center">{t('panel.loading')}</p></main>;
 
   return (
     <main className="shell wide">
@@ -66,13 +78,15 @@ export default function Panel() {
         </div>
         <div className="stat">
           <b className="mono">{brl(data.today.tipsCents)}</b>
-          <span>serviço da equipe (folha)</span>
+          <span>{t('panel.tip')}</span>
         </div>
         <div className="stat">
           <b className="mono">{data.today.anomalies}</b>
           <span>{data.today.anomalies === 0 ? 'nenhuma anomalia ✓' : 'anomalias — conciliar!'}</span>
         </div>
       </section>
+
+      <Conciliacao r={data.reconcile} />
 
       <Ativacao a={data.ativacao} />
 
@@ -101,9 +115,60 @@ export default function Panel() {
       </section>
 
       <footer className="foot">
+        <LangToggle compact />
         <span>racha · painel atualiza sozinho a cada 4s</span>
       </footer>
     </main>
+  );
+}
+
+// -------------------------------------------------------------- conciliação
+
+/** 'HH:MM' local a partir do ISO — só a hora interessa aqui. */
+const hhmm = (iso: string) =>
+  new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+/**
+ * O dinheiro bate?
+ *
+ * Duas contagens independentes do mesmo dinheiro — o log de eventos e a tabela
+ * de pagamentos — conferidas ao centavo. Verde é informação, não enfeite: sem
+ * ele, "não apareceu nada" e "não conferi nada" são a mesma tela, e a segunda é
+ * a que quebra restaurante.
+ */
+function Conciliacao({ r }: { r: Reconcile | undefined }) {
+  const { t } = useT();
+  if (!r) return null; // backend antigo ainda no ar — o resto do painel segue de pé
+  const vermelho = r.severity === 'critical' || r.severity === 'high';
+  return (
+    <section className="panel">
+      <p className="label">{t('panel.recon')}</p>
+      {vermelho ? (
+        <>
+          <p className="small" style={{ color: 'var(--red, #a3231f)' }}>
+            <strong>
+              {r.driftCents > 0
+                ? `${brl(r.driftCents)} de diferença entre o que o app registrou e o que foi pago.`
+                : 'Divergência entre o registro e os pagamentos.'}
+            </strong>
+          </p>
+          {r.findings.map((f, i) => (
+            <p className="muted small" key={i}>· {f.message}</p>
+          ))}
+          <p className="muted small">
+            Isso não corrige sozinho, de propósito. Fale com a gente antes de fechar o caixa.
+          </p>
+        </>
+      ) : (
+        <p className="small">
+          Tudo bate ✓ <span className="muted">
+            — {r.checksChecked} {r.checksChecked === 1 ? 'conta conferida' : 'contas conferidas'}
+            {r.accountsChecked > 0 && `, ${r.accountsChecked} ${r.accountsChecked === 1 ? 'saldo' : 'saldos'}`}
+            {' '}às {hhmm(r.at)}
+          </span>
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -115,14 +180,15 @@ const ddmm = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
 
 /** Últimos 7 dias de uso — barras CSS proporcionais ao valor, sem lib de gráfico. */
 function Ativacao({ a }: { a: PanelAtivacao | undefined }) {
+  const { t } = useT();
   if (!a) return null; // backend antigo ainda no ar — o resto do painel segue de pé
   const vazio = a.semana.pagamentos === 0 && a.semana.contas === 0;
   const teto = Math.max(1, ...a.dias.map((d) => d.valorCents));
   return (
     <section className="panel">
-      <p className="label">Ativação — últimos 7 dias</p>
+      <p className="label">{t('panel.activation')}</p>
       {vazio ? (
-        <p className="muted small">sem movimento nos últimos 7 dias.</p>
+        <p className="muted small">{t('panel.noMovement')}</p>
       ) : (
         <>
           {a.dias.map((d) => (

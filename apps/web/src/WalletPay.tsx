@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+
+import { useT } from './lang';import { useEffect, useState } from 'react';
 import { api, ApiError, brl } from './api';
 
 /**
@@ -69,7 +70,7 @@ interface GPayClient {
 }
 
 export default function WalletButtons({
-  token, amountCents, tipCents, payerLabel, payerDocument, disabled, venueName, onPaid,
+  token, amountCents, tipCents, payerLabel, payerDocument, disabled, venueName, simulated = false, onPaid,
 }: {
   token: string;
   amountCents: number;
@@ -80,8 +81,15 @@ export default function WalletButtons({
   payerDocument: string;
   disabled: boolean;
   venueName: string;
+  /** Mesa de demonstração: força a folha SIMULADA mesmo com chave real
+   *  configurada. Sem isto, a demo abriria a folha oficial do Google Pay em
+   *  PRODUCTION e tokenizaria um cartão de verdade pra uma conta que não
+   *  existe — achado CRÍTICO da revisão de compliance. */
+  simulated?: boolean;
   onPaid: () => void;
 }) {
+  const { t } = useT();
+  const real = REAL && !simulated;
   const [sheet, setSheet] = useState<Wallet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,14 +99,14 @@ export default function WalletButtons({
   const total = amountCents + tipCents;
 
   useEffect(() => {
-    if (!REAL) return;
+    if (!real) return;
     let alive = true;
     loadGPayJs()
       .then(() => gpayClient().isReadyToPay({ apiVersion: 2, apiVersionMinor: 0, allowedPaymentMethods: [GPAY_CARD_METHOD] }))
       .then((r) => { if (alive) setGpayReady(r.result === true); })
       .catch(() => { if (alive) setGpayReady(false); }); // sem GPay no device → só Pix
     return () => { alive = false; };
-  }, []);
+  }, [real]);
 
   async function settle(wallet: Wallet, paymentToken: string, payerDocument?: string) {
     const charge = await api.payWallet(token, amountCents, tipCents, payerLabel, wallet, paymentToken, payerDocument);
@@ -157,7 +165,7 @@ export default function WalletButtons({
     }
   }
 
-  if (REAL) {
+  if (real) {
     if (!gpayReady) return null; // device sem Google Pay → fica o Pix (e o saldo)
     return (
       <>
@@ -208,13 +216,13 @@ export default function WalletButtons({
             )}
             <div className="checkrow">
               <span className="muted small">cartão</span>
-              <span className="mono muted small">•••• 4242 (demo)</span>
+              <span className="mono muted small">{t('card.demoCard')}</span>
             </div>
             <button className="cta" disabled={busy} onClick={() => demoAuthorize(sheet)}>
               {busy ? 'autorizando…' : `Pagar ${brl(total)}`}
             </button>
             <button className="linklike" disabled={busy} onClick={() => setSheet(null)}>cancelar</button>
-            <p className="muted small center">simulação (demo) — nenhuma cobrança real é feita</p>
+            <p className="muted small center">{t('card.demoNote')}</p>
           </div>
         </div>
       )}

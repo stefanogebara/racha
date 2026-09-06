@@ -1,0 +1,61 @@
+<meta charset="utf-8">
+<style>
+ html,body{margin:0;background:#E9E2D6;height:100%;
+   font-family:-apple-system,'Helvetica Neue',sans-serif}
+ .row{display:flex;height:100%;align-items:center;justify-content:center;gap:30px;
+   padding-top:0;box-sizing:border-box}
+ iframe{border:0;width:400px;height:868px;flex:none;transform-origin:top left}
+ .cell{display:flex;flex-direction:column;align-items:flex-start;gap:14px}
+ .shell{overflow:hidden;flex:none;border-radius:44px}
+ /* The board whispers relative to the product: the captions must not borrow
+    the in-product label treatment, or the deck and the UI speak in one voice. */
+ .cap{font-size:11px;letter-spacing:0;color:#6E6454;padding-left:4px}
+</style>
+<div class="row" id="row"></div>
+<script>
+const views = [
+  ['gallery','Todos os rachas'], ['card','Um racha'],
+  ['thread','A conversa'], ['ledger','A conta']];
+const K = 0.86;
+const row = document.getElementById('row');
+const wait = ms => new Promise(r => setTimeout(r, ms));
+// Strip the device shell: a fat black bezel with a blurred drop shadow is a
+// 2016 mockup template, and it was reading louder than anything inside it.
+const FLAT = `.dev{padding:0!important;background:none!important;box-shadow:none!important;
+  border-radius:0!important;--w:400px!important;--h:868px!important}
+.scr{border-radius:44px!important}
+.isl{display:block!important}`;
+(async () => {
+  const frames = views.map(([v,label], idx) => {
+    const cell = document.createElement('div'); cell.className = 'cell';
+    const f = document.createElement('iframe'); f.src = 'preview.html';
+    const k = K;
+    f.style.transform = 'scale(' + k + ')';
+    const shell = document.createElement('div'); shell.className = 'shell';
+    shell.style.cssText += ';height:'+Math.round(868*k)+'px;width:'+Math.round(400*k)+'px';
+    shell.append(f); cell.append(shell);
+    const c = document.createElement('div'); c.className='cap'; c.textContent = label;
+    cell.append(c); row.append(cell);
+    return f;
+  });
+  await Promise.all(frames.map(f => new Promise(r => f.onload = r)));
+  await wait(1600);
+  for (let i = 0; i < views.length; i++) {
+    const w = frames[i].contentWindow, v = views[i][0];
+    const st = w.document.createElement('style'); st.textContent = FLAT;
+    w.document.head.append(st);
+    w.document.querySelectorAll('.top,.cap-p,.keys,#flow').forEach(e => e.remove());
+    w.document.body.style.cssText = 'padding:0;margin:0;display:flex;align-items:center;justify-content:center;height:100%';
+    w.obFinish('exemplo');
+    await wait(250);
+    if (v !== 'gallery') { w.open('ze'); await wait(700); }
+    if (v === 'thread' || v === 'ledger') { w.goto(2); await wait(900); }
+    w.anim && w.anim.stop();
+    w.applyZ(v === 'gallery' ? 0 : v === 'card' ? 1 : 2);
+    if (v === 'ledger') { w.openSheet('ledger'); await wait(500); }
+    await wait(250);
+  }
+  await wait(900);
+  document.body.dataset.done = '1';
+})();
+</script>

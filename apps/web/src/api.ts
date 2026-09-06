@@ -4,7 +4,8 @@ export interface CheckItem { id: string; name: string; priceCents: number }
 
 export interface CheckView {
   /** acceptsCard: o restaurante tem conta Stripe conectada (cartão/Apple Pay). */
-  venue: { name: string; servicoBp: number; acceptsCard?: boolean };
+  /** demo: mesa pública de demonstração — dinheiro é do MockPsp, nunca real. */
+  venue: { name: string; servicoBp: number; acceptsCard?: boolean; demo?: boolean };
   table: { label: string };
   check: { id: string; items: CheckItem[] };
   state: {
@@ -113,10 +114,22 @@ export interface PanelAtivacao {
  */
 export class ApiError extends Error {
   status?: number;
-  constructor(message: string, status?: number) {
+  /**
+   * Código estável do erro, quando o servidor manda um. A MENSAGEM do servidor
+   * é em português e não dá pra traduzir texto livre no cliente — então o que
+   * atravessa a fronteira é o código, e a mensagem fica como reserva pra um
+   * servidor mais velho ou um erro que ainda não tem tradução. Ver tError().
+   */
+  code?: string;
+  /** Valores pra interpolar na tradução (ex.: quanto ainda falta). */
+  vars?: Record<string, string | number>;
+  constructor(message: string, status?: number, code?: string,
+              vars?: Record<string, string | number>) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
+    this.vars = vars;
   }
 }
 
@@ -124,7 +137,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init); // falha de rede rejeita aqui, sem status
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body.success === false) {
-    throw new ApiError(body.error || `HTTP ${res.status}`, res.status);
+    throw new ApiError(body.error || `HTTP ${res.status}`, res.status, body.code, body.vars);
   }
   return body.data as T;
 }

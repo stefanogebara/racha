@@ -1,0 +1,1024 @@
+# Registro de decisões
+
+Ordem cronológica. Cada uma tem o que foi decidido, contra o quê, e o que faria
+mudar de ideia.
+
+---
+
+### 1. `Cents` é um tipo próprio, não um `typealias Int`
+
+**Contra:** `typealias Cents = Int`, mais simples e sem conversões.
+**Por quê:** um `typealias` deixa `Double` entrar por conversão implícita numa
+posição de dinheiro. Um tipo distinto **sem** `/` por outro `Cents` e **sem** `*`
+por `Double` torna a operação com perda literalmente indisponível: dividir
+dinheiro só acontece em `Allocator`, onde o resto tem nome e dono. O compilador
+vira o primeiro revisor.
+**Mudaria se:** o atrito de conversão aparecesse em código de produto. Até agora
+só aparece nas bordas (parse, formatação, shader), que é onde deve estar.
+
+---
+
+### 2. Alocação devolve `Allocation`, não `[Cents]`
+
+**Por quê:** o briefing pede "mostre onde o resto de arredondamento cai". Uma
+lista de partes perde o único fato que as pessoas realmente discutem numa mesa:
+**quem ficou com o centavo a mais**. `remainderRecipients` é campo de primeira
+classe, atravessa até `PersonShare.roundingAdjustment` e vira uma seção no
+`LedgerSheet`. Custa uma seção e elimina a briga mais comum de conta dividida.
+
+---
+
+### 3. Acerto: partição exata + guloso, não só guloso
+
+**Contra:** guloso puro (maior credor ↔ maior devedor), que dá n−1 transferências
+e é o que quase todo app faz.
+**Por quê:** o mínimo real é menor quando o grupo contém subconjuntos que se
+resolvem sozinhos. Numa mesa de 6, `[+10, −10, +25, −25]` precisa de 2
+transferências, não 3. O problema exato é NP-difícil (é partição de conjunto
+disfarçada), mas até 12 pessoas — o teto realista de um jantar — uma DP por
+bitmask (O(3ⁿ) ≈ 531 mil operações) resolve em milissegundos. Acima disso, cai no
+guloso.
+**Mudaria se:** aparecesse racha com dezenas de pessoas com frequência; aí valeria
+uma heurística melhor pro caso grande.
+
+---
+
+### 4. `SettlementPlan` carrega `residual`
+
+**Por quê:** quando o grupo ainda deve ao restaurante, nenhuma transferência entre
+amigos consegue zerar isso. Espremer a diferença na dívida de alguém produziria o
+momento "por que isso não fecha". Sai separado, com o texto explícito: *"isso é da
+conta, não é dívida entre vocês."*
+
+---
+
+### 5. Event sourcing no app inteiro, não só nos pagamentos
+
+**Contra:** um `RachaState` mutável salvo em JSON.
+**Por quê:** o `CLAUDE.md` já exige log de eventos pra dinheiro, e o briefing
+exige que toda edição do agente seja desfazível com um gesto. As duas coisas são
+o mesmo mecanismo. Desfazer vira `append(.reverted(target:))` — o log guarda o
+erro, a projeção pula, e a pessoa consegue ver o que o agente tentou fazer. Um
+razão que esquece é um razão com que você não consegue discutir.
+**Custo aceito:** reprojetar o racha inteiro a cada append. Um racha tem no máximo
+algumas centenas de eventos; é barato e completamente previsível.
+
+---
+
+### 6. A projeção é total: nunca lança
+
+**Por quê:** vem direto da lição gravada no `check-state.js` do backend. Um evento
+mal formado ou disputado não pode tornar dinheiro real ilegível. Validação
+estrita fica no *append*; na leitura, anomalia visível. Recusar abrir uma conta
+por causa de um byte ruim é o pior resultado possível.
+
+---
+
+### 7. Sem pilha de navegação: `Navigator.zoom` é um número
+
+**Contra:** `NavigationStack` com `matchedGeometryEffect`, que é o caminho normal.
+**Por quê:** o briefing pede "um gesto contínuo, não um push de tela". Uma pilha
+tem estados discretos; um número tem todos os intermediários. Com `zoom` sendo
+dirigido diretamente pelo dedo, dá pra **pegar a transição no meio e mudar de
+ideia** — é isso que faz um gesto parecer material em vez de botão.
+**Custo aceito:** sem deep link nem restauração de estado de navegação de graça.
+
+---
+
+### 8. Shaders Metal próprios em vez de materiais do sistema
+
+**Por quê:** `.ultraThinMaterial` é excelente e completamente genérico — faria o
+Racha parecer o app de Ajustes. Refração de verdade (deslocar o conteúdo perto da
+borda pelo gradiente do SDF) exige `layerEffect`; `colorEffect` fisicamente não
+consegue, porque só vê o próprio pixel. E `imageResolve` e `tokenStream` não têm
+equivalente em API nenhuma.
+**Custo aceito:** GPU. Mitigado por um relógio único a 30 Hz que se desliga,
+refração desligada em lista, e efeitos que se removem sozinhos ao terminar.
+
+---
+
+### 9. `TextRenderer` mede a cabeça de escrita em vez de estimá-la
+
+**Contra:** assumir uma linha e usar a largura do texto.
+**Por quê:** uma resposta de quatro linhas é o caso comum, e um shader ancorado
+numa posição estimada fica visivelmente errado nela. `TextRenderer` anda pelos
+runs já diagramados e reporta onde o último glifo realmente caiu.
+**Custo:** exige iOS 18, que é o piso do projeto por causa disso.
+
+---
+
+### 10. Conversa em Opus 5
+
+**Contra:** Haiku, muito mais barato.
+**Por quê:** o agente resolve referências ambíguas em português ("o Pedro chegou
+depois, só bebeu" precisa saber quais itens são bebida) e opera ao lado de
+dinheiro. Erro nesses dois lugares custa dinheiro real de uma pessoa real. O
+volume — poucos turnos por refeição — torna a diferença de preço irrelevante
+perto disso. `Config.haiku` está pronto pra leitura de nota, onde o trabalho é
+transcrição e o que importa é latência na mesa.
+
+---
+
+### 11. `gpt-image-1-mini` low, e o cache endereçado pelo prato
+
+**Por quê:** US$ 0,005 por imagem, ~4× mais barato que a alternativa mais próxima,
+e suficiente pro tamanho em que as imagens são vistas. Mas o modelo quase não
+importa: a chave de cache é **o prato**, não o item, então a segunda picanha da
+vida do usuário é de graça. Ver [`imagery.md`](imagery.md).
+
+---
+
+### 12. `MockTransport` é modo de produção, não stub de teste
+
+**Por quê:** sem chave de API, o app precisa funcionar — e não é um demo falso: as
+contas passam pelo mesmo motor de centavos, então os números que ele mostra são
+verdadeiros. Só as frases estão no script. É também como as interações são
+exercitadas no simulador.
+
+---
+
+### 13. Pastas sincronizadas do Xcode 16 no `.pbxproj`
+
+**Contra:** listar os ~60 arquivos, ou depender de XcodeGen no fluxo normal.
+**Por quê:** `PBXFileSystemSynchronizedRootGroup` faz o projeto referenciar a
+**pasta**, não os arquivos. O `.pbxproj` fica com 26 objetos em vez de centenas,
+arquivo novo entra no build sozinho, e some a classe de conflito "duas pessoas
+adicionaram um arquivo" — que é a única coisa em que pbxproj é genuinamente ruim.
+O `project.yml` fica como caminho de regeneração.
+
+---
+
+### 14. Swift 5, concorrência estrita mínima
+
+**Por quê:** honestidade sobre o que foi verificado. O código é escrito com as
+fronteiras de isolamento certas (`@MainActor` no que a UI observa, `actor` no I/O,
+funções puras no resto), mas **nada disso foi compilado** — esta máquina não tem
+toolchain Swift. Ligar Swift 6 estrito sem um compilador seria alegar uma garantia
+que não existe.
+**Próximo passo:** subir pra Swift 6 num Mac e resolver o que aparecer. As
+fronteiras já estão desenhadas; deve ser trabalho mecânico.
+
+---
+
+### 15. Fontes não são versionadas
+
+**Por quê:** DM Sans, Instrument Serif e JetBrains Mono são todas SIL OFL e
+redistribuíveis, mas jogar binário de fonte num repositório de app faz ninguém
+saber, de relance, qual versão está ali nem de onde veio.
+`scripts/fetch-fonts.sh` deixa a procedência explícita e a atualização numa linha.
+`Typo.font()` cai no serif/sans/mono do sistema sem as fontes — o app renderiza
+certo, só perde calor.
+
+---
+
+### 16. O chão virou papel; a timeline virou contact sheet
+
+**Contra:** manter os quatro orbes em gradiente do `styles.css`, que são a
+assinatura do app web.
+**Por quê:** numa página larga eles continuam certos. Numa tela de celular,
+atrás de fotografias de comida, um lavado de cor grande e macio é a única coisa
+que, sozinha, faz uma interface ler como gerada — e foi exatamente essa a
+crítica. Trocar por papel de verdade (fibra, o pautado fraquíssimo de uma nota,
+luz de cima-esquerda) mantém a família quente da marca, tira o clichê, e deixa a
+**cor vir só da comida**. Ganho de lado: o fundo virou estático, então custa uma
+passada de GPU no layout em vez de frames contínuos.
+**E a grade:** alturas de card variadas davam ritmo decorativo — o tamanho do
+card não dizia nada verdadeiro sobre o racha. Ladrilhos uniformes dizem que os
+itens são pares, que é o que são, e deixam as fotos carregarem a página.
+`paguei/devia` saiu do ladrilho: é detalhe de card, e repetido em todo ladrilho
+transformava a galeria numa planilha com foto.
+
+---
+
+### 17. Transparência é requisito de produto, não preferência visual
+
+**Por quê:** o recorte sobre papel lê como um objeto fotografado numa
+superfície; a mesma imagem com fundo embutido lê como stock colado numa caixa.
+Isso restringe o fornecedor de imagem de item de linha aos modelos que devolvem
+alfa de verdade — hoje `gpt-image-1` e `gpt-image-1-mini` com
+`background: "transparent"`. Imagen e a linha Gemini devolvem quadro opaco e por
+isso servem só à capa, que é full-bleed e quer fundo.
+**Custo aceito:** PNG em vez de WebP no item (o WebP com alfa não é aceito no
+mesmo caminho), o que engorda o cache. O cache endereçado pelo prato absorve.
+
+---
+
+### 18. Auditoria de quadro por captura real
+
+**Por quê:** o app nativo não compila aqui, mas a renderização web compila em
+qualquer lugar — e o contêiner tem Chromium. Então o design passou a ser
+verificado olhando: `lab/audit.js` captura cada estado de repouso **e a
+transição congelada em 25%, 50% e 75%**, e cada quadro é inspecionado.
+**O que só apareceu assim:** o `[hidden]` derrotado por `display:flex`; o
+ladrilho voador continuando visível sobre a conversa por causa de um ternário
+com `z01<=1` (sempre verdadeiro); a grade e o card ambos a meia opacidade no
+meio do voo, que é literalmente o "visual glitch" reclamado; o canvas quadrado
+esticado num quadro não-quadrado; e dois "falta" diferentes na tela sem nada
+explicando a diferença (um inclui item sem dono, o outro não).
+Nenhum desses aparece lendo o código.
+
+---
+
+### 19. O primeiro uso é uma prova, não um carrossel
+
+**Contra:** três ou quatro telas de marketing explicando o que o app faz.
+**Por quê:** ninguém lê carrossel de onboarding, e a alegação do produto —
+"você só fala e eu faço a conta" — não se demonstra descrevendo. São três
+tempos, cada um com uma tarefa:
+
+1. **Abertura.** Diz o que é e **prova**: uma conta real dividida pelo motor
+   real, com as partes **desiguais** (a Ju não bebeu, então a parte dela é
+   menor). Divisão igual não prova nada — dividir por três qualquer um faz.
+   A prova usa o churrasco, não o jantar, porque o jantar tem item sem dono e
+   uma alegação que precisa de nota de rodapé não é prova.
+2. **Seu nome.** A única coisa sem a qual o app não funciona, já que toda
+   divisão precisa saber quem é "você". A chave Pix é oferecida aqui porque
+   este é o único momento em que explicar *por quê* não custa nada, e é
+   visivelmente opcional.
+3. **Por onde começar.** Três portas de verdade. Duas caem direto numa
+   conversa, porque a conversa é o produto — um boas-vindas que termina numa
+   galeria vazia não ensinou nada.
+
+---
+
+### 20. O app não semeia dados de exemplo sozinho
+
+**Contra:** instalar os rachas de amostra em todo primeiro lançamento (era o
+que fazia antes).
+**Por quê:** inventar um histórico para quem nunca teve um é desonesto, e
+transforma o número do topo da galeria — quanto te devem — numa mentira no
+primeiro lançamento. Agora a amostra entra só pela porta "ver um exemplo".
+**Efeito colateral bom:** `hasOnboarded` passou a ser um flag próprio em vez de
+ser derivado de "existe algum racha?" — alguém que apaga todos os rachas não
+pode ver as boas-vindas de novo.
+
+---
+
+### 21. O mapa de fluxo é feito das telas, não de desenhos delas
+
+**Por quê:** todo wireframe redesenhado descola do app na primeira semana. No
+mapa (aba "Fluxo" da renderização web), cada nó é a **tela de verdade** — mesmo
+CSS, mesma tipografia, mesmos números vindos do motor — a 0,295 de escala.
+Se a tela mudar, o mapa muda junto; se o mapa parecer errado, é porque está.
+**Custo aceito:** o mapa só existe na renderização web. O app nativo não tem um
+equivalente, e não deveria — é documentação de design, não funcionalidade.
+
+## 22 — Newsreader no lugar de Instrument Serif (2026-09-04)
+
+**Contexto.** Doze rodadas de crítica independente sinalizaram a tipografia do
+dinheiro. Medir resolveu: os algarismos da Instrument Serif são proporcionais —
+o "1" tem 54% da largura do "0" (7,5pt contra 13,8pt em corpo 30). Nenhuma
+coluna de valores composta nela alinha na vírgula, e tabular na mão com células
+de largura fixa só deixa os "1" chacoalhando dentro da caixa.
+
+**Decisão.** Newsreader para tudo que é linguagem e dinheiro. Uma família só,
+com eixo óptico (display e texto são o mesmo desenho cortado duas vezes), e
+algarismos de largura uniforme por construção — 16,83pt para todo dígito em
+corpo 30. A coluna alinha porque a fonte diz, não porque o layout está
+brigando. O mono saiu: fazia display, ledger e rótulo ao mesmo tempo, e um mono
+de programador padrão é assinatura de trabalho feito por máquina.
+
+**Consequência.** `Typo.Face.mono` agora aponta para Newsreader; o payload Pix
+cai no monoespaçado do sistema. Duas famílias no app inteiro.
+
+## 23 — O traço engrossa na sombra (2026-09-04)
+
+Um contorno perfeitamente uniforme em volta de cada objeto é o sinal mais claro
+de que nenhuma mão esteve envolvida. Uma goiva abre mais largo onde a lâmina
+crava e mais fino onde ela levanta, então a xilogravura engrossa na aresta
+sombreada. `swell()` desenha o contorno duas vezes: uma no peso base, outra a
+1,9× recortada no semiplano abaixo-e-à-direita do terminador. A luz é fixa para
+o conjunto inteiro, então o engrossamento cai sempre do mesmo lado.
+
+## 24 — A comanda (2026-09-04)
+
+O desenho estava de bom gosto em geral — papel creme, serifa, um vinho — o que
+quer dizer que poderia ser de um hotel ou de uma loja de vinho. A comanda é a
+única coisa que ele só poderia ser. A conta na thread virou a papeleta que o bar
+brasileiro usa de verdade: número de quatro dígitos, borda picotada, pontilhado
+correndo do nome até o valor, total riscado embaixo como uma nota impressa risca.
+
+## 25 — O vinho compra estado, não botão (2026-09-04)
+
+Duas críticas puxaram para lados opostos — "quatro vermelhos, corta pra um" e
+"nenhuma cor semântica nos estados que decidem se alguém paga". As duas estavam
+certas sobre a mesma coisa. O vinho agora marca estado (aberto, não pagou, sem
+dono) e a ação primária é uma barra de tinta: continua sendo o objeto mais
+pesado da tela por massa, sem gastar a única cor do sistema na palavra
+"dividir".
+
+## 26 — Xilogravura: o desenho vira gravura em relevo (2026-09-04)
+
+**Contexto.** Cinco rodadas de crítica cega chamaram as ilustrações de o pior
+ativo e o sinal mais claro de máquina. A versão anterior respondeu apertando o
+traço — um peso, um horizonte, um ponto de vista. Ficou melhor e continuou
+sendo desenho de linha, que é a forma que um gerador procura por padrão.
+
+**Decisão.** Trocar a forma, não refinar. Xilogravura: o sujeito é uma massa
+sólida de tinta; o detalhe não é somado em preto, é **removido em branco**,
+porque a goiva tira tinta. Tom é uma corrida de cortes paralelos grossos. O
+contorno é facetado, porque a lâmina anda em empurrões retos e o bloco lasca na
+curva — `emit()` densifica todo caminho e desloca cada ponto na normal por um
+ruído determinístico de duas oitavas. E a tinta nunca assenta perfeita, então um
+pouco do papel atravessa (`speck`).
+
+**Por que essa forma e não outra.** A xilogravura nordestina é a estampa do
+cordel, a literatura de folheto vendida em feira. Uma comanda de bar pertence ao
+mesmo mundo de papel impresso barato e cotidiano que a capa de cordel. A versão
+em linha podia ter sido feita para um hotel em Copenhague; essa não.
+
+**Consequência.** Cada sujeito é cortado como uma silhueta única e articulado
+por dentro: dois blocos encostados com um fio de papel entre eles viram um
+borrão só. O canal de papel que cada bloco carrega (o halo de 4,2× o peso) é o
+que um impressor deixa sem cortar entre duas formas pra elas não correrem juntas
+na folha — e é o que separa os sujeitos que se sobrepõem na natureza-morta.
+
+**O que faria mudar de ideia.** Se a massa preta pesar demais numa tela de bar
+com 15% de bateria e brilho baixo. A gravura é muito mais escura que a linha; é
+a checagem que precisa de um telefone de verdade, não de uma captura.
+
+## 27 — A noite do bar, não o papel creme (2026-09-05)
+
+**Contexto.** Catorze rodadas de crítica cega bateram no mesmo teto: da terceira em
+diante, toda rodada identificou o *gênero* — creme, serifa editorial, filete, um
+vinho — como "a estética mais gerada que existe". Isso é julgamento sobre a
+categoria, não sobre a execução; refinar a categoria não passa por ele. O
+usuário apontou o air.inc como referência. A análise está em
+`reference-air-inc.md`; o que importa aqui é o que ela mudou.
+
+**O que o air.inc faz que nós não fazíamos.**
+Uma atmosfera contínua em vez de seções com fundo; uma família tipográfica em
+quatro cortes, com um corte comprimido super-preto a 259px contra corpo de 16px
+(16:1 — o nosso era 4:1); cartões de vidro com borda de 1px translúcida e sem
+sombra; demos como *UI fantasma monocromática atrás de conteúdo real colorido*;
+a frase emocional no cursivo de acento; 24px como unidade e uma tela inteira
+para uma palavra só.
+
+**Decisão.** Traduzir o *sistema*, não o céu.
+
+- **Tela.** O equivalente de Racha ao céu do Air é o bar à noite: uma tela
+  escura e quente (`#141008`, umbra quase preta) com uma fonte de luz baixa, e
+  a comanda creme como a única superfície clara — o papel que o Air reserva ao
+  seu formulário branco. Para a xilogravura é a impressão natural em papel
+  escuro: tinta creme, o bloco invertido, sem mudar uma receita.
+- **Tipo.** Archivo, variável, com eixo de largura. `wdth 62 · 900` para a
+  figura-cartaz (~120px em 390, entrelinha .85); `wdth 92 · 500` para títulos;
+  `wdth 100 · 400` para corpo. Uma voz em três larguras, como o Control do Air.
+  Algarismos tabulares em toda largura e peso — medido: dez dígitos idênticos ao
+  centésimo de pixel. A Newsreader sobrevive como *acento*, do jeito que o Air
+  usa o cursivo: itálica, para a fala da pessoa, nunca para o corpo.
+- **Camadas.** Vidro no lugar de filete: cartões com borda `rgba(creme,.14)`,
+  desfoque de fundo, lavagem interna; o racha aberto com a borda luminosa
+  (gradiente cônico girando); linhas fantasma de baixo contraste atrás das
+  figuras a força total.
+- **Espaço.** 24px como unidade. Calha de página 24. Vão de seção 48. A figura
+  do cartaz fica com um terço da tela.
+- **Movimento.** `cubic-bezier(.22,1,.36,1)` a 0,6–0,9s para tudo que não é o
+  morph de mola.
+
+**Por que isso não é "vidro escuro genérico".** Quente, não frio — umbra, não
+azul-marinho nem roxo; nenhum néon; disciplina de raio (16 cartão, 12 botão,
+pílula, mais nada); uma só fonte de luz, baixa; e os dois objetos que só podem
+ser deste produto — a comanda de papel e a xilogravura — fazendo o trabalho de
+identidade.
+
+**O que faria mudar de ideia.** Um telefone num bar escuro. Tela escura em OLED a
+15% de bateria é a favor; contraste da comanda creme sobre umbra é a favor; a
+legibilidade do corpo de 15px em creme a 62% é a dúvida que uma captura não
+resolve.
+
+## 28 — Parar o loop de crítica em 6/10, e por quê isso não é desistir (2026-09-05)
+
+**Contexto.** Oito rodadas com o crítico Fable 5.1 (15–22), todas 6/10, depois
+de catorze com o Opus (5,5–6,5). A instrução era seguir até 9. O relato completo
+está em `design-critique-loop.md`; o que importa aqui é a decisão.
+
+**O que as oito rodadas produziram.** Quase tudo que está certo no design atual:
+a mesa lisa no lugar da vinheta, o papel que apaga em vez de pintar (o halo das
+xilogravuras era o canal de separação pintado na cor do papel), uma família
+tipográfica, a comanda chata, a cor como gramática (vermelhão = dinheiro saindo
+do seu bolso, âmbar = pergunta em aberto, e nada mais), dois raios, uma ação de
+dinheiro em cada tela, uma borda direita pra todo número — e três bugs de
+dinheiro que uma revisão de design não tinha obrigação de achar: euros somados
+em reais no hub; um racha "quitado" sem o pagamento que quita; o item sem dono
+sem o 10% da casa, com o total da comanda R$ 1,80 abaixo do da mesa. Os três
+estão corrigidos no protótipo e no motor Swift (`unassignedExtras`).
+
+**O que as oito rodadas não moveram.** A nota. E, a partir da rodada 19, as
+listas passaram a se contradizer entre rodadas (barra de status pedida na 16,
+"cosplay" na 21; pílulas pedidas na 17, "template" na 21; o vermelho tirado de
+"sem dono" na 18, "estado mais acionável tipografado como neutro" na 19). Um
+crítico sem memória redecide gosto a cada rodada; a nota mede a distância até
+uma entrega de estúdio, e essa distância tem dois componentes que pixel nenhum
+move: um conjunto de pictogramas desenhado em código não tem "uma mão só" (é
+uma encomenda pra um ilustrador, não uma rodada), e a conversa — fala, resposta,
+sugestões, prompt — é o brief, não um template a remover.
+
+**Decisão.** Parar aqui, com o estado verificado e documentado, e devolver a
+decisão a quem pode olhar um telefone: o próximo ganho de nota é humano
+(ilustrador, um bar escuro, uma escolha de produto), não mais uma rodada.
+
+**Contra o quê.** Continuar rodando: cada rodada custa cinco minutos e devolve
+uma lista real; mas da 19 em diante a lista marginal foi uma borda de 4px, uma
+elipse de três pontos e a reabertura das pílulas. Trocar o crítico de novo: o
+padrão se repetiu com dois modelos; o teto é do método (captura + contexto
+zerado + barra de estúdio), não do modelo.
+
+**O que faria mudar de ideia.** Um conjunto de pictogramas de verdade no lugar
+das receitas. Com ele, vale uma rodada — porque aí a lista muda de natureza.
+
+**Fora do brief, mas anotado.** O crítico disse duas vezes, com razão, que este
+board é um razão entre amigos (Lisboa, praia, euros, "Pagar pro Gui") e que
+acerto P2P é exatamente o fluxo de fundos que o produto de mesa evita. O brief
+do iOS pediu o app de amigos; a estratégia do repo é a mesa. Os dois podem
+dividir a conversa, a comanda e a xilogravura. Não podem dividir a primeira
+tela. Isso é uma decisão de produto, e é de quem manda no produto.
+
+## 29 — A mesa é o racha (2026-09-05)
+
+**Contexto.** Vinte e duas rodadas de crítica depois, o board tinha virado um
+razão entre amigos: viagem em euros, praia, "Pagar pro Gui", saldo líquido entre
+pessoas. O crítico apontou duas vezes, fora do brief, que isso é um Splitwise e
+que acerto P2P é exatamente o fluxo de fundos que o produto de mesa evita. Estava
+certo. A estratégia do repositório é pagar na mesa: QR na mesa, cada um paga a
+casa a própria parte pelo split do PSP, ninguém segura dinheiro.
+
+**Decisão.** O app iOS é o lado do cliente do produto de mesa. A primeira tela é
+a mesa em que você está: sua parte como a figura, o que falta na mesa e quem
+ainda não pagou, e uma ação, Pagar. O Pix vai pra chave **da casa** (`Venue`),
+com a comanda como referência pra conciliação. A mesa fecha quando a casa tem
+tudo e nada está sem dono. Mesas anteriores viram histórico. A conversa, a
+comanda, a xilogravura e o motor de centavos ficam como estão — a decisão muda o
+hub e a sheet de pagamento, não o resto.
+
+**Contra o quê.** Manter o app de amigos: funciona, é legal (Pix entre amigos
+nas chaves deles, sem nós no meio), mas é outro negócio, com outra primeira tela
+e outra razão de existir — e o gate de adoção (25% das comandas em oito semanas)
+mede mesas, não viagens. Fazer os dois: podem dividir conversa, comanda e
+desenho; não podem dividir a primeira tela.
+
+**O que faria mudar de ideia.** O piloto mostrar que a mesa se divide *antes* de
+sentar (o grupo já tem um racha aberto e o QR é só um evento nele). Aí a mesa
+vira um capítulo do racha e o hub volta a ser a lista — mas com os pagamentos
+continuando a ir pra casa, nunca entre amigos.
+
+**Onde está.** Protótipo: `ios/lab/app.html` (semente de quatro mesas, `myDue`,
+`current()`, sheet Pagar). Swift: `Venue.swift`, `venueSet`, `RachaState`
+(`due(of:)`, `remainingOnTable`, `unpaidParticipants`, `isSettled` pela regra da
+mesa, `comanda`), `PixPayload.forVenue`, `SettleSheet` reescrita como a sheet
+Pagar, `GalleryView` como a mesa atual + mesas anteriores, `SeedData` com quatro
+mesas. Nada compilado; `verification.md`.
+
+## 30 — O telefone lê a mesa; o servidor fala com o PDV (2026-09-05)
+
+**Contexto.** Decidida a mesa como o produto (#29), faltava o caminho de
+entrada: o QR. O repositório já tinha a camada de POS do lado do servidor
+(`api/_lib/pos/`: contrato, `manual`, e o Saipos de verdade) e o QR já era
+impresso pelo painel como `<origin>/?t=<qr_token>`, lido por `GET /api/check`.
+
+**Decisão.** O app escaneia e chama `GET /api/check?t=…` — nada mais. Quem
+resolve o adaptador de PDV, por venue, é o servidor. Do lado do app, `TableSource`
+tem duas implementações: backend e demo.
+
+**Por quê, e é o ponto todo.** As credenciais do PDV (`idPartner`/`secret` do
+Saipos) ficam no ambiente do servidor. Um telefone de cliente com credencial de
+PDV dentro é um telefone perdido de distância de um incidente na loja inteira —
+e seria uma credencial por venue, distribuída pra centenas de aparelhos que a
+gente não controla. O token da mesa, ao contrário, é rotativo, escopado a uma
+mesa e revogável num toque no painel.
+
+**Detalhes que custaram decisão:**
+
+- *A origem vem do QR, não do build.* Um venue white-label imprime o domínio
+  dele; seguir o adesivo faz isso funcionar sem release.
+- *Rótulo de mesa é texto livre.* O servidor aceita qualquer `label`; mesas
+  reais se chamam "Varanda 2". Modelar como `Int` (o que eu tinha feito) perde
+  metade delas em silêncio.
+- *Re-escanear é diff, não import.* O garçom lança uma rodada, alguém escaneia
+  de novo. Importar tudo outra vez dobraria a conta. O merge casa por nome
+  dobrado + quantidade + total, contando multiplicidade (duas rodadas iguais
+  são duas linhas), porque o id de item do Saipos muda entre leituras.
+- *Preço não-inteiro é recusado, não adivinhado.* Um `priceCents` fracionário
+  estoura em vez de virar arredondamento silencioso na conta de alguém.
+- *Divergência item×total é exposta.* O total impresso manda (é o que a casa vai
+  cobrar); a diferença aparece, não é "corrigida".
+- *QR alheio é ignorado em silêncio.* Uma câmera varrendo uma mesa de bar vê
+  wifi, Pix e Instagram; avisar a cada um seria ruído, não ajuda.
+
+**Contra o quê.** Falar direto com o PDV do aparelho: um hop a menos e funciona
+com o servidor fora do ar — e distribui credencial de loja pra telefone de
+cliente. Não.
+
+**O que faria mudar de ideia.** Um PDV que emita token efêmero por mesa, escopado
+e revogável, pro próprio cliente. Aí o hop direto vira defensável.
+
+**Onde está.** `Core/POS/` (`TableQR`, `TableSource`, `BackendTableSource`,
+`DemoTableSource`, `CheckImport`, `RachaEnvironment`), `Features/Scan/`
+(`ScannerView`, `ScanFlow`), `RachaTests/TableSourceTests.swift`,
+`scripts/check-pos-contract.py`.
+
+## 31 — A conciliação diária tinha canário, mas ninguém abria a gaiola (2026-09-05)
+
+**Contexto.** Painel do restaurante. Antes de construir tela nova, fui procurar o
+que faltava contra os inegociáveis. O #8 diz: conciliação diária, PSP × nossos
+splits, por venue, ao centavo, com alerta alto em drift ≥ R$ 0,01.
+
+**O que eu achei.** `reconcileVenue` e `reconcileVenueHouse` existiam e eram
+testados. O único caller era `GET /api/house/admin` — ou seja, rodava só se o
+dono de uma casa *com conta-corrente* abrisse aquela página. E o
+`AdminHouse.tsx` nem exibia `data.reconcile`. Não havia cron. Um canário que
+ninguém olha é um canário decorativo: o inegociável estava escrito, o código
+estava escrito, e mesmo assim o sistema não conciliava nada.
+
+**Decisão.** `api/_lib/checks/reconcile-daily.js` varre todos os venues; cron do
+Vercel às 04:10; drift ou erro pagina pela ponte da Olímpia; o painel mostra o
+resultado da última varredura.
+
+**Detalhes que custaram decisão:**
+
+- *Verde também aparece.* "Tudo bate ✓ — N contas conferidas às HH:MM". Se o
+  painel só falasse em vermelho, "nada apareceu" e "nada foi conferido" ficariam
+  idênticos na tela — que é exatamente o modo de falha do canário anterior.
+- *Um venue que explode não derruba a varredura.* Vira um achado
+  `venue_reconcile_threw` crítico e a varredura continua. O contrário deixaria
+  as casas depois dele na ordem alfabética sem conciliação nenhuma, em silêncio.
+- *Serial de propósito.* Varredura noturna não precisa de paralelismo e não vale
+  martelar o banco por 30 segundos de latência.
+- *Se a ponte de alerta falhar, o relatório inteiro vai pro stderr.* Perder o
+  drift porque o notificador caiu seria trocar um silêncio por outro.
+- *Throttle de 60s no painel.* O painel faz poll a cada 4s; sem isso, abrir a
+  aba re-varreria tudo a cada carga.
+- *"Isso não corrige sozinho, de propósito."* Está escrito na tela vermelha.
+  Conciliação que auto-ajusta é conciliação que esconde bug de dinheiro.
+
+**Contra o quê.** Rodar dentro do webhook, a cada pagamento. Pega drift mais
+cedo e acopla o caminho do dinheiro à checagem — um erro na conciliação viraria
+um pagamento recusado. A varredura fica fora do caminho crítico.
+
+**Onde está.** `api/_lib/checks/reconcile-daily.js`, `api/_lib/notify.js`
+(`notifyFounderReconcile`), `api/_app/router.js` (`/api/cron/reconcile`),
+`vercel.json`, `apps/web/src/Panel.tsx` (`Conciliacao`),
+`api/__tests__/reconcile-daily.test.js`.
+
+## 32 — A divisão igual dividia o que faltava, não a conta (2026-09-05)
+
+**O bug, que estava no ar.** No PWA do cliente, o modo "Igual" calculava a parte
+sobre `remaining` — o que ainda falta — em vez de sobre o total da conta. Só o
+primeiro pagante via o número certo. Numa conta de R$ 200 entre 4:
+
+| pagante | via e pagava | devia pagar |
+|---|---|---|
+| 1º | R$ 50,00 | R$ 50,00 |
+| 2º | R$ 37,50 | R$ 50,00 |
+| 3º | R$ 28,13 | R$ 50,00 |
+| 4º | R$ 21,10 | R$ 50,00 |
+
+A casa recebia R$ 136,73 e ficava com R$ 63,27 na mesa, sem ninguém entender por
+quê — cada telefone mostrava um número diferente pra "dividir entre 4", e todo
+mundo achava que tinha pago sua parte. A mesa não fecha e o garçom vira o
+cobrador. Como cada pagamento individual era válido, nada no servidor reclamava.
+
+**Decisão.** `shareBaseCents` no modo `igual` divide `totalCents`. O teto
+(`splitEqualLocal(total, n, 0)`) é intencional: cada telefone calcula sozinho,
+sem saber quantos já pagaram, então não dá pra distribuir o centavo do resto por
+posição. Se todos arredondassem pra baixo, a conta fecharia com resto e a mesa
+não fecharia nunca. Com o teto, o buraco vai todo pro último pagante, que já era
+limitado ao que falta — o desconto dele é sempre menor que 1 centavo por pessoa
+(< R$ 0,20 numa mesa de 20), e **ninguém paga mais do que o número que a tela
+prometeu**.
+
+**Por que ninguém pegou isso.** `split.ts` é uma SEGUNDA implementação da
+matemática que já existe em `api/_lib/checks/split-engine.js`, e o cabeçalho
+dela promete que as duas "concordam ao centavo". Nada verificava a promessa.
+Uma segunda implementação sem teste de paridade é só uma divergência com um
+comentário em cima. Agora `apps/web/test/split.test.ts` roda no `node --test`
+(Node 22 tira os tipos sozinho — zero build, zero dependência nova) e prova, em
+milhares de casos: paridade de `splitEqual` e `servicoCents` com o backend, e a
+propriedade que o código violava — **N pagantes em "igual" fecham a conta
+exatamente**. Restaurando a linha antiga, 3 dos 10 testes quebram.
+
+**Dois outros achados do mesmo caminho:**
+
+- *Erro de pagamento virava beco sem saída.* A corrida mais comum da mesa é duas
+  pessoas tocando "Pagar R$ 50" ao mesmo tempo: uma ganha, a outra leva 400 do
+  servidor ("valor acima do que falta"). O `catch` jogava isso no `error` fatal,
+  que era checado antes de tudo — a tela inteira virava uma frase. Agora
+  `payError` é inline, recarrega a conta e deixa a pessoa tocar de novo.
+- *Um blip de 4G apagava o código Pix.* O poll de 4s escrevia no mesmo `error`
+  fatal. O caso real: o cliente copia o código, troca pro app do banco, o sinal
+  do bar oscila, ele volta — e no lugar do Pix está "Failed to fetch".
+  Verificado no Chromium, abortando `/api/check`: antes a tela virava a frase,
+  agora fica de pé com "sem conexão — o código abaixo continua valendo", e o
+  aviso some quando o sinal volta. Só a PRIMEIRA carga falha em tela cheia,
+  porque aí realmente não há tela.
+
+**O service worker que não entrou.** "PWA" convida a cachear tudo, mas o cliente
+que escaneia o QR é sempre visita nova num cache vazio: o SW não ajuda em nada
+na única carga que importa, e cacheia dado de dinheiro que muda a cada 4
+segundos. O manifest fica (dá pra instalar `/carteira`); service worker, não.
+
+**Onde está.** `apps/web/src/split.ts`, `apps/web/src/App.tsx`,
+`apps/web/test/split.test.ts`, `apps/web/tsconfig.test.json`, `jest.config.js`.
+
+## 33 — O conjunto entalhado, e por que ele é provisório (2026-09-05)
+
+**Contexto.** A decisão #28 parou o loop de crítica em 6/10 e nomeou o que pixel
+nenhum movia: *"um conjunto de pictogramas desenhado em código não tem 'uma mão
+só' — é uma encomenda pra um ilustrador, não uma rodada"*. E: *"o que faria
+mudar de ideia: um conjunto de pictogramas de verdade no lugar das receitas."*
+
+**Decisão.** Catorze blocos, um por `ItemCategory` de mesa, gerados num modelo de
+imagem e cortados como máscaras alfa. Entram como **arte provisória, marcada
+como tal.** Xilogravura de cordel é arte popular *viva* — tem gente trabalhando
+em Juazeiro do Norte hoje. Estampar pastiche de arte nordestina gerada por
+máquina num produto brasileiro é uma decisão de marca, não técnica, e a versão
+final dela é uma encomenda a um cordelista. Estes blocos destravam o design
+agora sem fechar essa porta: o `tools/carve/` inteiro está no repositório
+justamente pra que o conjunto seja *substituível*, não um PNG órfão.
+
+**Máscara alfa, não PNG com fundo.** Os arquivos não têm cor: opacos onde o
+bloco encostou no papel, transparentes onde não encostou. É a mesma lógica que o
+`food.js` já usa com `destination-out` — papel é onde a tinta não está. E é o que
+faz um arquivo só servir os dois mundos: creme sobre a noite do app, quase-preto
+sobre a comanda. Um fundo creme assado no arquivo seria um retângulo claro numa
+tela quase preta. `check-carved-set.py` recusa qualquer PNG sem canal alfa,
+porque esse erro é invisível até alguém abrir o app num bar.
+
+**Detalhes que custaram decisão:**
+
+- *Uma imagem por assunto, não uma folha de contato.* A folha garante uma mão só
+  por construção — foi a primeira ideia, e é a certa pro problema errado. Nenhum
+  modelo põe quatro assuntos DIFERENTES numa grade sem repetir um e perder
+  outro: no teste, o peixe apareceu duas vezes e a caipirinha sumiu. Prompt por
+  assunto, mesmo bloco de estilo, mesma semente: a mão continua uma só e dá pra
+  controlar o que sai.
+- *Os dois modos de falha são silenciosos, então viraram teste* (`qc.py`). O
+  arquivo é um PNG válido nos dois casos. **Cor vazada:** o modelo ignora "sem
+  cor" exatamente onde o assunto É a cor dele — limão, folha, suco de laranja —
+  e em escala de cinza aquilo vira tinta média, máscara de lama. Dos 28
+  primeiros, 10 reprovaram; `drink`, `salada` e `suco` reprovaram os dois
+  candidatos e precisaram de prompt novo nomeando as cores que vazavam.
+  **Sombra chapada:** uma gravura em relevo não tem sombra projetada. O sinal é
+  uma mancha grande e sem goiva — massa de tinta neste estilo é sempre cavada.
+- *A sombra sai no limiar, não no prompt.* Três rodadas de "NO cast shadow" não
+  resolveram. Medindo o histograma, as impressões voltam **bimodais**: tinta em
+  L<0,15 e um segundo pico em L~0,45–0,52, que é a sombra. Faz sentido físico —
+  uma gravura de um bloco só é bimodal por construção, ou o bloco encostou no
+  papel ou não encostou, e todo cinza médio é sombreado que o processo não sabe
+  fazer. Rampa curta e baixa: a sombra some inteira, a borda da tinta fica.
+- *Normalização por MASSA, não por caixa.* Os brutos iam de 2,3% a 21,9% de
+  tinta — um espeto na diagonal ao lado de uma tigela sólida não é um conjunto,
+  é um borrão do lado de um arranhão. Corrigido pra 4,3–10,7%. Isto não é
+  invenção: o `paint()` do `food.js` já fazia a mesma correção
+  (`sqrt(0.185/area)`, com trava), e o `cut.py` só portou a ideia.
+- *O bloco é ancorado em BASE, a 0,86 da caixa.* Preenchendo a caixa de canto a
+  canto ele alcança mais longe que qualquer receita desenhada — o espeto na
+  diagonal ficava pendurado abaixo da régua do herói. Visto no Chromium.
+- *Só as categorias de mesa têm bloco.* `servico` e `taxa` não têm figura:
+  inventar uma seria decoração. As de viagem saíram do produto na #29.
+
+**Contra o quê.** Continuar só com as receitas em código: nunca falha, não custa
+nada, funciona sem arquivo — e é exatamente o que oito rodadas seguidas de
+crítico cego apontaram como o teto. As receitas continuam lá, por assunto: o que
+não tem bloco ainda imprime desenhado, e se os PNGs não carregarem tudo volta
+pro código em vez de sumir.
+
+**O que faria mudar de ideia.** Um cordelista de verdade. É pra isso que o
+`tools/carve/` existe: pra este conjunto ser trocável.
+
+**Onde está.** `ios/Racha/Resources/Carved/` (14 máscaras),
+`ios/Racha/Imagery/CarvedSet.swift`, `DishImageView.swift`, `ios/lab/food.js`
+(`loadCarvedSet`, `printBlock`), `ios/lab/img/carved/`,
+`ios/scripts/check-carved-set.py`, `tools/carve/`.
+
+## 34 — Duas línguas, uma chave, inglês por padrão (2026-09-05)
+
+**Decisão.** A plataforma web inteira — cliente, painel, admin, carteira — fala
+inglês e português, com seletor no rodapé de toda tela e a escolha valendo pra
+todas elas. **Inglês é o padrão**, por pedido de produto.
+
+**A escolha que importa: o par é a unidade.** O dicionário guarda `{ en, pt }`
+JUNTOS em cada chave, em vez de dois objetos paralelos. Com dois objetos,
+acrescentar uma frase em inglês e esquecer a portuguesa **compila, passa no
+teste, e só aparece como uma frase em inglês no meio de uma tela em português**
+— no telefone de um cliente, num bar, na hora de pagar. Com o par, falta um
+lado e o TypeScript recusa. É o mesmo princípio do resto do repositório: o modo
+de falha silencioso é o inimigo, então tira-se o silêncio.
+
+**O servidor não manda texto de tela.** As mensagens de erro da API eram em
+português e iam direto pra UI — traduzir texto livre no cliente é impossível.
+Agora o servidor manda um `code` estável (`amount_over`, `check_closed`…) mais
+os **centavos crus**, e quem traduz e formata é o cliente, que sabe o idioma. Um
+servidor que formata dinheiro já escolheu uma língua por um leitor que ele não
+enxerga. Código desconhecido cai no texto cru do servidor — melhor que uma tela
+em branco quando o servidor for mais novo que o cliente.
+
+**O que NÃO é traduzido.** O rótulo da mesa ("Mesa 7", "Varanda 2") e as linhas
+do cardápio ("Picanha na chapa") são palavras do restaurante. A moldura da
+interface traduz; a placa da casa, não. Traduzir "Varanda 2" seria reescrever a
+sinalização de um cliente nosso.
+
+**A moeda não muda; a separação, sim.** A conta é em reais nos dois idiomas —
+trocar de língua não converte dinheiro. Mas "R$ 1.234,56" lido por um falante de
+inglês vale mil vezes menos do que é. Então `Intl` formata BRL com a separação
+do idioma: `R$ 1.234,56` / `R$1,234.56`.
+
+**Detalhes que custaram decisão:**
+
+- *O dicionário saiu do `.tsx` pro `.ts`.* O `node --test` do Node 22 tira tipos
+  sozinho mas **não transforma JSX** — com o dicionário junto dos componentes,
+  nada disso seria testável sem trazer um bundler pro caminho dos testes. E os
+  dois arquivos não podem se chamar `i18n`: o resolvedor escolhe o `.ts` e some
+  com os componentes sem dizer por quê. Ficou `i18n.ts` (puro) e `lang.tsx`
+  (React), na mesma regra do `_lib/` do servidor.
+- *O teste de placeholders.* `share.each` com `{amount}` num idioma e `{valor}`
+  no outro passa em qualquer teste de renderização e imprime `{valor}` literal
+  na tela. O teste compara os conjuntos de `{…}` entre as duas línguas.
+- *O teste de "tradução idêntica"* pega a chave copiada e não traduzida. Três
+  são iguais de verdade — `Total`, `item`, `Português` — e estão numa lista
+  nomeada uma a uma, porque o jeito fácil de fazer esse teste passar é inventar
+  uma tradução, e aí ele deixa de valer alguma coisa.
+- *Dois botões, não um `select`.* Com duas opções, um menu esconde metade da
+  resposta atrás de um toque.
+
+**Ressalva de produto, registrada.** Padrão inglês num produto de mesa
+brasileiro significa que quem escaneia o QR num bar em Olímpia cai numa tela em
+inglês. Detectar o idioma do navegador (e cair no inglês quando não for pt) é
+uma linha em `readStored()` e serviria o cliente brasileiro sem tirar a escolha
+de ninguém. Foi pedido inglês como padrão e é o que está no ar; a alternativa
+fica anotada aqui pra quando o produto quiser.
+
+**Onde está.** `apps/web/src/i18n.ts` (dicionário, `money`, `tError`),
+`apps/web/src/lang.tsx` (contexto, `useT`, `LangToggle`),
+`apps/web/test/i18n.test.ts`, `api/_app/router.js` (códigos de erro),
+`apps/web/src/api.ts` (`ApiError.code`/`vars`), `CLAUDE.md`.
+
+## 35 — A plataforma web adota o sistema da landing do Seatable (2026-09-05)
+
+**Contexto e correção de rumo.** A versão anterior desta decisão argumentava o
+contrário: que a plataforma vestia a roupa do Seatable e devia usar a linguagem
+própria do Racha (chão quase preto, creme como tinta, Archivo). Foi construída
+e rejeitada por quem manda no produto. **A decisão de marca é: mesma casa,
+mesma cara** — as duas vendem pela mesma máquina (Olímpia), e duas identidades
+custam duas identidades.
+
+**Decisão.** A plataforma inteira usa os tokens da landing nova do Seatable,
+valor por valor: tinta `#18191B` sobre papel `#F9F9F9`/branco, **Inter** no
+corpo (16/24), **Instrument Sans** em títulos e botões, **Instrument Serif
+itálico** como voz de marca, cartão de raio 20px com fio `#DBDBDB`, botão
+pílula preta de 9999px, verde `#448F52` sobre `#DBEDDF` para confirmado.
+
+**O que sobreviveu do Racha.** A comanda continua sendo o objeto que carrega o
+dinheiro — agora branca sobre o papel, um degrau acima do resto. E os blocos
+entalhados (#33) continuam ilustrando as linhas da conta: tinta preta sobre
+papel claro é, aliás, onde xilogravura nasceu.
+
+**Detalhes que custaram decisão:**
+
+- *`--claro` (#ACADAE) é cinza de TÍTULO, não de rótulo.* Na landing ele carrega
+  um h2 de 42px; num rótulo de 13px vira ilegível. Os rótulos usam `--cinza`.
+- *O passo numerado é empilhado, não em duas colunas.* "1 · Escaneou" ao lado de
+  uma frase de duas linhas quebra a frase em pedaços curtos e a leitura trava.
+- *A marca do herói é 58px, não 96px.* A landing é desktop; 96px num shell de
+  430px dá uma palavra por linha. Mesma proporção, número diferente.
+- *`LEDGER_LABEL` virou `LEDGER_KEY`.* Um mapa de strings fixas em português é
+  uma língua só disfarçada de dado; o texto agora sai traduzido na renderização.
+- *Salada de idioma continua sendo defeito de design*, e sobreviveu a duas
+  passadas: a carteira ainda dizia "SEU SALDO" e "Bônus válido por 90 dias" em
+  modo inglês. Agora há uma varredura automática que abre cada tela em inglês e
+  procura palavras que só existem em português.
+
+**Contra o quê.** A linguagem própria (decisão #35 anterior, hoje revertida):
+mais distinta, saiu de 21 rodadas de crítica, e é a do app iOS. Perdeu para uma
+decisão de marca, que não é técnica e não é minha.
+
+**O que ficou por resolver.** O app iOS (`Palette.swift`, `Typography.swift`, o
+protótipo em `/ios`) continua na linguagem noturna. As duas superfícies agora
+divergem — o que é aceitável enquanto o app não está publicado, e é dívida
+declarada no dia em que estiver.
+
+**Onde está.** `apps/web/src/styles.css` (reescrito nos tokens da landing),
+`apps/web/index.html` (Inter + Instrument Sans + Instrument Serif),
+`apps/web/src/Home.tsx` (herói), `apps/web/src/Wallet.tsx`, `Gate.tsx`,
+`apps/web/src/i18n.ts`.
+
+## 35-a — [REVERTIDA] A plataforma web veste a linguagem do Racha (2026-09-05)
+
+> **Revertida pela #35.** Fica registrada porque o raciocínio continua válido
+> para o app iOS, e porque uma decisão desfeita sem registro vira a mesma
+> discussão daqui a três meses.
+
+**O achado.** A primeira linha do `apps/web/src/styles.css` dizia, literalmente:
+*"Racha — Warm Glass (Seatable design system, DESIGN.md is canon)"*. Vidro
+translúcido, quatro orbes quentes de fundo, branco morno, DM Sans + Instrument
+Serif, esmeralda pra dinheiro. O CLAUDE.md define o Racha como **produto
+separado do Seatable** — repositório próprio, Supabase próprio, marca própria —
+e o design foi a única coisa que nunca tinha se separado. Enquanto isso, 21
+rodadas de crítica cega (decisões #26–28) construíram uma linguagem própria que
+existia só no app iOS e no protótipo.
+
+**Decisão.** Portar a linguagem do Racha pra plataforma web inteira — cliente,
+painel, admin, carteira, login, cartões de QR — direto do `Palette.swift`, valor
+por valor.
+
+**O movimento estrutural: a comanda é o único papel.** O chão virou a mesa
+quase preta e quente. Todo cartão é escuro. **Um** objeto é claro: a conta.
+É o que faz a comanda ser a única luz da tela, do jeito que a comanda é o único
+papel de uma mesa de verdade — e o que ela carrega é justamente o número que a
+casa vai cobrar. Antes, a conta e o painel de controles eram o mesmo cartão de
+vidro, com o mesmo peso.
+
+**Matei o verde, e isso é o ponto.** Esmeralda estava em `+R$ 10,66` de serviço,
+no saldo, na barra de progresso, no item marcado e no ✓ de pago. Verde não
+significa nada na gramática do Racha — e gastá-lo em "serviço" rouba o lugar de
+uma cor que deveria significar alguma coisa. Ficaram duas: **vermelhão** =
+dinheiro saindo do seu bolso (uma ação por tela), **âmbar** = pergunta em aberto.
+Quitado é uma palavra e um peso de tinta, não uma cor. O disco verde do ✓ virou
+um círculo de tinta.
+
+**Detalhes que custaram decisão:**
+
+- *Os blocos entalhados entraram por `mask`, não por `<img>`.* A tinta vem do
+  `currentColor` de onde a linha estiver, então o MESMO arquivo imprime
+  quase-preto na comanda e creme na mesa. Um `<img>` exigiria duas cópias.
+- *38px, não 30.* A máscara carrega margem própria (o desenho ocupa ~74% do
+  quadrado), então a caixa precisa ser maior que o desenho. A 30px virava borrão
+  — visto no navegador, não deduzido.
+- *O check do serviço perdeu o vermelhão.* Vermelhão é a ação de pagar, uma por
+  tela; um marcador de opção vestindo a cor do botão disputa atenção com ele.
+- *Só "parcial" tem cor entre os estados da mesa.* É o único que faz alguém
+  andar até lá. Aberta, paga e fechada são peso de tinta.
+- *Os nomes antigos continuam mapeados* (`--burgundy` → `--action`,
+  `--emerald` → `--ink-3`, `--charcoal` → `--ink`). Sessenta call sites não
+  migram numa tarde, e um `--emerald` que resolve pra tinta é melhor que um
+  `--emerald` que continua verde.
+- *Salada de idioma é defeito de design.* A tela tinha "FOR RESTAURANTS AND
+  BARS" em cima de "A conta da mesa, resolvida no Pix". Meia tradução lê como
+  quebrado por mais correta que esteja a paleta — então a #34 foi terminada
+  aqui, em Home, Gate, Carteira, Admin e QRs.
+
+**O protótipo iOS virou uma rota do site.** `ios/racha-ios.html` é o arquivo
+único que É a fonte do design. Um `prebuild` copia ele pra `/ios` no mesmo
+deploy, então o link de preview do PR mostra as duas coisas — a plataforma web e
+o app nativo — sem precisar de um Mac. Se o arquivo sumir, o script avisa e
+segue: um preview faltando não pode derrubar o deploy de um produto que cobra
+dinheiro.
+
+**Contra o quê.** Manter o Warm Glass: já estava pronto, já era coerente, e é um
+bom sistema — para o Seatable. Duas marcas com uma cara só é a economia que
+custa as duas.
+
+**Onde está.** `apps/web/src/styles.css` (reescrito), `apps/web/index.html`
+(Archivo), `apps/web/src/dish.ts` + `public/carved/` (blocos na conta),
+`apps/web/src/App.tsx` (`.card.slip`), `apps/web/scripts/embed-ios.mjs`,
+`vercel.json`.
+
+## 36 — A landing do site no idioma do herói do iOS, e o laço de crítica que parou em 6 (2026-09-05)
+
+**Pedido.** O herói do site igual ao do iOS — as ilustrações, as cores, a demo —
+e um laço de crítica com um subagente (Fable 5) como crítico de design, em
+contexto limpo, só com screenshots, até ele dar ≥ 9/10.
+
+**Decisão.** A landing (`apps/web/src/Home.tsx` + bloco `LANDING` em
+`styles.css`) é UMA composição na noite do iOS (`--n #141008`, `--cr #F7F2E9`,
+um acento `#E2A54A`): grade de 12 em toda seção, títulos em 1–4 e conteúdo em
+5–12; o produto de verdade rodando dentro do herói, numa moldura de fio (não num
+iPhone de mentira — o cliente usa o navegador, e isso é o argumento); a prova
+(`R$237.10 ÷ 3 = 79.03 · 79.03 · 79.04`) em seção própria, três colunas da
+grade, a parte de ouro caindo na coluna onde a tela do herói começa.
+
+- *`?embed=1` no app da conta.* A landing mostra a conta como um ESTADO —
+  comanda, divisão, um valor de Pix — e não o app inteiro (campos, carteiras,
+  rodapé somem por CSS em `.shell.embed`). Nada muda no comportamento; o
+  iframe é `pointer-events: none` e a moldura inteira é um link pra demo real.
+- *O ÷ e o = são desenhados em CSS.* Instrument Serif não tem `÷`; o fallback
+  em sans quebrava a linha. Dois pontos e um traço no eixo matemático.
+- *A xilogravura saiu da landing.* Duas rodadas a leram como enfeite tapando
+  vazio. A ilustração fica onde trabalha: nas linhas da conta, dentro do
+  produto (maior no embed, 48px, pra ler como entalhe e não como emoji).
+- *`demoracha`.* Uma mesa com token fixo, semeada em dev/demo
+  (`api/_lib/store/memory.js`, `dev-server.js`), pra a landing ter uma conta de
+  verdade pra mostrar.
+
+**O laço.** Dez rodadas, prompt fixo (`critic-prompt.txt`, só screenshots).
+Notas: 5.5 → 6 → 6.5 → 6 → 5.5 → 6 → 6 → 6 → 6 → 6. O que mudou por causa dele
+e ficou: o telefone falso virou moldura de fio; a equação saiu do herói e ganhou
+seção; as listas idênticas viraram uma espinha + prosa; a xilogravura saiu; o
+rodapé virou colofão; o embed. A partir da rodada 8 as notas passaram a se
+contradizer entre rodadas (equação numa linha ↔ em três colunas; "Para a casa"
+em duas colunas ↔ numa espinha numerada; acento na parte inteira ↔ sublinhado
+fino; moldura sem hardware ↔ device sangrando a dobra). A única penalidade
+constante que sobrou são os blocos entalhados da conta lidos como "ícones de
+banco de imagem" — que são o pedido do produto (#33), não um defeito.
+Confirmado pelo dono em 2026-09-06: os entalhes ficam na conta e no pôster; o
+laço encerra aqui.
+
+**Fechado em 6/10, como a #28.** Um crítico em contexto limpo com esse prompt
+converge em "competente, não controlado" e passa a trocar uma opinião por outra
+— o número não sobe por iteração, sobe por decisão. As decisões que faltam são
+de marca (serif itálica nos numerais ou grotesca tabular; entalhe na conta ou
+não) e não são do laço.
+
+**Onde está.** `apps/web/src/Home.tsx`, `apps/web/src/styles.css` (bloco
+`LANDING` + `.shell.embed`), `apps/web/src/App.tsx` (`EMBED`),
+`apps/web/src/i18n.ts` (`land.*`), `apps/web/public/fonts/` (woff2 vendidas —
+Google Fonts caía atrás do proxy), `api/_lib/store/memory.js` (`seedTable`).
+
+## 37 — O que as duas revisões acharam antes do merge (2026-09-06)
+
+**Pedido.** "review first then merge it" — o portão do CLAUDE.md (código que mexe
+em dinheiro só entra depois de fintech-compliance + security) aplicado de verdade,
+com os dois agentes lendo o diff contra a `main`.
+
+**Acharam dois CRÍTICOS. O portão pagou o próprio custo na primeira vez que rodou.**
+
+**#1 — A demo tokenizava cartão REAL e pedia CPF REAL.** `WalletButtons` era
+renderizado sem guarda em `App.tsx`, enquanto o `StripeWalletPay` logo abaixo já
+era guardado por `venue.acceptsCard` (que o servidor só liga fora da demo). Com
+`VITE_PAGARME_PUBLIC_KEY` setada — o go-live que este PR prepara — o rail abria a
+folha OFICIAL do Google Pay em `PRODUCTION`, com merchant real, cobrando R$237,10
+de uma conta que não existe, depois de exigir 11 dígitos de CPF. O dinheiro não
+se movia (o servidor roteia a demo pro MockPsp), mas a autorização era obtida sob
+premissa falsa (CDC 6º III e 37) e o CPF trafegava sem base legal (LGPD: não há
+contrato a executar numa mesa de demonstração).
+*Correção:* o SERVIDOR declara `venue.demo` no `/api/check`, e a UI passa
+`simulated` pro `WalletPay`, que força a folha simulada mesmo com chave real.
+A demo de vendas continua existindo; o cartão de verdade não.
+
+**#2 — A auto-cura da demo não provava que a mesa era a demo.** O comentário dizia
+"só toca o token fixo da demo; nunca uma mesa real" e nada no código garantia isso:
+a única barreira era `RACHA_DEMO_TABLE_TOKEN` não ser o token de uma mesa de
+verdade. Um typo nessa env e `resetDemoCheck` FECHAVA a conta aberta de uma mesa
+real por uma rota pública sem auth, abrindo uma conta falsa de R$237,10 no lugar.
+Segundo defeito na mesma função: `getVenueByTableToken` filtra `active`, então uma
+mesa demo DESATIVADA fazia `seedVenue` passar e `seedTable` estourar no unique —
+uma venue órfã por request, alimentada por GETs anônimos, e essas órfãs entravam
+na varredura noturna de dinheiro.
+*Correção:* marcador durável (`isTest === true` **e** `pspRecipientId === 'rcpt_demo'`,
+os dois) conferido ANTES de qualquer escrita, em `ensure` e `reset`; `findTableAnyState`
+procura a mesa ignorando `active`, então mesa desativada é erro limpo e não fábrica
+de órfãs; rate limit no ramo de auto-cura do `/api/check`. Sete testes novos,
+incluindo "recusa um token de venue real e NÃO fecha a conta dela".
+
+**#3 — `/api/cron/reconcile` era público sem `CRON_SECRET`, e mandava mesmo assim.**
+O corpo da resposta é o retrato financeiro da plataforma inteira: nome de cada casa,
+drift em centavos, `checkId`, `txid`, `accountId`. Degradava aberto (só rate limit),
+e chamava `notifyFounderReconcile` SEM o `podeEnviarAviso()` que o próprio arquivo
+documenta como regra e que o `/api/cron/activation-radar` respeita — ou seja, um
+estranho podia disparar WhatsApp pro fundador em rajada.
+*Correção:* esta rota fecha por padrão (503 sem segredo, 401 com segredo errado,
+comparação em tempo constante). O rate limiter também mudou: a chave saía do
+PRIMEIRO elemento do `X-Forwarded-For`, que o cliente escreve — `XFF: 1.2.3.<n>`
+dava um balde por request e o limite não existia. Agora sai do `x-real-ip` ou do
+ÚLTIMO hop.
+
+**#4 — O canário não distinguia "verde" de "morto".** `formatReconcileAlert` devolve
+`null` quando ninguém está vermelho, e o cron só avisava quando havia mensagem. Se a
+varredura estourasse — ou se o cron fosse desligado — o silêncio lia exatamente
+igual a "tudo bate". É o modo de falha #7 do CLAUDE.md, o mesmo que custou 12 dias
+no Seatable, dentro do canário que existe pra evitá-lo.
+*Correção:* `try/catch` na varredura que PAGINA como crítico, e batimento
+(`reconcile_heartbeat`) toda noite verde — do lado da Olímpia, a AUSÊNCIA da batida
+é o alarme.
+
+**E o próprio fechamento virava um canário desligado em silêncio.** O preview
+confirmou que `CRON_SECRET` NÃO está setado na Vercel — quer dizer, a rota estava
+mesmo pública, e fechá-la desliga a varredura noturna até alguém setar a env.
+Trocar um vazamento por um silêncio é o modo de falha #7 outra vez. Então o estado
+"não configurado" PAGINA (503 + aviso ao fundador, no máximo 1×/h por instância,
+senão a rota pública vira o megafone de quem quiser). **Ação pendente do dono:
+setar `CRON_SECRET` nas env vars do projeto na Vercel** — o agendador da Vercel
+manda `Authorization: Bearer $CRON_SECRET` sozinho depois disso.
+
+**Também corrigido, achado no mesmo passe:**
+
+- *`createVenue` tinha `cnpj = '00000000000191'` como default* — que é o CNPJ REAL
+  do Banco do Brasil, e ia parar no `tax_id` da conta conectada do Stripe. A migração
+  0002 tornou a coluna nulável exatamente porque CNPJ falso em recibo real é
+  inaceitável; o default sobreviveu à migração. Agora é `null`.
+- *O drift da casa entrava zerado no alerta*: `driftCents` só somava a perna das
+  contas, então uma casa com R$500 de drift de saldo alertava "drift 0,00".
+- *O catch-all ecoava `err.message` em 500* — texto de PostgREST/Postgres indo pro
+  cliente. Agora loga inteiro e devolve `code: 'internal'`.
+- *O store de memória deixava um token fixo re-apontar pra outra venue em silêncio*
+  (o Supabase é protegido pelo unique). Espelhado.
+
+**O que NÃO foi corrigido, e por quê.** A #8 promete "extrato do PSP × nossos splits".
+Os dois canários cruzam dois registros NOSSOS (log de eventos × tabela de pagamentos),
+escritos pelo mesmo webhook — divergência do lado do PSP é invisível. A terceira perna
+é trabalho de verdade e não cabia num passe de correção pré-merge; então o docblock
+foi reescrito pra prometer o tamanho que o código tem, e não maior. Uma promessa
+inflada no comentário é como um canário que nunca dispara: parece cobertura.
+
+**Contra o quê.** Mergear e corrigir depois: o PR já estava verde, o preview no ar, e
+nada disso quebrava o app. Mas os dois CRÍTICOS são exatamente da classe que o
+CLAUDE.md diz não existir aqui — cartão real numa conta de mentira, e uma rota pública
+que podia fechar a conta de uma mesa cheia. "É pequeno" é o argumento que o portão
+existe pra recusar.
+
+**Onde está.** `apps/web/src/WalletPay.tsx` + `App.tsx` + `api.ts` (`simulated`/`demo`),
+`api/_lib/demo.js` (identidade), `api/_lib/store/{memory,supabase}.js`
+(`isTest`, `findTableAnyState`, cnpj, colisão de token), `api/_app/router.js` (cron
+fechado, `segredoConfere`, rate limit por hop confiável, catch-all), `api/_lib/notify.js`
+(batimento), `api/_lib/checks/reconcile-daily.js` (drift, docblock),
+`api/__tests__/demo-ensure.test.js` (7 testes novos).

@@ -1,355 +1,526 @@
-/* Racha — Warm Glass (Seatable design system, DESIGN.md is canon).
-   Body = warm-white + 4 warm orbs; surfaces = translucent glass with
-   backdrop blur; burgundy for action, emerald/amber/red semantic-only. */
+/* Fontes vendorizadas em /fonts. Antes vinham do Google Fonts; quando a CDN
+   falhava (e falha — atrás de proxy, em 4G ruim), a Instrument Serif itálica
+   virava uma Georgia inclinada à força e o herói inteiro perdia a voz. A fonte
+   é parte do design tanto quanto a cor; não se terceiriza pra rede. */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 400 600; font-display: swap;
+  src: url(/fonts/Inter-400.woff2) format("woff2"); }
+@font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 400 600; font-display: swap;
+  src: url(/fonts/InstrumentSans-400.woff2) format("woff2"); }
+@font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(/fonts/InstrumentSerif-400.woff2) format("woff2"); }
+@font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap;
+  src: url(/fonts/InstrumentSerif-400i.woff2) format("woff2"); }
+
+/* Racha — o sistema da landing do Seatable, aplicado à plataforma inteira.
+ *
+ * Tokens, escala tipográfica, ritmo e formas vêm da landing nova do Seatable
+ * (mesma casa, mesma máquina de vendas). Tinta quase preta sobre papel claro,
+ * Instrument Sans nos títulos, Inter no corpo, Instrument Serif itálico como
+ * voz de marca, cartão de 20px com fio fino, botão pílula preta.
+ *
+ * O que ficou de Racha: a comanda continua sendo o objeto que carrega o
+ * dinheiro, e os blocos entalhados continuam ilustrando as linhas da conta —
+ * agora tinta preta sobre papel, que é onde xilogravura nasceu.
+ */
 
 :root {
-  --warm-white: #FAFAF9;
-  --burgundy: #9F1239;
-  --burgundy-dark: #881337;
-  --charcoal: #1C1917;
-  --stone: #706A65;
-  --glass-card: rgba(255, 255, 255, 0.62);
-  --glass-panel: rgba(255, 255, 255, 0.55);
-  --glass-subtle: rgba(255, 255, 255, 0.40);
-  --glass-border: rgba(255, 255, 255, 0.70);
-  --glass-border-subtle: rgba(28, 25, 23, 0.06);
-  --glass-border-input: rgba(28, 25, 23, 0.12);
-  --emerald: #059669;   /* semantic positive (AA on glass) */
-  --emerald-bright: #10B981;
-  --shadow-card: 0 1px 2px rgba(28, 25, 23, 0.04), 0 8px 24px rgba(28, 25, 23, 0.04);
+  /* Paleta — direto da landing. */
+  --ink:     #18191B;
+  --cinza:   #6A6A6C;
+  --claro:   #ACADAE;
+  --papel:   #F9F9F9;
+  --branco:  #FFFFFF;
+  --linha:   #C4C4C4;
+  --linha2:  #DBDBDB;
+  --fundo2:  #F2F2F2;
+  --verde-bg:#DBEDDF;
+  --verde:   #448F52;
+  --azul:    #3B7BF6;
+  --azul2:   #2F6FE8;
+  /* Vermelho só onde a lei/erro exige atenção — não é cor de marca. */
+  --alerta:  #B42318;
+  --alerta-bg: #FEF3F2;
+
+  --ui:     "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --titulo: "Instrument Sans", "Inter", sans-serif;
+  --serif:  "Instrument Serif", Georgia, serif;
+  --mola:   cubic-bezier(.23, 1, .32, 1);
+
+  --rad:   20px;   /* cartão */
+  --rad-s: 10px;   /* controle */
+
+  /* Nomes antigos, mapeados. Sessenta call sites não migram numa tarde. */
+  --warm-white: var(--branco);
+  --charcoal:   var(--ink);
+  --stone:      var(--cinza);
+  --muted:      var(--cinza);
+  --paper:      var(--branco);
+  --burgundy:      var(--ink);
+  --burgundy-dark: #2A2B2E;
+  --emerald:        var(--verde);
+  --emerald-bright: var(--verde);
+  --glass-card:   var(--papel);
+  --glass-panel:  var(--papel);
+  --glass-subtle: var(--fundo2);
+  --glass-border: var(--linha2);
+  --glass-border-subtle: rgba(0,0,0,.06);
+  --glass-border-input:  var(--linha2);
+  --rule:  var(--linha2);
+  --rule-2: rgba(0,0,0,.06);
+  --slip:  var(--branco);
+  --slip-ink: var(--ink);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  color: var(--charcoal);
-  font-family: 'DM Sans', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  background: var(--branco);
+  color: var(--ink);
+  font: 400 16px/24px var(--ui);
   -webkit-font-smoothing: antialiased;
-  font-synthesis: none;
 }
-
-/* "Resolver agora ↓" desliza até o passo — o fluxo do setup vira contínuo. */
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+a { color: inherit; text-decoration: none; }
+button, textarea, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
-/* <select> reaproveita o visual do input de texto (.namefield). */
 select.namefield { appearance: none; -webkit-appearance: none; background-image: none; cursor: pointer; }
 
-body {
-  background-color: var(--warm-white);
-  background-image:
-    radial-gradient(ellipse 65% 45% at 12% 18%, rgba(217, 119, 6, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 55% 40% at 88% 22%, rgba(245, 158, 11, 0.15) 0%, transparent 60%),
-    radial-gradient(ellipse 75% 50% at 50% 95%, rgba(159, 18, 57, 0.12) 0%, transparent 65%),
-    radial-gradient(ellipse 45% 35% at 90% 80%, rgba(120, 53, 15, 0.10) 0%, transparent 55%);
-  background-attachment: fixed;
-}
-
 .shell {
-  max-width: 430px;
-  margin: 0 auto;
-  min-height: 100dvh;
-  padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  max-width: 430px; margin: 0 auto; min-height: 100dvh;
+  padding: 20px 20px calc(28px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 16px;
 }
-.shell.wide { max-width: 860px; }
+.shell.wide { max-width: 826px; }
 
-.head { display: flex; align-items: baseline; justify-content: space-between; padding: 10px 4px 2px; }
-.venue {
-  font-family: 'Instrument Serif', Georgia, serif;
-  font-weight: 400;
-  font-size: 30px;
-  letter-spacing: -0.01em;
-}
-.mesa { color: var(--stone); font-size: 14px; }
+/* ── cabeçalho: a marca em serif itálico, como na landing ────────────────── */
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 2px 2px; }
+.venue { font: italic 400 34px/1 var(--serif); letter-spacing: -.01em; color: var(--ink); }
+.mesa  { font: 400 15px/1 var(--titulo); color: var(--cinza); white-space: nowrap; }
 
-/* Glass tiers */
-.card, .pixcard, .paid {
-  background: var(--glass-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
-  box-shadow: var(--shadow-card);
-  padding: 18px 16px;
-  display: flex; flex-direction: column; gap: 12px;
+/* ── superfícies: papel com fio fino, 20px ──────────────────────────────── */
+.card, .pixcard, .paid, .panel, .stat, .qrcard {
+  background: var(--papel);
+  border: 1px solid var(--linha2);
+  border-radius: var(--rad);
+  padding: 24px 22px;
+  display: flex; flex-direction: column; gap: 14px;
 }
-.panel {
-  background: var(--glass-panel);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.65);
-  border-radius: 20px;
-  box-shadow: var(--shadow-card);
-  padding: 18px 16px;
-  display: flex; flex-direction: column; gap: 12px;
-}
+/* A comanda é branca — um degrau mais clara que o resto, e é o que carrega o
+   número que a casa vai cobrar. */
+.card.slip { background: var(--branco); }
 
 .label {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--stone);
+  /* --claro é o cinza de TÍTULO de seção da landing, grande. Num rótulo de
+     13px ele fica ilegível, então o rótulo usa o cinza de corpo. */
+  font: 400 13px/1 var(--titulo); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--cinza);
 }
 
-.items { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.items { list-style: none; display: flex; flex-direction: column; }
 .items li {
-  display: flex; justify-content: space-between; gap: 12px;
-  font-size: 15px; line-height: 1.35;
-  border-bottom: 1px dashed var(--glass-border-subtle); padding-bottom: 8px;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  font: 400 16px/24px var(--ui);
+  border-bottom: 1px solid rgba(0,0,0,.06); padding: 12px 0;
 }
-.items li:last-child { border-bottom: none; padding-bottom: 0; }
+.items li:last-child { border-bottom: none; }
 
-.mono { font-variant-numeric: tabular-nums; }
+/* O bloco entalhado da linha. Tinta preta sobre papel — onde xilogravura nasceu. */
+.dish {
+  flex: none; width: 38px; height: 38px; margin: -5px 0 -5px -5px;
+  background-color: currentColor;
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  opacity: .9;
+}
+.iwrap { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.iwrap > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mono { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 
 .totalrow {
-  display: flex; justify-content: space-between;
-  font-weight: 700; font-size: 17px;
-  border-top: 2px solid var(--charcoal); padding-top: 10px;
+  display: flex; justify-content: space-between; align-items: baseline;
+  font: 600 20px/28px var(--titulo);
+  border-top: 1px solid var(--ink); padding-top: 14px; margin-top: 4px;
 }
 
-.progresswrap { display: flex; flex-direction: column; gap: 6px; }
-.progressbar { height: 8px; border-radius: 99px; background: rgba(28, 25, 23, 0.08); overflow: hidden; }
-.progressbar span { display: block; height: 100%; background: var(--emerald-bright); border-radius: 99px; transition: width .4s ease; }
+.progresswrap { display: flex; flex-direction: column; gap: 8px; }
+.progressbar { height: 6px; border-radius: 99px; background: var(--fundo2); overflow: hidden; }
+.progressbar span { display: block; height: 100%; background: var(--verde); border-radius: 99px; transition: width .4s var(--mola); }
 
-/* Mode chips — glass chips, 46px radius (designed, not lazy) */
+/* ── controles ──────────────────────────────────────────────────────────── */
 .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .mode {
-  padding: 11px; border-radius: 46px;
-  border: 1px solid var(--glass-border-subtle);
-  background: var(--glass-subtle);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  font-size: 14px; font-weight: 600; color: var(--stone);
-  font-family: inherit;
+  padding: 11px 10px; border-radius: var(--rad-s);
+  border: 1px solid var(--linha2); background: var(--branco);
+  font: 400 14px/1 var(--titulo); color: var(--cinza);
+  cursor: pointer; transition: background-color .2s var(--mola), color .2s var(--mola);
 }
-.mode.on { border-color: var(--charcoal); color: var(--charcoal); background: rgba(255, 255, 255, 0.78); }
-
-/* 3-up modes (Igual · Por item · Outro valor) — tighter so the labels fit */
+.mode.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 .modes3 { grid-template-columns: 1fr 1fr 1fr; }
-.modes3 .mode { padding: 10px 4px; font-size: 13px; }
+.modes3 .mode { padding: 11px 4px; font-size: 13px; }
 
-/* Split por item: os itens da conta viram tocáveis */
 .items.pickable { gap: 6px; }
-.items.pickable li { border-bottom: none; padding-bottom: 0; }
+.items.pickable li { border-bottom: none; padding: 0; }
 .itempick {
   display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 10px 12px; border-radius: 12px;
-  border: 1px solid var(--glass-border-input);
-  background: rgba(255, 255, 255, 0.42);
-  font-size: 15px; line-height: 1.3; color: var(--charcoal);
-  font-family: inherit; text-align: left; cursor: pointer;
-  transition: border-color .15s ease, background .15s ease;
+  padding: 10px 12px; border-radius: var(--rad-s);
+  border: 1px solid var(--linha2); background: var(--branco);
+  font: 400 16px/24px var(--ui); color: var(--ink);
+  text-align: left; cursor: pointer;
+  transition: border-color .15s var(--mola), background-color .15s var(--mola);
 }
 .itempick .tick {
-  flex: none; width: 22px; height: 22px; border-radius: 7px;
+  flex: none; width: 22px; height: 22px; border-radius: 6px;
   display: grid; place-items: center;
-  border: 1px solid var(--glass-border-input);
-  background: rgba(255, 255, 255, 0.6);
-  font-size: 13px; font-weight: 700; color: var(--stone);
+  border: 1px solid var(--linha2); background: var(--branco);
+  font-size: 13px; font-weight: 600; color: var(--claro);
 }
 .itempick .iname { flex: 1; }
-.itempick.on { border-color: var(--emerald); background: rgba(16, 185, 129, 0.09); }
-.itempick.on .tick { border-color: var(--emerald); background: var(--emerald); color: #fff; }
+.itempick.on { border-color: var(--verde); background: var(--verde-bg); }
+.itempick.on .tick { border-color: var(--verde); background: var(--verde); color: #fff; }
 .itemhint { margin-top: 2px; }
 
-.stepperrow { display: flex; align-items: center; gap: 12px; font-size: 15px; }
+.stepperrow { display: flex; align-items: center; gap: 12px; font: 400 16px/24px var(--ui); }
 .stepper {
-  display: flex; align-items: center; gap: 14px;
-  border: 1px solid var(--glass-border-input); border-radius: 12px;
-  background: rgba(255, 255, 255, 0.5);
-  padding: 6px 10px;
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--linha2); border-radius: var(--rad-s);
+  background: var(--branco); padding: 5px 8px;
 }
 .stepper button {
-  width: 34px; height: 34px; border-radius: 10px; border: none;
-  background: rgba(28, 25, 23, 0.06); font-size: 20px; font-weight: 700; color: var(--charcoal);
-  font-family: inherit;
+  width: 32px; height: 32px; border-radius: 8px; border: 0;
+  background: var(--fundo2); font-size: 19px; color: var(--ink); cursor: pointer;
 }
-.stepper strong { min-width: 20px; text-align: center; font-size: 17px; }
+.stepper strong { min-width: 22px; text-align: center; font: 600 17px/1 var(--titulo); }
 
 .customrow {
   display: flex; align-items: center; gap: 8px;
-  border: 1px solid var(--glass-border-input); border-radius: 8px;
-  background: rgba(255, 255, 255, 0.5);
-  padding: 10px 12px;
+  border: 1px solid var(--linha2); border-radius: var(--rad-s);
+  background: var(--branco); padding: 12px 14px;
 }
-.customrow label { color: var(--stone); font-weight: 600; }
+.customrow label { color: var(--cinza); }
 .customrow input {
-  border: none; outline: none; font-size: 20px; width: 100%;
-  font-variant-numeric: tabular-nums; background: transparent; color: var(--charcoal);
-  font-family: inherit;
+  border: 0; outline: none; font-size: 20px; width: 100%;
+  font-variant-numeric: tabular-nums; background: transparent; color: var(--ink);
 }
 
-.servico { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--charcoal); }
-.servico input { width: 18px; height: 18px; accent-color: var(--emerald); margin-top: 1px; }
-.servico em { font-style: normal; color: var(--emerald); font-weight: 600; }
+/* O 10% é opcional e removível (CDC). O valor sai em TINTA, não em verde: é um
+   custo que o cliente paga, e verde diz "boa notícia" — errado pra quem paga. */
+.servico { display: flex; gap: 10px; align-items: flex-start; font: 400 15px/22px var(--ui); color: var(--ink); }
+.servico input { width: 18px; height: 18px; accent-color: var(--ink); margin-top: 2px; flex: none; }
+.servico em { font-style: normal; color: var(--ink); font-weight: 600; }
 
 .namefield {
-  border: 1px solid var(--glass-border-input); border-radius: 8px; padding: 12px;
-  font-size: 15px; background: rgba(255, 255, 255, 0.5); color: var(--charcoal);
-  font-family: inherit;
+  border: 1px solid var(--linha2); border-radius: var(--rad-s); padding: 13px 14px;
+  font: 400 16px/24px var(--ui); background: var(--branco); color: var(--ink);
 }
-.namefield::placeholder { color: var(--stone); }
+.namefield::placeholder { color: var(--claro); }
+.namefield:focus-visible { outline: none; border-color: var(--ink); }
 
-/* Primary CTA — burgundy filled pill */
+/* A ação: pílula preta, como na landing. */
 .cta {
-  border: none; border-radius: 100px; padding: 16px;
-  background: var(--burgundy); color: #fff; font-size: 16px; font-weight: 700;
-  letter-spacing: -0.01em; font-family: inherit;
-  box-shadow: 0 6px 18px rgba(159, 18, 57, 0.28);
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 48px; padding: 0 18px; border: 1px solid transparent; border-radius: 9999px;
+  background: var(--ink); color: #fff; font: 400 16px/1 var(--titulo); cursor: pointer;
+  transition: transform .15s var(--mola), background-color .3s var(--mola);
 }
-.cta:active { transform: translateY(1px); background: var(--burgundy-dark); }
-.cta:disabled { background: rgba(28, 25, 23, 0.12); color: var(--stone); box-shadow: none; }
+.cta:hover { background: #2A2B2E; }
+.cta:active { transform: scale(.98); }
+.cta:disabled { background: var(--fundo2); color: var(--claro); cursor: default; transform: none; }
 
 .ghost {
-  border: 1px dashed var(--glass-border-input); border-radius: 46px; padding: 12px;
-  background: transparent; color: var(--stone); font-size: 13px; font-family: inherit;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; padding: 0 16px; border-radius: 9999px;
+  border: 1px solid var(--linha2); background: var(--branco);
+  color: var(--ink); font: 400 15px/1 var(--titulo); cursor: pointer;
 }
-.linklike { border: none; background: none; color: var(--stone); font-size: 14px; padding: 6px; font-family: inherit; }
+.ghost:hover { background: var(--papel); }
+.linklike { border: 0; background: none; color: var(--cinza); font: 400 15px/1 var(--ui); padding: 8px 4px; cursor: pointer; }
+.linklike:hover { color: var(--ink); }
 
-/* Wallet payments (Apple Pay / Google Pay) — convenções das marcas: pill
-   preta da Apple, pill clara com borda do Google. */
 .walletrow { display: flex; gap: 8px; }
 .walletbtn {
-  flex: 1; border-radius: 100px; padding: 13px; font-size: 15px; font-weight: 600;
-  font-family: inherit; cursor: pointer; border: 1px solid transparent;
-  letter-spacing: -0.01em;
+  flex: 1; border-radius: 9999px; padding: 13px; font: 500 15px/1 var(--ui);
+  cursor: pointer; border: 1px solid transparent;
 }
-.walletbtn.apple { background: var(--charcoal); color: #fff; }
-.walletbtn.gpay { background: #fff; color: var(--charcoal); border-color: var(--glass-border-input); }
-.walletbtn:disabled { opacity: 0.5; cursor: default; }
+.walletbtn.apple { background: #000; color: #fff; }
+.walletbtn.gpay { background: #fff; color: #1F1F1F; border-color: var(--linha2); }
+.walletbtn:disabled { opacity: .4; cursor: default; }
+
 .sheetoverlay {
-  position: fixed; inset: 0; background: rgba(28, 25, 23, 0.45);
+  position: fixed; inset: 0; background: rgba(24,25,27,.42);
   display: flex; align-items: flex-end; justify-content: center; z-index: 60;
 }
 .sheet {
-  background: var(--warm-white); width: min(430px, 100%);
-  border-radius: 18px 18px 0 0; padding: 20px 20px 28px;
-  display: flex; flex-direction: column; gap: 12px;
-  box-shadow: 0 -8px 32px rgba(28, 25, 23, 0.18);
+  background: var(--branco); width: min(430px, 100%);
+  border-radius: var(--rad) var(--rad) 0 0; padding: 24px 22px 30px;
+  display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 -8px 40px rgba(24,25,27,.14);
 }
 
-.pixcard { text-align: center; }
-.bigmoney {
-  font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
-  font-size: 46px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
-}
+/* Pix */
+.pixcard { text-align: center; align-items: stretch; background: var(--branco); }
+.bigmoney { font: italic 400 52px/1 var(--serif); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .codebox {
-  font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px;
-  color: var(--stone); background: rgba(255, 255, 255, 0.5);
-  border: 1px solid var(--glass-border-subtle);
-  border-radius: 10px; padding: 12px;
+  font: 400 12px/18px ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--cinza); background: var(--papel);
+  border: 1px solid var(--linha2); border-radius: var(--rad-s); padding: 14px;
   word-break: break-all; text-align: left;
 }
 
-.paid { align-items: center; text-align: center; gap: 14px; padding: 40px 16px; }
+.paid { align-items: center; text-align: center; gap: 16px; padding: 44px 22px; background: var(--branco); }
 .paidmark {
-  width: 72px; height: 72px; border-radius: 50%;
-  background: var(--emerald-bright); color: #fff; font-size: 40px;
+  width: 64px; height: 64px; border-radius: 50%;
+  background: var(--verde-bg); color: var(--verde); font-size: 30px;
   display: grid; place-items: center;
-  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
 }
-.paid h2 { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 26px; }
+.paid h2 { font: italic 400 30px/1.15 var(--serif); }
 .paid .progresswrap { width: 100%; }
 
-/* Restaurant panel */
-.statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.stat {
-  background: var(--glass-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--glass-border); border-radius: 16px;
-  box-shadow: var(--shadow-card);
-  padding: 14px; display: flex; flex-direction: column; gap: 4px;
-}
-.stat b {
-  font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
-  font-size: 24px; font-variant-numeric: tabular-nums;
-}
-.stat span { font-size: 12px; color: var(--stone); }
+/* ── painel ─────────────────────────────────────────────────────────────── */
+.statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.stat { padding: 18px 16px; gap: 4px; }
+.stat b { font: italic 400 28px/1 var(--serif); font-variant-numeric: tabular-nums; }
+.stat span { font: 400 13px/18px var(--ui); color: var(--cinza); }
 
 .checkrow {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  padding: 12px 4px; border-bottom: 1px dashed var(--glass-border-subtle);
-  font-size: 14px;
+  padding: 14px 2px; border-bottom: 1px solid rgba(0,0,0,.06); font: 400 15px/22px var(--ui);
 }
 .checkrow:last-child { border-bottom: none; }
-.pill {
-  border-radius: 46px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+.pill { border-radius: 6px; padding: 3px 9px; font: 400 14px/20px var(--ui); white-space: nowrap; }
+.pill.aberta  { background: var(--fundo2); color: var(--cinza); }
+.pill.parcial { background: #FDF3D7; color: #8A6410; }
+.pill.paga    { background: var(--verde-bg); color: var(--verde); }
+.pill.fechada { background: var(--fundo2); color: var(--claro); }
+
+.actrow { display: grid; grid-template-columns: 46px 1fr max-content; align-items: center; gap: 12px; }
+.actbar { height: 6px; border-radius: 99px; background: var(--fundo2); overflow: hidden; }
+.actbar span { display: block; height: 100%; background: var(--verde); border-radius: 99px; }
+
+.foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  color: var(--claro); font: 400 13px/20px var(--ui); padding-top: 8px;
 }
-.pill.aberta { background: rgba(28, 25, 23, 0.07); color: var(--stone); }
-.pill.parcial { background: rgba(245, 158, 11, 0.18); color: #92400E; }
-.pill.paga { background: rgba(16, 185, 129, 0.16); color: #065F46; }
-.pill.fechada { background: rgba(28, 25, 23, 0.09); color: var(--charcoal); }
-
-/* Ativação (painel) — barras CSS por dia, proporcionais ao valor; sem lib de gráfico */
-.actrow { display: grid; grid-template-columns: 42px 1fr max-content; align-items: center; gap: 10px; }
-.actbar { height: 8px; border-radius: 99px; background: rgba(28, 25, 23, 0.08); overflow: hidden; }
-.actbar span { display: block; height: 100%; background: var(--emerald); border-radius: 99px; }
-
-.foot { text-align: center; color: var(--stone); font-size: 12px; padding-top: 4px; }
-.muted { color: var(--stone); }
-.small { font-size: 13px; }
+.muted { color: var(--cinza); }
+.small { font-size: 14px; line-height: 21px; }
 .center { text-align: center; }
 
-/* QR print card */
-.qrprint { align-items: center; text-align: center; gap: 10px; }
-.qrbox {
-  background: #fff; padding: 16px; border-radius: 16px;
-  border: 1px solid var(--glass-border-subtle);
-  display: grid; place-items: center;
-}
+/* QR */
+.qrprint { align-items: center; text-align: center; gap: 12px; }
+.qrbox { background: #fff; padding: 14px; border-radius: var(--rad-s); border: 1px solid var(--linha2); display: grid; place-items: center; }
 
-/* /qrs — folha com o cartão de cada mesa (A6-ish, 2 por linha no A4) */
-.qrgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.qrcard {
-  background: var(--glass-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
-  box-shadow: var(--shadow-card);
-  padding: 22px 16px 14px;
-  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px;
-  break-inside: avoid;
-}
-.qrcard .qrvenue {
-  font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
-  font-size: 22px; letter-spacing: -0.01em;
-}
-.qrcard .qrmesa { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 30px; }
-.qrcard .qrhint { font-size: 13px; }
-.qrcard .qrperks { font-size: 12px; color: var(--stone); }
-.qrcard .qrbrand { font-size: 11px; color: var(--stone); letter-spacing: 0.18em; margin-top: 4px; }
+.qrgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.qrcard { background: var(--branco); align-items: center; text-align: center; gap: 10px; break-inside: avoid; padding: 28px 20px 18px; }
+.qrcard .qrvenue { font: italic 400 26px/1 var(--serif); }
+.qrcard .qrmesa  { font: 600 30px/1 var(--titulo); letter-spacing: -.02em; }
+.qrcard .qrhint  { font: 400 15px/22px var(--ui); color: var(--cinza); }
+.qrcard .qrperks { font: 400 14px/20px var(--ui); color: var(--cinza); }
+.qrcard .qrbrand { font: 400 12px/1 var(--ui); color: var(--claro); letter-spacing: .18em; margin-top: 6px; }
 
-/* House accounts — saldo da casa (carteira + admin) */
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.pos { color: var(--emerald); font-weight: 600; }
-.cfggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.cfggrid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--stone); }
+.pos { color: var(--verde); font-weight: 600; }
+.cfggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cfggrid label { display: flex; flex-direction: column; gap: 6px; font: 400 14px/20px var(--ui); color: var(--cinza); }
 
-@media (prefers-reduced-motion: reduce) {
-  .progressbar span { transition: none; }
-}
+@media (prefers-reduced-motion: reduce) { .progressbar span { transition: none; } }
 
-/* Printing: only the QR cards, black on white, no glass/gradient */
 @media print {
   body { background: #fff !important; }
   .shell { max-width: none; }
-  .noprint, .linklike, .cta { display: none !important; }
-  .pixcard { border: none; box-shadow: none; backdrop-filter: none; background: #fff; }
-
-  /* /qrs — papel branco, tinta preta; borda fina como guia de corte,
-     e cada cartão inteiro numa página (break-inside: avoid). */
+  .noprint, .linklike, .cta, .langtoggle { display: none !important; }
   .qrspage { padding: 0; gap: 0; display: block; }
   .qrgrid { gap: 8mm; }
-  .qrcard {
-    background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none;
-    border: 1pt solid #999; border-radius: 12pt; box-shadow: none;
-    color: #000;
-    padding: 10mm 6mm 6mm;
-    break-inside: avoid; page-break-inside: avoid;
-  }
-  .qrcard .qrhint, .qrcard .qrperks, .qrcard .qrbrand { color: #000; }
-  .qrcard .qrbox { border: none; padding: 0; }
+  .qrcard { border: 1pt solid #999; border-radius: 12pt; padding: 10mm 6mm 6mm; break-inside: avoid; page-break-inside: avoid; }
+  .qrcard .qrbox { padding: 0; border: none; }
+}
+
+/* Seletor de idioma — pílula discreta, no rodapé. */
+.langtoggle { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--linha2); border-radius: 9999px; background: var(--branco); }
+.langopt {
+  border: 0; background: none; cursor: pointer;
+  font: 400 12px/1 var(--titulo); letter-spacing: .04em;
+  padding: 6px 10px; border-radius: 9999px; color: var(--cinza);
+}
+.langopt.on { background: var(--ink); color: #fff; }
+.langopt:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* ── o herói, no ritmo da landing ────────────────────────────────────────
+   Marca grande em serif itálico, subtítulo em Instrument Sans, e ar em volta.
+   As medidas são as da landing reduzidas pro shell de 430px — mesma proporção,
+   não o mesmo número: 96px de marca num telefone vira uma palavra por linha. */
+.hero { padding: 44px 0 8px; text-align: center; display: flex; flex-direction: column; gap: 0; }
+.hero .marca { font: italic 400 58px/1 var(--serif); letter-spacing: -.03em; }
+.hero h1 {
+  margin-top: 22px; font: 400 30px/38px var(--titulo);
+  letter-spacing: -.02em; text-wrap: balance;
+}
+.hero .sub {
+  margin-top: 14px; font: 400 17px/26px var(--ui); color: var(--cinza);
+  text-wrap: pretty; max-width: 46ch; margin-left: auto; margin-right: auto;
+}
+.hero .acoes { margin-top: 26px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Seções da landing: título centralizado em cinza-claro, corpo em cinza. */
+.t-secao { text-align: center; margin-bottom: 4px; }
+.t-secao h2 { font: 600 22px/30px var(--titulo); color: var(--claro); letter-spacing: -.01em; }
+.t-secao p { margin-top: 6px; font: 400 15px/23px var(--ui); color: var(--cinza); }
+
+/* Passo numerado — a régua da landing, em coluna. */
+/* Empilhado, não em duas colunas: "1 · Escaneou" ao lado de uma frase de duas
+   linhas quebra a frase em pedaços curtos e a leitura trava. */
+.passo { display: flex; flex-direction: column; gap: 3px; padding: 14px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+.passo:last-of-type { border-bottom: none; }
+.passo b { font: 600 16px/24px var(--titulo); }
+.passo span { font: 400 15px/23px var(--ui); color: var(--cinza); }
+.pill-verde { display: inline-block; padding: 3px 9px; border-radius: 6px; background: var(--verde-bg); color: var(--verde); font: 400 14px/20px var(--ui); }
+
+/* Modo embed (landing): a conta como um estado. Só CSS; o app não muda. */
+.shell.embed { min-height: 0; padding-bottom: 16px; }
+.shell.embed .namefield, .shell.embed .walletrow, .shell.embed .walletbtn, .shell.embed .linklike,
+.shell.embed .ghost, .shell.embed .foot, .shell.embed .card > .small { display: none; }
+/* No pôster o entalhe tem de ler como entalhe, não como emoji: maior. */
+.shell.embed .dish { width: 48px; height: 48px; margin: -10px 0 -10px -9px; }
+.shell.embed .servico { font-size: 13.5px; }
+.shell.embed .servico span { display: flex; flex: 1; justify-content: space-between; gap: 8px; }
+
+/* ═══ LANDING ═══════════════════════════════════════════════════════════════
+   Uma composição, um trilho. Grade de 12 em toda seção: títulos em 1–4,
+   conteúdo em 5–12. Uma unidade (128). Réguas só dentro da coluna. Serif
+   itálica só na manchete e nos numerais. UM acento na página. */
+.landing {
+  --n: #141008; --cr: #F7F2E9;
+  --cr2: rgba(247,242,233,.86); --cr3: rgba(247,242,233,.72); --cr4: rgba(247,242,233,.52);
+  --fio: rgba(247,242,233,.16);
+  --acento: #E2A54A;
+  --u: 128px; --col: 24px;
+  background: var(--n); color: var(--cr); min-height: 100vh; overflow-x: clip;
+  font: 400 16px/24px var(--ui);
+}
+.landing .env { width: 100%; max-width: 1200px; margin: 0 auto; padding-left: 40px; padding-right: 40px; box-sizing: border-box; }
+.landing .grade, .heroi, .prova, .landing .rodape { display: grid; grid-template-columns: repeat(12, 1fr); column-gap: var(--col); }
+
+.landing .topo { display: flex; align-items: baseline; justify-content: space-between; padding-top: 44px; height: 94px; box-sizing: border-box; }
+.landing .marca { font: italic 400 30px/1 var(--serif); letter-spacing: -.02em; color: var(--cr); }
+.landing .topo nav { display: flex; align-items: baseline; gap: 28px; font: 400 15px/1 var(--titulo); }
+.landing .topo nav > a { color: var(--cr2); } .landing .topo nav > a:hover { color: var(--cr); }
+.landing .langtoggle { border: 0; background: transparent; padding: 0; gap: 14px; align-items: baseline; }
+.landing .langopt { color: var(--cr3); font: 400 15px/1 var(--titulo); letter-spacing: .04em; padding: 0; border-radius: 0; }
+.landing .langopt.on { background: transparent; color: var(--cr); }
+
+/* Uma pílula de fio, na cor da página — nada colado de um tema claro. */
+.landing .btn {
+  display: inline-flex; align-items: center; gap: 8px; box-sizing: border-box;
+  height: 52px; padding: 0 26px; border-radius: 999px; border: 1px solid var(--cr3);
+  background: transparent; color: var(--cr); font: 400 16px/1 var(--titulo); white-space: nowrap;
+  transition: background-color .3s var(--mola), color .3s var(--mola), border-color .3s var(--mola);
+}
+.landing .btn::after { content: "→"; font-family: var(--ui); }
+.landing .btn:hover { background: var(--cr); color: var(--n); border-color: var(--cr); }
+.landing .link { display: inline-flex; gap: 10px; align-items: baseline; margin-top: 40px; font: 400 17px/1 var(--titulo); color: var(--cr); border-bottom: 1px solid var(--fio); padding-bottom: 6px; }
+.landing .link:hover { border-color: var(--cr); }
+
+.eyebrow { font: 500 13px/1 var(--titulo); letter-spacing: .14em; text-transform: uppercase; color: var(--cr2); }
+
+/* ── herói: uma linha ──────────────────────────────────────────────────────
+   Manchete e os três gestos em 1–6; a tela em 8–12, o produto inteiro. */
+.heroi { padding-top: 56px; align-items: start; }
+.heroi .copy { grid-column: 1 / span 6; padding-top: 0; }
+.heroi h1 { margin-top: 22px; display: flex; flex-direction: column; letter-spacing: -.03em; }
+.heroi h1 span { font: 500 56px/1.04 var(--titulo); }
+.heroi h1 em  { font: italic 400 70px/1 var(--serif); letter-spacing: -.02em; margin-left: -.04em; margin-top: 10px; }
+.heroi .sub { margin-top: 28px; max-width: 42ch; font: 400 18px/27px var(--ui); color: var(--cr2); text-wrap: pretty; }
+.heroi .acoes { margin-top: 40px; display: flex; gap: 12px; flex-wrap: wrap; }
+.landing .btn.fantasma { border-color: transparent; color: var(--cr2); padding-left: 14px; }
+.landing .btn.fantasma::after { content: none; }
+.landing .btn.fantasma:hover { background: transparent; color: var(--cr); border-color: var(--fio); }
+
+/* Os três gestos: espinha curta, na coluna da manchete, ao lado do produto. */
+.passos { list-style: none; margin-top: 84px; border-top: 1px solid var(--fio); }
+.passos li { display: grid; grid-template-columns: 48px 96px 1fr; column-gap: var(--col); align-items: baseline; padding: 18px 0; }
+.passos li:first-child { padding-top: 22px; }
+.passos .num { font: 400 13px/26px var(--titulo); color: var(--cr4); font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+.passos .tit { font: 500 17px/26px var(--titulo); color: var(--cr); letter-spacing: -.01em; }
+.passos .desc { font: 400 16px/26px var(--ui); color: var(--cr2); }
+
+/* A tela: colunas 9–12 da grade (a borda esquerda numa linha da grade). O
+   app renderizado a 430px (a largura da concha) e reduzido à coluna. Fio de
+   1px; nada de sombra. Um estado, não o app — quem clica abre o app. */
+/* O palco: a tela nas colunas 9–12, os entalhes soltos em volta dela. */
+.palco { grid-column: 9 / span 4; position: relative; align-self: start; }
+.flut { position: absolute; display: block; background-color: var(--cr); opacity: .92; pointer-events: none;
+  -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; }
+.flut.espeto { width: 270px; height: 270px; left: -215px; top: 400px; rotate: 0deg; }
+.flut.chopp  { width: 92px;  height: 92px;  right: -104px; top: 36px; rotate: -6deg; }
+.flut.tampa  { width: 92px; height: 92px; right: -108px; top: 480px; rotate: 14deg; }
+.palco .dica { margin-top: 18px; text-align: center; font: 400 13px/18px var(--ui); color: var(--cr4); }
+.tela {
+  --w: 357px; --escala: calc(357 / 430);
+  align-self: start; display: block;
+  width: 100%; height: calc(var(--h, 812px) * var(--escala)); border-radius: 22px; overflow: hidden; box-sizing: border-box;
+  background: #fff; box-shadow: 0 0 0 1px var(--fio); cursor: pointer;
+}
+.tela iframe { display: block; width: 430px; height: var(--h, 812px); border: 0; background: #fff; pointer-events: none;
+  transform: scale(var(--escala)); transform-origin: 0 0; }
+
+/* ── a prova: seção própria, na grade ─────────────────────────────────────── */
+.prova { padding-top: 168px; row-gap: 0; }
+.prova .eyebrow { grid-column: 1 / -1; }
+.prova .eq { grid-column: 1 / -1; display: flex; align-items: baseline; margin-top: 20px; }
+.eq .n, .partes .n { font: italic 400 clamp(64px, 7.6vw, 108px)/1.02 var(--serif); letter-spacing: -.035em; font-variant-numeric: tabular-nums; color: var(--cr); }
+/* ÷ e = desenhados no eixo matemático (meia altura das cifras), na cor quieta. */
+.eq .op { display: inline-flex; flex-direction: column; align-items: center; gap: .13em; align-self: flex-end; margin: 0 .3em 0 .28em; translate: 0 -.26em; font-size: clamp(64px, 7.6vw, 108px); }
+.eq .op i { width: .1em; height: .1em; border-radius: 50%; background: var(--cr3); }
+.eq .op b { width: .5em; height: .045em; background: var(--cr3); }
+.eq .igual { gap: .16em; translate: 0 -.22em; }
+.partes { grid-column: 1 / -1; list-style: none; display: grid; grid-template-columns: repeat(12, 1fr); column-gap: var(--col); margin-top: 8px; }
+.partes li { grid-column: span 4; }
+.partes .acento .n { color: var(--acento); }
+.prova .cap { grid-column: 1 / span 7; margin-top: 48px; font: 400 26px/34px var(--titulo); letter-spacing: -.015em; color: var(--cr2); text-wrap: pretty; }
+
+/* ── seções: um trilho ────────────────────────────────────────────────────── */
+.landing .secao { padding-top: 112px; }
+.landing .grade { align-items: start; }
+.landing .grade > :first-child { grid-column: 1 / span 4; }
+.landing .grade > :last-child  { grid-column: 5 / span 8; }
+.landing .h2 { font: 500 26px/32px var(--titulo); letter-spacing: -.02em; color: var(--cr); max-width: 14ch; }
+
+/* Para a casa: prosa em escala de manchete, sem números, sem réguas. */
+.manifesto { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--col); row-gap: 28px; border-top: 1px solid var(--fio); padding-top: 28px; }
+.manifesto p { font: 400 22px/30px var(--titulo); letter-spacing: -.015em; color: var(--cr); text-wrap: pretty; max-width: 20em; }
+.manifesto p:first-child { grid-column: 1 / -1; font-size: 30px; line-height: 38px; max-width: 24em; }
+.manifesto p:nth-child(n+2) { color: var(--cr2); }
+.casa .link { margin-top: 48px; }
+
+/* Colofão: uma régua inteira, depois quatro colunas na grade. */
+.landing .rodape { margin-top: 96px; padding-bottom: 48px; font: 400 14px/20px var(--ui); color: var(--cr3); row-gap: 0; align-items: baseline; }
+.landing .rodape hr { grid-column: 1 / -1; border: 0; border-top: 1px solid var(--fio); margin: 0 0 28px; }
+.landing .rodape > span:not(.legal) { grid-column: 1 / span 4; white-space: nowrap; }
+.landing .rodape nav { grid-column: 5 / span 4; display: flex; gap: 28px; }
+.landing .rodape nav a { color: var(--cr2); border-bottom: 1px solid var(--fio); padding-bottom: 2px; }
+.landing .rodape nav a:hover { color: var(--cr); border-color: var(--cr); }
+.landing .rodape .legal { grid-column: 9 / span 4; justify-self: end; text-align: right; color: var(--cr4); }
+
+@media (max-width: 980px) {
+  .landing { --u: 88px; }
+  .landing .env { padding-left: 24px; padding-right: 24px; }
+  .heroi { grid-template-columns: 1fr; padding-top: 32px; row-gap: 48px; }
+  .heroi .copy { grid-column: 1; padding-top: 0; }
+  .palco { grid-column: 1; justify-self: center; width: min(357px, 100%); }
+  .tela { width: 100%; } .flut { display: none; }
+  .heroi h1 span { font-size: 40px; } .heroi h1 em { font-size: 52px; }
+  .passos { margin-top: 56px; }
+  .passos li { grid-template-columns: 40px 1fr; } .passos .desc { grid-column: 2; }
+  .prova { grid-template-columns: 1fr; }
+  .prova .eyebrow, .prova .eq, .partes { grid-column: 1; }
+  .eq .n, .partes .n, .eq .op { font-size: clamp(44px, 11vw, 64px); }
+  .partes { grid-template-columns: 1fr; row-gap: 8px; } .partes li { grid-column: 1; }
+  .prova .cap { grid-column: 1; font-size: 20px; line-height: 28px; margin-top: 32px; }
+  .landing .grade { grid-template-columns: 1fr; row-gap: 24px; }
+  .landing .grade > :first-child, .landing .grade > :last-child { grid-column: 1; }
+  .manifesto { grid-template-columns: 1fr; } .manifesto p, .manifesto p:first-child { font-size: 20px; line-height: 28px; }
+  .landing .rodape { grid-template-columns: 1fr; row-gap: 12px; }
+  .landing .rodape > * { grid-column: 1 !important; justify-self: start !important; text-align: left !important; }
 }

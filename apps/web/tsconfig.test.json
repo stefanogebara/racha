@@ -1,0 +1,19 @@
+{
+  // The split parity suite is a Node harness, not app code: it imports
+  // node:test and the backend's CommonJS split-engine, neither of which belongs
+  // in the browser tsconfig's DOM world. Separate project, Node lib, and
+  // allowImportingTsExtensions because Node's own type stripper needs the real
+  // `.ts` specifier at runtime.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": ["test", "src/split.ts"]
+}

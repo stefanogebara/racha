@@ -12,6 +12,7 @@
  */
 
 const http = require('http');
+const { ensureDemoCheck } = require('./api/_lib/demo');
 const crypto = require('crypto');
 const { route, store, authClient, useSupabase } = require('./api/_app/router');
 
@@ -34,6 +35,12 @@ const PORT = 8787;
     { id: 'i4', name: 'Refrigerante (2x)', priceCents: 1580 },
     { id: 'i5', name: 'Pudim da casa', priceCents: 1890 },
   ]);
+  // The public demo table, same token as prod, so the landing's live phone
+  // (`/?t=demoracha`) works locally without a special case. Goes through the
+  // same `ensureDemoCheck` the server uses, so local gets the SAME venue markers
+  // (isTest + rcpt_demo) the identity assertion requires — seeding it by hand
+  // here would build a demo table that the server then refuses to touch.
+  if (!useSupabase) await ensureDemoCheck(store);
   await store.openCheck(mesa2.qrToken, [
     { id: 'j1', name: 'Moqueca de peixe', priceCents: 12900 },
     { id: 'j2', name: 'Caipirinha (2x)', priceCents: 3980 },

@@ -31,12 +31,14 @@ const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
 const { createChargeService } = require('../_lib/pay/create-charge');
-const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon } = require('../_lib/notify');
+const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
+        notifyFounderReconcile } = require('../_lib/notify');
 const { montarRadar } = require('../_lib/activation/radar');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
 const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
+const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
@@ -146,7 +148,8 @@ const reconciler = createChargeReconciler({
 // quebrar (o recebedor de teste não existe em live). Aqui ele roda sempre num
 // MockPsp próprio e se auto-confirma — independente de RACHA_PSP/live. É a única
 // venue cujo dinheiro é fake por design.
-const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || 'demoracha';
+const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck } = require('../_lib/demo');
+const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || DEMO_TOKEN;
 const demoPsp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 const demoCharge = createChargeService({ store, psp: demoPsp });
 const demoWebhook = createWebhookHandler({
@@ -216,18 +219,34 @@ async function guardUser(req, res) {
 // (house/open). Fluid Compute reuses instances, so this bites a scripted
 // flood; the per-venue account cap in the service is the durable bound.
 const openBuckets = new Map(); // ip → { count, resetAt }
-function rateLimitOpen(req) {
-  const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
-    || (req.socket && req.socket.remoteAddress) || 'unknown';
+// O PRIMEIRO elemento do X-Forwarded-For é escrito pelo cliente: `XFF: 1.2.3.<n>`
+// dá um balde novo por request e o limite deixa de existir. O hop confiável é o
+// ÚLTIMO (o proxy da Vercel), e x-real-ip quando presente (achado da revisão).
+function clientIp(req) {
+  const real = String(req.headers['x-real-ip'] || '').trim();
+  if (real) return real;
+  const hops = String(req.headers['x-forwarded-for'] || '').split(',').map((h) => h.trim()).filter(Boolean);
+  return hops[hops.length - 1] || (req.socket && req.socket.remoteAddress) || 'unknown';
+}
+function rateLimitBucket(req, prefix, limit) {
+  const key = `${prefix}:${clientIp(req)}`;
   const nowMs = Date.now();
-  const b = openBuckets.get(ip);
+  const b = openBuckets.get(key);
   if (!b || nowMs > b.resetAt) {
-    openBuckets.set(ip, { count: 1, resetAt: nowMs + 10 * 60 * 1000 });
+    openBuckets.set(key, { count: 1, resetAt: nowMs + 10 * 60 * 1000 });
     if (openBuckets.size > 10000) openBuckets.clear(); // memory bound
     return true;
   }
   b.count += 1;
-  return b.count <= 10; // 10 wallet creations / 10 min / IP
+  return b.count <= limit;
+}
+function rateLimitOpen(req) {
+  return rateLimitBucket(req, 'open', 10); // 10 wallet creations / 10 min / IP
+}
+// A auto-cura da demo ESCREVE (venue/mesa/conta) numa rota sem auth. Em estado
+// saudável é no-op; o limite existe pro estado degradado (achado MÉDIO).
+function rateLimitDemoHeal(req) {
+  return rateLimitBucket(req, 'demoheal', 6); // 6 auto-curas / 10 min / IP
 }
 
 /**
@@ -243,10 +262,34 @@ function podeEnviarAviso() {
   return !!process.env.CRON_SECRET;
 }
 
+// Throttle do aviso "CRON_SECRET não configurado" (1×/h por instância).
+let avisoCronSecretAte = 0;
+
+/** Compara `Authorization: Bearer <x>` com o segredo sem vazar tempo. */
+function segredoConfere(header, secret) {
+  const esperado = Buffer.from(`Bearer ${secret}`);
+  const recebido = Buffer.from(String(header || ''));
+  if (recebido.length !== esperado.length) return false;
+  return crypto.timingSafeEqual(recebido, esperado);
+}
+
 // Confirm-on-read throttle: at most one PSP re-check per check per ~10s per
 // instance (Fluid Compute reuse makes this bite). Stops a pending charge from
 // firing a gateway call on every 4s diner poll while still healing fast.
 const reconcileThrottle = new Map(); // checkId → nextAllowedMs
+// O painel recarrega a cada 4s; conciliar o restaurante inteiro a cada recarga
+// seria varrer o banco quinze vezes por minuto pra mostrar o mesmo verde. Uma
+// vez por minuto por casa mantém o número honesto e o custo no chão.
+const panelReconThrottle = new Map(); // venueId → { at, result }
+function panelReconcileCached(venueId) {
+  const hit = panelReconThrottle.get(venueId);
+  if (hit && Date.now() - hit.at < 60_000) return hit.result;
+  return null;
+}
+function panelReconcileStore(venueId, result) {
+  if (panelReconThrottle.size > 500) panelReconThrottle.clear();
+  panelReconThrottle.set(venueId, { at: Date.now(), result });
+}
 function shouldReconcileNow(checkId) {
   const now = Date.now();
   if (now < (reconcileThrottle.get(checkId) || 0)) return false;
@@ -276,7 +319,15 @@ async function route(req, res) {
     if (req.method === 'GET' && url.pathname === '/api/check') {
       const token = url.searchParams.get('t') || '';
       let data = await store.getCheckByQrToken(token);
-      if (!data) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      // A mesa da demo se auto-cura: sem mesa (ambiente novo) ou com a conta
+      // fechada (alguém pagou tudo), reabre — o telefone da landing nunca mostra
+      // "conta não encontrada". Só o token fixo da demo; nunca uma mesa real.
+      if (!data && token === DEMO_TABLE_TOKEN && rateLimitDemoHeal(req)) {
+        try { data = await ensureDemoCheck(store, token); } catch (e) {
+          process.stderr.write(`[demo-ensure] ${String(e.message).slice(0, 120)}\n`);
+        }
+      }
+      if (!data) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       // Confirm-on-read: heal a missed webhook. If money is still owed, re-ask
       // the PSP about this check's pending charges (throttled per check,
       // best-effort — a slow/absent gateway must NEVER break the read). The
@@ -300,6 +351,14 @@ async function route(req, res) {
       // Sinaliza pro diner se o restaurante aceita cartão/Apple Pay (tem conta
       // Stripe conectada). Só consulta o venue quando o Stripe está ligado — em
       // prod hoje stripePsp é null → nenhuma chamada extra, a flag fica ausente.
+      // A mesa de demonstração se declara PRA UI: sem isto o rail de carteira
+      // abre a folha OFICIAL do Google Pay (ambiente PRODUCTION, merchant real)
+      // e pede CPF de verdade pra uma conta que não existe — autorização obtida
+      // sob premissa falsa (CDC 6º III/37) e CPF sem base legal (LGPD).
+      // Achado CRÍTICO da revisão de compliance.
+      if (token === DEMO_TABLE_TOKEN) {
+        data = { ...data, venue: { ...data.venue, demo: true } };
+      }
       if (stripePsp && token !== DEMO_TABLE_TOKEN) {
         const v = await store.getVenueForCheck(data.check.id);
         if (v && v.stripeAccountId && /^acct_/.test(v.stripeAccountId)) {
@@ -311,7 +370,7 @@ async function route(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/pay') {
       const body = JSON.parse(await readBody(req) || '{}');
       const view = await store.getCheckByQrToken(body.token || '');
-      if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
       // pelo PSP real — dinheiro fake mesmo com o app em live.
       const isDemo = (body.token || '') === DEMO_TABLE_TOKEN;
@@ -350,20 +409,23 @@ async function route(req, res) {
       const b = JSON.parse(await readBody(req) || '{}');
       if ((b.token || '') === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, error: 'a demo não usa cartão' });
       const view = await store.getCheckByQrToken(b.token || '');
-      if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       const venue = await store.getVenueForCheck(view.check.id);
       if (!venue || !venue.stripeAccountId || !/^acct_/.test(venue.stripeAccountId)) {
-        return json(res, 400, { success: false, error: 'este restaurante ainda não aceita cartão' });
+        return json(res, 400, { success: false, error: 'este restaurante ainda não aceita cartão', code: 'no_card' });
       }
       const amountCents = b.amountCents;
       const tipCents = b.tipCents ?? 0;
-      if (!Number.isSafeInteger(amountCents) || amountCents < 0) return json(res, 400, { success: false, error: 'amountCents inválido' });
+      if (!Number.isSafeInteger(amountCents) || amountCents < 0) return json(res, 400, { success: false, error: 'amountCents inválido', code: 'amount_invalid' });
       if (!Number.isSafeInteger(tipCents) || tipCents < 0) return json(res, 400, { success: false, error: 'tipCents inválido' });
-      if (amountCents + tipCents === 0) return json(res, 400, { success: false, error: 'cobrança de valor zero' });
+      if (amountCents + tipCents === 0) return json(res, 400, { success: false, error: 'cobrança de valor zero', code: 'zero_charge' });
       const state = reduce(await store.loadEvents(view.check.id));
-      if (!state || state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada' });
+      if (!state || state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada', code: 'check_closed' });
       const remaining = remainingCents(state);
-      if (amountCents > remaining) return json(res, 400, { success: false, error: `valor acima do que falta (${remaining} centavos)` });
+      if (amountCents > remaining) return json(res, 400, { success: false, error: `valor acima do que falta (${remaining} centavos)`,
+        // Centavos crus, não texto formatado: quem escolhe "R$ 12,34" ou
+        // "R$ 12.34" é o cliente, que sabe o idioma. Servidor não formata dinheiro.
+        code: 'amount_over', vars: { leftCents: remaining } });
       try {
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
         const charge = await stripePsp.createWalletCharge({
@@ -436,7 +498,7 @@ async function route(req, res) {
     }
     if (req.method === 'POST' && url.pathname === '/api/house/open') {
       if (!rateLimitOpen(req)) {
-        return json(res, 429, { success: false, error: 'Muitas tentativas — aguarde alguns minutos' });
+        return json(res, 429, { success: false, error: 'Muitas tentativas — aguarde alguns minutos', code: 'rate_limited' });
       }
       const b = JSON.parse(await readBody(req) || '{}');
       const data = await houseSvc.openAccount({
@@ -600,7 +662,7 @@ async function route(req, res) {
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.accountId) return json(res, 400, { success: false, error: 'accountId é obrigatório' });
       const venueId = await houseSvc.venueIdForAccount(b.accountId);
-      if (!venueId) return json(res, 404, { success: false, error: 'Conta não encontrada' });
+      if (!venueId) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const data = url.pathname.endsWith('refund')
@@ -617,6 +679,25 @@ async function route(req, res) {
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const data = await store.getPanelView(venueId);
       if (!data) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      // A conciliação vive AQUI, no painel do restaurante, e não só na página de
+      // conta-corrente: quem precisa saber que o dinheiro bate é quem recebe o
+      // dinheiro. Cacheada por 60s (o painel recarrega a cada 4s).
+      let recon = panelReconcileCached(venueId);
+      if (!recon) {
+        const r = await reconcileOneVenue(store, { id: venueId, name: data.venue.name });
+        recon = {
+          severity: r.severity,
+          driftCents: r.driftCents,
+          checksChecked: r.checksChecked,
+          accountsChecked: r.accountsChecked,
+          findings: r.findings.slice(0, 5).map((f) => ({
+            severity: f.severity, code: f.code, message: f.message,
+          })),
+          at: new Date().toISOString(),
+        };
+        panelReconcileStore(venueId, recon);
+      }
+      data.reconcile = recon;
       return json(res, 200, { success: true, data });
     }
     if (req.method === 'POST' && url.pathname === '/api/checks') {
@@ -635,7 +716,7 @@ async function route(req, res) {
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.checkId) return json(res, 400, { success: false, error: 'checkId é obrigatório' });
       const venue = await store.getVenueForCheck(b.checkId);
-      if (!venue) return json(res, 404, { success: false, error: 'conta não encontrada' });
+      if (!venue) return json(res, 404, { success: false, error: 'conta não encontrada', code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, venue.id); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       try {
@@ -735,21 +816,8 @@ async function route(req, res) {
     // idempotente e rate-limited — o pior abuso possível é... resetar a demo.
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/demo/reset') {
       if (!rateLimitOpen(req)) return json(res, 429, { success: false, error: 'calma lá' });
-      const view = await store.getCheckByQrToken('demoracha');
-      if (view && view.state.paidCents === 0 && view.state.totalCents === 21310) {
-        return json(res, 200, { success: true, data: { status: 'já fresca' } });
-      }
-      if (view) await store.appendEvent(view.check.id, 'CLOSED', {});
-      const hit = await store.getVenueByTableToken('demoracha');
-      if (!hit) return json(res, 404, { success: false, error: 'demo não existe neste ambiente' });
-      await store.openCheck('demoracha', [
-        { id: 'i1', name: 'Picanha na chapa', priceCents: 8990 },
-        { id: 'i2', name: 'Chopp artesanal (4x)', priceCents: 5560 },
-        { id: 'i3', name: 'Batata rústica', priceCents: 3290 },
-        { id: 'i4', name: 'Refrigerante (2x)', priceCents: 1580 },
-        { id: 'i5', name: 'Pudim da casa', priceCents: 1890 },
-      ]);
-      return json(res, 200, { success: true, data: { status: 'resetada', totalCents: 21310 } });
+      const data = await resetDemoCheck(store, DEMO_TABLE_TOKEN);
+      return json(res, 200, { success: true, data });
     }
 
     // --- cron diário: detecta a virada do KYC do recebedor e avisa o dono -----
@@ -835,6 +903,82 @@ async function route(req, res) {
       return json(res, 200, { success: true, data: result });
     }
 
+    // --- cron: conciliação diária --------------------------------------------
+    // A regra #8 do CLAUDE.md: "Conciliação desde o dia 1. Job diário: razão do
+    // PSP vs nossos splits, por restaurante, ao centavo. Drift ≥ R$0,01 alerta
+    // alto. Um canário vermelho PAGINA; nunca só loga."
+    //
+    // O canário existia e era testado, mas o único caller era GET /api/house/admin
+    // — ou seja, rodava só se o dono de uma casa com conta-corrente abrisse
+    // aquela página. Isto é o job.
+    //
+    // ?dry=1 devolve o relatório sem avisar ninguém (inspeção sem acordar
+    // ninguém); ?test=1 inclui restaurantes de teste.
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/reconcile') {
+      // Fecha por padrão, ao contrário dos outros crons: o corpo desta rota é o
+      // retrato financeiro da PLATAFORMA inteira (nome de cada casa, drift em
+      // centavos, checkId/txid/accountId). Degradar aberta era divulgação
+      // cross-tenant sem auth — achado ALTO das duas revisões.
+      if (!process.env.CRON_SECRET) {
+        // Fechar por padrão criaria um canário DESLIGADO em silêncio — trocar um
+        // vazamento por um silêncio é o modo de falha #7 outra vez. Então o
+        // estado "não configurado" PAGINA (no máximo 1×/h por instância, senão
+        // a própria rota pública vira o megafone de quem quiser).
+        process.stderr.write('[reconcile-cron] BLOQUEADO: CRON_SECRET não configurado — a conciliação diária NÃO está rodando\n');
+        if (Date.now() > avisoCronSecretAte) {
+          avisoCronSecretAte = Date.now() + 60 * 60 * 1000;
+          await notifyFounderReconcile({
+            mensagem: 'Conciliação diária BLOQUEADA: CRON_SECRET não está configurado na Vercel. '
+              + 'A varredura não roda até setar a env (e a rota ficaria pública sem ela).',
+            venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+          });
+        }
+        return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
+      }
+      if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
+        return json(res, 401, { success: false, error: 'unauthorized' });
+      }
+      // Canário morto ≠ canário verde (#8 + #7). Se a varredura EXPLODE, ninguém
+      // saberia: sem isto o catch-all devolvia 500 e o silêncio lia como "tudo
+      // bate". Estourar é o pior estado possível, então pagina como crítico.
+      let report;
+      try {
+        report = await reconcileAllVenues(store, { includeTest: url.searchParams.get('test') === '1' });
+      } catch (e) {
+        const falha = `Conciliação NÃO RODOU: ${String(e && e.message).slice(0, 200)}`;
+        process.stderr.write(`[reconcile-cron] EXPLODIU: ${falha}\n`);
+        await notifyFounderReconcile({
+          mensagem: falha, venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+        });
+        return json(res, 500, { success: false, error: 'reconcile falhou', code: 'reconcile_threw' });
+      }
+      const mensagem = formatReconcileAlert(report);
+      let envio = null;
+      if (mensagem && url.searchParams.get('dry') !== '1') {
+        envio = await notifyFounderReconcile({
+          mensagem,
+          venuesRed: report.venuesRed,
+          venuesChecked: report.venuesChecked,
+          driftCents: report.totalDriftCents,
+          worstSeverity: report.worstSeverity,
+        });
+      } else if (!mensagem && url.searchParams.get('dry') !== '1') {
+        // Batimento: verde também fala. Do lado da Olímpia, a AUSÊNCIA da batida
+        // noturna é o alarme — que é o único jeito de detectar cron desligado.
+        envio = await notifyFounderReconcile({
+          mensagem: null, heartbeat: true,
+          venuesRed: 0, venuesChecked: report.venuesChecked,
+          driftCents: report.totalDriftCents, worstSeverity: report.worstSeverity,
+        });
+      }
+      // Verde também sai no log: um canário que só fala quando está ruim é
+      // indistinguível de um canário quebrado.
+      process.stderr.write(
+        `[reconcile-cron] casas=${report.venuesChecked} vermelhas=${report.venuesRed} `
+        + `pior=${report.worstSeverity} drift=${report.totalDriftCents}¢\n`);
+      return json(res, 200, { success: true, data: { ...report, mensagem, envio } });
+    }
+
     // --- cron: radar de ativação ---------------------------------------------
     // Cadastrar não é ativar. Em 25/jul/2026 havia 3 restaurantes cadastrados e
     // ZERO uso real — dois travados havia dias (um sem recebedor, outro sem
@@ -907,6 +1051,13 @@ async function route(req, res) {
     return json(res, 404, { success: false, error: 'not found' });
   } catch (err) {
     const status = err.statusCode || (err.name === 'WebhookVerificationError' ? 401 : 500);
+    // 4xx são erros de contrato e a mensagem ajuda quem chamou. 500 não mapeado
+    // costuma vir do PostgREST/Postgres (`throwOn`), e ecoar isso pro cliente é
+    // vazar interno: loga inteiro, devolve um código estável.
+    if (status >= 500) {
+      process.stderr.write(`[500] ${url.pathname} ${String(err && err.message).slice(0, 300)}\n`);
+      return json(res, status, { success: false, error: 'erro interno', code: 'internal' });
+    }
     return json(res, status, { success: false, error: err.message });
   }
 }

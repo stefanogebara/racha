@@ -1,0 +1,78 @@
+# XcodeGen spec — the human-readable source of truth for Racha.xcodeproj.
+#
+# The checked-in .xcodeproj works as-is; this exists so the project can be
+# regenerated from scratch (`xcodegen generate`) after a merge conflict, which
+# is the one thing pbxproj files are genuinely bad at.
+#
+# Both use Xcode 16's *synchronised folder groups*: the project references the
+# `Racha/` folder, not the ~50 files inside it. New files appear in the build
+# automatically and adding one is not a project-file diff — which is why this
+# repo has no merge conflicts of the classic "two people added a file" kind.
+name: Racha
+options:
+  bundleIdPrefix: com.racha
+  deploymentTarget:
+    iOS: "18.0"
+  developmentLanguage: pt-BR
+  createIntermediateGroups: true
+  minimumXcodeGenVersion: 2.42.0
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MTL_FAST_MATH: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    CLANG_WARN_DOCUMENTATION_COMMENTS: YES
+
+targets:
+  Racha:
+    type: application
+    platform: iOS
+    sources:
+      - path: Racha
+        # Synchronised group: Xcode watches the folder.
+        createIntermediateGroups: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.racha.ios
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_PREVIEWS: YES
+        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_KEY_CFBundleDisplayName: Racha
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIUserInterfaceStyle: Light
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSCameraUsageDescription: "Pra fotografar a nota e transformar em itens da conta."
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Pra ler a foto da nota que você já tirou."
+        INFOPLIST_KEY_NSMotionUsageDescription: "O vidro das superfícies reage à inclinação do aparelho."
+
+  RachaTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RachaTests
+    dependencies:
+      - target: Racha
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.racha.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Racha:
+    build:
+      targets:
+        Racha: all
+    test:
+      targets:
+        - RachaTests
+      gatherCoverageData: true
+    run:
+      config: Debug
+    archive:
+      config: Release

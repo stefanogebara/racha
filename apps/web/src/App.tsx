@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, ApiError, brl, parseBrlToCents, CheckView, ChargeResult } from './api';
+import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
+import { LangToggle, money, tError, useT } from './lang';
+import { dishFor, dishMask } from './dish';
 import Home from './Home';
 import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
 import StripeWalletPay from './StripeWalletPay';
 import { clearStoredWallet, readStoredWallet } from './house';
-import { computeShare, type SplitMode } from './split';
+import { computeShare, splitEqualLocal, type SplitMode } from './split';
 
 /**
  * Racha diner flow — one screen, three acts:
@@ -20,6 +22,11 @@ import { computeShare, type SplitMode } from './split';
 type Step = 'conta' | 'pagar' | 'pago' | 'saldo';
 
 export default function App() {
+  const { t, lang } = useT();
+  // A moeda não muda com o idioma — a conta é em reais nos dois casos. O que
+  // muda é a separação de milhar e decimal, senão um leitor de inglês lê
+  // "R$ 1.234,56" errado por uma ordem de grandeza.
+  const brl = useCallback((c: number) => money(c, lang), [lang]);
   const token = useMemo(
     () => new URLSearchParams(window.location.search).get('t') ?? '',
     [],
@@ -47,7 +54,15 @@ export default function App() {
   }, [prospectPl]);
   useEffect(() => { sendBeacon('opened'); }, [sendBeacon]);
   const [view, setView] = useState<CheckView | null>(null);
+  // `error` é fatal: a conta não carrega, não há tela pra mostrar. `payError` é
+  // recuperável e NUNCA pode substituir a tela — a corrida mais comum da mesa é
+  // duas pessoas tocando "Pagar R$50" ao mesmo tempo: uma ganha, a outra leva
+  // 400 do servidor ("valor acima do que falta"). Isso é um aviso pra tentar de
+  // novo com o valor novo, não um beco sem saída.
   const [error, setError] = useState<string | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
+  // A última atualização falhou, mas ainda temos a conta em mãos.
+  const [stale, setStale] = useState(false);
 
   const [mode, setMode] = useState<SplitMode>('igual');
   const [people, setPeople] = useState(2);
@@ -88,10 +103,18 @@ export default function App() {
     try {
       setView(await api.getCheck(token));
       setError(null);
+      setStale(false);
     } catch (e) {
-      setError((e as Error).message);
+      // Um blip de sinal NÃO pode apagar a tela. O caso real: o diner copia o
+      // código Pix, troca pro app do banco, o 4G do bar oscila, ele volta — e o
+      // poll de 4s já trocou o código por "Failed to fetch". Se já existe uma
+      // conta carregada, a falha vira um aviso discreto e a tela fica de pé;
+      // só a PRIMEIRA carga pode falhar em tela cheia, porque aí não há tela.
+      setStale(true);
+      const err = e as ApiError;
+      setError(tError(lang, err.code, err.message));
     }
-  }, [token]);
+  }, [token, lang]);
 
   useEffect(() => {
     if (!polling) return;
@@ -140,8 +163,8 @@ export default function App() {
 
   // Sem token de mesa = visita direta (desktop/prospect/KYC) → landing.
   if (!token) return <Home />;
-  if (error) return <Shell><p className="muted center">{error}</p></Shell>;
-  if (!view) return <Shell><p className="muted center">carregando a conta…</p></Shell>;
+  if (error && !view) return <Shell><p className="muted center">{error}</p></Shell>;
+  if (!view) return <Shell><p className="muted center">{t('common.loading')}</p></Shell>;
 
   const { venue, table, state } = view;
   const remaining = Math.max(0, state.totalCents - state.paidCents);
@@ -155,8 +178,10 @@ export default function App() {
     .reduce((s, i) => s + i.priceCents, 0);
   // Split proporcional em TODO modo: o serviço é sempre % da SUA parte
   // (split.ts espelha o backend). Quem paga mais, paga mais serviço.
+  // A parte igual sai do TOTAL da conta, não do que falta — senão cada pessoa
+  // que paga depois paga menos que a anterior e a mesa nunca fecha (ver split.ts).
   const share = computeShare({
-    mode, remaining, people, customCents, selectedCents,
+    mode, totalCents: state.totalCents, remaining, people, customCents, selectedCents,
     servicoOn, servicoBp: venue.servicoBp,
   });
   const cappedBase = share.base;
@@ -178,6 +203,7 @@ export default function App() {
       return;
     }
     setCpfHint(false);
+    setPayError(null);
     try {
       setPaidBaseline(state.paidCents); // baseline ANTES da minha cobrança cair
       const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null, cpfDigits);
@@ -185,7 +211,14 @@ export default function App() {
       setStep('pagar');
       setCopied(false);
     } catch (e) {
-      setError((e as Error).message);
+      // Alguém pagou primeiro (ou a conta mudou): recarrega e deixa o diner na
+      // mesma tela, com o número já atualizado, pra tocar de novo.
+      const err = e as ApiError;
+      // Os valores vêm do servidor em centavos crus; quem formata é quem sabe
+      // o idioma. Ver o comentário do amount_over no router.
+      setPayError(tError(lang, err.code, err.message,
+        err.vars ? { left: brl(Number(err.vars.leftCents ?? 0)) } : undefined));
+      refresh();
     }
   }
 
@@ -220,28 +253,29 @@ export default function App() {
           <span className="venue">{venue.name}</span>
           <span className="mesa">{table.label}</span>
         </header>
+        {stale && <p className="muted small center">{t('pix.stillValid')}</p>}
         <section className="pixcard">
-          <p className="label">Pague com Pix</p>
+          <p className="label">{t('pix.title')}</p>
           <p className="bigmoney">{brl(charge.amountCents + charge.tipCents)}</p>
           {charge.tipCents > 0 && (
-            <p className="muted small">inclui {brl(charge.tipCents)} de serviço para a equipe</p>
+            <p className="muted small">{t('pix.includesTip', { amount: brl(charge.tipCents) })}</p>
           )}
-          <div className="codebox" aria-label="Pix copia e cola">
+          <div className="codebox" aria-label={t('pix.aria')}>
             {(charge.copiaECola ?? '').slice(0, 64)}…
           </div>
           <button className="cta" onClick={onCopy}>
-            {copied ? 'Código copiado ✓' : 'Copiar código Pix'}
+            {copied ? t('pix.copied') : t('pix.copy')}
           </button>
           <p className="muted small center">
-            Abra o app do seu banco, escolha Pix copia-e-cola e cole o código.
+            {t('pix.how')}
           </p>
           {!demoGone && (
             <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
-              {confirming ? 'confirmando…' : '✓ Simular confirmação do banco (demo)'}
+              {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>
           )}
           {confirmError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{confirmError}</p>}
-          <button className="linklike" onClick={() => setStep('conta')}>← voltar pra conta</button>
+          <button className="linklike" onClick={() => setStep('conta')}>{t('common.back')}</button>
         </section>
       </Shell>
     );
@@ -252,20 +286,20 @@ export default function App() {
       <Shell>
         <section className="paid">
           <div className="paidmark">✓</div>
-          <h2>Pagamento confirmado</h2>
+          <h2>{t('paid.title')}</h2>
           <p className="muted">
-            {payerLabel ? `Valeu, ${payerLabel}! ` : ''}Sua parte está paga.
+            {payerLabel ? t('paid.thanks', { name: payerLabel }) : ''}{t('paid.yours')}
           </p>
           <div className="progresswrap">
             <div className="progressbar"><span style={{ width: `${progress}%` }} /></div>
             <p className="muted small">
-              {brl(state.paidCents)} de {brl(state.totalCents)} pagos
-              {remaining > 0 ? ` — falta ${brl(remaining)}` : ' — conta fechada 🎉'}
+              {t('paid.progress', { paid: brl(state.paidCents), total: brl(state.totalCents) })}
+              {remaining > 0 ? t('paid.left', { left: brl(remaining) }) : t('paid.closed')}
             </p>
           </div>
           {remaining > 0 && (
             <button className="cta" onClick={() => { setSelectedItems(new Set()); setStep('conta'); refresh(); }}>
-              Pagar mais uma parte
+              {t('paid.payMore')}
             </button>
           )}
         </section>
@@ -312,17 +346,23 @@ export default function App() {
         <span className="mesa">{table.label}</span>
       </header>
 
-      <section className="card">
+      {stale && <p className="muted small center">{t('check.offline')}</p>}
+      {/* A comanda. O único objeto claro da tela, porque é o único papel de uma
+          mesa de verdade — e é ela que carrega o que a casa vai cobrar. */}
+      <section className="card slip">
         <p className="label">
-          Sua conta
-          {mode === 'item' && remaining > 0 && <span className="muted small"> · toque o que foi seu</span>}
+          {t('check.yours')}
+          {mode === 'item' && remaining > 0 && <span className="muted small">{t('check.tapYours')}</span>}
         </p>
         <ul className={mode === 'item' && remaining > 0 ? 'items pickable' : 'items'}>
           {view.check.items.map((i) => {
             if (mode !== 'item' || remaining === 0) {
               return (
                 <li key={i.id}>
-                  <span>{i.name}</span>
+                  <span className="iwrap">
+                    <Dish name={i.name} />
+                    <span>{i.name}</span>
+                  </span>
                   <span className="mono">{brl(i.priceCents)}</span>
                 </li>
               );
@@ -337,6 +377,7 @@ export default function App() {
                   onClick={() => toggleItem(i.id)}
                 >
                   <span className="tick" aria-hidden="true">{picked ? '✓' : '+'}</span>
+                  <Dish name={i.name} />
                   <span className="iname">{i.name}</span>
                   <span className="mono">{brl(i.priceCents)}</span>
                 </button>
@@ -345,13 +386,13 @@ export default function App() {
           })}
         </ul>
         <div className="totalrow">
-          <span>Total</span>
+          <span>{t('check.total')}</span>
           <span className="mono">{brl(state.totalCents)}</span>
         </div>
         {state.paidCents > 0 && (
           <div className="progresswrap">
             <div className="progressbar"><span style={{ width: `${progress}%` }} /></div>
-            <p className="muted small">{brl(state.paidCents)} já pagos — falta {brl(remaining)}</p>
+            <p className="muted small">{t('check.paidSoFar', { paid: brl(state.paidCents), left: brl(remaining) })}</p>
           </div>
         )}
       </section>
@@ -359,39 +400,49 @@ export default function App() {
       {remaining === 0 ? (
         <section className="card center">
           <p className="bigmoney">🎉</p>
-          <p>Conta paga por completo. Boa noite!</p>
+          <p>{t('check.allPaid')}</p>
         </section>
       ) : (
         <section className="card">
-          <p className="label">Sua parte</p>
+          <p className="label">{t('share.title')}</p>
           <div className="modes modes3" role="tablist">
             <button role="tab" aria-selected={mode === 'igual'} className={mode === 'igual' ? 'mode on' : 'mode'} onClick={() => setMode('igual')}>
-              Igual
+              {t('share.equal')}
             </button>
             <button role="tab" aria-selected={mode === 'item'} className={mode === 'item' ? 'mode on' : 'mode'} onClick={() => setMode('item')}>
-              Por item
+              {t('share.byItem')}
             </button>
             <button role="tab" aria-selected={mode === 'valor'} className={mode === 'valor' ? 'mode on' : 'mode'} onClick={() => setMode('valor')}>
-              Outro valor
+              {t('share.custom')}
             </button>
           </div>
 
           {mode === 'igual' && (
             <div className="stepperrow">
-              <span>Dividir entre</span>
+              <span>{t('share.splitAmong')}</span>
               <div className="stepper">
-                <button aria-label="menos pessoas" onClick={() => setPeople(Math.max(1, people - 1))}>−</button>
+                <button aria-label={t('share.fewer')} onClick={() => setPeople(Math.max(1, people - 1))}>−</button>
                 <strong>{people}</strong>
-                <button aria-label="mais pessoas" onClick={() => setPeople(Math.min(20, people + 1))}>+</button>
+                <button aria-label={t('share.more')} onClick={() => setPeople(Math.min(20, people + 1))}>+</button>
               </div>
-              <span>pessoas</span>
+              <span>{t('share.people')}</span>
             </div>
+          )}
+          {mode === 'igual' && (
+            <p className="muted small itemhint">
+              {t('share.each', { amount: brl(splitEqualLocal(state.totalCents, people, 0)) })}
+              {state.paidCents > 0 ? t('share.overTotal') : ''}
+            </p>
           )}
           {mode === 'item' && (
             <p className="muted small itemhint">
               {selectedItems.size === 0
-                ? 'Toque os itens que foram seus na conta ↑ — o serviço acompanha a sua parte.'
-                : `${selectedItems.size} ${selectedItems.size === 1 ? 'item' : 'itens'} · sua parte ${brl(cappedBase)}`}
+                ? t('share.pickItems')
+                : t('share.picked', {
+                    n: selectedItems.size,
+                    noun: t(selectedItems.size === 1 ? 'share.item' : 'share.items'),
+                    amount: brl(cappedBase),
+                  })}
             </p>
           )}
           {mode === 'valor' && (
@@ -408,34 +459,44 @@ export default function App() {
           <label className="servico">
             <input type="checkbox" checked={servicoOn} onChange={(e) => setServicoOn(e.target.checked)} />
             <span>
-              Serviço da equipe ({(venue.servicoBp / 100).toFixed(0)}% da sua parte) — opcional
+              {t('servico.label', { pct: (venue.servicoBp / 100).toFixed(0) })}
               <em>{servicoOn && servicoCents > 0 ? ` +${brl(servicoCents)}` : ''}</em>
             </span>
           </label>
 
           {share.capped && cappedBase > 0 && (
-            <p className="muted small">Ajustado pro que ainda falta na conta ({brl(remaining)}) — o resto já foi pago.</p>
+            <p className="muted small">{t('share.capped', { left: brl(remaining) })}</p>
           )}
 
           <input
-            className="namefield" maxLength={60} placeholder="Seu nome (opcional)"
+            className="namefield" maxLength={60} placeholder={t('payer.name')}
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
           <input
             id="cpf-field"
             className="namefield" inputMode="numeric" maxLength={14}
-            placeholder="Seu CPF (obrigatório pra pagar)"
+            placeholder={t('payer.cpf')}
             style={cpfHint && cpfDigits.length !== 11 ? { borderColor: 'var(--burgundy)' } : undefined}
             value={cpf}
             onChange={(e) => { setCpf(e.target.value); if (e.target.value.replace(/\D/g, '').length === 11) setCpfHint(false); }}
           />
           {cpfHint && cpfDigits.length !== 11 && (
-            <p className="small" style={{ color: 'var(--burgundy)' }}>Preencha seu CPF (11 dígitos) pra liberar o pagamento.</p>
+            <p className="small" style={{ color: 'var(--burgundy)' }}>{t('payer.cpfHint')}</p>
           )}
 
+          {payError && (
+            <p className="small" style={{ color: 'var(--burgundy)' }}>
+              {t('pay.retry', { error: payError })}
+            </p>
+          )}
           <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
-            Pagar {brl(totalToPay)} com Pix
+            {t('pay.cta', { amount: brl(totalToPay) })}
           </button>
+          {/* Na mesa de demonstração a carteira é SIMULADA, mesmo com chave de
+              produção configurada: a folha oficial do Google Pay tokeniza um
+              cartão de verdade e pede CPF de verdade, e aqui não existe conta
+              nenhuma pra pagar. Autorização sob premissa falsa (CDC) e CPF sem
+              base legal (LGPD). O servidor é quem declara `venue.demo`. */}
           <WalletButtons
             token={token}
             amountCents={cappedBase}
@@ -444,6 +505,7 @@ export default function App() {
             payerDocument={cpfDigits}
             disabled={totalToPay === 0}
             venueName={venue.name}
+            simulated={venue.demo === true}
             onPaid={async () => { await refresh(); setStep('pago'); }}
           />
           {venue.acceptsCard && (
@@ -459,7 +521,7 @@ export default function App() {
           )}
           {house && house.balanceCents > 0 && (
             <button className="ghost" onClick={() => setStep('saldo')}>
-              Pagar com saldo ({brl(house.balanceCents)} disponível)
+              {t('house.pay', { amount: brl(house.balanceCents) })}
             </button>
           )}
           {!house && houseBonusBp !== null && (
@@ -468,20 +530,39 @@ export default function App() {
               onClick={() => { window.location.href = `/carteira?new=${encodeURIComponent(token)}`; }}
             >
               {houseBonusBp > 0
-                ? `Conheça o saldo da casa — ganhe ${(houseBonusBp / 100).toLocaleString('pt-BR')}% de bônus`
-                : 'Conheça o saldo da casa'}
+                ? t('house.bonus', { pct: (houseBonusBp / 100).toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US') })
+                : t('house.discover')}
             </button>
           )}
         </section>
       )}
 
       <footer className="foot">
-        <span>racha · sem app, sem cadastro</span>
+        <span>{t('app.tagline')}</span>
+        <LangToggle compact />
       </footer>
     </Shell>
   );
 }
 
+/**
+ * O bloco entalhado da linha (decisão #33). Máscara alfa aplicada por CSS mask,
+ * então a tinta vem do `currentColor` de onde a linha estiver — o mesmo arquivo
+ * imprime quase-preto na comanda e creme na mesa, sem uma segunda cópia.
+ * Linha sem figura honesta (serviço, taxa) simplesmente não ganha uma.
+ */
+function Dish({ name }: { name: string }) {
+  const cat = dishFor(name);
+  if (!cat) return null;
+  return <i className="dish" style={dishMask(cat)} aria-hidden="true" />;
+}
+
+/**
+ * `?embed=1` — a landing mostra a conta ao vivo como um ESTADO, não como o app
+ * inteiro: fica a comanda, a divisão e o valor do Pix; somem campos, carteiras
+ * e rodapé (CSS `.shell.embed`). Nada muda no comportamento; só no que aparece.
+ */
+const EMBED = new URLSearchParams(window.location.search).get('embed') === '1';
 function Shell({ children }: { children: React.ReactNode }) {
-  return <main className="shell">{children}</main>;
+  return <main className={EMBED ? 'shell embed' : 'shell'}>{children}</main>;
 }

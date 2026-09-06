@@ -1,0 +1,185 @@
+# Modelo de dados
+
+## O log é a verdade
+
+```
+RachaEvent { id, rachaID, seq, at, origin, summary, body, revertedBy }
+```
+
+- **`seq`** é monotônico por racha e é a ordem da dobra. Nunca `at` — relógio
+  anda pra trás entre aparelhos.
+- **`origin`** é `user | agent | scan | system`. A UI marca as do agente.
+- **`summary`** é pt-BR, escrito **no momento do append**, onde a intenção é
+  conhecida. Reconstruir depois a partir do `body` faz o rótulo divergir do que
+  aconteceu.
+- **`.reverted(target:)`** é como se desfaz. Nada é apagado.
+
+### Eventos
+
+| Grupo | Eventos |
+|---|---|
+| Racha | `created`, `renamed`, `kindChanged`, `coverImageSet`, `noteAdded`, `settled`, `reopened` |
+| Pessoas | `participantAdded`, `participantRemoved`, `participantRenamed`, `pixKeySet` |
+| Itens | `itemsAdded`, `itemRemoved`, `itemEdited` |
+| Divisão | `claimsSet`, `claimsCleared` |
+| Extras | `extraAdded`, `extraUpdated`, `extraRemoved`, `extraToggled` |
+| Dinheiro | `paymentRecorded`, `paymentConfirmed`, `paymentRemoved` |
+| Moeda | `fxRateSet` |
+| Meta | `reverted` |
+
+### Totalidade da projeção
+
+`RachaProjection.reduce` **nunca lança e nunca trava**. Evento que referencia
+entidade inexistente, ou que se contradiz, vai pra `state.anomalies` e é pulado.
+A validação estrita é no *append*. Quando um log já está no disco, recusar
+mostrá-lo é o pior resultado possível — é dinheiro de verdade ali dentro.
+
+Garantias específicas codificadas na projeção:
+
+- `paymentRecorded` é **idempotente por id** (webhook repetido não cobra duas vezes).
+- Duas reivindicações da mesma pessoa no mesmo item **colapsam em uma** — senão o
+  peso dobrava e o dinheiro mudava em silêncio.
+- Tirar uma pessoa **devolve os itens dela pro estado sem dono**, não redistribui.
+  Reatribuir a comida de alguém sozinho é pior do que perguntar.
+- `itemEdited` com `total` fixado **vence** o recálculo por quantidade: a nota é a
+  autoridade. Sem `total`, mudar quantidade ou preço unitário recalcula.
+
+## Estado derivado
+
+```
+RachaState { id, title, kind, currency, participants, items, claimsByItem,
+             extras, payments, fxRates, coverAssetKey, notes, settledAt, anomalies }
+```
+
+Nada é armazenado duas vezes. `split`, `balances`, `settlement`, `isSettled` são
+computados a partir do estado, sempre.
+
+### Item
+
+```
+LineItem { id, name, quantity, unitPrice, total, category, rawText }
+```
+
+`total` é guardado ao lado de `quantity × unitPrice` em vez de derivado, porque
+nota brasileira discorda de si mesma o tempo todo (item por peso, desconto numa
+linha só). Quando divergem, **`total` vence** e `isInconsistent` marca a linha —
+a UI mostra "confere?" em vez de recalcular escondido.
+
+### Reivindicação
+
+```
+Claim { id, itemID, personID, weight }
+```
+
+`weight` é o que faz "o Pedro tomou dois dos quatro chopps" caber sem quebrar a
+linha em três: pesos 2, 1, 1.
+
+### Extra
+
+```
+Extra { id, label, kind, base, isEnabled, isGratuity }
+kind: .percentage(bp:) | .fixed(Cents) | .perHead(Cents) | .discount(Cents)
+base: .consumption | .consumptionPlusEarlierExtras | .equalHeads
+```
+
+`base` existe porque "10% do quê" é uma pergunta real e frequentemente discutida
+numa mesa brasileira. Deixar implícito seria escolher por todo mundo.
+
+### Mesa
+
+```
+Venue { name, legalName, city, pixKey, checkID, label }
+```
+
+O racha é uma mesa. `venueSet` carrega a casa (nome, razão social e cidade pro
+payload do Pix, a chave Pix **do restaurante**, o número da mesa impresso no QR).
+A chave nunca é de um garçom nem de um amigo (CLAUDE.md #2 e #4): o Pix de cada
+parte vai pra casa, pelo split do PSP; a gente não segura nada.
+
+`label` é **texto livre**, como o servidor guarda (`POST /api/tables` aceita
+qualquer rótulo): mesas reais se chamam "Varanda 2" e "Balcão", não só "12".
+`checkID` é o id da conta no servidor — é ele que faz um re-scan virar merge em
+vez de uma segunda cópia do jantar.
+
+### Pagamento
+
+```
+Payment { id, payerID, amount, method, note, confirmedAt, createdAt }
+```
+
+Um pagamento é de uma pessoa **pra casa**. `due(of:)` = parte da pessoa − o que
+ela já pagou; `remainingOnTable` = total − tudo que a casa já recebeu;
+`unpaidParticipants` = quem ainda não pagou a própria parte. Um `paymentRecorded`
+por um amigo cobrindo outro continua sendo um pagamento à casa — quem deve a
+quem entre amigos sai do `settlement`, como informação, e nunca trava a mesa.
+
+`isConfirmed` separa "eu disse que ia pagar" de "caiu". Saldo só conta dinheiro
+confirmado, então um toque otimista nunca faz dívida sumir.
+
+## Divisão
+
+```
+SplitResult { shares, total, itemsTotal, claimedTotal, unassigned, unassignedTotal, unassignedExtras }
+PersonShare { personID, consumption, extras[], roundingAdjustment }
+```
+
+A invariante que **pode** falhar, e por isso é a que vale assertar:
+
+```
+claimedTotal + unassignedTotal == itemsTotal
+Σ shares.total + unassignedTotal + unassignedExtras == total
+```
+
+`unassignedExtras` é o que a casa cobra sobre o que ainda não tem dono: o 10%
+incide no pudim que ninguém reivindicou, com ou sem dono. Esses centavos não
+são de ninguém ainda, então andam com o balde sem dono — e o `total` continua
+igual ao total que o restaurante imprimiu na comanda (achado da rodada 17 de
+crítica: sem isso a conta do app fechava R$ 1,80 abaixo da conta da mesa).
+
+Nenhum centavo de item reivindicado some entre o item e as pessoas. Participante
+derrubado, peso errado, regressão no alocador — tudo aparece aqui. (Extras não
+falham do mesmo jeito: o `Allocator` garante que as partes de cada extra somam
+aquele extra, então dobrá-los junto só esconderia o sinal.)
+
+## Saldo e acerto
+
+```
+NetBalance { personID, paid, owed, net }     net = paid − owed
+SettlementPlan { transfers, residual }
+```
+
+`residual` é o que o grupo ainda deve ao restaurante (o mesmo número que
+`remainingOnTable`). O plano de transferências entre amigos existe pro caso de
+alguém ter coberto a parte de outro; é informação, não bloqueio.
+
+**A mesa fecha quando a casa tem tudo e nada está sem dono** (`isSettled`). Cada
+um paga a própria parte à casa, então não há segunda metade a esperar: o
+restaurante pago *é* o racha fechado. (Decisão #29.)
+
+## Histórico entre rachas
+
+`HistoryIndex` é reconstruído em memória a partir dos estados, sob demanda. Não é
+tabela desnormalizada — um racha é pequeno, o telefone é rápido, e um índice
+persistido que discorda do razão é exatamente a classe de bug que este código
+recusa.
+
+Responde: com quem você divide conta, grupos recorrentes, como a conta de um
+lugar costuma ser, e **quanto cada pessoa ainda deve somando todos os rachas
+abertos** — que é a pergunta "quanto o pessoal ainda me deve?".
+
+## No disco
+
+```
+Application Support/Racha/Events/<uuid>.jsonl    ← o razão, append-only
+Application Support/Racha/Threads/<uuid>.json    ← a conversa
+Caches/Racha/Images/<chave>.webp                 ← imagens geradas
+Keychain com.racha.keys                          ← chaves de API
+UserDefaults                                     ← nome, chave Pix, cidade, preferências
+```
+
+Conversa e razão em arquivos separados de propósito: mensagem de chat não é fato
+contábil, e perder a conversa nunca pode arriscar o dinheiro.
+
+Chaves de API vão pro Keychain com
+`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` — nunca sincronizadas, nunca
+presentes num aparelho restaurado, nunca num backup em texto claro.

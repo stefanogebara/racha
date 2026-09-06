@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+
+import { useT } from './lang';import { useCallback, useEffect, useState } from 'react';
 import { brl, dmy, parseBrlToCents } from './api';
 import { authedReq as req } from './auth';
 
@@ -33,6 +34,7 @@ interface HouseAdminData {
 }
 
 export default function AdminHouse({ venueId }: { venueId: string }) {
+  const { t } = useT();
   const [data, setData] = useState<HouseAdminData | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Campos como string: digitação parcial ("1,5") não pode virar NaN no estado.
@@ -144,7 +146,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
   if (!data) {
     return (
       <section className="panel">
-        <p className="label">Saldo da casa</p>
+        <p className="label">{t('home.houseBalance')}</p>
         <p className="muted small">{error ?? 'carregando…'}</p>
       </section>
     );
@@ -154,11 +156,11 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
 
   return (
     <section className="panel">
-      <p className="label">Saldo da casa</p>
+      <p className="label">{t('home.houseBalance')}</p>
 
       <label className="servico" style={{ alignItems: 'center' }}>
         <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-        <span>Clientes podem carregar saldo pré-pago com bônus</span>
+        <span>{t('admin.houseOn')}</span>
       </label>
 
       <div className="cfggrid">
@@ -185,7 +187,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
       </div>
 
       {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
-      {saved && <p className="small" style={{ color: 'var(--emerald)' }}>salvo ✓</p>}
+      {saved && <p className="small" style={{ color: 'var(--emerald)' }}>{t('admin.saved')}</p>}
       <button className="cta" style={{ padding: '12px 20px' }} disabled={saving} onClick={save}>
         {saving ? 'salvando…' : 'Salvar configuração'}
       </button>

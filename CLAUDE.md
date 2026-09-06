@@ -62,7 +62,17 @@ brand), same company and sales machine (Olímpia). Strategy doc:
 
 ## Working agreements
 
-- pt-BR for all user-facing strings (diner + restaurant panel). Code/comments in English.
+- **Bilingual UI (en + pt-BR), English by default.** Every user-facing string on
+  the web platform goes through `apps/web/src/i18n.ts`, where both languages live
+  on the same key — a pair, so a missing translation is a type error, not a
+  Portuguese screen with one English sentence in it. The language switcher is in
+  every footer and the choice is platform-wide.
+  - **Venue content is never translated.** Table labels ("Mesa 7", "Varanda 2")
+    and menu lines ("Picanha na chapa") are the restaurant's own words. UI chrome
+    translates; the restaurant's sign does not.
+  - **The server never sends display text for errors.** It sends a stable `code`
+    plus raw centavos; the client translates and formats. A server that formats
+    money has already picked a language for a reader it cannot see.
 - Conventional commits. Small files by feature. Immutability by default.
 - Adoption gate governs the roadmap: pilot venues must reach ≥25% of checks migrating by
   week 8 or the product parks. Don't build v1 features before the gate passes.

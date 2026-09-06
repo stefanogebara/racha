@@ -7,7 +7,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "jest"
+    "test": "npx jest && npm run test:web",
+    "test:web": "npm --prefix apps/web test"
   },
   "devDependencies": {
     "jest": "^29.7.0"

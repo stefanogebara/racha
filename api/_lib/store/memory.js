@@ -56,7 +56,7 @@ function createMemoryStore() {
 
   // Sync internals — the memory store is synchronous; the public contract is
   // async (matches the Supabase store, so `.rejects` works uniformly).
-  function _mkVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null, posProvider = 'manual' }) {
+  function _mkVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null, posProvider = 'manual', isTest = false }) {
     if (!name || !String(name).trim()) throw new Error('venue name required');
     if (!Number.isInteger(servicoBp) || servicoBp < 0 || servicoBp > 3000) {
       throw new Error('servicoBp out of range [0,3000]');
@@ -64,6 +64,7 @@ function createMemoryStore() {
     const id = crypto.randomUUID();
     venues.set(id, {
       id, name: String(name).trim(), cnpj, city, servicoBp, pspRecipientId, posProvider, active: true,
+      isTest: isTest === true,
       pspRecipientStatus: null, notifyEmail: null, notifyWhatsapp: null, stripeAccountId: null,
       // Saldo da casa — off until the owner enables it. validityDays ≥ 30 is
       // the CDC-derived legal floor (docs/house-accounts/README.md).
@@ -72,7 +73,7 @@ function createMemoryStore() {
     });
     return venues.get(id);
   }
-  function _mkTable(venueId, label) {
+  function _mkTable(venueId, label, fixedToken) {
     if (!venues.has(venueId)) throw new Error('unknown venue');
     if (!label || !String(label).trim()) throw new Error('table label required');
     const trimmed = String(label).trim();
@@ -84,7 +85,13 @@ function createMemoryStore() {
         throw new Error('duplicate table label');
       }
     }
-    const qrToken = crypto.randomUUID().replace(/-/g, '');
+    // A fixed token is a SEED-ONLY affordance: prod tables always rotate
+    // random tokens. The landing's live phone points at `demoracha`, which the
+    // Supabase store has and the memory store otherwise would not.
+    const qrToken = fixedToken || crypto.randomUUID().replace(/-/g, '');
+    // Espelha o `unique` de venue_tables.qr_token: sem isto um segundo seed com
+    // o mesmo token fixo re-aponta o token pra OUTRA venue em silêncio.
+    if (tables.has(qrToken)) throw new Error('duplicate table token');
     const id = crypto.randomUUID();
     const row = { id, venueId, label: trimmed, qrToken, qrRotatedAt: null, active: true, training: false };
     tables.set(qrToken, row);
@@ -96,8 +103,8 @@ function createMemoryStore() {
     // --- onboarding / venue -------------------------------------------------
     async createVenue(args) { return _mkVenue(args); },
     // Demo/test alias (SYNC — existing helpers call it without await).
-    seedVenue({ name, servicoBp = 1000, pspRecipientId = 'rcpt_demo' }) {
-      return _mkVenue({ name, servicoBp, pspRecipientId });
+    seedVenue({ name, servicoBp = 1000, pspRecipientId = 'rcpt_demo', isTest = false }) {
+      return _mkVenue({ name, servicoBp, pspRecipientId, isTest });
     },
     async getVenue(venueId) {
       return venues.get(venueId) || null;
@@ -139,7 +146,11 @@ function createMemoryStore() {
 
     // --- tables / QR --------------------------------------------------------
     async createTable(venueId, label) { return _mkTable(venueId, label); },
-    seedTable(venueId, label) { return _mkTable(venueId, label); },
+    seedTable(venueId, label, fixedToken) { return _mkTable(venueId, label, fixedToken); },
+    async findTableAnyState(qrToken) {
+      const t = qrToken ? tables.get(qrToken) : null;
+      return t ? { id: t.id, venueId: t.venueId, label: t.label, qrToken: t.qrToken, active: t.active } : null;
+    },
     async listTables(venueId) {
       return [...tableById.values()]
         .filter((t) => t.venueId === venueId)
