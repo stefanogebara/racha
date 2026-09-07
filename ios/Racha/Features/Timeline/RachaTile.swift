@@ -57,6 +57,13 @@ struct RachaTile: View {
                     .font(Typo.caption)
                     .foregroundStyle(Palette.ink3)
                     .lineLimit(1)
+                    // Shrink, don't clip. Seen on the simulator: the wider
+                    // amount (R$ 129,25) pushed this to "você pa…" in the left
+                    // column while the right column read fine — the same label
+                    // rendered two different ways one gap apart. The amount
+                    // still wins the width fight; the label now loses a point
+                    // of size instead of losing its last three letters.
+                    .minimumScaleFactor(0.72)
                 Spacer(minLength: 4)
                 // Money never wraps ("R$" on one line, "129,25" on the next —
                 // seen on the simulator at R$ 129,25 in a two-column grid). The
