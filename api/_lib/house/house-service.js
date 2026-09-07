@@ -20,13 +20,19 @@ const { remainingCents } = require('../checks/check-state');
 const houseState = require('./account-state');
 const { marketGate, chargingAllowed } = require('../markets');
 
-function httpError(status, msg, code) {
+function httpError(status, msg, code, vars) {
   const err = new Error(msg);
   err.statusCode = status;
   if (code) err.code = code;
+  // Os `vars` do limite (mínimo/máximo em centavos) viajam com o erro: quem
+  // formata "5.000,00 €" é o cliente, que sabe a moeda e o idioma. Estavam
+  // caindo aqui porque este `badRequest` local não tinha o parâmetro — inerte
+  // hoje (o Brasil não tem teto de recarga), vivo no dia em que um mercado com
+  // teto ganhar um trilho de recarga. Achado pela revisão de compliance.
+  if (vars) err.vars = vars;
   return err;
 }
-const badRequest = (msg, code) => httpError(400, msg, code);
+const badRequest = (msg, code, vars) => httpError(400, msg, code, vars);
 
 // --- phone helpers (LGPD: the full number is stored, never displayed) -------
 function normalizePhone(raw) {
@@ -223,7 +229,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     // exatamente o que a pendência de residência de dado do GDPR trava.
     // Quando a Espanha ganhar um trilho de recarga, muda o `rail` aqui.
     const gate = marketGate(venue.market, { rail: 'pix', amountCents, tipCents: 0 });
-    if (gate) throw badRequest(`mercado ${venue.market}: ${gate.code}`, gate.code);
+    if (gate) throw badRequest(`mercado ${venue.market}: ${gate.code}`, gate.code, gate.vars);
 
     const bonusCents = quoteBonusCents(amountCents, cfg.bonusBp);
     const charge = await psp.createPixCharge({

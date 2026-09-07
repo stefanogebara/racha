@@ -189,6 +189,11 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     // Limites do esquema Bizum chegam ao cliente em centavos.
     expect(view.venue.charge).toEqual({ minCents: 50, maxCents: 500000 });
 
+    // O documento da casa NÃO vai pra tela em Espanha: a mesma coluna guarda o
+    // NIF, e o NIF de um autónomo é o DNI de uma pessoa física. `/api/check` é
+    // público, por token de mesa.
+    expect(view.venue.taxId).toBeNull();
+
     // E o PAINEL DO DONO, que é onde a bateria espanhola parava antes.
     //
     // A correção da moeda do painel passou em memória e falhou no Supabase,

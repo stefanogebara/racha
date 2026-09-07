@@ -2,7 +2,7 @@
 
 const {
   MARKETS, DEFAULT_MARKET, marketCodes, isMarket, market,
-  publicMarketView, checkChargeLimits, supportsRail,
+  publicMarketView, checkChargeLimits, supportsRail, showsVenueTaxId,
 } = require('../_lib/markets');
 
 describe('mercados', () => {
@@ -64,7 +64,24 @@ describe('mercados', () => {
       expect(market('es').payerTaxId).toMatchObject({ required: false, kind: 'nif' });
     });
 
-    test('a view pública não vaza nada além da regra', () => {
+    test('o documento da CASA não vai pra tela em Espanha, e vai no Brasil', () => {
+    // A mesma coluna guarda CNPJ e NIF, e uma parte grande dos bares
+    // espanhóis é de AUTÓNOMO: pessoa física, cujo NIF é o número do DNI dela.
+    // Publicar isso pra quem tenha o token de uma mesa — e tokens viajam em
+    // links compartilhados e QRs fotografados — é expor o identificador
+    // nacional de uma pessoa física. É o mesmo argumento de minimização que
+    // tirou o CPF do pagador do metadata da Stripe, apontado pro outro lado.
+    //
+    // O que destrava: o cadastro saber a forma jurídica da casa. Aí sociedade
+    // mostra e autónomo não. Enquanto não se sabe, não mostra.
+    expect(showsVenueTaxId('br')).toBe(true);
+    expect(showsVenueTaxId('es')).toBe(false);
+    // Mercado desconhecido cai no Brasil na LEITURA, e mostrar um CNPJ é o
+    // comportamento certo pra toda venue que existia antes da coluna.
+    expect(showsVenueTaxId(undefined)).toBe(true);
+  });
+
+  test('a view pública não vaza nada além da regra', () => {
       const v = publicMarketView('es', { servicoBp: 0 });
       expect(Object.keys(v.payerTaxId).sort()).toEqual(['kind', 'required']);
     });

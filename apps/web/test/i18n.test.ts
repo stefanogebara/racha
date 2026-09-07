@@ -474,6 +474,10 @@ test('nenhuma tela nova imprime dinheiro sem dizer a moeda', async () => {
     // uma seta simples. O que o teste exige é que a definição LOCAL de `brl`
     // mencione `currency`; é isso que distingue "amarrado" de "padrão BRL".
     if (/const brl\b[^\n]*=[^\n]*currency/.test(text)) continue;
+    // `useCallback((c) => money(c, lang, currency))` também amarra — é a forma
+    // que a conta usa. O que o teste exige é que a definição LOCAL de `brl`
+    // mencione `currency`, em qualquer forma.
+
     for (const { line, n } of codeLines(text)) {
       // `brl(` com UM argumento: sem vírgula no nível de cima da chamada.
       for (const m of line.matchAll(/\bbrl\(([^;]*?)\)/g)) {

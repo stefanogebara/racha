@@ -75,13 +75,16 @@ describe('pagarme adapter', () => {
     const r = await psp.createWalletCharge({
       chargeRef: 'check1:0:1000:0', amountCents: 1000, tipCents: 0,
       recipientId: 'rp_venue1', wallet: 'google_pay', paymentToken: 'tok_gpay_123456',
+      // A moeda passou a ser OBRIGATÓRIA: sem padrão, um chamador que esquece
+      // quebra em vez de herdar a única moeda que este adquirente atende.
+      currency: 'brl',
     });
     expect(r).toEqual({ txid: 'ch_card1' });
     expect(calls[0].body.payments[0].credit_card.card_token).toBe('tok_gpay_123456');
 
     // token curto/lixo → 402 sem bater na API
     await expect(psp.createWalletCharge({
-      chargeRef: 'x', amountCents: 100, tipCents: 0, recipientId: 'rp_v', wallet: 'google_pay', paymentToken: 'x',
+      chargeRef: 'x', amountCents: 100, tipCents: 0, recipientId: 'rp_v', wallet: 'google_pay', paymentToken: 'x', currency: 'brl',
     })).rejects.toMatchObject({ statusCode: 402 });
 
     // charge failed → 402
@@ -89,7 +92,7 @@ describe('pagarme adapter', () => {
     const s2 = stubFetch([{ match: '/orders', method: 'POST', reply: failed }]);
     const psp2 = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: s2.impl });
     await expect(psp2.createWalletCharge({
-      chargeRef: 'x', amountCents: 100, tipCents: 0, recipientId: 'rp_v', wallet: 'apple_pay', paymentToken: 'tok_apple_123456',
+      chargeRef: 'x', amountCents: 100, tipCents: 0, recipientId: 'rp_v', wallet: 'apple_pay', paymentToken: 'tok_apple_123456', currency: 'brl',
     })).rejects.toMatchObject({ statusCode: 402 });
   });
 

@@ -1,6 +1,6 @@
 'use strict';
 
-const { DEFAULT_MARKET, isMarket, publicMarketView, market } = require('../markets');
+const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
 
 /**
  * Supabase store — the production implementation of the store contract
@@ -382,7 +382,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         return {
           venue: {
             name: table.venues.name,
-            taxId: table.venues.cnpj || null,
+            taxId: showsVenueTaxId(table.venues.market) ? (table.venues.cnpj || null) : null,
             ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points }),
           },
           table: { label: table.label },

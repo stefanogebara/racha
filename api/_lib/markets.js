@@ -195,6 +195,30 @@ function checkChargeLimits(code, amountCents) {
 }
 
 /**
+ * O documento da CASA pode aparecer na tela do cliente neste mercado?
+ *
+ * No Brasil, sim, e é o certo: o CNPJ é identificação de empresa, está na porta
+ * e em toda nota, e sem ele o comprovante não identifica quem vendeu.
+ *
+ * Em Espanha, NÃO — por enquanto. A mesma coluna guarda o NIF, e uma parte
+ * grande dos bares espanhóis é de **autónomo**: pessoa física, cujo NIF É o
+ * número do DNI dela. Publicar isso pra qualquer um que tenha o token de uma
+ * mesa — e tokens viajam em links compartilhados e QRs fotografados — é expor
+ * o identificador nacional de uma pessoa física. É o mesmo argumento de
+ * minimização (GDPR art. 5(1)(c)) que tirou o CPF do pagador do metadata da
+ * Stripe, apontado pro outro lado. Achado pela revisão de segurança de
+ * 2026-09-07.
+ *
+ * O que destrava: o cadastro passar a saber a forma jurídica da casa
+ * (sociedade ou autónomo). Aí sociedade mostra e autónomo não, que é a regra
+ * certa. Enquanto não se sabe, não mostra — e a Espanha não está no ar, então
+ * isto não tira nada de ninguém hoje.
+ */
+function showsVenueTaxId(code) {
+  return market(code).code === 'br';
+}
+
+/**
  * TODOS os portões de mercado de uma cobrança, num só lugar.
  *
  * Devolve `null` quando pode cobrar, ou `{ code, vars? }`.
@@ -255,6 +279,7 @@ module.exports = {
   checkChargeLimits,
   supportsRail,
   marketGate,
+  showsVenueTaxId,
   pspCurrency,
   esEnabled,
   chargingAllowed,

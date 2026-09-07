@@ -132,13 +132,18 @@ class MockPsp {
    * required (no platform custody), token shape validated — a malformed token
    * is DECLINED loudly, never absorbed.
    */
-  async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, currency = 'brl' }) {
+  async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, currency }) {
     // O mock atende as duas moedas e GUARDA a que recebeu, pra que um teste
     // possa afirmar sobre ela. Um mock que ignora um parâmetro faz o teste
     // passar exatamente onde a produção erra — foi assim que a correção de
     // moeda do mercado ficou um no-op sem nenhum teste vermelho.
+    //
+    // E a moeda NÃO tem padrão aqui, pelo mesmo motivo, um nível abaixo: com
+    // `= 'brl'`, um chamador novo que esquecesse o argumento passaria nos
+    // testes e estouraria em produção contra a Stripe, que não tem padrão.
+    // Um dublê mais permissivo que a produção é uma armadilha, não um dublê.
     if (currency !== 'brl' && currency !== 'eur') {
-      throw new TypeError(`mock: moeda não atendida ${JSON.stringify(currency)}`);
+      throw new TypeError(`mock: moeda obrigatória, veio ${JSON.stringify(currency)}`);
     }
     this.lastCurrency = currency;
     if (typeof recipientId !== 'string' || recipientId.length === 0) {

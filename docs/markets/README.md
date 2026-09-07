@@ -198,9 +198,23 @@ Dado pessoal de titular europeu indo pro Brasil precisa de cláusulas-padrão
 região da UE — que é a correção técnica que dispensa a maior parte da papelada.
 
 O que atravessa hoje: `payerLabel` (nome livre, persistido), e nome + telefone
-da carteira da casa. O telefone do pagador do Bizum **não** atravessa: ele é
-digitado dentro do elemento da Stripe e vai pra Espanha, não pro Brasil — é
-outro problema, na seção seguinte. Além
+da carteira da casa.
+
+O telefone do pagador do Bizum é mais sutil, e a primeira versão desta nota
+estava imprecisa. **Não é persistido aqui**, e isso é uma defesa de verdade e
+não uma esperança: o `maskPixPayload` (`api/_lib/pay/mask.js`) é uma lista de
+permissão de campos ESCALARES, então entregar a ele um PaymentIntent inteiro
+aproveita `status` e `amount` e joga fora todo objeto aninhado — o
+`charges[].billing_details.phone` não tem como chegar ao banco em São Paulo.
+Verificado pela revisão de segurança.
+
+Mas **acessível não é o mesmo que armazenado**, e o GDPR conta os dois: acesso
+remoto de um país terceiro a dado europeu é transferência por si só (EDPB
+Guidelines 05/2021 — divulgação por transmissão *ou por disponibilização*).
+Nossa chave de plataforma e o painel da Stripe são usados de São Paulo, e o
+conciliador busca PaymentIntents. Então a frase certa é: **não persistido aqui,
+acessível do Brasil** — item do capítulo V por ACESSO, não por armazenamento.
+Dito assim pra o advogado não precificar o telefone como fora de escopo. Além
 disso faltam: registro do art. 30 pros fluxos espanhóis, aviso do art. 13 em
 espanhol, DPA do art. 28 com cada casa espanhola (a Racha é operadora do dado
 do cliente da casa), e representante do art. 27 sem estabelecimento na UE.
@@ -287,6 +301,27 @@ Anotado aqui pra não parecer pronto:
    Fashion ID. Ver a seção 3 acima — nenhum destes é código.
 10. **Retenção e exclusão.** Nem `payerLabel` nem o telefone do pagador têm
     prazo ou caminho de deleção. Art. 5(1)(e) e art. 17.
+11. **A forma jurídica da casa.** Duas coisas dependem dela e nenhuma é
+    adivinhável do cadastro atual:
+    - `business_type` na conta conectada. Hoje é `'company'` fixo, e uma parte
+      grande dos bares espanhóis é de **autónomo** (pessoa física), pra quem o
+      certo é `'individual'`. Mandar 'company' pra um autónomo produz um KYC
+      que não verifica — na conta que RECEBE o dinheiro, e o erro aparece
+      semanas depois.
+    - O documento no comprovante. O NIF de um autónomo **é** o DNI dele, e
+      `/api/check` é público por token de mesa. Então hoje a Espanha
+      simplesmente **não mostra** o documento da casa (`showsVenueTaxId`), e o
+      Brasil mostra o CNPJ. Quando o cadastro souber a forma jurídica,
+      sociedade mostra e autónomo não.
+12. **A carteira da casa em Espanha é pergunta jurídica, não de trilho.** Saldo
+    pré-pago guardado contra consumo futuro numa só casa cai em análise de
+    moeda eletrônica / exclusão de rede limitada (PSD2 art. 3(k)), e o nosso
+    desenho **expira** o bônus, o que atrai proteção do consumidor em Espanha
+    de um jeito que a prática brasileira tolera melhor. Além disso a carteira é
+    o único fluxo que persiste nome + telefone como perfil durável, que é a
+    ponta mais afiada da pendência de residência. Então "dar um trilho de
+    recarga pra Espanha" é a parte pequena; a parte grande é um segundo
+    parecer. Hoje está fechada nos dois lados — carregar e GASTAR.
 
 ### O que o interruptor tem que ser
 

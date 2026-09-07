@@ -7,7 +7,7 @@
  */
 const INLINE_METHODS = new Set(['house_account']);
 
-const { DEFAULT_MARKET, isMarket, publicMarketView, market } = require('../markets');
+const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
 
 /**
  * In-memory store — powers the local demo and integration tests.
@@ -267,7 +267,7 @@ function createMemoryStore() {
           // Nomeado `taxId` e não `cnpj` porque o campo é o mesmo nos dois
           // mercados e a tela é uma só. Nulo é normal (migração 0002: um CNPJ
           // de mentira num recibo real é pior que a ausência dele).
-          taxId: venue.cnpj || null,
+          taxId: showsVenueTaxId(venue.market) ? (venue.cnpj || null) : null,
           ...publicMarketView(venue.market, { servicoBp: venue.servicoBp }),
         },
         table: { label: table.label },

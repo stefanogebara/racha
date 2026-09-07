@@ -280,11 +280,27 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         type: 'express',
         country,
         ...(email ? { email } : {}),
+        // `business_type` é uma SUPOSIÇÃO em Espanha, e está anotada como
+        // pendência em vez de escondida: uma parte grande dos bares espanhóis
+        // é de autónomo (pessoa física), pra quem o certo é
+        // `business_type: 'individual'` e o NIF é o DNI da pessoa. Enviar
+        // 'company' pra um autónomo produz um KYC que não verifica.
+        //
+        // Não é adivinhável daqui: depende da forma jurídica da casa, que o
+        // cadastro não pergunta. Fica na lista de bloqueios da Espanha
+        // (docs/markets/README.md) — e a Espanha não está no ar.
         business_type: 'company',
         ...(businessName || cnpj ? {
           company: {
             ...(businessName ? { name: String(businessName).slice(0, 128) } : {}),
-            ...(cnpj ? { tax_id: String(cnpj).replace(/\D/g, '') } : {}),
+            // O documento vai na FORMA DO PAÍS.
+            //
+            // Era `replace(/\D/g, '')` sempre, que está certo pro CNPJ
+            // (12.345.678/0001-99 → 12345678000199) e destrói um NIF
+            // espanhol: "B12345674" chegava na Stripe como "12345674", e um
+            // documento que não valida trava a verificação da conta que
+            // RECEBE o dinheiro. Achado pela revisão de segurança.
+            ...(cnpj ? { tax_id: m.code === 'br' ? String(cnpj).replace(/\D/g, '') : String(cnpj).trim().toUpperCase() } : {}),
           },
         } : {}),
         capabilities: {

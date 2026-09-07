@@ -125,11 +125,20 @@ function createChargeService({ store, psp }) {
     }
 
     const state = reduce(await store.loadEvents(checkId));
-    if (!state) throw badRequest('check has no events');
-    if (state.status === 'fechada') throw badRequest('check is closed');
+    if (!state) throw badRequest('check has no events', 'check_not_found');
+    if (state.status === 'fechada') throw badRequest('check is closed', 'check_closed');
     const remaining = remainingCents(state);
     if (amountCents > remaining) {
-      throw badRequest(`amount exceeds remaining (${remaining} centavos)`);
+      // O erro MAIS COMUM da mesa: duas pessoas tocam "pagar" ao mesmo tempo e
+      // a segunda pede mais do que sobrou. O trilho de cartão já devolvia
+      // `amount_over` com `leftCents`, e a tela já sabe desenhar isso ("falta
+      // R$ 23,00"); este caminho — o do Pix, que é o trilho principal —
+      // devolvia uma frase em inglês sem código nenhum.
+      //
+      // Ficou invisível porque a rota `/api/pay` tinha a checagem duplicada.
+      // Ela saiu, e a diferença apareceu. Achado pela revisão de compliance.
+      throw badRequest(`amount exceeds remaining (${remaining} centavos)`,
+        'amount_over', { leftCents: remaining });
     }
 
     const chargeRef = `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`;

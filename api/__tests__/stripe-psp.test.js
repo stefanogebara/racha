@@ -141,6 +141,30 @@ describe('stripe adapter — createWalletCharge (destination charge)', () => {
     expect(md.tip_cents).toBe('100');
   });
 
+  test('o documento da casa vai na forma do PAÍS, não sempre em dígitos', async () => {
+    // Era `replace(/\D/g, '')` sempre. Certo pro CNPJ, destrutivo pro NIF:
+    // "B12345674" chegava na Stripe como "12345674". Um documento que não
+    // valida trava a verificação da conta que RECEBE o dinheiro — e é a última
+    // coisa que se descobre, porque o erro aparece semanas depois no KYC.
+    const brStub = stubStripe();
+    await mk({}, brStub).createConnectedAccount({
+      businessName: 'Bar do Zé', cnpj: '12.345.678/0001-99', marketCode: 'br',
+    });
+    expect(brStub.calls.accounts[0].company.tax_id).toBe('12345678000199');
+    expect(brStub.calls.accounts[0].country).toBe('BR');
+
+    const esStub = stubStripe();
+    await mk({}, esStub).createConnectedAccount({
+      businessName: 'Bar Pepe', cnpj: ' b12345674 ', marketCode: 'es',
+    });
+    // A letra sobrevive, e o espaço/caixa são normalizados.
+    expect(esStub.calls.accounts[0].company.tax_id).toBe('B12345674');
+    expect(esStub.calls.accounts[0].country).toBe('ES');
+    expect(esStub.calls.accounts[0].capabilities.bizum_payments).toEqual({ requested: true });
+    // E o Brasil NÃO pede Bizum — a capacidade não existe pra conta BR.
+    expect(brStub.calls.accounts[0].capabilities.bizum_payments).toBeUndefined();
+  });
+
   test('o adaptador declara as moedas que atende', async () => {
     // Declarado, não suposto: o portão compartilhado confere isto antes de
     // chamar. Sem a declaração, o `createWalletCharge` do Pagar.me recebia
@@ -155,7 +179,7 @@ describe('stripe adapter — createWalletCharge (destination charge)', () => {
     await expect(pm.createWalletCharge({
       chargeRef: 'x', amountCents: 100, recipientId: 're_x',
       wallet: 'google_pay', paymentToken: 'tok_abcdefgh', currency: 'eur',
-    })).rejects.toThrow(/moeda não atendida/);
+    })).rejects.toThrow(/moeda obrigatória/);
   });
 
   test('application_fee_amount vai junto quando > 0', async () => {

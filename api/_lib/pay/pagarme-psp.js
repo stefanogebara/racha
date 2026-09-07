@@ -178,13 +178,15 @@ function createPagarmePsp({
       };
     },
 
-    async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, payerDocument = null, currency = 'brl' }) {
+    async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, payerDocument = null, currency }) {
       // Defesa em profundidade, do mesmo tipo da do adaptador da Stripe: o
       // portão compartilhado já confere `currencies`, e ainda assim quem emite
       // recusa uma moeda que não sabe emitir. O que este `if` pega é o
       // chamador NOVO que não passou pelo portão.
+      // Sem padrão: um chamador que esquece a moeda tem que quebrar, não
+      // herdar a única moeda que este adquirente por acaso atende.
       if (currency !== 'brl') {
-        throw new TypeError(`pagarme: moeda não atendida ${JSON.stringify(currency)} — este adquirente é BRL`);
+        throw new TypeError(`pagarme: moeda obrigatória e este adquirente é BRL, veio ${JSON.stringify(currency)}`);
       }
       if (!['apple_pay', 'google_pay'].includes(wallet)) {
         throw new TypeError(`createWalletCharge: unknown wallet ${wallet}`);

@@ -43,7 +43,7 @@ const STATUS_KEY = {
 } as const;
 
 export default function Panel() {
-  const { t, brl: money } = useT();
+  const { t, brl: fmtMoney } = useT();
   const venueId = useMemo(
     () => new URLSearchParams(window.location.search).get('v') ?? '',
     [],
@@ -75,7 +75,7 @@ export default function Panel() {
   // linha de GORJETA, que é o número que ele leva pra folha. Amarrar o
   // formatador aqui é mais seguro que lembrar a moeda oito vezes.
   const currency: CurrencyCode = data.venue.currency ?? 'BRL';
-  const brl = (c: number) => money(c, currency);
+  const brl = (c: number) => fmtMoney(c, currency);
 
   return (
     <main className="shell wide">
@@ -150,8 +150,8 @@ export default function Panel() {
  * a que quebra restaurante.
  */
 function Conciliacao({ r, currency }: { r: Reconcile | undefined; currency: CurrencyCode }) {
-  const { t, brl: money, hm } = useT();
-  const brl = (c: number) => money(c, currency);
+  const { t, brl: fmtMoney, hm } = useT();
+  const brl = (c: number) => fmtMoney(c, currency);
   if (!r) return null; // backend antigo ainda no ar — o resto do painel segue de pé
   const vermelho = r.severity === 'critical' || r.severity === 'high';
   return (
@@ -205,8 +205,8 @@ const dayMonth = (dia: string, lang: 'pt' | 'en' | 'es') => {
 
 /** Últimos 7 dias de uso — barras CSS proporcionais ao valor, sem lib de gráfico. */
 function Ativacao({ a, currency }: { a: PanelAtivacao | undefined; currency: CurrencyCode }) {
-  const { t, brl: money, lang } = useT();
-  const brl = (c: number) => money(c, currency);
+  const { t, brl: fmtMoney, lang } = useT();
+  const brl = (c: number) => fmtMoney(c, currency);
   // Backend antigo ainda no ar — o resto do painel segue de pé. A guarda cobre
   // o objeto E as partes dele: `semana`/`dias` faltando não pode derrubar a
   // tela que mostra o dinheiro do dia.
