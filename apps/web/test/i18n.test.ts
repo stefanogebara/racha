@@ -181,12 +181,25 @@ test('a moeda vem da casa, a separação vem do leitor', () => {
   assert.ok(money(21310, 'es', 'BRL').startsWith('213,10'), money(21310, 'es', 'BRL'));
 });
 
-test('erro do servidor: traduz pelo código e cai no texto cru quando não conhece', () => {
+test('erro do servidor: código traduz; sem tradução vai o genérico; sem código vai o cru', () => {
   assert.equal(tError('en', 'check_closed', 'conta fechada'), 'This bill is already closed.');
   assert.equal(tError('pt', 'check_closed', 'conta fechada'), 'Esta conta já foi fechada.');
-  // Servidor mais novo que o cliente: um código desconhecido NÃO pode virar
-  // tela em branco nem "undefined" — o texto do servidor é melhor que nada.
-  assert.equal(tError('en', 'codigo_que_nao_existe', 'mensagem crua'), 'mensagem crua');
+
+  // Este ramo MUDOU quando o servidor parou de mandar a frase junto do código.
+  //
+  // Antes, um código desconhecido caía no texto do servidor, e isso fazia
+  // sentido enquanto havia texto. Agora um 4xx com código não manda mensagem —
+  // porque a mensagem interna nomeava o adquirente da casa e servia de oráculo
+  // de assinatura nos webhooks — então o "cru" que sobraria é o `HTTP 400` que
+  // o `api.ts` inventa. Uma frase honesta em pé é melhor que isso.
+  //
+  // Um código sem tradução não deve existir: há um teste que varre a API e
+  // exige `err.<code>` pra cada um. Este é o cinto, não a calça.
+  assert.equal(tError('en', 'codigo_que_nao_existe', 'HTTP 400'), 'Something went wrong. Try again.');
+  assert.equal(tError('es', 'codigo_que_nao_existe', 'HTTP 400'), DICT['err.generic'].es);
+
+  // SEM código é um servidor mais velho, que ainda manda frase. Aí o texto dele
+  // é melhor que um genérico: pode dizer algo específico e verdadeiro.
   assert.equal(tError('en', undefined, 'mensagem crua'), 'mensagem crua');
 });
 

@@ -32,6 +32,7 @@ const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
 const { createChargeService } = require('../_lib/pay/create-charge');
 const { errorStatus, errorBody } = require('../_lib/http-error');
+const { readBody } = require('../_lib/read-body');
 const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
         notifyFounderReconcile, notifyFounderMoneyEvent } = require('../_lib/notify');
 const { montarRadar } = require('../_lib/activation/radar');
@@ -196,20 +197,6 @@ function json(res, status, body) {
     'Access-Control-Allow-Headers': 'content-type,x-racha-signature',
   });
   res.end(JSON.stringify(body));
-}
-
-// Defensive: the serverless runtime may pre-populate req.body; otherwise read
-// the raw stream (needed for the webhook HMAC).
-function readBody(req) {
-  if (req.body != null) {
-    return Promise.resolve(typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
-  }
-  return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 1e6) req.destroy(); });
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
-  });
 }
 
 async function guardUser(req, res) {

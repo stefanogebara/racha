@@ -228,6 +228,15 @@ export const DICT = {
   'err.no_card':          { en: 'This restaurant does not take card yet.',
                             pt: 'Este restaurante ainda não aceita cartão.',
                         es: 'Este restaurante todavía no acepta tarjeta.' },
+  // Erros de TRANSPORTE, não de dinheiro. Alcançáveis sem autenticação, então
+  // precisam de frase — e a frase não acusa a pessoa de nada: um corpo grande
+  // demais numa mesa é uma conexão ruim repetindo o envio, não um ataque.
+  'err.body_too_large':   { en: 'That request was too large. Try again.',
+                        pt: 'A requisição foi grande demais. Tente de novo.',
+                        es: 'La solicitud fue demasiado grande. Inténtalo de nuevo.' },
+  'err.body_incomplete':  { en: 'The connection dropped. Try again.',
+                        pt: 'A conexão caiu. Tente de novo.',
+                        es: 'Se cortó la conexión. Inténtalo de nuevo.' },
   'err.generic':          { en: 'Something went wrong. Try again.',
                             pt: 'Algo deu errado. Tente de novo.',
                         es: 'Algo ha ido mal. Inténtalo de nuevo.' },
@@ -882,6 +891,17 @@ export function tError(lang: Lang, code: string | undefined, fallback: string,
                        vars?: Record<string, string | number>): string {
   const key = `err.${code}` as Key;
   if (code && key in DICT) return fill(DICT[key][lang], vars);
-  return fallback;   // servidor antigo ou erro novo: o texto cru é melhor que nada
+  // Código que o dicionário não conhece: a frase GENÉRICA, traduzida.
+  //
+  // Antes caía no texto cru do servidor, e isso fazia sentido enquanto o
+  // servidor mandava uma frase. Ele parou: um 4xx com código não manda mais
+  // mensagem, porque a mensagem interna nomeava o adquirente da casa e servia
+  // de oráculo de assinatura nos webhooks. Então o "texto cru" hoje seria o
+  // `HTTP 400` que o `api.ts` inventa — pior que uma frase honesta em pé.
+  //
+  // Um código sem tradução não deve existir: há um teste que varre a API e
+  // exige `err.<code>` pra cada um. Este ramo é o cinto, não a calça.
+  if (code) return fill(DICT['err.generic'][lang]);
+  return fallback;   // servidor antigo, sem código: o texto cru é melhor que nada
 }
 

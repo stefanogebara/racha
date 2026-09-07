@@ -19,10 +19,31 @@ describe('a forma de um erro na rede', () => {
     expect(errorStatus(err)).toBe(400);
     expect(errorBody(err)).toEqual({
       success: false,
-      error: 'valor acima do teto',
       code: 'amount_over_max',
       vars: { maxCents: 500000 },
     });
+  });
+
+  test('com código, a MENSAGEM interna não viaja', () => {
+    // A primeira versão desta correção mandava as duas coisas: o código E a
+    // frase. A frase era só reserva pro cliente, mas ia pra qualquer diner sem
+    // autenticação nomeando internos — "psp pagarme não emite em eur"
+    // identifica o adquirente daquela casa, "market es: market_not_live" conta
+    // que a Espanha existe e não está no ar, e numa falha de webhook a frase
+    // carrega o erro da própria Stripe, o que vira um oráculo de assinatura
+    // ("no signatures found" contra "timestamp outside tolerance"). Achado pela
+    // revisão de segurança.
+    const psp = Object.assign(new Error('psp pagarme não emite em eur'), {
+      statusCode: 400, code: 'psp_market_mismatch',
+    });
+    const body = errorBody(psp);
+    expect(body).toEqual({ success: false, code: 'psp_market_mismatch' });
+    expect(JSON.stringify(body)).not.toContain('pagarme');
+
+    const wh = Object.assign(new Error('assinatura Stripe inválida: no signatures found'), {
+      statusCode: 401, code: 'webhook_invalid',
+    });
+    expect(JSON.stringify(errorBody(wh))).not.toContain('no signatures found');
   });
 
   test('um 500 não vaza mensagem interna', () => {
@@ -42,7 +63,9 @@ describe('a forma de um erro na rede', () => {
     expect(errorStatus(wh)).toBe(401);
   });
 
-  test('erro sem código nenhum não inventa um', () => {
+  test('erro SEM código ainda manda a frase — senão o integrador fica sem nada', () => {
+    // Estes são erros de contrato de quem integra ("checkId required"), não de
+    // quem está na mesa. A saída certa é dar código a eles, não emudecer.
     const plain = Object.assign(new Error('checkId required'), { statusCode: 400 });
     expect(errorBody(plain)).toEqual({ success: false, error: 'checkId required' });
     expect('code' in errorBody(plain)).toBe(false);
@@ -74,6 +97,7 @@ describe('o portão de dinheiro fala em códigos de ponta a ponta', () => {
     const err = await charge({ checkId: check.id, amountCents: 600000, rail: 'bizum' }).catch((e) => e);
     const body = errorBody(err);
     expect(body.code).toBe('amount_over_max');
+    expect(body.error).toBeUndefined();
     // Centavos crus, nunca "5.000,00 €": quem escolhe o separador e a posição
     // do símbolo é o cliente, que sabe o idioma.
     expect(body.vars).toEqual({ maxCents: 500000 });

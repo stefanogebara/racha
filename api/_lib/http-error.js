@@ -37,12 +37,28 @@ function errorBody(err, status = errorStatus(err)) {
   if (status >= 500) {
     return { success: false, error: 'erro interno', code: 'internal' };
   }
-  return {
-    success: false,
-    error: (err && err.message) || 'erro',
-    ...(err && err.code ? { code: err.code } : {}),
-    ...(err && err.vars ? { vars: err.vars } : {}),
-  };
+  // Com CÓDIGO, a mensagem interna NÃO viaja.
+  //
+  // O cliente já prefere o código (`tError`), então a frase era só reserva — e
+  // essa reserva ia pra qualquer diner sem autenticação, nomeando internos:
+  // "psp pagarme não emite em eur" identifica o adquirente daquela casa;
+  // "market es: market_not_live" conta que a Espanha existe e não está no ar;
+  // "venue has no settlement recipient configured" descreve o cadastro. Numa
+  // verificação de webhook a frase carrega o erro da própria Stripe, o que
+  // vira um oráculo de assinatura ("no signatures found" contra "timestamp
+  // outside tolerance"). Achado pela revisão de segurança de 2026-09-07.
+  //
+  // Sem código a frase continua indo: são erros de contrato de quem integra
+  // ("checkId required"), e sem ela o chamador fica sem nada. A saída é
+  // acrescentar código a esses erros, não devolver mudez.
+  if (err && err.code) {
+    return {
+      success: false,
+      code: err.code,
+      ...(err.vars ? { vars: err.vars } : {}),
+    };
+  }
+  return { success: false, error: (err && err.message) || 'erro' };
 }
 
 module.exports = { errorStatus, errorBody };
