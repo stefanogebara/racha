@@ -137,15 +137,10 @@ mostra, em espanhol:
 > Stripe comunicará tus datos a Openbank Pay, marca comercial de Open Bank
 > S.A., para gestionar la transferencia.
 
-Ou seja: o telefone do pagador vai pra **Open Bank, S.A.** (o adquirente do
-Bizum na Stripe), e não só pra Stripe. O dado não passa pelos nossos
-servidores, mas o Openbank passa a ser um destinatário nomeado — então entra no
-registro do art. 30 e no aviso do art. 13, junto da Stripe. Isto não estava em
-nenhuma nota antes de alguém abrir a tela; a doc não menciona.
-
-A versão inglesa da mesma frase diz "acting data controller" e a espanhola diz
-"para gestionar la transferencia" — não é a mesma afirmação jurídica, e é cópia
-da Stripe, não nossa. Vale mostrar as duas ao advogado.
+O telefone do pagador vai pra **Open Bank, S.A.** (o adquirente do Bizum na
+Stripe), e não só pra Stripe. Isto não estava em nota nenhuma antes de alguém
+abrir a tela; a doc da Stripe não menciona. Tem seção própria abaixo — não é
+problema de transferência internacional, é de **mapa de destinatários**.
 
 **O bug que só a API real achou.** Confirmar devolve `requires_action`, e o
 código só aceitava `processing`: a tela cairia no ramo de erro e diria
@@ -203,16 +198,51 @@ Dado pessoal de titular europeu indo pro Brasil precisa de cláusulas-padrão
 região da UE — que é a correção técnica que dispensa a maior parte da papelada.
 
 O que atravessa hoje: `payerLabel` (nome livre, persistido), e nome + telefone
-da carteira da casa (`/api/house/open`, que **não** é gated por mercado). E o
-telefone do pagador vai pra **Open Bank, S.A.** pelo elemento da Stripe — sem
-tocar nos nossos servidores, mas nomeado no registro e no aviso do mesmo jeito
-(ver a seção do sandbox). Além
+da carteira da casa. O telefone do pagador do Bizum **não** atravessa: ele é
+digitado dentro do elemento da Stripe e vai pra Espanha, não pro Brasil — é
+outro problema, na seção seguinte. Além
 disso faltam: registro do art. 30 pros fluxos espanhóis, aviso do art. 13 em
 espanhol, DPA do art. 28 com cada casa espanhola (a Racha é operadora do dado
 do cliente da casa), e representante do art. 27 sem estabelecimento na UE.
 
 E o `payerLabel` não tem prazo de retenção nem caminho de exclusão em lugar
 nenhum — um nome preso a um pagamento guardado pra sempre falha o art. 5(1)(e).
+O mesmo vale pro telefone do pagador do Bizum: não há entrada de retenção nem
+de exclusão pra ele em parte nenhuma. O perímetro exige um caminho de deleção
+por fluxo de dado.
+
+### 3. Openbank: um segundo responsável na tela, e ele é nosso problema
+
+Esta seção existe separada porque a primeira versão desta nota estava **no
+lugar errado** — dentro do capítulo V. Open Bank, S.A. é entidade espanhola
+(Santander): essa perna é UE→UE e **não** acrescenta transferência
+internacional nenhuma. Misturar as duas coisas faz o advogado precificar o
+Openbank como problema de transferência, que ele não é.
+
+O que ele é: **mapa de destinatários** — art. 13(1)(e) (a quem os dados são
+comunicados) e art. 30(1)(d) (registro).
+
+Três pontos pro parecer, e os três mudam o que temos que produzir:
+
+1. **"Acting data controller" tira o Openbank da cadeia do art. 28.** Se ele
+   determina finalidades do telefone e da autorização, é responsável
+   independente (ou conjunto) — não suboperador da Stripe sob o nosso DPA.
+   Então a correção é o aviso do art. 13 nomeando **Stripe e Open Bank, S.A.**,
+   e não uma linha num anexo de operadores.
+2. **Os dois idiomas dizem coisas diferentes.** O inglês diz "acting data
+   controller" e o espanhol "para gestionar la transferencia". Não é a mesma
+   afirmação jurídica, e as duas são cópia da Stripe, não nossa. As duas vão
+   pro advogado, porque implicam instrumentos diferentes.
+3. **"Não passa pelos nossos servidores" NÃO é defesa de quem embute.** É o
+   caso Fashion ID (TJUE C-40/17): quem embute componente de terceiro que
+   coleta e transmite dado pessoal é corresponsável por essa coleta, mesmo que
+   o dado nunca toque o seu servidor. Nós embutimos o Payment Element, nós
+   decidimos que ele aparece e com qual `locale` (`BizumPay.tsx`). Então o
+   aviso do art. 13 — e possivelmente um acordo do art. 26 — é **nosso** pra
+   produzir. Isso é item de trabalho, não nota de pé de página.
+
+Nada disto muda a análise de **LGPD**: o Bizum não é oferecido no Brasil e o
+telefone nunca entra no banco de São Paulo.
 
 ## O que ainda falta pra Espanha ir ao ar
 
@@ -229,22 +259,40 @@ Anotado aqui pra não parecer pronto:
    agora recebe o mercado, então a conta nasce ES com `bizum_payments` pedido.
 3. **Capacidade `bizum_payments`** ativa na conta da plataforma **e** em cada
    conta conectada. Fica `pending` até a Stripe verificar o onboarding do Bizum.
-4. **IVA e fatura.** A tela de pago já diz o que é — "Justificante de pago ·
-   <casa>" e, explícito, que **não** é uma fatura. Falta confirmar com
-   contabilidade espanhola como a fatura simplificada trata pagamento
-   fracionado, e se a casa quer o NIF dela impresso ali.
+4. **IVA e fatura.** A tela de pago diz o que é — "Justificante de pago ·
+   <casa>", o NIF da casa, e explícito que **não** é uma fatura. Falta
+   confirmar com contabilidade espanhola como a fatura simplificada trata
+   pagamento fracionado.
 5. **A landing.** A cópia espanhola fala de Bizum onde a portuguesa fala de Pix,
    o que amarra a mensagem ao IDIOMA e não ao mercado. Aceitável numa página de
    marketing, errado em qualquer outro lugar — é decisão de cópia.
 6. **O app iOS é só Brasil.** Português, Pix, `Cents` em BRL. Nada aqui mexeu
    nele.
-7. **A tela de "pago" não identifica comerciante.** Uma conta paga por várias
-   pessoas não divide o IVA: a casa emite **uma** fatura simplificada da mesa, e
-   o cliente mantém o direito à fatura completa com o NIF dele (RD 1619/2012).
-   Nossa tela precisa ler como **justificante de pago**, nomeando a casa e o
-   NIF dela — e **não** parecer uma fatura, o que também mantém a Racha fora do
-   escopo do Verifactu / SIF (RD 1007/2023), uma obrigação bem maior pra entrar
-   por acidente.
-8. **`/api/house/open` não é gated por mercado** — a carteira da casa coleta
-   nome e telefone, e em Espanha isso entra no problema de residência de dado
-   acima antes de qualquer outra coisa.
+7. ~~**A tela de "pago" não identifica comerciante.**~~ Feito: nomeia a casa e
+   o documento dela (CNPJ no Brasil, NIF em Espanha). Uma conta paga por várias
+   pessoas não divide o IVA — a casa emite **uma** fatura simplificada da mesa,
+   e o cliente mantém o direito à fatura completa com o NIF dele (RD
+   1619/2012). A tela lê como **justificante de pago** e diz que não é fatura,
+   o que também mantém a Racha fora do escopo do Verifactu / SIF (RD
+   1007/2023), uma obrigação bem maior pra entrar por acidente.
+8. ~~**`/api/house/open` não é gated por mercado.**~~ Feito, e o portão foi
+   posto no lugar certo: `/api/house/open` já era gated, mas a RECARGA
+   (`house-service.createLoad`) criava cobrança Pix sem conferir mercado
+   nenhum. Portão no caminho do dinheiro. Hoje isso fecha a carteira fora do
+   Brasil — a recarga é sempre Pix e a Espanha não serve Pix — e é a resposta
+   certa enquanto a residência de dado não estiver resolvida.
+9. **Os avisos de privacidade espanhóis.** Art. 13 nomeando Stripe **e** Open
+   Bank, S.A.; registro do art. 30 pros fluxos espanhóis; DPA do art. 28 com
+   cada casa; representante do art. 27; e possivelmente acordo do art. 26 pelo
+   Fashion ID. Ver a seção 3 acima — nenhum destes é código.
+10. **Retenção e exclusão.** Nem `payerLabel` nem o telefone do pagador têm
+    prazo ou caminho de deleção. Art. 5(1)(e) e art. 17.
+
+### O que o interruptor tem que ser
+
+Quando o `RACHA_ES_ENABLED` virar, ele tem que ser **um interruptor**, não um
+interruptor mais quatro edições lembradas. Isso agora é verdade no código: os
+quatro portões de mercado moram numa função (`marketGate`), os dois caminhos de
+dinheiro chamam ela, e um teste estrutural recusa qualquer caminho novo que
+crie cobrança sem passar por lá. O que falta é a papelada dos itens 9 e 10 e o
+parecer do item 1 desta lista — nada que uma variável de ambiente resolva.
