@@ -131,3 +131,46 @@ test('nenhum componente escreve em português o que o dicionário já traduz', a
 
   assert.deepEqual(offenders, [], `\n${offenders.join('\n')}\n`);
 });
+
+/**
+ * O inglês tem que ser inglês.
+ *
+ * Os testes acima provam que as duas línguas EXISTEM e que os placeholders
+ * batem. Nenhum deles olha se o lado inglês está certo — e estava errado de
+ * três jeitos que passam por qualquer teste de presença:
+ *
+ * - palavra portuguesa deixada no meio da frase inglesa ("centavo", "Couvert");
+ * - tradução literal que vira idioma estrangeiro ("Discover the house balance",
+ *   de "Conheça");
+ * - termo inventado onde o inglês já tem o dele ("Staff service" pra aquilo que
+ *   toda conta em inglês chama "service charge").
+ *
+ * A lista é pequena de propósito: é uma rede pra reincidência, não um corretor.
+ */
+test('o lado inglês não deixa palavra portuguesa nem tradução literal', () => {
+  // Palavras que não existem em inglês corrente. "Pix", "Racha", "CPF" e
+  // "couvert" no lado PT são nomes próprios e ficam.
+  const untranslated = ['centavo', 'centavos', 'conta', 'mesa', 'gorjeta', 'saldo'];
+  // Traduções literais que já apareceram no dicionário.
+  const calques = ['discover the', 'staff service', 'realize the'];
+
+  const offenders: string[] = [];
+  for (const [key, pair] of entries) {
+    const en = pair.en.toLowerCase();
+    for (const w of untranslated) {
+      if (new RegExp(`\\b${w}\\b`).test(en)) offenders.push(`${key}: en contém "${w}"`);
+    }
+    for (const c of calques) {
+      if (en.includes(c)) offenders.push(`${key}: en tem tradução literal "${c}"`);
+    }
+  }
+  assert.deepEqual(offenders, [], `\n${offenders.join('\n')}\n`);
+});
+
+test('o inglês não repete a mesma moeda com dois nomes', () => {
+  // "cent" no título e "centavo" no corpo do mesmo bloco foi o caso real.
+  const money = entries.filter(([, p]) => /\bcents?\b|\bcentavos?\b/i.test(p.en));
+  const usesCentavo = money.filter(([, p]) => /\bcentavos?\b/i.test(p.en));
+  assert.deepEqual(usesCentavo.map(([k]) => k), [],
+    'o lado inglês chama a moeda de "centavo" em algumas chaves e de "cent" em outras');
+});

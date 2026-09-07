@@ -31,7 +31,7 @@ export const DICT = {
 
   // ── a conta ─────────────────────────────────────────────────────────────
   'check.yours':      { en: 'Your bill',                       pt: 'Sua conta' },
-  'check.tapYours':   { en: ' · tap what was yours',           pt: ' · toque o que foi seu' },
+  'check.tapYours':   { en: ' · tap what you had',             pt: ' · toque o que foi seu' },
   'check.total':      { en: 'Total',                           pt: 'Total' },
   'check.paidSoFar':  { en: '{paid} already paid — {left} to go',
                         pt: '{paid} já pagos — falta {left}' },
@@ -52,7 +52,7 @@ export const DICT = {
   'share.each':       { en: '{amount} each',                   pt: '{amount} por pessoa' },
   'share.overTotal':  { en: ' — the split is over the bill total, not over what is left',
                         pt: ' — a divisão é sobre o total da conta, não sobre o que falta' },
-  'share.pickItems':  { en: 'Tap the items that were yours in the bill above — service follows your share.',
+  'share.pickItems':  { en: 'Tap the items you had in the bill above — the service charge follows your share.',
                         pt: 'Toque os itens que foram seus na conta ↑ — o serviço acompanha a sua parte.' },
   'share.picked':     { en: '{n} {noun} · your share {amount}', pt: '{n} {noun} · sua parte {amount}' },
   'share.item':       { en: 'item',                            pt: 'item' },
@@ -61,15 +61,18 @@ export const DICT = {
                         pt: 'Ajustado pro que ainda falta na conta ({left}) — o resto já foi pago.' },
 
   // ── serviço (CDC: sempre removível) ─────────────────────────────────────
-  'servico.label':    { en: 'Staff service ({pct}% of your share) — optional',
+  'servico.label':    { en: 'Service charge ({pct}% of your share) — optional',
                         pt: 'Serviço da equipe ({pct}% da sua parte) — opcional' },
 
   // ── identificação ───────────────────────────────────────────────────────
   'payer.name':       { en: 'Your name (optional)',            pt: 'Seu nome (opcional)' },
   'payer.cpf':        { en: 'Your CPF (required to pay)',      pt: 'Seu CPF (obrigatório pra pagar)' },
-  'payer.cpfWhy':     { en: 'The payment provider asks for it to issue the charge. It goes to them, not to the restaurant, and Racha does not store it.',
-                        pt: 'O provedor de pagamento pede pra emitir a cobrança. Vai pra ele, não pro restaurante, e a Racha não guarda.' },
-  'payer.cpfHint':    { en: 'Enter your CPF (11 digits) to enable payment.',
+  // O que o CPF é fica AQUI e não no placeholder: glosado no rótulo, o campo
+  // truncava em "Your CPF, the Brazilian tax ID (required to" num telefone de
+  // 430px — e um rótulo cortado explica menos que um curto. Visto no navegador.
+  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. The payment provider asks for it to issue the charge — it goes to them, not to the restaurant, and Racha does not store it.',
+                        pt: 'O provedor de pagamento pede o CPF pra emitir a cobrança. Vai pra ele, não pro restaurante, e a Racha não guarda.' },
+  'payer.cpfHint':    { en: 'Enter your CPF, 11 digits, to enable payment.',
                         pt: 'Preencha seu CPF (11 dígitos) pra liberar o pagamento.' },
 
   // ── pagar ───────────────────────────────────────────────────────────────
@@ -77,7 +80,7 @@ export const DICT = {
   'pay.retry':        { en: '{error} — the bill was refreshed, check the amount and try again.',
                         pt: '{error} — a conta foi atualizada, confira o valor e tente de novo.' },
   'pix.title':        { en: 'Pay with Pix',                    pt: 'Pague com Pix' },
-  'pix.includesTip':  { en: 'includes {amount} of service for the staff',
+  'pix.includesTip':  { en: 'includes {amount} service charge for the staff',
                         pt: 'inclui {amount} de serviço para a equipe' },
   'pix.copy':         { en: 'Copy Pix code',                   pt: 'Copiar código Pix' },
   'pix.copied':       { en: 'Code copied ✓',                   pt: 'Código copiado ✓' },
@@ -102,8 +105,8 @@ export const DICT = {
   // ── saldo da casa ───────────────────────────────────────────────────────
   'house.pay':        { en: 'Pay with balance ({amount} available)',
                         pt: 'Pagar com saldo ({amount} disponível)' },
-  'house.discover':   { en: 'Discover the house balance',      pt: 'Conheça o saldo da casa' },
-  'house.bonus':      { en: 'Discover the house balance — get {pct}% bonus',
+  'house.discover':   { en: 'Try the house balance',           pt: 'Conheça o saldo da casa' },
+  'house.bonus':      { en: 'Try the house balance — get {pct}% bonus',
                         pt: 'Conheça o saldo da casa — ganhe {pct}% de bônus' },
 
   // ── erros do servidor, por código ───────────────────────────────────────
@@ -145,7 +148,7 @@ export const DICT = {
                         pt: '{amount} de diferença entre o que o app registrou e o que foi pago.' },
   'panel.reconCall':  { en: 'Talk to us before you close the till.',
                         pt: 'Fale com a gente antes de fechar o caixa.' },
-  'panel.tip':        { en: 'staff service (payroll)',         pt: 'serviço da equipe (folha)' },
+  'panel.tip':        { en: 'service charge (payroll)',        pt: 'serviço da equipe (folha)' },
 
   // ── carteira ────────────────────────────────────────────────────────────
   'wallet.header':    { en: 'wallet',                          pt: 'carteira' },
@@ -175,7 +178,7 @@ export const DICT = {
   // ── pagar com saldo ─────────────────────────────────────────────────────
   'housepay.cta':     { en: 'Pay with balance',                pt: 'Pagar com saldo' },
   'housepay.done':    { en: 'Paid with balance',               pt: 'Pago com saldo' },
-  'housepay.tipApart':{ en: 'Staff service (tip) goes separately, by Pix.',
+  'housepay.tipApart':{ en: 'The service charge goes separately, by Pix.',
                         pt: 'O serviço da equipe (gorjeta) vai separado, pelo Pix.' },
 
   // ── carteiras de cartão ─────────────────────────────────────────────────
@@ -217,10 +220,10 @@ export const DICT = {
   'home.step1d':      { en: 'the table QR opens the bill right away',
                         pt: 'o QR da mesa abre a conta na hora' },
   'home.step2':       { en: '2 · Split',                       pt: '2 · Dividiu' },
-  'home.step2d':      { en: 'equally or by amount — each their own share',
+  'home.step2d':      { en: 'equally or by amount — each pays their own share',
                         pt: 'igual ou por valor — cada um a sua parte' },
   'home.step3':       { en: '3 · Paid',                        pt: '3 · Pagou' },
-  'home.legal':       { en: 'Staff service (tip) tracked separately, the way the law requires. The table turns faster at the rush — and nobody waits for a card machine passed hand to hand.',
+  'home.legal':       { en: 'The service charge is tracked separately, the way the law requires. The table turns faster at the rush — and nobody waits for a card machine passed hand to hand.',
                         pt: 'Serviço da equipe (gorjeta) rastreado separado, do jeito que a lei pede. A mesa gira mais rápido no rush — e ninguém fica esperando maquininha passar de mão em mão.' },
   'home.balancePitch':{ en: 'Your guest tops up by Pix and earns a bonus (e.g. +15%). Loyalty that becomes cash up front — the paid balance never expires and is refundable; the bonus is promotional, with a clear expiry.',
                         pt: 'Seu cliente carrega saldo via Pix e ganha bônus (ex.: +15%). Fidelidade que vira caixa antecipado — o saldo pago não expira e é reembolsável; o bônus é promocional, com validade clara.' },
@@ -301,12 +304,12 @@ export const DICT = {
   'land.openPanel': { en: 'Open the restaurant panel',         pt: 'Abrir o painel do restaurante' },
 
   'cat.carne': { en: 'Meat', pt: 'Carne' }, 'cat.peixe': { en: 'Fish', pt: 'Peixe' },
-  'cat.massa': { en: 'Pasta', pt: 'Massa' }, 'cat.petisco': { en: 'Snacks', pt: 'Petisco' },
+  'cat.massa': { en: 'Pasta', pt: 'Massa' }, 'cat.petisco': { en: 'Bar snacks', pt: 'Petisco' },
   'cat.salada': { en: 'Salad', pt: 'Salada' }, 'cat.acompanhamento': { en: 'Sides', pt: 'Acompanhamento' },
   'cat.sobremesa': { en: 'Dessert', pt: 'Sobremesa' }, 'cat.cerveja': { en: 'Beer', pt: 'Cerveja' },
   'cat.drink': { en: 'Cocktail', pt: 'Drink' }, 'cat.vinho': { en: 'Wine', pt: 'Vinho' },
   'cat.refrigerante': { en: 'Soft drink', pt: 'Refrigerante' }, 'cat.cafe': { en: 'Coffee', pt: 'Café' },
-  'cat.suco': { en: 'Juice', pt: 'Suco' }, 'cat.couvert': { en: 'Couvert', pt: 'Couvert' },
+  'cat.suco': { en: 'Juice', pt: 'Suco' }, 'cat.couvert': { en: 'Cover charge', pt: 'Couvert' },
   'land.proofs':    { en: 'Pix lands in the restaurant’s own account · Service optional, tracked for payroll · We never hold your money',
                       pt: 'O Pix cai na conta do próprio restaurante · Serviço opcional, rastreado pra folha · A gente nunca segura o seu dinheiro' },
   'land.specimen':  { en: 'The bill, illustrated',              pt: 'A conta, ilustrada' },
@@ -323,12 +326,12 @@ export const DICT = {
                      pt: 'O Pix cai na conta do próprio restaurante. A gente nunca segura o dinheiro.' },
 
   'land.proofTitle': { en: 'To the cent. Always.',            pt: 'Ao centavo. Sempre.' },
-  'land.proofSub':   { en: 'Every split sums back to the bill exactly. When the centavos don’t divide, the remainder goes to one share — never rounded away, never invented.',
+  'land.proofSub':   { en: 'Every split sums back to the bill exactly. When the cents don’t divide, the remainder goes to one share — never rounded away, never invented.',
                        pt: 'Toda divisão soma de volta à conta, exata. Quando os centavos não dividem, o resto vai pra uma parte — nunca arredondado fora, nunca inventado.' },
   'land.proofEach':  { en: 'each', pt: 'cada' },
-  'land.proofRem':   { en: 'the remaining centavo', pt: 'o centavo que sobra' },
+  'land.proofRem':   { en: 'the remaining cent', pt: 'o centavo que sobra' },
 
-  'land.proofCap':  { en: 'Three shares. The centavo that won’t divide lands on one of them — never rounded away, never invented.',
+  'land.proofCap':  { en: 'Three shares. The cent that won’t divide lands on one of them — never rounded away, never invented.',
                       pt: 'Três partes. O centavo que não divide cai numa delas — nunca arredondado fora, nunca inventado.' },
 } satisfies Record<string, Pair>;
 
