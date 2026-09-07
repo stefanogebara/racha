@@ -117,8 +117,12 @@ function createMemoryStore() {
     // --- onboarding / venue -------------------------------------------------
     async createVenue(args) { return _mkVenue(args); },
     // Demo/test alias (SYNC — existing helpers call it without await).
-    seedVenue({ name, servicoBp = 1000, pspRecipientId = 'rcpt_demo', isTest = false, market = DEFAULT_MARKET }) {
-      return _mkVenue({ name, servicoBp, pspRecipientId, isTest, market });
+    seedVenue({ name, cnpj = null, servicoBp = 1000, pspRecipientId = 'rcpt_demo', isTest = false, market = DEFAULT_MARKET }) {
+      // `cnpj` estava faltando aqui, então a semente passava o documento e ele
+      // se perdia entre a chamada e a venue — a `_mkVenue` sempre aceitou.
+      // Uma lista de campos escrita à mão, de novo: o mesmo jeito que o
+      // localStorage esqueceu o espanhol.
+      return _mkVenue({ name, cnpj, servicoBp, pspRecipientId, isTest, market });
     },
     async getVenue(venueId) {
       return venues.get(venueId) || null;
@@ -255,6 +259,15 @@ function createMemoryStore() {
         // inferindo uma regra de dinheiro foi o CRÍTICO #1 da revisão #37.
         venue: {
           name: venue.name,
+          // O documento da CASA — CNPJ no Brasil, NIF em Espanha. A coluna
+          // existe desde a primeira migração, com o comentário "receipts must
+          // show it", e a tela de pago nunca mostrou. É identificação de
+          // empresa, não dado pessoal: está na porta e em toda nota.
+          //
+          // Nomeado `taxId` e não `cnpj` porque o campo é o mesmo nos dois
+          // mercados e a tela é uma só. Nulo é normal (migração 0002: um CNPJ
+          // de mentira num recibo real é pior que a ausência dele).
+          taxId: venue.cnpj || null,
           ...publicMarketView(venue.market, { servicoBp: venue.servicoBp }),
         },
         table: { label: table.label },

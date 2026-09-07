@@ -27,7 +27,10 @@ export interface MarketView {
 export interface CheckView {
   /** acceptsCard: o restaurante tem conta Stripe conectada (cartão/Apple Pay). */
   /** demo: mesa pública de demonstração — dinheiro é do MockPsp, nunca real. */
-  venue: { name: string; servicoBp: number; acceptsCard?: boolean; demo?: boolean }
+  /** taxId: o documento da CASA (CNPJ no Brasil, NIF em Espanha). Nulo é
+   *  normal — a migração 0002 tirou o `not null` porque um documento de
+   *  mentira num recibo de verdade é pior que a ausência dele. */
+  venue: { name: string; servicoBp: number; acceptsCard?: boolean; demo?: boolean; taxId?: string | null }
     & Partial<MarketView>;
   table: { label: string };
   check: { id: string; items: CheckItem[] };

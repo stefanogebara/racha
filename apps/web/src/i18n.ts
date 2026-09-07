@@ -174,6 +174,16 @@ export const DICT = {
   // Verifactu / SIF (RD 1007/2023), uma obrigação bem maior pra entrar por
   // acidente. Então ela diz o que é: prova de pagamento, e onde pedir a fatura.
   'paid.receipt':     { en: 'Proof of payment · {venue}',      pt: 'Comprovante de pagamento · {venue}', es: 'Justificante de pago · {venue}' },
+  // O NOME do documento da casa, que vem do mercado: "CNPJ 12.345.678/0001-99"
+  // e "NIF B12345678" são a mesma linha e não o mesmo rótulo. O valor é do
+  // registro da casa e não se traduz, então a montagem "rótulo + valor" fica
+  // no JSX — uma chave `'{label} {value}'` seria uma entrada de dicionário sem
+  // uma palavra dentro, pedindo revisão de tradutor pra nada.
+  //
+  // A coluna existe desde a primeira migração, com o comentário "receipts must
+  // show it", e a tela de pago nunca mostrou.
+  'rcpt.taxIdCnpj':   { en: 'Tax ID (CNPJ)',                   pt: 'CNPJ', es: 'CNPJ' },
+  'rcpt.taxIdNif':    { en: 'Tax ID (NIF)',                    pt: 'NIF', es: 'NIF' },
   'paid.notInvoice':  { en: 'This is not an invoice. Ask the restaurant for one if you need it.',
                         pt: 'Isto não é uma nota fiscal. Peça a nota ao restaurante se precisar.',
                         es: 'Esto no es una factura. Pídesela al restaurante si la necesitas.' },

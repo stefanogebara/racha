@@ -103,6 +103,10 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'ledger.load:pt=es', 'ledger.refund:pt=es', 'cat.carne:pt=es',
     'cat.massa:en=es', 'cat.cafe:pt=es', 'land.nav:pt=es',
     'qrs.print:pt=es', // "Imprimir" é igual nas duas
+    // O nome do documento é o nome dele: "CNPJ" e "NIF" não se traduzem. O
+    // inglês ganha "Tax ID (…)" porque um leitor de inglês não sabe o que a
+    // sigla é; português e espanhol sabem, e repetir a sigla é o certo.
+    'rcpt.taxIdCnpj:pt=es', 'rcpt.taxIdNif:pt=es',
   ]);
   // Compara TODOS os pares, não só en/pt: com três idiomas, uma cópia entre
   // espanhol e português passa tão fácil quanto passava entre inglês e

@@ -351,7 +351,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         .from('venue_tables')
         // `market` no SELECT: sem ele a coluna chega undefined e a conta cai no
         // default brasileiro — uma mesa de Madrid cobrando em real, em silêncio.
-        .select('id, label, venue_id, venues(name, servico_basis_points, market)')
+        .select('id, label, venue_id, venues(name, cnpj, servico_basis_points, market)')
         .eq('qr_token', qrToken)
         .eq('active', true) // inactive/rotated token is dead (security property)
         .maybeSingle();
@@ -382,6 +382,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         return {
           venue: {
             name: table.venues.name,
+            taxId: table.venues.cnpj || null,
             ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points }),
           },
           table: { label: table.label },

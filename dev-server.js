@@ -41,6 +41,9 @@ const PORT = 8787;
   const bootTag = crypto.randomBytes(2).toString('hex');
   const venue = await store.seedVenue({
     name: useSupabase ? `Bar do Zé [demo ${bootTag}]` : 'Bar do Zé',
+    // O documento da casa é semeado porque o comprovante o MOSTRA agora, e uma
+    // demo sem ele não revisa a linha que o cliente lê depois de pagar.
+    cnpj: '12.345.678/0001-99',
     servicoBp: 1000,
     pspRecipientId: 'rcpt_demo',
   });
@@ -69,6 +72,7 @@ const PORT = 8787;
   // euro, Bizum, sem linha de serviço, sem documento do pagador.
   const bar = await store.seedVenue({
     name: useSupabase ? `Bar Pepe [demo ${bootTag}]` : 'Bar Pepe',
+    cnpj: 'B12345678',         // um NIF espanhol mora na mesma coluna
     servicoBp: 1000,           // gravado à brasileira DE PROPÓSITO: o mercado
     pspRecipientId: 'rcpt_demo', // tem que zerar isto sozinho.
     market: 'es',

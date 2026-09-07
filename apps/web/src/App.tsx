@@ -360,6 +360,16 @@ export default function App() {
               recibo da Racha, que não foi quem vendeu nada. Ver o comentário
               de `paid.receipt` no dicionário: comprovante, nunca fatura. */}
           <p className="muted small center">{t('paid.receipt', { venue: venue.name })}</p>
+          {/* O documento da casa. Sem ele o comprovante não identifica quem
+              vendeu, e a coluna existe desde a primeira migração justamente
+              porque "receipts must show it". Nulo é normal e a linha
+              simplesmente não aparece — um documento de mentira num recibo de
+              verdade é pior que a ausência dele (migração 0002). */}
+          {venue.taxId && (
+            <p className="muted small center">
+              {t(venue.market === 'es' ? 'rcpt.taxIdNif' : 'rcpt.taxIdCnpj')}{' '}{venue.taxId}
+            </p>
+          )}
           <p className="muted small center">{t('paid.notInvoice')}</p>
         </section>
       </Shell>
