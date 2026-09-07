@@ -141,6 +141,17 @@ function createPagarmePsp({
 
   return {
     provider: 'pagarme',
+    /**
+     * As moedas que este adquirente atende. Declarado, não suposto.
+     *
+     * O portão de dinheiro compartilhado confere isto antes de chamar: sem a
+     * declaração, `createWalletCharge` recebia `currency` e IGNORAVA (não
+     * estava nem no destructuring), então a correção de moeda do mercado era
+     * um no-op no PSP de produção — achado da revisão de compliance de
+     * 2026-09-07. Uma mesa espanhola no trilho de carteira viraria uma ordem
+     * Pagar.me em REAL.
+     */
+    currencies: Object.freeze(['brl']),
 
     async createPixCharge({ chargeRef, amountCents, tipCents = 0, recipientId, description = '', payerDocument = null }) {
       const order = await api('POST', '/orders', {
@@ -167,7 +178,14 @@ function createPagarmePsp({
       };
     },
 
-    async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, payerDocument = null }) {
+    async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, payerDocument = null, currency = 'brl' }) {
+      // Defesa em profundidade, do mesmo tipo da do adaptador da Stripe: o
+      // portão compartilhado já confere `currencies`, e ainda assim quem emite
+      // recusa uma moeda que não sabe emitir. O que este `if` pega é o
+      // chamador NOVO que não passou pelo portão.
+      if (currency !== 'brl') {
+        throw new TypeError(`pagarme: moeda não atendida ${JSON.stringify(currency)} — este adquirente é BRL`);
+      }
       if (!['apple_pay', 'google_pay'].includes(wallet)) {
         throw new TypeError(`createWalletCharge: unknown wallet ${wallet}`);
       }

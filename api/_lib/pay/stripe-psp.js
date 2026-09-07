@@ -90,6 +90,8 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
 
   return {
     provider: 'stripe',
+    /** As moedas que este adaptador atende. Ver `currencies` no Pagar.me. */
+    currencies: Object.freeze(['brl', 'eur']),
 
     /**
      * Cria o PaymentIntent (destination charge) e devolve o clientSecret pro
@@ -98,8 +100,24 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
      */
     async createWalletCharge({
       chargeRef, amountCents, tipCents = 0, recipientId,
+      // `payerDocument` é ACEITO e deliberadamente NÃO ENVIADO.
+      //
+      // O portão compartilhado passa o mesmo objeto pros dois adquirentes, e o
+      // Pagar.me precisa do CPF (a doc do Pix exige `customer.document`) — é
+      // essa necessidade que dá base legal ao campo (LGPD art. 6º III). A
+      // Stripe não exige nada disso pra um intent de cartão, e o `metadata` é
+      // livre e não usado pela API: mandar o CPF pra lá era um documento
+      // completo guardado por prazo indefinido no painel de um processador
+      // estrangeiro, sem finalidade. Falha de minimização — e pior, enfraquece
+      // o próprio argumento de necessidade que sustenta o campo no Pix.
+      // Achado da revisão de compliance de 2026-09-07.
+      //
+      // Fica no destructuring, e não removido, pra que a decisão esteja
+      // ESCRITA: um parâmetro que desaparece do argumento volta no próximo
+      // "por que a Stripe não recebe o CPF?".
       wallet = null, payerDocument = null, applicationFeeCents = 0, currency,
     }) {
+      void payerDocument;
       if (typeof recipientId !== 'string' || !/^acct_/.test(recipientId)) {
         throw new Error('stripe: conta conectada (acct_…) obrigatória — recusando custódia da plataforma');
       }
@@ -153,8 +171,15 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         metadata: {
           charge_ref: chargeRef.slice(0, 200),
           tip_cents: String(tipCents),
+          // O TRILHO, explícito. Só o Bizum marcava, e o `parseIntent` caía
+          // num palpite pra todo o resto: `payment_method_types[0]`. Com
+          // `automatic_payment_methods` numa conta espanhola que tem
+          // `bizum_payments` ativa, 'bizum' PODE aparecer nessa lista, sem
+          // ordem documentada — e a confirmação sobrescreveria como Bizum uma
+          // cobrança de cartão gravada certa. Contaminaria a conciliação por
+          // método, o painel e a conversa de taxa.
+          rail: 'card',
           ...(wallet ? { wallet } : {}),
-          ...(payerDocument ? { payer_document: String(payerDocument).replace(/\D/g, '') } : {}),
         },
       });
       return { txid: pi.id, clientSecret: pi.client_secret, status: pi.status };

@@ -113,6 +113,51 @@ describe('stripe adapter — createWalletCharge (destination charge)', () => {
     }
   });
 
+  test('o CPF do pagador NÃO vai pra Stripe, e o trilho vai', async () => {
+    // Duas garantias que a revisão de compliance de 2026-09-07 pediu.
+    //
+    // 1. O CPF. A base legal do campo é a NECESSIDADE do Pagar.me (a doc do
+    //    Pix exige `customer.document`; LGPD art. 6º III). A Stripe não exige
+    //    nada disso num intent de cartão e o `metadata` é livre e não lido pela
+    //    API — então o que ia pra lá era um documento completo guardado por
+    //    prazo indefinido no painel de um processador estrangeiro, sem
+    //    finalidade. Nenhum teste cobria isso, que é como ficou lá.
+    //
+    // 2. O trilho. Só o `createBizumCharge` marcava `metadata.rail`, e o
+    //    `parseIntent` caía em `payment_method_types[0]` pra todo o resto. Numa
+    //    conta espanhola com `bizum_payments` ativa, 'bizum' pode aparecer
+    //    nessa lista sem ordem garantida — e a confirmação sobrescreveria como
+    //    Bizum uma cobrança de cartão que foi gravada certa.
+    const stub = stubStripe();
+    await mk({}, stub).createWalletCharge({
+      chargeRef: 'x', amountCents: 1000, tipCents: 100, recipientId: 'acct_v',
+      wallet: 'google_pay', payerDocument: '12345678901', currency: 'brl',
+    });
+    const md = stub.calls.create[0].metadata;
+    expect(md.payer_document).toBeUndefined();
+    expect(JSON.stringify(md)).not.toContain('12345678901');
+    expect(md.rail).toBe('card');
+    // E o que TEM que continuar lá: a gorjeta rastreável (Lei 13.419).
+    expect(md.tip_cents).toBe('100');
+  });
+
+  test('o adaptador declara as moedas que atende', async () => {
+    // Declarado, não suposto: o portão compartilhado confere isto antes de
+    // chamar. Sem a declaração, o `createWalletCharge` do Pagar.me recebia
+    // `currency` e ignorava (nem estava no destructuring), então a correção de
+    // moeda do mercado era um no-op no adquirente de produção.
+    expect(mk().currencies).toEqual(['brl', 'eur']);
+    const { createPagarmePsp } = require('../_lib/pay/pagarme-psp');
+    const pm = createPagarmePsp({ secretKey: 'sk_test_x', webhookSecret: 'y'.repeat(24) });
+    expect(pm.currencies).toEqual(['brl']);
+    // E o adquirente brasileiro recusa euro por conta própria, mesmo que
+    // alguém chegue nele sem passar pelo portão.
+    await expect(pm.createWalletCharge({
+      chargeRef: 'x', amountCents: 100, recipientId: 're_x',
+      wallet: 'google_pay', paymentToken: 'tok_abcdefgh', currency: 'eur',
+    })).rejects.toThrow(/moeda não atendida/);
+  });
+
   test('application_fee_amount vai junto quando > 0', async () => {
     const stub = stubStripe();
     await mk({}, stub).createWalletCharge({ chargeRef: 'x', amountCents: 1000, tipCents: 0, recipientId: 'acct_v', applicationFeeCents: 50, currency: 'brl' });

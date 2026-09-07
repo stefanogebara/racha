@@ -87,6 +87,26 @@ function createChargeService({ store, psp }) {
     const rail = wallet ? 'card' : requestedRail;
     const gate = marketGate(venue.market, { rail, amountCents, tipCents });
     if (gate) throw badRequest(`market ${venue.market}: ${gate.code}`, gate.code, gate.vars);
+
+    // O PSP injetado atende ESTE mercado e ESTE trilho?
+    //
+    // Duas perguntas que ninguém fazia, e as duas viraram achados: o
+    // `createWalletCharge` do Pagar.me nem tinha `currency` no destructuring,
+    // então passar a moeda do mercado era um no-op no adquirente de produção;
+    // e `createBizumCharge` não existe nele, então um `rail: 'bizum'` chegava
+    // a um `undefined(...)` e saía como 500 `internal` em vez de um código
+    // estável que a tela sabe traduzir.
+    //
+    // A pergunta é do PORTÃO, não do adaptador: o adaptador é a segunda linha
+    // de defesa, e aqui é onde ainda dá pra responder com um código.
+    const currency = pspCurrency(venue.market);
+    if (Array.isArray(psp.currencies) && !psp.currencies.includes(currency)) {
+      throw badRequest(`psp ${psp.provider || '?'} não emite em ${currency}`, 'psp_market_mismatch');
+    }
+    const creator = wallet ? 'createWalletCharge' : rail === 'bizum' ? 'createBizumCharge' : 'createPixCharge';
+    if (typeof psp[creator] !== 'function') {
+      throw badRequest(`psp ${psp.provider || '?'} não serve o trilho ${rail}`, 'rail_unsupported');
+    }
     if (!venue.pspRecipientId) {
       // Compliance gate: without a settlement recipient the funds would land
       // on the platform account (BACEN Res. 494 custody territory).
@@ -113,7 +133,7 @@ function createChargeService({ store, psp }) {
         // A moeda é do MERCADO. Este argumento faltava, e o adaptador tinha
         // 'brl' de padrão: uma mesa espanhola no trilho de cartão cobrava em
         // real. A Stripe aceita isso sem reclamar (medido) — a defesa é aqui.
-        currency: pspCurrency(venue.market),
+        currency,
       });
     } else if (rail === 'bizum') {
       // Bizum não leva documento do pagador: quem autentica é o banco dele.

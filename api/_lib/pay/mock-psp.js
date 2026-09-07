@@ -39,6 +39,11 @@ function assertCents(v, name) {
 }
 
 class MockPsp {
+  /** As moedas que o mock atende. Ver `currencies` no Pagar.me. */
+  get currencies() { return ['brl', 'eur']; }
+
+  get provider() { return 'mock'; }
+
   /** @param {{webhookSecret: string}} opts */
   constructor({ webhookSecret }) {
     if (!webhookSecret || webhookSecret.length < 16) {
@@ -127,7 +132,15 @@ class MockPsp {
    * required (no platform custody), token shape validated — a malformed token
    * is DECLINED loudly, never absorbed.
    */
-  async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken }) {
+  async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, currency = 'brl' }) {
+    // O mock atende as duas moedas e GUARDA a que recebeu, pra que um teste
+    // possa afirmar sobre ela. Um mock que ignora um parâmetro faz o teste
+    // passar exatamente onde a produção erra — foi assim que a correção de
+    // moeda do mercado ficou um no-op sem nenhum teste vermelho.
+    if (currency !== 'brl' && currency !== 'eur') {
+      throw new TypeError(`mock: moeda não atendida ${JSON.stringify(currency)}`);
+    }
+    this.lastCurrency = currency;
     if (typeof recipientId !== 'string' || recipientId.length === 0) {
       throw new Error('createWalletCharge: recipientId is required — refusing platform-custody charge');
     }

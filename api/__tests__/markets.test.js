@@ -218,6 +218,69 @@ describe('portões de dinheiro por mercado', () => {
     }
   });
 
+  test('um PSP que não emite na moeda do mercado é recusado com CÓDIGO', async () => {
+    // Achado da revisão: `create-charge` chamava o PSP injetado sem perguntar
+    // se ele atende o mercado. O `createWalletCharge` do Pagar.me nem tinha
+    // `currency` no destructuring, então uma mesa espanhola no trilho de
+    // carteira viraria uma ordem em REAL no adquirente brasileiro.
+    const brOnly = {
+      provider: 'so-brasil',
+      currencies: ['brl'],
+      async createWalletCharge() { throw new Error('não deveria ser chamado'); },
+      async createPixCharge() { throw new Error('não deveria ser chamado'); },
+    };
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({
+      name: 'casa-es', servicoBp: 0, pspRecipientId: 'acct_v', market: 'es',
+    });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 2450 }]);
+    const charge = createChargeService({ store, psp: brOnly });
+    await expect(charge({ checkId: check.id, amountCents: 2450, wallet: 'google_pay' }))
+      .rejects.toMatchObject({ code: 'psp_market_mismatch' });
+  });
+
+  test('um trilho que o PSP não implementa é 400 com código, não 500', async () => {
+    // `createBizumCharge` não existe no adaptador do Pagar.me. O caminho
+    // chegava a `undefined(...)`, virava TypeError e saía como 500
+    // `internal` — um erro que a tela não sabe traduzir, na hora de pagar.
+    const noBizum = {
+      provider: 'sem-bizum',
+      currencies: ['brl', 'eur'],
+      async createPixCharge() { throw new Error('não deveria ser chamado'); },
+    };
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({
+      name: 'casa-es', servicoBp: 0, pspRecipientId: 'acct_v', market: 'es',
+    });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 2450 }]);
+    const charge = createChargeService({ store, psp: noBizum });
+    const err = await charge({ checkId: check.id, amountCents: 2450, rail: 'bizum' }).catch((e) => e);
+    expect(err.code).toBe('rail_unsupported');
+    expect(err.statusCode).toBe(400);
+  });
+
+  test('o mock recebe de verdade a moeda do mercado', async () => {
+    // Um mock que ignora um parâmetro faz o teste passar exatamente onde a
+    // produção erra. O `MockPsp` agora guarda a moeda que recebeu.
+    const { MockPsp } = require('../_lib/pay/mock-psp');
+    for (const [marketCode, expected] of [['es', 'eur'], ['br', 'brl']]) {
+      const store = createMemoryStore();
+      const venue = await store.seedVenue({
+        name: `casa-${marketCode}`, servicoBp: 0, pspRecipientId: 'acct_v', market: marketCode,
+      });
+      const table = await store.seedTable(venue.id, 'Mesa 1');
+      const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 2450 }]);
+      const psp = new MockPsp({ webhookSecret: 'x'.repeat(24) });
+      const charge = createChargeService({ store, psp });
+      await charge({
+        checkId: check.id, amountCents: 2450, wallet: 'google_pay', paymentToken: 'tok_abcdefgh',
+      });
+      expect(psp.lastCurrency).toBe(expected);
+    }
+  });
+
   test('nenhum mercado sem linha de serviço aceita gorjeta', async () => {
     // Um bug de tela ou um POST forjado criaria uma "gorjeta" que ninguém pode
     // distribuir legalmente em Espanha.
