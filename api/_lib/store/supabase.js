@@ -1,5 +1,7 @@
 'use strict';
 
+const { DEFAULT_MARKET, isMarket, publicMarketView } = require('../markets');
+
 /**
  * Supabase store — the production implementation of the store contract
  * defined by store/memory.js (same method surface, same shapes; the contract
@@ -40,12 +42,14 @@ const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
 // One venue shape everywhere (house-account config rides along).
 const VENUE_COLS = 'id, name, city, cnpj, servico_basis_points, psp_recipient_id, pos_provider, active, '
   + 'psp_recipient_status, notify_email, notify_whatsapp, stripe_account_id, '
-  + 'house_enabled, house_bonus_bp, house_validity_days, house_min_load_cents, house_max_load_cents, is_test';
+  + 'house_enabled, house_bonus_bp, house_validity_days, house_min_load_cents, house_max_load_cents, is_test, '
+  + 'market';
 function mapVenue(v) {
   if (!v) return null;
   return {
     id: v.id, name: v.name, city: v.city, cnpj: v.cnpj,
     servicoBp: v.servico_basis_points, pspRecipientId: v.psp_recipient_id,
+    market: v.market ?? DEFAULT_MARKET,
     pspRecipientStatus: v.psp_recipient_status ?? null,
     stripeAccountId: v.stripe_account_id ?? null,
     notifyEmail: v.notify_email ?? null, notifyWhatsapp: v.notify_whatsapp ?? null,
@@ -93,11 +97,14 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     // justamente porque CNPJ falso em recibo real é inaceitável — e o default
     // antigo ('00000000000191') é o CNPJ REAL do Banco do Brasil, que ia parar
     // no `tax_id` da conta conectada do Stripe (achado da revisão de compliance).
-    async createVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null, isTest = false }) {
+    async createVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null, isTest = false, market = DEFAULT_MARKET }) {
       if (!name || !String(name).trim()) throw new Error('venue name required');
       if (!Number.isInteger(servicoBp) || servicoBp < 0 || servicoBp > 3000) {
         throw new Error('servicoBp out of range [0,3000]');
       }
+      // Escrita recusa mercado desconhecido (o CHECK do banco também recusaria,
+      // mas com uma mensagem de Postgres em vez de uma nossa).
+      if (!isMarket(market)) throw new Error(`unknown market: ${market}`);
       const { data, error } = await client
         .from('venues')
         .insert({
@@ -105,14 +112,16 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           servico_basis_points: servicoBp,
           psp_recipient_id: pspRecipientId ?? null,
           is_test: isTest === true,
+          market,
         })
-        .select('id, name, city, servico_basis_points, psp_recipient_id')
+        .select('id, name, city, servico_basis_points, psp_recipient_id, market')
         .single();
       throwOn(error, 'createVenue');
       return {
         id: data.id, name: data.name, city: data.city,
         servicoBp: data.servico_basis_points,
         pspRecipientId: data.psp_recipient_id,
+        market: data.market ?? DEFAULT_MARKET,
       };
     },
     seedVenue(args) {
@@ -177,12 +186,13 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     async listVenuesForOwner(userId) {
       const { data, error } = await client
         .from('venue_members')
-        .select('venues(id, name, city, servico_basis_points, psp_recipient_id)')
+        .select('venues(id, name, city, servico_basis_points, psp_recipient_id, market)')
         .eq('user_id', userId);
       throwOn(error, 'listVenuesForOwner');
       return (data || []).map((r) => r.venues).filter(Boolean).map((v) => ({
         id: v.id, name: v.name, city: v.city,
         servicoBp: v.servico_basis_points, pspRecipientId: v.psp_recipient_id,
+        market: v.market ?? DEFAULT_MARKET,
       }));
     },
     async venueIdForTable(tableId) {
@@ -339,7 +349,9 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     async getCheckByQrToken(qrToken) {
       const { data: table, error: tErr } = await client
         .from('venue_tables')
-        .select('id, label, venue_id, venues(name, servico_basis_points)')
+        // `market` no SELECT: sem ele a coluna chega undefined e a conta cai no
+        // default brasileiro — uma mesa de Madrid cobrando em real, em silêncio.
+        .select('id, label, venue_id, venues(name, servico_basis_points, market)')
         .eq('qr_token', qrToken)
         .eq('active', true) // inactive/rotated token is dead (security property)
         .maybeSingle();
@@ -368,7 +380,11 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         let items = [];
         try { items = JSON.parse(cand.pos_ref) || []; } catch { items = []; }
         return {
-          venue: { name: table.venues.name, servicoBp: table.venues.servico_basis_points },
+          venue: {
+            name: table.venues.name,
+            servicoBp: table.venues.servico_basis_points,
+            ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points }),
+          },
           table: { label: table.label },
           check: { id: cand.id, items },
           state,

@@ -1,5 +1,7 @@
 'use strict';
 
+const { DEFAULT_MARKET, isMarket, publicMarketView } = require('../markets');
+
 /**
  * In-memory store — powers the local demo and integration tests.
  *
@@ -56,14 +58,19 @@ function createMemoryStore() {
 
   // Sync internals — the memory store is synchronous; the public contract is
   // async (matches the Supabase store, so `.rejects` works uniformly).
-  function _mkVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null, posProvider = 'manual', isTest = false }) {
+  function _mkVenue({ name, cnpj = null, city = null, servicoBp = 1000, pspRecipientId = null, posProvider = 'manual', isTest = false, market = DEFAULT_MARKET }) {
     if (!name || !String(name).trim()) throw new Error('venue name required');
     if (!Number.isInteger(servicoBp) || servicoBp < 0 || servicoBp > 3000) {
       throw new Error('servicoBp out of range [0,3000]');
     }
+    // Mercado desconhecido é ERRO, não um default silencioso: aqui é escrita, e
+    // gravar 'fr' como se fosse Brasil produziria uma casa cobrando em real por
+    // engano. Na LEITURA o default existe (venues antigas não têm o campo).
+    if (!isMarket(market)) throw new Error(`unknown market: ${market}`);
     const id = crypto.randomUUID();
     venues.set(id, {
       id, name: String(name).trim(), cnpj, city, servicoBp, pspRecipientId, posProvider, active: true,
+      market,
       isTest: isTest === true,
       pspRecipientStatus: null, notifyEmail: null, notifyWhatsapp: null, stripeAccountId: null,
       // Saldo da casa — off until the owner enables it. validityDays ≥ 30 is
@@ -103,8 +110,8 @@ function createMemoryStore() {
     // --- onboarding / venue -------------------------------------------------
     async createVenue(args) { return _mkVenue(args); },
     // Demo/test alias (SYNC — existing helpers call it without await).
-    seedVenue({ name, servicoBp = 1000, pspRecipientId = 'rcpt_demo', isTest = false }) {
-      return _mkVenue({ name, servicoBp, pspRecipientId, isTest });
+    seedVenue({ name, servicoBp = 1000, pspRecipientId = 'rcpt_demo', isTest = false, market = DEFAULT_MARKET }) {
+      return _mkVenue({ name, servicoBp, pspRecipientId, isTest, market });
     },
     async getVenue(venueId) {
       return venues.get(venueId) || null;
@@ -236,7 +243,14 @@ function createMemoryStore() {
       const venue = venues.get(table.venueId);
       const log = events.get(check.id) || [];
       return {
-        venue: { name: venue.name, servicoBp: venue.servicoBp },
+        // O mercado viaja PRONTO: moeda, trilhos, se há linha de serviço e se o
+        // pagador precisa dar documento. O cliente desenha, não decide — a UI
+        // inferindo uma regra de dinheiro foi o CRÍTICO #1 da revisão #37.
+        venue: {
+          name: venue.name,
+          servicoBp: venue.servicoBp,
+          ...publicMarketView(venue.market, { servicoBp: venue.servicoBp }),
+        },
         table: { label: table.label },
         check: { id: check.id, items: check.items },
         state: reduce(log),

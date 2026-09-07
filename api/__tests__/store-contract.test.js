@@ -106,6 +106,13 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     // view by QR
     const view = await store.getCheckByQrToken(table.qrToken);
     expect(view.venue.servicoBp).toBe(1000);
+    // O mercado viaja com a conta, PRONTO — os dois stores têm que mandar o
+    // mesmo pacote, senão uma casa em Madrid cobra em real num deles.
+    expect(view.venue.market).toBe('br');
+    expect(view.venue.currency).toBe('BRL');
+    expect(view.venue.rails[0]).toBe('pix');
+    expect(view.venue.serviceCharge).toEqual({ mode: 'preselected', bp: 1000 });
+    expect(view.venue.payerTaxId).toEqual({ required: true, kind: 'cpf' });
     expect(view.state.status).toBe(STATUS.ABERTA);
     expect(view.state.totalCents).toBe(10000);
     expect(view.check.items).toHaveLength(2);
@@ -157,6 +164,39 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     const wstate = reduce(await store.loadEvents(check.id));
     expect(wstate.paidCents).toBe(7000);
     expect(wstate.payments[wc.txid].amountCents).toBe(1000);
+  });
+
+  test('mercado espanhol: euro, Bizum, sem linha de serviço, sem documento do pagador', async () => {
+    // A mesma bateria, do outro lado do Atlântico. O que este teste protege é a
+    // travessia: um store que esqueça a coluna `market` devolve o default
+    // brasileiro e a conta de Madrid vira uma cobrança em real — silenciosa,
+    // porque tudo mais continua funcionando.
+    const es = await store.seedVenue({
+      name: `__contract_es__ ${crypto.randomBytes(3).toString('hex')}`,
+      servicoBp: 1000, pspRecipientId: 'rcpt_demo', isTest: true, market: 'es',
+    });
+    const mesa = await store.seedTable(es.id, 'Mesa 3');
+    await store.openCheck(mesa.qrToken, [{ id: 'p', name: 'Paella', priceCents: 2400 }]);
+
+    const view = await store.getCheckByQrToken(mesa.qrToken);
+    expect(view.venue.market).toBe('es');
+    expect(view.venue.currency).toBe('EUR');
+    expect(view.venue.rails).toContain('bizum');
+    expect(view.venue.rails).not.toContain('pix');
+    // A venue foi cadastrada com 10% e a conta ainda não cobra serviço.
+    expect(view.venue.serviceCharge).toEqual({ mode: 'none', bp: 0 });
+    expect(view.venue.payerTaxId).toEqual({ required: false, kind: 'nif' });
+    // Limites do esquema Bizum chegam ao cliente em centavos.
+    expect(view.venue.charge).toEqual({ minCents: 50, maxCents: 500000 });
+  });
+
+  test('mercado desconhecido é recusado na escrita, não gravado como Brasil', async () => {
+    // O store de memória lança SÍNCRONO (o `seedVenue` dele é sync de
+    // propósito); o do Supabase rejeita. O thunk cobre os dois — a garantia que
+    // importa é "não grava", não "de que jeito reclama".
+    await expect((async () => store.seedVenue({
+      name: '__contract_bad_market__', pspRecipientId: 'rcpt_demo', isTest: true, market: 'fr',
+    }))()).rejects.toThrow(/market/i);
   });
 
   test('charge gates hold: no recipient / above remaining', async () => {
