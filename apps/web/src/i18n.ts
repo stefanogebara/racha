@@ -143,6 +143,18 @@ export const DICT = {
   'paid.progress':    { en: '{paid} of {total} paid',          pt: '{paid} de {total} pagos', es: '{paid} de {total} pagados' },
   'paid.left':        { en: ' — {left} to go',                 pt: ' — falta {left}', es: ' — faltan {left}' },
   'paid.closed':      { en: ' — bill closed 🎉',               pt: ' — conta fechada 🎉', es: ' — cuenta cerrada 🎉' },
+  // Comprovante, NÃO fatura.
+  //
+  // Uma conta paga por várias pessoas não divide o IVA: a casa emite UMA fatura
+  // simplificada da mesa, e o cliente mantém o direito à fatura completa com o
+  // NIF dele (RD 1619/2012 em Espanha). Se esta tela parecer uma fatura, ela
+  // promete um documento fiscal que não é — e puxaria a Racha pro escopo do
+  // Verifactu / SIF (RD 1007/2023), uma obrigação bem maior pra entrar por
+  // acidente. Então ela diz o que é: prova de pagamento, e onde pedir a fatura.
+  'paid.receipt':     { en: 'Proof of payment · {venue}',      pt: 'Comprovante de pagamento · {venue}', es: 'Justificante de pago · {venue}' },
+  'paid.notInvoice':  { en: 'This is not an invoice. Ask the restaurant for one if you need it.',
+                        pt: 'Isto não é uma nota fiscal. Peça a nota ao restaurante se precisar.',
+                        es: 'Esto no es una factura. Pídesela al restaurante si la necesitas.' },
   'paid.payMore':     { en: 'Pay another share',               pt: 'Pagar mais uma parte', es: 'Pagar otra parte' },
 
   // ── saldo da casa ───────────────────────────────────────────────────────

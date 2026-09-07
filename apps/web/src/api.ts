@@ -43,12 +43,15 @@ export interface CheckView {
 
 export interface ChargeResult {
   txid: string;
-  /** null em cobranças de carteira (Apple/Google Pay) — só Pix tem BR Code. */
+  /**
+   * null em cobranças de carteira (Apple/Google Pay) e em Bizum — só o Pix tem
+   * código copia-e-cola. No Bizum quem autoriza é o banco do pagador.
+   */
   copiaECola: string | null;
   expiresAt: string | null;
   amountCents: number;
   tipCents: number;
-  method?: 'pix' | 'card';
+  method?: 'pix' | 'card' | 'bizum';
   wallet?: 'apple_pay' | 'google_pay' | null;
 }
 

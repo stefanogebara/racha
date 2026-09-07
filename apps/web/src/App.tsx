@@ -282,6 +282,10 @@ export default function App() {
     }
   }
 
+  // O trilho desta cobrança. Vem do `method` que o servidor devolveu, não do
+  // mercado: o que a tela precisa dizer é o que ESTA cobrança é.
+  const isBizumCharge = charge?.method === 'bizum';
+
   if (step === 'pagar' && charge) {
     return (
       <Shell>
@@ -291,20 +295,33 @@ export default function App() {
         </header>
         {stale && <p className="muted small center">{t('pix.stillValid')}</p>}
         <section className="pixcard">
-          <p className="label">{t('pix.title')}</p>
+          {/* O trilho da COBRANÇA, não do mercado: é o que esta cobrança é.
+              A tela dizia "Paga con Pix" e oferecia "Copiar código Pix" numa
+              cobrança Bizum — que não TEM código copia-e-cola, então a caixa
+              vinha vazia com um "…" dentro. Nomear o trilho errado e oferecer
+              um código inexistente na tela onde a pessoa está pagando. */}
+          <p className="label">{isBizumCharge ? t('bizum.title') : t('pix.title')}</p>
           <p className="bigmoney">{brl(charge.amountCents + charge.tipCents)}</p>
           {charge.tipCents > 0 && (
             <p className="muted small">{t('pix.includesTip', { amount: brl(charge.tipCents) })}</p>
           )}
-          <div className="codebox" aria-label={t('pix.aria')}>
-            {(charge.copiaECola ?? '').slice(0, 64)}…
-          </div>
-          <button className="cta" onClick={onCopy}>
-            {copied ? t('pix.copied') : t('pix.copy')}
-          </button>
-          <p className="muted small center">
-            {t('pix.how')}
-          </p>
+          {isBizumCharge ? (
+            // Bizum: quem autoriza é o banco do pagador, no app dele. Não há
+            // nada pra copiar, então não há botão de copiar.
+            <p className="muted small center">{t('bizum.how')}</p>
+          ) : (
+            <>
+              <div className="codebox" aria-label={t('pix.aria')}>
+                {(charge.copiaECola ?? '').slice(0, 64)}…
+              </div>
+              <button className="cta" onClick={onCopy}>
+                {copied ? t('pix.copied') : t('pix.copy')}
+              </button>
+              <p className="muted small center">
+                {t('pix.how')}
+              </p>
+            </>
+          )}
           {!demoGone && (
             <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
               {confirming ? t('pix.simulating') : t('pix.simulate')}
@@ -338,6 +355,12 @@ export default function App() {
               {t('paid.payMore')}
             </button>
           )}
+          {/* Quem cobrou, e o que esta tela é. Antes ela não nomeava
+              comerciante nenhum — e uma tela de "pago" sem comerciante lê como
+              recibo da Racha, que não foi quem vendeu nada. Ver o comentário
+              de `paid.receipt` no dicionário: comprovante, nunca fatura. */}
+          <p className="muted small center">{t('paid.receipt', { venue: venue.name })}</p>
+          <p className="muted small center">{t('paid.notInvoice')}</p>
         </section>
       </Shell>
     );
