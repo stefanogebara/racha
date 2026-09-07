@@ -11,6 +11,32 @@ import { DICT, LANGS, money, tError } from '../src/i18n.ts';
 
 const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: string }][];
 
+/**
+ * As linhas de CÓDIGO de um arquivo — sem comentário nenhum.
+ *
+ * Precisa de estado porque um `{/* … *\/}` de várias linhas tem linhas do meio
+ * sem marcador, e sem rastrear a abertura elas parecem texto de tela. Foi
+ * exatamente o que aconteceu: um comentário que CITA "Copiar código Pix" como
+ * exemplo do bug foi acusado de ser o bug.
+ *
+ * Compartilhado pelos dois testes de português de propósito — a lógica de
+ * "isto é comentário" só pode existir num lugar, senão um dos dois vê fantasma.
+ */
+function codeLines(text: string): { line: string; n: number }[] {
+  const out: { line: string; n: number }[] = [];
+  let inBlock = false;
+  text.split('\n').forEach((line, i) => {
+    const trimmed = line.trim();
+    const opens = /\{?\/\*/.test(line);
+    const closes = /\*\/\}?/.test(line);
+    if (inBlock) { if (closes) inBlock = false; return; }
+    if (opens && !closes) { inBlock = true; return; }
+    if (/^(\/\/|\*|\/\*|\{\/\*)/.test(trimmed) || (opens && closes)) return;
+    out.push({ line, n: i + 1 });
+  });
+  return out;
+}
+
 test('toda chave tem os três idiomas, não vazios', () => {
   for (const [key, pair] of entries) {
     for (const lang of LANGS) {
@@ -175,18 +201,13 @@ test('nenhum componente escreve em português o que o dicionário já traduz', a
   const offenders: string[] = [];
   for (const file of fs.readdirSync(src)) {
     if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
-    const lines = fs.readFileSync(path.join(src, file), 'utf8').split('\n');
-    lines.forEach((line, i) => {
-      const trimmed = line.trim();
-      // Comentários são prosa pro próximo humano, e essa prosa é em português
-      // de propósito no repositório inteiro.
-      if (/^(\/\/|\*|\/\*|\{\/\*)/.test(trimmed)) return;
+    for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
       for (const [key, pt] of phrases) {
         if (line.includes(pt)) {
-          offenders.push(`${file}:${i + 1} escreve "${pt}" — use t('${key}')`);
+          offenders.push(`${file}:${n} escreve "${pt}" — use t('${key}')`);
         }
       }
-    });
+    }
   }
 
   assert.deepEqual(offenders, [], `\n${offenders.join('\n')}\n`);
@@ -266,21 +287,8 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
   const offenders: string[] = [];
   for (const file of fs.readdirSync(src)) {
     if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
-    // Blocos de comentário são prosa pro próximo humano, e essa prosa é em
-    // português de propósito no repositório inteiro. Precisa de ESTADO: um
-    // `{/* … */}` de várias linhas tem linhas do meio sem marcador nenhum, e
-    // sem rastrear a abertura elas parecem texto de tela.
-    let inBlock = false;
-    fs.readFileSync(path.join(src, file), 'utf8').split('\n').forEach((line, i) => {
+    for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
       const trimmed = line.trim();
-      const opens = /\{?\/\*/.test(line);
-      const closes = /\*\/\}?/.test(line);
-      if (inBlock) {
-        if (closes) inBlock = false;
-        return;
-      }
-      if (opens && !closes) { inBlock = true; return; }
-      if (/^(\/\/|\*|\/\*|\{\/\*)/.test(trimmed) || (opens && closes)) return;
       const candidates = [
         ...[...line.matchAll(/>([^<>{}]{4,})</g)].map((m) => m[1]),
         ...[...line.matchAll(/(?:placeholder|title|aria-label)="([^"]{4,})"/g)].map((m) => m[1]),
@@ -292,9 +300,9 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
         ...(/^[^<>{}()=;:`|&]+$/.test(trimmed) && trimmed.length > 12 ? [trimmed] : []),
       ];
       for (const c of candidates) {
-        if (re.test(c)) offenders.push(`${file}:${i + 1} texto de tela em português: ${JSON.stringify(c.trim().slice(0, 60))}`);
+        if (re.test(c)) offenders.push(`${file}:${n} texto de tela em português: ${JSON.stringify(c.trim().slice(0, 60))}`);
       }
-    });
+    }
   }
   assert.deepEqual(offenders, [], `\n${offenders.join('\n')}\n`);
 });
