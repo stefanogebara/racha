@@ -182,6 +182,42 @@ describe('portões de dinheiro por mercado', () => {
     expect(pending.map((p) => p.method)).toEqual(['bizum']);
   });
 
+  test('a carteira de uma mesa espanhola cobra em EURO, não em real', async () => {
+    // O achado mais caro desta rodada, e não é código bonito: a revisão de
+    // compliance pediu pra parametrizar a moeda do `createWalletCharge`, e a
+    // correção deixou `currency = 'brl'` de padrão. Os DOIS chamadores
+    // continuaram sem passar nada. Então o literal seguiu valendo, escondido
+    // atrás de um comentário que dizia "a moeda vem do mercado".
+    //
+    // Consequência numa mesa em Madrid pagando com Apple Pay: 24,50 € viram
+    // 2450 centavos de REAL na conta conectada espanhola — e a conciliação
+    // compara 2450 com 2450 e reporta 0,00 de divergência. O inegociável #8
+    // derrotado sem uma linha vermelha em lugar nenhum.
+    //
+    // Medido contra a Stripe (2026-09-07): cartão em `brl` é ACEITO sem
+    // reclamação. No Bizum o esquema recusa ("Payments with bizum support the
+    // following currencies: eur"), mas no cartão não existe rede de baixo.
+    // Este teste é a rede.
+    const seen = [];
+    const spy = {
+      async createWalletCharge(args) {
+        seen.push(args.currency);
+        return { txid: 'pi_spy', clientSecret: 'cs', status: 'requires_payment_method', copiaECola: null };
+      },
+    };
+    for (const [marketCode, expected] of [['es', 'eur'], ['br', 'brl']]) {
+      const store = createMemoryStore();
+      const venue = await store.seedVenue({
+        name: `casa-${marketCode}`, servicoBp: 0, pspRecipientId: 'acct_venue', market: marketCode,
+      });
+      const table = await store.seedTable(venue.id, 'Mesa 1');
+      const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 2450 }]);
+      const charge = createChargeService({ store, psp: spy });
+      await charge({ checkId: check.id, amountCents: 2450, wallet: 'apple_pay' });
+      expect(seen[seen.length - 1]).toBe(expected);
+    }
+  });
+
   test('nenhum mercado sem linha de serviço aceita gorjeta', async () => {
     // Um bug de tela ou um POST forjado criaria uma "gorjeta" que ninguém pode
     // distribuir legalmente em Espanha.

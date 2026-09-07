@@ -194,6 +194,18 @@ function checkChargeLimits(code, amountCents) {
   return null;
 }
 
+/**
+ * A moeda do mercado no formato que os PSPs querem: minúscula, ISO-4217.
+ *
+ * Existe pra que nenhum chamador escreva `'brl'` na mão nem um
+ * `.toLowerCase()` solto. Os dois chamadores do `createWalletCharge` tinham
+ * ESQUECIDO de passar moeda, e o padrão do adaptador cobria o esquecimento com
+ * reais — numa mesa em Madrid.
+ */
+function pspCurrency(code) {
+  return market(code).currency.toLowerCase();
+}
+
 /** O trilho pedido é servido por este mercado? */
 function supportsRail(code, rail) {
   return market(code).rails.includes(rail);
@@ -208,6 +220,7 @@ module.exports = {
   publicMarketView,
   checkChargeLimits,
   supportsRail,
+  pspCurrency,
   esEnabled,
   chargingAllowed,
 };

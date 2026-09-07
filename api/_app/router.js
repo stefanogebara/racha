@@ -164,7 +164,7 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
-const { supportsRail, checkChargeLimits, chargingAllowed, market } = require('../_lib/markets');
+const { supportsRail, checkChargeLimits, chargingAllowed, market, pspCurrency } = require('../_lib/markets');
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
@@ -470,6 +470,9 @@ async function route(req, res) {
             chargeRef, amountCents, tipCents,
             recipientId: venue.stripeAccountId,
             wallet: b.wallet ?? null, payerDocument: b.payerDocument ?? null,
+            // A moeda é do MERCADO — ver `createWalletCharge`. Faltava aqui e
+            // no `create-charge`, e o padrão do adaptador cobria os dois.
+            currency: pspCurrency(venue.market),
           });
         await store.registerCharge({
           checkId: view.check.id, txid: charge.txid, amountCents, tipCents,
@@ -478,7 +481,10 @@ async function route(req, res) {
           // como o Pix — mesma família, moeda diferente.
           payerLabel: b.payerLabel ?? null, method: rail === 'bizum' ? 'bizum' : 'card',
         });
-        return json(res, 200, { success: true, data: { txid: charge.txid, clientSecret: charge.clientSecret, amountCents, tipCents, method: 'card' } });
+        // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
+        // logo acima já gravava 'bizum' certo, e a resposta dizia 'card' —
+        // duas verdades sobre a mesma cobrança, e a tela lê a errada.
+        return json(res, 200, { success: true, data: { txid: charge.txid, clientSecret: charge.clientSecret, amountCents, tipCents, method: rail === 'bizum' ? 'bizum' : 'card' } });
       } catch (e) {
         // A Stripe recusa fora dos limites do esquema com os SEUS códigos e uma
         // frase em INGLÊS — confirmado no sandbox: `amount_too_small` /

@@ -1,6 +1,6 @@
 'use strict';
 
-const { market, supportsRail, chargingAllowed } = require('../markets');
+const { market, supportsRail, chargingAllowed, pspCurrency } = require('../markets');
 
 /**
  * Create a Pix charge for a share of a check — the money-out gate.
@@ -109,6 +109,10 @@ function createChargeService({ store, psp }) {
         chargeRef, amountCents, tipCents,
         recipientId: venue.pspRecipientId,
         wallet, paymentToken, payerDocument,
+        // A moeda é do MERCADO. Este argumento faltava, e o adaptador tinha
+        // 'brl' de padrão: uma mesa espanhola no trilho de cartão cobrava em
+        // real. A Stripe aceita isso sem reclamar (medido) — a defesa é aqui.
+        currency: pspCurrency(venue.market),
       });
     } else if (rail === 'bizum') {
       // Bizum não leva documento do pagador: quem autentica é o banco dele.

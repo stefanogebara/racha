@@ -59,7 +59,7 @@ describe('stripe adapter — createWalletCharge (destination charge)', () => {
     const psp = mk({}, stub);
     const r = await psp.createWalletCharge({
       chargeRef: 'check1:0:8000:800', amountCents: 8000, tipCents: 800,
-      recipientId: 'acct_venue1', wallet: 'apple_pay',
+      recipientId: 'acct_venue1', wallet: 'apple_pay', currency: 'brl',
     });
     expect(r).toMatchObject({ txid: 'pi_test1', clientSecret: 'pi_test1_secret_abc', status: 'requires_payment_method' });
     const p = stub.calls.create[0];
@@ -80,9 +80,42 @@ describe('stripe adapter — createWalletCharge (destination charge)', () => {
     await expect(psp.createWalletCharge({ chargeRef: 'x', amountCents: 100, tipCents: 0, recipientId: 'acct_v', applicationFeeCents: 100 })).rejects.toThrow(/applicationFee/);
   });
 
+  test('a moeda é obrigatória: omitir não vira real em silêncio', async () => {
+    // Estes dois testes passavam ANTES da correção, com a moeda omitida, porque
+    // o adaptador tinha `currency = 'brl'` de padrão. O padrão era o bug: os
+    // dois chamadores de produção também omitiam, então uma mesa espanhola no
+    // trilho de cartão cobrava em REAL — e a Stripe aceita cartão em `brl` sem
+    // reclamar (medido contra a API em 2026-09-07), então nada abaixo pegava.
+    //
+    // Passar a moeda nos testes acima não é enfraquecê-los: é dizer em voz alta
+    // o que o padrão dizia baixinho. O que este teste novo acrescenta é a
+    // garantia que a remoção do padrão criou.
+    const psp = mk();
+    const base = { chargeRef: 'x', amountCents: 1000, tipCents: 0, recipientId: 'acct_v' };
+    await expect(psp.createWalletCharge(base)).rejects.toThrow(/moeda obrigatória/);
+    for (const bad of [null, '', 'BRL', 'usd', 'eur ']) {
+      await expect(psp.createWalletCharge({ ...base, currency: bad })).rejects.toThrow(/moeda obrigatória/);
+    }
+  });
+
+  test('a moeda do mercado atravessa até o parâmetro da Stripe', async () => {
+    const { pspCurrency } = require('../_lib/markets');
+    for (const [marketCode, expected] of [['br', 'brl'], ['es', 'eur']]) {
+      const stub = stubStripe();
+      await mk({}, stub).createWalletCharge({
+        chargeRef: 'x', amountCents: 2450, tipCents: 0, recipientId: 'acct_v',
+        currency: pspCurrency(marketCode),
+      });
+      expect(stub.calls.create[0].currency).toBe(expected);
+      // 24,50 € cobrados como 2450 — a mesma aritmética de centavos, moeda
+      // diferente. O que estava errado nunca foi o número, era o rótulo.
+      expect(stub.calls.create[0].amount).toBe(2450);
+    }
+  });
+
   test('application_fee_amount vai junto quando > 0', async () => {
     const stub = stubStripe();
-    await mk({}, stub).createWalletCharge({ chargeRef: 'x', amountCents: 1000, tipCents: 0, recipientId: 'acct_v', applicationFeeCents: 50 });
+    await mk({}, stub).createWalletCharge({ chargeRef: 'x', amountCents: 1000, tipCents: 0, recipientId: 'acct_v', applicationFeeCents: 50, currency: 'brl' });
     expect(stub.calls.create[0].application_fee_amount).toBe(50);
   });
 });

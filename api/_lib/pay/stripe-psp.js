@@ -98,7 +98,7 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
      */
     async createWalletCharge({
       chargeRef, amountCents, tipCents = 0, recipientId,
-      wallet = null, payerDocument = null, applicationFeeCents = 0, currency = 'brl',
+      wallet = null, payerDocument = null, applicationFeeCents = 0, currency,
     }) {
       if (typeof recipientId !== 'string' || !/^acct_/.test(recipientId)) {
         throw new Error('stripe: conta conectada (acct_…) obrigatória — recusando custódia da plataforma');
@@ -117,14 +117,28 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         throw new TypeError('applicationFeeCents fora de [0, total)');
       }
 
-      // A MOEDA vem do mercado, não de um literal. Era 'brl' fixo — e
-      // `MARKETS.es.rails` inclui 'card', então um cliente espanhol devendo
-      // 24,50 € seria cobrado 2450 centavos de REAL na conta conectada
-      // espanhola. Pior que o erro: a conciliação compararia centavos de real
-      // com cêntimos de euro e reportaria 0,00 de divergência (inegociável #8
-      // derrotado em silêncio). Achado da revisão de compliance.
+      // A MOEDA vem do mercado, e NÃO TEM PADRÃO.
+      //
+      // Era `'brl'` fixo, e a revisão de compliance mandou parametrizar: como
+      // `MARKETS.es.rails` inclui 'card', um cliente espanhol devendo 24,50 €
+      // seria cobrado 2450 centavos de REAL na conta conectada espanhola. Pior
+      // que o erro, a conciliação compararia centavos de real com cêntimos de
+      // euro e reportaria 0,00 de divergência — o inegociável #8 derrotado em
+      // silêncio.
+      //
+      // Mas parametrizar com `currency = 'brl'` de padrão consertou metade: os
+      // DOIS chamadores continuaram sem passar nada, então o literal seguiu
+      // valendo, agora escondido atrás de um comentário que dizia o contrário.
+      // É a forma exata do inegociável #7 — a guarda que nunca dispara.
+      //
+      // Medido contra a Stripe (2026-09-07): uma cobrança de CARTÃO em `brl`
+      // é **aceita sem reclamação**. Ninguém abaixo de nós pega isto. (No
+      // Bizum o esquema pega: `currency: 'brl'` é recusado com "Payments with
+      // bizum support the following currencies: eur".) Então esta linha é a
+      // única defesa que existe no trilho de cartão, e por isso ela não pode
+      // ter um padrão simpático.
       if (currency !== 'brl' && currency !== 'eur') {
-        throw new TypeError(`createWalletCharge: moeda não suportada ${currency}`);
+        throw new TypeError(`createWalletCharge: moeda obrigatória e vinda do mercado, veio ${JSON.stringify(currency)}`);
       }
       const pi = await stripe.paymentIntents.create({
         amount: total,
