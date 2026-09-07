@@ -189,9 +189,11 @@ function Conciliacao({ r }: { r: Reconcile | undefined }) {
 /// Dia/mês na ORDEM do idioma. "05/09" lido por um falante de inglês é 9 de
 /// maio, não 5 de setembro — e a coluna toda é uma linha do tempo, então a
 /// ordem errada não é um detalhe, é o gráfico invertido na cabeça de quem lê.
-const dayMonth = (dia: string, lang: 'pt' | 'en') => {
+const dayMonth = (dia: string, lang: 'pt' | 'en' | 'es') => {
   const [, mm, dd] = dia.split('-');
-  return lang === 'pt' ? `${dd}/${mm}` : `${mm}/${dd}`;
+  // Inglês é o único que põe o mês na frente. Português e espanhol leem
+  // dia/mês, e trocar a ordem inverte o gráfico na cabeça de quem lê.
+  return lang === 'en' ? `${mm}/${dd}` : `${dd}/${mm}`;
 };
 
 /** Últimos 7 dias de uso — barras CSS proporcionais ao valor, sem lib de gráfico. */

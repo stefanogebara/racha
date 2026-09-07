@@ -7,7 +7,7 @@
  * `./lang` quer React; quem importa `./i18n` quer as strings.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { DICT, LANGS, STORAGE_KEY, fill, type Key, type Lang, money } from './i18n';
+import { DICT, LANGS, STORAGE_KEY, fill, type Key, type Lang, money, LOCALE, type CurrencyCode } from './i18n';
 
 export { DICT, LANGS, money, tError } from './i18n';
 export type { Key, Lang } from './i18n';
@@ -33,6 +33,10 @@ function readStored(): Lang {
   return 'en';   // padrão do produto
 }
 
+/** O atributo `lang` do documento e dos botões, pro leitor de tela pronunciar
+ *  certo. Declarado antes de quem o usa. */
+const HTML_LANG: Record<Lang, string> = { en: 'en', pt: 'pt-BR', es: 'es-ES' };
+
 const LangContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({
   lang: 'en', setLang: () => {},
 });
@@ -42,9 +46,9 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
   const setLang = useCallback((l: Lang) => {
     setLangState(l);
     try { localStorage.setItem(STORAGE_KEY, l); } catch { /* segue sem lembrar */ }
-    document.documentElement.lang = l === 'pt' ? 'pt-BR' : 'en';
+    document.documentElement.lang = HTML_LANG[l];
   }, []);
-  useEffect(() => { document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en'; }, [lang]);
+  useEffect(() => { document.documentElement.lang = HTML_LANG[lang]; }, [lang]);
   const value = useMemo(() => ({ lang, setLang }), [lang, setLang]);
   return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
 }
@@ -66,9 +70,16 @@ export function useT() {
   // They live here rather than as free functions so a screen cannot forget the
   // language: there is nothing to pass. Only App.tsx was doing this correctly;
   // the wallet, the panel and the house-balance flow printed pt-BR to everyone.
-  const brl = useCallback((cents: number) => money(cents, lang), [lang]);
+  // `brl` é o nome histórico (sessenta call sites) e continua significando
+  // "dinheiro pra tela". O que mudou com a Espanha é que a MOEDA passou a vir
+  // de fora: a casa decide se a conta é em real ou em euro, o leitor decide a
+  // separação. O default BRL mantém as telas brasileiras iguais.
+  const brl = useCallback(
+    (cents: number, currency: CurrencyCode = 'BRL') => money(cents, lang, currency),
+    [lang],
+  );
   const dmy = useCallback(
-    (iso: string) => new Date(iso).toLocaleDateString(lang === 'pt' ? 'pt-BR' : 'en-US'),
+    (iso: string) => new Date(iso).toLocaleDateString(LOCALE[lang]),
     [lang],
   );
   return { t, lang, setLang, brl, dmy };
@@ -89,7 +100,7 @@ export function LangToggle({ compact = false }: { compact?: boolean }) {
           type="button"
           className={l === lang ? 'langopt on' : 'langopt'}
           aria-pressed={l === lang}
-          lang={l === 'pt' ? 'pt-BR' : 'en'}
+          lang={HTML_LANG[l]}
           onClick={() => setLang(l)}
         >
           {compact ? l.toUpperCase() : DICT[`lang.${l}` as Key][lang]}

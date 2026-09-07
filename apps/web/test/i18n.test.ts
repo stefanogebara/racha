@@ -9,9 +9,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DICT, LANGS, money, tError } from '../src/i18n.ts';
 
-const entries = Object.entries(DICT) as [string, { en: string; pt: string }][];
+const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: string }][];
 
-test('toda chave tem os dois idiomas, não vazios', () => {
+test('toda chave tem os três idiomas, não vazios', () => {
   for (const [key, pair] of entries) {
     for (const lang of LANGS) {
       assert.ok(pair[lang] !== undefined, `${key} não tem ${lang}`);
@@ -35,18 +35,43 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
   // Palavras que são MESMO iguais nas duas línguas. A lista é curta e nomeada
   // uma a uma de propósito: o jeito fácil de fazer este teste passar é inventar
   // uma tradução, e aí ele deixa de valer alguma coisa.
+  // A lista é por PAR, não por chave: uma chave dispensada em `pt=es` continua
+  // sendo checada em `en=pt`. Espanhol e português são línguas próximas e
+  // dezenas de palavras coincidem de verdade — se a dispensa fosse por chave,
+  // uma tradução inglesa esquecida passaria de carona.
   const same = new Set([
-    'lang.pt',      // "Português" se escreve assim em inglês também
-    'check.total',  // "Total" / "Total"
-    'share.item',   // "item" / "item"
-    'gate.email',   // "e-mail" nos dois
-    'card.demoCard',// "•••• 4242 (demo)" — número, não frase
-    // `cat.couvert` saiu da lista: o inglês virou "Cover charge", que é como a
-    // conta escrita em inglês chama a coisa. Se voltar a ser igual, o teste
-    // reclama de novo, e deve.
-    'rcpt.statusOther', // "{id} · status: {status}" — "status" é igual nas duas
+    'lang.pt:en=pt', 'lang.pt:en=es', 'lang.pt:pt=es', // "Português" nas três
+    'check.total:en=pt', 'check.total:en=es', 'check.total:pt=es',
+    'share.item:en=pt',
+    'gate.email:en=pt',
+    'card.demoCard:en=pt', 'card.demoCard:en=es', 'card.demoCard:pt=es',
+    'rcpt.statusOther:en=pt', // "status" é a mesma palavra
+    // Espanhol e português: palavras que são MESMO iguais. Cada uma é uma
+    // afirmação consciente, não um atalho.
+    'lang.label:pt=es', 'lang.es:pt=es', 'common.optional:pt=es',
+    'share.splitAmong:pt=es', 'pix.copy:pt=es', 'pix.copied:pt=es',
+    'pix.simulating:pt=es', 'panel.tables:pt=es', 'panel.balOne:pt=es',
+    'panel.balMany:pt=es', 'panel.status.parcial:pt=es', 'wallet.topUpEntry:pt=es',
+    'gate.signIn:pt=es', 'admin.less:pt=es', 'admin.tablesN:pt=es',
+    'wiz.stepTables:pt=es', 'wiz.connected:pt=es', 'wiz.marked:pt=es',
+    'qrs.backTables:pt=es', 'stripe.connect:pt=es', 'admin.cpfOk:pt=es',
+    'house.refund:pt=es', 'rcpt.idCopied:pt=es', 'rcpt.copyId:pt=es',
+    'rcpt.holder:pt=es', 'rcpt.bankLabel:pt=es', 'rcpt.bankCodeKnown:pt=es',
+    'rcpt.optionalPh:pt=es', 'rcpt.sending:pt=es', 'rcpt.cancel:pt=es',
+    'ledger.load:pt=es', 'ledger.refund:pt=es', 'cat.carne:pt=es',
+    'cat.massa:en=es', 'cat.cafe:pt=es', 'land.nav:pt=es',
   ]);
-  const copied = entries.filter(([k, p]) => p.en === p.pt && !same.has(k)).map(([k]) => k);
+  // Compara TODOS os pares, não só en/pt: com três idiomas, uma cópia entre
+  // espanhol e português passa tão fácil quanto passava entre inglês e
+  // português — e espanhol e português se parecem MAIS, então o risco é maior.
+  const copied = entries.flatMap(([k, p]) => {
+    const dup: string[] = [];
+    const check = (a: keyof typeof p, b: keyof typeof p) => {
+      if (p[a] === p[b] && !same.has(`${k}:${a}=${b}`)) dup.push(`${k} (${a}=${b})`);
+    };
+    check('en', 'pt'); check('en', 'es'); check('pt', 'es');
+    return dup;
+  });
   assert.deepEqual(copied, [], `chaves não traduzidas: ${copied.join(', ')}`);
 });
 
@@ -61,11 +86,42 @@ test('dinheiro: a moeda é sempre BRL, a separação segue o idioma', () => {
   assert.ok(en.includes('1,234.56'), `en deveria usar , e . — veio ${en}`);
 });
 
-test('centavos exatos sobrevivem à formatação, nos dois idiomas', () => {
+test('centavos exatos sobrevivem à formatação, nos três idiomas e nas duas moedas', () => {
+  // Inglês usa ponto decimal; português e espanhol usam vírgula. O que este
+  // teste protege é o centavo: 1 centavo nunca pode virar "0.0" nem desaparecer
+  // no arredondamento de um `Intl` mal configurado.
+  const decimal = (lang: string) => (lang === 'en' ? '0.01' : '0,01');
+  const zero = (lang: string) => (lang === 'en' ? '0.00' : '0,00');
   for (const lang of LANGS) {
-    assert.ok(money(1, lang).includes(lang === 'pt' ? '0,01' : '0.01'));
-    assert.ok(money(0, lang).includes(lang === 'pt' ? '0,00' : '0.00'));
+    for (const currency of ['BRL', 'EUR'] as const) {
+      assert.ok(money(1, lang, currency).includes(decimal(lang)),
+        `${lang}/${currency}: 1 centavo saiu "${money(1, lang, currency)}"`);
+      assert.ok(money(0, lang, currency).includes(zero(lang)),
+        `${lang}/${currency}: zero saiu "${money(0, lang, currency)}"`);
+    }
   }
+});
+
+test('a moeda vem da casa, a separação vem do leitor', () => {
+  // Trocar de idioma NÃO converte dinheiro (decisão #34) e trocar de país não
+  // muda a separação: são dois eixos, e este teste é o que impede que alguém
+  // volte a amarrar um no outro.
+  assert.ok(money(123456, 'en', 'EUR').includes('1,234.56'));   // €1,234.56
+  assert.ok(money(123456, 'pt', 'BRL').includes('1.234,56'));   // R$ 1.234,56
+
+  // Espanhol NÃO agrupa quatro dígitos: "1234,56 €" é a forma certa e
+  // "1.234,56 €" é a errada (regra da RAE, e é o que o ICU faz). Esta
+  // asserção existe pra que ninguém "corrija" isso pra ficar parecido com o
+  // português — a vírgula decimal é igual, o milhar não.
+  assert.equal(money(123456, 'es', 'EUR'), '1234,56\u00a0€');
+  // A partir de cinco dígitos o espanhol agrupa, e aí sim com ponto.
+  assert.ok(money(1234567, 'es', 'EUR').includes('12.345,67'));
+
+  // O símbolo segue a MOEDA; a posição dele segue o idioma (€ depois em
+  // espanhol, antes em inglês).
+  assert.ok(money(100, 'es', 'EUR').endsWith('€'));
+  assert.ok(money(100, 'en', 'EUR').startsWith('€'));
+  assert.ok(money(100, 'pt', 'BRL').startsWith('R$'));
 });
 
 test('erro do servidor: traduz pelo código e cai no texto cru quando não conhece', () => {
