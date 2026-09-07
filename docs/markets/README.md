@@ -87,6 +87,48 @@ pra onboardar.
   contas, a mesma família do Pix. Rotular como cartão contaminaria o painel, a
   ativação por método e a conciliação.
 
+## Espanha está construída e NÃO está ligada
+
+`RACHA_ES_ENABLED` não setado = **nenhuma cobrança espanhola sai**
+(`chargingAllowed` em `markets.js`). A apresentação funciona, então as telas são
+revisáveis; o dinheiro não se move. É o mesmo desenho do `CRON_SECRET` na
+revisão #37: "não configurado" é recusa, não permissão.
+
+Dois motivos, os dois da revisão de compliance de 2026-09-07, e **nenhum é
+código**:
+
+### 1. Disputa: quem fica sem o dinheiro muda
+
+O Bizum tem **120 dias corridos** de reclamação (fraude, pagamento duplicado,
+divergência de valor), 40 dias pra apresentar prova e 90 pra decisão. A Stripe
+retém o valor disputado do saldo — e numa **destination charge**, é o saldo da
+PLATAFORMA. Recuperar exige reversão de transferência mais cláusula de regresso
+no contrato do restaurante.
+
+Isso **não** é conta-bolsão: o pagamento continua liquidando na conta conectada,
+com `on_behalf_of`, e a plataforma nunca é a comerciante de liquidação. Mas
+*muda quem fica sem o dinheiro* quando dá errado, e o inegociável #4 diz que
+mudança de fluxo de fundos passa por **parecer de advogado de pagamentos
+ANTES**. A janela do Pix (MED) é muito mais curta, então isto é novo.
+
+Pendências: o parecer, a cláusula de regresso no contrato, e tratar
+`charge.dispute.created` no webhook (hoje não é tratado).
+
+### 2. GDPR capítulo V: o banco está em São Paulo
+
+Dado pessoal de titular europeu indo pro Brasil precisa de cláusulas-padrão
+(art. 46) e avaliação de impacto da transferência, ou de um projeto Supabase em
+região da UE — que é a correção técnica que dispensa a maior parte da papelada.
+
+O que atravessa hoje: `payerLabel` (nome livre, persistido), e nome + telefone
+da carteira da casa (`/api/house/open`, que **não** é gated por mercado). Além
+disso faltam: registro do art. 30 pros fluxos espanhóis, aviso do art. 13 em
+espanhol, DPA do art. 28 com cada casa espanhola (a Racha é operadora do dado
+do cliente da casa), e representante do art. 27 sem estabelecimento na UE.
+
+E o `payerLabel` não tem prazo de retenção nem caminho de exclusão em lugar
+nenhum — um nome preso a um pagamento guardado pra sempre falha o art. 5(1)(e).
+
 ## O que ainda falta pra Espanha ir ao ar
 
 Anotado aqui pra não parecer pronto:
@@ -108,3 +150,13 @@ Anotado aqui pra não parecer pronto:
    marketing, errado em qualquer outro lugar — é decisão de cópia.
 6. **O app iOS é só Brasil.** Português, Pix, `Cents` em BRL. Nada aqui mexeu
    nele.
+7. **A tela de "pago" não identifica comerciante.** Uma conta paga por várias
+   pessoas não divide o IVA: a casa emite **uma** fatura simplificada da mesa, e
+   o cliente mantém o direito à fatura completa com o NIF dele (RD 1619/2012).
+   Nossa tela precisa ler como **justificante de pago**, nomeando a casa e o
+   NIF dela — e **não** parecer uma fatura, o que também mantém a Racha fora do
+   escopo do Verifactu / SIF (RD 1007/2023), uma obrigação bem maior pra entrar
+   por acidente.
+8. **`/api/house/open` não é gated por mercado** — a carteira da casa coleta
+   nome e telefone, e em Espanha isso entra no problema de residência de dado
+   acima antes de qualquer outra coisa.
