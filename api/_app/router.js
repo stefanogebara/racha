@@ -31,6 +31,7 @@ const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
 const { createChargeService } = require('../_lib/pay/create-charge');
+const { errorStatus, errorBody } = require('../_lib/http-error');
 const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
         notifyFounderReconcile, notifyFounderMoneyEvent } = require('../_lib/notify');
 const { montarRadar } = require('../_lib/activation/radar');
@@ -164,7 +165,7 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
-const { supportsRail, checkChargeLimits, chargingAllowed, market, marketGate, pspCurrency } = require('../_lib/markets');
+const { chargingAllowed, market, marketGate, pspCurrency } = require('../_lib/markets');
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
@@ -376,18 +377,18 @@ async function route(req, res) {
       // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
       // pelo PSP real — dinheiro fake mesmo com o app em live.
       const isDemo = (body.token || '') === DEMO_TABLE_TOKEN;
-      // O trilho pedido tem que ser servido pelo MERCADO da casa. Sem esta
-      // conferência, um `rail: 'bizum'` numa mesa brasileira cobraria em euro
-      // e um `rail: 'pix'` numa mesa espanhola cobraria em real — nos dois
-      // casos com o adaptador errado e sem ninguém reclamando.
+      // O trilho pedido, e nada de conferir mercado AQUI: quem confere é o
+      // `marketGate` dentro do `create-charge`, que é o portão de dinheiro
+      // compartilhado — e os dois serviços (`charge` e `demoCharge`) saem da
+      // mesma fábrica, então os dois passam por ele.
+      //
+      // Esta rota tinha uma cópia de DOIS dos quatro portões, e na ordem
+      // errada: `supportsRail` antes do interruptor do mercado, então uma mesa
+      // espanhola com a Espanha desligada respondia `rail_unsupported` — que
+      // conta que o mercado existe e quais trilhos ele serve — em vez de
+      // `market_not_live`. A cópia existia só porque o catch geral perdia o
+      // `code`; agora não perde.
       const payRail = body.rail === 'bizum' ? 'bizum' : 'pix';
-      const payVenue = await store.getVenueForCheck(view.check.id);
-      if (!supportsRail(payVenue && payVenue.market, payRail)) {
-        return json(res, 400, { success: false, error: `rail ${payRail} não atende este mercado`, code: 'rail_unsupported' });
-      }
-      const payLimit = checkChargeLimits(payVenue && payVenue.market,
-        (body.amountCents || 0) + (body.tipCents ?? 0));
-      if (payLimit) return json(res, 400, { success: false, error: 'valor fora dos limites do meio de pagamento', ...payLimit });
       const result = await (isDemo ? demoCharge : charge)({
         checkId: view.check.id, amountCents: body.amountCents,
         tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null, rail: payRail,
@@ -1171,15 +1172,12 @@ async function route(req, res) {
 
     return json(res, 404, { success: false, error: 'not found' });
   } catch (err) {
-    const status = err.statusCode || (err.name === 'WebhookVerificationError' ? 401 : 500);
-    // 4xx são erros de contrato e a mensagem ajuda quem chamou. 500 não mapeado
-    // costuma vir do PostgREST/Postgres (`throwOn`), e ecoar isso pro cliente é
-    // vazar interno: loga inteiro, devolve um código estável.
+    // A FORMA do erro mora em `_lib/http-error.js`, testada lá. Aqui só o log.
+    const status = errorStatus(err);
     if (status >= 500) {
       process.stderr.write(`[500] ${url.pathname} ${String(err && err.message).slice(0, 300)}\n`);
-      return json(res, status, { success: false, error: 'erro interno', code: 'internal' });
     }
-    return json(res, status, { success: false, error: err.message });
+    return json(res, status, errorBody(err, status));
   }
 }
 
