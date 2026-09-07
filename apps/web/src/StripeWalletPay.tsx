@@ -3,7 +3,7 @@ import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { api } from './api';
 import { useT } from './lang';
-import { STRIPE_LOCALE } from './i18n';
+import { STRIPE_LOCALE, type CurrencyCode } from './i18n';
 
 /**
  * Apple Pay / Google Pay / cartão via STRIPE (2º rail) — o Express Checkout
@@ -72,7 +72,7 @@ function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument,
 }
 
 export default function StripeWalletPay({
-  token, amountCents, tipCents, payerLabel, payerDocument, disabled, onPaid,
+  token, amountCents, tipCents, payerLabel, payerDocument, disabled, onPaid, currency,
 }: {
   token: string;
   amountCents: number;
@@ -81,6 +81,8 @@ export default function StripeWalletPay({
   payerDocument: string;
   disabled: boolean;
   onPaid: () => void;
+  /** A moeda da CASA, vinda do servidor (`view.venue.currency`). Sem padrão. */
+  currency: CurrencyCode;
 }) {
   const stripe = getStripe();
   const { lang } = useT();
@@ -93,9 +95,18 @@ export default function StripeWalletPay({
   const options = useMemo(() => ({
     mode: 'payment' as const,
     amount: Math.max(1, total),
-    currency: 'brl',
+    // A moeda vem da CASA, não de um literal.
+    //
+    // Era `'brl'` fixo, e este componente aparece pra qualquer venue com
+    // `acceptsCard` — inclusive espanhola, porque `MARKETS.es.rails` inclui
+    // 'card'. O servidor agora cria o intent em EURO certo, então a folha do
+    // Apple/Google Pay ou cotava a moeda errada pro pagador, ou o
+    // `confirmPayment` estourava com um erro de integração da Stripe em inglês
+    // cru na tela. Nos dois casos é autorização obtida sobre um valor que não
+    // é o valor. Achado da revisão de compliance de 2026-09-07.
+    currency: currency.toLowerCase(),
     locale: STRIPE_LOCALE[lang],
-  }), [total, lang]);
+  }), [total, lang, currency]);
 
   // Sem chave publicável, desabilitado, ou valor zero → não renderiza nada.
   if (!PK || !stripe || disabled || total === 0) return null;

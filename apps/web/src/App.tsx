@@ -638,6 +638,7 @@ export default function App() {
               payerLabel={payerLabel.trim() || null}
               payerDocument={cpfDigits}
               disabled={totalToPay === 0}
+              currency={currency}
               onPaid={async () => { await refresh(); setStep('pago'); }}
             />
           )}

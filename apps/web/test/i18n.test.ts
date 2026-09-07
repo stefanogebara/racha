@@ -423,3 +423,49 @@ test('nenhuma tela formata número, data ou dinheiro com o idioma escrito na lin
   }
   assert.deepEqual(offenders, [], `\nuse o useT() — t/brl/dmy/hm/pct:\n${offenders.join('\n')}\n`);
 });
+
+test('nenhuma tela nova imprime dinheiro sem dizer a moeda', async () => {
+  // `brl(cents)` sem segundo argumento cai no padrão BRL do hook. Isso está
+  // certo no Brasil e errado numa casa em Madrid — e foi assim que o PAINEL
+  // imprimia "R$" no faturamento do dia e na linha de GORJETA, que é o número
+  // que o dono leva pra folha (revisão de compliance, 2026-09-07).
+  //
+  // Duas formas de estar certo, e o teste aceita as duas:
+  //  1. amarrar a moeda uma vez no topo da tela (`const brl = (c) => money(c,
+  //     currency)`), que é o que a conta e o painel fazem;
+  //  2. estar na lista abaixo — telas que só existem no Brasil, uma a uma, com
+  //     o motivo.
+  const BR_ONLY = new Set([
+    // A carteira da casa é fechada fora do Brasil pelo portão de mercado
+    // (`house-service.createLoad`): a recarga é sempre Pix, a Espanha não
+    // serve Pix, e a carteira coleta nome e telefone — o dado que a pendência
+    // de residência do GDPR trava. Se algum dia a carteira abrir em Espanha, é
+    // aqui que este teste avisa que faltam quatro telas.
+    'Wallet.tsx', 'WalletPay.tsx', 'HousePay.tsx', 'AdminHouse.tsx',
+  ]);
+
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const src = path.join(import.meta.dirname, '..', 'src');
+
+  const offenders: string[] = [];
+  for (const file of fs.readdirSync(src)) {
+    if (!file.endsWith('.tsx') || BR_ONLY.has(file)) continue;
+    const text = fs.readFileSync(path.join(src, file), 'utf8');
+    // A tela amarrou a moeda uma vez? Então os `brl(x)` dela já a carregam.
+    // Qualquer forma de amarrar serve — a conta usa `useCallback` e o painel
+    // uma seta simples. O que o teste exige é que a definição LOCAL de `brl`
+    // mencione `currency`; é isso que distingue "amarrado" de "padrão BRL".
+    if (/const brl\b[^\n]*=[^\n]*currency/.test(text)) continue;
+    for (const { line, n } of codeLines(text)) {
+      // `brl(` com UM argumento: sem vírgula no nível de cima da chamada.
+      for (const m of line.matchAll(/\bbrl\(([^;]*?)\)/g)) {
+        const arg = m[1];
+        const depth = (arg.match(/\(/g) || []).length - (arg.match(/\)/g) || []).length;
+        if (depth !== 0) continue;                 // chamada partida em linhas
+        if (!arg.includes(',')) offenders.push(`${file}:${n} ${m[0].slice(0, 40)}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `\ndinheiro sem moeda:\n${offenders.join('\n')}\n`);
+});

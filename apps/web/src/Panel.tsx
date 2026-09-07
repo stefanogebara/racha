@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LangToggle, useT } from './lang';
 import { type PanelAtivacao } from './api';
+import { type CurrencyCode } from './i18n';
 import { authedReq, signOut } from './auth';
 
 /**
@@ -19,7 +20,8 @@ interface Reconcile {
 }
 
 interface PanelData {
-  venue: { name: string };
+  /** A moeda vem do SERVIDOR: o painel imprime dinheiro e não deve adivinhar. */
+  venue: { name: string; currency?: CurrencyCode };
   reconcile?: Reconcile;
   checks: Array<{
     checkId: string;
@@ -41,7 +43,7 @@ const STATUS_KEY = {
 } as const;
 
 export default function Panel() {
-  const { t, brl } = useT();
+  const { t, brl: money } = useT();
   const venueId = useMemo(
     () => new URLSearchParams(window.location.search).get('v') ?? '',
     [],
@@ -67,6 +69,14 @@ export default function Panel() {
   if (error) return <main className="shell wide"><p className="muted center">{error}</p></main>;
   if (!data) return <main className="shell wide"><p className="muted center">{t('panel.loading')}</p></main>;
 
+  // A moeda da casa, resolvida UMA vez, e um `brl` local amarrado a ela. O
+  // painel chamava `brl(cents)` em oito lugares e o padrão do hook é BRL —
+  // então o dono de uma casa espanhola lia "R$" no faturamento do dia e na
+  // linha de GORJETA, que é o número que ele leva pra folha. Amarrar o
+  // formatador aqui é mais seguro que lembrar a moeda oito vezes.
+  const currency: CurrencyCode = data.venue.currency ?? 'BRL';
+  const brl = (c: number) => money(c, currency);
+
   return (
     <main className="shell wide">
       <header className="head">
@@ -89,9 +99,9 @@ export default function Panel() {
         </div>
       </section>
 
-      <Conciliacao r={data.reconcile} />
+      <Conciliacao r={data.reconcile} currency={currency} />
 
-      <Ativacao a={data.ativacao} />
+      <Ativacao a={data.ativacao} currency={currency} />
 
       <section className="panel">
         <p className="label">{t('panel.tables')}</p>
@@ -139,8 +149,9 @@ export default function Panel() {
  * ele, "não apareceu nada" e "não conferi nada" são a mesma tela, e a segunda é
  * a que quebra restaurante.
  */
-function Conciliacao({ r }: { r: Reconcile | undefined }) {
-  const { t, brl, hm } = useT();
+function Conciliacao({ r, currency }: { r: Reconcile | undefined; currency: CurrencyCode }) {
+  const { t, brl: money, hm } = useT();
+  const brl = (c: number) => money(c, currency);
   if (!r) return null; // backend antigo ainda no ar — o resto do painel segue de pé
   const vermelho = r.severity === 'critical' || r.severity === 'high';
   return (
@@ -193,8 +204,9 @@ const dayMonth = (dia: string, lang: 'pt' | 'en' | 'es') => {
 };
 
 /** Últimos 7 dias de uso — barras CSS proporcionais ao valor, sem lib de gráfico. */
-function Ativacao({ a }: { a: PanelAtivacao | undefined }) {
-  const { t, brl, lang } = useT();
+function Ativacao({ a, currency }: { a: PanelAtivacao | undefined; currency: CurrencyCode }) {
+  const { t, brl: money, lang } = useT();
+  const brl = (c: number) => money(c, currency);
   // Backend antigo ainda no ar — o resto do painel segue de pé. A guarda cobre
   // o objeto E as partes dele: `semana`/`dias` faltando não pode derrubar a
   // tela que mostra o dinheiro do dia.

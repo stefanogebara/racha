@@ -7,7 +7,7 @@
  */
 const INLINE_METHODS = new Set(['house_account']);
 
-const { DEFAULT_MARKET, isMarket, publicMarketView } = require('../markets');
+const { DEFAULT_MARKET, isMarket, publicMarketView, market } = require('../markets');
 
 /**
  * In-memory store — powers the local demo and integration tests.
@@ -355,7 +355,12 @@ function createMemoryStore() {
         && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId
         && !trainingChecks.has(p.checkId));
       return {
-        venue: { name: venue.name },
+        // A MOEDA vai no payload do painel porque o painel imprime dinheiro, e
+        // o cliente não deve adivinhar. Sem ela, `brl()` caía no padrão BRL e o
+        // dono de uma casa espanhola lia "R$" no faturamento do dia e na linha
+        // de GORJETA — que é o número que ele leva pra folha. Achado da revisão
+        // de compliance de 2026-09-07.
+        venue: { name: venue.name, currency: market(venue.market).currency },
         checks: rows,
         today: {
           confirmedCents: confirmed.reduce((s, p) => s + p.amountCents, 0),
