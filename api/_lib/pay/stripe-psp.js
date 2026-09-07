@@ -343,6 +343,47 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
           raw: charge,
         };
       }
+      // Disputa aberta. NÃO é estorno: o dinheiro fica retido enquanto o
+      // esquema decide (Bizum dá 120 dias pro cliente reclamar, 40 pra prova,
+      // 90 pra decisão). Vira evento de ledger sem mover saldo, e alerta.
+      if (type === 'charge.dispute.created') {
+        const d = event.data.object;
+        const txid = d.payment_intent;
+        if (typeof txid !== 'string') return { kind: 'ignored', type, raw: d };
+        return {
+          kind: 'dispute_opened', txid,
+          amountCents: Number(d.amount) || 0,
+          reason: typeof d.reason === 'string' ? d.reason : null,
+          raw: d,
+        };
+      }
+      // Disputa PERDIDA: aí sim o dinheiro foi. Vira estorno de verdade.
+      if (type === 'charge.dispute.closed') {
+        const d = event.data.object;
+        const txid = d.payment_intent;
+        if (typeof txid !== 'string' || d.status !== 'lost') {
+          return { kind: 'ignored', type, raw: d };
+        }
+        return {
+          kind: 'refund', txid,
+          amountCents: Number(d.amount) || 0,
+          tipCents: 0,
+          method: 'dispute',
+          raw: d,
+        };
+      }
+      // Reembolso que FALHOU. O dinheiro voltou pro saldo do restaurante e o
+      // cliente continua sem receber — e ninguém descobre isso sozinho. Não
+      // move o ledger (o estorno não aconteceu), mas tem que gritar.
+      if (type === 'refund.failed' || type === 'refund.updated') {
+        const r = event.data.object;
+        const txid = r.payment_intent;
+        if (typeof txid !== 'string') return { kind: 'ignored', type, raw: r };
+        return {
+          kind: r.status === 'failed' ? 'refund_failed' : 'refund_progress',
+          txid, amountCents: Number(r.amount) || 0, status: r.status || null, raw: r,
+        };
+      }
       // Outros eventos não movem o nosso ledger — mas ignorar é 200, não 401.
       // Antes isto lançava `WebhookVerificationError`, que a rota mapeia pra
       // 401: a Stripe reenvia, depois DESABILITA o endpoint, e aí um

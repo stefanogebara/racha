@@ -188,3 +188,43 @@ describe('stripe adapter — config + Connect', () => {
     expect(await mk({}, stubStripe({ accountRetrieveError: missing })).getConnectedAccount('acct_gone')).toBeNull();
   });
 });
+
+describe('disputa e reembolso que falha', () => {
+  // Duas coisas que ninguém descobre sozinho, e que o Bizum tornou urgentes:
+  // 120 dias de janela de reclamação (contra a janela curta do MED do Pix) e
+  // reembolso assíncrono que pode falhar depois de ter sido pedido.
+  const dispute = (over) => ({
+    type: 'charge.dispute.created',
+    data: { object: { payment_intent: 'pi_d', amount: 3390, reason: 'fraudulent', ...over } },
+  });
+
+  test('disputa aberta NÃO é estorno — é evento próprio, sem mover saldo', async () => {
+    const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({ event: dispute() }))
+      .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+    expect(parsed).toMatchObject({ kind: 'dispute_opened', txid: 'pi_d', amountCents: 3390, reason: 'fraudulent' });
+    // O que este teste protege: marcar como 'refund' reabriria a conta por
+    // causa de uma reclamação que talvez não proceda.
+    expect(parsed.kind).not.toBe('refund');
+  });
+
+  test('disputa PERDIDA vira estorno de verdade', async () => {
+    const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
+      event: { type: 'charge.dispute.closed', data: { object: { payment_intent: 'pi_d', amount: 3390, status: 'lost' } } },
+    })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+    expect(parsed).toMatchObject({ kind: 'refund', txid: 'pi_d', amountCents: 3390 });
+  });
+
+  test('disputa GANHA não mexe em nada', async () => {
+    const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
+      event: { type: 'charge.dispute.closed', data: { object: { payment_intent: 'pi_d', amount: 3390, status: 'won' } } },
+    })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+    expect(parsed.kind).toBe('ignored');
+  });
+
+  test('reembolso que falhou é reconhecido — o dinheiro voltou pro restaurante e o cliente ficou sem', async () => {
+    const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
+      event: { type: 'refund.failed', data: { object: { payment_intent: 'pi_r', amount: 1000, status: 'failed' } } },
+    })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+    expect(parsed).toMatchObject({ kind: 'refund_failed', txid: 'pi_r', amountCents: 1000 });
+  });
+});

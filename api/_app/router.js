@@ -32,7 +32,7 @@ const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
 const { createChargeService } = require('../_lib/pay/create-charge');
 const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
-        notifyFounderReconcile } = require('../_lib/notify');
+        notifyFounderReconcile, notifyFounderMoneyEvent } = require('../_lib/notify');
 const { montarRadar } = require('../_lib/activation/radar');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
@@ -164,7 +164,7 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
-const { supportsRail, checkChargeLimits } = require('../_lib/markets');
+const { supportsRail, checkChargeLimits, chargingAllowed } = require('../_lib/markets');
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
@@ -526,6 +526,31 @@ async function route(req, res) {
         if (parsed.kind === 'ignored') {
           return json(res, 200, { success: true, data: { status: 'ignored', type: parsed.type } });
         }
+        // Disputa aberta e reembolso que falhou: não movem saldo, mas ninguém
+        // descobre sozinho. A disputa vira EVENTO de ledger (o inegociável #6
+        // — se ela não entra no log, o estorno de noventa dias depois não tem
+        // antecedente); o reembolso falho é só alerta, porque o estorno não
+        // aconteceu e inventar um evento seria mentir no razão.
+        if (parsed.kind === 'dispute_opened' || parsed.kind === 'refund_failed'
+            || parsed.kind === 'refund_progress') {
+          const found = await store.findCheckByTxid(parsed.txid);
+          if (parsed.kind === 'dispute_opened' && found) {
+            try {
+              await store.appendEvent(found.id, 'PAYMENT_DISPUTED', {
+                txid: parsed.txid, amountCents: parsed.amountCents, reason: parsed.reason || null,
+              });
+            } catch (e) {
+              process.stderr.write(`[stripe-webhook] disputa não gravada: ${String(e.message).slice(0, 120)}\n`);
+            }
+          }
+          if (parsed.kind !== 'refund_progress') {
+            await notifyFounderMoneyEvent({
+              kind: parsed.kind, txid: parsed.txid, checkId: found ? found.id : null,
+              amountCents: parsed.amountCents, detail: parsed.reason || parsed.status || null,
+            });
+          }
+          return json(res, 200, { success: true, data: { status: parsed.kind, txid: parsed.txid } });
+        }
         result = await applyConfirmedPayment(parsed, confirmDeps);
       } catch (err) {
         process.stderr.write(`[stripe-webhook] threw=${err.name}: ${String(err.message).slice(0, 80)}\n`);
@@ -548,6 +573,17 @@ async function route(req, res) {
         return json(res, 429, { success: false, error: 'Muitas tentativas — aguarde alguns minutos', code: 'rate_limited' });
       }
       const b = JSON.parse(await readBody(req) || '{}');
+      // A carteira da casa coleta NOME e TELEFONE — o dado mais pessoal do
+      // produto todo. Em Espanha isso entra direto no problema de residência
+      // de dado que a revisão de compliance levantou (o banco está em São
+      // Paulo; titular europeu precisa de cláusulas-padrão ou de um projeto na
+      // UE). Então a carteira não abre em mercado que não está liberado, e o
+      // primeiro cliente espanhol não existe antes da papelada.
+      const houseVenue = await store.getVenueByTableToken(b.token || '');
+      const houseLive = chargingAllowed(houseVenue && houseVenue.market);
+      if (houseLive) {
+        return json(res, 400, { success: false, error: 'carteira indisponível neste mercado', ...houseLive });
+      }
       const data = await houseSvc.openAccount({
         tableQrToken: b.token, phone: b.phone, name: b.name,
       });

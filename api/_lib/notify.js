@@ -149,4 +149,38 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
   }
 }
 
-module.exports = { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon, notifyFounderReconcile };
+/**
+ * Disputa aberta, ou reembolso que falhou.
+ *
+ * Duas coisas que ninguém descobre sozinho. Uma disputa retém dinheiro do saldo
+ * e tem prazo de prova (40 dias no Bizum) — perder o prazo é perder o dinheiro
+ * por inação. Um reembolso que falha devolve o valor pro saldo do restaurante e
+ * deixa o cliente sem nada, silenciosamente, porque do ponto de vista do
+ * sistema "o reembolso foi pedido" já aconteceu.
+ *
+ * Mesma regra do canário de conciliação: se a ponte não está configurada, o
+ * relatório inteiro vai pro stderr. Trocar um alerta por um silêncio é o modo
+ * de falha #7.
+ */
+async function notifyFounderMoneyEvent({ kind, txid, checkId = null, amountCents = 0, detail = null }) {
+  const linha = `${kind} txid=${txid} check=${checkId || '?'} valor=${amountCents} ${detail || ''}`.trim();
+  const secret = process.env.RACHA_NOTIFY_SECRET;
+  if (!secret) {
+    process.stderr.write(`MONEY EVENT ALERT (sem RACHA_NOTIFY_SECRET):\n${linha}\n`);
+    return { skipped: true, reason: 'no_secret' };
+  }
+  try {
+    const res = await fetch(`${NOTIFY_URL}/api/racha-notify`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ event: kind, mensagem: linha, txid, checkId, amountCents, detail }),
+    });
+    if (!res.ok) process.stderr.write(`MONEY EVENT ALERT (ponte ${res.status}):\n${linha}\n`);
+    return { ok: res.ok, status: res.status };
+  } catch (e) {
+    process.stderr.write(`MONEY EVENT ALERT (ponte falhou: ${String(e.message).slice(0, 120)}):\n${linha}\n`);
+    return { ok: false, error: e.message };
+  }
+}
+
+module.exports = { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon, notifyFounderReconcile, notifyFounderMoneyEvent };

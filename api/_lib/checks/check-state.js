@@ -43,6 +43,18 @@ const STATUS = Object.freeze({
 
 const EVENT_TYPES = Object.freeze([
   'OPENED', 'ADJUSTED', 'PAYMENT_CONFIRMED', 'PAYMENT_REFUNDED', 'CLOSED',
+  // Uma disputa NÃO é um estorno. O dinheiro fica retido enquanto o esquema
+  // decide, e o cliente pode perder — então marcar como PAYMENT_REFUNDED
+  // reabriria a conta por causa de uma reclamação que talvez não proceda.
+  //
+  // Mas ela É um evento de dinheiro, e o inegociável #6 diz que estado de
+  // pagamento é event-sourced: se a disputa não entra no log, o estorno que
+  // aparece noventa dias depois não tem antecedente nenhum. Então ela entra,
+  // sem mover saldo, e marca a conta pra alguém olhar.
+  //
+  // O Bizum abriu essa necessidade: 120 dias de janela, contra a janela curta
+  // do MED do Pix.
+  'PAYMENT_DISPUTED',
 ]);
 
 // Money accumulations must stay in exact-integer territory.
@@ -97,6 +109,15 @@ function validateEvent(evt, prevState) {
       if (pay.refundedTipCents + (p.tipCents ?? 0) > pay.tipCents) {
         invalid(`tip refund exceeds paid tip for txid ${p.txid}`);
       }
+      break;
+    }
+    case 'PAYMENT_DISPUTED': {
+      if (!prevState) invalid('PAYMENT_DISPUTED before OPENED');
+      if (typeof p.txid !== 'string' || p.txid.length < 1) invalid('PAYMENT_DISPUTED.txid required');
+      assertCents(p.amountCents ?? 0, 'PAYMENT_DISPUTED.amountCents');
+      // Disputa de um txid que não existe é um sinal de que o webhook e o
+      // ledger discordam — alto, não silencioso.
+      if (!prevState.payments[p.txid]) invalid(`dispute for unknown txid ${p.txid}`);
       break;
     }
     case 'CLOSED':
@@ -174,6 +195,7 @@ function applyEvent(state, evt, seq = null) {
         tipCents: tip,
         refundedAmountCents: 0,
         refundedTipCents: 0,
+        disputedAmountCents: 0,
         late: state.status === STATUS.FECHADA,
       };
       next.paidCents += p.amountCents;
@@ -190,6 +212,17 @@ function applyEvent(state, evt, seq = null) {
       next.paidCents -= amount;
       next.tipCents -= tip;
       return recompute(next);
+    }
+    case 'PAYMENT_DISPUTED': {
+      // Não mexe em `paidCents`: o dinheiro ainda é do restaurante até o
+      // esquema decidir. Marca o pagamento e registra uma anomalia, que é o
+      // que faz a conta aparecer vermelha na conciliação em vez de parecer
+      // normal enquanto alguém contesta.
+      const next = cloneState(state);
+      const pay = next.payments[p.txid];
+      if (pay) pay.disputedAmountCents = (pay.disputedAmountCents || 0) + (p.amountCents ?? 0);
+      return withAnomaly(recompute(next), seq, 'PAYMENT_DISPUTED',
+        `disputa aberta em ${p.txid}${p.reason ? ` (${p.reason})` : ''}`);
     }
     case 'CLOSED':
       return recompute({ ...cloneState(state), closed: true });
