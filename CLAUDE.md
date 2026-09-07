@@ -55,8 +55,11 @@ brand), same company and sales machine (Olímpia). Strategy doc:
 
 - `npx jest` green before done — split engine and state machine have property-style tests
   (sum invariant, no negative parts, idempotent webhook application).
-- Any code that moves money ships only after **fintech-compliance + security review**
-  (agents in `.claude/agents/`). No exceptions, no "it's a small change".
+- Any code that moves money ships only after **fintech-compliance + security-reviewer**
+  (both in `.claude/agents/`). No exceptions, no "it's a small change". The
+  `security-reviewer` agent was named here for months without existing — half of a
+  two-signature gate with nothing behind it — and both reviewers flagged the gap on
+  2026-09-07 before it got written.
 - Synthetic canary (staging, daily once deployed): open check → split 3 ways → 2 Pix +
   1 card → reconcile exact → close table. Any failure is a page.
 
