@@ -199,6 +199,32 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     }))()).rejects.toThrow(/market/i);
   });
 
+  test('cobrança pendente de um trilho novo entra na reconciliação ativa', async () => {
+    // A guarda era uma lista de INCLUSÃO ('pix' ou 'card'), posta ali pra
+    // excluir o saldo da casa, que confirma inline. Como lista de inclusão ela
+    // também excluía todo trilho FUTURO: um Bizum pendente ficava fora da
+    // reconciliação ativa, e uma cobrança autorizada cujo webhook se perdeu é
+    // dinheiro que ninguém vai buscar. Este teste é a diferença entre as duas
+    // listas.
+    // Mesa própria: as outras já têm conta aberta nesta bateria.
+    const own = await store.seedTable(venue.id, `Mesa recon ${crypto.randomBytes(2).toString('hex')}`);
+    const check = await store.openCheck(own.qrToken, [{ id: 'x', name: 'Item', priceCents: 5000 }]);
+    await store.registerCharge({
+      checkId: check.id, txid: `pi_bizum_${crypto.randomBytes(4).toString('hex')}`,
+      amountCents: 5000, tipCents: 0, payerLabel: null, method: 'bizum',
+    });
+    const pending = await store.listPendingCharges({ checkId: check.id });
+    expect(pending.map((p) => p.method)).toContain('bizum');
+
+    // E o saldo da casa continua fora: ele confirma sem gateway.
+    await store.registerCharge({
+      checkId: check.id, txid: `hs_${crypto.randomBytes(4).toString('hex')}`,
+      amountCents: 1, tipCents: 0, payerLabel: null, method: 'house_account',
+    });
+    const again = await store.listPendingCharges({ checkId: check.id });
+    expect(again.map((p) => p.method)).not.toContain('house_account');
+  });
+
   test('charge gates hold: no recipient / above remaining', async () => {
     const bare = await store.seedVenue({ name: 'SemRecipient', servicoBp: 1000, pspRecipientId: null });
     const bareTable = await store.seedTable(bare.id, `Mesa ${crypto.randomInt(1000, 9999)}`);

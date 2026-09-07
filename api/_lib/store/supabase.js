@@ -479,7 +479,10 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         .from('payments')
         .select('txid, check_id, amount_cents, tip_cents, method, created_at')
         .eq('status', 'pendente')
-        .in('method', ['pix', 'card'])
+        // Exclusão, não inclusão — ver INLINE_METHODS no store de memória: uma
+        // lista de inclusão deixava todo trilho novo (Bizum) fora da
+        // reconciliação ativa, em silêncio.
+        .not('method', 'in', '("house_account")')
         .lt('created_at', new Date(now - graceMs).toISOString())
         .order('created_at', { ascending: true })
         .limit(limit);

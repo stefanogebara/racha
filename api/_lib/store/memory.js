@@ -1,5 +1,12 @@
 'use strict';
 
+/**
+ * Métodos que confirmam INLINE, sem webhook de gateway — e por isso ficam fora
+ * da reconciliação ativa. Todo o resto entra, inclusive trilhos que ainda não
+ * existem: é o default certo, porque o erro custa dinheiro só num dos lados.
+ */
+const INLINE_METHODS = new Set(['house_account']);
+
 const { DEFAULT_MARKET, isMarket, publicMarketView } = require('../markets');
 
 /**
@@ -282,7 +289,13 @@ function createMemoryStore() {
       return [...payments.values()]
         .filter((p) => {
           if (p.status !== 'pendente') return false;
-          if (p.method !== 'pix' && p.method !== 'card') return false;
+          // Lista de EXCLUSÃO, não de inclusão. A regra é "métodos que
+          // confirmam sozinhos, sem gateway" — hoje só o saldo da casa. Como
+          // lista de inclusão isto deixava de fora todo trilho novo: um Bizum
+          // pendente ficava fora da reconciliação ativa, e uma cobrança
+          // autorizada cujo webhook se perdeu é dinheiro que ninguém vai
+          // buscar. O default seguro é reconciliar.
+          if (INLINE_METHODS.has(p.method)) return false;
           if (checkId && p.checkId !== checkId) return false;
           const age = now - Date.parse(p.createdAt);
           return age >= graceMs && age <= windowMs;

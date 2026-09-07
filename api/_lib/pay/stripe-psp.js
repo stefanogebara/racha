@@ -1,5 +1,9 @@
 'use strict';
 
+/** Limites do esquema Bizum, em centavos de euro (docs.stripe.com/payments/bizum). */
+const BIZUM_MIN_CENTS = 50;
+const BIZUM_MAX_CENTS = 500000;
+
 /**
  * Stripe — o SEGUNDO rail do Racha, só pra CARTÃO / Apple Pay / Google Pay web.
  * O Pix continua no Pagar.me (na Stripe o Pix é invite-only pra empresa BR); a
@@ -115,6 +119,64 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
           tip_cents: String(tipCents),
           ...(wallet ? { wallet } : {}),
           ...(payerDocument ? { payer_document: String(payerDocument).replace(/\D/g, '') } : {}),
+        },
+      });
+      return { txid: pi.id, clientSecret: pi.client_secret, status: pi.status };
+    },
+
+    /**
+     * Bizum — o trilho principal da Espanha.
+     *
+     * É um pagamento em tempo real entre contas: o pagador põe o telefone que
+     * tem registrado no Bizum e autoriza **no app do banco dele**. Por isso
+     * não há código copia-e-cola como no Pix e não há CPF: quem autentica é o
+     * banco, e o documento do pagador nunca passa por aqui.
+     *
+     * Três decisões que valem comentário:
+     *
+     * - `payment_method_types: ['bizum']`, explícito, em vez de
+     *   `automatic_payment_methods`. O automático ofereceria tudo que a conta
+     *   tem habilitado, e o Express Checkout Element **não suporta Bizum** —
+     *   então o front precisa do Payment Element e o intent precisa dizer qual
+     *   é o trilho.
+     * - `on_behalf_of: recipientId` junto do `transfer_data`. Numa destination
+     *   charge sem isso, o comerciante que aparece no app do banco do cliente é
+     *   a PLATAFORMA; com ele, é o restaurante. Quem cobrou tem que ser quem o
+     *   cliente reconhece — e é também o que a Stripe documenta pro descritor.
+     * - Os limites do esquema são conferidos AQUI, não só na tela. Um adaptador
+     *   que confia no chamador é a guarda que nunca dispara (inegociável #7).
+     */
+    async createBizumCharge({
+      chargeRef, amountCents, tipCents = 0, recipientId, applicationFeeCents = 0,
+    }) {
+      if (typeof recipientId !== 'string' || !/^acct_/.test(recipientId)) {
+        throw new Error('stripe: conta conectada (acct_…) obrigatória — recusando custódia da plataforma');
+      }
+      if (typeof chargeRef !== 'string' || chargeRef.length === 0) {
+        throw new TypeError('createBizumCharge: chargeRef required');
+      }
+      assertCents(amountCents, 'amountCents');
+      assertCents(tipCents, 'tipCents');
+      const total = amountCents + tipCents;
+      if (total === 0) throw new TypeError('zero-value charge');
+      // Limites do esquema Bizum: 0,50 € a 5.000 € por cobrança.
+      if (total < BIZUM_MIN_CENTS) throw new TypeError(`bizum: abaixo do mínimo (${BIZUM_MIN_CENTS} centavos)`);
+      if (total > BIZUM_MAX_CENTS) throw new TypeError(`bizum: acima do máximo (${BIZUM_MAX_CENTS} centavos)`);
+      if (!Number.isSafeInteger(applicationFeeCents) || applicationFeeCents < 0 || applicationFeeCents >= total) {
+        throw new TypeError('applicationFeeCents fora de [0, total)');
+      }
+
+      const pi = await stripe.paymentIntents.create({
+        amount: total,
+        currency: 'eur',
+        payment_method_types: ['bizum'],
+        transfer_data: { destination: recipientId },
+        on_behalf_of: recipientId,
+        ...(applicationFeeCents > 0 ? { application_fee_amount: applicationFeeCents } : {}),
+        metadata: {
+          charge_ref: chargeRef.slice(0, 200),
+          tip_cents: String(tipCents),
+          rail: 'bizum',
         },
       });
       return { txid: pi.id, clientSecret: pi.client_secret, status: pi.status };

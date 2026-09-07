@@ -164,6 +164,8 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
+const { supportsRail, checkChargeLimits } = require('../_lib/markets');
+
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
 // Login COMPARTILHADO (opcional): a verificação de token pode apontar pra OUTRO
@@ -434,16 +436,35 @@ async function route(req, res) {
         // Centavos crus, não texto formatado: quem escolhe "R$ 12,34" ou
         // "R$ 12.34" é o cliente, que sabe o idioma. Servidor não formata dinheiro.
         code: 'amount_over', vars: { leftCents: remaining } });
+      // Qual trilho, e o MERCADO decide se ele é legal nesta mesa. Um Bizum
+      // numa mesa brasileira cobraria em euro; um cartão pelo caminho do Bizum
+      // usaria o Payment Element errado. O cliente pede, o servidor confere.
+      const rail = b.rail === 'bizum' ? 'bizum' : 'card';
+      if (!supportsRail(venue.market, rail)) {
+        return json(res, 400, { success: false, error: `rail ${rail} não atende este mercado`, code: 'rail_unsupported' });
+      }
+      // Limites do esquema (o Bizum tem teto de 5.000 €). Código + centavos:
+      // quem formata é o cliente, que sabe a moeda e o idioma.
+      const limit = checkChargeLimits(venue.market, amountCents + tipCents);
+      if (limit) return json(res, 400, { success: false, error: `valor fora dos limites do meio de pagamento`, ...limit });
       try {
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
-        const charge = await stripePsp.createWalletCharge({
-          chargeRef, amountCents, tipCents,
-          recipientId: venue.stripeAccountId,
-          wallet: b.wallet ?? null, payerDocument: b.payerDocument ?? null,
-        });
+        const charge = rail === 'bizum'
+          ? await stripePsp.createBizumCharge({
+            chargeRef, amountCents, tipCents,
+            recipientId: venue.stripeAccountId,
+          })
+          : await stripePsp.createWalletCharge({
+            chargeRef, amountCents, tipCents,
+            recipientId: venue.stripeAccountId,
+            wallet: b.wallet ?? null, payerDocument: b.payerDocument ?? null,
+          });
         await store.registerCharge({
           checkId: view.check.id, txid: charge.txid, amountCents, tipCents,
-          payerLabel: b.payerLabel ?? null, method: 'card',
+          // Bizum NÃO é cartão: rotular errado aqui contamina o painel, a
+          // ativação por método e a conciliação. É pagamento em tempo real,
+          // como o Pix — mesma família, moeda diferente.
+          payerLabel: b.payerLabel ?? null, method: rail === 'bizum' ? 'bizum' : 'card',
         });
         return json(res, 200, { success: true, data: { txid: charge.txid, clientSecret: charge.clientSecret, amountCents, tipCents, method: 'card' } });
       } catch (e) {
