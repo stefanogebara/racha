@@ -22,6 +22,23 @@ const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: s
  * Compartilhado pelos dois testes de português de propósito — a lógica de
  * "isto é comentário" só pode existir num lugar, senão um dos dois vê fantasma.
  */
+/**
+ * A linha é PROSA de tela, e não código?
+ *
+ * Prosa de JSX que ocupa várias linhas tem linhas do meio sem `>` nem `<`, e é
+ * por isso que este teste precisa reconhecê-las. Mas uma linha de código com
+ * comentário no fim (`'x', // porquê`) também não tem tag nenhuma — foi um
+ * falso positivo real, num arquivo cujo comentário explicava um bug de
+ * pagamento. Então: tira o comentário do fim primeiro, e o que sobra só conta
+ * como prosa se não tiver aspas nem vírgula, que é o que faz uma linha ser
+ * código.
+ */
+function isProseLine(trimmed: string): boolean {
+  const code = trimmed.replace(/\/\/.*$/, '').trim();
+  if (code.length <= 12) return false;
+  return /^[^<>{}()=;:`|&'"[\],]+$/.test(code);
+}
+
 function codeLines(text: string): { line: string; n: number }[] {
   const out: { line: string; n: number }[] = [];
   let inBlock = false;
@@ -297,7 +314,7 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
         // do AdminStripe — três linhas em português, mencionando o Pix numa
         // tela espanhola — passou pela primeira versão deste teste. Uma linha
         // que é só texto (sem tag, sem chave, sem código) é prosa de tela.
-        ...(/^[^<>{}()=;:`|&]+$/.test(trimmed) && trimmed.length > 12 ? [trimmed] : []),
+        ...(isProseLine(trimmed) ? [trimmed] : []),
       ];
       for (const c of candidates) {
         if (re.test(c)) offenders.push(`${file}:${n} texto de tela em português: ${JSON.stringify(c.trim().slice(0, 60))}`);

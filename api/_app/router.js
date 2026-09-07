@@ -164,7 +164,7 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
-const { supportsRail, checkChargeLimits, chargingAllowed } = require('../_lib/markets');
+const { supportsRail, checkChargeLimits, chargingAllowed, market } = require('../_lib/markets');
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
@@ -480,6 +480,22 @@ async function route(req, res) {
         });
         return json(res, 200, { success: true, data: { txid: charge.txid, clientSecret: charge.clientSecret, amountCents, tipCents, method: 'card' } });
       } catch (e) {
+        // A Stripe recusa fora dos limites do esquema com os SEUS códigos e uma
+        // frase em INGLÊS — confirmado no sandbox: `amount_too_small` /
+        // "Amount must be no less than 0.50 EUR". Se a nossa pré-checagem for
+        // contornada (ou se a Stripe mudar os limites), o diner leria a frase
+        // da Stripe crua. Traduz pro nosso código, que o cliente formata na
+        // moeda dele.
+        const mapped = e && e.code === 'amount_too_small' ? 'amount_under_min'
+          : e && e.code === 'amount_too_large' ? 'amount_over_max'
+          : null;
+        if (mapped) {
+          const lim = market(venue.market).charge;
+          return json(res, 400, {
+            success: false, error: e.message, code: mapped,
+            vars: mapped === 'amount_under_min' ? { minCents: lim.minCents } : { maxCents: lim.maxCents },
+          });
+        }
         return json(res, e.statusCode || 502, { success: false, error: e.message });
       }
     }

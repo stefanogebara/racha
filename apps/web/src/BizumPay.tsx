@@ -4,6 +4,7 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import { api, ApiError } from './api';
 import { useT } from './lang';
 import { tError } from './i18n';
+import { bizumOutcome } from './bizumStatus';
 
 /**
  * Bizum — o trilho principal da Espanha.
@@ -72,9 +73,11 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
       });
       if (confirmError) { setError(confirmError.message || t('card.incomplete')); setBusy(false); return; }
 
-      // `processing` é o caso NORMAL do Bizum, não um erro: o banco do pagador
-      // ainda está confirmando. Quem fecha a conta é o webhook.
-      if (paymentIntent && (paymentIntent.status === 'processing' || paymentIntent.status === 'succeeded')) {
+      // Espera é o caso NORMAL, e a lista é de FRACASSO, não de sucesso — ver
+      // `bizumStatus.ts`. A API real devolve `requires_action` aqui, e a versão
+      // anterior deste código só aceitava `processing`, então quem autorizava
+      // no app do banco lia "pagamento não concluído".
+      if (bizumOutcome(paymentIntent?.status) === 'waiting') {
         setWaiting(true);
         onAuthorized();
         return;

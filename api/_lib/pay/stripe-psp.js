@@ -54,8 +54,14 @@ function assertCents(v, name) {
  * @param {object} [opts.stripeClient]  injeção pra teste; default = require('stripe')(secretKey)
  */
 function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null } = {}) {
-  if (!secretKey || !/^(sk|rk)_/.test(secretKey)) {
-    throw new Error('createStripePsp: STRIPE_SECRET_KEY (sk_… ou rk_…) é obrigatória');
+  // A guarda existe pra recusar uma chave PUBLICÁVEL (`pk_`) passada como
+  // secreta — não pra listar todos os prefixos que a Stripe já inventou. Ela
+  // recusava `rkcs_test_…`, que é o formato de chave restrita de um sandbox
+  // reivindicável (achado ligando um sandbox de verdade em 2026-09-07): o
+  // adaptador virava null e o caminho de cartão "não estava configurado", sem
+  // dizer por quê.
+  if (!secretKey || !/^(sk|rk|rkcs)_/.test(secretKey)) {
+    throw new Error('createStripePsp: STRIPE_SECRET_KEY (sk_…, rk_… ou rkcs_…) é obrigatória');
   }
   // Lazy: só carrega o SDK se não veio um client injetado (testes injetam stub).
   const stripe = stripeClient || require('stripe')(secretKey);

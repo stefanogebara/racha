@@ -228,3 +228,87 @@ describe('disputa e reembolso que falha', () => {
     expect(parsed).toMatchObject({ kind: 'refund_failed', txid: 'pi_r', amountCents: 1000 });
   });
 });
+
+describe('Bizum: os parâmetros exatos que vão pra Stripe', () => {
+  /**
+   * Este teste fixa o CONTRATO da chamada, porque as partes dele foram
+   * confirmadas de formas diferentes e a mais importante não pôde ser.
+   *
+   * Verificado contra a API de verdade num sandbox (2026-09-07):
+   *   - `currency: 'eur'` e `payment_method_types: ['bizum']` são aceitos;
+   *   - o mínimo é 0,50 € (`amount_too_small`) e o máximo 5.000 €
+   *     (`amount_too_large`) — os números batem com os do markets.js;
+   *   - confirmar devolve `requires_action` / `await_authorization`;
+   *   - um PaymentMethod de bizum exige `billing_details[phone]`.
+   *
+   * NÃO verificado contra a API: `transfer_data` + `on_behalf_of`, porque criar
+   * conta conectada exige um sandbox REIVINDICADO e a chave do sandbox
+   * reivindicável não tem essa permissão. É justamente a parte que decide o
+   * fluxo de fundos (inegociável #4: liquida na conta do restaurante, sem
+   * custódia nossa) e quem aparece como comerciante no app do banco do cliente.
+   * Então ela fica fixada AQUI, no parâmetro, até alguém rodar uma cobrança com
+   * conta conectada de verdade.
+   */
+  const ACCT = 'acct_1TESTconnected';
+
+  async function bizum(over = {}) {
+    const stub = stubStripe();
+    const psp = mk({ webhookSecret: 'whsec_x' }, stub);
+    await psp.createBizumCharge({
+      chargeRef: 'check:0:3390:0', amountCents: 3390, tipCents: 0,
+      recipientId: ACCT, ...over,
+    });
+    return stub.calls.create[0];
+  }
+
+  test('euro, bizum, e nada de automatic_payment_methods', async () => {
+    const p = await bizum();
+    expect(p.currency).toBe('eur');
+    expect(p.payment_method_types).toEqual(['bizum']);
+    // O automático ofereceria tudo que a conta tem habilitado, e o Express
+    // Checkout Element não suporta Bizum — o intent tem que nomear o trilho.
+    expect(p.automatic_payment_methods).toBeUndefined();
+  });
+
+  test('destination charge PARA a conta do restaurante, e ele é o comerciante', async () => {
+    const p = await bizum();
+    // Sem isto o dinheiro liquidaria na plataforma: custódia, que o
+    // inegociável #4 proíbe.
+    expect(p.transfer_data).toEqual({ destination: ACCT });
+    // Sem isto o comerciante que aparece no app do banco do cliente é a
+    // PLATAFORMA, não a casa onde ele acabou de comer.
+    expect(p.on_behalf_of).toBe(ACCT);
+  });
+
+  test('o trilho e a gorjeta viajam no metadata, que é o que o webhook lê', async () => {
+    const p = await bizum({ tipCents: 0 });
+    expect(p.metadata.rail).toBe('bizum');
+    expect(p.metadata.tip_cents).toBe('0');
+    expect(p.metadata.charge_ref).toBe('check:0:3390:0');
+  });
+
+  test('o valor é consumo + gorjeta, em centavos inteiros', async () => {
+    const p = await bizum({ amountCents: 3390, tipCents: 110 });
+    expect(p.amount).toBe(3500);
+  });
+
+  test('sem conta conectada não sai cobrança — recusa custódia da plataforma', async () => {
+    await expect(bizum({ recipientId: null })).rejects.toThrow(/conta conectada/i);
+    await expect(bizum({ recipientId: 'rcpt_pagarme' })).rejects.toThrow(/conta conectada/i);
+  });
+
+  test('os limites do esquema são conferidos no adaptador, não só na tela', async () => {
+    // Confirmados contra a API real: 0,50 € e 5.000 €.
+    await expect(bizum({ amountCents: 49, tipCents: 0 })).rejects.toThrow(/mínimo/i);
+    await expect(bizum({ amountCents: 500001, tipCents: 0 })).rejects.toThrow(/máximo/i);
+    await expect(bizum({ amountCents: 499999, tipCents: 2 })).rejects.toThrow(/máximo/i);
+  });
+
+  test('a chave restrita de sandbox (rkcs_) é aceita como secreta', async () => {
+    // Recusar `rkcs_test_…` fazia o adaptador virar null e o caminho de cartão
+    // dizer "Stripe não configurado" sem explicar por quê. Achado ligando um
+    // sandbox de verdade.
+    expect(() => mk({ secretKey: 'rkcs_test_abc', webhookSecret: 'whsec_x' }, stubStripe())).not.toThrow();
+    expect(() => mk({ secretKey: 'pk_test_abc', webhookSecret: 'whsec_x' }, stubStripe())).toThrow();
+  });
+});
