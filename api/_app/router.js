@@ -379,7 +379,15 @@ async function route(req, res) {
         tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null,
         // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
         wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
-        payerDocument: body.payerDocument ?? null, // CPF — adquirente exige em cartão
+        // CPF. O gateway exige `customer.document` no PIX TAMBÉM, não só em
+        // cartão: a doc do Pagar.me lista name/email/document/phones como
+        // obrigatórios pra criar a cobrança Pix (docs.pagar.me/reference/pix-2,
+        // conferido 2026-09-07). O comentário antigo dizia "em cartão" e fez a
+        // exigência parecer coleta excessiva numa revisão — é o mínimo pra
+        // emitir a cobrança, que é a base legal do art. 6º III da LGPD
+        // (necessidade, execução de contrato). O app não guarda o número:
+        // `registerCharge` não persiste, e webhook com CPF passa por maskTaxId.
+        payerDocument: body.payerDocument ?? null,
       });
       // O demo se auto-paga: sem Simulador nem webhook externo em live, o próprio
       // MockPsp assina a confirmação e o handler do demo credita o ledger — a

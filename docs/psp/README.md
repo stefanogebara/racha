@@ -102,8 +102,11 @@ Notas do ambiente de teste (suporte, 20/07):
 - Split: o toggle em Configurações → Funcionalidades só funciona depois que
   o comercial marcar o cadastro como marketplace internamente.
 
-Aprendizados de campo já codificados no adapter: gateway exige CPF
-(`payerDocument` atravessa o stack; checkout de cartão pede CPF), telefone e
+Aprendizados de campo já codificados no adapter: gateway exige CPF **nos dois
+trilhos** — a doc do Pix lista `name`/`email`/`document`/`phones` como
+obrigatórios (`docs.pagar.me/reference/pix-2`, conferido 2026-09-07), então o
+checkout pede CPF pra Pix também e isso NÃO é coleta excessiva; era o que a
+frase antiga ("checkout de cartão pede CPF") dava a entender —, telefone e
 billing_address do customer; dedup de customer por e-mail (e-mail único por
 cobrança); simulador decide recusa pelo **CVV 6xx**, não pelo número.
 Pedido de suporte único: *"habilitar Pix e Split de pagamentos na conta

@@ -105,10 +105,13 @@ function createPagarmePsp({
     return {
       code: chargeRef.slice(0, 64),
       items: [{ description: (description || 'Racha').slice(0, 64), amount: total, quantity: 1, code: 'racha' }],
-      // O adquirente exige documento e telefone do pagador em cartão ("The
-      // customer Document/phone is required"). CPF vem do checkout; telefone
-      // é placeholder da plataforma por ora — se o modo LIVE exigir o real,
-      // o checkout de cartão ganha o campo (decisão anotada no runbook).
+      // O gateway exige documento e telefone do pagador ("The customer
+      // Document/phone is required") — em cartão E em Pix: a doc lista
+      // name/email/document/phones como obrigatórios pro Pix
+      // (docs.pagar.me/reference/pix-2, conferido 2026-09-07). Por isso o
+      // checkout pede CPF nos dois trilhos, e não é coleta a mais. O telefone
+      // é placeholder da plataforma por ora — se o modo LIVE exigir o real, o
+      // checkout ganha o campo (decisão anotada no runbook).
       customer: {
         name: 'Cliente Racha', type: 'individual',
         // E-mail único por cobrança: o gateway deduplica customer por e-mail
