@@ -12,6 +12,22 @@ export const LANGS: Lang[] = ['en', 'pt', 'es'];
 export const STORAGE_KEY = 'racha-lang';
 
 /**
+ * Um idioma que o produto realmente atende, ou `null`.
+ *
+ * Existe como função — e aqui, no módulo puro — porque a lista escrita à mão
+ * foi o bug. Quando a Espanha entrou, o caminho do `?lang=` ganhou o `'es'` e
+ * o do localStorage NÃO: a pessoa escolhia espanhol, a escolha era gravada, e
+ * o recarregamento devolvia inglês. Numa mesa isso é a conta trocando de
+ * idioma sozinha entre um toque e o seguinte, na hora de pagar.
+ *
+ * Validar contra `LANGS` — a mesma lista que desenha o seletor — é o que
+ * impede acrescentar um quarto idioma e esquecer uma das portas.
+ */
+export function asLang(v: unknown): Lang | null {
+  return (LANGS as readonly string[]).includes(v as string) ? (v as Lang) : null;
+}
+
+/**
  * Três línguas na MESMA chave, lado a lado — não três objetos paralelos.
  *
  * É a decisão #34 mantida quando o produto abriu a Espanha: com objetos
@@ -33,8 +49,13 @@ export const DICT = {
   // ── cabeçalho / geral ───────────────────────────────────────────────────
   'app.tagline':      { en: 'racha · no app, no sign-up',      pt: 'racha · sem app, sem cadastro', es: 'racha · sin app, sin registro' },
   'lang.label':       { en: 'Language',                        pt: 'Idioma', es: 'Idioma' },
+  // O título do documento: é a aba do navegador e o nome que aparece quando
+  // alguém compartilha o link da conta. Era uma linha fixa em inglês no
+  // `index.html`, então a única tela que NUNCA traduzia era a que o sistema
+  // operacional mostra por cima de todas as outras.
+  'doc.title':        { en: 'Racha — pay at the table',        pt: 'Racha — pague na mesa', es: 'Racha — paga en la mesa' },
   'lang.en':          { en: 'English',                         pt: 'Inglês', es: 'Inglés' },
-  'lang.pt':          { en: 'Português',                       pt: 'Português', es: 'Português' },
+  'lang.pt':          { en: 'Portuguese',                      pt: 'Português', es: 'Portugués' },
   'lang.es':          { en: 'Spanish',                         pt: 'Espanhol', es: 'Español' },
   'common.loading':   { en: 'loading the bill…',               pt: 'carregando a conta…', es: 'cargando la cuenta…' },
   'common.back':      { en: '← back to the bill',              pt: '← voltar pra conta', es: '← volver a la cuenta' },
@@ -104,11 +125,12 @@ export const DICT = {
   'pay.cta':          { en: 'Pay {amount} with Pix',           pt: 'Pagar {amount} com Pix', es: 'Pagar {amount} con Pix' },
   'pay.ctaBizum':     { en: 'Pay {amount} with Bizum',         pt: 'Pagar {amount} com Bizum', es: 'Pagar {amount} con Bizum' },
   'bizum.title':      { en: 'Pay with Bizum',                  pt: 'Pague com Bizum', es: 'Paga con Bizum' },
-  'bizum.phone':      { en: 'Your Bizum phone number',         pt: 'Seu telefone no Bizum', es: 'Tu teléfono de Bizum' },
   'bizum.how':        { en: 'Confirm the payment in your bank’s app. It takes a few seconds.',
                         pt: 'Confirme o pagamento no app do seu banco. Leva alguns segundos.',
                         es: 'Confirma el pago en la app de tu banco. Tarda unos segundos.' },
-  'bizum.waiting':    { en: 'Waiting for your bank…',          pt: 'Esperando seu banco…', es: 'Esperando a tu banco…' },
+  'bizum.waiting':    { en: 'Waiting for your bank… It takes a few seconds.',
+                        pt: 'Esperando seu banco… Leva alguns segundos.',
+                        es: 'Esperando a tu banco… Tarda unos segundos.' },
   'err.amount_under_min': { en: 'The minimum for this payment method is {min}.',
                         pt: 'O mínimo para este meio de pagamento é {min}.',
                         es: 'El mínimo para este método de pago es {min}.' },
@@ -767,6 +789,20 @@ export type Key = keyof typeof DICT;
  */
 /** O locale de cada idioma. É só a SEPARAÇÃO — a moeda vem da casa. */
 export const LOCALE: Record<Lang, string> = { en: 'en-US', pt: 'pt-BR', es: 'es-ES' };
+
+/**
+ * O idioma dos elementos da Stripe.
+ *
+ * NÃO é o `LOCALE` acima: a Stripe tem a lista dela, e `es-ES` não está nela —
+ * um código que ela não conhece cai no idioma do navegador em silêncio, que é
+ * justamente o bug. Confirmado na tela (2026-09-07): sem este parâmetro, o
+ * campo de telefone do Bizum, os nomes dos países e o aviso legal do Open Bank
+ * apareciam em INGLÊS numa conta espanhola em espanhol — a única parte da tela
+ * de pagar que não obedecia ao seletor, e a parte que pede um dado pessoal.
+ */
+export const STRIPE_LOCALE: Record<Lang, 'en' | 'pt-BR' | 'es'> = {
+  en: 'en', pt: 'pt-BR', es: 'es',
+};
 
 /** As moedas que o produto atende. Ambas de 2 casas — ver api/_lib/markets.js. */
 export type CurrencyCode = 'BRL' | 'EUR';

@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DICT, LANGS, money, tError } from '../src/i18n.ts';
+import { DICT, LANGS, asLang, money, tError, STRIPE_LOCALE } from '../src/i18n.ts';
 
 const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: string }][];
 
@@ -83,7 +83,6 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
   // dezenas de palavras coincidem de verdade — se a dispensa fosse por chave,
   // uma tradução inglesa esquecida passaria de carona.
   const same = new Set([
-    'lang.pt:en=pt', 'lang.pt:en=es', 'lang.pt:pt=es', // "Português" nas três
     'check.total:en=pt', 'check.total:en=es', 'check.total:pt=es',
     'share.item:en=pt',
     'gate.email:en=pt',
@@ -322,4 +321,54 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
     }
   }
   assert.deepEqual(offenders, [], `\n${offenders.join('\n')}\n`);
+});
+
+/* ── a escolha de idioma sobrevive ao recarregamento ───────────────────────── */
+
+test('todo idioma que o seletor desenha é aceito de volta na leitura', () => {
+  // O bug que este teste fecha, visto na tela em 2026-09-07: a pessoa tocava
+  // ES, a escolha era GRAVADA como 'es', e o recarregamento voltava pra
+  // inglês. `readStored` tinha uma lista escrita à mão que dizia
+  // `v === 'en' || v === 'pt'` — o `?lang=` tinha ganhado o espanhol e o
+  // localStorage não. O seletor prometia uma escolha que o produto esquecia.
+  //
+  // Não basta testar `asLang('es')`: o que importa é que a lista de LEITURA
+  // não possa divergir da lista que DESENHA o seletor. Um quarto idioma passa
+  // por aqui e quebra este teste se alguém esquecer uma das portas.
+  for (const l of LANGS) assert.equal(asLang(l), l, `o seletor desenha ${l} mas a leitura recusa`);
+  assert.equal(LANGS.length, Object.keys(DICT['lang.label']).length);
+});
+
+test('nada além de um idioma atendido entra', () => {
+  // Vem de fora: `?lang=` na URL e localStorage, os dois editáveis por
+  // qualquer pessoa. Um valor que não conhecemos tem que cair no padrão, não
+  // virar uma chave de dicionário que não existe.
+  for (const bad of ['ES', 'en-US', 'fr', '', ' es', 'es ', null, undefined, 42, {}, ['es']]) {
+    assert.equal(asLang(bad), null, `aceitou ${JSON.stringify(bad)}`);
+  }
+});
+
+/* ── o idioma atravessa a folha de pagamento ───────────────────────────────── */
+
+test('todo idioma tem um código de locale que a Stripe conhece', () => {
+  // Visto na tela contra a Stripe de verdade: sem `locale` no elemento, o
+  // campo de telefone do Bizum, a lista de países e o aviso legal do Open Bank
+  // saíam em INGLÊS numa conta espanhola com a tela em espanhol.
+  //
+  // E o mapa é SEPARADO do `LOCALE` de formatação de propósito: `es-ES` serve
+  // pro `Intl` e NÃO está na lista da Stripe, que cai no idioma do navegador
+  // em silêncio quando não reconhece o código. Um mapa só teria trocado um
+  // bug visível por um bug calado.
+  const KNOWN = new Set(['en', 'pt-BR', 'es']);
+  for (const l of LANGS) {
+    assert.ok(STRIPE_LOCALE[l], `${l} não tem locale de Stripe`);
+    assert.ok(KNOWN.has(STRIPE_LOCALE[l]), `${STRIPE_LOCALE[l]} não é um locale da Stripe`);
+  }
+  assert.notEqual(STRIPE_LOCALE.es, 'es-ES');
+});
+
+test('o título do documento é traduzido — é a aba do navegador', () => {
+  // Era uma linha fixa em inglês no `index.html`, então a única tela que nunca
+  // obedecia ao seletor era a que o sistema operacional desenha por cima.
+  for (const l of LANGS) assert.match(DICT['doc.title'][l], /^Racha — .+/);
 });

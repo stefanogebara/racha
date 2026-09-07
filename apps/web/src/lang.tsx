@@ -7,7 +7,7 @@
  * `./lang` quer React; quem importa `./i18n` quer as strings.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { DICT, LANGS, STORAGE_KEY, fill, type Key, type Lang, money, LOCALE, type CurrencyCode } from './i18n';
+import { DICT, LANGS, STORAGE_KEY, asLang, fill, type Key, type Lang, money, LOCALE, type CurrencyCode } from './i18n';
 
 export { DICT, LANGS, money, tError } from './i18n';
 export type { Key, Lang } from './i18n';
@@ -23,12 +23,12 @@ function readStored(): Lang {
   // It is not a second source of truth: nothing writes it, and the visible app
   // still stores and reads the person's own choice.
   try {
-    const url = new URLSearchParams(window.location.search).get('lang');
-    if (url === 'en' || url === 'pt' || url === 'es') return url;
+    const url = asLang(new URLSearchParams(window.location.search).get('lang'));
+    if (url) return url;
   } catch { /* sem window (teste) → segue pro armazenado */ }
   try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    if (v === 'en' || v === 'pt') return v;
+    const stored = asLang(localStorage.getItem(STORAGE_KEY));
+    if (stored) return stored;
   } catch { /* storage bloqueado → fica no padrão */ }
   return 'en';   // padrão do produto
 }
@@ -46,9 +46,14 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
   const setLang = useCallback((l: Lang) => {
     setLangState(l);
     try { localStorage.setItem(STORAGE_KEY, l); } catch { /* segue sem lembrar */ }
-    document.documentElement.lang = HTML_LANG[l];
   }, []);
-  useEffect(() => { document.documentElement.lang = HTML_LANG[lang]; }, [lang]);
+  // O `lang` do documento e o TÍTULO seguem a escolha juntos, num só efeito:
+  // são as duas coisas que vivem fora do React e por isso são as duas que
+  // ficam pra trás. O título vinha fixo em inglês do `index.html`.
+  useEffect(() => {
+    document.documentElement.lang = HTML_LANG[lang];
+    document.title = DICT['doc.title'][lang];
+  }, [lang]);
   const value = useMemo(() => ({ lang, setLang }), [lang, setLang]);
   return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
 }
@@ -86,8 +91,8 @@ export function useT() {
 }
 
 /**
- * O seletor. Dois botões, não um menu: com duas opções, um `select` esconde
- * metade da resposta atrás de um toque. Fica no rodapé em toda tela da
+ * O seletor. Botões, não um menu: com três opções, um `select` esconde duas
+ * terças da resposta atrás de um toque. Fica no rodapé em toda tela da
  * plataforma — perto do fim, longe do botão de pagar.
  */
 export function LangToggle({ compact = false }: { compact?: boolean }) {
