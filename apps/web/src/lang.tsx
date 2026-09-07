@@ -87,7 +87,21 @@ export function useT() {
     (iso: string) => new Date(iso).toLocaleDateString(LOCALE[lang]),
     [lang],
   );
-  return { t, lang, setLang, brl, dmy };
+  // Hora e porcentagem entram aqui pelo MESMO motivo que o dinheiro e a data:
+  // eram os dois números que ainda saíam com `'pt-BR'` escrito na linha, e
+  // ninguém nota porque o resultado *parece* certo. "14:30" está certo em
+  // espanhol e errado em inglês ("2:30 PM"); "1,5" é um número e meio em
+  // Madrid e mil e quinhentos em Nova York. Um bônus de "1,5%" lido como
+  // "1500%" é uma promessa que a casa não fez.
+  const hm = useCallback(
+    (iso: string) => new Date(iso).toLocaleTimeString(LOCALE[lang], { hour: '2-digit', minute: '2-digit' }),
+    [lang],
+  );
+  const pct = useCallback(
+    (bp: number) => (bp / 100).toLocaleString(LOCALE[lang]),
+    [lang],
+  );
+  return { t, lang, setLang, brl, dmy, hm, pct };
 }
 
 /**

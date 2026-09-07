@@ -8,6 +8,7 @@ import { onSession, signIn, signUp, signInWithGoogle, resetPassword, supabase } 
  * the login form; once logged in, renders children.
  */
 export default function Gate({ children }: { children: ReactNode }) {
+  const { t } = useT();
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
 
@@ -15,10 +16,10 @@ export default function Gate({ children }: { children: ReactNode }) {
 
   if (!supabase) {
     return <main className="shell"><section className="card"><p className="muted center">
-      Login não configurado (defina VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY).
+      {t('gate.notConfigured')}
     </p></section></main>;
   }
-  if (!ready) return <main className="shell"><p className="muted center">carregando…</p></main>;
+  if (!ready) return <main className="shell"><p className="muted center">{t('admin.loading')}</p></main>;
   return authed ? <>{children}</> : <Login onDone={() => setAuthed(true)} />;
 }
 

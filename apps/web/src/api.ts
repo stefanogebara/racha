@@ -247,19 +247,6 @@ export const api = {
 };
 
 /**
- * Dinheiro pra tela. A moeda é sempre BRL — trocar de idioma não converte
- * dinheiro — mas a SEPARAÇÃO segue o idioma (decisão #34): "R$ 1.234,56" lido
- * por um falante de inglês vale mil vezes menos do que é.
- *
- * O padrão continua pt-BR pros poucos chamadores que não são tela (prompts de
- * admin, logs). Quem desenha tela passa o idioma — `money(cents, lang)` do
- * i18n.ts é a mesma função com o argumento obrigatório.
- */
-export const brl = (cents: number, lang: 'pt' | 'en' = 'pt') =>
-  (cents / 100).toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US',
-                               { style: 'currency', currency: 'BRL' });
-
-/**
  * Dinheiro digitado/colado (pt-BR) → centavos. O ÚNICO parser de valores do app.
  *
  * Regras:
@@ -310,9 +297,3 @@ export function parseBrlToCents(s: string): number | null {
   return Number.isFinite(cents) ? Math.round(cents) : null;
 }
 
-/** ISO date → DD/MM/AAAA (cópia legal exige a data por extenso nesse formato). */
-/// Uma data curta no formato do idioma. "06/12/2026" não quer dizer a mesma
-/// coisa nos dois, e um saldo que "expira em 06/12" é exatamente o número que
-/// não pode ser ambíguo.
-export const dmy = (iso: string, lang: 'pt' | 'en' = 'pt') =>
-  new Date(iso).toLocaleDateString(lang === 'pt' ? 'pt-BR' : 'en-US');

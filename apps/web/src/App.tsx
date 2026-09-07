@@ -26,7 +26,7 @@ import { computeShare, splitEqualLocal, type SplitMode } from './split';
 type Step = 'conta' | 'pagar' | 'pago' | 'saldo';
 
 export default function App() {
-  const { t, lang } = useT();
+  const { t, lang, pct } = useT();
   const token = useMemo(
     () => new URLSearchParams(window.location.search).get('t') ?? '',
     [],
@@ -652,7 +652,7 @@ export default function App() {
               onClick={() => { window.location.href = `/carteira?new=${encodeURIComponent(token)}`; }}
             >
               {houseBonusBp > 0
-                ? t('house.bonus', { pct: (houseBonusBp / 100).toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US') })
+                ? t('house.bonus', { pct: pct(houseBonusBp) })
                 : t('house.discover')}
             </button>
           )}

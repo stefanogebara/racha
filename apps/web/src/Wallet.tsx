@@ -113,7 +113,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
       </Shell>
     );
   }
-  if (!view) return <Shell><p className="muted center">carregando sua carteira…</p></Shell>;
+  if (!view) return <Shell><p className="muted center">{t('wallet.loading')}</p></Shell>;
 
   const { venue, account, config } = view;
 
@@ -257,7 +257,7 @@ function LedgerRow({ entry }: { entry: HouseLedgerEntry }) {
 
 // ------------------------------------------------------------ abrir carteira
 function OpenWallet({ tableToken }: { tableToken: string }) {
-  const { t } = useT();
+  const { t, pct } = useT();
   const [config, setConfig] = useState<HouseConfig | null>(null);
   const [dead, setDead] = useState(false);
   const [name, setName] = useState('');
@@ -283,12 +283,12 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
   }
 
   if (dead) return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
-  if (!config) return <Shell><p className="muted center">carregando…</p></Shell>;
+  if (!config) return <Shell><p className="muted center">{t('common.loading')}</p></Shell>;
   if (!config.enabled) {
     return <Shell><p className="muted center">{t('wallet.noHouse', { venue: config.venueName })}</p></Shell>;
   }
 
-  const pct = (config.bonusBp / 100).toLocaleString('pt-BR');
+  const bonusPct = pct(config.bonusBp);
 
   return (
     <Shell>
@@ -300,7 +300,7 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
         <p className="label">{t('wallet.open')}</p>
         <p className="small">
           {config.bonusBp > 0
-            ? t('wallet.pitchBonus', { pct })
+            ? t('wallet.pitchBonus', { pct: bonusPct })
             : t('wallet.pitch')}
         </p>
         <input

@@ -186,7 +186,7 @@ export const DICT = {
   'house.discover':   { en: 'Try the house balance',           pt: 'Conheça o saldo da casa', es: 'Prueba el saldo de la casa' },
   'house.bonus':      { en: 'Try the house balance — get {pct}% bonus',
                         pt: 'Conheça o saldo da casa — ganhe {pct}% de bônus',
-                        es: 'Prueba el saldo de la casa — llévate un {pct}% de bonus' },
+                        es: 'Prueba el saldo de la casa — llévate un {pct}% extra' },
 
   // ── erros do servidor, por código ───────────────────────────────────────
   'err.check_not_found':  { en: 'Bill not found.',             pt: 'Conta não encontrada.', es: 'Cuenta no encontrada.' },
@@ -294,7 +294,7 @@ export const DICT = {
                         pt: 'Carregue saldo por Pix e pague a conta direto do celular.',
                         es: 'Recarga saldo por Pix y paga la cuenta desde el móvil.' },
   'wallet.paidBal':   { en: 'Paid balance',                    pt: 'Saldo pago', es: 'Saldo pagado' },
-  'wallet.bonus':     { en: 'Promotional bonus',               pt: 'Bônus promocional', es: 'Bonus promocional' },
+  'wallet.bonus':     { en: 'Promotional bonus',               pt: 'Bônus promocional', es: 'Bono promocional' },
   'wallet.refundable':{ en: 'Paid balance never expires and is refundable.',
                         pt: 'Saldo pago não expira e é reembolsável.',
                         es: 'El saldo pagado no caduca y es reembolsable.' },
@@ -352,7 +352,7 @@ export const DICT = {
                         es: 'La cuenta de la mesa, resuelta en un momento.' },
   'home.lede':        { en: 'Your guest scans the QR, splits it however they like and pays in seconds — no app, no sign-up, no waiting for the card machine. Card via Google\u00a0Pay and prepaid balance with bonus, on the same QR.',
                         pt: 'O cliente escaneia o QR, divide como quiser e paga em segundos — sem app, sem cadastro, sem esperar a maquininha. Cartão via Google\u00a0Pay e saldo pré-pago com bônus, no mesmo QR.',
-                        es: 'El cliente escanea el QR, la divide como quiera y paga en segundos — sin app, sin registro, sin esperar el datáfono. Tarjeta vía Google Pay y saldo prepago con bonus, en el mismo QR.' },
+                        es: 'El cliente escanea el QR, la divide como quiera y paga en segundos — sin app, sin registro, sin esperar el datáfono. Tarjeta vía Google Pay y saldo prepago con bono, en el mismo QR.' },
   'home.demo':        { en: 'See the live demo',               pt: 'Ver a demonstração ao vivo', es: 'Ver la demo en directo' },
   'home.iAmVenue':    { en: 'I’m a restaurant — go to the panel',
                         pt: 'Sou restaurante — entrar no painel',
@@ -371,19 +371,19 @@ export const DICT = {
                         es: 'El cargo por servicio se registra aparte, como pide la ley. La mesa rota más rápido en hora punta — y nadie espera a que el datáfono pase de mano en mano.' },
   'home.balancePitch':{ en: 'Your guest tops up by Pix and earns a bonus (e.g. +15%). Loyalty that becomes cash up front — the paid balance never expires and is refundable; the bonus is promotional, with a clear expiry.',
                         pt: 'Seu cliente carrega saldo via Pix e ganha bônus (ex.: +15%). Fidelidade que vira caixa antecipado — o saldo pago não expira e é reembolsável; o bônus é promocional, com validade clara.',
-                        es: 'Tu cliente recarga saldo y se lleva un bonus (p. ej. +15%). Fidelidad que se convierte en caja por adelantado — el saldo pagado no caduca y es reembolsable; el bonus es promocional, con caducidad clara.' },
+                        es: 'Tu cliente recarga saldo y se lleva un extra (p. ej. +15%). Fidelidad que se convierte en caja por adelantado — el saldo pagado no caduca y es reembolsable; el bono es promocional, con caducidad clara.' },
 
   // ── carteira, continuação ───────────────────────────────────────────────
   'wallet.statement': { en: 'Statement',                       pt: 'Extrato', es: 'Movimientos' },
   'wallet.topUpEntry':{ en: 'Top-up',                          pt: 'Recarga', es: 'Recarga' },
-  'wallet.bonusOf':   { en: 'of bonus',                        pt: 'de bônus', es: 'de bonus' },
+  'wallet.bonusOf':   { en: 'of bonus',                        pt: 'de bônus', es: 'de bono' },
   'wallet.otherAmt':  { en: 'other amount',                    pt: 'outro valor', es: 'otro importe' },
   'wallet.onlyAt':    { en: 'Valid only at {venue}.',          pt: 'Válido somente no {venue}.', es: 'Válido solo en {venue}.' },
   'wallet.expires':   { en: 'expires on {date}',               pt: 'expira em {date}', es: 'caduca el {date}' },
   'wallet.neverExp':  { en: 'never expires and is refundable', pt: 'não expira e é reembolsável', es: 'no caduca y es reembolsable' },
   'wallet.rules':     { en: 'Paid balance never expires and is refundable. Bonus valid for 90 days after confirmation.',
                         pt: 'Saldo pago não expira e é reembolsável. Bônus válido por 90 dias após a confirmação.',
-                        es: 'El saldo pagado no caduca y es reembolsable. El bonus vale 90 días desde la confirmación.' },
+                        es: 'El saldo pagado no caduca y es reembolsable. El bono vale 90 días desde la confirmación.' },
   'wallet.doTopUp':   { en: 'Top up {amount}',                 pt: 'Carregar {amount}', es: 'Recargar {amount}' },
 
   // ── login ───────────────────────────────────────────────────────────────
@@ -400,7 +400,7 @@ export const DICT = {
   'admin.saved':      { en: 'saved ✓',                         pt: 'salvo ✓', es: 'guardado ✓' },
   'admin.houseOn':    { en: 'Guests can top up prepaid balance with a bonus',
                         pt: 'Clientes podem carregar saldo pré-pago com bônus',
-                        es: 'Los clientes pueden recargar saldo prepago con bonus' },
+                        es: 'Los clientes pueden recargar saldo prepago con bono' },
   // ── admin: cadastro e gestão de mesas ──────────────────────────────────
   'admin.yourVenues': { en: 'Your restaurants',                pt: 'Seus restaurantes', es: 'Tus restaurantes' },
   'admin.manageTables': { en: 'manage tables →',               pt: 'gerenciar mesas →', es: 'gestionar mesas →' },
@@ -424,6 +424,13 @@ export const DICT = {
                         pt: 'racha · o QR de cada mesa abre a conta do cliente',
                         es: 'racha · el QR de cada mesa abre la cuenta del cliente' },
   'admin.loading':    { en: 'loading…',                        pt: 'carregando…', es: 'cargando…' },
+  'wallet.loading':   { en: 'loading your wallet…',           pt: 'carregando sua carteira…', es: 'cargando tu cartera…' },
+  // Só aparece quando o ambiente está mal configurado, e por isso ficou em
+  // português: era a última tela do produto que não obedecia ao seletor. Quem
+  // instala a Racha numa casa espanhola lê o erro dela em espanhol.
+  'gate.notConfigured': { en: 'Sign-in is not configured (set VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY).',
+                        pt: 'Login não configurado (defina VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY).',
+                        es: 'El acceso no está configurado (define VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY).' },
   'admin.tablesN':    { en: 'Tables ({n})',                    pt: 'Mesas ({n})', es: 'Mesas ({n})' },
   'admin.printQrs':   { en: '🖨 Print QRs',                    pt: '🖨 Imprimir QRs', es: '🖨 Imprimir QR' },
   'admin.tablesHelp': { en: 'Register each table under the name it has on the floor (“Table 12”, “Bar 3”). Then mark one as {training} so the staff can practise without dirtying the numbers.',
@@ -687,7 +694,7 @@ export const DICT = {
                         es: 'Apunta la cámara · paga tu parte' },
   'qr.perks':         { en: '💳 Google Pay · 💰 House balance with bonus',
                         pt: '💳 Google Pay · 💰 Saldo da casa com bônus',
-                        es: '💳 Google Pay · 💰 Saldo de la casa con bonus' },
+                        es: '💳 Google Pay · 💰 Saldo de la casa con bono' },
 
   // ── cartão (demo) ───────────────────────────────────────────────────────
   'card.demoCard':    { en: '•••• 4242 (demo)',                pt: '•••• 4242 (demo)', es: '•••• 4242 (demo)' },
@@ -695,14 +702,14 @@ export const DICT = {
   'gate.newPassword': { en: 'create a password',              pt: 'crie uma senha', es: 'crea una contraseña' },
   'wallet.bonusOnConfirm': { en: '+{amount} bonus when the payment confirms',
                              pt: '+{amount} de bônus quando o pagamento confirmar',
-                        es: '+{amount} de bonus cuando se confirme el pago' },
-  'wallet.bonusLine': { en: ' · +{amount} bonus',             pt: ' · +{amount} de bônus', es: ' · +{amount} de bonus' },
+                        es: '+{amount} de bono cuando se confirme el pago' },
+  'wallet.bonusLine': { en: ' · +{amount} bonus',             pt: ' · +{amount} de bônus', es: ' · +{amount} de bono' },
   'wallet.pitchBonus': { en: 'Top up by Pix and get {pct}% bonus on every top-up.',
                          pt: 'Carregue saldo por Pix e ganhe {pct}% de bônus em cada recarga.',
-                        es: 'Recarga saldo y llévate un {pct}% de bonus en cada recarga.' },
+                        es: 'Recarga saldo y llévate un {pct}% extra en cada recarga.' },
   'wallet.rulesFull':  { en: 'Paid balance never expires and is refundable. The promotional bonus is valid for {days} days. Valid only at {venue}.',
                          pt: 'Saldo pago não expira e é reembolsável. O bônus promocional vale por {days} dias. Válido somente no {venue}.',
-                        es: 'El saldo pagado no caduca y es reembolsable. El bonus promocional vale {days} días. Válido solo en {venue}.' },
+                        es: 'El saldo pagado no caduca y es reembolsable. El bono promocional vale {days} días. Válido solo en {venue}.' },
 
   'ledger.load':   { en: 'Top-up',        pt: 'Recarga', es: 'Recarga' },
   'ledger.redeem': { en: 'Paid at table', pt: 'Pagamento na mesa', es: 'Pago en la mesa' },
@@ -710,7 +717,7 @@ export const DICT = {
 
   'wallet.bonusDays': { en: 'Bonus valid for {days} days after confirmation.',
                         pt: 'Bônus válido por {days} dias após a confirmação.',
-                        es: 'El bonus vale {days} días desde la confirmación.' },
+                        es: 'El bono vale {days} días desde la confirmación.' },
   'wallet.brand':     { en: 'racha · house balance',    pt: 'racha · saldo da casa', es: 'racha · saldo de la casa' },
   'wallet.noHouse':   { en: '{venue} does not offer a house balance yet.',
                         pt: 'O {venue} ainda não oferece saldo da casa.',
@@ -810,6 +817,17 @@ export type CurrencyCode = 'BRL' | 'EUR';
 export function money(cents: number, lang: Lang, currency: CurrencyCode = 'BRL'): string {
   return (cents / 100).toLocaleString(LOCALE[lang], {
     style: 'currency', currency,
+    // `narrowSymbol` porque o padrão do espanhol para o REAL é o código:
+    // `Intl` em `es-ES` devolve "213,10 BRL", e a mesma tela desenha "R$" no
+    // rótulo do campo de valor. Duas grafias da mesma moeda lado a lado, numa
+    // tela de pagar, fazem a pessoa procurar a diferença entre elas.
+    //
+    // Visto numa mesa brasileira lida em espanhol (2026-09-07) — o caso do
+    // turista, que é justamente pra quem o seletor existe. O símbolo é o que
+    // está impresso no menu da casa, e o menu da casa não se traduz
+    // (CLAUDE.md). O que segue o leitor é a SEPARAÇÃO e a POSIÇÃO do símbolo,
+    // não o símbolo.
+    currencyDisplay: 'narrowSymbol',
   });
 }
 

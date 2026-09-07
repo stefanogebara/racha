@@ -165,6 +165,16 @@ test('a moeda vem da casa, a separação vem do leitor', () => {
   assert.ok(money(100, 'es', 'EUR').endsWith('€'));
   assert.ok(money(100, 'en', 'EUR').startsWith('€'));
   assert.ok(money(100, 'pt', 'BRL').startsWith('R$'));
+
+  // O real LIDO EM ESPANHOL: o caso do turista numa mesa brasileira, que é
+  // pra quem o seletor existe. O padrão do `Intl` em `es-ES` é o CÓDIGO —
+  // "213,10 BRL" — e a mesma tela desenha "R$" no rótulo do campo de valor.
+  // Duas grafias da mesma moeda numa tela de pagar é a pessoa procurando a
+  // diferença entre elas. O símbolo é o do menu impresso; o que segue o
+  // leitor é a separação e a posição.
+  assert.ok(money(21310, 'es', 'BRL').includes('R$'), money(21310, 'es', 'BRL'));
+  assert.ok(!money(21310, 'es', 'BRL').includes('BRL'), money(21310, 'es', 'BRL'));
+  assert.ok(money(21310, 'es', 'BRL').startsWith('213,10'), money(21310, 'es', 'BRL'));
 });
 
 test('erro do servidor: traduz pelo código e cai no texto cru quando não conhece', () => {
@@ -297,7 +307,8 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
     'semana', 'serviço', 'cartão', 'saldo', 'gorjeta', 'dono', 'treino',
     'fechar', 'abrir', 'adicionar', 'nenhuma', 'nenhum', 'cliente', 'clientes',
     'criar', 'criando', 'entrar', 'sair', 'confira', 'banco', 'titular',
-    'recebedor', 'dígito', 'próximo', 'voltar', 'salvando', 'pronto'];
+    'recebedor', 'dígito', 'próximo', 'voltar', 'salvando', 'pronto',
+    'carregando'];
   const re = new RegExp(`\\b(${ptOnly.join('|')})\\b`, 'i');
 
   const offenders: string[] = [];
@@ -371,4 +382,44 @@ test('o título do documento é traduzido — é a aba do navegador', () => {
   // Era uma linha fixa em inglês no `index.html`, então a única tela que nunca
   // obedecia ao seletor era a que o sistema operacional desenha por cima.
   for (const l of LANGS) assert.match(DICT['doc.title'][l], /^Racha — .+/);
+});
+
+/* ── um só formatador, num só lugar ────────────────────────────────────────── */
+
+test('nenhuma tela formata número, data ou dinheiro com o idioma escrito na linha', async () => {
+  // O teste estrutural que faltava, e que tinha cinco infratores quando foi
+  // escrito. Todos passavam por todos os outros testes, porque o resultado
+  // PARECE certo — só está na língua errada:
+  //
+  //   api.ts        um segundo `brl()`, com `currency: 'BRL'` fixo e uma lista
+  //                 de idiomas que parava em 'pt'|'en'. Ninguém importava: um
+  //                 formatador de dinheiro morto é uma armadilha esperando o
+  //                 próximo `import`, numa casa que agora cobra em euro.
+  //   api.ts        um segundo `dmy()`, idem — e uma data em `en-US` lida em
+  //                 Madrid troca o dia pelo mês.
+  //   Panel.tsx     a hora da conciliação em `'pt-BR'` pra todo mundo.
+  //   Wallet.tsx    a porcentagem do bônus em `'pt-BR'` pra todo mundo.
+  //   App.tsx       a porcentagem do bônus com `lang === 'pt' ? … : 'en-US'`,
+  //                 o mesmo ternário que esqueceu o espanhol no `readStored`.
+  //
+  // A regra é a do CLAUDE.md aplicada dentro do cliente: quem sabe o idioma do
+  // leitor é o hook, e ele é UM. Uma segunda implementação das regras é uma
+  // divergência com um comentário em cima (lição da revisão #32).
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const src = path.join(import.meta.dirname, '..', 'src');
+
+  // Os dois donos legítimos: o dicionário formata, o hook escolhe o idioma.
+  const OWNERS = new Set(['i18n.ts', 'lang.tsx']);
+  const BANNED = /'(pt-BR|en-US|es-ES)'|toLocale(String|DateString|TimeString)\(|style:\s*'currency'/;
+
+  const offenders: string[] = [];
+  for (const file of fs.readdirSync(src)) {
+    if (!/\.(tsx|ts)$/.test(file) || OWNERS.has(file)) continue;
+    for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
+      const m = line.match(BANNED);
+      if (m) offenders.push(`${file}:${n} formata sem o hook: ${JSON.stringify(line.trim().slice(0, 72))}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `\nuse o useT() — t/brl/dmy/hm/pct:\n${offenders.join('\n')}\n`);
 });

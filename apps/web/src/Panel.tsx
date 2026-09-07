@@ -131,10 +131,6 @@ export default function Panel() {
 
 // -------------------------------------------------------------- conciliação
 
-/** 'HH:MM' local a partir do ISO — só a hora interessa aqui. */
-const hhmm = (iso: string) =>
-  new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-
 /**
  * O dinheiro bate?
  *
@@ -144,7 +140,7 @@ const hhmm = (iso: string) =>
  * a que quebra restaurante.
  */
 function Conciliacao({ r }: { r: Reconcile | undefined }) {
-  const { t, brl } = useT();
+  const { t, brl, hm } = useT();
   if (!r) return null; // backend antigo ainda no ar — o resto do painel segue de pé
   const vermelho = r.severity === 'critical' || r.severity === 'high';
   return (
@@ -173,7 +169,7 @@ function Conciliacao({ r }: { r: Reconcile | undefined }) {
               bills: r.checksChecked === 1 ? t('panel.billsOne') : t('panel.billsMany', { n: r.checksChecked }),
               accounts: r.accountsChecked === 0 ? ''
                 : r.accountsChecked === 1 ? t('panel.balOne') : t('panel.balMany', { n: r.accountsChecked }),
-              time: hhmm(r.at),
+              time: hm(r.at),
             })}
           </span>
         </p>
