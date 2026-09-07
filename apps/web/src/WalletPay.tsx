@@ -229,7 +229,7 @@ export default function WalletButtons({
               <p className="muted small">inclui {brl(tipCents)} de serviço para a equipe</p>
             )}
             <div className="checkrow">
-              <span className="muted small">cartão</span>
+              <span className="muted small">{t('card.word')}</span>
               <span className="mono muted small">{t('card.demoCard')}</span>
             </div>
             <button className="cta" disabled={busy} onClick={() => demoAuthorize(sheet)}>

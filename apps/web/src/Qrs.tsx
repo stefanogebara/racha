@@ -38,7 +38,7 @@ export default function Qrs() {
   useEffect(() => { refresh(); }, [refresh]);
 
   if (error) return <main className="shell"><p className="muted center">{error}</p></main>;
-  if (!data) return <main className="shell"><p className="muted center">preparando os QRs…</p></main>;
+  if (!data) return <main className="shell"><p className="muted center">{t('qrs.preparing')}</p></main>;
 
   const printable = data.tables.filter((t) => t.active && !t.training);
 
@@ -46,7 +46,7 @@ export default function Qrs() {
     <main className="shell wide qrspage">
       <header className="head noprint">
         <span className="venue">{data.venue.name}</span>
-        <a className="linklike" href={`/admin?v=${encodeURIComponent(venueId)}`}>← mesas</a>
+        <a className="linklike" href={`/admin?v=${encodeURIComponent(venueId)}`}>{t('qrs.backTables')}</a>
       </header>
 
       <section className="card noprint">
@@ -61,7 +61,7 @@ export default function Qrs() {
       </section>
 
       {printable.length === 0 ? (
-        <p className="muted center noprint">nenhuma mesa ativa para imprimir.</p>
+        <p className="muted center noprint">{t('qrs.noneActive')}</p>
       ) : (
         <section className="qrgrid">
           {printable.map((t) => <QrCard key={t.id} venueName={data.venue.name} table={t} />)}

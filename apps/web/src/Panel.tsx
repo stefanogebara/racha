@@ -30,12 +30,15 @@ interface PanelData {
   ativacao: PanelAtivacao;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  aberta: 'aberta',
-  parcial: 'pagando',
-  paga: 'paga',
-  fechada: 'fechada',
-};
+/// Chaves, não palavras. Um mapa de strings fixas em português é uma língua só
+/// disfarçada de dado — a mesma observação que a decisão #35 fez sobre o
+/// `LEDGER_LABEL`. O texto sai traduzido na renderização.
+const STATUS_KEY = {
+  aberta: 'panel.status.aberta',
+  parcial: 'panel.status.parcial',
+  paga: 'panel.status.paga',
+  fechada: 'panel.status.fechada',
+} as const;
 
 export default function Panel() {
   const { t, brl } = useT();
@@ -74,7 +77,7 @@ export default function Panel() {
       <section className="statgrid">
         <div className="stat">
           <b className="mono">{brl(data.today.confirmedCents)}</b>
-          <span>recebido hoje · {data.today.paymentsCount} pagamentos</span>
+          <span>{t('panel.receivedToday', { n: data.today.paymentsCount })}</span>
         </div>
         <div className="stat">
           <b className="mono">{brl(data.today.tipsCents)}</b>
@@ -91,8 +94,8 @@ export default function Panel() {
       <Ativacao a={data.ativacao} />
 
       <section className="panel">
-        <p className="label">Mesas</p>
-        {data.checks.length === 0 && <p className="muted small">nenhuma conta aberta.</p>}
+        <p className="label">{t('panel.tables')}</p>
+        {data.checks.length === 0 && <p className="muted small">{t('panel.noOpenBill')}</p>}
         {data.checks.map((c) => {
           const pct = c.state.totalCents > 0
             ? Math.min(100, (c.state.paidCents / c.state.totalCents) * 100)
@@ -108,7 +111,11 @@ export default function Panel() {
                 </div>
                 <div className="progressbar"><span style={{ width: `${pct}%` }} /></div>
               </div>
-              <span className={`pill ${c.state.status}`}>{STATUS_LABEL[c.state.status] ?? c.state.status}</span>
+              <span className={`pill ${c.state.status}`}>
+                {c.state.status in STATUS_KEY
+                  ? t(STATUS_KEY[c.state.status as keyof typeof STATUS_KEY])
+                  : c.state.status}
+              </span>
             </div>
           );
         })}
@@ -116,7 +123,7 @@ export default function Panel() {
 
       <footer className="foot">
         <LangToggle compact />
-        <span>racha · painel atualiza sozinho a cada 4s</span>
+        <span>{t('panel.autoRefresh')}</span>
       </footer>
     </main>
   );
@@ -161,10 +168,13 @@ function Conciliacao({ r }: { r: Reconcile | undefined }) {
         </>
       ) : (
         <p className="small">
-          Tudo bate ✓ <span className="muted">
-            — {r.checksChecked} {r.checksChecked === 1 ? 'conta conferida' : 'contas conferidas'}
-            {r.accountsChecked > 0 && `, ${r.accountsChecked} ${r.accountsChecked === 1 ? 'saldo' : 'saldos'}`}
-            {' '}às {hhmm(r.at)}
+          {t('panel.reconOkFull')} <span className="muted">
+            {t('panel.reconChecked', {
+              bills: r.checksChecked === 1 ? t('panel.billsOne') : t('panel.billsMany', { n: r.checksChecked }),
+              accounts: r.accountsChecked === 0 ? ''
+                : r.accountsChecked === 1 ? t('panel.balOne') : t('panel.balMany', { n: r.accountsChecked }),
+              time: hhmm(r.at),
+            })}
           </span>
         </p>
       )}
@@ -176,12 +186,21 @@ function Conciliacao({ r }: { r: Reconcile | undefined }) {
 
 /** 'YYYY-MM-DD' → 'DD/MM' por fatia de string — new Date() aqui empurraria o dia
  *  para a véspera no fuso BR (ISO sem hora é parseado como meia-noite UTC). */
-const ddmm = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
+/// Dia/mês na ORDEM do idioma. "05/09" lido por um falante de inglês é 9 de
+/// maio, não 5 de setembro — e a coluna toda é uma linha do tempo, então a
+/// ordem errada não é um detalhe, é o gráfico invertido na cabeça de quem lê.
+const dayMonth = (dia: string, lang: 'pt' | 'en') => {
+  const [, mm, dd] = dia.split('-');
+  return lang === 'pt' ? `${dd}/${mm}` : `${mm}/${dd}`;
+};
 
 /** Últimos 7 dias de uso — barras CSS proporcionais ao valor, sem lib de gráfico. */
 function Ativacao({ a }: { a: PanelAtivacao | undefined }) {
-  const { t, brl } = useT();
-  if (!a) return null; // backend antigo ainda no ar — o resto do painel segue de pé
+  const { t, brl, lang } = useT();
+  // Backend antigo ainda no ar — o resto do painel segue de pé. A guarda cobre
+  // o objeto E as partes dele: `semana`/`dias` faltando não pode derrubar a
+  // tela que mostra o dinheiro do dia.
+  if (!a || !a.semana || !Array.isArray(a.dias)) return null;
   const vazio = a.semana.pagamentos === 0 && a.semana.contas === 0;
   const teto = Math.max(1, ...a.dias.map((d) => d.valorCents));
   return (
@@ -193,20 +212,35 @@ function Ativacao({ a }: { a: PanelAtivacao | undefined }) {
         <>
           {a.dias.map((d) => (
             <div className="actrow" key={d.dia}>
-              <span className="mono muted small">{ddmm(d.dia)}</span>
+              <span className="mono muted small">{dayMonth(d.dia, lang)}</span>
               <div className="actbar"><span style={{ width: `${Math.round((d.valorCents / teto) * 100)}%` }} /></div>
               <span className={d.contas === 0 ? 'mono small muted' : 'mono small'}>
-                {d.contas} {d.contas === 1 ? 'conta' : 'contas'} · {brl(d.valorCents)}
+                {d.contas === 1 ? t('panel.oneBill') : t('panel.nBills', { n: d.contas })}
+                {' · '}{brl(d.valorCents)}
               </span>
             </div>
           ))}
-          <p className="small">
-            Pix {a.metodos.pix} · Cartão {a.metodos.card} · Saldo {a.metodos.house_account}
-          </p>
+          {/* `a` é checado acima porque um backend mais antigo pode não mandar
+              a ativação — mas `metodos` e `semana` eram lidos direto, então um
+              backend mais antigo que mande a ativação SEM eles derrubava o
+              painel inteiro em tela branca, que é exatamente o que a guarda de
+              cima existe pra evitar. Reproduzido no navegador com um payload
+              parcial. O painel mostra o que veio e cala o que não veio. */}
+          {a.metodos && (
+            <p className="small">
+              {t('panel.methods', { pix: a.metodos.pix, card: a.metodos.card,
+                                    house: a.metodos.house_account })}
+            </p>
+          )}
           <p className="muted small">
-            Semana: {a.semana.pagamentos} {a.semana.pagamentos === 1 ? 'pagamento' : 'pagamentos'} ·{' '}
-            {a.semana.contas} {a.semana.contas === 1 ? 'conta' : 'contas'} · {brl(a.semana.valorCents)} ·{' '}
-            serviço {brl(a.semana.gorjetaCents)}
+            {t('panel.weekLine', {
+              payments: a.semana.pagamentos === 1 ? t('panel.onePayment')
+                : t('panel.nPayments', { n: a.semana.pagamentos }),
+              bills: a.semana.contas === 1 ? t('panel.oneBill')
+                : t('panel.nBills', { n: a.semana.contas }),
+              amount: brl(a.semana.valorCents),
+              tip: brl(a.semana.gorjetaCents),
+            })}
           </p>
         </>
       )}

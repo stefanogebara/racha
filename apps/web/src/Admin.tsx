@@ -68,42 +68,41 @@ function Onboarding() {
       </header>
       {mine.length > 0 && (
         <section className="panel">
-          <p className="label">Seus restaurantes</p>
+          <p className="label">{t('admin.yourVenues')}</p>
           {mine.map((v) => (
             <div className="checkrow" key={v.id}>
               <strong>{v.name}</strong>
-              <a className="ghost" href={`/admin?v=${v.id}`}>gerenciar mesas →</a>
+              <a className="ghost" href={`/admin?v=${v.id}`}>{t('admin.manageTables')}</a>
             </div>
           ))}
         </section>
       )}
       <section className="card">
-        <p className="label">{mine.length > 0 ? 'Cadastrar outro restaurante' : 'Cadastre seu restaurante'}</p>
-        <input className="namefield" placeholder="Nome do restaurante" value={name} onChange={(e) => setName(e.target.value)} />
-        <input className="namefield" placeholder="Cidade (opcional)" value={city} onChange={(e) => setCity(e.target.value)} />
-        <input className="namefield" inputMode="numeric" placeholder="CNPJ (opcional)" value={maskCpfCnpj(cnpj)}
+        <p className="label">{mine.length > 0 ? t('admin.registerAnother') : t('admin.registerFirst')}</p>
+        <input className="namefield" placeholder={t('admin.venueName')} value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="namefield" placeholder={t('admin.city')} value={city} onChange={(e) => setCity(e.target.value)} />
+        <input className="namefield" inputMode="numeric" placeholder={t('admin.cnpjField')} value={maskCpfCnpj(cnpj)}
           style={cnpj && !cnpjValid ? { borderColor: 'var(--burgundy)' } : undefined}
           onChange={(e) => setCnpj(onlyDigits(e.target.value).slice(0, 14))} />
         {cnpj !== '' && (
           <span className="small" style={{ color: cnpjValid ? 'var(--emerald)' : 'var(--burgundy)' }}>
-            {cnpjValid ? 'CNPJ válido ✓' : 'CNPJ incompleto ou inválido — confira os 14 dígitos.'}
+            {cnpjValid ? t('admin.cnpjOk') : t('admin.cnpjBad')}
           </span>
         )}
         <label className="servico" style={{ alignItems: 'center' }}>
           <span style={{ flex: 1 }}>{t('admin.suggested')}</span>
           <div className="stepper">
-            <button aria-label="menos" onClick={() => setServico(Math.max(0, servico - 1))}>−</button>
+            <button aria-label={t('admin.less')} onClick={() => setServico(Math.max(0, servico - 1))}>−</button>
             <strong>{servico}%</strong>
-            <button aria-label="mais" onClick={() => setServico(Math.min(20, servico + 1))}>+</button>
+            <button aria-label={t('admin.more')} onClick={() => setServico(Math.min(20, servico + 1))}>+</button>
           </div>
         </label>
         <p className="muted small">
-          O meio de pagamento (Pix/split) é conectado depois — sem ele, o restaurante
-          existe mas ainda não recebe. Isso mantém a Racha fora da custódia de recursos.
+          {t('admin.psplater')}
         </p>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{tError(lang, error, error)}</p>}
         <button className="cta" disabled={busy || !name.trim() || (cnpj !== '' && !cnpjValid)} onClick={submit}>
-          {busy ? 'criando…' : 'Criar restaurante'}
+          {busy ? t('admin.creating') : t('admin.createVenue')}
         </button>
       </section>
       <footer className="foot"><span>{t('admin.title')}</span><LangToggle compact /></footer>
@@ -142,7 +141,7 @@ function VenueAdminSurface({ venueId }: { venueId: string }) {
         <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </header>
 
-      {mode === null && <p className="muted small">carregando…</p>}
+      {mode === null && <p className="muted small">{t('admin.loading')}</p>}
       {mode === 'wizard' && (
         <SetupWizard admin={admin} venueId={venueId} onPrint={setPrinting} onDone={() => setMode('manage')} />
       )}
@@ -150,7 +149,7 @@ function VenueAdminSurface({ venueId }: { venueId: string }) {
         <ManageView admin={admin} venueId={venueId} onPrint={setPrinting} onConfigure={() => setMode('wizard')} />
       )}
 
-      <footer className="foot"><span>racha · o QR de cada mesa abre a conta do cliente</span><LangToggle compact /></footer>
+      <footer className="foot"><span>{t('admin.footQr')}</span><LangToggle compact /></footer>
     </main>
   );
 }
@@ -160,7 +159,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
   admin: VenueAdmin; venueId: string; onPrint: (t: VenueTable) => void; onConfigure: () => void;
 }) {
   const [newLabel, setNewLabel] = useState('');
-  const { lang } = useT();
+  const { t, lang } = useT();
   const { venue, tables, error } = admin;
 
   async function add() { if (await admin.addTable(newLabel)) setNewLabel(''); }
@@ -171,39 +170,40 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
 
       <section className="panel" id="mesas" style={{ scrollMarginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-          <p className="label">Mesas ({tables.length})</p>
+          <p className="label">{t('admin.tablesN', { n: tables.length })}</p>
           <a className="linklike" style={{ textDecoration: 'none' }} href={`/qrs?v=${encodeURIComponent(venueId)}`}>
-            🖨 Imprimir QRs
+            {t('admin.printQrs')}
           </a>
         </div>
         <p className="muted small">
-          Cadastre cada mesa com o nome que ela tem no salão (“Mesa 12”, “Balcão 3”).
-          Depois marque uma como <em>treino</em> pra equipe praticar sem sujar os números.
+          {t('admin.tablesHelp', { training: t('admin.training') })}
         </p>
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <input className="namefield" style={{ flex: 1 }} placeholder="Ex.: Mesa 12" value={newLabel}
+          <input className="namefield" style={{ flex: 1 }} placeholder={t('admin.tableEg')} value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
-          <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>Adicionar</button>
+          <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>
         </div>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{tError(lang, error, error)}</p>}
-        {tables.length === 0 && <p className="muted small">nenhuma mesa ainda — adicione a primeira acima.</p>}
-        {tables.map((t) => (
-          <div className="checkrow" key={t.id}>
+        {tables.length === 0 && <p className="muted small">{t('admin.noTables')}</p>}
+        {/* `table`, não `t`: o parâmetro chamava-se `t` e sombreava o tradutor,
+            então `t('admin.openBill')` chamaria a MESA como função. */}
+        {tables.map((table) => (
+          <div className="checkrow" key={table.id}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, flexWrap: 'wrap' }}>
-              <strong style={{ opacity: t.active ? 1 : 0.45 }}>{t.label}</strong>
-              {t.hasOpenCheck && <span className="pill parcial">conta aberta</span>}
-              {!t.active && <span className="pill fechada">desativada</span>}
-              {t.training && <span className="muted small">· mesa de treino</span>}
-              {t.qrRotatedAt && <span className="muted small">QR girado</span>}
+              <strong style={{ opacity: table.active ? 1 : 0.45 }}>{table.label}</strong>
+              {table.hasOpenCheck && <span className="pill parcial">{t('admin.openBill')}</span>}
+              {!table.active && <span className="pill fechada">{t('admin.disabled')}</span>}
+              {table.training && <span className="muted small">{t('admin.trainingTable')}</span>}
+              {table.qrRotatedAt && <span className="muted small">{t('admin.qrRotated')}</span>}
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {t.active && (t.hasOpenCheck
-                ? <button className="ghost" onClick={() => admin.closeManualCheck(t)}>fechar conta</button>
-                : <button className="cta" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => admin.openManualCheck(t)}>abrir conta</button>)}
-              <button className="ghost" onClick={() => onPrint(t)}>QR</button>
-              <button className="ghost" onClick={() => admin.rotate(t)}>girar</button>
-              <button className="linklike" onClick={() => admin.toggleTraining(t)}>{t.training ? 'tirar do treino' : 'treino'}</button>
-              <button className="ghost" onClick={() => admin.toggle(t)}>{t.active ? 'desativar' : 'ativar'}</button>
+              {table.active && (table.hasOpenCheck
+                ? <button className="ghost" onClick={() => admin.closeManualCheck(table)}>{t('admin.closeBill')}</button>
+                : <button className="cta" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => admin.openManualCheck(table)}>{t('admin.openBillCta')}</button>)}
+              <button className="ghost" onClick={() => onPrint(table)}>QR</button>
+              <button className="ghost" onClick={() => admin.rotate(table)}>{t('admin.rotate')}</button>
+              <button className="linklike" onClick={() => admin.toggleTraining(table)}>{table.training ? t('admin.untrain') : t('admin.training')}</button>
+              <button className="ghost" onClick={() => admin.toggle(table)}>{table.active ? t('admin.deactivate') : t('admin.activate')}</button>
             </div>
           </div>
         ))}
@@ -216,14 +216,14 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
       {/* Créditos da casa: recurso avançado (carteira pré-paga), fora do setup — colapsado. */}
       <details>
         <summary className="muted small" style={{ cursor: 'pointer', padding: '4px 2px' }}>
-          Créditos da casa (avançado) — carteira pré-paga do cliente
+          {t('admin.houseAdvanced')}
         </summary>
         <div style={{ marginTop: 8 }}>
           <AdminHouse venueId={venueId} />
         </div>
       </details>
 
-      <button className="linklike" style={{ alignSelf: 'center' }} onClick={onConfigure}>abrir assistente de configuração</button>
+      <button className="linklike" style={{ alignSelf: 'center' }} onClick={onConfigure}>{t('admin.openWizard')}</button>
     </>
   );
 }
@@ -243,7 +243,7 @@ function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; tab
         <p className="muted small">{t('admin.point')}</p>
         <p className="muted" style={{ fontSize: 11, wordBreak: 'break-all' }}>{url}</p>
         <button className="cta" onClick={() => window.print()}>Imprimir</button>
-        <button className="linklike" onClick={onClose}>← voltar</button>
+        <button className="linklike" onClick={onClose}>{t('common.backShort')}</button>
       </section>
     </main>
   );

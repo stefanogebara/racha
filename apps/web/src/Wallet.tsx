@@ -150,7 +150,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
           )}
           {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
           <p className="muted small">{t('wallet.onlyAt', { venue: venue.name })}</p>
-          <button className="linklike" onClick={() => { setCharge(null); refresh(); }}>← voltar pra carteira</button>
+          <button className="linklike" onClick={() => { setCharge(null); refresh(); }}>{t('common.backWallet')}</button>
         </section>
       </Shell>
     );

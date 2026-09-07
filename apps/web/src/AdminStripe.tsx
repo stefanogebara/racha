@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authedReq as req } from './auth';
+import { useT } from './lang';
 
 /**
  * "Cartão / Apple Pay (Stripe)" — o 2º rail, por venue. O Pix (Pagar.me) segue
@@ -23,6 +24,7 @@ interface StripeStatus {
 }
 
 export default function AdminStripe({ venueId }: { venueId: string }) {
+  const { t } = useT();
   const [info, setInfo] = useState<StripeStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -59,7 +61,7 @@ export default function AdminStripe({ venueId }: { venueId: string }) {
   if (!info) {
     return (
       <section className="panel">
-        <p className="label">Cartão / Apple Pay (Stripe)</p>
+        <p className="label">{t('stripe.title')}</p>
         <p className="muted small">{loadError ?? 'carregando…'}</p>
       </section>
     );
@@ -73,22 +75,22 @@ export default function AdminStripe({ venueId }: { venueId: string }) {
 
   return (
     <section className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <p className="label">Cartão / Apple Pay (Stripe)</p>
+      <p className="label">{t('stripe.title')}</p>
       <p className="muted small">
         Aceitar cartão, Apple Pay e Google Pay além do Pix. O dinheiro cai direto na
         conta do restaurante (sem custódia). Você conecta uma conta Stripe e faz o
         cadastro na página segura da Stripe — os dados bancários não passam pelo Racha.
       </p>
 
-      {active && <span className="pill paga" style={{ alignSelf: 'flex-start' }}>Ativo · aceita cartão/Apple Pay</span>}
-      {pending && <span className="pill parcial" style={{ alignSelf: 'flex-start' }}>Em análise — termine o cadastro na Stripe</span>}
+      {active && <span className="pill paga" style={{ alignSelf: 'flex-start' }}>{t('stripe.active')}</span>}
+      {pending && <span className="pill parcial" style={{ alignSelf: 'flex-start' }}>{t('stripe.pending')}</span>}
 
       {err && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{err}</p>}
       {loadError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{loadError}</p>}
 
       {!active && (
         <button className="cta" style={{ padding: '12px 20px', alignSelf: 'flex-start' }} disabled={busy} onClick={connect}>
-          {busy ? 'abrindo Stripe…' : (pending ? 'Continuar cadastro na Stripe' : 'Conectar Stripe')}
+          {busy ? t('stripe.opening') : (pending ? t('stripe.continue') : t('stripe.connect'))}
         </button>
       )}
       {active && (

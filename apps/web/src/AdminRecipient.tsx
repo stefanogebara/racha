@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authedReq as req } from './auth';
+import { useT } from './lang';
 import { onlyDigits, alnum, isValidCpfCnpj, docKind, maskCpfCnpj, isValidEmail, BR_BANKS, bankName } from './br';
 
 /**
@@ -25,6 +26,7 @@ interface CreatedRecipient { recipientId: string; status: string }
 const shortId = (id: string) => (id.length > 11 ? `${id.slice(0, 11)}…` : id);
 
 export default function AdminRecipient({ venueId, onChanged }: { venueId: string; onChanged?: () => void }) {
+  const { t } = useT();
   const [info, setInfo] = useState<RecipientInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -73,7 +75,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   if (!info) {
     return (
       <section className="panel" id="recebimento">
-        <p className="label">Recebimento</p>
+        <p className="label">{t('rcpt.section')}</p>
         <p className="muted small">{loadError ?? 'carregando…'}</p>
       </section>
     );
@@ -168,8 +170,8 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
       {!realId && (
         <div style={{ border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.08)', borderRadius: 12, padding: '10px 12px' }}>
           {loadError
-            ? <p className="small">⚠ O recebedor cadastrado não foi encontrado no Pagar.me deste ambiente — provavelmente foi criado em teste e o app já está em live. Crie um novo abaixo; ele substitui o antigo.</p>
-            : <p className="small">⚠ Sem recebedor configurado — cobranças reais não liquidam até criar.</p>}
+            ? <p className="small">{t('rcpt.notFound')}</p>
+            : <p className="small">{t('rcpt.none')}</p>}
           {info.recipientId && (
             <p className="muted small">O id atual ({info.recipientId}) é de demonstração — não recebe de verdade.</p>
           )}
@@ -180,77 +182,75 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {info.status === 'active'
-              ? <span className="pill paga">Recebedor ativo · {shortId(realId)}</span>
+              ? <span className="pill paga">{t('rcpt.active', { id: shortId(realId) })}</span>
               : info.status === 'registration'
-                ? <span className="pill parcial">Em análise · {shortId(realId)}</span>
-                : <span className="pill aberta">{shortId(realId)} · status: {info.status ?? 'desconhecido'}</span>}
+                ? <span className="pill parcial">{t('rcpt.review', { id: shortId(realId) })}</span>
+                : <span className="pill aberta">{t('rcpt.statusOther', { id: shortId(realId), status: info.status ?? t('rcpt.unknown') })}</span>}
             <button className="ghost" style={{ padding: '6px 12px' }} onClick={copyId}>
-              {idCopied ? 'id copiado ✓' : 'copiar id'}
+              {idCopied ? t('rcpt.idCopied') : t('rcpt.copyId')}
             </button>
           </div>
           {info.status === 'registration' && (
-            <p className="muted small">Em análise no Pagar.me (KYC) — normal levar ~3 dias úteis.</p>
+            <p className="muted small">{t('rcpt.kycWait')}</p>
           )}
-          {info.name && <p className="muted small">Titular: {info.name}</p>}
+          {info.name && <p className="muted small">{t('rcpt.holder', { name: info.name })}</p>}
         </div>
       )}
 
       {loadError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{loadError}</p>}
       {created && (
         <p className="small" style={{ color: 'var(--emerald)' }}>
-          Recebedor {created.recipientId} criado ✓ — status: {created.status}
+          {t('rcpt.created', { id: created.recipientId, status: created.status })}
         </p>
       )}
 
       {!formVisible && (
         <button className="linklike" style={{ alignSelf: 'flex-start' }} onClick={() => setShowForm(true)}>
-          recriar recebedor
+          {t('rcpt.recreate')}
         </button>
       )}
 
       {formVisible && (
         <>
           <p className="muted small" style={{ marginTop: 4 }}>
-            São os dados bancários do restaurante — é pra onde o dinheiro das comandas cai.
-            Precisam ser <strong>exatamente</strong> os dados da conta no banco; o Pagar.me
-            confere com a Receita e recusa se não bater.
+            {t('rcpt.intro')}
           </p>
 
           <div className="cfggrid">
             <label style={{ gridColumn: '1 / -1' }}>
-              Razão social / nome do titular
-              <input className="namefield" placeholder="Como está no cadastro do banco" value={name}
+              {t('rcpt.holderLabel')}
+              <input className="namefield" placeholder={t('rcpt.holderPh')} value={name}
                 onBlur={() => touch('name')} style={errStyle('name', valid.name)}
                 onChange={(e) => setName(e.target.value)} />
-              {fb('name', valid.name, 'Informe o nome do titular da conta.', 'Igual ao cadastro no banco / na Receita.')}
+              {fb('name', valid.name, t('rcpt.holderNeed'), t('rcpt.holderHint'))}
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
-              CNPJ ou CPF do titular
+              {t('rcpt.docLabel')}
               <input className="namefield" inputMode="numeric" placeholder="00.000.000/0000-00" value={maskCpfCnpj(doc)}
                 onBlur={() => touch('doc')} style={errStyle('doc', valid.doc)}
                 onChange={(e) => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
-              {fb('doc', valid.doc, docErr, 'CNPJ do restaurante (14 díg.) ou seu CPF (11 díg.).',
-                kind === 'cpf' ? 'CPF válido ✓' : 'CNPJ válido ✓')}
+              {fb('doc', valid.doc, docErr, t('rcpt.docHint'),
+                kind === 'cpf' ? t('admin.cpfOk') : t('admin.cnpjOk'))}
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
-              E-mail do restaurante
+              {t('rcpt.emailLabel')}
               <input className="namefield" type="email" inputMode="email" placeholder="contato@restaurante.com.br" value={email}
                 onBlur={() => touch('email')} style={errStyle('email', valid.email)}
                 onChange={(e) => setEmail(e.target.value)} />
-              {fb('email', valid.email, 'E-mail inválido — confira o formato.', 'O Pagar.me exige — usa pra avisar sobre os repasses.')}
+              {fb('email', valid.email, t('rcpt.emailBad'), t('rcpt.emailHint'))}
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
-              WhatsApp do dono (avisos) <span className="muted small">— opcional</span>
+              {t('rcpt.waLabel')} <span className="muted small">— {t('common.optional')}</span>
               <input className="namefield" inputMode="tel" placeholder="(11) 99999-9999" value={notifyWhatsapp}
                 onChange={(e) => setNotifyWhatsapp(e.target.value)} />
-              <span className="muted small" style={{ display: 'block', marginTop: 4 }}>Pra te avisar por WhatsApp quando o KYC aprovar (ou recusar). Sem isso, só por e-mail.</span>
+              <span className="muted small" style={{ display: 'block', marginTop: 4 }}>{t('rcpt.waHint')}</span>
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
-              Banco
+              {t('rcpt.bankLabel')}
               <select className="namefield" value={bankOther ? '__other__' : bankCode}
                 onBlur={() => touch('bank')} style={errStyle('bank', valid.bank)}
                 onChange={(e) => {
@@ -259,80 +259,80 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
                   else { setBankOther(false); setBankCode(val); }
                   touch('bank');
                 }}>
-                <option value="">Selecione o banco…</option>
+                <option value="">{t('rcpt.pickBank')}</option>
                 {BR_BANKS.map((b) => <option key={b.code} value={b.code}>{b.code} — {b.name}</option>)}
-                <option value="__other__">Outro banco (digitar código)…</option>
+                <option value="__other__">{t('rcpt.otherBank')}</option>
               </select>
               {bankOther && (
-                <input className="namefield" inputMode="numeric" placeholder="Código de compensação (3 dígitos, ex.: 218)" value={bankCode}
+                <input className="namefield" inputMode="numeric" placeholder={t('rcpt.bankCodePh')} value={bankCode}
                   style={{ marginTop: 8, ...(errStyle('bank', valid.bank) || {}) }}
                   onBlur={() => touch('bank')}
                   onChange={(e) => setBankCode(onlyDigits(e.target.value).slice(0, 3))} />
               )}
               {bankOther
-                ? fb('bank', valid.bank, 'O código de compensação tem 3 dígitos.',
-                    knownBank ? `Código ${bankCode} — ${knownBank}.` : 'Código de compensação do banco (3 dígitos).',
+                ? fb('bank', valid.bank, t('rcpt.bankCodeBad'),
+                    knownBank ? t('rcpt.bankCodeKnown', { code: bankCode, bank: knownBank }) : t('rcpt.bankCodeHint'),
                     knownBank ? `${knownBank} ✓` : undefined)
-                : fb('bank', valid.bank, 'Escolha o banco da conta.', 'Onde a conta do restaurante está.')}
+                : fb('bank', valid.bank, t('rcpt.bankPickBad'), t('rcpt.bankHint'))}
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
-              Tipo de conta
+              {t('rcpt.typeLabel')}
               <div style={{ display: 'flex', gap: 16, paddingTop: 8 }}>
                 <label className="servico" style={{ alignItems: 'center' }}>
                   <input type="radio" name={`tipo-conta-${venueId}`} checked={accountType === 'checking'}
                     onChange={() => setAccountType('checking')} />
-                  <span>Corrente</span>
+                  <span>{t('rcpt.checking')}</span>
                 </label>
                 <label className="servico" style={{ alignItems: 'center' }}>
                   <input type="radio" name={`tipo-conta-${venueId}`} checked={accountType === 'savings'}
                     onChange={() => setAccountType('savings')} />
-                  <span>Poupança</span>
+                  <span>{t('rcpt.savings')}</span>
                 </label>
               </div>
             </label>
 
             <label>
-              Agência
+              {t('rcpt.branch')}
               <input className="namefield" inputMode="numeric" placeholder="0000" value={agencia}
                 onBlur={() => touch('agencia')} style={errStyle('agencia', valid.agencia)}
                 onChange={(e) => setAgencia(onlyDigits(e.target.value).slice(0, 5))} />
-              {fb('agencia', valid.agencia, 'Informe a agência.', 'Sem o dígito — ele vai no campo ao lado.')}
+              {fb('agencia', valid.agencia, t('rcpt.branchNeed'), t('rcpt.branchHint'))}
             </label>
             <label>
-              Dígito da agência
-              <input className="namefield" placeholder="opcional" value={agenciaDv}
+              {t('rcpt.branchDv')}
+              <input className="namefield" placeholder={t('rcpt.optionalPh')} value={agenciaDv}
                 onChange={(e) => setAgenciaDv(alnum(e.target.value).slice(0, 2))} />
-              <span className="muted small" style={{ display: 'block', marginTop: 4 }}>Deixe vazio se a agência não tem dígito.</span>
+              <span className="muted small" style={{ display: 'block', marginTop: 4 }}>{t('rcpt.noBranchDv')}</span>
             </label>
 
             <label>
-              Conta
+              {t('rcpt.account')}
               <input className="namefield" inputMode="numeric" placeholder="00000000" value={conta}
                 onBlur={() => touch('conta')} style={errStyle('conta', valid.conta)}
                 onChange={(e) => setConta(onlyDigits(e.target.value).slice(0, 13))} />
-              {fb('conta', valid.conta, 'Informe o número da conta.', 'Número da conta, sem o dígito.')}
+              {fb('conta', valid.conta, t('rcpt.accountNeed'), t('rcpt.accountHint'))}
             </label>
             <label>
-              Dígito da conta
+              {t('rcpt.accountDv')}
               <input className="namefield" placeholder="0" value={contaDv}
                 onBlur={() => touch('contaDv')} style={errStyle('contaDv', valid.contaDv)}
                 onChange={(e) => setContaDv(alnum(e.target.value).slice(0, 2))} />
-              {fb('contaDv', valid.contaDv, 'Informe o dígito da conta.', 'Geralmente 1 caractere (pode ser X).')}
+              {fb('contaDv', valid.contaDv, t('rcpt.accountDvNeed'), t('rcpt.accountDvHint'))}
             </label>
           </div>
 
-          <p className="muted small">A conta precisa pertencer ao mesmo CNPJ/CPF do documento — é a regra do KYC do Pagar.me.</p>
+          <p className="muted small">{t('rcpt.sameDoc')}</p>
 
           {submitError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{submitError}</p>}
           {marketplaceHint && <p className="muted small">{marketplaceHint}</p>}
 
           <button className="cta" style={{ padding: '12px 20px' }} disabled={busy} onClick={submit}>
-            {busy ? 'enviando…' : 'Criar recebedor'}
+            {busy ? t('rcpt.sending') : t('rcpt.create')}
           </button>
           {realId && (
             <button className="linklike" onClick={() => { setShowForm(false); setSubmitError(null); }}>
-              cancelar
+              {t('rcpt.cancel')}
             </button>
           )}
         </>

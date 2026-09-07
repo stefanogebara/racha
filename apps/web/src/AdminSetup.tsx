@@ -1,4 +1,5 @@
 import type { Venue, VenueTable } from './api';
+import { useT } from './lang';
 
 /**
  * "Implantação" — o wizard de 4 passos do playbook (docs/onboarding §3 item 3)
@@ -22,6 +23,7 @@ interface Step {
 }
 
 export default function AdminSetup({ venue, tables }: { venue: Venue; tables: VenueTable[] }) {
+  const { t } = useT();
   const mesasReais = tables.filter((t) => t.active && !t.training).length;
   const temTreino = tables.some((t) => t.training);
   const recebedorOk = /^r[ep]_/.test(venue.pspRecipientId || '');
@@ -29,32 +31,27 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
   const steps: Step[] = [
     {
       done: true,
-      title: 'Casa criada',
-      sub: `${venue.name} · serviço sugerido ${(venue.servicoBp / 100).toFixed(0)}%`,
+      title: t('setup.s1'),
+      sub: t('setup.s1sub', { venue: venue.name, pct: (venue.servicoBp / 100).toFixed(0) }),
     },
     {
       done: mesasReais > 0,
-      title: 'Mesas com os rótulos reais',
-      sub: mesasReais > 0
-        ? `${mesasReais} ${mesasReais === 1 ? 'mesa ativa' : 'mesas ativas'} — depois imprima os QRs`
-        : 'cadastre as mesas como elas se chamam no salão',
+      title: t('setup.s2'),
+      sub: mesasReais === 0 ? t('setup.s2none')
+        : mesasReais === 1 ? t('setup.s2one') : t('setup.s2many', { n: mesasReais }),
       href: '#mesas',
     },
     {
       done: recebedorOk,
-      title: 'Recebimento conectado',
-      sub: recebedorOk
-        ? 'recebedor criado — repasse automático diário'
-        : 'sem recebedor, as mesas só funcionam em teste: cobrança real não tem para onde liquidar',
+      title: t('setup.s3'),
+      sub: recebedorOk ? t('setup.s3ok') : t('setup.s3none'),
       href: '#recebimento',
       warn: !recebedorOk,
     },
     {
       done: temTreino,
-      title: 'Equipe: mesa de treino',
-      sub: temTreino
-        ? 'mesa de treino marcada — pagamentos dela ficam fora dos números'
-        : 'marque uma mesa como “treino” pro workshop pré-turno da equipe',
+      title: t('setup.s4'),
+      sub: temTreino ? t('setup.s4ok') : t('setup.s4none'),
       href: '#mesas',
     },
   ];
@@ -66,9 +63,9 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
   const proximoTodo = steps.findIndex((s) => !s.done);
 
   return (
-    <section className="panel" aria-label="Implantação">
+    <section className="panel" aria-label={t('setup.rollout')}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <p className="label">Implantação</p>
+        <p className="label">{t('setup.rollout')}</p>
         <span className="muted small">{completo ? 'completa ✓' : `passo ${feitos + 1} de ${steps.length}`}</span>
       </div>
 
@@ -78,7 +75,7 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
       </div>
 
       {!completo && (
-        <p className="muted small" style={{ marginTop: 2 }}>Siga os passos na ordem — cada um destrava o próximo.</p>
+        <p className="muted small" style={{ marginTop: 2 }}>{t('setup.inOrder')}</p>
       )}
 
       {!completo && steps.map((s, i) => {
@@ -104,22 +101,15 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
       {/* O roteiro sobrevive ao D2: é o que mantém o garçom apresentando o QR. */}
       <details style={{ marginTop: completo ? 0 : 8 }}>
         <summary className="muted small" style={{ cursor: 'pointer' }}>
-          Roteiro da equipe (workshop de 15 min + a frase do garçom)
+          {t('setup.script')}
         </summary>
         <div className="muted small" style={{ paddingTop: 8, display: 'grid', gap: 6 }}>
+          <p>{t('setup.script1')}</p>
+          <p>{t('setup.script2', { line: FRASE_GARCOM })}</p>
+          <p>{t('setup.script3')}</p>
           <p>
-            1 · Workshop pré-turno de 15 min: cada garçom escaneia e paga uma conta
-            de mentira <em>no próprio celular</em>, na mesa de treino — a experiência
-            dissolve o medo, e a mesa de treino fica fora dos números.
-          </p>
-          <p>2 · A frase que apresenta o QR, uma só: {FRASE_GARCOM}</p>
-          <p>
-            3 · Primeira mesa real paga com a gente presente. Meta da semana 1:
-            ≥25% das contas pelo QR — acompanhe na seção Ativação do painel da casa.
-          </p>
-          <p>
-            🖨 <a href={`/qrs?v=${encodeURIComponent(venue.id)}`}>Imprimir os QRs das mesas</a> —
-            display por mesa, nunca A4 solto.
+            🖨 <a href={`/qrs?v=${encodeURIComponent(venue.id)}`}>{t('setup.printLink')}</a>{' '}
+            {t('setup.printNote')}
           </p>
         </div>
       </details>

@@ -77,7 +77,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
     const maxLoadCents = parseBrlToCents(maxLoad);
     const validityDays = /^\d+$/.test(validity.trim()) ? Number(validity.trim()) : null;
     if (bonusBp == null || minLoadCents == null || maxLoadCents == null || validityDays == null) {
-      setError('Confira os valores — use vírgula para os centavos (ex.: 1000,00).');
+      setError(t('house.badValues'));
       return;
     }
     setSaving(true); setSaved(false); setError(null);
@@ -101,7 +101,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
   }
 
   async function rotate(a: HouseAdminAccount) {
-    if (!confirm(`Gerar novo link de carteira para ${a.name}? O link antigo para de funcionar na hora.`)) return;
+    if (!confirm(t('house.newLinkAsk', { name: a.name }))) return;
     try {
       const r = await req<{ accountToken: string }>('/api/house/admin/rotate-token', {
         method: 'POST',
@@ -125,7 +125,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
     const raw = prompt(`Reembolsar ${a.name}\n${t('wallet.paidBal')}: ${brl(a.principalCents)}\n\nValor do reembolso (R$):`);
     if (raw == null) return;
     const amountCents = parseBrlToCents(raw); // "1.000" = mil reais, nunca R$ 10
-    if (amountCents == null || amountCents <= 0) { setError('Informe um valor válido.'); return; }
+    if (amountCents == null || amountCents <= 0) { setError(t('house.badAmount')); return; }
     try {
       const r = await req<{ principalCents: number; bonusCents: number }>('/api/house/admin/refund', {
         method: 'POST',
@@ -189,7 +189,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
       {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
       {saved && <p className="small" style={{ color: 'var(--emerald)' }}>{t('admin.saved')}</p>}
       <button className="cta" style={{ padding: '12px 20px' }} disabled={saving} onClick={save}>
-        {saving ? 'salvando…' : 'Salvar configuração'}
+        {saving ? t('house.saving') : t('house.saveConfig')}
       </button>
 
       <div className="stat">
@@ -204,7 +204,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
       </p>
 
       <p className="label">Contas ({accounts.length})</p>
-      {accounts.length === 0 && <p className="muted small">nenhuma conta ainda.</p>}
+      {accounts.length === 0 && <p className="muted small">{t('house.noAccounts')}</p>}
       {accounts.map((a) => (
         <div key={a.id}>
           <div className="checkrow" style={{ flexWrap: 'wrap' }}>
@@ -217,8 +217,8 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
               <span className="mono muted small">{brl(a.bonusCents)} bônus</span>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button className="ghost" onClick={() => rotate(a)}>novo link</button>
-              <button className="ghost" onClick={() => refund(a)}>reembolsar</button>
+              <button className="ghost" onClick={() => rotate(a)}>{t('house.newLink')}</button>
+              <button className="ghost" onClick={() => refund(a)}>{t('house.refund')}</button>
             </div>
           </div>
           {freshLink?.accountId === a.id && (

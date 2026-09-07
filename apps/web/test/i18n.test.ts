@@ -41,7 +41,10 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'share.item',   // "item" / "item"
     'gate.email',   // "e-mail" nos dois
     'card.demoCard',// "•••• 4242 (demo)" — número, não frase
-    'cat.couvert',  // "Couvert" é francês nas duas
+    // `cat.couvert` saiu da lista: o inglês virou "Cover charge", que é como a
+    // conta escrita em inglês chama a coisa. Se voltar a ser igual, o teste
+    // reclama de novo, e deve.
+    'rcpt.statusOther', // "{id} · status: {status}" — "status" é igual nas duas
   ]);
   const copied = entries.filter(([k, p]) => p.en === p.pt && !same.has(k)).map(([k]) => k);
   assert.deepEqual(copied, [], `chaves não traduzidas: ${copied.join(', ')}`);
@@ -173,4 +176,50 @@ test('o inglês não repete a mesma moeda com dois nomes', () => {
   const usesCentavo = money.filter(([, p]) => /\bcentavos?\b/i.test(p.en));
   assert.deepEqual(usesCentavo.map(([k]) => k), [],
     'o lado inglês chama a moeda de "centavo" em algumas chaves e de "cent" em outras');
+});
+
+/**
+ * A frase portuguesa que nunca teve chave.
+ *
+ * O teste acima só acha o que o dicionário JÁ traduz. Uma frase escrita direto
+ * no componente, sem chave nenhuma, é invisível pra ele — e era assim que o
+ * lado do DONO (painel, gestão de mesas, assistente de implantação, cadastro
+ * do recebedor) estava quase todo em português, com a plataforma se dizendo
+ * bilíngue desde a decisão #34. Noventa e oito frases.
+ *
+ * A regra: texto em posição de JSX (entre `>` e `<`) e os atributos que o
+ * usuário lê não podem conter palavra que só existe em português. Nomes de
+ * variável, chaves de estado e comentários ficam de fora — é o que separa
+ * `'conta'` como passo da máquina de estados de "conta" na tela.
+ */
+test('nenhum componente escreve texto de tela em português sem chave', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const src = path.join(import.meta.dirname, '..', 'src');
+
+  // Palavras que não existem em inglês. Curta e específica de propósito: a
+  // lista cresce quando alguém acha um caso novo, não por precaução.
+  const ptOnly = ['conta', 'contas', 'mesa', 'mesas', 'pagamento', 'pagamentos',
+    'semana', 'serviço', 'cartão', 'saldo', 'gorjeta', 'dono', 'treino',
+    'fechar', 'abrir', 'adicionar', 'nenhuma', 'nenhum', 'cliente', 'clientes',
+    'criar', 'criando', 'entrar', 'sair', 'confira', 'banco', 'titular',
+    'recebedor', 'dígito', 'próximo', 'voltar', 'salvando', 'pronto'];
+  const re = new RegExp(`\\b(${ptOnly.join('|')})\\b`, 'i');
+
+  const offenders: string[] = [];
+  for (const file of fs.readdirSync(src)) {
+    if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
+    fs.readFileSync(path.join(src, file), 'utf8').split('\n').forEach((line, i) => {
+      const trimmed = line.trim();
+      if (/^(\/\/|\*|\/\*|\{\/\*)/.test(trimmed)) return;
+      const candidates = [
+        ...[...line.matchAll(/>([^<>{}]{4,})</g)].map((m) => m[1]),
+        ...[...line.matchAll(/(?:placeholder|title|aria-label)="([^"]{4,})"/g)].map((m) => m[1]),
+      ];
+      for (const c of candidates) {
+        if (re.test(c)) offenders.push(`${file}:${i + 1} texto de tela em português: ${JSON.stringify(c.trim().slice(0, 60))}`);
+      }
+    });
+  }
+  assert.deepEqual(offenders, [], `\n${offenders.join('\n')}\n`);
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useT } from './lang';
 import { parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
 import { authedReq as req } from './auth';
 
@@ -24,6 +25,12 @@ export interface VenueAdmin {
 }
 
 export function useVenueAdmin(venueId: string): VenueAdmin {
+  // Um hook pode chamar outro: as mensagens que ESTE arquivo escreve saem
+  // traduzidas aqui. Os CÓDIGOS que vêm do servidor continuam sendo traduzidos
+  // no ponto de exibição, por `tError` — é lá que se sabe o idioma do leitor e
+  // é lá que o texto cru do servidor serve de reserva.
+  // `tr`, não `t`: os callbacks deste hook chamam a MESA de `t`.
+  const { t: tr } = useT();
   const [venue, setVenue] = useState<Venue | null>(null);
   const [tables, setTables] = useState<VenueTable[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +64,7 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
   }, [refresh]);
 
   const toggle = useCallback(async (t: VenueTable) => {
-    if (t.active && t.hasOpenCheck) { setError(`${t.label} tem conta aberta — feche antes de desativar.`); return; }
+    if (t.active && t.hasOpenCheck) { setError(tr('admin.hasOpenBill', { table: t.label })); return; }
     if (t.active && !confirm(`Desativar a ${t.label}? O QR dela para de funcionar.`)) return;
     try { await req('/api/tables/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, active: !t.active }) }); await refresh(); }
     catch (e) { setError((e as Error).message); }
