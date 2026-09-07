@@ -236,6 +236,13 @@ export const DICT = {
   'home.how':         { en: 'How it works',                    pt: 'Como funciona', es: 'Cómo funciona' },
   'home.scan':        { en: 'Scan the QR on your table…',      pt: 'Escaneie o QR…', es: 'Escanea el QR de tu mesa…' },
   'home.forVenues':   { en: 'For restaurants and bars',        pt: 'Para restaurantes e bares', es: 'Para restaurantes y bares' },
+  // O trilho do passo 3 tem uma chave POR TRILHO, não uma frase com "Pix"
+  // dentro traduzida pra espanhol. A landing espanhola prometia Bizum no herói
+  // e dizia "Pix directo a la cuenta del restaurante" duas linhas abaixo — a
+  // mesma página se contradizendo, visto na tela em 2026-09-07.
+  'home.bizumDirect': { en: 'Bizum straight into the restaurant’s account',
+                        pt: 'Bizum direto na conta do restaurante',
+                        es: 'Bizum directo a la cuenta del restaurante' },
   'home.pixDirect':   { en: 'Pix straight into the restaurant’s account',
                         pt: 'Pix direto na conta do restaurante',
                         es: 'Pix directo a la cuenta del restaurante' },
@@ -825,6 +832,29 @@ export const LOCALE: Record<Lang, string> = { en: 'en-US', pt: 'pt-BR', es: 'es-
  */
 export const STRIPE_LOCALE: Record<Lang, 'en' | 'pt-BR' | 'es'> = {
   en: 'en', pt: 'pt-BR', es: 'es',
+};
+
+/**
+ * O mercado da LANDING, por idioma.
+ *
+ * Numa conta o mercado vem do servidor, junto da mesa. Aqui não existe mesa —
+ * é uma página de marketing, e o idioma é o único sinal que existe. Então a
+ * escolha é explícita, num lugar, em vez de espalhada em frases.
+ *
+ * O que isso conserta, visto na tela em 2026-09-07: a landing espanhola dizia
+ * "PAGO EN LA MESA · ESPAÑA", prometia Bizum no herói, e depois mostrava "Pix
+ * directo a la cuenta del restaurante" e a conta de exemplo em REAIS —
+ * "237,10 R$" debaixo de "AL CÉNTIMO. SIEMPRE.". A página se contradizendo
+ * três vezes, na parte que é o argumento de venda.
+ *
+ * O inglês aponta pro Brasil de propósito: é o mercado de hoje, o herói já diz
+ * "· Brazil", e uma página que fala dos dois não vende nenhum. Quando a Espanha
+ * tiver landing própria, é esta tabela que muda.
+ */
+export const LANDING_MARKET: Record<Lang, { currency: CurrencyCode; rail: 'pix' | 'bizum' }> = {
+  en: { currency: 'BRL', rail: 'pix' },
+  pt: { currency: 'BRL', rail: 'pix' },
+  es: { currency: 'EUR', rail: 'bizum' },
 };
 
 /** As moedas que o produto atende. Ambas de 2 casas — ver api/_lib/markets.js. */

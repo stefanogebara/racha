@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DICT, LANGS, asLang, money, tError, STRIPE_LOCALE } from '../src/i18n.ts';
+import { DICT, LANGS, asLang, money, tError, STRIPE_LOCALE, LANDING_MARKET } from '../src/i18n.ts';
 
 const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: string }][];
 
@@ -511,4 +511,48 @@ test('todo código de erro que a API manda tem tradução', async () => {
 
   const missing = [...codes].filter((c) => !INTERNAL.has(c) && !(`err.${c}` in DICT)).sort();
   assert.deepEqual(missing, [], `\ncódigos sem tradução (a tela mostraria a frase interna):\n${missing.join('\n')}\n`);
+});
+
+/* ── a landing não pode se contradizer ─────────────────────────────────────── */
+
+test('a landing de cada idioma promete UM trilho, e é o do mercado dela', () => {
+  // Visto na tela em 2026-09-07: a landing espanhola dizia "PAGO EN LA MESA ·
+  // ESPAÑA", prometia Bizum no herói, e duas linhas abaixo mostrava "Pix
+  // directo a la cuenta del restaurante" — com a conta de exemplo em REAIS,
+  // "237,10 R$", debaixo de "AL CÉNTIMO. SIEMPRE.". A página se contradizendo
+  // três vezes na parte que é o argumento de venda.
+  //
+  // A landing não tem mesa, então não tem mercado do servidor: o idioma é o
+  // único sinal. Este teste é o que impede que "o idioma decide" volte a
+  // significar "cada frase decide sozinha".
+  const RAILS = ['Pix', 'Bizum'] as const;
+  const offenders: string[] = [];
+  for (const lang of LANGS) {
+    const mine = LANDING_MARKET[lang].rail;
+    const theirs = RAILS.filter((r) => r.toLowerCase() !== mine);
+    for (const [key, trio] of Object.entries(DICT)) {
+      if (!/^(home|land)\./.test(key)) continue;
+      // As chaves POR TRILHO existem justamente pra serem escolhidas em tempo
+      // de render — `home.pixDirect` menciona Pix nos três idiomas de
+      // propósito, e quem não é do trilho simplesmente não é renderizada.
+      if (/(pix|bizum)Direct$/i.test(key)) continue;
+      for (const other of theirs) {
+        if (new RegExp(`\\b${other}\\b`).test((trio as Record<string, string>)[lang])) {
+          offenders.push(`${key} (${lang}) promete ${other}, mas a landing ${lang} é ${mine}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `\n${offenders.join('\n')}\n`);
+});
+
+test('a moeda da landing combina com o trilho dela', () => {
+  // Um trilho e uma moeda que não se encontram no mundo real: Bizum só existe
+  // em euro (a Stripe recusa qualquer outra — medido contra a API), e o Pix só
+  // em real. Se a tabela algum dia disser "bizum + BRL", é aqui que quebra.
+  const OK = { pix: 'BRL', bizum: 'EUR' } as const;
+  for (const lang of LANGS) {
+    const { rail, currency } = LANDING_MARKET[lang];
+    assert.equal(currency, OK[rail], `landing ${lang}: ${rail} não cobra em ${currency}`);
+  }
 });

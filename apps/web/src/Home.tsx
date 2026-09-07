@@ -12,7 +12,7 @@
  */
 import { LangToggle, useT } from './lang';
 import { dishMask } from './dish';
-import { money } from './i18n';
+import { money, LANDING_MARKET } from './i18n';
 import { splitEqualLocal } from './split';
 
 const DEMO = '/?t=demoracha';
@@ -23,17 +23,19 @@ const embedSrc = (lang: string) => `${DEMO}&embed=1&lang=${lang}`;
 const PROOF_TOTAL = 23710;   // a conta da demo, em centavos
 const PROOF_PEOPLE = 3;
 
+
 // "1 · Scanned" → "Scanned": o ordinal vem da espinha, não do texto.
 const stripOrdinal = (s: string) => s.replace(/^\d+\s*·\s*/, '');
 
 export default function Home() {
   const { t, lang } = useT();
   const parts = Array.from({ length: PROOF_PEOPLE }, (_, i) => splitEqualLocal(PROOF_TOTAL, PROOF_PEOPLE, i)).sort((a, b) => a - b);
-  const fmt = (c: number) => money(c, lang);
+  const market = LANDING_MARKET[lang];
+  const fmt = (c: number) => money(c, lang, market.currency);
   const steps = [
     [t('home.step1'), t('home.step1d')],
     [t('home.step2'), t('home.step2d')],
-    [t('home.step3'), t('home.pixDirect')],
+    [t('home.step3'), t(market.rail === 'bizum' ? 'home.bizumDirect' : 'home.pixDirect')],
   ];
   const claims = [t('land.house0'), t('land.house2'), t('land.house3'), t('land.house1'), t('land.house4')];
 
