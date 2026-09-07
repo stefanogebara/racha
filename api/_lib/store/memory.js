@@ -314,7 +314,13 @@ function createMemoryStore() {
         })
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
         .slice(0, limit)
-        .map((p) => ({ checkId: p.checkId, txid: p.txid, amountCents: p.amountCents, tipCents: p.tipCents, method: p.method }));
+        // `currency` viaja com a linha porque é a CONCILIAÇÃO que precisa dela:
+        // comparar centavos por venue sem saber a moeda é o jeito de atravessar
+        // uma troca de moeda reportando 0,00 de divergência.
+        .map((p) => ({
+          checkId: p.checkId, txid: p.txid, amountCents: p.amountCents,
+          tipCents: p.tipCents, method: p.method, currency: p.currency,
+        }));
     },
 
     /** Reconciliation inputs: each check's event log + its payment rows. */
@@ -326,7 +332,10 @@ function createMemoryStore() {
           events: [...(events.get(c.id) || [])],
           payments: [...payments.values()]
             .filter((p) => p.checkId === c.id)
-            .map((p) => ({ txid: p.txid, amountCents: p.amountCents, tipCents: p.tipCents, status: p.status, method: p.method || 'pix' })),
+            .map((p) => ({
+              txid: p.txid, amountCents: p.amountCents, tipCents: p.tipCents,
+              status: p.status, method: p.method || 'pix', currency: p.currency,
+            })),
         }));
     },
     /**
@@ -396,10 +405,15 @@ function createMemoryStore() {
     async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel, method = 'pix' }) {
       txidToCheck.set(txid, checkId);
       const check = checks.get(checkId);
+      const chargeVenue = check ? venues.get(check.venueId) : null;
       payments.set(txid, {
         txid, checkId, venueId: check ? check.venueId : null, // panel scoping
         amountCents, tipCents,
         payerLabel: payerLabel || null, method,
+        // A MOEDA na linha, não deduzida na leitura. Ver
+        // 0014_payment_currency.sql: `venues.market` pode mudar e o pagamento
+        // não pode ser reetiquetado depois do fato.
+        currency: market(chargeVenue && chargeVenue.market).currency,
         status: 'pendente', createdAt: new Date().toISOString(),
       });
     },
@@ -499,7 +513,16 @@ function createMemoryStore() {
       }
       const id = crypto.randomUUID();
       const accountToken = crypto.randomUUID().replace(/-/g, '');
-      const row = { id, venueId, phone, name, accountToken, active: true, createdAt: new Date().toISOString() };
+      // A moeda do SALDO, gravada na abertura. Um crédito em real não quita
+      // conta em euro, nem 1:1 nem convertido — e o `redeem` aplicava 1:1 sem
+      // olhar, se alguém virasse o market da venue depois. Ver
+      // 0014_payment_currency.sql; no Supabase é o default da coluna, porque a
+      // abertura passa por RPC.
+      const row = {
+        id, venueId, phone, name, accountToken, active: true,
+        currency: market(venues.get(venueId).market).currency,
+        createdAt: new Date().toISOString(),
+      };
       houseAccounts.set(id, row);
       houseByToken.set(accountToken, id);
       houseEvents.set(id, []);

@@ -52,6 +52,27 @@ function reconcileCheck({ checkId, events, payments }) {
     if (r && typeof r.txid === 'string') byTxid.set(r.txid, r);
   }
 
+  // 1b. UMA conta, UMA moeda.
+  //
+  // A conciliação soma centavos e compara com centavos. Sem olhar a moeda, ela
+  // atravessa uma troca de moeda somando 2450 de real com 2450 de euro e
+  // reportando 0,00 de divergência — o inegociável #8 derrotado exatamente
+  // onde ele deveria gritar. Duas revisões independentes apontaram isso no
+  // mesmo dia, e a resposta tem duas partes: a moeda passou a ser gravada na
+  // linha do pagamento (0014_payment_currency.sql), e AQUI é onde ela é
+  // conferida. Gravar sem conferir é um campo, não uma defesa.
+  //
+  // Como isto pode acontecer, apesar do gatilho que congela o market: um
+  // pagamento gravado antes da coluna existir (moeda ausente, não errada) ao
+  // lado de um gravado depois. Por isso ausente NÃO é divergência — é o
+  // histórico. O que é divergência é DUAS moedas presentes na mesma conta.
+  const moedas = new Set(rows.map((r) => r && r.currency).filter(Boolean));
+  if (moedas.size > 1) {
+    add('critical', 'mixed_currency',
+      `check has payments in more than one currency: ${[...moedas].sort().join(', ')}`,
+      { currencies: [...moedas].sort() });
+  }
+
   // 2. Every confirmed event-log payment must have a matching confirmed row.
   const logPayments = state ? state.payments : {};
   let logConfirmedCents = 0;

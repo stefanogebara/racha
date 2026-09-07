@@ -444,12 +444,17 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
 
     async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel, method = 'pix' }) {
       const { data: check, error: cErr } = await client
-        .from('checks').select('venue_id').eq('id', checkId).single();
+        .from('checks').select('venue_id, venues(market)').eq('id', checkId).single();
       throwOn(cErr, 'registerCharge.check');
       const { error } = await client.from('payments').insert({
         check_id: checkId, venue_id: check.venue_id, txid,
         method, amount_cents: amountCents, tip_cents: tipCents,
         payer_label: payerLabel || null,
+        // A MOEDA na linha. Nunca deduzida na leitura a partir de
+        // `venues.market`: o market pode mudar e o pagamento não — e a
+        // conciliação compararia 20000 com 20000 atravessando uma troca de
+        // moeda, reportando 0,00 de divergência. Ver 0014_payment_currency.sql.
+        currency: market(check.venues && check.venues.market).currency,
       });
       throwOn(error, 'registerCharge');
     },
@@ -477,7 +482,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       const now = Date.now();
       let q = client
         .from('payments')
-        .select('txid, check_id, amount_cents, tip_cents, method, created_at')
+        .select('txid, check_id, amount_cents, tip_cents, method, currency, created_at')
         .eq('status', 'pendente')
         // Exclusão, não inclusão — ver INLINE_METHODS no store de memória: uma
         // lista de inclusão deixava todo trilho novo (Bizum) fora da
@@ -495,6 +500,10 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return (data || []).map((r) => ({
         checkId: r.check_id, txid: r.txid,
         amountCents: r.amount_cents, tipCents: r.tip_cents, method: r.method,
+        // `currency` viaja com a linha porque é a CONCILIAÇÃO que precisa dela:
+        // comparar centavos por venue sem saber a moeda é o jeito de atravessar
+        // uma troca de moeda reportando 0,00 de divergência.
+        currency: r.currency,
       }));
     },
 
@@ -506,14 +515,15 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       for (const c of checks || []) {
         const { data: pays, error: pErr } = await client
           .from('payments')
-          .select('txid, amount_cents, tip_cents, status, method')
+          .select('txid, amount_cents, tip_cents, status, method, currency')
           .eq('check_id', c.id);
         throwOn(pErr, 'listChecksForReconcile.payments');
         out.push({
           checkId: c.id,
           events: await loadEvents(c.id),
           payments: (pays || []).map((p) => ({
-            txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents, status: p.status, method: p.method,
+            txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents,
+            status: p.status, method: p.method, currency: p.currency,
           })),
         });
       }
@@ -858,8 +868,21 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
 
     // --- panel --------------------------------------------------------------
     async getPanelView(venueId) {
+      // `market` no SELECT, e não só no objeto de saída.
+      //
+      // A correção da moeda do painel foi metade da correção: eu acrescentei
+      // `currency: market(venue.market).currency` na saída e NÃO acrescentei
+      // `market` no select. Em memória o objeto tem o campo, então `npx jest`
+      // ficou verde; em produção `venue.market` chega `undefined`, `market()`
+      // cai no Brasil, e o painel de uma casa espanhola volta a dizer "R$" —
+      // exatamente o bug que o commit dizia fechar, inclusive na linha de
+      // GORJETA, que é o número que o dono leva pra folha.
+      //
+      // É a MESMA armadilha anotada duzentas linhas acima neste arquivo, na
+      // leitura da conta: "sem ele a coluna chega undefined e a conta cai no
+      // default brasileiro". Achado pela revisão de segurança.
       const { data: venue, error: vErr } = await client
-        .from('venues').select('id, name').eq('id', venueId).maybeSingle();
+        .from('venues').select('id, name, market').eq('id', venueId).maybeSingle();
       throwOn(vErr, 'getPanelView.venue');
       if (!venue) return null;
 

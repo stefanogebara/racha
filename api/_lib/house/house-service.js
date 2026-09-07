@@ -18,7 +18,7 @@
 const crypto = require('crypto');
 const { remainingCents } = require('../checks/check-state');
 const houseState = require('./account-state');
-const { marketGate } = require('../markets');
+const { marketGate, chargingAllowed } = require('../markets');
 
 function httpError(status, msg, code) {
   const err = new Error(msg);
@@ -285,6 +285,28 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       // Single-venue rule (âmbito limitado): credit NEVER crosses venues.
       throw httpError(409, 'Este saldo é válido somente no restaurante que o emitiu');
     }
+    // GASTAR também é um portão de mercado, não só CARREGAR.
+    //
+    // O `createLoad` ganhou o portão e o `redeem` não, e o comentário lá dizia
+    // que a carteira estava fechada em Espanha. Fechava o carregamento, não o
+    // gasto. Achado pela revisão de segurança, e a mesma coisa pela de
+    // compliance por outro caminho.
+    //
+    // O caminho concreto: venue 'br', cliente abre carteira e carrega R$200 —
+    // as duas coisas permitidas. Alguém vira `venues.market` pra 'es' no banco
+    // (o caminho provável de um piloto às pressas, escrito no `markets.js`).
+    // Todas as outras portas passam a recusar; esta ainda aceita, e 20000
+    // centavos de crédito em REAL quitam 200,00 € de conta, 1:1. Pior: o razão
+    // grava 20000 dos dois lados, então a conciliação compara 20000 com 20000
+    // e reporta 0,00 de divergência — o inegociável #8 derrotado em silêncio,
+    // que é a mesma falha que a correção de moeda existiu pra impedir.
+    //
+    // Aqui não há trilho (não se cobra nada de ninguém: é saldo já pago sendo
+    // consumido), então o portão é o interruptor direto, como em
+    // `/api/house/open`. O `marketGate` pediria um `rail` inventado.
+    const live = chargingAllowed(venue.market);
+    if (live) throw badRequest(`mercado ${venue.market}: ${live.code}`, live.code);
+
     if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw badRequest('Valor inválido');
     const remaining = remainingCents(view.state);
     if (amountCents > remaining) {

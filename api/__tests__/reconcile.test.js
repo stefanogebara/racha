@@ -28,6 +28,43 @@ describe('reconcileCheck — event log vs payments table', () => {
     expect(r.findings).toEqual([]);
   });
 
+  test('duas moedas na mesma conta é CRÍTICO, não zero de divergência', () => {
+    // O buraco que este teste fecha: a conciliação soma centavos e compara com
+    // centavos. Sem olhar a moeda ela soma 2450 de real com 2450 de euro e
+    // reporta 0,00 — o inegociável #8 derrotado exatamente onde ele deveria
+    // gritar. Duas revisões independentes apontaram isto no mesmo dia.
+    //
+    // Gravar a moeda na linha (0014_payment_currency.sql) foi metade; conferir
+    // aqui é a outra. Um campo que ninguém lê é um campo, não uma defesa.
+    const eur = (txid, a) => ({ ...row(txid, a, 0), currency: 'EUR' });
+    const brl = (txid, a) => ({ ...row(txid, a, 0), currency: 'BRL' });
+    const r = reconcileCheck({
+      checkId: 'c1',
+      events: [opened(4900), paid('tx1', 2450), paid('tx2', 2450)],
+      payments: [brl('tx1', 2450), eur('tx2', 2450)],
+    });
+    // A soma bate — é justamente por isso que passava sem ser vista.
+    expect(r.driftCents).toBe(0);
+    expect(r.ok).toBe(false);
+    const f = r.findings.find((x) => x.code === 'mixed_currency');
+    expect(f).toBeDefined();
+    expect(f.severity).toBe('critical');
+    expect(f.currencies).toEqual(['BRL', 'EUR']);
+  });
+
+  test('moeda AUSENTE é histórico, não divergência', () => {
+    // Um pagamento gravado antes da coluna existir não tem moeda. Isso não é
+    // uma segunda moeda — é a ausência de um campo novo, e tratar como
+    // divergência faria a conciliação gritar sobre todo o passado.
+    const r = reconcileCheck({
+      checkId: 'c1',
+      events: [opened(10000), paid('tx1', 6000), paid('tx2', 4000)],
+      payments: [row('tx1', 6000, 0), { ...row('tx2', 4000, 0), currency: 'BRL' }],
+    });
+    expect(r.findings.some((f) => f.code === 'mixed_currency')).toBe(false);
+    expect(r.ok).toBe(true);
+  });
+
   test('webhook appended to log but payments row missing → critical + drift', () => {
     const r = reconcileCheck({
       checkId: 'c1',

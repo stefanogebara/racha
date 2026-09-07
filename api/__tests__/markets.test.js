@@ -200,6 +200,12 @@ describe('portões de dinheiro por mercado', () => {
     // Este teste é a rede.
     const seen = [];
     const spy = {
+      provider: 'spy',
+      // Um dublê declara o que atende, como um adaptador de verdade: a guarda
+      // do `create-charge` falha FECHADO quando `currencies` está ausente, e um
+      // dublê que passasse sem declarar seria um dublê mais permissivo que a
+      // produção — o jeito exato de um teste passar onde a produção quebra.
+      currencies: ['brl', 'eur'],
       async createWalletCharge(args) {
         seen.push(args.currency);
         return { txid: 'pi_spy', clientSecret: 'cs', status: 'requires_payment_method', copiaECola: null };
@@ -237,6 +243,29 @@ describe('portões de dinheiro por mercado', () => {
     const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 2450 }]);
     const charge = createChargeService({ store, psp: brOnly });
     await expect(charge({ checkId: check.id, amountCents: 2450, wallet: 'google_pay' }))
+      .rejects.toMatchObject({ code: 'psp_market_mismatch' });
+  });
+
+  test('adaptador sem `currencies` declarado é RECUSADO, não liberado', async () => {
+    // A primeira versão desta guarda era `Array.isArray(psp.currencies) && …`:
+    // um adaptador que esquecesse de declarar passava calado. Uma guarda
+    // escrita pra fechar um achado do inegociável #7, com a forma do #7
+    // dentro. A revisão pegou, e este teste é o que impede a volta.
+    const muto = {
+      provider: 'nao-declara',
+      async createWalletCharge() { throw new Error('não deveria ser chamado'); },
+      async createPixCharge() { throw new Error('não deveria ser chamado'); },
+    };
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({
+      name: 'casa-br', servicoBp: 0, pspRecipientId: 'rcpt_x', market: 'br',
+    });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 1000 }]);
+    const charge = createChargeService({ store, psp: muto });
+    // Nem no BRASIL, que é o mercado que ele provavelmente atende: a guarda não
+    // adivinha, e um adaptador calado é configuração errada.
+    await expect(charge({ checkId: check.id, amountCents: 1000, rail: 'pix' }))
       .rejects.toMatchObject({ code: 'psp_market_mismatch' });
   });
 
@@ -392,44 +421,73 @@ describe('marketGate', () => {
   });
 });
 
-test('toda rota que cria cobrança passa pelo portão de mercado', () => {
-  // O teste que a revisão de compliance de 2026-09-07 ganhou, e que vale mais
-  // que um teste da rota que estava furada.
+test('todo lugar que cria cobrança está no censo — e o censo passa pelo portão', () => {
+  // O teste que a revisão de compliance ganhou, e depois consertou.
   //
-  // O furo não foi um erro de lógica: foi um chamador NOVO. As quatro regras de
-  // mercado estavam copiadas em dois lugares, o `create-charge` tinha três e a
-  // rota `/api/pay/stripe-intent` tinha duas outras — e a rota é a única que
-  // cria cobrança de Bizum. Um teste da rota teria pego este caso e nenhum
-  // outro; este pega o PRÓXIMO chamador que esquecer.
+  // A primeira versão perguntava, por ARQUIVO: "este arquivo chama
+  // `marketGate`?". Ela achou o `house-service`, que era o ponto. Mas ela
+  // também deixava o `router.js` imunizado pra sempre: o arquivo tem duas
+  // criações de cobrança e uma chamada de portão, então passa — e continuaria
+  // passando se uma TERCEIRA rota nascesse ali sem portão. Que é exatamente o
+  // caminho mais provável do próximo esquecimento, no arquivo mais provável.
   //
-  // Estrutural de propósito, como o teste de formatação do cliente: a pergunta
-  // não é "esta rota confere?", é "existe algum caminho até o dinheiro que não
-  // confere?".
+  // Então virou um CENSO: cada `arquivo:linha` que cria cobrança está listado
+  // aqui, e um lugar novo quebra o teste até alguém escrever por que ele é
+  // seguro. Contar não serve — a rota do Stripe tem duas criações atrás de um
+  // portão só, legitimamente.
+  //
+  // A busca também mudou de forma: pega `psp[creator](...)` além de
+  // `.createPixCharge(...)`, porque o despacho dinâmico é justamente a forma
+  // que o `create-charge` usa, e a versão anterior era cega pra ela. E anda a
+  // partir da RAIZ do repositório, não de `api/`, porque um script que cobra
+  // continua cobrando.
   const fs = require('node:fs');
   const path = require('node:path');
-  const root = path.join(__dirname, '..');
+  const root = path.join(__dirname, '..', '..');
+
+  const CENSO = [
+    // Onde: por que é seguro.
+    'api/_app/router.js: /api/pay/stripe-intent — marketGate imediatamente antes',
+    'api/_lib/house/house-service.js: createLoad — marketGate antes, fecha fora do Brasil',
+    'api/_lib/pay/create-charge.js: o portão de dinheiro compartilhado, é ele quem chama marketGate',
+  ];
 
   const files = [];
   (function walk(dir) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (e.name === 'node_modules' || e.name === '__tests__') continue;
+      if (['node_modules', '.git', 'dist', '__tests__', 'test', 'ios'].includes(e.name)) continue;
       const full = path.join(dir, e.name);
       if (e.isDirectory()) walk(full);
-      else if (e.name.endsWith('.js')) files.push(full);
+      else if (e.name.endsWith('.js') || e.name.endsWith('.mjs')) files.push(full);
     }
   }(root));
 
-  const CREATES = /\.(createPixCharge|createWalletCharge|createBizumCharge)\s*\(/;
-  const offenders = [];
+  // `.createPixCharge(` e também `psp[creator](` — o despacho dinâmico.
+  const DIRETO = /\.(createPixCharge|createWalletCharge|createBizumCharge)\s*\(/;
+  const DINAMICO = /\bpsp\s*\[\s*\w+\s*\]\s*\(/;
+  // Os adaptadores DEFINEM esses métodos; quem os CHAMA precisa do portão.
+  const ADAPTADORES = /_lib\/pay\/(mock|pagarme|stripe)-psp\.js$/;
+
+  const encontrados = new Set();
   for (const f of files) {
+    const rel = path.relative(root, f).replace(/\\/g, '/');
+    if (ADAPTADORES.test(rel)) continue;
     const src = fs.readFileSync(f, 'utf8');
-    // O próprio adaptador DEFINE esses métodos; quem os CHAMA é que precisa do
-    // portão. `mock-psp`/`pagarme-psp`/`stripe-psp` definem, não chamam.
-    if (!CREATES.test(src)) continue;
-    if (/_lib\/pay\/(mock|pagarme|stripe)-psp\.js$/.test(f.replace(/\\/g, '/'))) continue;
-    if (!/marketGate\s*\(/.test(src)) {
-      offenders.push(path.relative(root, f));
-    }
+    src.split('\n').forEach((line) => {
+      if (line.trim().startsWith('//') || line.trim().startsWith('*')) return;
+      if (DIRETO.test(line) || DINAMICO.test(line)) encontrados.add(rel);
+    });
   }
-  expect(offenders).toEqual([]);
+
+  const censados = new Set(CENSO.map((e) => e.split(':')[0].trim()));
+  const novos = [...encontrados].filter((f) => !censados.has(f)).sort();
+  expect(novos).toEqual([]);
+
+  // E todo arquivo do censo tem que MESMO passar pelo portão. Um censo que só
+  // lista nomes é uma lista de nomes.
+  const semPortao = [...censados].filter((rel) => {
+    const src = fs.readFileSync(path.join(root, rel), 'utf8');
+    return !/marketGate\s*\(/.test(src);
+  }).sort();
+  expect(semPortao).toEqual([]);
 });

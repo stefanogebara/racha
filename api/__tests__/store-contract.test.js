@@ -188,6 +188,57 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     expect(view.venue.payerTaxId).toEqual({ required: false, kind: 'nif' });
     // Limites do esquema Bizum chegam ao cliente em centavos.
     expect(view.venue.charge).toEqual({ minCents: 50, maxCents: 500000 });
+
+    // E o PAINEL DO DONO, que é onde a bateria espanhola parava antes.
+    //
+    // A correção da moeda do painel passou em memória e falhou no Supabase,
+    // porque o `select` não pedia a coluna `market` — e nenhum teste do
+    // contrato afirmava nada sobre `getPanelView().venue` além do nome. Este
+    // par de asserções é o que separa "a saída monta o campo" de "a query
+    // trouxe o dado". Achado pela revisão de segurança.
+    const panelEs = await store.getPanelView(es.id);
+    expect(panelEs.venue.currency).toBe('EUR');
+
+    const br = await store.seedVenue({
+      name: `__contract_br_panel__ ${crypto.randomBytes(3).toString('hex')}`,
+      servicoBp: 1000, pspRecipientId: 'rcpt_demo', isTest: true, market: 'br',
+    });
+    expect((await store.getPanelView(br.id)).venue.currency).toBe('BRL');
+  });
+
+  test('cada linha de dinheiro grava a MOEDA dela, não deduz depois', async () => {
+    // Achado por duas revisões independentes, pelo mesmo caminho: nenhuma linha
+    // de pagamento dizia em que moeda foi cobrada. A moeda era deduzida na
+    // LEITURA, do `venues.market` — então virar o market de uma venue
+    // reetiquetava retroativamente o razão inteiro dela, e a conciliação, que
+    // compara centavos por venue, comparava 20000 com 20000 atravessando uma
+    // troca de moeda e reportava 0,00 de divergência.
+    //
+    // A segunda defesa é o gatilho em 0014_payment_currency.sql, que congela o
+    // market da venue depois do primeiro pagamento. Esse é SQL e só roda contra
+    // o Supabase; o que este teste prova é o registro que se explica sozinho.
+    process.env.RACHA_ES_ENABLED = 'true';
+    try {
+      for (const [marketCode, expected] of [['br', 'BRL'], ['es', 'EUR']]) {
+        const v = await store.seedVenue({
+          name: `__contract_cur_${marketCode}__ ${crypto.randomBytes(3).toString('hex')}`,
+          servicoBp: 0, pspRecipientId: 'acct_venue', isTest: true, market: marketCode,
+        });
+        const mesa = await store.seedTable(v.id, 'Mesa 1');
+        const ck = await store.openCheck(mesa.qrToken, [{ id: 'i', name: 'Item', priceCents: 2450 }]);
+        const txid = `cur_${marketCode}_${crypto.randomBytes(4).toString('hex')}`;
+        await store.registerCharge({
+          checkId: ck.id, txid, amountCents: 2450, tipCents: 0,
+          payerLabel: null, method: marketCode === 'es' ? 'bizum' : 'pix',
+        });
+        const pending = await store.listPendingCharges({ checkId: ck.id });
+        const row = pending.find((r) => r.txid === txid);
+        expect(row).toBeDefined();
+        expect(row.currency).toBe(expected);
+      }
+    } finally {
+      delete process.env.RACHA_ES_ENABLED;
+    }
   });
 
   test('mercado desconhecido é recusado na escrita, não gravado como Brasil', async () => {

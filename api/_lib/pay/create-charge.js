@@ -100,7 +100,18 @@ function createChargeService({ store, psp }) {
     // A pergunta é do PORTÃO, não do adaptador: o adaptador é a segunda linha
     // de defesa, e aqui é onde ainda dá pra responder com um código.
     const currency = pspCurrency(venue.market);
-    if (Array.isArray(psp.currencies) && !psp.currencies.includes(currency)) {
+    // FALHA FECHADO: adaptador sem `currencies` declarado é configuração
+    // errada, não passe livre.
+    //
+    // A primeira versão desta guarda era `if (Array.isArray(psp.currencies) &&
+    // !psp.currencies.includes(...))` — um adaptador que esquecesse de declarar
+    // passava calado. Uma guarda escrita NESTA rodada, pra fechar um achado do
+    // inegociável #7, com a forma do inegociável #7 dentro. A revisão pegou.
+    //
+    // Vale reparar na assimetria que tornava isso fácil de não ver: a guarda
+    // irmã logo abaixo (`typeof psp[creator] !== 'function'`) já falhava
+    // fechada. Duas linhas vizinhas, dois comportamentos opostos.
+    if (!Array.isArray(psp.currencies) || !psp.currencies.includes(currency)) {
       throw badRequest(`psp ${psp.provider || '?'} não emite em ${currency}`, 'psp_market_mismatch');
     }
     const creator = wallet ? 'createWalletCharge' : rail === 'bizum' ? 'createBizumCharge' : 'createPixCharge';

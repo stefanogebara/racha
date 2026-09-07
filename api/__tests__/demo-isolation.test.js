@@ -24,7 +24,10 @@ const SECRET = 'demo-webhook-secret-0123456789';
 function livePspThatMustNeverBeCalled() {
   const boom = () => { throw new Error('LIVE PSP tocado pelo demo — isolamento quebrado'); };
   return {
-    provider: 'live', createPixCharge: boom, createWalletCharge: boom,
+    // `currencies` declarado porque o portão de dinheiro falha fechado sem ele:
+    // um dublê sem declaração pararia ANTES de tocar o `boom`, e o teste
+    // passaria por um motivo diferente do que ele afirma.
+    provider: 'live', currencies: ['brl', 'eur'], createPixCharge: boom, createWalletCharge: boom,
     verifyAndParseWebhook: boom, getRecipient: async () => null, getRecipientBalance: async () => null,
   };
 }
