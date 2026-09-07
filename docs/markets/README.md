@@ -111,8 +111,15 @@ com `on_behalf_of`, e a plataforma nunca é a comerciante de liquidação. Mas
 mudança de fluxo de fundos passa por **parecer de advogado de pagamentos
 ANTES**. A janela do Pix (MED) é muito mais curta, então isto é novo.
 
-Pendências: o parecer, a cláusula de regresso no contrato, e tratar
-`charge.dispute.created` no webhook (hoje não é tratado).
+`charge.dispute.created` **agora é tratado**: vira o evento `PAYMENT_DISPUTED`
+no log (sem mover saldo — o dinheiro ainda é do restaurante até o esquema
+decidir) e alerta o fundador, porque há prazo de prova de 40 dias e perder o
+prazo é perder o dinheiro por inação. `charge.dispute.closed` com `lost` vira
+estorno de verdade; `won` fecha quieto. `refund.failed` alerta e **não** cria
+evento: o estorno não aconteceu, e inventar um seria mentir no razão.
+
+Pendências: o parecer do advogado e a cláusula de regresso no contrato do
+restaurante.
 
 ### 2. GDPR capítulo V: o banco está em São Paulo
 
@@ -140,14 +147,18 @@ Anotado aqui pra não parecer pronto:
    não monta, e localmente a mesa espanhola paga pelo MockPsp. O que falta é
    uma cobrança de teste no sandbox, com os telefones de teste do Bizum, pra ver
    o elemento na tela e conferir que o webhook chega com `method: 'bizum'`.
-2. **Onboarding espanhol de recebimento.** O formulário de recebedor é
-   Pagar.me/Brasil: agência, conta, dígito, código de compensação. Em Espanha é
-   IBAN e a conta conectada é da Stripe. A tela precisa ser por mercado.
+2. ~~**Onboarding espanhol de recebimento.**~~ Feito, e a resposta certa foi
+   **não construir o formulário**: a Espanha usa o onboarding hospedado da
+   Stripe, que já existia pro trilho de cartão. O dono conecta a conta e
+   preenche IBAN e KYC na página deles — os dados bancários nunca passam pela
+   Racha. Menos código e menos dado sensível nosso. `createConnectedAccount`
+   agora recebe o mercado, então a conta nasce ES com `bizum_payments` pedido.
 3. **Capacidade `bizum_payments`** ativa na conta da plataforma **e** em cada
    conta conectada. Fica `pending` até a Stripe verificar o onboarding do Bizum.
-4. **IVA e fatura.** Uma conta paga por várias pessoas continua sendo uma
-   operação do restaurante; confirmar com contabilidade espanhola como a fatura
-   simplificada trata pagamento fracionado.
+4. **IVA e fatura.** A tela de pago já diz o que é — "Justificante de pago ·
+   <casa>" e, explícito, que **não** é uma fatura. Falta confirmar com
+   contabilidade espanhola como a fatura simplificada trata pagamento
+   fracionado, e se a casa quer o NIF dela impresso ali.
 5. **A landing.** A cópia espanhola fala de Bizum onde a portuguesa fala de Pix,
    o que amarra a mensagem ao IDIOMA e não ao mercado. Aceitável numa página de
    marketing, errado em qualquer outro lugar — é decisão de cópia.
