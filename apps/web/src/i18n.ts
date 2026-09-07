@@ -211,6 +211,12 @@ export const DICT = {
   'err.tip_not_supported': { en: 'This bill does not take a service charge.',
                         pt: 'Esta conta não aceita serviço.',
                         es: 'Esta cuenta no admite cargo por servicio.' },
+  // Erro de CONFIGURAÇÃO, não do cliente: o PSP ligado nesta casa não emite na
+  // moeda do mercado dela. A pessoa na mesa não pode fazer nada a respeito, e
+  // por isso a frase não pede nada dela — manda chamar quem pode resolver.
+  'err.psp_market_mismatch': { en: 'This restaurant cannot take payments right now. Please tell the staff.',
+                        pt: 'Este restaurante não pode receber pagamentos agora. Avise a equipe.',
+                        es: 'Este restaurante no puede cobrar ahora mismo. Avisa al personal.' },
   'err.rail_unsupported': { en: 'This payment method is not available here.',
                         pt: 'Este meio de pagamento não está disponível aqui.',
                         es: 'Este método de pago no está disponible aquí.' },

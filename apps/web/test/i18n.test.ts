@@ -473,3 +473,42 @@ test('nenhuma tela nova imprime dinheiro sem dizer a moeda', async () => {
   }
   assert.deepEqual(offenders, [], `\ndinheiro sem moeda:\n${offenders.join('\n')}\n`);
 });
+
+test('todo código de erro que a API manda tem tradução', async () => {
+  // Teste que atravessa os dois lados de propósito, porque o buraco é entre
+  // eles: o servidor manda `code`, o cliente traduz, e ninguém quebra quando
+  // um código novo aparece só num dos lados. Foi assim que `psp_market_mismatch`
+  // nasceu sem tradução — a mensagem que a pessoa leria era a frase interna em
+  // português, "psp so-brasil não emite em eur", numa tela em espanhol.
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const api = path.join(import.meta.dirname, '..', '..', '..', 'api');
+
+  // Códigos que NÃO são de tela: infraestrutura, alertas de conciliação e
+  // canário. Nomeados um a um — a lista curta é o que faz o teste valer.
+  const INTERNAL = new Set([
+    'internal',                             // 500 mapeado, o cliente mostra o genérico
+    'cron_secret_missing',                  // configuração do deploy
+    'reconcile_threw', 'venue_reconcile_threw',
+    'house_redeem_missing_payment_row', 'house_redeem_missing_payment_row_paid',
+    'house_payment_row_without_redeem',     // achados de conciliação, vão pro fundador
+    'br', 'es', 'racha',                    // `code` de mercado/marca, não de erro
+  ]);
+
+  const codes = new Set<string>();
+  (function walk(dir: string) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === '__tests__') continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.js')) {
+        const src = fs.readFileSync(full, 'utf8');
+        for (const m of src.matchAll(/code: '([a-z_]+)'/g)) codes.add(m[1]);
+        for (const m of src.matchAll(/badRequest\([^;]*?'([a-z_]+)'\s*[,)]/g)) codes.add(m[1]);
+      }
+    }
+  }(api));
+
+  const missing = [...codes].filter((c) => !INTERNAL.has(c) && !(`err.${c}` in DICT)).sort();
+  assert.deepEqual(missing, [], `\ncódigos sem tradução (a tela mostraria a frase interna):\n${missing.join('\n')}\n`);
+});
