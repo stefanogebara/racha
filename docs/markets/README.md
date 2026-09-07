@@ -133,10 +133,13 @@ nenhum — um nome preso a um pagamento guardado pra sempre falha o art. 5(1)(e)
 
 Anotado aqui pra não parecer pronto:
 
-1. **O elemento de pagamento do Bizum no front.** O `StripeWalletPay` usa o
-   Express Checkout Element, que não serve. Precisa do Payment Element com
-   `bizum`, o campo de telefone dele e o estado de espera ("confirma no app do
-   teu banco") — as chaves de tradução já existem (`bizum.*`).
+1. ~~**O elemento de pagamento do Bizum no front.**~~ Feito: `BizumPay.tsx`,
+   com o Payment Element (o Express Checkout não suporta Bizum), o estado de
+   espera e o texto "confirma no app do teu banco". **Nunca foi exercitado
+   contra a Stripe de verdade** — sem `VITE_STRIPE_PUBLISHABLE_KEY` o elemento
+   não monta, e localmente a mesa espanhola paga pelo MockPsp. O que falta é
+   uma cobrança de teste no sandbox, com os telefones de teste do Bizum, pra ver
+   o elemento na tela e conferir que o webhook chega com `method: 'bizum'`.
 2. **Onboarding espanhol de recebimento.** O formulário de recebedor é
    Pagar.me/Brasil: agência, conta, dígito, código de compensação. Em Espanha é
    IBAN e a conta conectada é da Stripe. A tela precisa ser por mercado.
