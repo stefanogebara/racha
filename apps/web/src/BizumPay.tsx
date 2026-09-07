@@ -3,7 +3,7 @@ import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { api, ApiError } from './api';
 import { useT } from './lang';
-import { tError } from './i18n';
+import { tError, STRIPE_LOCALE } from './i18n';
 import { bizumOutcome } from './bizumStatus';
 
 /**
@@ -104,8 +104,14 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
   return (
     <div className="bizum">
       <p className="label">{t('bizum.title')}</p>
+      {/* Nada de instrução nossa aqui. Visto na tela (2026-09-07): o próprio
+          elemento da Stripe já desenha "autoriza el pago en tu aplicación
+          bancaria del móvil", no idioma do leitor, logo acima — a nossa frase
+          aparecia colada embaixo dizendo o mesmo com outras palavras. Duas
+          instruções seguidas na hora de pagar fazem a pessoa reler pra
+          descobrir se são a mesma coisa. A explicação continua no `App`, na
+          tela de cobrança criada, onde o elemento NÃO existe. */}
       <PaymentElement options={{ layout: 'tabs' }} />
-      <p className="muted small">{t('bizum.how')}</p>
       <button className="cta" disabled={busy} onClick={onConfirm}>
         {busy ? t('pix.simulating') : t('pay.ctaBizum', { amount: amountLabel })}
       </button>
@@ -118,15 +124,25 @@ export default function BizumPay({
   token, amountCents, tipCents, payerLabel, amountLabel, disabled, onAuthorized,
 }: Props) {
   const stripe = getStripe();
+  const { lang } = useT();
   const total = amountCents + tipCents;
 
   // O elemento é montado no modo deferred, com o valor e a moeda do mercado.
+  //
+  // `locale` não é enfeite aqui. Visto na tela (2026-09-07) contra a Stripe de
+  // verdade: sem ele o elemento do Bizum desenhava "Phone number", a lista de
+  // países e o aviso legal do Open Bank em INGLÊS dentro de uma conta espanhola
+  // com a tela em espanhol. É a única parte da tela de pagar que o seletor não
+  // alcançava — e é a parte que PEDE UM DADO PESSOAL e nomeia um segundo
+  // responsável pelo tratamento. Um aviso de privacidade que a pessoa não lê
+  // não é um aviso (GDPR art. 12: linguagem clara e acessível).
   const options = useMemo(() => ({
     mode: 'payment' as const,
     amount: Math.max(1, total),
     currency: 'eur',
     paymentMethodTypes: ['bizum'],
-  }), [total]);
+    locale: STRIPE_LOCALE[lang],
+  }), [total, lang]);
 
   // Sem chave publicável, desabilitado, ou valor zero → não renderiza nada. Uma
   // tela de pagamento que não pode cobrar não deve aparecer.

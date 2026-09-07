@@ -581,10 +581,6 @@ export default function App() {
           {/* O trilho decide a TELA, não só o rótulo. Em Espanha o Bizum tem o
               seu próprio elemento (o Express Checkout não suporta Bizum) e o
               caminho do Pix não existe — deixar o botão do Pix aqui chamaria o
-              adaptador brasileiro numa conta em euro. */}
-          {/* O trilho decide a TELA, não só o rótulo. Em Espanha o Bizum tem o
-              seu próprio elemento (o Express Checkout não suporta Bizum) e o
-              caminho do Pix não existe — deixar o botão do Pix aqui chamaria o
               adaptador brasileiro numa conta em euro.
 
               Sem chave da Stripe o elemento não renderiza, e uma conta sem

@@ -3,6 +3,7 @@ import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { api } from './api';
 import { useT } from './lang';
+import { STRIPE_LOCALE } from './i18n';
 
 /**
  * Apple Pay / Google Pay / cartão via STRIPE (2º rail) — o Express Checkout
@@ -82,14 +83,19 @@ export default function StripeWalletPay({
   onPaid: () => void;
 }) {
   const stripe = getStripe();
+  const { lang } = useT();
   const [error, setError] = useState<string>('');
   const total = amountCents + tipCents;
 
+  // `locale` faz o elemento da Stripe obedecer ao seletor de idioma. Sem ele a
+  // folha cai no idioma do NAVEGADOR — o telefone de um turista mostra a folha
+  // de pagamento numa língua que a conta ao lado não fala. Ver `STRIPE_LOCALE`.
   const options = useMemo(() => ({
     mode: 'payment' as const,
     amount: Math.max(1, total),
     currency: 'brl',
-  }), [total]);
+    locale: STRIPE_LOCALE[lang],
+  }), [total, lang]);
 
   // Sem chave publicável, desabilitado, ou valor zero → não renderiza nada.
   if (!PK || !stripe || disabled || total === 0) return null;
