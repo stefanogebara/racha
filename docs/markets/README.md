@@ -111,9 +111,41 @@ node dev-server.js
 | PaymentMethod de bizum | exige `billing_details[phone]` |
 | Evento irrelevante no webhook | **200** (era 401 antes da correção) |
 | `payment_intent.succeeded` de txid desconhecido | **409**, recusado |
+| O Payment Element do Bizum na tela | renderiza: campo de telefone, `6XX XX XX XX`, Espanha (+34) pré-selecionada |
+| O elemento SEM `locale` | sai em **inglês** numa conta espanhola — corrigido |
 
 Os limites do `markets.js` (50 e 500000) batem com os da API — agora medidos, não
 confiados na doc.
+
+**O elemento visto na tela (2026-09-07).** A chave publicável do sandbox estava
+no perfil da CLI o tempo todo, então a metade do cliente deu pra exercitar sem
+esperar conta conectada: o Payment Element monta, desenha o campo de telefone
+com máscara espanhola e pré-seleciona Espanha. Duas coisas que só a tela
+mostrou:
+
+1. **Sem `locale`, a folha sai no idioma do NAVEGADOR.** "Phone number", a
+   lista de países e o aviso legal em inglês, dentro de uma conta espanhola com
+   a tela em espanhol. Era a única parte da tela de pagar que o seletor de
+   idioma não alcançava — e é a parte que pede um dado pessoal. O mapa é
+   separado do `LOCALE` de formatação porque `es-ES` **não** está na lista da
+   Stripe, e um código que ela não reconhece é ignorado em silêncio.
+2. **A nossa instrução repetia a da Stripe**, colada logo abaixo dela. Saiu.
+
+**Um terceiro no fluxo de dados, que a própria folha declara.** O elemento
+mostra, em espanhol:
+
+> Stripe comunicará tus datos a Openbank Pay, marca comercial de Open Bank
+> S.A., para gestionar la transferencia.
+
+Ou seja: o telefone do pagador vai pra **Open Bank, S.A.** (o adquirente do
+Bizum na Stripe), e não só pra Stripe. O dado não passa pelos nossos
+servidores, mas o Openbank passa a ser um destinatário nomeado — então entra no
+registro do art. 30 e no aviso do art. 13, junto da Stripe. Isto não estava em
+nenhuma nota antes de alguém abrir a tela; a doc não menciona.
+
+A versão inglesa da mesma frase diz "acting data controller" e a espanhola diz
+"para gestionar la transferencia" — não é a mesma afirmação jurídica, e é cópia
+da Stripe, não nossa. Vale mostrar as duas ao advogado.
 
 **O bug que só a API real achou.** Confirmar devolve `requires_action`, e o
 código só aceitava `processing`: a tela cairia no ramo de erro e diria
@@ -171,7 +203,10 @@ Dado pessoal de titular europeu indo pro Brasil precisa de cláusulas-padrão
 região da UE — que é a correção técnica que dispensa a maior parte da papelada.
 
 O que atravessa hoje: `payerLabel` (nome livre, persistido), e nome + telefone
-da carteira da casa (`/api/house/open`, que **não** é gated por mercado). Além
+da carteira da casa (`/api/house/open`, que **não** é gated por mercado). E o
+telefone do pagador vai pra **Open Bank, S.A.** pelo elemento da Stripe — sem
+tocar nos nossos servidores, mas nomeado no registro e no aviso do mesmo jeito
+(ver a seção do sandbox). Além
 disso faltam: registro do art. 30 pros fluxos espanhóis, aviso do art. 13 em
 espanhol, DPA do art. 28 com cada casa espanhola (a Racha é operadora do dado
 do cliente da casa), e representante do art. 27 sem estabelecimento na UE.
