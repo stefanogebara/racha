@@ -50,13 +50,10 @@ export default function Qrs() {
       </header>
 
       <section className="card noprint">
-        <p className="label">QRs das mesas ({printable.length})</p>
-        <p className="muted small">
-          Um cartão por mesa ativa — mesas desativadas e de treino ficam de fora.
-          Dica: salve como PDF na caixa de impressão para mandar à gráfica.
-        </p>
+        <p className="label">{t('qrs.title', { n: printable.length })}</p>
+        <p className="muted small">{t('qrs.help')}</p>
         <button className="cta" disabled={printable.length === 0} onClick={() => window.print()}>
-          Imprimir
+          {t('qrs.print')}
         </button>
       </section>
 

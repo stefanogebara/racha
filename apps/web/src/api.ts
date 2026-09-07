@@ -106,7 +106,12 @@ export interface HouseRedeemResult {
 // ---- Superfícies do dono (buscadas via authedReq de auth.ts, com Bearer).
 
 /** GET /api/tables?v=<venueId> → { venue, tables } — inventário de mesas. */
-export interface Venue { id: string; name: string; city: string | null; servicoBp: number; pspRecipientId: string | null }
+export interface Venue {
+  id: string; name: string; city: string | null; servicoBp: number;
+  pspRecipientId: string | null;
+  /** br | es — decide o trilho, a moeda e QUAL tela de recebimento aparece. */
+  market?: 'br' | 'es';
+}
 
 export interface VenueTable {
   id: string;

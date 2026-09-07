@@ -60,6 +60,7 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'rcpt.optionalPh:pt=es', 'rcpt.sending:pt=es', 'rcpt.cancel:pt=es',
     'ledger.load:pt=es', 'ledger.refund:pt=es', 'cat.carne:pt=es',
     'cat.massa:en=es', 'cat.cafe:pt=es', 'land.nav:pt=es',
+    'qrs.print:pt=es', // "Imprimir" é igual nas duas
   ]);
   // Compara TODOS os pares, não só en/pt: com três idiomas, uma cópia entre
   // espanhol e português passa tão fácil quanto passava entre inglês e
@@ -265,12 +266,30 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
   const offenders: string[] = [];
   for (const file of fs.readdirSync(src)) {
     if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
+    // Blocos de comentário são prosa pro próximo humano, e essa prosa é em
+    // português de propósito no repositório inteiro. Precisa de ESTADO: um
+    // `{/* … */}` de várias linhas tem linhas do meio sem marcador nenhum, e
+    // sem rastrear a abertura elas parecem texto de tela.
+    let inBlock = false;
     fs.readFileSync(path.join(src, file), 'utf8').split('\n').forEach((line, i) => {
       const trimmed = line.trim();
-      if (/^(\/\/|\*|\/\*|\{\/\*)/.test(trimmed)) return;
+      const opens = /\{?\/\*/.test(line);
+      const closes = /\*\/\}?/.test(line);
+      if (inBlock) {
+        if (closes) inBlock = false;
+        return;
+      }
+      if (opens && !closes) { inBlock = true; return; }
+      if (/^(\/\/|\*|\/\*|\{\/\*)/.test(trimmed) || (opens && closes)) return;
       const candidates = [
         ...[...line.matchAll(/>([^<>{}]{4,})</g)].map((m) => m[1]),
         ...[...line.matchAll(/(?:placeholder|title|aria-label)="([^"]{4,})"/g)].map((m) => m[1]),
+        // Prosa de JSX que ocupa VÁRIAS linhas: as linhas do meio não têm `>`
+        // nem `<`, então a regra de cima não as vê. Foi assim que o parágrafo
+        // do AdminStripe — três linhas em português, mencionando o Pix numa
+        // tela espanhola — passou pela primeira versão deste teste. Uma linha
+        // que é só texto (sem tag, sem chave, sem código) é prosa de tela.
+        ...(/^[^<>{}()=;:`|&]+$/.test(trimmed) && trimmed.length > 12 ? [trimmed] : []),
       ];
       for (const c of candidates) {
         if (re.test(c)) offenders.push(`${file}:${i + 1} texto de tela em português: ${JSON.stringify(c.trim().slice(0, 60))}`);

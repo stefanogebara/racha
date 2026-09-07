@@ -673,9 +673,14 @@ async function route(req, res) {
       try {
         let accountId = venue.stripeAccountId;
         if (!accountId || !/^acct_/.test(accountId)) {
+          // O MERCADO decide o país da conta conectada e quais capacidades
+          // pedir. Sem isto, `country: 'BR'` fixo criava conta brasileira pra
+          // uma casa espanhola — e os business locations do Bizum não incluem o
+          // Brasil, então a capacidade `bizum_payments` nunca era nem pedida.
           const acct = await stripePsp.createConnectedAccount({
             email: venue.notifyEmail || undefined,
             businessName: venue.name, cnpj: venue.cnpj || undefined,
+            marketCode: venue.market,
           });
           accountId = acct.recipientId;
           await store.setVenueStripeAccount(b.venueId, accountId);

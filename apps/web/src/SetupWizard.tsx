@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import AdminRecipient from './AdminRecipient';
+import AdminStripe from './AdminStripe';
 import type { VenueTable } from './api';
 import type { VenueAdmin } from './useVenueAdmin';
 import { useT } from './lang';
@@ -110,8 +111,15 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
 
       {step === 1 && (
         <>
-          <StepHead title={t('wiz.t2')} sub={t('wiz.t2sub')} />
-          <AdminRecipient venueId={venueId} onChanged={admin.refresh} />
+          {/* Em Espanha nós NÃO validamos banco e conta — a Stripe faz isso na
+              página dela. Descrever o fluxo brasileiro aqui prometeria uma
+              tela que não existe. */}
+          <StepHead title={t('wiz.t2')} sub={t(venue?.market === 'es' ? 'wiz.t2subEs' : 'wiz.t2sub')} />
+          {/* Mesmo desdobramento do painel: Espanha vai pelo onboarding
+              hospedado da Stripe (IBAN e KYC lá), Brasil pelo recebedor. */}
+          {venue?.market === 'es'
+            ? <AdminStripe venueId={venueId} />
+            : <AdminRecipient venueId={venueId} onChanged={admin.refresh} />}
         </>
       )}
 

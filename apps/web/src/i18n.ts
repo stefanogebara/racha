@@ -515,12 +515,26 @@ export const DICT = {
                         es: '— un soporte por mesa, nunca un A4 suelto.' },
 
   // ── folha de QRs ───────────────────────────────────────────────────────
+  'qrs.title':        { en: 'Table QRs ({n})',                 pt: 'QRs das mesas ({n})', es: 'QR de las mesas ({n})' },
+  'qrs.help':         { en: 'One card per active table — disabled and training tables are left out. Tip: save as PDF from the print dialog to send to a print shop.',
+                        pt: 'Um cartão por mesa ativa — mesas desativadas e de treino ficam de fora. Dica: salve como PDF na caixa de impressão para mandar à gráfica.',
+                        es: 'Una tarjeta por mesa activa — las desactivadas y las de prácticas quedan fuera. Consejo: guarda como PDF desde el diálogo de impresión para enviarlo a la imprenta.' },
+  'qrs.print':        { en: 'Print',                           pt: 'Imprimir', es: 'Imprimir' },
   'qrs.preparing':    { en: 'preparing the QRs…',              pt: 'preparando os QRs…', es: 'preparando los QR…' },
   'qrs.backTables':   { en: '← tables',                        pt: '← mesas', es: '← mesas' },
   'qrs.noneActive':   { en: 'no active table to print.',       pt: 'nenhuma mesa ativa para imprimir.', es: 'no hay mesas activas para imprimir.' },
 
   // ── Stripe ─────────────────────────────────────────────────────────────
   'stripe.title':     { en: 'Card / Apple Pay (Stripe)',       pt: 'Cartão / Apple Pay (Stripe)', es: 'Tarjeta / Apple Pay (Stripe)' },
+  // Sem nomear o trilho local: "além do Pix" numa tela espanhola é errado, e o
+  // que importa nesta frase é o mesmo nos dois mercados — cartão e carteiras,
+  // dinheiro direto na conta da casa, dados bancários na página da Stripe.
+  'stripe.blurb':     { en: 'Accept card, Apple Pay and Google Pay as well. The money lands straight in the restaurant’s account, with no custody by us. You connect a Stripe account and fill in the details on Stripe’s own secure page — the bank details never pass through Racha.',
+                        pt: 'Aceitar cartão, Apple Pay e Google Pay também. O dinheiro cai direto na conta do restaurante, sem custódia nossa. Você conecta uma conta Stripe e faz o cadastro na página segura da Stripe — os dados bancários não passam pela Racha.',
+                        es: 'Acepta tarjeta, Apple Pay y Google Pay también. El dinero cae directo en la cuenta del restaurante, sin custodia por nuestra parte. Conectas una cuenta de Stripe y rellenas los datos en su propia página segura — los datos bancarios nunca pasan por Racha.' },
+  'wiz.t2subEs':      { en: 'Where the money from the bills lands. You connect a Stripe account and enter the IBAN and KYC details on Stripe’s page; the bank details never pass through Racha.',
+                        pt: 'Onde o dinheiro das comandas cai. Você conecta uma conta Stripe e preenche IBAN e KYC na página deles; os dados bancários não passam pela Racha.',
+                        es: 'Donde cae el dinero de las cuentas. Conectas una cuenta de Stripe e introduces el IBAN y los datos de KYC en su página; los datos bancarios nunca pasan por Racha.' },
   'stripe.active':    { en: 'Active · takes card/Apple Pay',   pt: 'Ativo · aceita cartão/Apple Pay', es: 'Activo · acepta tarjeta/Apple Pay' },
   'stripe.pending':   { en: 'Under review — finish the sign-up at Stripe',
                         pt: 'Em análise — termine o cadastro na Stripe',
@@ -566,6 +580,9 @@ export const DICT = {
   'rcpt.sameDoc':     { en: 'The account must belong to the same CNPJ/CPF as the document — that is Pagar.me’s KYC rule.',
                         pt: 'A conta precisa pertencer ao mesmo CNPJ/CPF do documento — é a regra do KYC do Pagar.me.',
                         es: 'La cuenta debe pertenecer al mismo documento fiscal — es la norma KYC del proveedor.' },
+  'rcpt.esVia':       { en: 'Payouts are set up with Stripe: you enter the IBAN and the KYC details on their page, so the bank details never pass through Racha.',
+                        pt: 'O recebimento é configurado na Stripe: o IBAN e os dados de KYC você preenche na página deles, então os dados bancários nunca passam pela Racha.',
+                        es: 'Los cobros se configuran en Stripe: el IBAN y los datos de KYC los introduces en su página, así que los datos bancarios nunca pasan por Racha.' },
   'rcpt.section':     { en: 'Payouts',                         pt: 'Recebimento', es: 'Cobros' },
   'rcpt.active':      { en: 'Recipient active · {id}',         pt: 'Recebedor ativo · {id}', es: 'Cuenta de cobro activa · {id}' },
   'rcpt.review':      { en: 'Under review · {id}',             pt: 'Em análise · {id}', es: 'En revisión · {id}' },

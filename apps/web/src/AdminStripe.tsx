@@ -76,11 +76,7 @@ export default function AdminStripe({ venueId }: { venueId: string }) {
   return (
     <section className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <p className="label">{t('stripe.title')}</p>
-      <p className="muted small">
-        Aceitar cartão, Apple Pay e Google Pay além do Pix. O dinheiro cai direto na
-        conta do restaurante (sem custódia). Você conecta uma conta Stripe e faz o
-        cadastro na página segura da Stripe — os dados bancários não passam pelo Racha.
-      </p>
+      <p className="muted small">{t('stripe.blurb')}</p>
 
       {active && <span className="pill paga" style={{ alignSelf: 'flex-start' }}>{t('stripe.active')}</span>}
       {pending && <span className="pill parcial" style={{ alignSelf: 'flex-start' }}>{t('stripe.pending')}</span>}

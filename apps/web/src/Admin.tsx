@@ -209,9 +209,24 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
         ))}
       </section>
 
-      <AdminRecipient venueId={venueId} onChanged={admin.refresh} />
-
-      <AdminStripe venueId={venueId} />
+      {/* Recebimento POR MERCADO. Em Espanha não existe agência/conta/dígito —
+          existe IBAN, e a conta é da Stripe. Em vez de construir um formulário
+          bancário espanhol, a Espanha usa o onboarding hospedado da Stripe,
+          que já está aqui: o dono preenche IBAN e KYC na página deles e os
+          dados bancários nunca passam pela Racha. Menos código e menos dado
+          sensível nosso — a resposta certa era não construir o formulário. */}
+      {venue?.market === 'es' ? (
+        <section className="panel">
+          <p className="label">{t('rcpt.section')}</p>
+          <p className="muted small">{t('rcpt.esVia')}</p>
+          <AdminStripe venueId={venueId} />
+        </section>
+      ) : (
+        <>
+          <AdminRecipient venueId={venueId} onChanged={admin.refresh} />
+          <AdminStripe venueId={venueId} />
+        </>
+      )}
 
       {/* Créditos da casa: recurso avançado (carteira pré-paga), fora do setup — colapsado. */}
       <details>
