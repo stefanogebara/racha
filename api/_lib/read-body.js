@@ -15,7 +15,9 @@
  *
  * As três saídas, e todas resolvem a promessa exatamente uma vez:
  *  - `'end'` → o corpo;
- *  - passou do teto → 413 com código;
+ *  - passou do teto → 413 com código, e o stream é PAUSADO em vez de destruído
+ *    (destruir mata o socket antes de a resposta sair: quem chama recebe um
+ *    reset de TCP no lugar do 413 — medido);
  *  - `'error'` ou `'close'` sem `'end'` → rejeita. O `'close'` é o que faltava:
  *    um stream que acaba sem `'end'` (destruído, conexão cortada) rejeitava
  *    nada e ficava calado pra sempre.
@@ -41,10 +43,21 @@ function readBody(req, { maxBytes = MAX_BYTES } = {}) {
     req.on('data', (c) => {
       data += c;
       if (data.length > maxBytes) {
+        // PAUSA, não destrói.
+        //
+        // A primeira correção rejeitava a promessa e chamava `req.destroy()` na
+        // mesma linha. Isso já resolvia o problema real — a invocação era
+        // liberada em milissegundos em vez de ficar presa até o timeout — mas
+        // matava o socket antes de a resposta ser escrita, e quem chamava
+        // recebia um reset de TCP em vez de um 413. Medido: `ConnectionResetError`.
+        //
+        // `pause()` para de acumular e deixa a rota responder. O corpo que
+        // ainda estiver na rede é descartado; a memória para de crescer, que é
+        // o que o teto existe pra garantir.
+        if (typeof req.pause === 'function') req.pause();
         done(reject, Object.assign(new Error('corpo muito grande'), {
           statusCode: 413, code: 'body_too_large',
         }));
-        if (typeof req.destroy === 'function') req.destroy();
       }
     });
     req.on('end', () => done(resolve, data));

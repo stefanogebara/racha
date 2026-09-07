@@ -7,6 +7,7 @@ const { readBody, MAX_BYTES } = require('../_lib/read-body');
 function fakeReq() {
   const req = new EventEmitter();
   req.destroy = () => { req.destroyed = true; };
+  req.pause = () => { req.paused = true; };
   return req;
 }
 
@@ -30,7 +31,11 @@ describe('readBody', () => {
     const p = readBody(req);
     req.emit('data', 'x'.repeat(MAX_BYTES + 1));
     await expect(p).rejects.toMatchObject({ statusCode: 413, code: 'body_too_large' });
-    expect(req.destroyed).toBe(true);
+    // PAUSA, não destrói: destruir mata o socket antes de a resposta sair, e
+    // quem chama recebe um reset de TCP em vez do 413. Medido contra o servidor
+    // de verdade — `ConnectionResetError` — depois da primeira correção.
+    expect(req.paused).toBe(true);
+    expect(req.destroyed).toBeUndefined();
   });
 
   test('stream que acaba sem `end` rejeita em vez de ficar calado pra sempre', async () => {
