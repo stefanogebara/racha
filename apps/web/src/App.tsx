@@ -23,10 +23,6 @@ type Step = 'conta' | 'pagar' | 'pago' | 'saldo';
 
 export default function App() {
   const { t, lang } = useT();
-  // A moeda não muda com o idioma — a conta é em reais nos dois casos. O que
-  // muda é a separação de milhar e decimal, senão um leitor de inglês lê
-  // "R$ 1.234,56" errado por uma ordem de grandeza.
-  const brl = useCallback((c: number) => money(c, lang), [lang]);
   const token = useMemo(
     () => new URLSearchParams(window.location.search).get('t') ?? '',
     [],
@@ -54,6 +50,25 @@ export default function App() {
   }, [prospectPl]);
   useEffect(() => { sendBeacon('opened'); }, [sendBeacon]);
   const [view, setView] = useState<CheckView | null>(null);
+
+  // Dois eixos, e confundi-los é o defeito: a MOEDA vem da casa (uma conta em
+  // Madrid é em euro), a SEPARAÇÃO vem do leitor. Um leitor de inglês lê
+  // "R$ 1.234,56" errado por uma ordem de grandeza; um espanhol lê "1234,56 €"
+  // certo, sem ponto de milhar (regra da RAE).
+  //
+  // `currency` sai do `view` quando ele chega; antes disso o default é BRL,
+  // que é o que um servidor sem mercado quer dizer.
+  const currency = view?.venue?.currency ?? 'BRL';
+  // As regras do mercado, como o servidor as declarou. Os defaults são os
+  // brasileiros — é o que um servidor sem `market` está dizendo.
+  const serviceMode = view?.venue?.serviceCharge?.mode ?? 'preselected';
+  const hasServiceLine = serviceMode !== 'none';
+  const taxIdRequired = view?.venue?.payerTaxId?.required ?? true;
+  // O bp que a conta REALMENTE cobra: o mercado já zerou o que não se aplica.
+  const serviceBpEffective = view?.venue?.serviceCharge?.bp ?? view?.venue?.servicoBp ?? 0;
+  const rails = view?.venue?.rails ?? ['pix', 'card'];
+  const primaryRail = rails[0] ?? 'pix';
+  const brl = useCallback((c: number) => money(c, lang, currency), [lang, currency]);
   // `error` é fatal: a conta não carrega, não há tela pra mostrar. `payError` é
   // recuperável e NUNCA pode substituir a tela — a corrida mais comum da mesa é
   // duas pessoas tocando "Pagar R$50" ao mesmo tempo: uma ganha, a outra leva
@@ -180,9 +195,12 @@ export default function App() {
   // (split.ts espelha o backend). Quem paga mais, paga mais serviço.
   // A parte igual sai do TOTAL da conta, não do que falta — senão cada pessoa
   // que paga depois paga menos que a anterior e a mesa nunca fecha (ver split.ts).
+  // `serviceBpEffective` vem do MERCADO, não do cadastro: uma casa espanhola
+  // pode ter 1000bp gravados (o formulário é brasileiro) e a conta em Madrid
+  // ainda assim não cobra serviço.
   const share = computeShare({
     mode, totalCents: state.totalCents, remaining, people, customCents, selectedCents,
-    servicoOn, servicoBp: venue.servicoBp,
+    servicoOn: servicoOn && hasServiceLine, servicoBp: serviceBpEffective,
   });
   const cappedBase = share.base;
   const servicoCents = share.servico;
@@ -197,7 +215,9 @@ export default function App() {
   }
 
   async function onPay() {
-    if (cpfDigits.length !== 11) {
+    // Só barra onde o documento é exigido pelo trilho. Barrar em Espanha
+    // travaria o pagamento num campo que a tela nem mostra.
+    if (taxIdRequired && cpfDigits.length !== 11) {
       setCpfHint(true);
       document.getElementById('cpf-field')?.focus();
       return;
@@ -456,13 +476,20 @@ export default function App() {
             </div>
           )}
 
-          <label className="servico">
-            <input type="checkbox" checked={servicoOn} onChange={(e) => setServicoOn(e.target.checked)} />
-            <span>
-              {t('servico.label', { pct: (venue.servicoBp / 100).toFixed(0) })}
-              <em>{servicoOn && servicoCents > 0 ? ` +${brl(servicoCents)}` : ''}</em>
-            </span>
-          </label>
+          {/* Em Espanha a conta NÃO tem linha de serviço: o preço já inclui o
+              serviço e a gorjeta é discricionária, quase nunca lançada. Somar
+              uma linha que o cliente não pediu, num mercado onde ela não é
+              costume, é o padrão errado na UE. Quem decide é o mercado, no
+              servidor — não uma condição de tela. */}
+          {hasServiceLine && (
+            <label className="servico">
+              <input type="checkbox" checked={servicoOn} onChange={(e) => setServicoOn(e.target.checked)} />
+              <span>
+                {t('servico.label', { pct: (serviceBpEffective / 100).toFixed(0) })}
+                <em>{servicoOn && servicoCents > 0 ? ` +${brl(servicoCents)}` : ''}</em>
+              </span>
+            </label>
+          )}
 
           {share.capped && cappedBase > 0 && (
             <p className="muted small">{t('share.capped', { left: brl(remaining) })}</p>
@@ -476,6 +503,13 @@ export default function App() {
             aria-label={t('payer.name')}
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
+          {/* O documento do pagador só existe onde o TRILHO precisa dele. No
+              Bizum quem autentica é o banco do pagador, no app dele, então
+              pedir NIF aqui seria coletar dado sem necessidade — GDPR art.
+              5(1)(c), a mesma regra do art. 6º III da LGPD. No Pix o gateway
+              exige `customer.document` pra emitir a cobrança, e é essa
+              necessidade que sustenta o campo. */}
+          {taxIdRequired && (
           <input
             id="cpf-field"
             className="namefield" inputMode="numeric" maxLength={14}
@@ -486,14 +520,15 @@ export default function App() {
             value={cpf}
             onChange={(e) => { setCpf(e.target.value); if (e.target.value.replace(/\D/g, '').length === 11) setCpfHint(false); }}
           />
+          )}
           {/* Por que o CPF. Um número de documento pedido numa tela de pagamento
               sem dizer pra quê é coleta sem transparência (LGPD art. 9º) — e,
               num bar, é também o motivo de alguém desistir de pagar. O destino
               é verdade conferida: `create-charge.js` manda pro PSP e o
               `registerCharge` NÃO guarda; webhook que traz CPF passa pelo
               `maskTaxId`. */}
-          <p className="muted small" id="cpf-why">{t('payer.cpfWhy')}</p>
-          {cpfHint && cpfDigits.length !== 11 && (
+          {taxIdRequired && <p className="muted small" id="cpf-why">{t('payer.cpfWhy')}</p>}
+          {taxIdRequired && cpfHint && cpfDigits.length !== 11 && (
             <p className="small" style={{ color: 'var(--burgundy)' }}>{t('payer.cpfHint')}</p>
           )}
 
@@ -503,13 +538,17 @@ export default function App() {
             </p>
           )}
           <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
-            {t('pay.cta', { amount: brl(totalToPay) })}
+            {t(primaryRail === 'bizum' ? 'pay.ctaBizum' : 'pay.cta', { amount: brl(totalToPay) })}
           </button>
           {/* Na mesa de demonstração a carteira é SIMULADA, mesmo com chave de
               produção configurada: a folha oficial do Google Pay tokeniza um
               cartão de verdade e pede CPF de verdade, e aqui não existe conta
               nenhuma pra pagar. Autorização sob premissa falsa (CDC) e CPF sem
               base legal (LGPD). O servidor é quem declara `venue.demo`. */}
+          {/* A carteira do Pagar.me pede BRL ao Google Pay pelo gateway
+              `pagarme` — numa mesa em euro seria a moeda errada pelo adquirente
+              errado. Só aparece onde o mercado tem esse trilho. */}
+          {rails.includes('pix') && (
           <WalletButtons
             token={token}
             amountCents={cappedBase}
@@ -521,6 +560,7 @@ export default function App() {
             simulated={venue.demo === true}
             onPaid={async () => { await refresh(); setStep('pago'); }}
           />
+          )}
           {venue.acceptsCard && (
             <StripeWalletPay
               token={token}

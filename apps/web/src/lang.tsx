@@ -24,7 +24,7 @@ function readStored(): Lang {
   // still stores and reads the person's own choice.
   try {
     const url = new URLSearchParams(window.location.search).get('lang');
-    if (url === 'en' || url === 'pt') return url;
+    if (url === 'en' || url === 'pt' || url === 'es') return url;
   } catch { /* sem window (teste) → segue pro armazenado */ }
   try {
     const v = localStorage.getItem(STORAGE_KEY);

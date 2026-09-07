@@ -60,6 +60,23 @@ const PORT = 8787;
     { id: 'j3', name: 'Arroz e farofa', priceCents: 1500 },
   ]);
 
+  // Uma casa ESPANHOLA, pra o mercado novo ser clicável e não só testável:
+  // euro, Bizum, sem linha de serviço, sem documento do pagador.
+  const bar = await store.seedVenue({
+    name: useSupabase ? `Bar Pepe [demo ${bootTag}]` : 'Bar Pepe',
+    servicoBp: 1000,           // gravado à brasileira DE PROPÓSITO: o mercado
+    pspRecipientId: 'rcpt_demo', // tem que zerar isto sozinho.
+    market: 'es',
+  });
+  const mesaEs = await store.seedTable(bar.id, useSupabase ? `Mesa 4 · ${bootTag}` : 'Mesa 4');
+  await store.openCheck(mesaEs.qrToken, [
+    { id: 'e1', name: 'Jamón ibérico', priceCents: 2450 },
+    { id: 'e2', name: 'Tortilla de patatas', priceCents: 1200 },
+    { id: 'e3', name: 'Croquetas (6 ud.)', priceCents: 980 },
+    { id: 'e4', name: 'Caña (3 ud.)', priceCents: 750 },
+    { id: 'e5', name: 'Vino de la casa', priceCents: 1400 },
+  ]);
+
   // Saldo da casa: enabled with 15% bonus + a seeded customer wallet holding
   // a confirmed R$100 load (R$15 bonus) so the flow is clickable end to end.
   await store.setHouseConfig(venue.id, { enabled: true, bonusBp: 1500, validityDays: 90 });
@@ -99,6 +116,7 @@ const PORT = 8787;
     `  API    http://localhost:${PORT}`,
     `  Conta  http://localhost:5173/?t=${mesa.qrToken}`,
     `  Conta2 http://localhost:5173/?t=${mesa2.qrToken}`,
+    `  Cuenta http://localhost:5173/?t=${mesaEs.qrToken}   (Espanha · EUR · Bizum)`,
     `  Carteira http://localhost:5173/carteira?t=${conta.accountToken}`,
     ...(useSupabase ? [
       `  Painel http://localhost:5173/painel?v=${venue.id}`,

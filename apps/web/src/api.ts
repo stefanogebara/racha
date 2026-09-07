@@ -2,10 +2,33 @@
 
 export interface CheckItem { id: string; name: string; priceCents: number }
 
+/**
+ * O mercado da casa, DECLARADO PELO SERVIDOR (api/_lib/markets.js).
+ *
+ * O cliente não deduz nada disto: nem a moeda, nem se há linha de serviço, nem
+ * se o pagador precisa dar documento. A UI inferindo uma regra de dinheiro foi
+ * o CRÍTICO #1 da revisão #37, e uma segunda implementação das regras aqui
+ * seria a divergência da #32 outra vez.
+ *
+ * Os campos são opcionais no tipo porque um servidor mais antigo não os manda —
+ * e aí o cliente usa os defaults brasileiros, que é o que aquele servidor quer
+ * dizer.
+ */
+export interface MarketView {
+  market: 'br' | 'es';
+  currency: 'BRL' | 'EUR';
+  defaultLang: 'pt' | 'en' | 'es';
+  rails: ('pix' | 'bizum' | 'card')[];
+  serviceCharge: { mode: 'preselected' | 'optIn' | 'none'; bp: number };
+  payerTaxId: { required: boolean; kind: 'cpf' | 'nif' };
+  charge: { minCents: number; maxCents: number | null };
+}
+
 export interface CheckView {
   /** acceptsCard: o restaurante tem conta Stripe conectada (cartão/Apple Pay). */
   /** demo: mesa pública de demonstração — dinheiro é do MockPsp, nunca real. */
-  venue: { name: string; servicoBp: number; acceptsCard?: boolean; demo?: boolean };
+  venue: { name: string; servicoBp: number; acceptsCard?: boolean; demo?: boolean }
+    & Partial<MarketView>;
   table: { label: string };
   check: { id: string; items: CheckItem[] };
   state: {

@@ -98,7 +98,23 @@ export const DICT = {
                         es: 'Escribe tu CPF, 11 dígitos, para habilitar el pago.' },
 
   // ── pagar ───────────────────────────────────────────────────────────────
+  // Uma chave por TRILHO: "Pay {amount} with Pix" numa mesa de Madrid é uma
+  // promessa falsa, e colar o nome do trilho num buraco `{rail}` dá frases
+  // torcidas em espanhol. O trilho vem do mercado, que vem do servidor.
   'pay.cta':          { en: 'Pay {amount} with Pix',           pt: 'Pagar {amount} com Pix', es: 'Pagar {amount} con Pix' },
+  'pay.ctaBizum':     { en: 'Pay {amount} with Bizum',         pt: 'Pagar {amount} com Bizum', es: 'Pagar {amount} con Bizum' },
+  'bizum.title':      { en: 'Pay with Bizum',                  pt: 'Pague com Bizum', es: 'Paga con Bizum' },
+  'bizum.phone':      { en: 'Your Bizum phone number',         pt: 'Seu telefone no Bizum', es: 'Tu teléfono de Bizum' },
+  'bizum.how':        { en: 'Confirm the payment in your bank’s app. It takes a few seconds.',
+                        pt: 'Confirme o pagamento no app do seu banco. Leva alguns segundos.',
+                        es: 'Confirma el pago en la app de tu banco. Tarda unos segundos.' },
+  'bizum.waiting':    { en: 'Waiting for your bank…',          pt: 'Esperando seu banco…', es: 'Esperando a tu banco…' },
+  'err.amount_under_min': { en: 'The minimum for this payment method is {min}.',
+                        pt: 'O mínimo para este meio de pagamento é {min}.',
+                        es: 'El mínimo para este método de pago es {min}.' },
+  'err.amount_over_max': { en: 'The maximum for this payment method is {max}. Split the bill into smaller parts.',
+                        pt: 'O máximo para este meio de pagamento é {max}. Divida a conta em partes menores.',
+                        es: 'El máximo para este método de pago es {max}. Divide la cuenta en partes más pequeñas.' },
   'pay.retry':        { en: '{error} — the bill was refreshed, check the amount and try again.',
                         pt: '{error} — a conta foi atualizada, confira o valor e tente de novo.',
                         es: '{error} — la cuenta se actualizó, revisa el importe e inténtalo de nuevo.' },
