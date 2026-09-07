@@ -87,6 +87,49 @@ pra onboardar.
   contas, a mesma família do Pix. Rotular como cartão contaminaria o painel, a
   ativação por método e a conciliação.
 
+## O que um sandbox de verdade confirmou (2026-09-07)
+
+Sandbox reivindicável criado pela CLI (`stripe sandbox create`, sem browser, sem
+tocar em conta live), com `stripe listen` apontando pro servidor local.
+Reproduzir:
+
+```bash
+stripe sandbox create --project-name racha-test --from-git
+stripe --project-name racha-test listen --forward-to localhost:8787/api/webhooks/stripe
+# STRIPE_SECRET_KEY (a rkcs_… do sandbox) + STRIPE_WEBHOOK_SECRET (a whsec_ do listen)
+node dev-server.js
+```
+
+**Confirmado contra a API:**
+
+| O quê | Resultado |
+|---|---|
+| `currency: 'eur'` + `payment_method_types: ['bizum']` | aceito, `livemode: false` |
+| Mínimo do esquema | 49 → `amount_too_small`, "no less than 0.50 EUR" |
+| Máximo do esquema | 500001 → `amount_too_large`, "no more than 5,000.00 EUR" |
+| Confirmar a cobrança | `requires_action` + `next_action: await_authorization` |
+| PaymentMethod de bizum | exige `billing_details[phone]` |
+| Evento irrelevante no webhook | **200** (era 401 antes da correção) |
+| `payment_intent.succeeded` de txid desconhecido | **409**, recusado |
+
+Os limites do `markets.js` (50 e 500000) batem com os da API — agora medidos, não
+confiados na doc.
+
+**O bug que só a API real achou.** Confirmar devolve `requires_action`, e o
+código só aceitava `processing`: a tela cairia no ramo de erro e diria
+"pagamento não concluído" pra quem estava autorizando no app do banco. Numa
+mesa, isso é um segundo pagamento ou um garçom chamado. A correção não foi
+acrescentar o status à lista — a lista estava invertida. Em trilho assíncrono não
+se enumera sucesso, se enumera FRACASSO, e todo o resto é espera
+(`bizumStatus.ts`).
+
+**O que o sandbox NÃO alcançou:** `transfer_data` + `on_behalf_of`, porque criar
+conta conectada exige um sandbox **reivindicado** e a chave do reivindicável não
+tem permissão. É a parte que decide o fluxo de fundos e quem aparece como
+comerciante no app do banco do cliente, então está fixada em teste de contrato
+(`api/__tests__/stripe-psp.test.js`) até alguém rodar uma cobrança com conta
+conectada de verdade.
+
 ## Espanha está construída e NÃO está ligada
 
 `RACHA_ES_ENABLED` não setado = **nenhuma cobrança espanhola sai**
@@ -141,12 +184,8 @@ nenhum — um nome preso a um pagamento guardado pra sempre falha o art. 5(1)(e)
 Anotado aqui pra não parecer pronto:
 
 1. ~~**O elemento de pagamento do Bizum no front.**~~ Feito: `BizumPay.tsx`,
-   com o Payment Element (o Express Checkout não suporta Bizum), o estado de
-   espera e o texto "confirma no app do teu banco". **Nunca foi exercitado
-   contra a Stripe de verdade** — sem `VITE_STRIPE_PUBLISHABLE_KEY` o elemento
-   não monta, e localmente a mesa espanhola paga pelo MockPsp. O que falta é
-   uma cobrança de teste no sandbox, com os telefones de teste do Bizum, pra ver
-   o elemento na tela e conferir que o webhook chega com `method: 'bizum'`.
+   com o Payment Element (o Express Checkout não suporta Bizum). Parcialmente
+   exercitado contra a Stripe de verdade — ver a seção abaixo.
 2. ~~**Onboarding espanhol de recebimento.**~~ Feito, e a resposta certa foi
    **não construir o formulário**: a Espanha usa o onboarding hospedado da
    Stripe, que já existia pro trilho de cartão. O dono conecta a conta e
