@@ -18,13 +18,15 @@
 const crypto = require('crypto');
 const { remainingCents } = require('../checks/check-state');
 const houseState = require('./account-state');
+const { marketGate } = require('../markets');
 
-function httpError(status, msg) {
+function httpError(status, msg, code) {
   const err = new Error(msg);
   err.statusCode = status;
+  if (code) err.code = code;
   return err;
 }
-const badRequest = (msg) => httpError(400, msg);
+const badRequest = (msg, code) => httpError(400, msg, code);
 
 // --- phone helpers (LGPD: the full number is stored, never displayed) -------
 function normalizePhone(raw) {
@@ -206,6 +208,23 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       // funds would land on the platform account (BACEN Res. 494 territory).
       throw badRequest('Restaurante sem recebedor configurado');
     }
+    // O PORTÃO DE MERCADO, no caminho do dinheiro.
+    //
+    // Achado por um teste estrutural, não pela revisão: esta função criava uma
+    // cobrança PIX sem conferir mercado nenhum. `/api/house/open` era gated e
+    // `/api/house/load` não, então uma carteira aberta antes de virar o
+    // `market` — ou aberta em qualquer ordem — recarregava com Pix numa casa
+    // que cobra em euro. O Pagar.me emitiria uma cobrança em REAL pra uma
+    // venue espanhola.
+    //
+    // A recarga é sempre Pix hoje, e a Espanha não serve Pix, então este
+    // portão hoje FECHA a carteira em Espanha — que é a resposta certa: a
+    // carteira coleta nome e telefone, o dado mais pessoal do produto, e é
+    // exatamente o que a pendência de residência de dado do GDPR trava.
+    // Quando a Espanha ganhar um trilho de recarga, muda o `rail` aqui.
+    const gate = marketGate(venue.market, { rail: 'pix', amountCents, tipCents: 0 });
+    if (gate) throw badRequest(`mercado ${venue.market}: ${gate.code}`, gate.code);
+
     const bonusCents = quoteBonusCents(amountCents, cfg.bonusBp);
     const charge = await psp.createPixCharge({
       // Random nonce: two identical loads are DIFFERENT charges (the mock PSP

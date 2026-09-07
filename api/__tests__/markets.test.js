@@ -263,3 +263,110 @@ describe('a Espanha falha fechada', () => {
       .rejects.toMatchObject({ code: 'market_not_live' });
   });
 });
+
+/* ── o portão de mercado, e quem é obrigado a passar por ele ───────────────── */
+
+describe('marketGate', () => {
+  const { marketGate } = require('../_lib/markets');
+  const prev = process.env.RACHA_ES_ENABLED;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.RACHA_ES_ENABLED;
+    else process.env.RACHA_ES_ENABLED = prev;
+  });
+
+  test('o interruptor do mercado vem PRIMEIRO, antes de qualquer outra regra', () => {
+    // Ordem não é estética. Um mercado que não está no ar não deve nem
+    // explicar que o trilho está errado: cada resposta específica é uma dica
+    // de que o mercado existe e está a um campo de distância de cobrar.
+    delete process.env.RACHA_ES_ENABLED;
+    expect(marketGate('es', { rail: 'pix', amountCents: 1 }))
+      .toMatchObject({ code: 'market_not_live' });
+    expect(marketGate('es', { rail: 'bizum', amountCents: 3000, tipCents: 300 }))
+      .toMatchObject({ code: 'market_not_live' });
+    expect(marketGate('es', { rail: 'bizum', amountCents: 900000 }))
+      .toMatchObject({ code: 'market_not_live' });
+  });
+
+  test('com o mercado no ar, as três regras seguintes valem uma a uma', () => {
+    process.env.RACHA_ES_ENABLED = 'true';
+    expect(marketGate('es', { rail: 'bizum', amountCents: 3390 })).toBeNull();
+    expect(marketGate('es', { rail: 'pix', amountCents: 3390 }))
+      .toMatchObject({ code: 'rail_unsupported' });
+    expect(marketGate('es', { rail: 'bizum', amountCents: 3000, tipCents: 300 }))
+      .toMatchObject({ code: 'tip_not_supported' });
+    expect(marketGate('es', { rail: 'bizum', amountCents: 500001 }))
+      .toMatchObject({ code: 'amount_over_max', vars: { maxCents: 500000 } });
+    expect(marketGate('es', { rail: 'bizum', amountCents: 49 }))
+      .toMatchObject({ code: 'amount_under_min', vars: { minCents: 50 } });
+  });
+
+  test('o Brasil passa com serviço e sem teto', () => {
+    expect(marketGate('br', { rail: 'pix', amountCents: 3000, tipCents: 300 })).toBeNull();
+    expect(marketGate('br', { rail: 'card', amountCents: 100000000 })).toBeNull();
+    expect(marketGate('br', { rail: 'bizum', amountCents: 3000 }))
+      .toMatchObject({ code: 'rail_unsupported' });
+  });
+
+  test('o teto olha a SOMA, mas em Espanha a gorjeta é recusada antes dele', () => {
+    // Escrevi este teste esperando `amount_over_max` em 4.999,50 € + 1,00 € de
+    // gorjeta, e ele falhou com `tip_not_supported`. O teste estava errado, não
+    // o portão: em Espanha não existe linha de serviço, então qualquer gorjeta
+    // morre uma regra ANTES do teto. Deixo a descoberta escrita porque a ordem
+    // dos portões é uma decisão, não um acidente.
+    process.env.RACHA_ES_ENABLED = 'true';
+    expect(marketGate('es', { rail: 'bizum', amountCents: 499950, tipCents: 100 }))
+      .toMatchObject({ code: 'tip_not_supported' });
+
+    // O teto em si continua olhando a soma, e a borda é exata.
+    expect(marketGate('es', { rail: 'bizum', amountCents: 500000, tipCents: 0 })).toBeNull();
+    expect(marketGate('es', { rail: 'bizum', amountCents: 500001, tipCents: 0 }))
+      .toMatchObject({ code: 'amount_over_max' });
+    // E a soma é o que chega ao limite — provado direto, porque hoje nenhum
+    // mercado tem teto E linha de serviço ao mesmo tempo. No dia em que
+    // tiver, é esta linha que diz o que se espera.
+    expect(checkChargeLimits('es', 499900 + 100)).toBeNull();          // 5.000,00 € justo
+    expect(checkChargeLimits('es', 499950 + 100)).toMatchObject({ code: 'amount_over_max' });
+  });
+});
+
+test('toda rota que cria cobrança passa pelo portão de mercado', () => {
+  // O teste que a revisão de compliance de 2026-09-07 ganhou, e que vale mais
+  // que um teste da rota que estava furada.
+  //
+  // O furo não foi um erro de lógica: foi um chamador NOVO. As quatro regras de
+  // mercado estavam copiadas em dois lugares, o `create-charge` tinha três e a
+  // rota `/api/pay/stripe-intent` tinha duas outras — e a rota é a única que
+  // cria cobrança de Bizum. Um teste da rota teria pego este caso e nenhum
+  // outro; este pega o PRÓXIMO chamador que esquecer.
+  //
+  // Estrutural de propósito, como o teste de formatação do cliente: a pergunta
+  // não é "esta rota confere?", é "existe algum caminho até o dinheiro que não
+  // confere?".
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..');
+
+  const files = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === '__tests__') continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.js')) files.push(full);
+    }
+  }(root));
+
+  const CREATES = /\.(createPixCharge|createWalletCharge|createBizumCharge)\s*\(/;
+  const offenders = [];
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    // O próprio adaptador DEFINE esses métodos; quem os CHAMA é que precisa do
+    // portão. `mock-psp`/`pagarme-psp`/`stripe-psp` definem, não chamam.
+    if (!CREATES.test(src)) continue;
+    if (/_lib\/pay\/(mock|pagarme|stripe)-psp\.js$/.test(f.replace(/\\/g, '/'))) continue;
+    if (!/marketGate\s*\(/.test(src)) {
+      offenders.push(path.relative(root, f));
+    }
+  }
+  expect(offenders).toEqual([]);
+});

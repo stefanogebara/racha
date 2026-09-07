@@ -195,6 +195,40 @@ function checkChargeLimits(code, amountCents) {
 }
 
 /**
+ * TODOS os portões de mercado de uma cobrança, num só lugar.
+ *
+ * Devolve `null` quando pode cobrar, ou `{ code, vars? }`.
+ *
+ * **Por que existe.** As quatro conferências moravam soltas, e a revisão de
+ * compliance de 2026-09-07 achou o resultado previsível: o `create-charge`
+ * tinha três delas, a rota `/api/pay/stripe-intent` tinha duas OUTRAS, e a
+ * rota é justamente a única que cria cobrança de Bizum. Faltava lá o
+ * `chargingAllowed` — o interruptor que segura a Espanha inteira — e o portão
+ * de gorjeta. Com `STRIPE_SECRET_KEY` no ambiente, virar o `market` de uma
+ * venue no banco fazia sair uma cobrança espanhola de verdade, antes do parecer
+ * sobre disputa e antes da papelada do GDPR.
+ *
+ * Quatro regras copiadas em dois lugares é a forma de um deles ficar com três.
+ * Agora é uma função: quem cobra chama ela, e esquecer uma regra deixou de ser
+ * possível — só esquecer a função, que é uma linha e não quatro.
+ *
+ * A ordem importa: o interruptor do mercado vem PRIMEIRO. Um mercado que não
+ * está no ar não deve nem explicar que o trilho está errado.
+ */
+function marketGate(code, { rail, amountCents, tipCents = 0 } = {}) {
+  const live = chargingAllowed(code);
+  if (live) return live;
+  if (!supportsRail(code, rail)) return { code: 'rail_unsupported' };
+  // Gorjeta onde não há linha de serviço: um bug de tela ou um POST forjado
+  // criaria um valor que ninguém pode distribuir legalmente (em Espanha a
+  // gorjeta também é renda tributável do empregado, e não há folha nossa).
+  if (market(code).serviceCharge.mode === 'none' && tipCents > 0) {
+    return { code: 'tip_not_supported' };
+  }
+  return checkChargeLimits(code, amountCents + tipCents);
+}
+
+/**
  * A moeda do mercado no formato que os PSPs querem: minúscula, ISO-4217.
  *
  * Existe pra que nenhum chamador escreva `'brl'` na mão nem um
@@ -220,6 +254,7 @@ module.exports = {
   publicMarketView,
   checkChargeLimits,
   supportsRail,
+  marketGate,
   pspCurrency,
   esEnabled,
   chargingAllowed,

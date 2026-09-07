@@ -164,7 +164,7 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
-const { supportsRail, checkChargeLimits, chargingAllowed, market, pspCurrency } = require('../_lib/markets');
+const { supportsRail, checkChargeLimits, chargingAllowed, market, marketGate, pspCurrency } = require('../_lib/markets');
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
@@ -452,13 +452,24 @@ async function route(req, res) {
       // numa mesa brasileira cobraria em euro; um cartão pelo caminho do Bizum
       // usaria o Payment Element errado. O cliente pede, o servidor confere.
       const rail = b.rail === 'bizum' ? 'bizum' : 'card';
-      if (!supportsRail(venue.market, rail)) {
-        return json(res, 400, { success: false, error: `rail ${rail} não atende este mercado`, code: 'rail_unsupported' });
+      // TODOS os portões do mercado, pela mesma função do `create-charge`.
+      //
+      // Esta rota tinha só DOIS deles — trilho e limites — e é a única que cria
+      // cobrança de Bizum. Faltavam o interruptor da Espanha e o portão de
+      // gorjeta, porque as regras estavam copiadas em dois lugares e um dos
+      // dois ficou para trás (revisão de compliance, 2026-09-07).
+      //
+      // O que passava por aqui: com `STRIPE_SECRET_KEY` no ambiente, virar o
+      // `market` de uma venue pra 'es' no banco fazia sair uma cobrança
+      // espanhola DE VERDADE — antes do parecer sobre a retenção de disputa de
+      // 120 dias e antes da papelada de transferência do GDPR. O teste que
+      // provava o "falha fechado" só exercitava o `create-charge`, então o
+      // buraco era invisível pro `npx jest`. Inegociável #7, na letra: a
+      // guarda que nunca dispara no caminho que importa.
+      const gate = marketGate(venue.market, { rail, amountCents, tipCents });
+      if (gate) {
+        return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
       }
-      // Limites do esquema (o Bizum tem teto de 5.000 €). Código + centavos:
-      // quem formata é o cliente, que sabe a moeda e o idioma.
-      const limit = checkChargeLimits(venue.market, amountCents + tipCents);
-      if (limit) return json(res, 400, { success: false, error: `valor fora dos limites do meio de pagamento`, ...limit });
       try {
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
         const charge = rail === 'bizum'

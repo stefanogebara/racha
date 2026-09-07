@@ -1,6 +1,6 @@
 'use strict';
 
-const { market, supportsRail, chargingAllowed, pspCurrency } = require('../markets');
+const { marketGate, pspCurrency } = require('../markets');
 
 /**
  * Create a Pix charge for a share of a check — the money-out gate.
@@ -22,10 +22,13 @@ const { reduce, remainingCents } = require('../checks/check-state');
  * traduz é o cliente, que sabe o idioma do leitor. A mensagem continua indo,
  * como reserva pra um cliente mais velho que não conheça o código.
  */
-function badRequest(msg, code) {
+function badRequest(msg, code, vars) {
   const err = new Error(msg);
   err.statusCode = 400;
   if (code) err.code = code;
+  // Os `vars` do limite de esquema (mín./máx. em centavos) viajam com o erro:
+  // quem formata "5.000,00 €" é o cliente, que sabe a moeda e o idioma.
+  if (vars) err.vars = vars;
   return err;
 }
 
@@ -72,20 +75,18 @@ function createChargeService({ store, psp }) {
     // brasileira que JÁ tem recebedor era o caminho provável do piloto.
     //
     // Duas regras, as duas do mercado:
-    //  1. o trilho tem que ser servido por ele (Pix não atende a Espanha);
-    //  2. não se cobra serviço onde não existe linha de serviço — senão um bug
-    //     de tela ou um POST forjado cria uma "gorjeta" que ninguém pode
-    //     distribuir legalmente.
+    //  1. o mercado tem que estar NO AR (falha fechado — disputa e residência
+    //     de dado são pendências de parecer, não de código);
+    //  2. o trilho tem que ser servido por ele (Pix não atende a Espanha);
+    //  3. não se cobra serviço onde não existe linha de serviço;
+    //  4. o valor tem que caber nos limites do esquema.
+    //
+    // As quatro moram no `marketGate`, e não soltas aqui, porque soltas elas
+    // já divergiram: esta função tinha três e a rota do Stripe tinha duas
+    // outras. Uma função é uma linha de esquecer; quatro regras são quatro.
     const rail = wallet ? 'card' : requestedRail;
-    // Falha FECHADO: um mercado construído e não liberado não cobra. Ver o
-    // comentário do `chargingAllowed` — disputa e residência de dado são
-    // pendências de parecer, não de código.
-    const live = chargingAllowed(venue.market);
-    if (live) throw badRequest(`market ${venue.market} not live`, live.code);
-    if (!supportsRail(venue.market, rail)) throw badRequest(`rail ${rail} not served here`, 'rail_unsupported');
-    if (market(venue.market).serviceCharge.mode === 'none' && tipCents > 0) {
-      throw badRequest('service charge not supported in this market', 'tip_not_supported');
-    }
+    const gate = marketGate(venue.market, { rail, amountCents, tipCents });
+    if (gate) throw badRequest(`market ${venue.market}: ${gate.code}`, gate.code, gate.vars);
     if (!venue.pspRecipientId) {
       // Compliance gate: without a settlement recipient the funds would land
       // on the platform account (BACEN Res. 494 custody territory).
