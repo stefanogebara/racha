@@ -376,9 +376,21 @@ async function route(req, res) {
       // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
       // pelo PSP real — dinheiro fake mesmo com o app em live.
       const isDemo = (body.token || '') === DEMO_TABLE_TOKEN;
+      // O trilho pedido tem que ser servido pelo MERCADO da casa. Sem esta
+      // conferência, um `rail: 'bizum'` numa mesa brasileira cobraria em euro
+      // e um `rail: 'pix'` numa mesa espanhola cobraria em real — nos dois
+      // casos com o adaptador errado e sem ninguém reclamando.
+      const payRail = body.rail === 'bizum' ? 'bizum' : 'pix';
+      const payVenue = await store.getVenueForCheck(view.check.id);
+      if (!supportsRail(payVenue && payVenue.market, payRail)) {
+        return json(res, 400, { success: false, error: `rail ${payRail} não atende este mercado`, code: 'rail_unsupported' });
+      }
+      const payLimit = checkChargeLimits(payVenue && payVenue.market,
+        (body.amountCents || 0) + (body.tipCents ?? 0));
+      if (payLimit) return json(res, 400, { success: false, error: 'valor fora dos limites do meio de pagamento', ...payLimit });
       const result = await (isDemo ? demoCharge : charge)({
         checkId: view.check.id, amountCents: body.amountCents,
-        tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null,
+        tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null, rail: payRail,
         // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
         wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
         // CPF. O gateway exige `customer.document` no PIX TAMBÉM, não só em
@@ -508,6 +520,12 @@ async function route(req, res) {
       let result;
       try {
         const parsed = await stripePsp.verifyAndParseWebhook(raw, req.headers);
+        // Evento válido que não move o nosso ledger: 200 e pronto. Não pode
+        // virar 401 — a Stripe reenvia, depois desabilita o endpoint, e aí
+        // perdemos os eventos que IMPORTAM junto com os que não importam.
+        if (parsed.kind === 'ignored') {
+          return json(res, 200, { success: true, data: { status: 'ignored', type: parsed.type } });
+        }
         result = await applyConfirmedPayment(parsed, confirmDeps);
       } catch (err) {
         process.stderr.write(`[stripe-webhook] threw=${err.name}: ${String(err.message).slice(0, 80)}\n`);

@@ -24,6 +24,11 @@ const http = require('http');
 // This file is never deployed (Vercel serves api/index.js), so it cannot turn
 // the forged-webhook route on anywhere that moves real money.
 if (process.env.RACHA_DEMO_MODE === undefined) process.env.RACHA_DEMO_MODE = 'true';
+// A Espanha falha fechada em produção (ver `chargingAllowed` em markets.js).
+// Localmente ela é ligada, senão a mesa espanhola semeada abaixo é uma conta
+// que ninguém consegue pagar — e uma tela que não se pode exercitar não se
+// pode revisar.
+if (process.env.RACHA_ES_ENABLED === undefined) process.env.RACHA_ES_ENABLED = 'true';
 
 const { ensureDemoCheck } = require('./api/_lib/demo');
 const crypto = require('crypto');

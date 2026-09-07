@@ -382,7 +382,6 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         return {
           venue: {
             name: table.venues.name,
-            servicoBp: table.venues.servico_basis_points,
             ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points }),
           },
           table: { label: table.label },

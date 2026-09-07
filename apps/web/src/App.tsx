@@ -5,6 +5,10 @@ import { dishFor, dishMask } from './dish';
 import Home from './Home';
 import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
+import BizumPay from './BizumPay';
+
+/** Sem chave publicável não há elemento da Stripe pra montar. */
+const STRIPE_READY = !!(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined);
 import StripeWalletPay from './StripeWalletPay';
 import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, splitEqualLocal, type SplitMode } from './split';
@@ -226,7 +230,11 @@ export default function App() {
     setPayError(null);
     try {
       setPaidBaseline(state.paidCents); // baseline ANTES da minha cobrança cair
-      const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null, cpfDigits);
+      // `undefined`, não '' — não pedimos documento neste mercado, então não
+      // mandamos um campo vazio pra ser validado como se tivesse sido pedido.
+      const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null,
+                                   taxIdRequired ? cpfDigits : undefined,
+                                   primaryRail === 'bizum' ? 'bizum' : 'pix');
       setCharge(result);
       setStep('pagar');
       setCopied(false);
@@ -237,7 +245,15 @@ export default function App() {
       // Os valores vêm do servidor em centavos crus; quem formata é quem sabe
       // o idioma. Ver o comentário do amount_over no router.
       setPayError(tError(lang, err.code, err.message,
-        err.vars ? { left: brl(Number(err.vars.leftCents ?? 0)) } : undefined));
+        // Todos os limites que o servidor manda em CENTAVOS, formatados aqui na
+        // moeda da casa. Antes só `leftCents` era mapeado, então a mensagem do
+        // teto do Bizum — a única que uma mesa grande em Espanha vai ver de
+        // verdade — chegava com "{max}" literal na tela.
+        err.vars ? {
+          left: brl(Number(err.vars.leftCents ?? 0)),
+          min: brl(Number(err.vars.minCents ?? 0)),
+          max: brl(Number(err.vars.maxCents ?? 0)),
+        } : undefined));
       refresh();
     }
   }
@@ -467,7 +483,9 @@ export default function App() {
           )}
           {mode === 'valor' && (
             <div className="customrow">
-              <label htmlFor="valor">R$</label>
+              {/* O símbolo vem da MOEDA da casa, não de um literal — era "R$"
+                  fixo, inclusive numa conta em euro. */}
+              <label htmlFor="valor">{currency === 'EUR' ? '€' : 'R$'}</label>
               <input
                 id="valor" inputMode="decimal" placeholder="0,00"
                 value={customValue}
@@ -537,9 +555,41 @@ export default function App() {
               {t('pay.retry', { error: payError })}
             </p>
           )}
-          <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
-            {t(primaryRail === 'bizum' ? 'pay.ctaBizum' : 'pay.cta', { amount: brl(totalToPay) })}
-          </button>
+          {/* O trilho decide a TELA, não só o rótulo. Em Espanha o Bizum tem o
+              seu próprio elemento (o Express Checkout não suporta Bizum) e o
+              caminho do Pix não existe — deixar o botão do Pix aqui chamaria o
+              adaptador brasileiro numa conta em euro. */}
+          {/* O trilho decide a TELA, não só o rótulo. Em Espanha o Bizum tem o
+              seu próprio elemento (o Express Checkout não suporta Bizum) e o
+              caminho do Pix não existe — deixar o botão do Pix aqui chamaria o
+              adaptador brasileiro numa conta em euro.
+
+              Sem chave da Stripe o elemento não renderiza, e uma conta sem
+              nenhuma forma de pagar é pior que um botão feio: cai no MESMO
+              trilho pelo servidor, que na demo é o MockPsp. Um caminho, dois
+              jeitos de chegar nele. */}
+          {primaryRail === 'bizum' ? (
+            <>
+              <BizumPay
+                token={token}
+                amountCents={cappedBase}
+                tipCents={servicoCents}
+                payerLabel={payerLabel.trim() || null}
+                amountLabel={brl(totalToPay)}
+                disabled={totalToPay === 0}
+                onAuthorized={() => { setPaidBaseline(state.paidCents); }}
+              />
+              {!STRIPE_READY && (
+                <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
+                  {t('pay.ctaBizum', { amount: brl(totalToPay) })}
+                </button>
+              )}
+            </>
+          ) : (
+            <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
+              {t('pay.cta', { amount: brl(totalToPay) })}
+            </button>
+          )}
           {/* Na mesa de demonstração a carteira é SIMULADA, mesmo com chave de
               produção configurada: a folha oficial do Google Pay tokeniza um
               cartão de verdade e pede CPF de verdade, e aqui não existe conta

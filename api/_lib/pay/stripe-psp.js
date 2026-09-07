@@ -1,6 +1,8 @@
 'use strict';
 
 /** Limites do esquema Bizum, em centavos de euro (docs.stripe.com/payments/bizum). */
+const { market } = require('../markets');
+
 const BIZUM_MIN_CENTS = 50;
 const BIZUM_MAX_CENTS = 500000;
 
@@ -70,7 +72,12 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
       kind: 'payment_confirmed',
       amountCents,
       tipCents,
-      method: 'card', // Apple/Google Pay web são cartões tokenizados
+      // O trilho REAL, não 'card' fixo. O `registerCharge` gravava 'bizum'
+      // honestamente e o evento de confirmação sobrescrevia com 'card' — e o
+      // log de eventos é a verdade. Isso contaminava a conciliação por método,
+      // o painel e qualquer conversa de taxa com o restaurante.
+      method: (pi.metadata && pi.metadata.rail)
+        || ((pi.payment_method_types || [])[0] === 'bizum' ? 'bizum' : 'card'), // Apple/Google Pay web são cartões tokenizados
       raw: pi,
     };
   }
@@ -85,7 +92,7 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
      */
     async createWalletCharge({
       chargeRef, amountCents, tipCents = 0, recipientId,
-      wallet = null, payerDocument = null, applicationFeeCents = 0,
+      wallet = null, payerDocument = null, applicationFeeCents = 0, currency = 'brl',
     }) {
       if (typeof recipientId !== 'string' || !/^acct_/.test(recipientId)) {
         throw new Error('stripe: conta conectada (acct_…) obrigatória — recusando custódia da plataforma');
@@ -104,9 +111,18 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         throw new TypeError('applicationFeeCents fora de [0, total)');
       }
 
+      // A MOEDA vem do mercado, não de um literal. Era 'brl' fixo — e
+      // `MARKETS.es.rails` inclui 'card', então um cliente espanhol devendo
+      // 24,50 € seria cobrado 2450 centavos de REAL na conta conectada
+      // espanhola. Pior que o erro: a conciliação compararia centavos de real
+      // com cêntimos de euro e reportaria 0,00 de divergência (inegociável #8
+      // derrotado em silêncio). Achado da revisão de compliance.
+      if (currency !== 'brl' && currency !== 'eur') {
+        throw new TypeError(`createWalletCharge: moeda não suportada ${currency}`);
+      }
       const pi = await stripe.paymentIntents.create({
         amount: total,
-        currency: 'brl',
+        currency,
         // Apple/Google Pay entram pelo Payment/Express Checkout Element no front.
         automatic_payment_methods: { enabled: true },
         // DESTINATION CHARGE: liquida na conta do restaurante, não na plataforma.
@@ -205,10 +221,19 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
      * recebedor do Pagar.me. Onboarding (link de KYC) é passo separado no admin;
      * aqui só o esqueleto. Dados bancários/KYC vêm do restaurante, nunca daqui.
      */
-    async createConnectedAccount({ email = null, businessName = null, cnpj = null } = {}) {
+    /**
+     * `marketCode` decide o PAÍS e as capacidades. Era 'BR' fixo, e os
+     * business locations do Bizum não incluem o Brasil — então nenhuma casa
+     * espanhola podia ser cadastrada, e a capacidade `bizum_payments` (que
+     * precisa estar ativa na plataforma E na conta conectada) nunca era nem
+     * pedida. Achado da revisão de compliance.
+     */
+    async createConnectedAccount({ email = null, businessName = null, cnpj = null, marketCode = 'br' } = {}) {
+      const m = market(marketCode);
+      const country = m.code === 'es' ? 'ES' : 'BR';
       const acct = await stripe.accounts.create({
         type: 'express',
-        country: 'BR',
+        country,
         ...(email ? { email } : {}),
         business_type: 'company',
         ...(businessName || cnpj ? {
@@ -217,7 +242,13 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
             ...(cnpj ? { tax_id: String(cnpj).replace(/\D/g, '') } : {}),
           },
         } : {}),
-        capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+          // Bizum só cobra depois que a Stripe verifica o onboarding do
+          // esquema; fica `pending` até lá, e sem pedir nunca sai de inativo.
+          ...(m.rails.includes('bizum') ? { bizum_payments: { requested: true } } : {}),
+        },
       });
       return { recipientId: acct.id, status: acct.charges_enabled ? 'active' : 'registration' };
     },
@@ -290,17 +321,35 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         const charge = event.data.object;
         const txid = charge.payment_intent;
         if (typeof txid !== 'string') throw new WebhookVerificationError('refund sem payment_intent');
-        const tipCents = Number((charge.metadata && charge.metadata.tip_cents) || 0) || 0;
+        // `tip_cents` é gravado no PAYMENT INTENT (ver createWalletCharge /
+        // createBizumCharge), não na charge — ler da charge devolvia sempre 0 e
+        // punha a gorjeta inteira em `amountCents`, nos DOIS trilhos. A charge
+        // carrega o PI expandido em alguns eventos; quando não carrega,
+        // buscamos. Achado da revisão de compliance.
+        let tipCents = Number((charge.metadata && charge.metadata.tip_cents) || 0) || 0;
+        if (!tipCents) {
+          try {
+            const pi = await stripe.paymentIntents.retrieve(txid);
+            tipCents = Number((pi.metadata && pi.metadata.tip_cents) || 0) || 0;
+          } catch { /* sem o PI, fica 0 — melhor subestimar a gorjeta que inventar */ }
+        }
         const refunded = Number(charge.amount_refunded) || 0;
         return {
           kind: 'refund', txid,
           amountCents: Math.max(0, refunded - tipCents),
           tipCents: Math.min(tipCents, refunded),
-          method: 'card', raw: charge,
+          method: (charge.payment_method_details && charge.payment_method_details.type) === 'bizum'
+            ? 'bizum' : 'card',
+          raw: charge,
         };
       }
-      // Outros eventos não movem o nosso ledger — shape que nunca casa.
-      throw new WebhookVerificationError(`evento ignorado: ${type}`);
+      // Outros eventos não movem o nosso ledger — mas ignorar é 200, não 401.
+      // Antes isto lançava `WebhookVerificationError`, que a rota mapeia pra
+      // 401: a Stripe reenvia, depois DESABILITA o endpoint, e aí um
+      // `refund.failed` (dinheiro de volta no saldo do restaurante, cliente
+      // sem reembolso) se perde junto com todo o resto. A assinatura ESTAVA
+      // válida; o evento é que não nos interessa. Achado da revisão.
+      return { kind: 'ignored', type, raw: event.data && event.data.object };
     },
   };
 }

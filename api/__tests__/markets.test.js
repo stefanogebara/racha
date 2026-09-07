@@ -126,3 +126,104 @@ describe('mercados', () => {
     expect(Object.isFrozen(MARKETS.es.rails)).toBe(true);
   });
 });
+
+/**
+ * Os três testes que a revisão de compliance pediu junto das correções.
+ *
+ * Todos os três são da forma "guarda que nunca dispara" do inegociável #7: o
+ * código parecia certo linha a linha, e o que impedia um Pix em real numa mesa
+ * de Madrid era um campo por acaso vazio.
+ */
+describe('portões de dinheiro por mercado', () => {
+  const { createChargeService } = require('../_lib/pay/create-charge');
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { MockPsp } = require('../_lib/pay/mock-psp');
+
+  // A Espanha falha FECHADA por padrão (ver `chargingAllowed`). Estes testes
+  // são sobre os portões DEPOIS da liberação, então ligam explicitamente — e o
+  // teste seguinte prova que o padrão é o contrário.
+  const prevEs = process.env.RACHA_ES_ENABLED;
+  beforeAll(() => { process.env.RACHA_ES_ENABLED = 'true'; });
+  afterAll(() => {
+    if (prevEs === undefined) delete process.env.RACHA_ES_ENABLED;
+    else process.env.RACHA_ES_ENABLED = prevEs;
+  });
+
+  async function fixture(market) {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({
+      name: `casa-${market}`, servicoBp: 1000, pspRecipientId: 'rcpt_demo', market,
+    });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 6780 }]);
+    const charge = createChargeService({ store, psp: new MockPsp({ webhookSecret: 'x'.repeat(24) }) });
+    return { store, check, charge };
+  }
+
+  test('uma mesa espanhola RECUSA um Pix — em vez de cobrar em real', async () => {
+    const { check, charge } = await fixture('es');
+    await expect(charge({ checkId: check.id, amountCents: 3390, rail: 'pix' }))
+      .rejects.toMatchObject({ code: 'rail_unsupported' });
+  });
+
+  test('uma mesa brasileira RECUSA um Bizum — em vez de cobrar em euro', async () => {
+    const { check, charge } = await fixture('br');
+    await expect(charge({ checkId: check.id, amountCents: 3390, rail: 'bizum' }))
+      .rejects.toMatchObject({ code: 'rail_unsupported' });
+  });
+
+  test('o Bizum passa na Espanha e é gravado como bizum, não como cartão', async () => {
+    const { check, charge, store } = await fixture('es');
+    const r = await charge({ checkId: check.id, amountCents: 3390, rail: 'bizum' });
+    expect(r.method).toBe('bizum');
+    // Bizum não tem código copia-e-cola: quem autoriza é o banco do pagador.
+    expect(r.copiaECola).toBeNull();
+    const pending = await store.listPendingCharges({ checkId: check.id });
+    expect(pending.map((p) => p.method)).toEqual(['bizum']);
+  });
+
+  test('nenhum mercado sem linha de serviço aceita gorjeta', async () => {
+    // Um bug de tela ou um POST forjado criaria uma "gorjeta" que ninguém pode
+    // distribuir legalmente em Espanha.
+    const { check, charge } = await fixture('es');
+    await expect(charge({ checkId: check.id, amountCents: 3000, tipCents: 300, rail: 'bizum' }))
+      .rejects.toMatchObject({ code: 'tip_not_supported' });
+    // E o Brasil continua aceitando, que é o ponto do mercado.
+    const br = await fixture('br');
+    const ok = await br.charge({ checkId: br.check.id, amountCents: 3000, tipCents: 300, rail: 'pix' });
+    expect(ok.tipCents).toBe(300);
+  });
+});
+
+describe('a Espanha falha fechada', () => {
+  const { createChargeService } = require('../_lib/pay/create-charge');
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { MockPsp } = require('../_lib/pay/mock-psp');
+  const { chargingAllowed } = require('../_lib/markets');
+
+  const prev = process.env.RACHA_ES_ENABLED;
+  beforeAll(() => { delete process.env.RACHA_ES_ENABLED; });
+  afterAll(() => { if (prev !== undefined) process.env.RACHA_ES_ENABLED = prev; });
+
+  test('sem RACHA_ES_ENABLED nenhuma cobrança espanhola sai', async () => {
+    // O caminho que este teste fecha: alguém vira o `market` de uma venue no
+    // banco pra 'es' — o jeito provável de começar um piloto às pressas — e a
+    // cobrança sai antes do parecer sobre disputa (Bizum tem 120 dias de
+    // reclamação, e a retenção cai no saldo da PLATAFORMA) e antes da papelada
+    // de transferência internacional do GDPR. Falhar fechado é a diferença
+    // entre "construído" e "no ar".
+    expect(chargingAllowed('es')).toMatchObject({ code: 'market_not_live' });
+    // O Brasil não é afetado.
+    expect(chargingAllowed('br')).toBeNull();
+
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({
+      name: 'casa-es-fechada', servicoBp: 1000, pspRecipientId: 'rcpt_demo', market: 'es',
+    });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 3390 }]);
+    const charge = createChargeService({ store, psp: new MockPsp({ webhookSecret: 'x'.repeat(24) }) });
+    await expect(charge({ checkId: check.id, amountCents: 3390, rail: 'bizum' }))
+      .rejects.toMatchObject({ code: 'market_not_live' });
+  });
+});

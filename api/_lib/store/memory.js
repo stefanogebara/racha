@@ -255,7 +255,6 @@ function createMemoryStore() {
         // inferindo uma regra de dinheiro foi o CRÍTICO #1 da revisão #37.
         venue: {
           name: venue.name,
-          servicoBp: venue.servicoBp,
           ...publicMarketView(venue.market, { servicoBp: venue.servicoBp }),
         },
         table: { label: table.label },

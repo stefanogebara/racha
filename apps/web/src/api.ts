@@ -167,11 +167,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getCheck: (token: string) => request<CheckView>(`/api/check?t=${encodeURIComponent(token)}`),
-  pay: (token: string, amountCents: number, tipCents: number, payerLabel: string | null, payerDocument?: string) =>
+  pay: (
+    token: string, amountCents: number, tipCents: number, payerLabel: string | null,
+    payerDocument?: string, rail: 'pix' | 'bizum' = 'pix',
+  ) =>
     request<ChargeResult>('/api/pay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, amountCents, tipCents, payerLabel, payerDocument: payerDocument ?? null }),
+      body: JSON.stringify({ token, amountCents, tipCents, payerLabel, payerDocument: payerDocument ?? null, rail }),
     }),
   /** Apple/Google Pay: mesma rota e portões do Pix, cobrança de cartão tokenizada.
    *  payerDocument (CPF) é exigido pelo adquirente em cartão no BR. */
@@ -186,11 +189,20 @@ export const api = {
     }),
   /** Stripe (2º rail): cria o PaymentIntent (destination charge) e devolve o
    *  clientSecret pro Express Checkout Element confirmar (Apple/Google Pay/cartão). */
-  stripeIntent: (token: string, amountCents: number, tipCents: number, payerLabel: string | null, payerDocument?: string) =>
-    request<{ txid: string; clientSecret: string; amountCents: number; tipCents: number; method: 'card' }>('/api/pay/stripe-intent', {
+  /**
+   * Cria o PaymentIntent na Stripe. `rail` decide o meio: 'card' (Apple/Google
+   * Pay, Express Checkout) ou 'bizum' (Payment Element, Espanha). O SERVIDOR
+   * confere se o trilho atende o mercado daquela mesa — pedir 'bizum' numa
+   * mesa brasileira volta 400, não uma cobrança em euro.
+   */
+  stripeIntent: (
+    token: string, amountCents: number, tipCents: number, payerLabel: string | null,
+    payerDocument?: string, rail: 'card' | 'bizum' = 'card',
+  ) =>
+    request<{ txid: string; clientSecret: string; amountCents: number; tipCents: number; method: 'card' | 'bizum' }>('/api/pay/stripe-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, amountCents, tipCents, payerLabel, payerDocument: payerDocument ?? null }),
+      body: JSON.stringify({ token, amountCents, tipCents, payerLabel, payerDocument: payerDocument ?? null, rail }),
     }),
   /** Demo-only: plays the diner's bank confirming the Pix. */
   devConfirm: (txid: string) =>

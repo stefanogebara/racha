@@ -86,6 +86,47 @@ const MARKETS = Object.freeze({
 
 const DEFAULT_MARKET = 'br';
 
+/**
+ * A Espanha está CONSTRUÍDA e não LIGADA.
+ *
+ * A revisão de compliance da abertura (2026-09-07) barrou o portão em dois
+ * pontos que não são código:
+ *
+ *  1. **Disputa.** O Bizum tem 120 dias de reclamação e a Stripe retém o valor
+ *     disputado do saldo — numa destination charge, do saldo da PLATAFORMA.
+ *     Recuperar exige reversão de transferência mais cláusula de regresso no
+ *     contrato do restaurante. Não é conta-bolsão, mas MUDA quem fica sem o
+ *     dinheiro, e o inegociável #4 diz que mudança de fluxo de fundos passa por
+ *     parecer de advogado de pagamentos ANTES.
+ *  2. **GDPR capítulo V.** O banco fica em São Paulo. Dado pessoal de titular
+ *     europeu indo pro Brasil precisa de cláusulas-padrão e avaliação de
+ *     transferência, ou de um projeto em região da UE.
+ *
+ * Então o trilho espanhol falha FECHADO: sem `RACHA_ES_ENABLED=true` nenhuma
+ * cobrança sai, mesmo que alguém vire o `market` de uma venue no banco — que é
+ * exatamente o caminho provável de um piloto às pressas. A apresentação
+ * continua funcionando (a tela é revisável), o dinheiro não.
+ *
+ * É o mesmo desenho do `CRON_SECRET` na revisão #37: o estado "não configurado"
+ * não é permissivo, é recusa.
+ */
+function esEnabled() {
+  return process.env.RACHA_ES_ENABLED === 'true';
+}
+
+/**
+ * O mercado pode COBRAR? Devolve `null` quando sim, ou um código.
+ *
+ * Separado do `supportsRail` de propósito: um trilho pode ser o certo pro
+ * mercado e ainda assim não estar liberado pra rodar.
+ */
+function chargingAllowed(code) {
+  if (market(code).code === 'es' && !esEnabled()) {
+    return { code: 'market_not_live' };
+  }
+  return null;
+}
+
 /** Todos os códigos de mercado conhecidos. */
 function marketCodes() {
   return Object.keys(MARKETS);
@@ -116,6 +157,10 @@ function publicMarketView(code, { servicoBp = 0 } = {}) {
   const m = market(code);
   const hasService = m.serviceCharge.mode !== 'none';
   return {
+    // `servicoBp` cru NÃO viaja: mandar 1000 ao lado de `serviceCharge.bp: 0`
+    // são duas verdades no mesmo payload, e o próximo cliente que ler o campo
+    // errado cobra 10% em Madrid. Quem quer a taxa lê `serviceCharge.bp`.
+    servicoBp: hasService ? Number(servicoBp) || 0 : 0,
     market: m.code,
     currency: m.currency,
     defaultLang: m.defaultLang,
@@ -163,4 +208,6 @@ module.exports = {
   publicMarketView,
   checkChargeLimits,
   supportsRail,
+  esEnabled,
+  chargingAllowed,
 };

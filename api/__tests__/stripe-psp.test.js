@@ -125,15 +125,29 @@ describe('stripe adapter — webhook', () => {
     expect(parsed).toMatchObject({ kind: 'refund', txid: 'pi_x', amountCents: 8000, tipCents: 800, method: 'card' });
   });
 
-  test('assinatura ruim, evento irrelevante, sem secret e sem header rejeitam', async () => {
+  test('assinatura ruim, sem secret e sem header rejeitam', async () => {
     await expect(mk({ webhookSecret: 'whsec_x' }, stubStripe({ constructThrows: true }))
       .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).rejects.toThrow(WebhookVerificationError);
-    await expect(mk({ webhookSecret: 'whsec_x' }, stubStripe({ event: { type: 'customer.created', data: { object: {} } } }))
-      .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).rejects.toThrow(/ignorado/);
     await expect(mk({}, stubStripe({ event: {} }))
       .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).rejects.toThrow(/WEBHOOK_SECRET/);
     await expect(mk({ webhookSecret: 'whsec_x' }, stubStripe({ event: {} }))
       .verifyAndParseWebhook('{}', {})).rejects.toThrow(/stripe-signature/);
+  });
+
+  test('evento irrelevante é IGNORADO com assinatura válida, não rejeitado', async () => {
+    // Este teste mudou de sentido de propósito, e a mudança é o achado.
+    //
+    // Antes ele exigia que um evento fora do nosso interesse fosse RECUSADO. A
+    // rota mapeia recusa pra 401, e a Stripe reage a 401 reenviando e depois
+    // DESABILITANDO o endpoint — junto com os eventos que importam, incluindo
+    // um `refund.failed` (dinheiro de volta no saldo do restaurante e cliente
+    // sem reembolso). A assinatura estava válida; o evento é que não é nosso.
+    // Recusar uma assinatura boa é dizer "não confio em você" pra quem manda o
+    // dinheiro. Achado da revisão de compliance da abertura da Espanha.
+    const parsed = await mk({ webhookSecret: 'whsec_x' },
+      stubStripe({ event: { type: 'customer.created', data: { object: {} } } }))
+      .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+    expect(parsed).toMatchObject({ kind: 'ignored', type: 'customer.created' });
   });
 });
 

@@ -83,6 +83,44 @@ class MockPsp {
   }
 
   /**
+   * Bizum, simulated. Same shape as the real Stripe rail minus the Element:
+   * there is no copy-and-paste code, because Bizum has none — the payer
+   * authorises in their bank app. So the mock returns a txid and nothing to
+   * copy, and the demo's "confirm" button plays the bank.
+   *
+   * It exists for the same reason `createPixCharge` does: the demo has to be
+   * clickable end to end without a PSP key (decision #12 — MockTransport is a
+   * production mode, not a stub). A Spanish table with no way to pay is a
+   * screen nobody can review.
+   */
+  async createBizumCharge({ chargeRef, amountCents, tipCents = 0, recipientId }) {
+    if (typeof recipientId !== 'string' || recipientId.length === 0) {
+      throw new Error('createBizumCharge: recipientId is required — refusing platform-custody charge');
+    }
+    if (typeof chargeRef !== 'string' || chargeRef.length === 0) {
+      throw new TypeError('createBizumCharge: chargeRef required');
+    }
+    assertCents(amountCents, 'amountCents');
+    assertCents(tipCents, 'tipCents');
+    const total = amountCents + tipCents;
+    if (total === 0) throw new TypeError('zero-value charge');
+    // Os limites do esquema também aqui: um mock que aceita o que o real
+    // recusa ensina o fluxo errado a quem está desenvolvendo.
+    if (total < 50) throw new TypeError('bizum: abaixo do mínimo (50 centavos)');
+    if (total > 500000) throw new TypeError('bizum: acima do máximo (500000 centavos)');
+
+    const txid = 'mockbz' + crypto
+      .createHash('sha256')
+      .update(`${chargeRef}|${amountCents}|${tipCents}|${recipientId}`)
+      .digest('hex')
+      .slice(0, 26);
+    this.charges.set(txid, { txid, amountCents, tipCents, method: 'bizum', status: 'pending' });
+    // `copiaECola: null` de propósito: o Bizum não tem código pra copiar, e
+    // devolver um string vazio faria a tela desenhar uma caixa vazia.
+    return { txid, copiaECola: null, expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
+  }
+
+  /**
    * Tokenized card charge via wallet (Apple Pay / Google Pay). The token came
    * from the device's payment sheet; a real adapter forwards it to the
    * acquirer. The mock enforces the same gates a gateway would: recipient
