@@ -166,9 +166,16 @@ async function applyConfirmedPayment(parsed, {
     if (pay.disputeStatus === 'lost') {
       return { status: 'duplicate', checkId: check.id };
     }
-    if (parsed.refundDeltaCents <= 0) {
-      // Mesma razão do `aReverter`: valor impossível é recusa com motivo, não
-      // uma exceção do motor de dinheiro virando 500.
+    if (parsed.refundDeltaCents === 0) {
+      // ZERO é caso normal, não erro: a Stripe emite `dispute.closed` de valor
+      // zero no encerramento de algumas consultas prévias. Recusar isso vira
+      // 409 → reenvio → endpoint desabilitado, pela coisa mais inofensiva que
+      // ela manda.
+      return { status: 'duplicate', checkId: check.id };
+    }
+    if (parsed.refundDeltaCents < 0) {
+      // Negativo é impossível: recusa com motivo, não uma exceção do motor de
+      // dinheiro virando 500.
       return { status: 'rejected', reason: `refund delta inválido (${parsed.refundDeltaCents}) para ${parsed.txid}` };
     }
     if (parsed.refundDeltaCents > sobra) {
@@ -325,7 +332,14 @@ async function applyConfirmedPayment(parsed, {
         confirmedTipCents: payload.tipCents,
       } : {}),
       pspPayloadMasked: maskPixPayload(parsed.raw), // ONLY the masked subset is storable
-      confirmedAt: new Date().toISOString(),
+      // `confirmedAt` só na CONFIRMAÇÃO.
+      //
+      // Era carimbado em todo evento, então um estorno, uma reversão ou uma
+      // disputa ganha reescreviam a data de um pagamento de três semanas atrás
+      // pra hoje — e a série semanal (`buildAtivacao`) agrupa por essa data.
+      // O faturamento pulava de dia sozinho. Achado pela revisão de segurança
+      // de 2026-09-08.
+      ...(type === 'PAYMENT_CONFIRMED' ? { confirmedAt: new Date().toISOString() } : {}),
     });
   }
   return { status: 'appended', checkId: check.id, seq };

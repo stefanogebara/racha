@@ -211,13 +211,21 @@ describe('valores impossíveis são recusa, não exceção', () => {
       expect(r.status).toBe('rejected');
       expect(r.reason).toMatch(/inválido/);
     }
-    for (const refundDeltaCents of [-1, -3390, 0]) {
+    for (const refundDeltaCents of [-1, -3390]) {
       const r = await applyConfirmedPayment({
         kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents, method: 'dispute',
       }, deps);
       expect(r.status).toBe('rejected');
       expect(r.reason).toMatch(/inválido/);
     }
+    // ZERO mudou de sentido, e a mudança é o achado: a Stripe emite
+    // `dispute.closed` de valor zero no encerramento de algumas consultas
+    // prévias. Recusar isso virava 409 → reenvio → endpoint desabilitado, pela
+    // coisa mais inofensiva que ela manda. Agora é no-op.
+    const zero = await applyConfirmedPayment({
+      kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 0, method: 'dispute',
+    }, deps);
+    expect(zero.status).toBe('duplicate');
     // E o razão não se mexeu em nenhuma das seis tentativas.
     const st = await estado(store, check.id);
     expect(st.payments.pi_x.refundedAmountCents + st.payments.pi_x.refundedTipCents).toBe(500);

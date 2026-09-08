@@ -114,3 +114,51 @@ describe('o esquema aceita exatamente o que o código escreve', () => {
     expect(valoresDaRestricao(sql, 'payments', 'method').size).toBeGreaterThanOrEqual(4);
   });
 });
+
+describe('as projeções SQL conhecem os mesmos eventos que o redutor', () => {
+  /**
+   * O lado SQL do razão fica pra trás quando o lado JS ganha tipo de evento —
+   * aconteceu duas vezes na mesma série. O CHECK de `check_events.type`
+   * (migração 0017) e a guarda da carteira (0019).
+   *
+   * A guarda calculava "quanto já foi pago" somando `PAYMENT_CONFIRMED` e
+   * subtraindo `PAYMENT_REFUNDED`, e nunca soube de `PAYMENT_REFUND_REVERSED`
+   * — o estorno que falhou, com o dinheiro voltando pro restaurante. Ela
+   * subtraía um estorno desfeito, via a conta como mais em aberto do que
+   * estava, e AUTORIZAVA gastar saldo da casa que não cabia. Duas contagens do
+   * mesmo dinheiro discordando, e a que discorda é a que autoriza gastar.
+   *
+   * O store de memória sempre esteve certo, porque usa o redutor. Só o espelho
+   * SQL divergia — e nenhum teste lia SQL.
+   */
+  test('a guarda de resgate da carteira conta o estorno REVERTIDO', () => {
+    const sql = sqlNaOrdem();
+    // A última definição da função é a que vale.
+    const defs = [...sql.matchAll(/create or replace function public\.append_house_payment_guarded[\s\S]*?\$\$;/g)];
+    expect(defs.length).toBeGreaterThanOrEqual(1);
+    const ultima = defs[defs.length - 1][0];
+    for (const tipo of ['PAYMENT_CONFIRMED', 'PAYMENT_REFUNDED', 'PAYMENT_REFUND_REVERSED']) {
+      expect(ultima).toContain(tipo);
+    }
+  });
+
+  test('nenhuma função SQL redefinida trocou de assinatura sem querer', () => {
+    // `create or replace` só substitui quando a assinatura bate EXATAMENTE. Um
+    // parâmetro a mais cria uma SOBRECARGA, as duas versões convivem, e o
+    // chamador acerta a antiga — que é a errada. Quase aconteceu ao escrever a
+    // 0019.
+    const sql = sqlNaOrdem();
+    const porNome = new Map();
+    for (const m of sql.matchAll(/create or replace function public\.(\w+)\s*\(([^)]*)\)/g)) {
+      const tipos = m[2].split(',').map((a) => a.trim().split(/\s+/).slice(1).join(' ').replace(/\s+default[\s\S]*/i, '').trim()).filter(Boolean);
+      if (!porNome.has(m[1])) porNome.set(m[1], new Set());
+      porNome.get(m[1]).add(tipos.join(','));
+    }
+    const divergentes = [...porNome.entries()]
+      .filter(([, assinaturas]) => assinaturas.size > 1)
+      .map(([nome, a]) => `${nome}: ${[...a].join(' | ')}`);
+    // `append_check_event` ganhou um parâmetro DE PROPÓSITO na 0018, com
+    // `default null`, então a chamada antiga continua resolvendo. É a única.
+    expect(divergentes.filter((d) => !d.startsWith('append_check_event:'))).toEqual([]);
+  });
+});

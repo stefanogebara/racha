@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 /**
  * Pagar.me (Stone) — o PSP real do Racha. Implementa o MESMO contrato do
  * MockPsp (create-charge/webhook-handler não sabem qual PSP está atrás):
@@ -387,7 +389,16 @@ function createPagarmePsp({
           ? signatureOrHeaders : {};
         const got = headers.authorization || headers.Authorization || '';
         const want = `Basic ${Buffer.from(webhookBasicAuth).toString('base64')}`;
-        if (got !== want) throw new WebhookVerificationError('webhook basic auth mismatch');
+        // Comparação em TEMPO CONSTANTE: `!==` sai no primeiro byte diferente,
+        // e isso é medível num segredo compartilhado no caminho do dinheiro. O
+        // `length` primeiro porque `timingSafeEqual` estoura em tamanhos
+        // diferentes — e o tamanho aqui não é segredo (é base64 de uma
+        // credencial de formato conhecido).
+        const a = Buffer.from(got);
+        const b = Buffer.from(want);
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+          throw new WebhookVerificationError('webhook basic auth mismatch');
+        }
       }
       let event;
       try { event = JSON.parse(rawBody); } catch {

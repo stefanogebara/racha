@@ -566,7 +566,7 @@ async function route(req, res) {
         process.stderr.write(`[webhook] out threw=${err.name}: ${String(err.message).slice(0, 80)}\n`);
         throw err; // segue pro mapa de status do catch externo (401 etc.)
       }
-      process.stderr.write(`[webhook] out status=${result.status}${result.reason ? ` reason=${result.reason.slice(0, 80)}` : ''}\n`);
+      process.stderr.write(`[webhook] out status=${result.status}${result.reason ? ` reason=${sanitizeForLog(result.reason || '')}` : ''}\n`);
       if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
         await writeBackToPos(result.checkId);
       }
