@@ -45,9 +45,10 @@ const { allocateRefund } = require('../checks/split-engine');
  * @param {(parsed:object)=>Promise<object|null>} [deps.fallback]
  * @returns {Promise<{status:'appended'|'duplicate'|'divergent_appended'|'rejected', checkId?:string, seq?:number, reason?:string}>}
  */
-async function applyConfirmedPayment(parsed, {
-  loadEvents, appendEvent, recordPayment, findCheckByTxid, fallback, seenPspEvent,
-}) {
+async function applyConfirmedPayment(parsed, deps) {
+  const {
+    loadEvents, appendEvent, recordPayment, findCheckByTxid, fallback, seenPspEvent,
+  } = deps;
   const check = await findCheckByTxid(parsed.txid);
   if (!check) {
     // Not a check charge — maybe another charge family (house-account loads).
@@ -74,6 +75,7 @@ async function applyConfirmedPayment(parsed, {
    * do lock. Esta consulta existe pra a RESPOSTA ficar honesta.
    */
   if (parsed.eventId && typeof seenPspEvent === 'function' && await seenPspEvent(parsed.eventId)) {
+    await repairRowFromLedger(check.id, parsed.txid, deps);
     return { status: 'duplicate', checkId: check.id };
   }
 
@@ -137,11 +139,28 @@ async function applyConfirmedPayment(parsed, {
        * no contador de falhas da Stripe. Achado pela revisão de segurança de
        * 2026-09-08.
        */
+      /**
+       * A CHAVE LEVA SUFIXO, e é isso que faz a convergência acima existir.
+       *
+       * Escrita assim, com `parsed.eventId` puro, esta anomalia QUEIMAVA a
+       * chave de idempotência do próprio evento: `psp_event_id` é único no
+       * banco inteiro (migração 0018), então a reentrega do mesmo `evt_` —
+       * que é exatamente o mecanismo em que o comentário acima confia — batia
+       * no curto-circuito lá em cima e saía como `duplicate`. A reversão nunca
+       * era aplicada. O dinheiro voltava pro restaurante, o razão seguia
+       * dizendo "estornado", a linha também, e a conciliação comparava os dois
+       * e concordava.
+       *
+       * O sufixo é o mesmo recurso que o fecho de disputa usa: uma entrega que
+       * produz DOIS lançamentos precisa de duas chaves.
+       * Achado pela revisão de segurança de 2026-09-08.
+       */
       try {
         await appendEvent(check.id, 'PAYMENT_ANOMALY', {
           txid: parsed.txid,
           reason: `reversão de estorno chegou antes do estorno (valor ${parsed.amountCents ?? '?'})`,
-        }, parsed.eventId || null);
+          severity: 'high',
+        }, parsed.eventId ? `${parsed.eventId}:out_of_order` : null);
       } catch { /* o registro é o melhor esforço; a resposta 200 não muda */ }
       return { status: 'out_of_order', checkId: check.id, reason: `reversal before refund for txid ${parsed.txid}` };
     }
@@ -180,9 +199,37 @@ async function applyConfirmedPayment(parsed, {
     // um segundo PAYMENT_REFUNDED entrava e a conta reabria por dinheiro que
     // saiu uma vez só. Achado pela revisão de compliance de 2026-09-08.
     //
-    // A marca é o próprio desfecho no razão: uma disputa já encerrada como
-    // perdida não encerra de novo.
-    if (pay.disputeStatus === 'lost') {
+    // A CHAVE é a disputa, não o pagamento.
+    //
+    // Aqui havia `if (pay.disputeStatus === 'lost') return duplicate`, e a
+    // marca é POR PAGAMENTO, permanente depois da primeira derrota — enquanto
+    // a rede permite DUAS disputas na mesma cobrança, que é o caso que o
+    // comentário acima descreve. A segunda derrota, com outro `evt_` e outro
+    // `dp_`, passava batida pelo índice único do append e era engolida aqui:
+    // a Stripe debitava mais R$ 120 do restaurante, o razão dizia que nada
+    // aconteceu, a linha dizia o mesmo, e a conciliação comparava os dois
+    // entre si e reportava verde. Achado pela revisão de segurança de
+    // 2026-09-08.
+    //
+    // A idempotência de verdade é o `psp_event_id` único dentro do lock
+    // (migração 0018) — por ENTREGA, que é a granularidade certa. Esta guarda
+    // fica com a granularidade da DISPUTA: a mesma `dp_` não encerra duas
+    // vezes, disputas diferentes seguem cada uma seu caminho.
+    // Sem `dp_`, o cinto ANTIGO volta.
+    //
+    // Escrito como `if (parsed.disputeId && …)`, um evento sem id de disputa
+    // passava direto — e ficam sem ele: um payload da Stripe onde `d.id` não é
+    // string, e TODO `PAYMENT_REFUNDED` que já está no razão de antes deste
+    // deploy (nenhum tem `disputeId`, então `disputeIdsClosed` fica vazio pras
+    // disputas em curso). Nesses casos a única proteção restante seria a
+    // unicidade do `evt_`, que não cobre um segundo evento descrevendo o mesmo
+    // desfecho. A guarda velha era pior por ser cega demais; ausente é pior
+    // ainda. Achado pela revisão de segurança de 2026-09-08.
+    const jaEncerrada = parsed.disputeId
+      ? (Array.isArray(pay.disputeIdsClosed) && pay.disputeIdsClosed.includes(parsed.disputeId))
+      : pay.disputeStatus === 'lost';
+    if (jaEncerrada) {
+      await repairRowFromLedger(check.id, parsed.txid, deps);
       return { status: 'duplicate', checkId: check.id };
     }
     if (parsed.refundDeltaCents === 0) {
@@ -190,6 +237,7 @@ async function applyConfirmedPayment(parsed, {
       // zero no encerramento de algumas consultas prévias. Recusar isso vira
       // 409 → reenvio → endpoint desabilitado, pela coisa mais inofensiva que
       // ela manda.
+      await repairRowFromLedger(check.id, parsed.txid, deps);
       return { status: 'duplicate', checkId: check.id };
     }
     if (parsed.refundDeltaCents < 0) {
@@ -219,6 +267,7 @@ async function applyConfirmedPayment(parsed, {
     if (delta <= 0) {
       // Reenvio do mesmo estorno, ou um acumulado mais velho que o que já
       // temos. Nada a fazer, e nada de anomalia: é o caso normal.
+      await repairRowFromLedger(check.id, parsed.txid, deps);
       return { status: 'duplicate', checkId: check.id };
     }
     const paidTotal = pay.amountCents + pay.tipCents;
@@ -249,16 +298,21 @@ async function applyConfirmedPayment(parsed, {
     // Real method from the PSP ('card' for Apple/Google Pay) — it used to be
     // hardcoded 'pix', which would mislabel wallet money in the ledger.
     ...(type === 'PAYMENT_CONFIRMED' ? { method: parsed.method || 'pix' } : {}),
+    // O `dp_` fica no LOG: é o que distingue a reentrega de uma derrota da
+    // segunda derrota de verdade, e o log é o único lugar durável.
+    ...(type === 'PAYMENT_REFUNDED' && parsed.disputeId ? { disputeId: parsed.disputeId } : {}),
   };
 
   if (type === 'PAYMENT_CONFIRMED' && state && state.payments[parsed.txid]) {
     const existing = state.payments[parsed.txid];
     if (existing.amountCents === parsed.amountCents && existing.tipCents === parsed.tipCents) {
+      await repairRowFromLedger(check.id, parsed.txid, deps);
       return { status: 'duplicate', checkId: check.id }; // clean at-least-once replay
     }
     // Divergent replay: append so the anomaly is durable and alertable.
     const seq = await appendEvent(check.id, type, payload, parsed.eventId || null);
     if (typeof seq === 'number' && seq < 0) {
+      await repairRowFromLedger(check.id, parsed.txid, deps);
       return { status: 'duplicate', checkId: check.id, seq: -seq };
     }
     return { status: 'divergent_appended', checkId: check.id, seq };
@@ -293,6 +347,7 @@ async function applyConfirmedPayment(parsed, {
    */
   const seq = await appendEvent(check.id, type, payload, parsed.eventId || null);
   if (typeof seq === 'number' && seq < 0) {
+    await repairRowFromLedger(check.id, parsed.txid, deps);
     return { status: 'duplicate', checkId: check.id, seq: -seq };
   }
 
@@ -305,7 +360,14 @@ async function applyConfirmedPayment(parsed, {
    */
   let rowStatus = ROW_STATUS_FOR_KIND[parsed.kind] || 'confirmado';
   let refundedTotals = null;
-  if (type === 'PAYMENT_REFUNDED' || type === 'PAYMENT_REFUND_REVERSED') {
+  // A DISPUTA GANHA entra aqui junto com o estorno, e não porque ela move
+  // saldo — ela não move — mas porque `ROW_STATUS_FOR_KIND.dispute_won` é
+  // `confirmado` e era aplicado seco. Uma disputa ganha sobre um pagamento já
+  // estornado por inteiro virava a linha de `devolvido` pra `confirmado`, e a
+  // conciliação passava a gritar `status_lag` pra sempre por uma linha que o
+  // dinheiro já tinha deixado. Quem decide o estado da linha é o razão.
+  if (type === 'PAYMENT_REFUNDED' || type === 'PAYMENT_REFUND_REVERSED'
+      || type === 'PAYMENT_DISPUTE_CLOSED') {
     const depois = reduce(await loadEvents(check.id));
     const pay = depois && depois.payments[parsed.txid];
     if (pay) {
@@ -350,7 +412,17 @@ async function applyConfirmedPayment(parsed, {
         confirmedAmountCents: payload.amountCents,
         confirmedTipCents: payload.tipCents,
       } : {}),
-      pspPayloadMasked: maskPixPayload(parsed.raw), // ONLY the masked subset is storable
+      // O retrato mascarado é da CONFIRMAÇÃO, e só dela.
+      //
+      // Escrito em todo evento, um estorno ou uma disputa sobrescreviam o
+      // payload do pagamento — o retrato forense de quando o dinheiro entrou,
+      // que é o que se olha quando alguém contesta. A reparação da linha já
+      // preserva esse campo de propósito (passa `undefined`); o caminho normal
+      // destruía o que ela protege. Achado pela revisão de segurança de
+      // 2026-09-08.
+      ...(type === 'PAYMENT_CONFIRMED'
+        ? { pspPayloadMasked: maskPixPayload(parsed.raw) }  // só o subconjunto mascarado é gravável
+        : {}),
       // `confirmedAt` só na CONFIRMAÇÃO.
       //
       // Era carimbado em todo evento, então um estorno, uma reversão ou uma
@@ -448,11 +520,97 @@ const NON_LEDGER_KINDS = new Set([
   'payment_failed',
 ]);
 
-function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, findCheckByTxid, fallback }) {
+/**
+ * A LINHA reconciliada a partir do razao — a reparacao de uma entrega parcial.
+ *
+ * O aplicador faz duas escritas: o `appendEvent` (o razao, a verdade) e o
+ * `recordPayment` (a linha, uma projecao). Entre as duas cabe uma falha: um
+ * 5xx do Supabase, uma conexao cortada. O razao diz que o cliente pagou, a
+ * linha continua `pendente`, e a REENTREGA — que existe exatamente pra isso —
+ * nunca reparava, porque os tres curto-circuitos de idempotencia devolvem
+ * `duplicate` ANTES da linha: o `seenPspEvent` no topo, a conferencia de
+ * estado da confirmacao, e o `seq` negativo do append.
+ *
+ * A conciliacao ativa tambem nao alcancava: ela chama o mesmo aplicador,
+ * recebe `duplicate`, e segue. Passadas 24h a cobranca sai da janela e a linha
+ * fica `pendente` pra sempre — o faturamento e a GORJETA (base da folha, Lei
+ * 13.419) perdidos, com `ledger_drift` critico permanente ate alguem escrever
+ * SQL na mao. Achado pela revisao de seguranca de 2026-09-08.
+ *
+ * A reparacao e segura por construcao porque a linha e uma PROJECAO: escrever
+ * o que o razao diz nao pode inventar dinheiro. So escreve quando diverge, e
+ * `confirmedAt` so quando esta faltando — reescrever a data moveria o
+ * faturamento de dia, que e outro defeito ja corrigido.
+ */
+async function repairRowFromLedger(checkId, txid, deps) {
+  const { loadEvents, getPayment, repairPaymentRow } = deps;
+  if (typeof getPayment !== 'function' || typeof repairPaymentRow !== 'function') return;
+  try {
+    const linha = await getPayment(txid);
+    if (!linha) return;
+    const state = reduce(await loadEvents(checkId));
+    const pay = state && state.payments[txid];
+    if (!pay) return; // o razao nao conhece este pagamento: nada a projetar
+
+    const estornoTotal = pay.refundedAmountCents === pay.amountCents
+      && pay.refundedTipCents === pay.tipCents;
+    const status = estornoTotal ? 'devolvido' : 'confirmado';
+    const faltaData = !linha.confirmedAt;
+    if (linha.status === status && !faltaData) return; // ja converge
+
+    /**
+     * CONDICIONAL: só escreve se a linha ainda estiver como foi lida.
+     *
+     * Era um `recordPayment` cego, e ele roda em todo caminho de `duplicate` —
+     * ou seja, exatamente quando há duas entregas do mesmo webhook em voo. O
+     * intercalamento perdia escrita: uma reentrega de `charge.paid` lia
+     * `refunded = 0`, um `charge.refunded` gravava `devolvido` no meio, e a
+     * reparação escrevia `confirmado`/`refunded 0` por cima. O painel voltava
+     * a contar como faturamento — e a gorjeta como base da folha — um
+     * pagamento devolvido por inteiro.
+     *
+     * Migração 0023, inegociável #7. Perder a corrida é NORMAL e não é erro: a
+     * outra entrega sabia mais. Só registra e sai.
+     */
+    process.stderr.write(`[webhook] reparando linha ${txid}: ${linha.status} -> ${status}\n`);
+    const reparou = await repairPaymentRow({
+      txid,
+      expectedStatus: linha.status,
+      expectedRefundedAmountCents: linha.refundedAmountCents || 0,
+      expectedRefundedTipCents: linha.refundedTipCents || 0,
+      status,
+      confirmedAmountCents: pay.amountCents,
+      confirmedTipCents: pay.tipCents,
+      refundedAmountCents: pay.refundedAmountCents,
+      refundedTipCents: pay.refundedTipCents,
+      ...(faltaData ? { confirmedAt: new Date().toISOString() } : {}),
+    });
+    if (!reparou) {
+      process.stderr.write(`[webhook] linha ${txid} mudou no meio do reparo — a outra entrega ganhou\n`);
+    }
+  } catch (e) {
+    // A reparacao e oportunista: falhar aqui nao pode transformar uma
+    // reentrega inofensiva num 500 que faz o PSP reenviar em laco.
+    process.stderr.write(`[webhook] reparo da linha ${txid} falhou: ${String(e.message).slice(0, 120)}\n`);
+  }
+}
+
+function createWebhookHandler({
+  loadEvents, appendEvent, recordPayment, psp, findCheckByTxid, fallback, seenPspEvent, getPayment,
+  repairPaymentRow,
+}) {
   if (!loadEvents || !appendEvent || !psp || !findCheckByTxid) {
     throw new Error('createWebhookHandler: missing dependencies');
   }
-  const deps = { loadEvents, appendEvent, recordPayment, findCheckByTxid, fallback };
+  // `seenPspEvent` estava FORA desta lista, e os três chamadores passavam.
+  // Dois jogavam fora em silêncio: o curto-circuito de reentrega no topo do
+  // aplicador — o que faz uma segunda entrega sair como `duplicate` em vez de
+  // 409 → reenvio → endpoint desabilitado — estava morto nos dois caminhos de
+  // webhook. Achado pela revisão de segurança de 2026-09-08.
+  const deps = {
+    loadEvents, appendEvent, recordPayment, findCheckByTxid, fallback, seenPspEvent,
+    getPayment, repairPaymentRow,
+  };
 
   /**
    * @returns {Promise<{status: 'appended'|'duplicate'|'divergent_appended'|'rejected'|'ignored', checkId?: string, seq?: number, reason?: string, type?: string}>}

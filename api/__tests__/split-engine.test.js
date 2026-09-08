@@ -197,3 +197,45 @@ describe('allocateRefund — quem perde primeiro num estorno é decisão, não s
     expect(() => allocateRefund(1000.5, 100, 100)).toThrow();
   });
 });
+
+describe('pagamento a MENOR: o serviço é o resíduo', () => {
+  const { allocateUnderpayment, allocateRefund } = require('../_lib/checks/split-engine');
+
+  test('o consumo é quitado primeiro; a gorjeta fica com o que sobrar', () => {
+    // Conta de 3390 + 339 de serviço. O cliente digita 3390 no app do banco.
+    expect(allocateUnderpayment(3390, 339, 3390)).toEqual({ amountCents: 3390, tipCents: 0 });
+    // Pagou 3500: comida quitada, 110 de serviço arrecadado.
+    expect(allocateUnderpayment(3390, 339, 3500)).toEqual({ amountCents: 3390, tipCents: 110 });
+    // Pagou o valor cheio: nada muda.
+    expect(allocateUnderpayment(3390, 339, 3729)).toEqual({ amountCents: 3390, tipCents: 339 });
+    // Pagou muito pouco: nem a comida fecha, e não há gorjeta nenhuma.
+    expect(allocateUnderpayment(3390, 339, 500)).toEqual({ amountCents: 500, tipCents: 0 });
+  });
+
+  test('as partes somam o recebido, sempre — em mil combinações', () => {
+    for (let i = 0; i < 1000; i += 1) {
+      const consumo = Math.floor(Math.random() * 50000);
+      const servico = Math.floor(Math.random() * 5000);
+      const recebido = Math.floor(Math.random() * (consumo + servico + 1));
+      const r = allocateUnderpayment(consumo, servico, recebido);
+      expect(r.amountCents + r.tipCents).toBe(recebido);
+      expect(r.amountCents).toBeGreaterThanOrEqual(0);
+      expect(r.tipCents).toBeGreaterThanOrEqual(0);
+      expect(r.amountCents).toBeLessThanOrEqual(consumo);
+      expect(r.tipCents).toBeLessThanOrEqual(servico);
+    }
+  });
+
+  test('receber MAIS do que a conta pediu não é caso desta função', () => {
+    // O excedente é outra decisão (restituição, CC art. 876) e tem outro
+    // caminho. Aqui é erro de programação, alto.
+    expect(() => allocateUnderpayment(3390, 339, 4000)).toThrow(RangeError);
+  });
+
+  test('o ESTORNO continua proporcional — é outra pergunta jurídica', () => {
+    // No estorno as duas parcelas foram validamente recebidas, então desfazer
+    // tira uma fatia de cada. Esta separação é o ponto: as duas funções não
+    // podem voltar a ser a mesma.
+    expect(allocateRefund(3390, 339, 500)).toEqual({ amountCents: 455, tipCents: 45 });
+  });
+});

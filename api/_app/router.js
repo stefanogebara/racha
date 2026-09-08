@@ -26,8 +26,10 @@ if (fs.existsSync(envPath)) {
 
 const { createMemoryStore } = require('../_lib/store/memory');
 const { MockPsp } = require('../_lib/pay/mock-psp');
-const { createWebhookHandler, applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
+const { createNonLedgerHandler } = require('../_lib/pay/non-ledger');
+const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
@@ -93,12 +95,20 @@ try {
 const charge = createChargeService({ store, psp });
 const checkSvc = createCheckService({ store });
 const houseSvc = createHouseService({ store, psp });
+// Evento de dinheiro que não vira lançamento (cancelamento parcial, disputa,
+// estorno falho): anomalia durável no razão + aviso. Ver `_lib/pay/non-ledger`.
+const handleNonLedgerMoneyEvent = createNonLedgerHandler({
+  store, notify: notifyFounderMoneyEvent,
+});
+
 const handleWebhook = createWebhookHandler({
   loadEvents: store.loadEvents.bind(store),
   appendEvent: store.appendEvent.bind(store),
   recordPayment: store.recordPayment.bind(store),
   findCheckByTxid: store.findCheckByTxid.bind(store),
   seenPspEvent: store.seenPspEvent.bind(store),
+  getPayment: store.getPayment.bind(store),
+  repairPaymentRow: store.repairPaymentRow.bind(store),
   psp,
   // txid that isn't a check charge → maybe a house-account load.
   fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
@@ -114,6 +124,8 @@ const confirmDeps = {
   recordPayment: store.recordPayment.bind(store),
   findCheckByTxid: store.findCheckByTxid.bind(store),
   seenPspEvent: store.seenPspEvent.bind(store),
+  getPayment: store.getPayment.bind(store),
+  repairPaymentRow: store.repairPaymentRow.bind(store),
   fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
 };
 
@@ -163,6 +175,8 @@ const demoWebhook = createWebhookHandler({
   recordPayment: store.recordPayment.bind(store),
   findCheckByTxid: store.findCheckByTxid.bind(store),
   seenPspEvent: store.seenPspEvent.bind(store),
+  getPayment: store.getPayment.bind(store),
+  repairPaymentRow: store.repairPaymentRow.bind(store),
   psp: demoPsp,
   fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
 });
@@ -394,7 +408,12 @@ async function route(req, res) {
           data = { ...data, venue: { ...data.venue, acceptsCard: true } };
         }
       }
-      return json(res, 200, { success: true, data });
+      // O estado sai PROJETADO. `/api/check` é público — quem tem o QR da mesa
+      // lê, sem login — e devolvia o estado reduzido inteiro: motivo de disputa
+      // vindo do esquema, prazo de prova, e a nota de texto livre que o dono
+      // escreve pra encerrar uma pendência ("reembolsei o Pedro no Pix
+      // 11 98765-4321"). Ver `_lib/checks/public-state`.
+      return json(res, 200, { success: true, data: { ...data, state: publicCheckState(data.state) } });
     }
     if (req.method === 'POST' && url.pathname === '/api/pay') {
       const body = JSON.parse(await readBody(req) || '{}');
@@ -571,6 +590,63 @@ async function route(req, res) {
       if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
         await writeBackToPos(result.checkId);
       }
+      /**
+       * Cobrança que FALHOU: a linha sai de `pendente`, e só isso.
+       *
+       * `payment_failed` está em `NON_LEDGER_KINDS` porque nenhum dinheiro se
+       * moveu — mas o despacho por conjunto logo abaixo o trataria como
+       * "evento de dinheiro que o razão não sabe lançar" e deixaria uma
+       * anomalia CRÍTICA numa conta onde nada está errado: um Pix que expirou
+       * é rotina. A Pagar.me não emite este tipo hoje; a armadilha estava
+       * armada pro dia em que emitir. Achado pela revisão de compliance de
+       * 2026-09-08.
+       */
+      if (result.status === 'payment_failed' && result.txid) {
+        const expirou = await store.expirePaymentIfPending(result.txid);
+        return json(res, 200, {
+          success: true,
+          data: { status: result.status, txid: result.txid, expired: expirou },
+        });
+      }
+      // Evento de dinheiro sem lançamento: anomalia no razão + aviso. Não
+      // gravado NEM avisado é 503, pra Pagar.me reenviar — perder o evento em
+      // silêncio é o que o inegociável #8 proíbe.
+      if (NON_LEDGER_KINDS.has(result.status)) {
+        const { persisted, notified, found } = await handleNonLedgerMoneyEvent(result);
+        /**
+         * O que decide o 503 é o registro DURÁVEL, não o aviso.
+         *
+         * Estava `!persisted && !notified` — ou seja, um alerta que saiu
+         * bastava. E o módulo que grava a anomalia diz, no próprio cabeçalho,
+         * por que os dois não são equivalentes: o alerta degrada (sem
+         * `RACHA_NOTIFY_SECRET` vira stderr) e a anomalia não. Pior: uma falha
+         * de gravação costuma ser PERSISTENTE — um CHECK que recusa o tipo do
+         * evento, uma permissão — do jeito que a produção recusou três tipos de
+         * evento por doze dias. Nesse estado, todo cancelamento parcial saía
+         * 200, a Pagar.me nunca reenviava, e o único vestígio era uma mensagem
+         * de chat, com a conciliação verde por cima do dinheiro que saiu.
+         *
+         * Agora: se havia conta pra pendurar a marca e a marca não entrou, é
+         * 503 e a Pagar.me reenvia. Sem conta pra pendurar, o reenvio não tem
+         * pra onde convergir — aí o aviso é o que existe, e insistir em 503
+         * só queimaria o endpoint (que derruba TODA confirmação de Pix).
+         * Achado pela revisão de segurança de 2026-09-08.
+         */
+        const naoConverge = found ? !persisted : !notified;
+        if (naoConverge && result.status !== 'refund_progress') {
+          process.stderr.write(`[webhook] ${result.status} SEM registro e SEM aviso — devolvendo 503 pra reenvio\n`);
+          return json(res, 503, {
+            success: false, code: 'money_event_unrecorded',
+            data: { status: result.status, txid: result.txid || null },
+          });
+        }
+        // O eco vai MASCARADO: o corpo cru do Pagar.me traz documento do
+        // pagador e payload do Pix, e `raw` saía inteiro na resposta.
+        return json(res, 200, {
+          success: true,
+          data: { status: result.status, type: result.type || null, txid: result.txid || null },
+        });
+      }
       const status = result.status === 'rejected' ? 409 : 200;
       return json(res, status, { success: status === 200, data: result });
     }
@@ -626,7 +702,11 @@ async function route(req, res) {
                 // precisa estar num lugar que o job diário lê, não só num
                 // alerta que degrada pra stderr sem `RACHA_NOTIFY_SECRET`.
                 dueBy: parsed.dueBy || null, status: parsed.status || null,
-              });
+              // O id do evento fecha a idempotência no append (migração 0018).
+              // Sem ele, a reentrega de `charge.dispute.created` — que o 503
+              // logo abaixo provoca de propósito — grava um segundo
+              // PAYMENT_DISPUTED e DOBRA `disputedAmountCents`.
+              }, parsed.eventId || null);
               persistido = true;
             } catch (e) {
               // NÃO engole. Gravar a disputa é gravar o PRAZO DE PROVA, e um
@@ -644,11 +724,29 @@ async function route(req, res) {
               await appendValidated(store, found.id, 'PAYMENT_DISPUTED', {
                 txid: parsed.txid, amountCents: 0, reason: parsed.reason || null,
                 dueBy: parsed.dueBy, status: parsed.status || null,
-              });
+              }, parsed.eventId || null);
               persistido = true;
             } catch (e) {
               process.stderr.write(`[stripe-webhook] prazo não atualizado: ${String(e.message).slice(0, 120)}\n`);
             }
+          }
+          /**
+           * O que NÃO virou lançamento também deixa marca DURÁVEL no razão.
+           *
+           * `unusable_money_event`, `account_alert` e `dispute_funds` saíam
+           * daqui só com alerta — e alerta degrada pra stderr sem
+           * `RACHA_NOTIFY_SECRET`. É o mesmo defeito que o `non-ledger.js`
+           * fechou no trilho do Pix, deixado de pé no outro. A abertura e a
+           * atualização de disputa já persistem acima (com o PRAZO, que é o
+           * que importa nelas), então só o resto passa por aqui.
+           * Achado pela revisão de compliance de 2026-09-08.
+           */
+          if (!persistido && parsed.kind !== 'dispute_opened' && parsed.kind !== 'dispute_updated') {
+            const marca = await handleNonLedgerMoneyEvent({
+              status: parsed.kind, type: parsed.type || null, txid: parsed.txid || null,
+              raw: parsed,
+            }, { alert: false }); // o aviso desta rota sai logo abaixo, com a conta conectada
+            persistido = marca.persisted;
           }
           let avisado = true;
           if (parsed.kind !== 'refund_progress') {
@@ -703,9 +801,13 @@ async function route(req, res) {
           result = await applyConfirmedPayment(parsed, confirmDeps);
           if (result.checkId) {
             try {
+              // O MESMO `evt_` já gravou o estorno logo acima, e a chave de
+              // idempotência é única no banco inteiro — reusá-la faria este
+              // append virar no-op e a disputa nunca fechar. O sufixo diz qual
+              // dos dois lançamentos daquele evento é este.
               await appendValidated(store, result.checkId, 'PAYMENT_DISPUTE_CLOSED', {
                 txid: parsed.txid, outcome: 'lost',
-              });
+              }, parsed.eventId ? `${parsed.eventId}:closed` : null);
             } catch (e) {
               // Sem o fecho, a conta guarda um `dispute_evidence_overdue`
               // crítico pra sempre — por uma disputa já resolvida. Não pode
@@ -731,11 +833,19 @@ async function route(req, res) {
         // treinaria o fundador a ignorar o canal. Quem precisa saber é a
         // conciliação, e ela lê o status da linha.
         if (parsed.kind === 'payment_failed') {
-          await store.recordPayment({
-            txid: parsed.txid, kind: parsed.kind, status: 'expirado',
-            pspPayloadMasked: null, confirmedAt: null,
+          // CONDICIONAL: `expirado` só pisa em `pendente` (migração 0020).
+          //
+          // Era um UPDATE cego que também escrevia `confirmed_at: null`. A
+          // Stripe não garante ordem e reenvia o que levou 5xx, então o
+          // `payment_failed` de uma recusa podia chegar DEPOIS do `succeeded`
+          // da segunda tentativa no mesmo intent — e apagava um pagamento
+          // confirmado do faturamento e da gorjeta. Achado pela revisão de
+          // segurança de 2026-09-08.
+          const expirou = await store.expirePaymentIfPending(parsed.txid);
+          return json(res, 200, {
+            success: true,
+            data: { status: 'payment_failed', txid: parsed.txid, expired: expirou },
           });
-          return json(res, 200, { success: true, data: { status: 'payment_failed', txid: parsed.txid } });
         }
         // Estorno que falhou: vira lançamento de REVERSÃO e alerta. As duas
         // coisas — o razão volta a dizer a verdade, e alguém precisa saber que
@@ -1150,7 +1260,10 @@ async function route(req, res) {
     // quando setado; senão rate-limit (o processo é idempotente de todo jeito).
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/recipient-status') {
       if (process.env.CRON_SECRET) {
-        if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+        // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
+        // e vaza o prefixo do segredo pro relógio de quem chama. Havia três
+        // call sites e só um usava `segredoConfere`.
+        if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
           return json(res, 401, { success: false, error: 'unauthorized' });
         }
       } else if (!rateLimitCron(req)) {
@@ -1204,7 +1317,10 @@ async function route(req, res) {
     // as contas que ninguém está vendo (app fechado) e escreve de volta no POS.
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/reconcile-pending') {
       if (process.env.CRON_SECRET) {
-        if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+        // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
+        // e vaza o prefixo do segredo pro relógio de quem chama. Havia três
+        // call sites e só um usava `segredoConfere`.
+        if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
           return json(res, 401, { success: false, error: 'unauthorized' });
         }
       } else if (!rateLimitCron(req)) {
@@ -1220,8 +1336,11 @@ async function route(req, res) {
           await writeBackToPos(d.checkId);
         }
       }
-      if (result.confirmed > 0 || result.errors > 0) {
-        process.stderr.write(`[reconcile-cron] confirmed=${result.confirmed} checked=${result.checked} errors=${result.errors}\n`);
+      // `terminal` entra na linha de log: são cobranças MORTAS (canceladas,
+      // recusadas, autorizações abandonadas). Sem isto o cron ficava mudo
+      // sobre a única coisa que ele descobriu naquela varredura.
+      if (result.confirmed > 0 || result.errors > 0 || result.terminal > 0) {
+        process.stderr.write(`[reconcile-cron] confirmed=${result.confirmed} terminal=${result.terminal} checked=${result.checked} errors=${result.errors}\n`);
       }
       return json(res, 200, { success: true, data: result });
     }
@@ -1311,7 +1430,10 @@ async function route(req, res) {
     // ?dry=1 devolve o radar sem enviar (inspeção sem incomodar ninguém).
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/activation-radar') {
       if (process.env.CRON_SECRET) {
-        if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+        // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
+        // e vaza o prefixo do segredo pro relógio de quem chama. Havia três
+        // call sites e só um usava `segredoConfere`.
+        if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
           return json(res, 401, { success: false, error: 'unauthorized' });
         }
       } else if (!rateLimitCron(req)) {
@@ -1385,14 +1507,8 @@ async function route(req, res) {
        * 200 continua: a Pagar.me não pode desabilitar o endpoint por causa
        * disto. O que muda é que alguém fica sabendo.
        */
-      if (result.status === 'unusable_money_event' || result.status === 'dispute_opened'
-          || result.status === 'refund_failed' || result.status === 'account_alert') {
-        await notifyFounderMoneyEvent({
-          kind: result.status, txid: result.txid || '?',
-          checkId: result.checkId || null,
-          amountCents: (result.raw && result.raw.amountCents) || 0,
-          detail: result.type || null,
-        });
+      if (NON_LEDGER_KINDS.has(result.status)) {
+        await handleNonLedgerMoneyEvent(result);
       }
       return json(res, 200, { success: true, data: result });
     }

@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { allocateUnderpayment } = require('../checks/split-engine');
 
 /**
  * Pagar.me (Stone) — o PSP real do Racha. Implementa o MESMO contrato do
@@ -53,6 +54,96 @@ class WebhookVerificationError extends Error {
     this.name = 'WebhookVerificationError';
     this.code = 'webhook_invalid';
   }
+}
+
+/**
+ * Os status em que O DINHEIRO CHEGOU.
+ *
+ * `paid` é o caso normal. `overpaid` e `underpaid` também são dinheiro na conta
+ * do restaurante — o cliente pagou a mais ou a menos, e no Pix isso acontece
+ * porque quem digita o valor é ele.
+ *
+ * Tratar os dois como "não pago" era o CRÍTICO da revisão de compliance de
+ * 2026-09-08, e no trilho que carrega praticamente todo o volume brasileiro:
+ * `overpaid` estava na lista de estados TERMINAIS ("esta cobrança nunca vai ser
+ * paga") e `underpaid` não estava em lista nenhuma. Nos dois casos o dinheiro
+ * estava no saldo da casa, o razão dizia que nada aconteceu, a conta continuava
+ * aberta e a mesa era cobrada DE NOVO — com a conciliação verde, porque as duas
+ * contagens concordavam que nada tinha acontecido.
+ *
+ * CDC art. 42 caput (cobrar dívida já quitada) e § único (repetição em dobro)
+ * quando a pessoa paga a segunda vez. E o serviço dentro daquele pagamento
+ * nunca chegava na folha (Lei 13.419).
+ */
+const PAID_STATUSES = new Set(['paid', 'overpaid', 'underpaid']);
+
+/**
+ * Uma cobrança da API vira o shape que o razão entende.
+ *
+ * O valor é o REALMENTE RECEBIDO (`paid_amount`), não o pedido: num
+ * `underpaid` chegou menos, num `overpaid` chegou mais, e gravar o pedido
+ * seria gravar uma ficção. Quando a API não manda `paid_amount` (cobrança
+ * `paid` exata), o pedido É o recebido.
+ *
+ * A repartição entre consumo e gorjeta é PROPORCIONAL ao que foi pedido —
+ * mesma decisão do estorno parcial, e pelo mesmo motivo: escolher quem recebe
+ * primeiro é decidir sobre o salário de alguém.
+ */
+/**
+ * Quanto dinheiro ENTROU nesta cobrança.
+ *
+ * Uma função só, porque a alternativa custou caro: eu ensinei o `parseCharge` a
+ * ler `paid_amount` e deixei o ramo do ESTORNO lendo `charge.amount`, o valor
+ * PEDIDO. Num Pix `underpaid` — a conta pedia 36,98, o cliente digitou 33,00 —
+ * o estorno chegava dizendo que 36,98 tinham voltado, o razão recusava por
+ * exceder o que foi pago, a rota devolvia 409, e a Pagar.me reenviava até
+ * desabilitar o endpoint (o que derruba TODA confirmação de Pix, não só esta).
+ * Enquanto isso os 33,00 tinham saído da conta da casa e os nossos dois
+ * registros continuavam dizendo "pago". Achado pela revisão de compliance de
+ * 2026-09-08.
+ */
+function receivedCents(charge) {
+  const pedido = Number(charge.amount) || 0;
+  const pago = Number(charge.paid_amount);
+  return Number.isFinite(pago) && pago > 0 ? pago : pedido;
+}
+
+function parseCharge(charge, eventId = null) {
+  const pedidoTotal = Number(charge.amount) || 0;
+  const tipPedido = Number((charge.metadata && charge.metadata.tip_cents) || 0) || 0;
+  const consumoPedido = Math.max(0, pedidoTotal - tipPedido);
+  const recebido = receivedCents(charge);
+  assertCents(pedidoTotal, 'charge.amount');
+  assertCents(recebido, 'charge.paid_amount');
+  assertCents(tipPedido, 'metadata.tip_cents');
+  // Pagou menos: o SERVIÇO é o resíduo (ver `allocateUnderpayment` — quem
+  // digita menos está recusando a linha opcional, não devendo comida).
+  const partes = recebido === pedidoTotal
+    ? { amountCents: consumoPedido, tipCents: tipPedido }
+    : allocateUnderpayment(consumoPedido, tipPedido, Math.min(recebido, pedidoTotal));
+  // Pagou MAIS do que a conta pedia: o excedente vai pro consumo, e o redutor
+  // marca `overpaidCents` na conta. A gorjeta não infla sozinha.
+  const excedente = Math.max(0, recebido - pedidoTotal);
+  // As partes SOMAM o recebido, sempre (inegociável #5). O rateio garante isso
+  // por construção, mas a garantia tem que ser afirmada aqui: uma
+  // `metadata.tip_cents` corrompida (maior que a cobrança) sairia calada.
+  if (partes.amountCents + excedente + partes.tipCents !== recebido) {
+    throw new Error(`parseCharge: partes não somam o recebido (${partes.amountCents}+${excedente}+${partes.tipCents} ≠ ${recebido})`);
+  }
+  return {
+    txid: charge.id,
+    // O id do evento vem de FORA: a conciliação lê a cobrança pela API e não
+    // tem evento nenhum (null, e o índice parcial da 0018 ignora nulos), o
+    // webhook tem. O campo existe nos dois pra ninguém esquecer de passá-lo.
+    eventId,
+    status: charge.status,
+    paid: PAID_STATUSES.has(charge.status),
+    kind: 'payment_confirmed',
+    amountCents: partes.amountCents + excedente,
+    tipCents: partes.tipCents,
+    method: charge.payment_method === 'pix' ? 'pix' : 'card',
+    raw: charge,
+  };
 }
 
 function assertCents(v, name) {
@@ -343,18 +434,7 @@ function createPagarmePsp({
         throw err;
       }
       if (!charge || !charge.id) return null;
-      const totalCents = charge.amount;
-      const tipCents = Number((charge.metadata && charge.metadata.tip_cents) || 0) || 0;
-      const amountCents = Math.max(0, totalCents - tipCents);
-      const method = charge.payment_method === 'pix' ? 'pix' : 'card';
-      return {
-        txid: charge.id,
-        status: charge.status,
-        paid: charge.status === 'paid',
-        kind: 'payment_confirmed',
-        amountCents, tipCents, method,
-        raw: charge,
-      };
+      return parseCharge(charge);
     },
 
     /**
@@ -410,6 +490,20 @@ function createPagarmePsp({
       try { event = JSON.parse(rawBody); } catch {
         throw new WebhookVerificationError('body is not JSON');
       }
+      /**
+       * O ID DO EVENTO, que este adaptador não carregava.
+       *
+       * A idempotência da migração 0018 é por `psp_event_id` único, e o índice
+       * ignora nulos — então, sem isto, a defesa inteira existia só pra Stripe
+       * (Espanha, desligada) e estava AUSENTE no trilho que carrega o dinheiro.
+       *
+       * O que ficava aberto: duas entregas simultâneas do mesmo
+       * `charge.refunded` liam o mesmo estado velho, calculavam o mesmo delta e
+       * gravavam as duas. Uma conta de R$ 33,90 acabava com R$ 67,80
+       * estornados, `paidCents` negativo, e quem pagou aparecendo como devendo.
+       * Achado pela revisão de compliance de 2026-09-08.
+       */
+      const eventId = typeof (event && event.id) === 'string' ? event.id : null;
       const type = event && event.type; // ex.: charge.paid, charge.refunded
       const chargeId = event && event.data && (event.data.id || (event.data.charge && event.data.charge.id));
       if (!type || typeof chargeId !== 'string' || !/^ch_/.test(chargeId)) {
@@ -421,7 +515,7 @@ function createPagarmePsp({
       // `validateEvent` não pega: o estorno é igual ao valor pago, então passa.
       // A conta reabre, o cliente é chamado pra pagar de novo, e a conciliação
       // mostra R$ 195 de divergência sem explicação.
-      if (!/^charge\.(paid|refunded)$/.test(type)) {
+      if (!/^charge\.(paid|refunded|overpaid|underpaid)$/.test(type)) {
         // Evento que não move o nosso razão é IGNORADO, não recusado.
         //
         // Era `throw`, que a rota mapeia pra 401: a Pagar.me reenvia e depois
@@ -431,21 +525,43 @@ function createPagarmePsp({
         //
         // É a mesma correção que o adaptador da Stripe já tinha recebido, na
         // metade esquecida — o outro adquirente.
-        return { kind: 'ignored', type, raw: event && event.data };
+        return { kind: 'ignored', type, raw: event && event.data, eventId };
       }
 
       // A VERDADE: estado atual da cobrança direto da API.
       const charge = await api('GET', `/charges/${chargeId}`);
-      const totalCents = charge.amount;
-      const tipCents = Number((charge.metadata && charge.metadata.tip_cents) || 0) || 0;
-      const amountCents = Math.max(0, totalCents - tipCents);
+      // O TETO do estorno é o que ENTROU, não o que a conta pediu. Ver
+      // `receivedCents`: são números diferentes num Pix `underpaid`/`overpaid`,
+      // e o razão recusa — com razão — um estorno maior que o pagamento.
+      const totalCents = receivedCents(charge);
       const method = charge.payment_method === 'pix' ? 'pix' : 'card';
 
-      if (type === 'charge.paid') {
-        if (charge.status !== 'paid') {
-          throw new WebhookVerificationError(`webhook diz paid mas API diz ${charge.status}`);
+      if (type === 'charge.paid' || type === 'charge.overpaid' || type === 'charge.underpaid') {
+        // A API é a verdade, e ela tem TRÊS status em que o dinheiro chegou.
+        // `underpaid` é o cliente digitando menos no app do banco; `overpaid`,
+        // mais. Nos dois o dinheiro está na conta da casa.
+        if (!PAID_STATUSES.has(charge.status)) {
+          throw new WebhookVerificationError(`webhook diz ${type} mas API diz ${charge.status}`);
         }
-        return { kind: 'payment_confirmed', txid: charge.id, amountCents, tipCents, method, raw: charge };
+        try {
+          return parseCharge(charge, eventId);
+        } catch (e) {
+          /**
+           * Valor que não é centavo inteiro, ou partes que não somam.
+           *
+           * É dinheiro que se moveu e a gente não consegue MEDIR — que é a
+           * definição de `unusable_money_event`: anomalia durável e alerta. Sem
+           * isto virava `TypeError` → 500 → a Pagar.me reenvia em laço e acaba
+           * desabilitando o endpoint, o que derruba toda confirmação de Pix
+           * por causa de uma cobrança. Achado pela revisão de segurança de
+           * 2026-09-08.
+           */
+          process.stderr.write(`[pagarme] cobrança ${charge.id} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
+          return {
+            kind: 'unusable_money_event', type, txid: charge.id,
+            status: charge.status, raw: charge, eventId,
+          };
+        }
       }
       // REEMBOLSO, e o status da API manda — igual ao ramo de `paid` acima.
       //
@@ -459,17 +575,30 @@ function createPagarmePsp({
         // acumulado é o valor da cobrança. Quem calcula o delta e rateia entre
         // consumo e gorjeta é o razão — um só lugar pros dois adquirentes.
         return {
-          kind: 'refund', txid: charge.id,
+          kind: 'refund', txid: charge.id, eventId,
           cumulativeRefundedCents: totalCents,
           method, raw: charge,
         };
       }
       if (charge.status === 'partial_canceled') {
-        // Dinheiro SAIU e a gente não sabe quanto: exige mapear
-        // `canceled_amount` por transação. Não é `ignored` — ignorar é dizer
-        // "não me interessa", e um estorno parcial interessa muito. Kind
-        // próprio, pro chamador alertar e persistir em vez de dar 200 calado.
-        return { kind: 'unusable_money_event', type, txid: charge.id, status: charge.status, raw: charge };
+        // Cancelamento PARCIAL: se a API disser QUANTO, é um estorno normal.
+        //
+        // A v5 traz `canceled_amount` na cobrança quando o cancelamento é
+        // parcial. Com ele isto deixa de ser "saiu dinheiro e não sabemos
+        // quanto" e passa a ser o mesmo acumulado dos outros — o razão calcula
+        // o delta e rateia. Sem ele (versão de API mais velha, campo ausente)
+        // continua sendo evento de dinheiro NÃO LANÇÁVEL: anomalia durável e
+        // alerta, nunca um 200 calado.
+        const canceladoCents = Number(charge.canceled_amount);
+        if (Number.isSafeInteger(canceladoCents) && canceladoCents > 0
+            && canceladoCents <= totalCents) {
+          return {
+            kind: 'refund', txid: charge.id, eventId,
+            cumulativeRefundedCents: canceladoCents,
+            method, raw: charge,
+          };
+        }
+        return { kind: 'unusable_money_event', type, txid: charge.id, status: charge.status, raw: charge, eventId };
       }
       // O corpo diz reembolso e a API diz outra coisa: contradição, alto.
       throw new WebhookVerificationError(`webhook diz ${type} mas API diz ${charge.status}`);

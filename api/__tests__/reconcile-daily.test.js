@@ -199,3 +199,46 @@ describe('a varredura sobre o store de verdade', () => {
     expect(msg).toContain('Bar do Zé');
   });
 });
+
+describe('evento de dinheiro SEM conta correspondente', () => {
+  /**
+   * `orphan_money_events` (migração 0024) existe pro evento que não tem onde
+   * ser lançado — cobrança de outro ambiente, linha apagada. Guardar sem ler
+   * seria perder com passos extras: uma tabela que ninguém olha é onde as
+   * coisas vão pra ser esquecidas.
+   */
+  const { reconcileAllVenues, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+
+  const storeCom = (orfaos) => ({
+    listVenueActivation: async () => [],
+    listChecksForReconcile: async () => [],
+    listOpenOrphanMoneyEvents: async () => orfaos,
+  });
+
+  test('órfão aberto pinta o relatório de ALTO mesmo com toda casa verde', async () => {
+    const r = await reconcileAllVenues(storeCom([
+      { id: 1, kind: 'unusable_money_event', txid: 'ch_x', amountCents: 500 },
+    ]));
+    expect(r.orphanMoneyEvents).toBe(1);
+    expect(r.worstSeverity).toBe('high');
+    // E o alerta SAI — antes ele só saía com restaurante vermelho.
+    const msg = formatReconcileAlert(r);
+    expect(msg).toMatch(/SEM conta correspondente/);
+    expect(msg).toMatch(/ch_x/);
+  });
+
+  test('sem órfão e sem casa vermelha, nada acorda ninguém', async () => {
+    const r = await reconcileAllVenues(storeCom([]));
+    expect(r.orphanMoneyEvents).toBe(0);
+    expect(r.worstSeverity).toBe('ok');
+    expect(formatReconcileAlert(r)).toBeNull();
+  });
+
+  test('store antigo sem a tabela não quebra a varredura', async () => {
+    const r = await reconcileAllVenues({
+      listVenueActivation: async () => [],
+      listChecksForReconcile: async () => [],
+    });
+    expect(r.orphanMoneyEvents).toBe(0);
+  });
+});

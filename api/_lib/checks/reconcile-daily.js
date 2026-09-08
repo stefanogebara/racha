@@ -122,11 +122,33 @@ async function reconcileAllVenues(store, opts = {}) {
   }
 
   const red = venueReports.filter((r) => r.severity === 'critical' || r.severity === 'high');
+
+  /**
+   * Os ÓRFÃOS entram no relatório diário.
+   *
+   * `orphan_money_events` (migração 0024) guarda evento de dinheiro que não
+   * achou conta — um cancelamento parcial de uma cobrança que a gente não
+   * conhece, um alerta de repasse. Guardar sem ler é o mesmo que perder com
+   * passos extras: uma tabela que ninguém olha é onde as coisas vão pra ser
+   * esquecidas. Órfão aberto é `high` no relatório — pede ação humana e não
+   * some sozinho.
+   */
+  let orphans = [];
+  if (typeof store.listOpenOrphanMoneyEvents === 'function') {
+    try { orphans = await store.listOpenOrphanMoneyEvents(); }
+    catch (e) { process.stderr.write(`[reconcile-daily] órfãos não lidos: ${String(e.message).slice(0, 120)}\n`); }
+  }
+  const severidadeGeral = orphans.length > 0
+    ? worse(venueReports.reduce((s, r) => worse(s, r.severity), 'ok'), 'high')
+    : venueReports.reduce((s, r) => worse(s, r.severity), 'ok');
+
   return {
     at: new Date().toISOString(),
     venuesChecked: venueReports.length,
     venuesRed: red.length,
-    worstSeverity: venueReports.reduce((s, r) => worse(s, r.severity), 'ok'),
+    orphanMoneyEvents: orphans.length,
+    orphans: orphans.slice(0, 10),
+    worstSeverity: severidadeGeral,
     totalDriftCents: venueReports.reduce((s, r) => s + r.driftCents, 0),
     // O relatório inteiro é grande e ninguém lê trinta casas verdes: só o que
     // pede ação sai detalhado.
@@ -141,7 +163,18 @@ async function reconcileAllVenues(store, opts = {}) {
  * pra descobrir onde, e às 4 da manhã isso vira "vejo amanhã".
  */
 function formatReconcileAlert(report) {
-  if (report.venuesRed === 0) return null;
+  // ÓRFÃO ABERTO acorda o alerta mesmo com todo restaurante verde: é dinheiro
+  // que se moveu e não achou conta, e ele não sai de lá sozinho.
+  const orfaos = report.orphanMoneyEvents || 0;
+  if (report.venuesRed === 0 && orfaos === 0) return null;
+  const linhaOrfaos = orfaos > 0
+    ? `\n\n${orfaos} evento(s) de dinheiro SEM conta correspondente: `
+      + (report.orphans || []).slice(0, 5)
+        .map((o) => `${o.kind}${o.txid ? ` ${o.txid}` : ''}`).join(', ')
+    : '';
+  if (report.venuesRed === 0) {
+    return `Conciliação ${report.at.slice(0, 10)}: restaurantes ok.${linhaOrfaos}`;
+  }
   const linhas = report.red.slice(0, 10).map((v) => {
     const pior = v.findings.find((f) => f.severity === 'critical')
       || v.findings.find((f) => f.severity === 'high')
@@ -150,7 +183,7 @@ function formatReconcileAlert(report) {
     return `• ${v.name} [${v.severity}]${drift} — ${pior ? pior.message : 'sem detalhe'}`;
   });
   const resto = report.red.length > 10 ? `\n(+${report.red.length - 10} restaurantes)` : '';
-  return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesRed} de ${report.venuesChecked} restaurantes com divergência.\n\n${linhas.join('\n')}${resto}`;
+  return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesRed} de ${report.venuesChecked} restaurantes com divergência.\n\n${linhas.join('\n')}${resto}${linhaOrfaos}`;
 }
 
 module.exports = { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert, worse };

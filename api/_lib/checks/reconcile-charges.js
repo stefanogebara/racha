@@ -22,6 +22,15 @@
  * is recorded and skipped — it never aborts the batch or throws.
  */
 
+const { appendValidated } = require('./append-validated');
+
+/**
+ * Status terminais em que o DINHEIRO ANDOU: entrou e voltou. São diferentes de
+ * "nunca foi paga" e por isso não podem sair só como um contador — ver
+ * `MONEY_MOVED` no laço abaixo.
+ */
+const TERMINAL_COM_DINHEIRO = new Set(['refunded', 'chargedback']);
+
 const DEFAULT_GRACE_MS = 20_000;                   // give the webhook first crack
 const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000;     // a paid-but-unconfirmed charge stays healable for a day
 const DEFAULT_LIMIT = 50;
@@ -29,7 +38,23 @@ const DEFAULT_LIMIT = 50;
 // Gateway states that mean "this charge will never be paid" — distinct from a
 // Pix still waiting for the diner. Surfaced separately so they don't hide in
 // the "stillPending" bucket and vanish after the window.
-const TERMINAL_UNPAID = new Set(['canceled', 'failed', 'refunded', 'chargedback', 'voided', 'overpaid']);
+const TERMINAL_UNPAID = new Set(['canceled', 'failed', 'refunded', 'chargedback', 'voided']);
+
+/**
+ * `overpaid` NÃO está na lista acima, e essa é a correção, não o descuido.
+ *
+ * No Pagar.me `overpaid` e `underpaid` são status em que o DINHEIRO CHEGOU —
+ * o pagador digitou um valor diferente no app do banco. `overpaid` estava
+ * listado como "nunca vai ser paga", numa lista que o arquivo documenta como
+ * cobranças mortas. O efeito: a conciliação, o único caminho garantido quando
+ * o webhook não chega, olhava pro dinheiro na conta da casa e o contava como
+ * abandono. A conta seguia aberta, a mesa era cobrada de novo, e o canário
+ * ficava verde porque as duas contagens concordavam entre si.
+ *
+ * Quem decide agora é `info.paid`, e `getCharge` o deriva de `PAID_STATUSES`
+ * no adaptador — um só vocabulário de "chegou dinheiro" pros dois caminhos.
+ * Achado pela revisão de compliance de 2026-09-08.
+ */
 
 /**
  * `requires_payment_method` é ambíguo, e por isso não está na lista acima.
@@ -139,7 +164,56 @@ function createChargeReconciler({ store, psp, confirm }) {
           // separately so it's visible, not silently dropped after windowMs.
           if (isTerminalUnpaid(info, p, now)) {
             terminal += 1;
-            details.push({ txid: p.txid, checkId: p.checkId, status: `psp:${info.status}` });
+            /**
+             * E a LINHA sai de `pendente`.
+             *
+             * Contar não é registrar. A cobrança morta era somada num contador
+             * de uma resposta HTTP e mais nada: a linha seguia `pendente` até
+             * sair da janela de 24h, e aí sumia do caminho ativo pra sempre —
+             * exatamente o "desaparece sem registro nenhum" que a regra do
+             * abandono tinha sido escrita pra corrigir.
+             *
+             * Condicional (migração 0020): se uma confirmação chegou no meio
+             * do caminho, ela ganha. Achado pela revisão de segurança de
+             * 2026-09-08.
+             */
+            /**
+             * `refunded` e `chargedback` são a ida E a volta do dinheiro.
+             *
+             * A cobrança foi paga (nossa confirmação se perdeu) e depois
+             * devolvida ou contestada. Marcar a linha como `expirado` e contar
+             * num contador apaga as duas pernas: líquido zero pra casa, e
+             * nenhum rastro de que houve dinheiro — o inegociável #6 no
+             * miúdo. A anomalia fica na conta, com o valor que o adquirente
+             * reporta. Achado pela revisão de segurança de 2026-09-08.
+             */
+            if (TERMINAL_COM_DINHEIRO.has(info.status) && p.checkId) {
+              try {
+                await appendValidated(store, p.checkId, 'PAYMENT_ANOMALY', {
+                  txid: p.txid, severity: 'high',
+                  reason: `cobrança ${p.txid} foi paga e ${info.status} no adquirente sem passar pelo razão`
+                    + `${Number.isSafeInteger(info.amountCents) ? ` (${info.amountCents + (info.tipCents || 0)}¢)` : ''}`,
+                }, `recon:${p.txid}:${info.status}`);
+              } catch (e) {
+                // Já registrada (a chave é estável, então a varredura seguinte
+                // não duplica), ou o razão recusou. Nos dois a varredura segue.
+                if (!/idempot|duplicate|unique/i.test(String(e.message))) {
+                  process.stderr.write(`[reconcile] anomalia de ida-e-volta não gravada: ${String(e.message).slice(0, 120)}\n`);
+                }
+              }
+            }
+            let expirada = null;
+            if (typeof store.expirePaymentIfPending === 'function') {
+              try { expirada = await store.expirePaymentIfPending(p.txid); }
+              catch (e) {
+                errors += 1;
+                details.push({ txid: p.txid, error: `expire: ${String(e.message).slice(0, 80)}` });
+              }
+            }
+            details.push({
+              txid: p.txid, checkId: p.checkId, status: `psp:${info.status}`,
+              ...(expirada === null ? {} : { expired: expirada }),
+            });
           } else {
             stillPending += 1;
           }

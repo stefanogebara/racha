@@ -370,6 +370,17 @@ export default function App() {
               {t(venue.market === 'es' ? 'rcpt.taxIdNif' : 'rcpt.taxIdCnpj')}{' '}{venue.taxId}
             </p>
           )}
+          {/* AVISOS DE DINHEIRO do cliente. Código estável + centavos vêm do
+              servidor; a frase é daqui. Pagou a mais, ou um estorno que
+              falhou: nos dois a casa deve, e ficar calado é o problema — o
+              cliente vai embora sem saber que tem valor a receber. */}
+          {(state.notices || []).map((n, i) => (
+            <p key={`${n.code}:${i}`} className="muted small center" style={{ color: 'var(--burgundy)' }}>
+              {n.code === 'overpaid_pending_restitution'
+                ? t('notice.overpaid_pending_restitution', { amount: brl(n.amountCents) })
+                : t('notice.refund_reversed', { amount: brl(n.amountCents) })}
+            </p>
+          ))}
           <p className="muted small center">{t('paid.notInvoice')}</p>
         </section>
       </Shell>

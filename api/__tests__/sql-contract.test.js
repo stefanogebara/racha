@@ -167,11 +167,46 @@ describe('as projeções SQL conhecem os mesmos eventos que o redutor', () => {
     //
     // Aconteceu em produção em 2026-09-08 ao aplicar a 0018. A dispensa que eu
     // escrevi à mão foi exatamente o que o teste existia pra impedir.
-    const semDrop = divergentes.filter((d) => {
+    //
+    // E o `drop` tem que ser o CERTO, na ORDEM certa. A primeira versão desta
+    // guarda só procurava `drop function if exists public.<nome>(` em qualquer
+    // lugar do SQL concatenado, com qualquer lista de argumentos — então ela
+    // passava verde nos dois erros de digitação que reproduzem o incidente:
+    // derrubar a assinatura NOVA (a sobrecarga fica, `42725` em produção), ou
+    // pôr o `drop` DEPOIS do `create` (a migração derruba a função que acabou
+    // de criar, e o RPC some). Achado pela revisão de segurança de 2026-09-08.
+    const problemas = [];
+    for (const d of divergentes) {
       const nome = d.split(':')[0];
-      return !new RegExp(`drop function if exists public\\.${nome}\\(`).test(sql);
-    });
-    expect(semDrop).toEqual([]);
+      const assinaturas = [...porNome.get(nome)];
+      const anteriores = assinaturas.slice(0, -1);   // a última é a que fica
+      const drops = [...sql.matchAll(new RegExp(`drop function if exists public\\.${nome}\\(([^)]*)\\)`, 'g'))];
+      if (drops.length === 0) { problemas.push(`${nome}: nenhum drop`); continue; }
+      const criacaoNova = sql.lastIndexOf(`create or replace function public.${nome}`);
+      const dropped = drops.map((m) => m[1].split(',').map((x) => x.trim()).filter(Boolean).join(','));
+      // Alguma das assinaturas ANTIGAS foi derrubada, e antes da criação nova.
+      const bom = drops.some((m, i) => anteriores.includes(dropped[i]) && m.index < criacaoNova);
+      if (!bom) {
+        problemas.push(`${nome}: drop não casa a assinatura antiga (${anteriores.join(' | ')}) ou vem depois do create — derrubados: ${dropped.join(' | ')}`);
+      }
+    }
+    expect(problemas).toEqual([]);
+  });
+
+  test('toda função nova nasce com o acesso REVOGADO de anon/authenticated', () => {
+    // As RPCs rodam `security definer` com a service-role: uma função exposta
+    // ao PostgREST anônimo é o banco inteiro pela porta da frente. A 0020
+    // (`expire_payment_if_pending`) mexe em `payments`.
+    const sql = sqlNaOrdem();
+    const semRevoke = [];
+    for (const m of sql.matchAll(/create or replace function public\.(\w+)([\s\S]{0,400}?)\slanguage /g)) {
+      const [, nome, cabeca] = m;
+      // Função de GATILHO não é chamável pelo PostgREST: ela roda por dentro
+      // do banco, no INSERT/UPDATE da tabela. O que precisa de revoke é a RPC.
+      if (/returns trigger/i.test(cabeca)) continue;
+      if (!new RegExp(`revoke all on function public\\.${nome}\\(`).test(sql)) semRevoke.push(nome);
+    }
+    expect(semRevoke).toEqual([]);
   });
 });
 

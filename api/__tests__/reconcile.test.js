@@ -14,7 +14,20 @@ const { createChargeService } = require('../_lib/pay/create-charge');
 const opened = (t) => ({ type: 'OPENED', payload: { totalCents: t } });
 const paid = (txid, a, tip = 0) => ({ type: 'PAYMENT_CONFIRMED', payload: { txid, amountCents: a, tipCents: tip, method: 'pix' } });
 const refunded = (txid, a, tip = 0) => ({ type: 'PAYMENT_REFUNDED', payload: { txid, amountCents: a, tipCents: tip } });
-const row = (txid, a, tip, status = 'confirmado') => ({ txid, amountCents: a, tipCents: tip, status });
+/**
+ * Uma linha de `payments` como as de hoje: o pedido E o confirmado.
+ *
+ * O confirmado espelha o pedido por padrão, que é o caso normal — o cliente
+ * pagou o que a cobrança pediu. Quando os dois divergem (Pix `underpaid` ou
+ * `overpaid`), passe `confirmed` explicitamente.
+ */
+const row = (txid, a, tip, status = 'confirmado', confirmed = null) => ({
+  txid, amountCents: a, tipCents: tip, status,
+  confirmedAmountCents: confirmed ? confirmed[0] : a,
+  confirmedTipCents: confirmed ? confirmed[1] : tip,
+});
+/** Linha ANTERIOR à migração 0015: sem os valores confirmados. */
+const legacyRow = (txid, a, tip, status = 'confirmado') => ({ txid, amountCents: a, tipCents: tip, status });
 
 describe('reconcileCheck — event log vs payments table', () => {
   test('clean match → ok, zero drift', () => {
@@ -90,9 +103,82 @@ describe('reconcileCheck — event log vs payments table', () => {
     const r = reconcileCheck({
       checkId: 'c1',
       events: [opened(10000), paid('tx1', 6000, 600)],
-      payments: [row('tx1', 5000, 600)], // row says 5000, log says 6000
+      // O CONFIRMADO da linha diz 5000, o razão diz 6000.
+      payments: [row('tx1', 6000, 600, 'confirmado', [5000, 600])],
     });
     expect(r.findings.some((f) => f.code === 'amount_mismatch')).toBe(true);
+  });
+
+  test('a GORJETA confirmada sozinha também é conferida — é a base da folha', () => {
+    // As duas partes podem somar igual e estar trocadas entre si. O número
+    // trocado é o que o dono leva pra folha (Lei 13.419 / STJ Tema 1102).
+    const r = reconcileCheck({
+      checkId: 'c1',
+      events: [opened(10000), paid('tx1', 6000, 600)],
+      payments: [row('tx1', 6600, 0, 'confirmado', [6300, 300])],
+    });
+    expect(r.findings.some((f) => f.code === 'tip_mismatch')).toBe(true);
+  });
+
+  test('linha SEM valor confirmado é histórico — a divergência ainda aparece na soma', () => {
+    // Pagamento anterior à migração 0015. Não dá pra comparar coluna que não
+    // existe, mas as duas contagens continuam tendo que fechar.
+    const r = reconcileCheck({
+      checkId: 'c1',
+      events: [opened(10000), paid('tx1', 6000, 600)],
+      payments: [legacyRow('tx1', 5000, 600)],
+    });
+    expect(r.findings.some((f) => f.code === 'amount_mismatch')).toBe(false);
+    expect(r.findings.some((f) => f.code === 'ledger_drift')).toBe(true);
+    expect(r.driftCents).toBe(-1000);
+  });
+
+  describe('pagar valor diferente do pedido é FATO DO NEGÓCIO, não defeito', () => {
+    /**
+     * No Pix o cliente digita o valor no app do banco. Depois que `underpaid`
+     * passou a entrar como dinheiro recebido, "pedido ≠ razão" deixou de ser
+     * defeito por definição — e um crítico que dispara em comportamento
+     * correto está morto em duas semanas.
+     */
+    test('pagou a MENOS: achado informativo com os centavos, canário não fica vermelho', () => {
+      const r = reconcileCheck({
+        checkId: 'c1',
+        events: [opened(10000), paid('tx1', 3390, 0)],           // serviço recusado
+        payments: [row('tx1', 3390, 339, 'confirmado', [3390, 0])],
+      });
+      const f = r.findings.find((x) => x.code === 'underpayment');
+      expect(f).toBeDefined();
+      expect(f.severity).toBe('info');
+      expect(f.deltaCents).toBe(-339);
+      expect(r.driftCents).toBe(0);                              // nada saiu do lugar
+      expect(r.findings.some((x) => x.severity === 'critical' || x.severity === 'high')).toBe(false);
+    });
+
+    test('pagou a MAIS: mesma ideia, do outro lado', () => {
+      const r = reconcileCheck({
+        checkId: 'c1',
+        events: [opened(10000), paid('tx1', 4000, 339)],
+        payments: [row('tx1', 3390, 339, 'confirmado', [4000, 339])],
+      });
+      const f = r.findings.find((x) => x.code === 'overpayment');
+      expect(f.severity).toBe('info');
+      expect(f.deltaCents).toBe(610);
+    });
+
+    test('a casa NÃO é contada como falhando por um pagamento a menor', async () => {
+      // `checksFailed` alimenta o "ok" do painel do dono. Um fato do negócio
+      // não pode fazer a casa aparecer com contas com problema.
+      const store = {
+        listChecksForReconcile: async () => ([{
+          checkId: 'c1',
+          events: [opened(10000), paid('tx1', 3390, 0)],
+          payments: [row('tx1', 3390, 339, 'confirmado', [3390, 0])],
+        }]),
+      };
+      const v = await reconcileVenue(store, 'v1');
+      expect(v.checksFailed).toBe(0);
+      expect(v.worstSeverity).toBe('info');   // visível, sem pintar de vermelho
+    });
   });
 
   test('refund reflected in log but row status still confirmado → status_lag', () => {

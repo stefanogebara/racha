@@ -103,6 +103,9 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'ledger.load:pt=es', 'ledger.refund:pt=es', 'cat.carne:pt=es',
     'cat.massa:en=es', 'cat.cafe:pt=es', 'land.nav:pt=es',
     'qrs.print:pt=es', // "Imprimir" é igual nas duas
+    // "de {x} cobrados" e "a devolver a clientes" se escrevem igual nas duas
+    // línguas — verificado palavra por palavra, não presumido pela semelhança.
+    'panel.tipShort:pt=es', 'panel.toRefund:pt=es',
     // "chargeback" é o termo usado em português no mercado de pagamentos
     // brasileiro — adquirente, bandeira e o próprio contrato do restaurante
     // dizem chargeback. Traduzir pra "estorno" seria PIOR: estorno é outra
@@ -517,6 +520,11 @@ test('todo código de erro que a API manda tem tradução', async () => {
     'house_payment_row_without_redeem',
     'mixed_currency', 'dispute_evidence_due', 'dispute_evidence_overdue',
     'webhook_invalid', 'money_event_unrecorded', 'dispute_close_unrecorded',
+    // Achados de conciliação sobre valor recebido ≠ pedido: vão pro relatório
+    // do restaurante e pro alerta do fundador, nunca pra tela de quem paga.
+    // (O `overpaid_pending_restitution` é a exceção: é achado E aviso do
+    // cliente, e por isso tem tradução `notice.`.)
+    'underpayment', 'overpayment', 'tip_mismatch',
                                             // webhook: nenhum diner vê
                                             // achados de conciliação, vão pro fundador
     'br', 'es', 'racha',                    // `code` de mercado/marca, não de erro
@@ -536,7 +544,13 @@ test('todo código de erro que a API manda tem tradução', async () => {
     }
   }(api));
 
-  const missing = [...codes].filter((c) => !INTERNAL.has(c) && !(`err.${c}` in DICT)).sort();
+  // Duas famílias traduzíveis: `err.` (deu errado) e `notice.` (aconteceu algo
+  // com o SEU dinheiro que a casa te deve — pagou a mais, estorno que falhou).
+  // As duas chegam ao cliente como código estável + centavos, e as duas têm
+  // que ter frase nos três idiomas.
+  const missing = [...codes]
+    .filter((c) => !INTERNAL.has(c) && !(`err.${c}` in DICT) && !(`notice.${c}` in DICT))
+    .sort();
   assert.deepEqual(missing, [], `\ncódigos sem tradução (a tela mostraria a frase interna):\n${missing.join('\n')}\n`);
 });
 

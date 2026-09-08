@@ -233,12 +233,19 @@ describe('reentrega de disputa perdida', () => {
     // inteiro a segunda entrega já era recusada por exceder o que sobrou — mas
     // uma disputa PARCIAL cabia no saldo restante, e a conta reabria por
     // dinheiro que saiu uma vez só.
+    //
+    // A reentrega é ESTE evento de novo: mesmo `evt_`, mesma `dp_`. Este teste
+    // já existia e passava com um objeto que não carregava nenhum dos dois — o
+    // que ele provava, então, era que QUALQUER segunda derrota era engolida,
+    // inclusive a de uma disputa diferente. Ver o teste seguinte.
     const { store, check, deps } = await mesaPaga();
     await store.appendEvent(check.id, 'PAYMENT_DISPUTED', { txid: 'pi_x', amountCents: 1000 });
 
-    const r1 = await applyConfirmedPayment({
+    const perda = {
       kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 1000, method: 'dispute',
-    }, deps);
+      disputeId: 'dp_1', eventId: 'evt_1',
+    };
+    const r1 = await applyConfirmedPayment(perda, deps);
     expect(r1.status).toBe('appended');
     await store.appendEvent(check.id, 'PAYMENT_DISPUTE_CLOSED', { txid: 'pi_x', outcome: 'lost' });
 
@@ -248,9 +255,7 @@ describe('reentrega de disputa perdida', () => {
 
     // Três reentregas do mesmo evento.
     for (let i = 0; i < 3; i += 1) {
-      const r = await applyConfirmedPayment({
-        kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 1000, method: 'dispute',
-      }, deps);
+      const r = await applyConfirmedPayment({ ...perda }, deps);
       expect(r.status).toBe('duplicate');
     }
     const fim = await estado(store, check.id);
@@ -258,8 +263,34 @@ describe('reentrega de disputa perdida', () => {
     // E o saldo só perdeu os 1000, uma vez.
     expect(fim.paidCents).toBe(3082 - fim.payments.pi_x.refundedAmountCents);
   });
-});
 
+  test('a SEGUNDA disputa perdida no mesmo pagamento entra — não é reentrega', async () => {
+    // A rede permite duas disputas na mesma cobrança, e o restaurante é
+    // debitado nas duas. A guarda antiga era `pay.disputeStatus === 'lost'` —
+    // por PAGAMENTO, e permanente depois da primeira derrota. A segunda, com
+    // outro `evt_` e outra `dp_`, passava pelo índice único do append e morria
+    // aqui: dinheiro fora da conta e nenhum dos nossos dois registros sabendo,
+    // com a conciliação comparando um com o outro e reportando verde.
+    const { store, check, deps } = await mesaPaga();
+    await store.appendEvent(check.id, 'PAYMENT_DISPUTED', { txid: 'pi_x', amountCents: 800 });
+    const um = await applyConfirmedPayment({
+      kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 800, method: 'dispute',
+      disputeId: 'dp_1', eventId: 'evt_1',
+    }, deps);
+    expect(um.status).toBe('appended');
+
+    const dois = await applyConfirmedPayment({
+      kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 1200, method: 'dispute',
+      disputeId: 'dp_2', eventId: 'evt_2',
+    }, deps);
+    expect(dois.status).toBe('appended');
+
+    const fim = await estado(store, check.id);
+    const estornado = fim.payments.pi_x.refundedAmountCents + fim.payments.pi_x.refundedTipCents;
+    expect(estornado).toBe(2000);          // as DUAS derrotas, à vista
+    expect(fim.paidCents).toBe(3082 - fim.payments.pi_x.refundedAmountCents);
+  });
+});
 describe('entrega FORA DE ORDEM', () => {
   test('o fecho chegando antes da abertura não deixa prazo fantasma', async () => {
     // A Stripe não garante ordem. `dispute.closed` com `won` antes do

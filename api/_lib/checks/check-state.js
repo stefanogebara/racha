@@ -203,11 +203,37 @@ function validateEvent(evt, prevState) {
         // Sem o porquê, "resolvido" é só a marca sumindo.
         invalid('PAYMENT_ISSUE_RESOLVED.note required');
       }
+      // O txid tem que EXISTIR nesta conta.
+      //
+      // Sem isto, era uma atestação sem limite: qualquer texto no lugar do
+      // txid limpava anomalias que não existiam, ou nenhuma, e o log ficava
+      // com um "resolvido" que não aponta pra nada. O evento tira uma marca de
+      // dinheiro da projeção — a marca que faz a casa aparecer vermelha na
+      // conciliação — então ele precisa dizer de QUAL pagamento está falando.
+      // Conhecido é estar no razão como PAGAMENTO **ou** como ANOMALIA.
+      //
+      // Só `payments` era estreito demais e criava a marca inencerrável: um Pix
+      // pago cuja confirmação se perdeu, seguido de um cancelamento parcial,
+      // deixa uma anomalia CRÍTICA num txid que o razão nunca viu confirmar —
+      // e o `resolve-issue` respondia 400 pra sempre. Uma casa que nunca fica
+      // verde é uma casa que para de olhar, que é o defeito que este evento
+      // existe pra evitar.
+      const conhecido = Boolean(prevState.payments[p.txid])
+        || (prevState.anomalies || []).some((a) => a && a.txid === p.txid);
+      if (!conhecido) {
+        invalid(`PAYMENT_ISSUE_RESOLVED para txid desconhecido ${p.txid}`);
+      }
       break;
     }
     case 'PAYMENT_ANOMALY': {
       if (!prevState) invalid('PAYMENT_ANOMALY before OPENED');
       if (typeof p.reason !== 'string' || !p.reason) invalid('PAYMENT_ANOMALY.reason required');
+      // A GRAVIDADE é do vocabulário da conciliação (`severityRank`), não texto
+      // livre: um `severity: 'urgente'` cairia no rank 0 e a pior anomalia do
+      // sistema sairia ABAIXO de uma informativa.
+      if (p.severity !== undefined && !ANOMALY_SEVERITIES.includes(p.severity)) {
+        invalid(`PAYMENT_ANOMALY.severity inválida: ${p.severity}`);
+      }
       break;
     }
     case 'PAYMENT_DISPUTE_CLOSED': {
@@ -317,6 +343,15 @@ function applyEvent(state, evt, seq = null) {
       const pay = next.payments[p.txid];
       pay.refundedAmountCents += amount;
       pay.refundedTipCents += tip;
+      // O ID DA DISPUTA que produziu este estorno, quando veio de uma.
+      //
+      // É a chave de idempotência certa pra um chargeback: a rede permite duas
+      // disputas na mesma cobrança, então "este pagamento já perdeu uma
+      // disputa" não distingue a reentrega da SEGUNDA derrota — e engolir a
+      // segunda é perder de vista dinheiro que saiu de verdade.
+      if (typeof p.disputeId === 'string' && p.disputeId) {
+        pay.disputeIdsClosed = [...(pay.disputeIdsClosed || []), p.disputeId];
+      }
       next.paidCents -= amount;
       next.tipCents -= tip;
       return recompute(next);
@@ -334,9 +369,15 @@ function applyEvent(state, evt, seq = null) {
       pay.refundedTipCents -= tip;
       next.paidCents += amount;
       next.tipCents += tip;
+      // O VALOR entra na anomalia: é o que o cliente tem a receber, e a tela
+      // dele deriva o número daqui. Sem ele o aviso saía com o saldo NÃO
+      // estornado do pagamento — num estorno de R$ 50 sobre R$ 100 que falha,
+      // o telefone dizia "você tem R$ 100 a receber". Um número errado é pior
+      // que nenhum: manda a pessoa discutir no caixa por uma quantia que
+      // ninguém deve. Achado pela revisão de segurança de 2026-09-08.
       return withAnomaly(recompute(next), seq, 'PAYMENT_REFUND_REVERSED',
         `estorno de ${p.txid} FALHOU: dinheiro voltou pro restaurante e o cliente ficou sem`,
-        p.txid);
+        p.txid, 'high', amount + tip);
     }
     case 'PAYMENT_DISPUTED': {
       // Não mexe em `paidCents`: o dinheiro ainda é do restaurante até o
@@ -405,8 +446,11 @@ function applyEvent(state, evt, seq = null) {
       return resolved;
     }
     case 'PAYMENT_ANOMALY':
-      // Não mexe em dinheiro nenhum: só deixa a marca.
-      return withAnomaly(recompute(cloneState(state)), seq, 'PAYMENT_ANOMALY', p.reason, p.txid || null);
+      // Não mexe em dinheiro nenhum: só deixa a marca. A gravidade vem de quem
+      // registra — "dinheiro saiu e não sabemos quanto" não é do mesmo tamanho
+      // que uma divergência de centavos, e o padrão `high` achatava as duas.
+      return withAnomaly(recompute(cloneState(state)), seq, 'PAYMENT_ANOMALY',
+        p.reason, p.txid || null, p.severity || 'high');
     case 'PAYMENT_ISSUE_RESOLVED': {
       // Tira da PROJEÇÃO as pendências daquele txid. O log fica: a falha do
       // estorno continua lá, com data e valor, e agora com o registro de quem
@@ -458,10 +502,14 @@ function cloneState(state) {
  * quebra, porque o sintoma é uma conta que continua vermelha e ninguém
  * associa à mudança de uma string.
  */
-function withAnomaly(state, seq, type, reason, txid = null, severity = 'high') {
+/** As gravidades que a conciliação sabe ordenar (`severityRank`). */
+const ANOMALY_SEVERITIES = ['critical', 'high', 'info'];
+
+function withAnomaly(state, seq, type, reason, txid = null, severity = 'high', amountCents = null) {
   const next = cloneState(state);
   next.anomalies.push({
     seq, type: type || 'UNKNOWN', reason, severity, ...(txid ? { txid } : {}),
+    ...(Number.isSafeInteger(amountCents) ? { amountCents } : {}),
   });
   return next;
 }
@@ -512,6 +560,7 @@ function lateTxids(state) {
 }
 
 module.exports = {
+  ANOMALY_SEVERITIES,
   STATUS, EVENT_TYPES, EventValidationError,
   reduce, applyEvent, validateEvent, remainingCents, lateTxids, initialState,
 };

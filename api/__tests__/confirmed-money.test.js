@@ -68,14 +68,26 @@ describe('painel numa divergência', () => {
     // E a GORJETA — o número que vai pra folha — é 0, não 308.
     expect(panel.today.tipsCents).toBe(0);
 
-    // E o detector continua de pé: a conciliação vê o pedido contra o log.
+    // E a conciliação REGISTRA a diferença, sem chamá-la de defeito.
+    //
+    // Este teste afirmava `amount_mismatch` CRÍTICO e divergência diferente de
+    // zero. Isso valia enquanto "pedimos 3390, o PSP confirmou 2450" só podia
+    // ser bug. Com o Pix `underpaid` entrando como dinheiro recebido, é o
+    // cliente digitando outro valor no app do banco — e um crítico que dispara
+    // em comportamento correto está morto em duas semanas.
+    //
+    // O que continua de pé é o invariante de PROJEÇÃO: a coluna confirmada
+    // tem que ser igual ao razão, e as duas contagens têm que fechar.
     const r = reconcileCheck({
       checkId: check.id,
       events: await store.loadEvents(check.id),
       payments: (await store.listChecksForReconcile(venue.id))[0].payments,
     });
-    expect(r.findings.some((f) => f.code === 'amount_mismatch')).toBe(true);
-    expect(r.driftCents).not.toBe(0);
+    expect(r.findings.some((f) => f.code === 'amount_mismatch')).toBe(false);
+    expect(r.driftCents).toBe(0);
+    const f = r.findings.find((x) => x.code === 'underpayment');
+    expect(f.severity).toBe('info');
+    expect(f.deltaCents).toBe(2450 - (3082 + 308));
   });
 
   test('sem divergência, painel e conciliação concordam e nada é achado', async () => {

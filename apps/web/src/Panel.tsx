@@ -32,7 +32,13 @@ interface PanelData {
       disputes?: { open: number; lost: number; won: number };
     };
   }>;
-  today: { confirmedCents: number; tipsCents: number; paymentsCount: number; anomalies: number };
+  today: {
+    confirmedCents: number; tipsCents: number; paymentsCount: number; anomalies: number;
+    /** O que a conta PEDIU de serviço — o `tipsCents` é o que de fato entrou. */
+    tipsChargedCents?: number;
+    /** Recebido a mais: dívida da casa com o cliente, fora do faturamento. */
+    overpaidCents?: number;
+  };
   ativacao: PanelAtivacao;
 }
 
@@ -105,8 +111,26 @@ export default function Panel() {
         </div>
         <div className="stat">
           <b className="mono">{brl(data.today.tipsCents)}</b>
-          <span>{t('panel.tip')}</span>
+          <span>
+            {t('panel.tip')}
+            {/* O que foi COBRADO ao lado do que foi ARRECADADO — só quando os
+                dois diferem, senão é ruído. A diferença nasce do Pix pago a
+                menor, onde o serviço é o resíduo: ela precisa estar à vista de
+                quem distribui a gorjeta (Lei 13.419). */}
+            {typeof data.today.tipsChargedCents === 'number'
+              && data.today.tipsChargedCents !== data.today.tipsCents
+              ? ` · ${t('panel.tipShort', { charged: brl(data.today.tipsChargedCents) })}`
+              : ''}
+          </span>
         </div>
+        {/* Dinheiro a DEVOLVER. Só aparece quando existe, e nunca some dentro
+            do faturamento: quem recebeu o indevido tem que restituir. */}
+        {(data.today.overpaidCents || 0) > 0 && (
+          <div className="stat">
+            <b className="mono" style={{ color: 'var(--burgundy)' }}>{brl(data.today.overpaidCents || 0)}</b>
+            <span>{t('panel.toRefund')}</span>
+          </div>
+        )}
         {/* Chargebacks: só aparece quando existe. Um zero permanente numa tela
             de operação é ruído — e a taxa é o número pelo qual o adquirente
             julga a casa, então quando aparece tem que ser visível. */}

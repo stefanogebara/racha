@@ -101,6 +101,26 @@ function reconcileCheck({ checkId, events, payments }) {
     }
   }
 
+  /**
+   * DINHEIRO A MAIS na conta é uma DÍVIDA da casa, e ela tem que aparecer.
+   *
+   * O redutor já marcava `overpaidCents` e o número morria ali: nenhum achado,
+   * nada no painel, nada na tela do cliente. Quem recebeu o que não lhe era
+   * devido é obrigado a restituir (CC art. 876) e a obrigação não espera o
+   * consumidor pedir; o cliente tem direito à informação clara (CDC art. 6º,
+   * III). Um saldo a devolver que ninguém vê não é devolvido.
+   *
+   * `high`, não `critical`: nada se perdeu, mas alguém precisa agir — e sai da
+   * lista assim que a restituição for registrada (o estorno reduz `paidCents`
+   * e a sobra some sozinha).
+   * Recomendação da revisão de compliance de 2026-09-08.
+   */
+  if (state && state.overpaidCents > 0) {
+    add('high', 'overpaid_pending_restitution',
+      `conta recebeu ${state.overpaidCents}¢ a mais do que devia — restituição pendente (CC art. 876)`,
+      { overpaidCents: state.overpaidCents });
+  }
+
   const moedas = new Set(rows.map((r) => r && r.currency).filter(Boolean));
   if (moedas.size > 1) {
     add('critical', 'mixed_currency',
@@ -122,11 +142,51 @@ function reconcileCheck({ checkId, events, payments }) {
         `txid ${txid} is in the event log but has no payments row (partial write?)`, { txid });
       continue;
     }
-    const rowTotal = (row.amountCents || 0) + (row.tipCents || 0);
+    /**
+     * O que se compara com o razão é o CONFIRMADO, não o pedido.
+     *
+     * Antes, `amount_mismatch` crítico comparava `amount_cents` (o valor que a
+     * cobrança PEDIU) contra o log. Isso valia enquanto "pedido ≠ recebido"
+     * era, por definição, defeito. Deixou de valer no dia em que o Pix
+     * `underpaid` passou a entrar como dinheiro recebido: agora todo pagamento
+     * a menor — comportamento CORRETO do cliente — acenderia um crítico
+     * permanente, e "um alerta que dispara em comportamento correto está morto
+     * em duas semanas" (a lição escrita três parágrafos abaixo).
+     *
+     * O invariante de projeção de verdade é: a coluna confirmada tem que ser
+     * igual ao razão. E é a coluna que o painel soma em faturamento e em
+     * GORJETA — a base da folha (Lei 13.419) era conferida contra nada.
+     * Achado pela revisão de compliance de 2026-09-08.
+     */
+    const confirmadoLinha = Number.isFinite(row.confirmedAmountCents)
+      ? (row.confirmedAmountCents || 0) + (row.confirmedTipCents || 0)
+      : null;
     const logTotal = pay.amountCents + pay.tipCents;
-    if (rowTotal !== logTotal) {
+    if (confirmadoLinha !== null && confirmadoLinha !== logTotal) {
       add('critical', 'amount_mismatch',
-        `txid ${txid}: payments row ${rowTotal}¢ vs event log ${logTotal}¢`, { txid });
+        `txid ${txid}: confirmado na linha ${confirmadoLinha}¢ vs razão ${logTotal}¢`, { txid });
+    }
+    // A gorjeta SOZINHA também: as duas partes podem somar igual e estar
+    // trocadas entre si, e o número trocado é o que vai pra folha.
+    if (Number.isFinite(row.confirmedTipCents) && row.confirmedTipCents !== pay.tipCents) {
+      add('critical', 'tip_mismatch',
+        `txid ${txid}: gorjeta confirmada ${row.confirmedTipCents}¢ vs razão ${pay.tipCents}¢`,
+        { txid, tipCents: pay.tipCents });
+    }
+    /**
+     * PEDIDO vs RECEBIDO — um fato do negócio, não um defeito.
+     *
+     * Fica registrado, com os centavos, e em `info`: é o Pix em que o cliente
+     * digitou outro valor. Serve pro relatório de serviço COBRADO vs
+     * ARRECADADO, que é o contrapeso da regra de imputação (ver
+     * `allocateUnderpayment`), e nunca deve pintar o canário de vermelho.
+     */
+    const rowTotal = (row.amountCents || 0) + (row.tipCents || 0);
+    if (confirmadoLinha !== null && rowTotal !== confirmadoLinha) {
+      const delta = confirmadoLinha - rowTotal;
+      add('info', delta < 0 ? 'underpayment' : 'overpayment',
+        `txid ${txid}: pedido ${rowTotal}¢, recebido ${confirmadoLinha}¢ (Δ ${delta}¢)`,
+        { txid, deltaCents: delta });
     }
     const fullyRefunded = pay.refundedAmountCents === pay.amountCents && pay.refundedTipCents === pay.tipCents;
     if (fullyRefunded && row.status !== 'devolvido') {
@@ -161,7 +221,13 @@ function reconcileCheck({ checkId, events, payments }) {
       // permanente: o razão já descontava o estorno de `paidCents` e a linha
       // não. Um alerta que dispara em comportamento correto está morto em duas
       // semanas — o mesmo modo de falha da disputa que nunca encerrava.
-      rowConfirmedCents += (row.amountCents || 0) + (row.tipCents || 0)
+      // O CONFIRMADO, com o pedido só como histórico (linha anterior à 0015).
+      // Somar o pedido fazia a segunda contagem discordar da primeira em todo
+      // pagamento a menor, e a discordância virava `ledger_drift` crítico.
+      const bruto = Number.isFinite(row.confirmedAmountCents)
+        ? (row.confirmedAmountCents || 0) + (row.confirmedTipCents || 0)
+        : (row.amountCents || 0) + (row.tipCents || 0);
+      rowConfirmedCents += bruto
         - (row.refundedAmountCents || 0) - (row.refundedTipCents || 0);
       if (!logPayments[row.txid]) {
         add('critical', 'missing_log_event',
@@ -194,9 +260,20 @@ function reconcileCheck({ checkId, events, payments }) {
 async function reconcileVenue(store, venueId) {
   const inputs = await store.listChecksForReconcile(venueId);
   const results = inputs.map(reconcileCheck);
-  const failed = results.filter((r) => !r.ok);
   const severityRank = { critical: 3, high: 2, info: 1 };
-  const worst = failed
+  /**
+   * FALHOU é achado ACIONÁVEL, não achado qualquer.
+   *
+   * Um Pix pago a menor produz um achado `info` — pedido ≠ recebido, um fato
+   * do negócio (ver `underpayment` acima). Contá-lo como falha faria o
+   * `/api/house/admin` reportar a casa como não-ok, e todo painel que mostra
+   * "N contas com problema" mostraria contas onde nada está errado. O canário
+   * diário já não fica vermelho com `info`; esta contagem passa a concordar
+   * com ele.
+   */
+  const acionavel = (r) => r.findings.some((f) => f.severity === 'critical' || f.severity === 'high');
+  const failed = results.filter(acionavel);
+  const worst = results
     .flatMap((r) => r.findings)
     .reduce((max, f) => Math.max(max, severityRank[f.severity] || 0), 0);
   return {

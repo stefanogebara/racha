@@ -449,6 +449,75 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       return data;
     },
 
+    /**
+     * Evento de dinheiro que não achou conta (migração 0024). Reentrega não
+     * duplica: `psp_event_id` é único, e o conflito é sucesso — a linha já
+     * está lá.
+     * @returns {Promise<boolean>} true = registrado (ou já estava).
+     */
+    async recordOrphanMoneyEvent(e) {
+      const { error } = await client.from('orphan_money_events').insert({
+        kind: e.kind, psp: e.psp || null, event_type: e.eventType || null,
+        txid: e.txid || null, psp_event_id: e.pspEventId || null,
+        amount_cents: e.amountCents ?? null, payload: e.payload || null,
+      });
+      if (error && error.code === '23505') return true; // já registrado
+      throwOn(error, 'recordOrphanMoneyEvent');
+      return true;
+    },
+
+    /** Órfãos ainda ABERTOS — o que a conciliação diária tem que gritar. */
+    async listOpenOrphanMoneyEvents(limit = 50) {
+      const { data, error } = await client
+        .from('orphan_money_events')
+        .select('id, at, kind, psp, event_type, txid, amount_cents')
+        .is('resolved_at', null)
+        .order('at', { ascending: false })
+        .limit(limit);
+      throwOn(error, 'listOpenOrphanMoneyEvents');
+      return (data || []).map((o) => ({
+        id: o.id, at: o.at, kind: o.kind, psp: o.psp,
+        eventType: o.event_type, txid: o.txid, amountCents: o.amount_cents,
+      }));
+    },
+
+    /**
+     * Reprojeta a linha a partir do razão SÓ se ela ainda estiver como foi
+     * lida (migração 0023). Claim condicional → RPC com o erro conferido
+     * (inegociável #7): a reparação roda justamente quando há duas entregas em
+     * voo, e um UPDATE cego perdia a escrita da outra.
+     * @returns {Promise<boolean>} true = reparou; false = a linha mudou.
+     */
+    async repairPaymentRow(p) {
+      const { data, error } = await client.rpc('repair_payment_row', {
+        p_txid: p.txid,
+        p_expected_status: p.expectedStatus,
+        p_expected_refunded_amount: p.expectedRefundedAmountCents,
+        p_expected_refunded_tip: p.expectedRefundedTipCents,
+        p_status: p.status,
+        p_confirmed_amount: p.confirmedAmountCents,
+        p_confirmed_tip: p.confirmedTipCents,
+        p_refunded_amount: p.refundedAmountCents,
+        p_refunded_tip: p.refundedTipCents,
+        p_confirmed_at: p.confirmedAt || null,
+      });
+      throwOn(error, 'repairPaymentRow'); // claim com erro NUNCA é "pulou"
+      return data === true;
+    },
+
+    /**
+     * Expira uma cobrança SÓ enquanto ela ainda está `pendente` (migração
+     * 0020). Claim condicional → RPC com o erro conferido (inegociável #7):
+     * um UPDATE cego aqui apagava um pagamento confirmado quando o
+     * `payment_failed` chegava depois do `succeeded`.
+     * @returns {Promise<boolean>} true = expirou agora.
+     */
+    async expirePaymentIfPending(txid) {
+      const { data, error } = await client.rpc('expire_payment_if_pending', { p_txid: txid });
+      throwOn(error, 'expirePaymentIfPending'); // claim com erro NUNCA é "pulou"
+      return data === true;
+    },
+
     /** Ver `seenPspEvent` no store de memória: resposta honesta, não garantia. */
     async seenPspEvent(pspEventId) {
       if (pspEventId == null) return false;
@@ -496,8 +565,12 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           // e com a família da disputa lida de verdade esse `else` fazia uma
           // disputa PERDIDA virar `confirmado` com o dinheiro já ido.
           status: status || (kind === 'refund' ? 'devolvido' : 'confirmado'),
-          psp_payload_masked: pspPayloadMasked,
-          confirmed_at: confirmedAt,
+          // `undefined` e NAO MEXER — explicito, e nao por acidente do
+          // serializador. Era o `JSON.stringify` do supabase-js dropando a
+          // chave que fazia isto funcionar, e o store de memoria, que nao tem
+          // serializador, apagava a data. Ver `recordPayment` la.
+          ...(pspPayloadMasked !== undefined ? { psp_payload_masked: pspPayloadMasked } : {}),
+          ...(confirmedAt !== undefined ? { confirmed_at: confirmedAt } : {}),
         })
         .eq('txid', txid);
       throwOn(error, 'recordPayment');
@@ -549,7 +622,11 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       for (const c of checks || []) {
         const { data: pays, error: pErr } = await client
           .from('payments')
-          .select('txid, amount_cents, tip_cents, refunded_amount_cents, refunded_tip_cents, status, method, currency')
+          // Os CONFIRMADOS entram na leitura da conciliação: são as colunas
+          // que o painel soma em faturamento e em GORJETA (base da folha, Lei
+          // 13.419), e até aqui elas eram conferidas contra NADA. Ver
+          // `reconcileCheck`.
+          .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, status, method, currency')
           .eq('check_id', c.id);
         throwOn(pErr, 'listChecksForReconcile.payments');
         out.push({
@@ -558,6 +635,10 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           payments: (pays || []).map((p) => ({
             txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents,
             status: p.status, method: p.method, currency: p.currency,
+            // Nulo é histórico (linha anterior à migração 0015): o
+            // `confirmedMoney` cai no registrado, e a conciliação faz o mesmo.
+            confirmedAmountCents: p.confirmed_amount_cents,
+            confirmedTipCents: p.confirmed_tip_cents,
             // Acumulados estornados: a conciliação soma LÍQUIDO dos dois lados.
             refundedAmountCents: p.refunded_amount_cents || 0,
             refundedTipCents: p.refunded_tip_cents || 0,
@@ -942,6 +1023,10 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
             paidCents: state.paidCents,
             tipCents: state.tipCents,
             anomalies: state.anomalies.length,
+            // A SOBRA a devolver, por conta. O redutor já a calculava e o
+            // número morria ali: nenhum painel, nenhuma tela. Ver
+            // `overpaid_pending_restitution` na conciliação.
+            overpaidCents: state.overpaidCents,
             // Disputas por CONTAGEM: é a taxa de chargeback que o
             // adquirente julga, e o dono não tinha como ver a dele.
             disputes: disputeCounts(state),
@@ -998,8 +1083,27 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           // à coluna. Somava o PEDIDO, então numa divergência o dono lia
           // faturamento e GORJETA errados — e a gorjeta é a base da folha
           // (Lei 13.419). Ver `confirmed-money.js` e a migração 0015.
-          confirmedCents: confirmed.reduce((s, p) => s + confirmedMoney(p).amountCents, 0),
+          //
+          // MENOS a sobra a devolver: dinheiro que o cliente pagou a mais é
+          // dívida da casa (CC art. 876), não receita dela. Estava indo
+          // direto pro faturamento — e, no dia em que houver margem sobre
+          // volume, a gente cobraria margem em cima da dívida também.
+          confirmedCents: confirmed.reduce((s, p) => s + confirmedMoney(p).amountCents, 0)
+            - rows.reduce((s, r) => s + (r.state.overpaidCents || 0), 0),
+          /** A dívida, na sua própria linha — visível, não subtraída em silêncio. */
+          overpaidCents: rows.reduce((s, r) => s + (r.state.overpaidCents || 0), 0),
           tipsCents: confirmed.reduce((s, p) => s + confirmedMoney(p).tipCents, 0),
+          /**
+           * Serviço COBRADO vs ARRECADADO — o contrapeso da regra de imputação.
+           *
+           * Num Pix pago a menor o serviço é o resíduo (ver
+           * `allocateUnderpayment`): quem digita menos está recusando a linha
+           * opcional, não devendo comida. Essa regra favorece sistematicamente
+           * a casa na linha da gorjeta, então a diferença tem que ser VISÍVEL —
+           * uma diferença que aparece é um fato do negócio; a mesma diferença
+           * escondida é uma reclamação trabalhista.
+           */
+          tipsChargedCents: confirmed.reduce((s, p) => s + (p.tipCents || 0), 0),
           paymentsCount: confirmed.length,
           anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
         },

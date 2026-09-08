@@ -189,6 +189,17 @@ export const DICT = {
   // promete um documento fiscal que não é — e puxaria a Racha pro escopo do
   // Verifactu / SIF (RD 1007/2023), uma obrigação bem maior pra entrar por
   // acidente. Então ela diz o que é: prova de pagamento, e onde pedir a fatura.
+  // AVISOS DE DINHEIRO do próprio cliente (CDC art. 6º, III). O servidor manda
+  // código + centavos; a frase e o formato do dinheiro nascem aqui, no idioma
+  // de quem lê. Os dois casos são obrigação da casa, não cortesia: dinheiro
+  // pago a mais tem que ser restituído (CC art. 876), e um estorno que falhou
+  // deixa o cliente credor sem ele saber.
+  'notice.overpaid_pending_restitution': { en: 'You paid {amount} more than the bill asked. The restaurant owes you that back — ask the staff.',
+                        pt: 'Você pagou {amount} a mais do que a conta pedia. O restaurante deve te devolver — fale com a equipe.',
+                        es: 'Has pagado {amount} de más. El restaurante te lo debe devolver — habla con el personal.' },
+  'notice.refund_reversed': { en: 'A refund of {amount} did not go through and went back to the restaurant. You are still owed it — ask the staff.',
+                        pt: 'Um estorno de {amount} não passou e voltou pro restaurante. Você ainda tem esse valor a receber — fale com a equipe.',
+                        es: 'Una devolución de {amount} no se completó y volvió al restaurante. Aún te la deben — habla con el personal.' },
   'paid.receipt':     { en: 'Proof of payment · {venue}',      pt: 'Comprovante de pagamento · {venue}', es: 'Justificante de pago · {venue}' },
   // O NOME do documento da casa, que vem do mercado: "CNPJ 12.345.678/0001-99"
   // e "NIF B12345678" são a mesma linha e não o mesmo rótulo. O valor é do
@@ -312,6 +323,14 @@ export const DICT = {
   'panel.disputes':   { en: 'chargebacks',                     pt: 'chargebacks', es: 'contracargos' },
   'panel.disputesOpen': { en: '{n} open',                      pt: '{n} em aberto', es: '{n} abiertos' },
   'panel.tip':        { en: 'service charge (payroll)',        pt: 'serviço da equipe (folha)', es: 'cargo por servicio (nómina)' },
+  // SERVIÇO COBRADO vs ARRECADADO, e o dinheiro a devolver. As duas linhas
+  // existem porque duas regras favorecem a casa e não podem ficar invisíveis:
+  // num Pix pago a menor o serviço é o resíduo (quem digita menos está
+  // recusando a linha opcional), e o excedente de quem paga a mais não é
+  // receita — é dívida (CC art. 876). Uma diferença que aparece é um fato do
+  // negócio; a mesma diferença escondida é uma reclamação trabalhista.
+  'panel.tipShort':   { en: 'of {charged} charged',              pt: 'de {charged} cobrados', es: 'de {charged} cobrados' },
+  'panel.toRefund':   { en: 'to refund to diners',               pt: 'a devolver a clientes', es: 'a devolver a clientes' },
   'panel.receivedToday': { en: 'received today · {n} payments', pt: 'recebido hoje · {n} pagamentos', es: 'recibido hoy · {n} pagos' },
   'panel.tables':     { en: 'Tables',                          pt: 'Mesas', es: 'Mesas' },
   'panel.noOpenBill': { en: 'no open bills.',                  pt: 'nenhuma conta aberta.', es: 'no hay cuentas abiertas.' },

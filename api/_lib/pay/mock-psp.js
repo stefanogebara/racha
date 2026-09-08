@@ -207,6 +207,9 @@ class MockPsp {
     if (!c) return null;
     return {
       txid: c.txid,
+      // Leitura pela API não tem evento: null, e o índice parcial da 0018
+      // ignora nulos. O campo existe pra ninguém esquecer de passá-lo onde há.
+      eventId: null,
       status: c.status,
       paid: c.status === 'paid',
       kind: 'payment_confirmed',
@@ -238,9 +241,22 @@ class MockPsp {
   }
 
   /** Build a signed confirmation webhook for a charge (demo/tests). */
-  buildConfirmationWebhook({ txid, amountCents, tipCents = 0, payerName = null, payerCpf = null, method = 'pix' }) {
+  buildConfirmationWebhook({
+    txid, amountCents, tipCents = 0, payerName = null, payerCpf = null, method = 'pix',
+    eventId = null,
+  }) {
     const body = JSON.stringify({
       kind: 'payment_confirmed',
+      // O ID DO EVENTO. Todo PSP de verdade manda um, e é ele que fecha a
+      // corrida entre duas entregas (índice único da migração 0018, que ignora
+      // nulos). Um duble sem id faz TODO teste de ponta a ponta passar por
+      // fora da defesa — que foi como ela chegou a produção inerte no trilho do
+      // Pix. O default é determinístico pra reentrega ser reentrega.
+      // O default deriva do CONTEÚDO: a mesma confirmação reentregue é o mesmo
+      // evento, e uma confirmação com dinheiro DIFERENTE é outro — que é o
+      // caso da "reentrega divergente", onde o razão precisa gravar a anomalia
+      // em vez de dedupar em silêncio.
+      eventId: eventId || `evt_mock_${txid}_confirm_${amountCents}_${tipCents}`,
       txid,
       amount: amountCents,
       tip: tipCents,
@@ -252,9 +268,10 @@ class MockPsp {
   }
 
   /** Build a signed refund (devolução) webhook. */
-  buildRefundWebhook({ txid, amountCents, tipCents = 0 }) {
+  buildRefundWebhook({ txid, amountCents, tipCents = 0, eventId = null }) {
     const body = JSON.stringify({
       kind: 'refund', txid, amount: amountCents, tip: tipCents,
+      eventId: eventId || `evt_mock_${txid}_refund_${amountCents}_${tipCents}`,
       horario: new Date().toISOString(),
     });
     return { rawBody: body, signature: this.signWebhook(body) };
@@ -301,7 +318,8 @@ class MockPsp {
     assertCents(tipCents, 'webhook tip');
     // 'card' covers wallet charges (Apple/Google Pay are tokenized cards).
     const method = parsed.method === 'card' ? 'card' : 'pix';
-    return { kind, txid, amountCents, tipCents, method, raw: parsed };
+    const eventId = typeof parsed.eventId === 'string' && parsed.eventId ? parsed.eventId : null;
+    return { kind, txid, amountCents, tipCents, method, eventId, raw: parsed };
   }
 }
 

@@ -332,3 +332,100 @@ describe('Bizum ABANDONADO: quem abriu o app do banco e não voltou', () => {
     expect(r.terminal).toBe(0);
   });
 });
+
+describe('dinheiro que CHEGOU com valor diferente do pedido', () => {
+  /**
+   * `overpaid` estava em TERMINAL_UNPAID — a lista que este arquivo documenta
+   * como "cobranças que nunca vão ser pagas" — e `underpaid` não estava em
+   * lista nenhuma. Nos dois status a conta da casa foi creditada: o pagador
+   * digitou outro número no app do banco. A rede de segurança olhava pro
+   * dinheiro na conta e o contava como abandono, a conta seguia aberta, e a
+   * mesa era cobrada de novo. Achado pela revisão de compliance de 2026-09-08.
+   */
+  const cobrancaComStatus = (status, pagoCents) => ({
+    async getCharge(txid) {
+      return {
+        txid, status, paid: true, kind: 'payment_confirmed',
+        amountCents: pagoCents - Math.round(pagoCents / 11), tipCents: Math.round(pagoCents / 11),
+        method: 'pix', raw: { status },
+      };
+    },
+  });
+
+  for (const [status, pago] of [['underpaid', 5500], ['overpaid', 9900]]) {
+    test(`${status} é CONFIRMADO pela conciliação, não contado como abandono`, async () => {
+      const { store, table, charge } = freshWorld();
+      const check = await openDemoCheck(store, table, 10000);
+      const c = await charge({ checkId: check.id, amountCents: 8000, tipCents: 800 });
+
+      const confirmDeps = {
+        loadEvents: store.loadEvents.bind(store),
+        appendEvent: store.appendEvent.bind(store),
+        recordPayment: store.recordPayment.bind(store),
+        findCheckByTxid: store.findCheckByTxid.bind(store),
+        getPayment: store.getPayment.bind(store),
+      };
+      const reconciler = createChargeReconciler({
+        store, psp: cobrancaComStatus(status, pago),
+        confirm: (parsed) => applyConfirmedPayment(parsed, confirmDeps),
+      });
+
+      const r = await reconciler.reconcile({ checkId: check.id, graceMs: 0 });
+      expect(r.terminal).toBe(0);            // não é cobrança morta
+      expect(r.confirmed).toBe(1);           // o dinheiro entrou no razão
+      const st = reduce(await store.loadEvents(check.id));
+      expect(st.paidCents + st.tipCents).toBe(pago);
+      expect((await store.getPayment(c.txid)).status).toBe('confirmado');
+    });
+  }
+});
+
+describe('dinheiro que entrou e VOLTOU sem passar pelo razão', () => {
+  /**
+   * `refunded` e `chargedback` no adquirente sobre uma cobrança que a nossa
+   * confirmação nunca alcançou: as duas pernas do dinheiro somem. Líquido zero
+   * pra casa, e nenhum rastro de que houve dinheiro — o inegociável #6 no
+   * miúdo. A linha ia pra `expirado` e um contador subia.
+   */
+  const { reduce } = require('../_lib/checks/check-state');
+
+  for (const status of ['refunded', 'chargedback']) {
+    test(`${status} deixa anomalia na conta, não só um contador`, async () => {
+      const { store, table, charge } = freshWorld();
+      const check = await openDemoCheck(store, table, 10000);
+      const c = await charge({ checkId: check.id, amountCents: 8000, tipCents: 800 });
+
+      const reconciler = createChargeReconciler({
+        store,
+        psp: { getCharge: async (txid) => ({ txid, status, paid: false, amountCents: 8000, tipCents: 800 }) },
+        confirm: async () => ({ status: 'duplicate' }),
+      });
+      const r = await reconciler.reconcile({ checkId: check.id, graceMs: 0 });
+      expect(r.terminal).toBe(1);
+
+      const st = reduce(await store.loadEvents(check.id));
+      const a = st.anomalies.find((x) => x.txid === c.txid);
+      expect(a).toBeDefined();
+      expect(a.severity).toBe('high');
+      expect(a.reason).toMatch(new RegExp(status));
+
+      // E a varredura seguinte não empilha a mesma anomalia.
+      await reconciler.reconcile({ checkId: check.id, graceMs: 0 });
+      expect(reduce(await store.loadEvents(check.id)).anomalies.length).toBe(1);
+    });
+  }
+
+  test('cancelada de verdade (dinheiro nunca entrou) NÃO vira anomalia', async () => {
+    const { store, table, charge } = freshWorld();
+    const check = await openDemoCheck(store, table, 10000);
+    await charge({ checkId: check.id, amountCents: 8000, tipCents: 800 });
+    const reconciler = createChargeReconciler({
+      store,
+      psp: { getCharge: async (txid) => ({ txid, status: 'canceled', paid: false }) },
+      confirm: async () => ({ status: 'duplicate' }),
+    });
+    const r = await reconciler.reconcile({ checkId: check.id, graceMs: 0 });
+    expect(r.terminal).toBe(1);
+    expect(reduce(await store.loadEvents(check.id)).anomalies).toEqual([]);
+  });
+});

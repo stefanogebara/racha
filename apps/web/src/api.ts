@@ -40,7 +40,17 @@ export interface CheckView {
     paidCents: number;
     tipCents: number;
     overpaidCents: number;
-    anomalies: unknown[];
+    /** A CONTAGEM, não o texto: o texto das anomalias carrega motivo de
+     *  disputa, prazo de prova e a nota do dono, e esta leitura é pública.
+     *  Ver `api/_lib/checks/public-state.js`. */
+    anomalies: number;
+    /**
+     * Avisos DO CLIENTE sobre o próprio dinheiro: código estável + centavos, a
+     * traduzir e formatar aqui (o servidor nunca manda texto de erro nem
+     * dinheiro formatado). Nada da postura da casa entra nesta lista —
+     * situação de disputa, prazo de prova e a nota do dono ficam no painel.
+     */
+    notices?: Array<{ code: 'overpaid_pending_restitution' | 'refund_reversed'; amountCents: number }>;
   };
 }
 

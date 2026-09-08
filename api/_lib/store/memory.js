@@ -31,7 +31,8 @@ function createMemoryStore() {
   const tables = new Map();   // qrToken → { id, venueId, label, qrToken }
   const checks = new Map();   // checkId → { id, venueId, tableId, items: [] }
   const events = new Map();   // checkId → [{seq, type, payload}]
-  const payments = new Map(); // txid → payment row
+  const payments = new Map();   // txid → payment row
+  const orphanEvents = [];      // eventos de dinheiro sem conta (migração 0024)
   const txidToCheck = new Map();
 
   const tableById = new Map(); // id → table row (stable id; qrToken rotates)
@@ -342,6 +343,9 @@ function createMemoryStore() {
             .map((p) => ({
               txid: p.txid, amountCents: p.amountCents, tipCents: p.tipCents,
               status: p.status, method: p.method || 'pix', currency: p.currency,
+              // Os CONFIRMADOS: as colunas que viram faturamento e gorjeta.
+              confirmedAmountCents: p.confirmedAmountCents,
+              confirmedTipCents: p.confirmedTipCents,
               // Os acumulados estornados: a conciliação soma LÍQUIDO dos dois
               // lados, senão um estorno parcial vira divergência permanente.
               refundedAmountCents: p.refundedAmountCents || 0,
@@ -371,6 +375,10 @@ function createMemoryStore() {
               paidCents: state.paidCents,
               tipCents: state.tipCents,
               anomalies: state.anomalies.length,
+            // A SOBRA a devolver, por conta. O redutor já a calculava e o
+            // número morria ali: nenhum painel, nenhuma tela. Ver
+            // `overpaid_pending_restitution` na conciliação.
+            overpaidCents: state.overpaidCents,
               // Disputas por CONTAGEM: é a taxa de chargeback que o
               // adquirente julga, e o dono não tinha como ver a dele.
               disputes: disputeCounts(state),
@@ -403,8 +411,17 @@ function createMemoryStore() {
           // à coluna. O painel somava o PEDIDO, então numa divergência o dono
           // lia faturamento e GORJETA errados — e a gorjeta é a base da folha
           // (Lei 13.419). Ver `confirmedMoney` e a migração 0015.
-          confirmedCents: confirmed.reduce((s, p) => s + confirmedMoney(p).amountCents, 0),
+          //
+          // MENOS a sobra a devolver: o que o cliente pagou a mais é dívida da
+          // casa (CC art. 876), não receita dela. Ver o store do Supabase.
+          confirmedCents: confirmed.reduce((s, p) => s + confirmedMoney(p).amountCents, 0)
+            - rows.reduce((s, r) => s + (r.state.overpaidCents || 0), 0),
+          /** A dívida, na sua própria linha. */
+          overpaidCents: rows.reduce((s, r) => s + (r.state.overpaidCents || 0), 0),
           tipsCents: confirmed.reduce((s, p) => s + confirmedMoney(p).tipCents, 0),
+          /** Serviço COBRADO (o que a conta pediu) vs arrecadado (`tipsCents`) —
+           *  o contrapeso da regra de imputação. Ver `allocateUnderpayment`. */
+          tipsChargedCents: confirmed.reduce((s, p) => s + (p.tipCents || 0), 0),
           paymentsCount: confirmed.length,
           anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
         },
@@ -435,6 +452,50 @@ function createMemoryStore() {
       const seq = log.length + 1;
       log.push({ seq, type, payload, ...(pspEventId != null ? { pspEventId } : {}) });
       return seq;
+    },
+    /** Ver a migração 0024: evento de dinheiro sem conta correspondente. */
+    async recordOrphanMoneyEvent(e) {
+      if (e.pspEventId && orphanEvents.some((o) => o.pspEventId === e.pspEventId)) return true;
+      orphanEvents.push({ ...e, at: new Date().toISOString() });
+      return true;
+    },
+    /** Só pra teste/inspeção: a lista de órfãos deste store. */
+    async listOrphanMoneyEvents() { return [...orphanEvents]; },
+    async listOpenOrphanMoneyEvents() { return orphanEvents.filter((o) => !o.resolvedAt); },
+
+    /**
+     * Ver a migração 0023: só escreve se a linha ainda estiver como foi lida.
+     * O duplo tem que recusar o que o banco recusa — senão a corrida que ele
+     * deveria demonstrar passa verde aqui e falha lá.
+     */
+    async repairPaymentRow(p) {
+      const atual = payments.get(p.txid);
+      if (!atual) return false;
+      if (atual.status !== p.expectedStatus) return false;
+      if ((atual.refundedAmountCents || 0) !== (p.expectedRefundedAmountCents || 0)) return false;
+      if ((atual.refundedTipCents || 0) !== (p.expectedRefundedTipCents || 0)) return false;
+      payments.set(p.txid, {
+        ...atual,
+        status: p.status,
+        confirmedAmountCents: p.confirmedAmountCents,
+        confirmedTipCents: p.confirmedTipCents,
+        refundedAmountCents: p.refundedAmountCents,
+        refundedTipCents: p.refundedTipCents,
+        confirmedAt: atual.confirmedAt || p.confirmedAt || null,
+      });
+      return true;
+    },
+
+    /**
+     * Ver a migração 0020: `expirado` só pisa em `pendente`. O duplo tem que
+     * ser tão restritivo quanto o banco — um pagamento confirmado não vira
+     * expirado porque um evento antigo chegou atrasado.
+     */
+    async expirePaymentIfPending(txid) {
+      const p = payments.get(txid);
+      if (!p || p.status !== 'pendente') return false;
+      payments.set(txid, { ...p, status: 'expirado' });
+      return true;
     },
     /**
      * Este evento do PSP já foi aplicado?
@@ -491,7 +552,22 @@ function createMemoryStore() {
         // e com a família da disputa lida de verdade esse `else` fazia uma
         // disputa PERDIDA virar `confirmado` com o dinheiro já ido.
         status: status || (kind === 'refund' ? 'devolvido' : 'confirmado'),
-        pspPayloadMasked, confirmedAt,
+        // `undefined` e NAO MEXER, igual a producao.
+        //
+        // Aqui era `pspPayloadMasked, confirmedAt` cru. O aplicador omite
+        // `confirmedAt` de proposito em tudo que nao e confirmacao — pra um
+        // estorno nao reescrever a data de um pagamento de tres semanas atras
+        // e mover o faturamento de dia. O supabase-js dropa `undefined` do
+        // corpo do PATCH, entao em producao a data sobrevivia; aqui ela era
+        // apagada, e o pagamento sumia da serie semanal depois de qualquer
+        // estorno, reversao ou disputa ganha.
+        //
+        // Um duble que se comporta diferente da producao e uma armadilha, nao
+        // um duble — foi assim que tres tipos de evento chegaram a producao
+        // recusados por um CHECK que nenhum teste lia. Achado pela revisao de
+        // seguranca de 2026-09-08.
+        ...(pspPayloadMasked !== undefined ? { pspPayloadMasked } : {}),
+        ...(confirmedAt !== undefined ? { confirmedAt } : {}),
       });
     },
 

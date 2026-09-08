@@ -535,6 +535,9 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
           : null;
         const base = {
           txid,
+          // O id da disputa (`dp_…`) é a chave de idempotência do chargeback:
+          // duas disputas na mesma cobrança são dois eventos legítimos.
+          disputeId: typeof d.id === 'string' ? d.id : null,
           amountCents: Number(d.amount) || 0,
           reason: typeof d.reason === 'string' ? d.reason : null,
           status: typeof d.status === 'string' ? d.status : null,

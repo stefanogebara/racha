@@ -146,3 +146,165 @@ test('a rota do Stripe conhece exatamente as mesmas espécies que o portão', ()
   const inventadas = [...naRota].filter((k) => !classificadas.has(k)).sort();
   expect(inventadas).toEqual([]);
 });
+
+/**
+ * O CENSO do `eventId` — a idempotência que existia só no papel.
+ *
+ * A migração 0018 fecha a corrida entre duas entregas simultâneas com um
+ * índice único em `psp_event_id`, DENTRO do lock por conta. O índice é
+ * parcial: ele ignora nulos. Então um adaptador que não carrega o id do evento
+ * não tem a defesa — e o do Pagar.me, que é o trilho em produção, não
+ * carregava em retorno nenhum. A defesa inteira existia só pra Stripe, que
+ * está desligada.
+ *
+ * O que ficava aberto: duas entregas do mesmo `charge.refunded` liam o mesmo
+ * estado velho (a leitura é FORA do lock), calculavam o mesmo delta e
+ * gravavam as duas. Achado pelas duas revisões de 2026-09-08, por caminhos
+ * diferentes.
+ *
+ * Um teste por adaptador pega o adaptador. Este pega o PRÓXIMO.
+ */
+describe('censo do id do evento', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  test('todo retorno que move ou toca dinheiro carrega `eventId`', () => {
+    const semId = [];
+    for (const file of ADAPTERS) {
+      const src = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', file), 'utf8');
+      // Cada `return { … kind: '…' … }` do parser de webhook, com o corpo
+      // inteiro (podem ser várias linhas).
+      for (const m of src.matchAll(/return \{[\s\S]{0,400}?\};/g)) {
+        const corpo = m[0];
+        const kind = corpo.match(/kind:\s*'([a-z_]+)'/);
+        if (!kind) continue;
+        // `ignored` também carrega, mas quem não pode faltar é dinheiro.
+        const classificada = LEDGER_KINDS.has(kind[1]) || NON_LEDGER_KINDS.has(kind[1]);
+        if (!classificada) continue;
+        if (!/\beventId\b/.test(corpo)) semId.push(`${file}: kind ${kind[1]}`);
+      }
+    }
+    expect(semId).toEqual([]);
+  });
+
+  test('o mock também — um duble sem id não exercita a defesa', () => {
+    // O mock é o PSP de todo teste de rota e da demo. Se ele não carrega o id,
+    // nenhum teste de ponta a ponta passa pela idempotência do append, e o
+    // buraco reaparece na produção sem nada ficar vermelho.
+    const src = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'mock-psp.js'), 'utf8');
+    expect(src).toMatch(/eventId/);
+  });
+});
+
+/**
+ * O CENSO das dependências do fabricante.
+ *
+ * `createWebhookHandler` desestrutura o que recebe e monta o `deps` que passa
+ * ao aplicador — à mão, campo por campo. `seenPspEvent` ficou de fora: os três
+ * chamadores passavam, dois jogavam fora em silêncio, e o curto-circuito de
+ * reentrega (o que faz a segunda entrega sair como `duplicate` em vez de 409 →
+ * reenvio → endpoint desabilitado) estava morto nos dois caminhos de webhook.
+ */
+describe('o fabricante do portão não perde dependência no caminho', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const raiz = path.join(__dirname, '..');
+
+  test('tudo que o aplicador USA chega nele', () => {
+    const src = fs.readFileSync(path.join(raiz, '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+    // Todo `const { … } = deps` do módulo: o aplicador e os auxiliares que
+    // recebem `deps` inteiro (a reparação da linha, por exemplo).
+    const usadas = new Set();
+    for (const m of src.matchAll(/const \{([^}]*)\} = deps;/g)) {
+      for (const n of m[1].split(',').map((x) => x.trim()).filter(Boolean)) usadas.add(n);
+    }
+    for (const m of src.matchAll(/const \{ ([^}]*) \} = deps;/g)) {
+      for (const n of m[1].split(',').map((x) => x.trim()).filter(Boolean)) usadas.add(n);
+    }
+    expect(usadas.size).toBeGreaterThanOrEqual(6);
+
+    const fab = src.match(/const deps = \{([^}]*)\}/);
+    expect(fab).not.toBeNull();
+    const passadas = new Set(fab[1].split(',').map((x) => x.trim()).filter(Boolean));
+
+    // A direção que importa: nada que o aplicador usa pode faltar no `deps`.
+    // Era exatamente isto — `seenPspEvent` desestruturado lá e ausente aqui,
+    // então o curto-circuito de reentrega ficou morto nos dois caminhos de
+    // webhook enquanto os três chamadores passavam a dependência.
+    const faltando = [...usadas].filter((n) => !passadas.has(n)).sort();
+    expect(faltando).toEqual([]);
+    for (const obrigatoria of ['seenPspEvent', 'getPayment', 'recordPayment']) {
+      expect(passadas.has(obrigatoria)).toBe(true);
+    }
+  });
+
+  test('os chamadores de verdade passam tudo — nenhum monta o `deps` pela metade', () => {
+    const src = fs.readFileSync(path.join(raiz, '_app', 'router.js'), 'utf8');
+    // Cada lugar do router que monta dependências de dinheiro começa por
+    // `loadEvents: store.loadEvents…`. São três: o webhook do Pix, a
+    // conciliação ativa, e o webhook da demo.
+    const inicios = [...src.matchAll(/loadEvents: store\.loadEvents/g)].map((m) => m.index);
+    expect(inicios.length).toBeGreaterThanOrEqual(3);
+    for (const i of inicios) {
+      const bloco = src.slice(i, i + 700);
+      for (const dep of ['appendEvent', 'recordPayment', 'findCheckByTxid',
+        'seenPspEvent', 'getPayment']) {
+        expect(bloco).toContain(dep);
+      }
+    }
+  });
+});
+
+/**
+ * O CENSO das chaves de idempotência.
+ *
+ * `psp_event_id` é único no banco INTEIRO (migração 0018). Então uma entrega
+ * que produz DOIS lançamentos não pode usar o mesmo `evt_` nos dois: o segundo
+ * append vira no-op silencioso, ou — pior — o primeiro queima a chave e a
+ * REENTREGA (o mecanismo em que o caminho fora-de-ordem confia) sai como
+ * `duplicate` sem aplicar nada.
+ *
+ * Aconteceu nos dois lugares onde uma entrega produz dois lançamentos. Um foi
+ * corrigido à mão (`${eventId}:closed`, no fecho da disputa) e o outro ficou
+ * (a anomalia de reversão fora de ordem) — a correção à mão achou um dos dois.
+ * Este censo acha o próximo.
+ */
+describe('censo das chaves de idempotência', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const raiz = path.join(__dirname, '..');
+
+  test('todo append EXTRA de uma mesma entrega usa chave com sufixo', () => {
+    const arquivos = ['_lib/pay/webhook-handler.js', '_app/router.js'];
+    const semSufixo = [];
+    for (const rel of arquivos) {
+      const src = fs.readFileSync(path.join(raiz, rel), 'utf8');
+      // Appends de ANOMALIA e de FECHO: os dois tipos que acompanham outro
+      // lançamento na mesma entrega. O lançamento principal usa a chave pura,
+      // e é assim que tem que ser.
+      const alvos = [/PAYMENT_ANOMALY[\s\S]{0,400}?\}\s*,\s*([^)]*)\)/g,
+        /PAYMENT_DISPUTE_CLOSED[\s\S]{0,300}?\}\s*,\s*([^)]*)\)/g];
+      for (const re of alvos) {
+        for (const m of src.matchAll(re)) {
+          const chave = m[1];
+          if (!/eventId/.test(chave)) continue;      // não passa evento: nada a conferir
+          if (!/`\$\{[^}]*eventId[^}]*\}:/.test(chave)) {
+            semSufixo.push(`${rel}: ${chave.trim().slice(0, 60)}`);
+          }
+        }
+      }
+    }
+    expect(semSufixo).toEqual([]);
+  });
+
+  test('o censo não passa por regex quebrado — ele ENXERGA os dois sufixos de hoje', () => {
+    const src = arquivos();
+    expect(src).toMatch(/`\$\{parsed\.eventId\}:closed`/);
+    expect(src).toMatch(/`\$\{parsed\.eventId\}:out_of_order`/);
+  });
+
+  function arquivos() {
+    return ['_lib/pay/webhook-handler.js', '_app/router.js']
+      .map((rel) => fs.readFileSync(path.join(raiz, rel), 'utf8')).join('\n');
+  }
+});

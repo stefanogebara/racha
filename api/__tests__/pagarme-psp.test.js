@@ -316,6 +316,171 @@ describe('pagarme adapter', () => {
     expect(await psp2.getCharge('ch_x')).toMatchObject({ paid: false, status: 'pending' });
   });
 
+  /**
+   * `overpaid` e `underpaid` são DINHEIRO QUE CHEGOU.
+   *
+   * O pagador digita o valor no app do banco, e o Pix aceita qualquer número:
+   * a Pagar.me tem três status em que a conta da casa foi creditada. A gente
+   * tratava um (`paid`), ignorava `underpaid` — a cobrança seguia "pendente"
+   * com o dinheiro na conta — e listava `overpaid` em TERMINAL_UNPAID, a lista
+   * das cobranças que "nunca vão ser pagas". Nos dois casos a conta ficava
+   * aberta, a mesa era cobrada de novo, e a conciliação ficava verde porque as
+   * nossas duas contagens concordavam entre si.
+   *
+   * Achado pela revisão de compliance de 2026-09-08.
+   */
+  describe('o cliente pagou um valor diferente do pedido', () => {
+    const pedido = {
+      id: 'ch_x', payment_method: 'pix', amount: 6600, metadata: { tip_cents: '600' },
+    };
+    const daApi = async (charge) => {
+      const { impl } = stubFetch([{ match: '/charges/ch_x', method: 'GET', reply: charge }]);
+      return createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl }).getCharge('ch_x');
+    };
+
+    test('underpaid: o SERVIÇO é o resíduo — quem paga menos recusa a linha opcional', async () => {
+      // Pediu 6600 (6000 de consumo + 600 de serviço), pagou 3300. O consumo
+      // vem primeiro: 3300 de comida, zero de gorjeta.
+      //
+      // A regra proporcional (que esteve aqui) devolvia 3000 + 300 e deixava a
+      // conta devendo comida que a casa já tinha recebido — e inflava a base da
+      // folha com 300 centavos que o cliente recusou. Ver `allocateUnderpayment`.
+      const r = await daApi({ ...pedido, status: 'underpaid', paid_amount: 3300 });
+      expect(r.paid).toBe(true);
+      expect(r.kind).toBe('payment_confirmed');
+      expect(r.amountCents + r.tipCents).toBe(3300);   // exato, sempre
+      expect(r.amountCents).toBe(3300);
+      expect(r.tipCents).toBe(0);
+    });
+
+    test('underpaid por pouco: só o serviço encolhe, o consumo fica inteiro', async () => {
+      // Pagou 6300 de 6600: a comida (6000) está paga, o serviço arrecadado é
+      // 300 dos 600 cobrados. A conta QUITA.
+      const r = await daApi({ ...pedido, status: 'underpaid', paid_amount: 6300 });
+      expect(r.amountCents).toBe(6000);
+      expect(r.tipCents).toBe(300);
+    });
+
+    test('overpaid: o excedente vai pro CONSUMO — a gorjeta não infla sozinha', async () => {
+      // Gorjeta é base de folha (Lei 13.419 / STJ Tema 1102): inflar por
+      // arredondamento é inventar remuneração que ninguém prometeu.
+      const r = await daApi({ ...pedido, status: 'overpaid', paid_amount: 7000 });
+      expect(r.paid).toBe(true);
+      expect(r.tipCents).toBe(600);                    // o que a conta pediu
+      expect(r.amountCents).toBe(6400);                // 6000 + 400 a mais
+      expect(r.amountCents + r.tipCents).toBe(7000);
+    });
+
+    test('sem paid_amount cai no valor pedido — API antiga não vira zero', async () => {
+      const r = await daApi({ ...pedido, status: 'paid' });
+      expect(r.amountCents + r.tipCents).toBe(6600);
+    });
+
+    test('o webhook dos dois status chega ao razão, com o valor RECEBIDO', async () => {
+      for (const status of ['underpaid', 'overpaid']) {
+        const { impl } = stubFetch([{
+          match: '/charges/ch_x', method: 'GET',
+          reply: { ...pedido, status, paid_amount: status === 'underpaid' ? 3300 : 7000 },
+        }]);
+        const psp = createPagarmePsp({
+          secretKey: 'sk_test_x', fetchImpl: impl, webhookBasicAuth: 'u:p',
+        });
+        const corpo = JSON.stringify({ id: 'hook_1', type: `charge.${status}`, data: { id: 'ch_x' } });
+        const r = await psp.verifyAndParseWebhook(corpo, {
+          authorization: `Basic ${Buffer.from('u:p').toString('base64')}`,
+        });
+        expect(r.kind).toBe('payment_confirmed');
+        expect(r.eventId).toBe('hook_1');
+        expect(r.amountCents + r.tipCents).toBe(status === 'underpaid' ? 3300 : 7000);
+      }
+    });
+
+    test('o webhook mente e a API desmente: `paid` sobre uma cobrança pendente é RECUSA', async () => {
+      const { impl } = stubFetch([{
+        match: '/charges/ch_x', method: 'GET', reply: { ...pedido, status: 'pending' },
+      }]);
+      const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl, webhookBasicAuth: 'u:p' });
+      const corpo = JSON.stringify({ id: 'hook_2', type: 'charge.paid', data: { id: 'ch_x' } });
+      await expect(psp.verifyAndParseWebhook(corpo, {
+        authorization: `Basic ${Buffer.from('u:p').toString('base64')}`,
+      })).rejects.toThrow(WebhookVerificationError);
+    });
+  });
+
+  describe('estorno de uma cobrança que recebeu valor diferente do pedido', () => {
+    /**
+     * O TETO do estorno é o que ENTROU.
+     *
+     * Eu ensinei o `parseCharge` a ler `paid_amount` e deixei o ramo do estorno
+     * lendo `charge.amount`. Num Pix `underpaid` o estorno chegava maior que o
+     * pagamento: o razão recusava (com razão), a rota devolvia 409, e a
+     * Pagar.me reenviava até desabilitar o endpoint — o que derruba TODA
+     * confirmação de Pix, não só esta. E os R$ 33,00 já tinham saído da conta
+     * da casa com os nossos dois registros dizendo "pago".
+     * Achado pela revisão de compliance de 2026-09-08.
+     */
+    const hook = async (charge) => {
+      const { impl } = stubFetch([{ match: '/charges/ch_x', method: 'GET', reply: charge }]);
+      const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl, webhookBasicAuth: 'u:p' });
+      return psp.verifyAndParseWebhook(
+        JSON.stringify({ id: 'hook_r', type: 'charge.refunded', data: { id: 'ch_x' } }),
+        { authorization: `Basic ${Buffer.from('u:p').toString('base64')}` },
+      );
+    };
+
+    test('underpaid: o acumulado estornado é o RECEBIDO, não o pedido', async () => {
+      const r = await hook({
+        id: 'ch_x', status: 'refunded', payment_method: 'pix',
+        amount: 3698, paid_amount: 3300, metadata: { tip_cents: '336' },
+      });
+      expect(r.kind).toBe('refund');
+      expect(r.cumulativeRefundedCents).toBe(3300);   // e não 3698
+    });
+
+    test('overpaid: o acumulado inclui o excedente que também precisa voltar', async () => {
+      const r = await hook({
+        id: 'ch_x', status: 'refunded', payment_method: 'pix',
+        amount: 3698, paid_amount: 4000, metadata: { tip_cents: '336' },
+      });
+      expect(r.cumulativeRefundedCents).toBe(4000);
+    });
+
+    test('cancelamento PARCIAL com `canceled_amount` vira estorno normal', async () => {
+      // Com o valor na mão deixa de ser "saiu dinheiro e não sabemos quanto".
+      const r = await hook({
+        id: 'ch_x', status: 'partial_canceled', payment_method: 'pix',
+        amount: 3698, paid_amount: 3698, canceled_amount: 500, metadata: { tip_cents: '336' },
+      });
+      expect(r.kind).toBe('refund');
+      expect(r.cumulativeRefundedCents).toBe(500);
+    });
+
+    test('cancelamento parcial SEM o valor continua sendo evento não lançável', async () => {
+      const r = await hook({
+        id: 'ch_x', status: 'partial_canceled', payment_method: 'pix',
+        amount: 3698, paid_amount: 3698, metadata: { tip_cents: '336' },
+      });
+      expect(r.kind).toBe('unusable_money_event');   // anomalia durável + alerta
+    });
+
+    test('`canceled_amount` maior que o recebido não é aceito às cegas', async () => {
+      const r = await hook({
+        id: 'ch_x', status: 'partial_canceled', payment_method: 'pix',
+        amount: 3698, paid_amount: 3000, canceled_amount: 3698, metadata: {},
+      });
+      expect(r.kind).toBe('unusable_money_event');
+    });
+  });
+
+  test('valor que não é centavo inteiro ESTOURA em vez de virar dinheiro torto', async () => {
+    // Inegociável #5. `parseCharge` era a única função nova de dinheiro sem
+    // afirmação de centavos e sem invariante de soma.
+    const { impl } = stubFetch([{ match: '/charges/ch_x', method: 'GET',
+      reply: { id: 'ch_x', status: 'paid', amount: 6600.5, payment_method: 'pix', metadata: {} } }]);
+    await expect(createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl }).getCharge('ch_x'))
+      .rejects.toThrow(/integer/);
+  });
+
   test('getCharge: id fora do padrão ch_ → null sem chamar a API', async () => {
     const { impl, calls } = stubFetch([]);
     const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
