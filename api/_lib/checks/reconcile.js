@@ -66,6 +66,35 @@ function reconcileCheck({ checkId, events, payments }) {
   // pagamento gravado antes da coluna existir (moeda ausente, não errada) ao
   // lado de um gravado depois. Por isso ausente NÃO é divergência — é o
   // histórico. O que é divergência é DUAS moedas presentes na mesma conta.
+  // 1c. O PRAZO DE PROVA de uma disputa aberta.
+  //
+  // O Bizum dá 40 dias corridos pra apresentar prova, e perder o prazo é
+  // perder o dinheiro por INAÇÃO — não por ter perdido o mérito. Antes disto,
+  // a defesa inteira desse prazo era um `notifyFounderMoneyEvent`, que devolve
+  // `{skipped:true}` e escreve em stderr quando falta `RACHA_NOTIFY_SECRET`, e
+  // que engole qualquer falha de rede. Um prazo de dinheiro defendido por uma
+  // notificação best-effort é um prazo indefeso.
+  //
+  // Aqui ele vira ACHADO, que é o que o job diário lê e o que o canário
+  // pageia. Achado pela revisão de compliance de 2026-09-08.
+  const agora = Date.now();
+  for (const [txid, pay] of Object.entries(state ? state.payments : {})) {
+    if (!pay.disputeDueBy || !(pay.disputedAmountCents > 0)) continue;
+    const prazo = Date.parse(pay.disputeDueBy);
+    if (!Number.isFinite(prazo)) continue;
+    const diasRestantes = Math.floor((prazo - agora) / 86400000);
+    if (diasRestantes < 0) {
+      add('critical', 'dispute_evidence_overdue',
+        `prazo de prova da disputa de ${txid} VENCEU em ${pay.disputeDueBy}`,
+        { txid, dueBy: pay.disputeDueBy, disputedCents: pay.disputedAmountCents });
+    } else if (diasRestantes <= 7) {
+      // Sete dias: tempo de alguém juntar recibo, IP e horário sem correr.
+      add('high', 'dispute_evidence_due',
+        `prazo de prova da disputa de ${txid} vence em ${diasRestantes} dia(s) (${pay.disputeDueBy})`,
+        { txid, dueBy: pay.disputeDueBy, disputedCents: pay.disputedAmountCents });
+    }
+  }
+
   const moedas = new Set(rows.map((r) => r && r.currency).filter(Boolean));
   if (moedas.size > 1) {
     add('critical', 'mixed_currency',

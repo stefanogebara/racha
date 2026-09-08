@@ -113,6 +113,25 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
   }
 
   let refundAllocated = null;
+  // Disputa perdida traz um DELTA (o valor disputado), não um acumulado. Rateia
+  // proporcional pelo mesmo `allocateRefund`: um chargeback leva a gorjeta
+  // junto, e deixá-la nos livros como "paga" mentiria pra folha (Lei 13.419).
+  if (type === 'PAYMENT_REFUNDED' && Number.isSafeInteger(parsed.refundDeltaCents)) {
+    const pay = state && state.payments[parsed.txid];
+    if (!pay) return { status: 'rejected', reason: `refund for unknown txid ${parsed.txid}` };
+    const sobra = (pay.amountCents - pay.refundedAmountCents) + (pay.tipCents - pay.refundedTipCents);
+    if (parsed.refundDeltaCents > sobra) {
+      return {
+        status: 'rejected',
+        reason: `refund ${parsed.refundDeltaCents} exceeds outstanding ${sobra} for txid ${parsed.txid}`,
+      };
+    }
+    refundAllocated = allocateRefund(
+      pay.amountCents - pay.refundedAmountCents,
+      pay.tipCents - pay.refundedTipCents,
+      parsed.refundDeltaCents,
+    );
+  }
   if (type === 'PAYMENT_REFUNDED' && Number.isSafeInteger(parsed.cumulativeRefundedCents)) {
     const pay = state && state.payments[parsed.txid];
     if (!pay) {
@@ -141,7 +160,10 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
     );
   }
 
-  const payload = {
+  const payload = type === 'PAYMENT_DISPUTE_CLOSED' ? {
+    txid: parsed.txid,
+    outcome: parsed.status === 'warning_closed' ? 'warning_closed' : 'won',
+  } : {
     txid: parsed.txid,
     amountCents: (refundAllocated || reversalAllocated)
       ? (refundAllocated || reversalAllocated).amountCents : parsed.amountCents,
@@ -182,6 +204,8 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
       amountCents: parsed.amountCents,
       tipCents: parsed.tipCents,
       kind: parsed.kind,
+      // O status vem RESOLVIDO daqui. O store não decide dinheiro.
+      status: ROW_STATUS_FOR_KIND[parsed.kind] || 'confirmado',
       pspPayloadMasked: maskPixPayload(parsed.raw), // ONLY the masked subset is storable
       confirmedAt: new Date().toISOString(),
     });
@@ -212,10 +236,37 @@ const EVENT_FOR_KIND = Object.freeze({
   payment_confirmed: 'PAYMENT_CONFIRMED',
   refund: 'PAYMENT_REFUNDED',
   refund_failed: 'PAYMENT_REFUND_REVERSED',
+  // Disputa PERDIDA é estorno de verdade: o dinheiro foi. Espécie própria (e
+  // não `refund` genérico) porque o razão também precisa LIMPAR a marca da
+  // disputa, e porque o valor vem como delta pra ser rateado entre consumo e
+  // gorjeta — um chargeback leva a gorjeta junto.
+  dispute_lost: 'PAYMENT_REFUNDED',
+  // Disputa GANHA não mexe em dinheiro, mas PRECISA de evento: sem ele a
+  // anomalia nunca sai e a conta fica vermelha pra sempre.
+  dispute_won: 'PAYMENT_DISPUTE_CLOSED',
 });
 
 /** As espécies que viram lançamento no razão. */
 const LEDGER_KINDS = new Set(Object.keys(EVENT_FOR_KIND));
+
+/**
+ * O STATUS da linha de pagamento, por espécie.
+ *
+ * Os dois stores faziam `kind === 'refund' ? 'devolvido' : 'confirmado'` — o
+ * mesmo `else` que causou o achado do chargeback, uma camada abaixo. Com a
+ * família da disputa lida de verdade isso passou a estar ERRADO: uma disputa
+ * PERDIDA cai no `else` e a linha fica `confirmado`, com o dinheiro já ido.
+ *
+ * Então o mapa é explícito e mora aqui, no módulo que decide dinheiro. O store
+ * só grava o que recebe.
+ */
+const ROW_STATUS_FOR_KIND = Object.freeze({
+  payment_confirmed: 'confirmado',
+  refund: 'devolvido',
+  dispute_lost: 'devolvido',      // o dinheiro foi
+  refund_failed: 'confirmado',    // o estorno não aconteceu: o dinheiro é da casa
+  dispute_won: 'confirmado',      // a casa manteve o dinheiro
+});
 
 /**
  * Espécies de evento de DINHEIRO que não viram lançamento aqui.
@@ -228,6 +279,10 @@ const LEDGER_KINDS = new Set(Object.keys(EVENT_FOR_KIND));
  */
 const NON_LEDGER_KINDS = new Set([
   'dispute_opened', 'refund_progress', 'unusable_money_event',
+  // Mudança de estado da disputa (prazo, prova enviada) e movimento do valor
+  // disputado no SALDO. Nenhum dos dois muda o que a mesa deve; os dois
+  // precisam de alerta e de registro, que é do chamador.
+  'dispute_updated', 'dispute_funds',
 ]);
 
 function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, findCheckByTxid, fallback }) {
@@ -290,5 +345,5 @@ function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, fin
 
 module.exports = {
   createWebhookHandler, applyConfirmedPayment,
-  EVENT_FOR_KIND, LEDGER_KINDS, NON_LEDGER_KINDS,
+  EVENT_FOR_KIND, ROW_STATUS_FOR_KIND, LEDGER_KINDS, NON_LEDGER_KINDS,
 };

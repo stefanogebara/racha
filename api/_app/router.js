@@ -567,12 +567,18 @@ async function route(req, res) {
         // inegociável #6 — sem ela no log, o estorno de noventa dias depois
         // não tem antecedente nenhum.
         if (parsed.kind === 'dispute_opened' || parsed.kind === 'refund_progress'
-            || parsed.kind === 'unusable_money_event') {
+            || parsed.kind === 'unusable_money_event' || parsed.kind === 'dispute_updated'
+            || parsed.kind === 'dispute_funds') {
           const found = await store.findCheckByTxid(parsed.txid);
           if (parsed.kind === 'dispute_opened' && found) {
             try {
               await store.appendEvent(found.id, 'PAYMENT_DISPUTED', {
                 txid: parsed.txid, amountCents: parsed.amountCents, reason: parsed.reason || null,
+                // O PRAZO DE PROVA vai pro log. 40 dias corridos no Bizum, e
+                // perder o prazo é perder o dinheiro por inação — então ele
+                // precisa estar num lugar que o job diário lê, não só num
+                // alerta que degrada pra stderr sem `RACHA_NOTIFY_SECRET`.
+                dueBy: parsed.dueBy || null, status: parsed.status || null,
               });
             } catch (e) {
               process.stderr.write(`[stripe-webhook] disputa não gravada: ${String(e.message).slice(0, 120)}\n`);
@@ -585,6 +591,27 @@ async function route(req, res) {
             });
           }
           return json(res, 200, { success: true, data: { status: parsed.kind, txid: parsed.txid } });
+        }
+        // Disputa PERDIDA: o dinheiro foi. Vira estorno E fecha a marca — as
+        // duas coisas, porque o estorno explica o saldo e o fechamento tira a
+        // conta da lista de pendências (o desfecho passou a estar no dinheiro).
+        if (parsed.kind === 'dispute_lost') {
+          result = await applyConfirmedPayment(parsed, confirmDeps);
+          if (result.checkId) {
+            try {
+              await store.appendEvent(result.checkId, 'PAYMENT_DISPUTE_CLOSED', {
+                txid: parsed.txid, outcome: 'lost',
+              });
+            } catch (e) {
+              process.stderr.write(`[stripe-webhook] fecho de disputa não gravado: ${String(e.message).slice(0, 120)}\n`);
+            }
+          }
+          await notifyFounderMoneyEvent({
+            kind: parsed.kind, txid: parsed.txid, checkId: result.checkId || null,
+            amountCents: parsed.amountCents, detail: parsed.reason || null,
+          });
+          const st = result.status === 'rejected' ? 409 : 200;
+          return json(res, st, { success: st === 200, data: result });
         }
         // Estorno que falhou: vira lançamento de REVERSÃO e alerta. As duas
         // coisas — o razão volta a dizer a verdade, e alguém precisa saber que

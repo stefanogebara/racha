@@ -417,12 +417,16 @@ function createMemoryStore() {
         status: 'pendente', createdAt: new Date().toISOString(),
       });
     },
-    async recordPayment({ txid, kind, pspPayloadMasked, confirmedAt }) {
+    async recordPayment({ txid, kind, status, pspPayloadMasked, confirmedAt }) {
       const p = payments.get(txid);
       if (!p) return;
       payments.set(txid, {
         ...p,
-        status: kind === 'refund' ? 'devolvido' : 'confirmado',
+        // O status vem resolvido do módulo de dinheiro (ver
+        // ROW_STATUS_FOR_KIND). Era `kind === 'refund' ? … : 'confirmado'` aqui,
+        // e com a família da disputa lida de verdade esse `else` fazia uma
+        // disputa PERDIDA virar `confirmado` com o dinheiro já ido.
+        status: status || (kind === 'refund' ? 'devolvido' : 'confirmado'),
         pspPayloadMasked, confirmedAt,
       });
     },

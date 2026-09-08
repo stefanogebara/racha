@@ -374,18 +374,82 @@ describe('disputa e reembolso que falha', () => {
     expect(parsed.kind).not.toBe('refund');
   });
 
-  test('disputa PERDIDA vira estorno de verdade', async () => {
+  test('disputa PERDIDA vira estorno, com o valor pra ratear no razão', async () => {
     const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
       event: { type: 'charge.dispute.closed', data: { object: { payment_intent: 'pi_d', amount: 3390, status: 'lost' } } },
     })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
-    expect(parsed).toMatchObject({ kind: 'refund', txid: 'pi_d', amountCents: 3390 });
+    // `dispute_lost`, não `refund` genérico: o razão precisa saber que isto é
+    // desfecho de disputa pra também LIMPAR a marca. E o valor vai como delta
+    // pra ser rateado entre consumo e gorjeta — um chargeback leva a gorjeta
+    // junto, e deixá-la nos livros como "paga" mentiria pra folha.
+    expect(parsed).toMatchObject({
+      kind: 'dispute_lost', txid: 'pi_d', refundDeltaCents: 3390, status: 'lost',
+    });
   });
 
-  test('disputa GANHA não mexe em nada', async () => {
+  test('disputa GANHA precisa de evento — senão a conta fica vermelha pra sempre', async () => {
+    // Este teste mudou de sentido, e a mudança é o achado.
+    //
+    // Antes ele exigia `ignored`, e "não mexe em nada" parecia certo: o
+    // dinheiro fica com o restaurante. Mas o `PAYMENT_DISPUTED` já tinha posto
+    // uma ANOMALIA na conta, e anomalia não se resolve sozinha — a conta
+    // aparecia vermelha na conciliação pra sempre, por uma disputa que a casa
+    // GANHOU. Um canário que grita sem parar é o modo de falha do inegociável
+    // #8. Achado pela revisão de compliance de 2026-09-08.
+    for (const status of ['won', 'warning_closed']) {
+      const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
+        event: { type: 'charge.dispute.closed', data: { object: { payment_intent: 'pi_d', amount: 3390, status } } },
+      })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+      expect(parsed).toMatchObject({ kind: 'dispute_won', txid: 'pi_d', status });
+    }
+  });
+
+  test('o PRAZO DE PROVA é lido, e ele é a coisa mais cara do evento', async () => {
+    // O Bizum dá 40 dias corridos pra apresentar prova, e perder o prazo é
+    // perder o dinheiro por inação. O `evidence_details.due_by` era jogado
+    // fora: a defesa inteira desse prazo era uma notificação best-effort que
+    // degrada pra stderr sem `RACHA_NOTIFY_SECRET`.
+    const dueBy = 1789000000; // unix, como a Stripe manda
     const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
-      event: { type: 'charge.dispute.closed', data: { object: { payment_intent: 'pi_d', amount: 3390, status: 'won' } } },
+      event: {
+        type: 'charge.dispute.created',
+        data: { object: { payment_intent: 'pi_d', amount: 3390, reason: 'fraudulent', status: 'needs_response', evidence_details: { due_by: dueBy } } },
+      },
     })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
-    expect(parsed.kind).toBe('ignored');
+    expect(parsed.kind).toBe('dispute_opened');
+    expect(parsed.dueBy).toBe(new Date(dueBy * 1000).toISOString());
+    expect(parsed.reason).toBe('fraudulent');
+  });
+
+  test('a família inteira da disputa é classificada, nada cai em ignorado', async () => {
+    // `updated` carrega mudança de prazo e envio de prova;
+    // `funds_withdrawn`/`funds_reinstated` são dinheiro saindo e voltando do
+    // saldo. Os três eram `ignored`, e o job diário não tem perna de razão do
+    // PSP — então nada mais pegava.
+    const casos = [
+      ['charge.dispute.updated', 'dispute_updated'],
+      ['charge.dispute.funds_withdrawn', 'dispute_funds'],
+      ['charge.dispute.funds_reinstated', 'dispute_funds'],
+    ];
+    for (const [type, kind] of casos) {
+      const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
+        event: { type, data: { object: { payment_intent: 'pi_d', amount: 3390, status: 'under_review' } } },
+      })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+      expect(parsed.kind).toBe(kind);
+    }
+    // E a direção do dinheiro é explícita, não deduzida do nome do evento
+    // por quem lê depois.
+    const saiu = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
+      event: { type: 'charge.dispute.funds_withdrawn', data: { object: { payment_intent: 'pi_d', amount: 3390 } } },
+    })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+    expect(saiu.direction).toBe('withdrawn');
+
+    // Disputa sem `payment_intent` é dinheiro que não sabemos endereçar —
+    // nem ignorado nem processado.
+    const orfa = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
+      event: { type: 'charge.dispute.created', data: { object: { amount: 3390, status: 'needs_response' } } },
+    })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+    expect(orfa.kind).toBe('unusable_money_event');
   });
 
   test('reembolso que falhou é reconhecido — o dinheiro voltou pro restaurante e o cliente ficou sem', async () => {

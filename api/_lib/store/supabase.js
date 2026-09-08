@@ -459,11 +459,15 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       throwOn(error, 'registerCharge');
     },
 
-    async recordPayment({ txid, kind, pspPayloadMasked, confirmedAt }) {
+    async recordPayment({ txid, kind, status, pspPayloadMasked, confirmedAt }) {
       const { error } = await client
         .from('payments')
         .update({
-          status: kind === 'refund' ? 'devolvido' : 'confirmado',
+          // O status vem resolvido do módulo de dinheiro (ver
+          // ROW_STATUS_FOR_KIND). Era `kind === 'refund' ? … : 'confirmado'` aqui,
+          // e com a família da disputa lida de verdade esse `else` fazia uma
+          // disputa PERDIDA virar `confirmado` com o dinheiro já ido.
+          status: status || (kind === 'refund' ? 'devolvido' : 'confirmado'),
           psp_payload_masked: pspPayloadMasked,
           confirmed_at: confirmedAt,
         })

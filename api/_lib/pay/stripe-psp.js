@@ -451,31 +451,75 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
           raw: charge,
         };
       }
-      if (type === 'charge.dispute.created') {
+      /**
+       * A FAMÍLIA da disputa, inteira.
+       *
+       * Antes só `created` e `closed`+`lost` eram lidos, e o resto caía em
+       * `ignored`. Cada omissão custava algo concreto (revisão de compliance,
+       * 2026-09-08):
+       *
+       *  - o `due_by` era JOGADO FORA. O Bizum dá 40 dias corridos pra
+       *    apresentar prova, e perder o prazo é perder o dinheiro por inação.
+       *    A defesa inteira desse prazo era uma notificação best-effort.
+       *  - `dispute.updated` é o evento que carrega mudança de prazo e envio
+       *    de prova. Ignorado, o prazo nunca era atualizado.
+       *  - `funds_withdrawn` / `funds_reinstated` são dinheiro SAINDO e
+       *    VOLTANDO do saldo. Ignorados, e o job diário não tem perna de
+       *    razão do PSP, então nada mais pegava.
+       *  - `closed` com `won` era ignorado, então a anomalia de disputa nunca
+       *    era resolvida e a conta ficava VERMELHA pra sempre. Um canário que
+       *    grita sem parar é o modo de falha que o inegociável #8 descreve.
+       */
+      if (String(type).startsWith('charge.dispute.')) {
         const d = event.data.object;
         const txid = d.payment_intent;
-        if (typeof txid !== 'string') return { kind: 'ignored', type, raw: d };
-        return {
-          kind: 'dispute_opened', txid,
+        if (typeof txid !== 'string') {
+          // Dinheiro de verdade que não sabemos endereçar. Não é `ignored` —
+          // ignorar é dizer "não me interessa".
+          return { kind: 'unusable_money_event', type, status: d.status || null, raw: d };
+        }
+        const dueBy = Number.isFinite(Number(d.evidence_details && d.evidence_details.due_by))
+          ? new Date(Number(d.evidence_details.due_by) * 1000).toISOString()
+          : null;
+        const base = {
+          txid,
           amountCents: Number(d.amount) || 0,
           reason: typeof d.reason === 'string' ? d.reason : null,
+          status: typeof d.status === 'string' ? d.status : null,
+          dueBy,
           raw: d,
         };
-      }
-      // Disputa PERDIDA: aí sim o dinheiro foi. Vira estorno de verdade.
-      if (type === 'charge.dispute.closed') {
-        const d = event.data.object;
-        const txid = d.payment_intent;
-        if (typeof txid !== 'string' || d.status !== 'lost') {
-          return { kind: 'ignored', type, raw: d };
+
+        if (type === 'charge.dispute.created') return { kind: 'dispute_opened', ...base };
+
+        if (type === 'charge.dispute.funds_withdrawn' || type === 'charge.dispute.funds_reinstated') {
+          return {
+            kind: 'dispute_funds',
+            direction: type.endsWith('withdrawn') ? 'withdrawn' : 'reinstated',
+            ...base,
+          };
         }
-        return {
-          kind: 'refund', txid,
-          amountCents: Number(d.amount) || 0,
-          tipCents: 0,
-          method: 'dispute',
-          raw: d,
-        };
+
+        if (type === 'charge.dispute.closed') {
+          // PERDIDA: aí sim o dinheiro foi, e vira estorno de verdade. O valor
+          // vai como delta pra ser rateado entre consumo e gorjeta no razão —
+          // um chargeback leva a gorjeta junto, e deixá-la nos livros como
+          // "paga" mentiria pra folha (Lei 13.419).
+          if (d.status === 'lost') {
+            return { kind: 'dispute_lost', refundDeltaCents: base.amountCents, method: 'dispute', ...base };
+          }
+          // GANHA (ou aviso encerrado sem virar disputa): o dinheiro fica.
+          // Precisa de evento pra LIMPAR a marca — sem isso a conta fica
+          // vermelha pra sempre.
+          if (d.status === 'won' || d.status === 'warning_closed') {
+            return { kind: 'dispute_won', ...base };
+          }
+          // Qualquer outro encerramento é mudança de estado, não desfecho.
+          return { kind: 'dispute_updated', ...base };
+        }
+
+        // `updated`, `warning_needs_response`, `warning_under_review`…
+        return { kind: 'dispute_updated', ...base };
       }
       // Reembolso que FALHOU. O dinheiro voltou pro saldo do restaurante e o
       // cliente continua sem receber — e ninguém descobre isso sozinho. Não

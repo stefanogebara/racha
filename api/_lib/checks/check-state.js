@@ -78,6 +78,21 @@ const EVENT_TYPES = Object.freeze([
    * 42, § único).
    */
   'PAYMENT_REFUND_REVERSED',
+  /**
+   * A disputa ACABOU.
+   *
+   * O `PAYMENT_DISPUTED` põe uma anomalia na conta, e anomalia não se resolve
+   * sozinha: uma disputa que a casa GANHOU deixava a conta vermelha na
+   * conciliação pra sempre. Um canário que grita sem parar é o modo de falha
+   * que o inegociável #8 descreve — depois de duas semanas ninguém olha mais,
+   * e a próxima disputa de verdade passa junto.
+   *
+   * O log continua íntegro (inegociável #6): o `PAYMENT_DISPUTED` fica lá, com
+   * data e motivo. O que este evento faz é dizer como terminou, e a PROJEÇÃO
+   * deixa de acusar. Perdida vira estorno de verdade (evento separado) e esta
+   * marca também sai, porque o desfecho passou a estar no saldo.
+   */
+  'PAYMENT_DISPUTE_CLOSED',
 ]);
 
 // Money accumulations must stay in exact-integer territory.
@@ -151,6 +166,15 @@ function validateEvent(evt, prevState) {
       if ((p.tipCents ?? 0) > rev.refundedTipCents) {
         invalid(`reversal exceeds refunded tip for txid ${p.txid}`);
       }
+      break;
+    }
+    case 'PAYMENT_DISPUTE_CLOSED': {
+      if (!prevState) invalid('PAYMENT_DISPUTE_CLOSED before OPENED');
+      if (typeof p.txid !== 'string' || p.txid.length < 1) invalid('PAYMENT_DISPUTE_CLOSED.txid required');
+      if (!['won', 'lost', 'warning_closed'].includes(p.outcome)) {
+        invalid(`PAYMENT_DISPUTE_CLOSED.outcome inválido: ${p.outcome}`);
+      }
+      if (!prevState.payments[p.txid]) invalid(`dispute close for unknown txid ${p.txid}`);
       break;
     }
     case 'PAYMENT_DISPUTED': {
@@ -278,9 +302,40 @@ function applyEvent(state, evt, seq = null) {
       // normal enquanto alguém contesta.
       const next = cloneState(state);
       const pay = next.payments[p.txid];
-      if (pay) pay.disputedAmountCents = (pay.disputedAmountCents || 0) + (p.amountCents ?? 0);
+      if (pay) {
+        pay.disputedAmountCents = (pay.disputedAmountCents || 0) + (p.amountCents ?? 0);
+        // O PRAZO DE PROVA, no estado. É a coisa mais cara do evento: 40 dias
+        // corridos no Bizum, e perder o prazo é perder o dinheiro por inação.
+        // Antes ele era jogado fora no adaptador e a defesa inteira era uma
+        // notificação best-effort.
+        if (p.dueBy) pay.disputeDueBy = p.dueBy;
+        pay.disputeStatus = p.status || 'open';
+      }
       return withAnomaly(recompute(next), seq, 'PAYMENT_DISPUTED',
-        `disputa aberta em ${p.txid}${p.reason ? ` (${p.reason})` : ''}`);
+        `disputa aberta em ${p.txid}${p.reason ? ` (${p.reason})` : ''}`
+        + `${p.dueBy ? ` — prova até ${p.dueBy}` : ''}`);
+    }
+    case 'PAYMENT_DISPUTE_CLOSED': {
+      const next = cloneState(state);
+      const pay = next.payments[p.txid];
+      if (pay) {
+        pay.disputedAmountCents = 0;
+        pay.disputeStatus = p.outcome;
+        delete pay.disputeDueBy;
+      }
+      // A anomalia daquele txid SAI da projeção. O log fica; o que muda é o
+      // que a conciliação vê — e uma disputa resolvida não é uma pendência.
+      const resolved = recompute(next);
+      resolved.anomalies = resolved.anomalies.filter(
+        (a) => !(a.type === 'PAYMENT_DISPUTED' && String(a.reason || '').includes(p.txid)),
+      );
+      // Perdida já virou estorno no saldo; ganha não mexe em dinheiro. Nos dois
+      // casos a marca sai, e o desfecho fica registrado em `disputeStatus`.
+      if (p.outcome === 'lost') {
+        return withAnomaly(resolved, seq, 'PAYMENT_DISPUTE_CLOSED',
+          `disputa PERDIDA em ${p.txid} — o dinheiro foi`);
+      }
+      return resolved;
     }
     case 'CLOSED':
       return recompute({ ...cloneState(state), closed: true });

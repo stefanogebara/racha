@@ -509,7 +509,9 @@ test('todo código de erro que a API manda tem tradução', async () => {
     'reconcile_threw', 'venue_reconcile_threw',
     'house_redeem_missing_payment_row', 'house_redeem_missing_payment_row_paid',
     'house_payment_row_without_redeem',
-    'mixed_currency',                       // achados de conciliação, vão pro fundador
+    'mixed_currency', 'dispute_evidence_due', 'dispute_evidence_overdue',
+    'webhook_invalid',                      // 401 de webhook: nenhum diner vê
+                                            // achados de conciliação, vão pro fundador
     'br', 'es', 'racha',                    // `code` de mercado/marca, não de erro
   ]);
 
