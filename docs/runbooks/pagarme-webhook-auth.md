@@ -48,6 +48,62 @@ pra quem já tinha pagado, e a conciliação do dia divergia pelo ticket todo.
 Qualquer terceiro que descobrisse um `ch_` — print compartilhado, ticket de
 suporte — fazia o mesmo em qualquer mesa.
 
+## Estado (2026-09-08)
+
+| Passo | Estado |
+|---|---|
+| 1. Autenticação Basic no painel | **FEITO** — a API do dashboard responde `"authentication_type": "basic"` |
+| 2. `PAGARME_WEBHOOK_AUTH` em produção | **FEITO** — via `vercel env add`, escopo Production |
+| 3. Deploy do código novo | **PENDENTE** |
+
+O passo 2 ficou só em Production de propósito: é pra onde o hookset aponta. Um
+preview sem a variável passa a RECUSAR webhook, que é o comportamento certo
+pra um preview.
+
+A Vercel guarda a variável como Secret, então `vercel env pull` devolve
+`[SENSITIVE]` e o valor não é lido de volta. Isso é higiene certa, e significa
+que a única verificação honesta é a sonda de ponta a ponta abaixo.
+
+### A sonda de aceitação
+
+Um POST com id de cobrança INEXISTENTE. Não move dinheiro nenhum — a
+autenticação roda antes, e a busca da cobrança falha depois — mas separa
+"passou pela autenticação" de "não passou".
+
+```bash
+AUTH='usuario:senha'   # o mesmo par do painel e da Vercel
+BODY='{"type":"charge.paid","data":{"id":"ch_inexistente_probe"}}'
+U=https://racha-gray.vercel.app/api/webhooks/psp
+
+curl -s -o /dev/null -w 'sem header: %{http_code}\n' -X POST "$U" \
+  -H 'content-type: application/json' -d "$BODY"
+curl -s -o /dev/null -w 'com header: %{http_code}\n' -X POST "$U" \
+  -H 'content-type: application/json' \
+  -H "authorization: Basic $(printf '%s' "$AUTH" | base64)" -d "$BODY"
+```
+
+**Medido ANTES do deploy (2026-09-08), com o código antigo em produção:**
+
+```
+sem header:  HTTP 402
+com header:  HTTP 402
+```
+
+Os dois passam. É a vulnerabilidade demonstrada: o endpoint aceitou um corpo
+NÃO AUTENTICADO e o processou (402 é a busca da cobrança falhando no
+adquirente — ou seja, já passou da autenticação).
+
+**Esperado DEPOIS do deploy:**
+
+```
+sem header:  HTTP 401  {"success":false,"code":"webhook_invalid"}
+com header:  HTTP 402  (ou outro 4xx da busca da cobrança) — o que importa é NÃO ser 401
+```
+
+Se `com header` vier 401 depois do deploy, o par na Vercel não bate com o do
+painel. Corrigir a variável ANTES de qualquer outra coisa: nesse estado a
+confirmação de Pix depende só da conciliação ativa.
+
 ## A ordem de aplicação. Cada passo é seguro sozinho.
 
 O código novo falha FECHADO: sem `PAGARME_WEBHOOK_AUTH` ele recusa tudo. Então
