@@ -411,6 +411,42 @@ function createPagarmePsp({
     },
 
     /**
+     * Os RECEBÍVEIS de uma cobrança — o razão do próprio adquirente.
+     *
+     * `GET /payables?charge_id=…` devolve uma linha por recebedor e por
+     * parcela, com `recipient_id`, `amount`, `fee` e `type`. É a única fonte
+     * que diz PARA QUEM o dinheiro daquela cobrança foi de fato — a cobrança
+     * em si não reporta o split aplicado.
+     *
+     * Por que isso passou a importar: o split que a gente monta é `flat` pelo
+     * valor PEDIDO, e desde que `overpaid` virou dinheiro recebido, o
+     * capturado pode passar da soma das regras. Quem fica com a diferença é
+     * decisão da Pagar.me — e se ficar com a gente é conta-bolsão, o que o
+     * inegociável #4 proíbe (e a tela do cliente estaria nomeando o
+     * restaurante como devedor de um valor que está com a plataforma).
+     *
+     * A documentação diz que `options.charge_remainder_fee` faz o recebedor da
+     * regra "receber o restante dos recebíveis após uma divisão", e a gente
+     * manda `true`. Mas ler a documentação não é medir: isto aqui mede, em
+     * produção, a cada cobrança. Ver `reconcile-payables.js`.
+     *
+     * @returns {Promise<Array<{recipientId, amountCents, feeCents, type, status, chargeId}>>}
+     */
+    async listChargePayables(chargeId) {
+      if (typeof chargeId !== 'string' || !/^ch_/.test(chargeId)) return [];
+      const r = await api('GET', `/payables?charge_id=${encodeURIComponent(chargeId)}&size=1000`);
+      const linhas = Array.isArray(r) ? r : (r && Array.isArray(r.data) ? r.data : []);
+      return linhas.map((x) => ({
+        recipientId: x.recipient_id || null,
+        amountCents: Number(x.amount) || 0,
+        feeCents: Number(x.fee) || 0,
+        type: x.type || null,
+        status: x.status || null,
+        chargeId: x.charge_id || chargeId,
+      }));
+    },
+
+    /**
      * Saldo do recebedor — a PROVA do repasse do split. Um pagamento dividido
      * pinga aqui (waiting_funds → available conforme liquida). Valores em
      * centavos, direto da API. Read-only; o dono vê "quanto já caiu".
@@ -643,12 +679,15 @@ function createPagarmePsp({
       if (charge.status === 'partial_canceled') {
         // Cancelamento PARCIAL: se a API disser QUANTO, é um estorno normal.
         //
-        // A v5 traz `canceled_amount` na cobrança quando o cancelamento é
-        // parcial. Com ele isto deixa de ser "saiu dinheiro e não sabemos
-        // quanto" e passa a ser o mesmo acumulado dos outros — o razão calcula
-        // o delta e rateia. Sem ele (versão de API mais velha, campo ausente)
-        // continua sendo evento de dinheiro NÃO LANÇÁVEL: anomalia durável e
-        // alerta, nunca um 200 calado.
+        // `canceled_amount` fica na COBRANÇA (não em `last_transaction`), e o
+        // `DELETE /charges/{id}` aceita um `amount` parcial — conferido na
+        // documentação do cancelamento em 2026-09-08, porque eu tinha afirmado
+        // isso antes sem fonte e o resumo do schema do GET não lista o campo.
+        //
+        // Com ele, isto deixa de ser "saiu dinheiro e não sabemos quanto" e
+        // passa a ser o mesmo acumulado dos outros — o razão calcula o delta e
+        // rateia. Sem ele, segue evento de dinheiro NÃO LANÇÁVEL: anomalia
+        // durável e alerta, nunca um 200 calado.
         const canceladoCents = Number(charge.canceled_amount);
         if (Number.isSafeInteger(canceladoCents) && canceladoCents > 0
             && canceladoCents <= totalCents) {

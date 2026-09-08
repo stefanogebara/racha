@@ -332,6 +332,25 @@ function createMemoryStore() {
     },
 
     /** Reconciliation inputs: each check's event log + its payment rows. */
+    /** Ver o store do Supabase: cobranças confirmadas recentes, pra terceira
+     *  perna da conciliação. */
+    async listRecentConfirmedCharges(venueId, { sinceIso, limit = 50 } = {}) {
+      const corte = sinceIso ? Date.parse(sinceIso) : -Infinity;
+      return [...payments.values()]
+        .filter((p) => p.status === 'confirmado'
+          && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId
+          && p.method !== 'house_account'
+          && p.confirmedAt && Date.parse(p.confirmedAt) >= corte)
+        .sort((a, b) => Date.parse(b.confirmedAt) - Date.parse(a.confirmedAt))
+        .slice(0, limit)
+        .map((p) => ({
+          txid: p.txid, checkId: p.checkId, method: p.method, confirmedAt: p.confirmedAt,
+          paidAmountCents: Number.isFinite(p.confirmedAmountCents)
+            ? (p.confirmedAmountCents || 0) + (p.confirmedTipCents || 0)
+            : (p.amountCents || 0) + (p.tipCents || 0),
+        }));
+    },
+
     async listChecksForReconcile(venueId) {
       return [...checks.values()]
         .filter((c) => c.venueId === venueId)

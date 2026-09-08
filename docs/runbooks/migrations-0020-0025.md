@@ -119,7 +119,17 @@ pergunta que eu fiz no banco, e estava inerte na produção porque quem a chamav
 mandava zeros. A lição repete a da 0018: o defeito vive na fronteira entre JS e
 SQL, e só um teste que atravessa a fronteira o vê.
 
-## Em aberto: onde fica o excedente de um Pix pago a mais (inegociável #4)
+## RESPONDIDA: onde fica o excedente de um Pix pago a mais (inegociável #4)
+
+> Ver `custodia-do-excedente.md`. Em resumo: a conferência entrou no produto
+> como TERCEIRA PERNA da conciliação — os recebíveis do adquirente, que dizem
+> pra quem o dinheiro de cada cobrança foi. Um recebível de crédito fora da
+> subconta da casa é `custody_leak`, crítico, todas as noites. E o pagador de um
+> Pix dinâmico não escolhe o valor, o que estreita a exposição pro trilho de
+> boleto, que não usamos. O texto abaixo é o registro de como a pergunta estava
+> antes disso.
+
+## (histórico) A pergunta, como estava em aberto
 
 **Não medido, e é a única coisa neste lote que toca a regra de custódia.**
 

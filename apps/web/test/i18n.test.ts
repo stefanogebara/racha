@@ -540,6 +540,17 @@ test('todo código de erro que a API manda tem tradução', async () => {
         const src = fs.readFileSync(full, 'utf8');
         for (const m of src.matchAll(/code: '([a-z_]+)'/g)) codes.add(m[1]);
         for (const m of src.matchAll(/badRequest\([^;]*?'([a-z_]+)'\s*[,)]/g)) codes.add(m[1]);
+        // A forma POSICIONAL da conciliação: `add('critical', 'ledger_drift', …)`.
+        //
+        // O censo só via `code: '…'`, e é assim que TODO achado de conciliação
+        // é escrito — então a família inteira estava invisível pra ele. Ficou
+        // aparente quando um código novo (`payables_unchecked`, escrito na
+        // outra forma) foi pego sozinho enquanto quatro irmãos dele passavam.
+        // Um censo com ponto cego é a coisa que ele existe pra impedir.
+        // Primeiro argumento QUALQUER (sem vírgula): a severidade também vem
+        // como ternário — `add(delta <= 1 ? 'info' : 'critical', 'codigo', …)`
+        // — e exigir o literal deixava esses passarem também.
+        for (const m of src.matchAll(/\badd\(([^,]*),\s*'([a-z_]+)'/g)) codes.add(m[2]);
       }
     }
   }(api));
@@ -601,4 +612,38 @@ test('a moeda da landing combina com o trilho dela', () => {
     const { rail, currency } = LANDING_MARKET[lang];
     assert.equal(currency, OK[rail], `landing ${lang}: ${rail} não cobra em ${currency}`);
   }
+});
+
+test('todo achado com {amount} na frase tem um campo de centavos que o painel lê', () => {
+  // A cadeia do `textoDoAchado` no Panel é
+  // `overpaidCents ?? deltaCents ?? driftCents ?? amountCents`. Uma frase com
+  // `{amount}` cujo achado não carrega nenhum desses renderiza "{amount}"
+  // literal na tela do dono — pior que não ter frase.
+  //
+  // O par (chave, campo) é conferido aqui porque ele atravessa dois arquivos:
+  // a frase mora no dicionário e o número, no achado da conciliação.
+  const CAMPOS = ['overpaidCents', 'deltaCents', 'driftCents', 'amountCents'];
+  const comValor: Record<string, string> = {
+    'find.custody_leak': 'amountCents',
+    'find.payable_amount_mismatch': 'deltaCents',
+    'find.overpaid_pending_restitution': 'overpaidCents',
+    'find.ledger_drift': 'driftCents',
+    'find.underpayment': 'deltaCents',
+    'find.overpayment': 'deltaCents',
+  };
+  for (const [chave, campo] of Object.entries(comValor)) {
+    assert.ok(chave in DICT, `${chave} não está no dicionário`);
+    for (const lang of ['en', 'pt', 'es'] as const) {
+      assert.match(DICT[chave as keyof typeof DICT][lang], /\{amount\}/,
+        `${chave}.${lang} deveria usar {amount}`);
+    }
+    assert.ok(CAMPOS.includes(campo), `${campo} não está na cadeia do Panel`);
+  }
+  // E toda frase `find.*` que usa {amount} tem que estar declarada acima —
+  // senão alguém acrescenta uma frase com placeholder e nenhum número.
+  const semDeclaracao = Object.keys(DICT)
+    .filter((k) => k.startsWith('find.') && /\{amount\}/.test(DICT[k as keyof typeof DICT].en))
+    .filter((k) => !(k in comValor));
+  assert.deepEqual(semDeclaracao, [],
+    `frases com {amount} sem campo de centavos declarado:\n${semDeclaracao.join('\n')}`);
 });

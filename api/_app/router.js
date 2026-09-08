@@ -1484,7 +1484,25 @@ async function route(req, res) {
       // bate". Estourar é o pior estado possível, então pagina como crítico.
       let report;
       try {
-        report = await reconcileAllVenues(store, { includeTest: url.searchParams.get('test') === '1' });
+        report = await reconcileAllVenues(store, {
+          includeTest: url.searchParams.get('test') === '1',
+          /**
+           * O PSP entra na varredura pra TERCEIRA PERNA existir.
+           *
+           * A regra #8 diz "razão do PSP vs nossos splits", e até aqui o job
+           * comparava só os nossos dois — que não são independentes, porque um
+           * é projeção do outro escrita na mesma chamada. Passar o adaptador
+           * liga a conferência dos RECEBÍVEIS: pra quem o dinheiro de cada
+           * cobrança foi de fato, segundo a Pagar.me.
+           *
+           * Janela de 24h e teto por restaurante: cada cobrança é uma chamada
+           * de API, e a varredura roda no escuro — ela não pode virar mil
+           * requisições porque a casa teve um sábado bom.
+           */
+          psp,
+          sinceIso: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+          limit: 25,
+        });
       } catch (e) {
         const falha = `Conciliação NÃO RODOU: ${String(e && e.message).slice(0, 200)}`;
         process.stderr.write(`[reconcile-cron] EXPLODIU: ${falha}\n`);

@@ -20,8 +20,8 @@ interface Reconcile {
     /** Texto interno do servidor. NÃO É PRA TELA — ver `FINDING_KEY`. */
     message: string;
     /** Os centavos, crus, pra o cliente formatar no idioma do leitor. */
-    overpaidCents?: number; deltaCents?: number; driftCents?: number;
-    chargedTipCents?: number; txid?: string;
+    overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
+    chargedTipCents?: number; txid?: string; chargeId?: string; recipientId?: string;
   }>;
   at: string;
 }
@@ -236,12 +236,18 @@ export default function Panel() {
  * formatados aqui, onde se sabe quem está lendo.
  */
 function textoDoAchado(
-  f: { code: string; overpaidCents?: number; deltaCents?: number; driftCents?: number },
+  f: {
+    code: string;
+    overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
+  },
   t: (k: Key, v?: Record<string, string | number>) => string,
   brl: (c: number) => string,
 ): string {
   const chave = `find.${f.code}` as Key;
-  const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents;
+  // `amountCents` entra na cadeia: é o campo do `custody_leak` (quanto foi pra
+  // fora da subconta da casa). Sem ele, a frase saía com "{amount}" literal na
+  // tela — que é pior que não ter frase.
+  const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents ?? f.amountCents;
   const vars = valor !== undefined ? { amount: brl(Math.abs(valor)) } : undefined;
   // Pergunta, não exceção: `t()` de chave desconhecida estoura num
   // `undefined[lang]`, e depender disso é depender de um acidente.

@@ -631,6 +631,37 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       }));
     },
 
+    /**
+     * Cobranças CONFIRMADAS recentes de um restaurante — pra conferir o destino
+     * do dinheiro nos recebíveis do adquirente (a terceira perna).
+     *
+     * Limitada por janela e por quantidade porque cada uma custa uma chamada de
+     * API: a varredura diária não pode virar mil requisições.
+     */
+    async listRecentConfirmedCharges(venueId, { sinceIso, limit = 50 } = {}) {
+      let q = client
+        .from('payments')
+        .select('txid, check_id, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, method, confirmed_at')
+        .eq('venue_id', venueId)
+        .eq('status', 'confirmado')
+        .not('confirmed_at', 'is', null)
+        .order('confirmed_at', { ascending: false })
+        .limit(limit);
+      if (sinceIso) q = q.gte('confirmed_at', sinceIso);
+      const { data, error } = await q;
+      throwOn(error, 'listRecentConfirmedCharges');
+      return (data || [])
+        // `house_account` não passa por adquirente: não tem recebível.
+        .filter((p) => p.method !== 'house_account')
+        .map((p) => ({
+          txid: p.txid, checkId: p.check_id, method: p.method, confirmedAt: p.confirmed_at,
+          // O CAPTURADO, que é contra o que os recebíveis são conferidos.
+          paidAmountCents: Number.isFinite(p.confirmed_amount_cents)
+            ? (p.confirmed_amount_cents || 0) + (p.confirmed_tip_cents || 0)
+            : (p.amount_cents || 0) + (p.tip_cents || 0),
+        }));
+    },
+
     async listChecksForReconcile(venueId) {
       const { data: checks, error } = await client
         .from('checks').select('id').eq('venue_id', venueId);

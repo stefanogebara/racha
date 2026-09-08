@@ -29,6 +29,7 @@
  */
 
 const { reconcileVenue, reconcileVenueHouse } = require('./reconcile');
+const { reconcilePayables } = require('./reconcile-payables');
 
 const RANK = { ok: 0, info: 1, high: 2, critical: 3 };
 const LEVELS = ['ok', 'info', 'high', 'critical'];
@@ -43,7 +44,52 @@ function worse(a, b) {
  * Nunca lança — a falha vira achado.
  * @returns {{venueId, name, severity, driftCents, findings: Array, checksChecked, accountsChecked}}
  */
-async function reconcileOneVenue(store, venue) {
+/**
+ * A TERCEIRA PERNA, por restaurante: os recebíveis do adquirente.
+ *
+ * Melhor esforço e limitada: cada cobrança custa uma chamada de API, então a
+ * varredura pega uma janela e um teto. Falha de rede não é achado de dinheiro —
+ * ela vira um `info` que diz que não deu pra conferir, porque silêncio não pode
+ * passar por prova.
+ *
+ * `psp` e `store` opcionais mantêm o resto da varredura funcionando onde a
+ * perna não existe (mock, memória, um adquirente sem recebíveis).
+ */
+async function reconcilePayablesLeg(store, psp, venue, { sinceIso, limit = 25 } = {}) {
+  if (!psp || typeof psp.listChargePayables !== 'function') return [];
+  if (typeof store.listRecentConfirmedCharges !== 'function') return [];
+  const recebedor = venue.pspRecipientId || null;
+  let cobrancas;
+  try {
+    cobrancas = await store.listRecentConfirmedCharges(venue.id, { sinceIso, limit });
+  } catch (e) {
+    return [{
+      severity: 'info', code: 'payables_unchecked',
+      message: `não deu pra listar as cobranças pra conferir recebíveis: ${String(e.message).slice(0, 120)}`,
+    }];
+  }
+  const achados = [];
+  for (const c of cobrancas) {
+    try {
+      const payables = await psp.listChargePayables(c.txid);
+      const r = reconcilePayables({
+        chargeId: c.txid,
+        venueRecipientId: recebedor,
+        paidAmountCents: c.paidAmountCents,
+        payables,
+      });
+      achados.push(...r.findings);
+    } catch (e) {
+      achados.push({
+        severity: 'info', code: 'payables_unchecked', chargeId: c.txid,
+        message: `recebíveis de ${c.txid} não consultados: ${String(e.message).slice(0, 120)}`,
+      });
+    }
+  }
+  return achados;
+}
+
+async function reconcileOneVenue(store, venue, opts = {}) {
   const base = {
     venueId: venue.id,
     name: venue.name,
@@ -54,9 +100,12 @@ async function reconcileOneVenue(store, venue) {
     accountsChecked: 0,
   };
   try {
-    const [checks, house] = await Promise.all([
+    const [checks, house, payables] = await Promise.all([
       reconcileVenue(store, venue.id),
       reconcileVenueHouse(store, venue.id),
+      // A terceira perna: o razão do ADQUIRENTE. As outras duas são nossas, e
+      // uma é projeção da outra — só esta é testemunha independente.
+      reconcilePayablesLeg(store, opts.psp, venue, opts),
     ]);
 
     // Achados das contas: o canário já ranqueia por severidade.
@@ -71,7 +120,11 @@ async function reconcileOneVenue(store, venue) {
     // Achados do RESTAURANTE: os que só existem no agregado (serviço cobrado
     // e nunca arrecadado, por exemplo — nenhuma conta sozinha revela isso).
     // Sem esta linha eles ficavam calculados e não relatados.
-    const findings = [...checkFindings, ...houseFindings, ...(checks.venueFindings || [])];
+    const findings = [
+      ...checkFindings, ...houseFindings,
+      ...(checks.venueFindings || []),
+      ...payables,
+    ];
 
     return {
       ...base,
@@ -121,7 +174,7 @@ async function reconcileAllVenues(store, opts = {}) {
   for (const v of venues) {
     // Em série de propósito: a varredura é diária e roda no escuro; martelar o
     // banco em paralelo pra terminar meio segundo antes não paga o risco.
-    venueReports.push(await reconcileOneVenue(store, v));
+    venueReports.push(await reconcileOneVenue(store, v, opts));
   }
 
   const red = venueReports.filter((r) => r.severity === 'critical' || r.severity === 'high');
@@ -189,4 +242,7 @@ function formatReconcileAlert(report) {
   return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesRed} de ${report.venuesChecked} restaurantes com divergência.\n\n${linhas.join('\n')}${resto}${linhaOrfaos}`;
 }
 
-module.exports = { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert, worse };
+module.exports = {
+  reconcileAllVenues, reconcileOneVenue, reconcilePayablesLeg,
+  formatReconcileAlert, worse,
+};
