@@ -40,6 +40,23 @@ create unique index if not exists check_events_psp_event_id_key
 comment on column public.check_events.psp_event_id is
   'Id do evento do PSP (evt_… na Stripe). Único quando presente: a segunda entrega do mesmo evento colide e vira no-op, dentro da mesma transação do lock.';
 
+-- DERRUBA a assinatura antiga ANTES de criar a nova.
+--
+-- `create or replace function` só substitui quando a assinatura bate exatamente.
+-- Um parâmetro a mais cria uma SOBRECARGA, e as duas versões passam a conviver
+-- — e aí uma chamada com três argumentos nomeados casa com as DUAS e o Postgres
+-- devolve `42725: function … is not unique`.
+--
+-- Isso não é hipotético: aconteceu ao aplicar esta migração em produção em
+-- 2026-09-08. O código que estava no ar chamava com três argumentos, e entre a
+-- aplicação da migração e este `drop` toda confirmação de pagamento teria
+-- falhado. Foi pego em segundos porque a verificação incluía CHAMAR a função
+-- nas duas formas, em vez de só olhar a assinatura.
+--
+-- O `drop` vem antes do `create` de propósito: entre um e outro não existe
+-- janela em que as duas coexistam.
+drop function if exists public.append_check_event(uuid, text, jsonb);
+
 create or replace function public.append_check_event(
   p_check_id uuid,
   p_type text,

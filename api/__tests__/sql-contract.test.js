@@ -157,8 +157,20 @@ describe('as projeções SQL conhecem os mesmos eventos que o redutor', () => {
     const divergentes = [...porNome.entries()]
       .filter(([, assinaturas]) => assinaturas.size > 1)
       .map(([nome, a]) => `${nome}: ${[...a].join(' | ')}`);
-    // `append_check_event` ganhou um parâmetro DE PROPÓSITO na 0018, com
-    // `default null`, então a chamada antiga continua resolvendo. É a única.
-    expect(divergentes.filter((d) => !d.startsWith('append_check_event:'))).toEqual([]);
+    // Assinatura nova é PERMITIDA, mas só se a migração derrubar a antiga.
+    //
+    // A primeira versão deste teste dispensava `append_check_event` porque o
+    // parâmetro novo tem `default null` e "a chamada antiga continua
+    // resolvendo". ERRADO, e caro: `create or replace` com assinatura
+    // diferente cria uma SOBRECARGA, as duas convivem, e uma chamada com três
+    // argumentos nomeados casa com as duas — `42725: function is not unique`.
+    //
+    // Aconteceu em produção em 2026-09-08 ao aplicar a 0018. A dispensa que eu
+    // escrevi à mão foi exatamente o que o teste existia pra impedir.
+    const semDrop = divergentes.filter((d) => {
+      const nome = d.split(':')[0];
+      return !new RegExp(`drop function if exists public\\.${nome}\\(`).test(sql);
+    });
+    expect(semDrop).toEqual([]);
   });
 });
