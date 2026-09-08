@@ -270,3 +270,52 @@ describe('redefinir uma função não pode APAGAR o que outra migração acresce
     expect(faltando).toEqual([]);
   });
 });
+
+/**
+ * O CENSO da leitura: todo campo que o reparo LÊ tem que estar no SELECT.
+ *
+ * `repairRowFromLedger` monta a guarda de versão da migração 0023 com campos
+ * de `getPayment`. Dois deles não estavam no SELECT do Supabase, então
+ * `linha.refundedAmountCents` era `undefined` e o `|| 0` mandava zero — a
+ * guarda passava só na linha virgem e ficava INERTE em toda linha que já teve
+ * estorno, que é a família que ela protege.
+ *
+ * O store de memória escondeu isso porque o duplo devolve a LINHA INTEIRA: ele
+ * relata MAIS do que a produção, que é a armadilha do dublê ao contrário.
+ * Achado pela revisão de segurança de 2026-09-08.
+ */
+describe('censo do SELECT: a leitura tem que trazer o que o código usa', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const raiz = path.join(__dirname, '..');
+
+  const camelParaSnake = (n) => n.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+
+  test('todo campo que a reparação lê de `getPayment` está no SELECT', () => {
+    const handler = fs.readFileSync(path.join(raiz, '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+    const sup = fs.readFileSync(path.join(raiz, '_lib', 'store', 'supabase.js'), 'utf8');
+
+    // O corpo do `repairRowFromLedger`, e os campos que ele tira de `linha`.
+    const corpo = handler.match(/async function repairRowFromLedger[\s\S]*?\n\}/);
+    expect(corpo).not.toBeNull();
+    const lidos = new Set([...corpo[0].matchAll(/\blinha\.(\w+)/g)].map((m) => m[1]));
+    expect(lidos.size).toBeGreaterThanOrEqual(3);
+
+    // O SELECT do `getPayment`.
+    const sel = sup.match(/async getPayment\(txid\)[\s\S]{0,1200}?\.select\('([^']+)'\)/);
+    expect(sel).not.toBeNull();
+    const colunas = new Set(sel[1].split(',').map((c) => c.trim()));
+
+    const faltando = [...lidos].filter((n) => !colunas.has(camelParaSnake(n))).sort();
+    expect(faltando).toEqual([]);
+  });
+
+  test('e o objeto devolvido MAPEIA essas colunas — a coluna sozinha não basta', () => {
+    const sup = fs.readFileSync(path.join(raiz, '_lib', 'store', 'supabase.js'), 'utf8');
+    const fn = sup.match(/async getPayment\(txid\)[\s\S]*?\n    \},/);
+    expect(fn).not.toBeNull();
+    for (const campo of ['refundedAmountCents', 'refundedTipCents', 'status', 'confirmedAt']) {
+      expect(fn[0]).toContain(campo);
+    }
+  });
+});

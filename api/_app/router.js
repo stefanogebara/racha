@@ -632,7 +632,16 @@ async function route(req, res) {
          * só queimaria o endpoint (que derruba TODA confirmação de Pix).
          * Achado pela revisão de segurança de 2026-09-08.
          */
-        const naoConverge = found ? !persisted : !notified;
+        // O DURÁVEL, nos dois casos.
+        //
+        // Era `found ? !persisted : !notified`, e o segundo ramo era raciocínio
+        // envelhecido: sem conta pra pendurar a marca, "o reenvio não tem pra
+        // onde convergir". Desde a migração 0024 tem — `orphan_money_events` é
+        // idempotente por `psp_event_id`, então o reenvio pousa exatamente uma
+        // vez. Aceitar `notified` aqui deixava um blip do banco virar 200 sobre
+        // dinheiro que saiu, porque o alerta sai por um caminho que não passa
+        // pelo Supabase. `notified` não entra mais nesta decisão.
+        const naoConverge = !persisted;
         if (naoConverge && result.status !== 'refund_progress') {
           process.stderr.write(`[webhook] ${result.status} SEM registro e SEM aviso — devolvendo 503 pra reenvio\n`);
           return json(res, 503, {

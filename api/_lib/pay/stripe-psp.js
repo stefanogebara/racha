@@ -173,8 +173,23 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
       }
       const total = amountCents + tipCents;
       if (total === 0) throw new TypeError('zero-value charge');
-      if (!Number.isSafeInteger(applicationFeeCents) || applicationFeeCents < 0 || applicationFeeCents >= total) {
-        throw new TypeError('applicationFeeCents fora de [0, total)');
+      /**
+       * A TAXA DA PLATAFORMA NÃO INCIDE SOBRE A GORJETA.
+       *
+       * A faixa era `[0, total)` com `total = amountCents + tipCents`, e
+       * ninguém passa taxa hoje. Mas no dia em que a margem sobre volume
+       * ligar, uma taxa calculada sobre essa base tira um pedaço do serviço —
+       * que não é receita da casa (STJ Tema 1102), é remuneração do empregado
+       * pela Lei 13.419. Margem sobre folha alheia não é um erro que se corrige
+       * depois: ele já teria acontecido no primeiro pagamento.
+       *
+       * A base é o CONSUMO. Fixado antes da primeira taxa existir, que é o
+       * único momento em que isto é uma linha de código e não uma restituição.
+       * Achado pela revisão de segurança de 2026-09-08.
+       */
+      if (!Number.isSafeInteger(applicationFeeCents) || applicationFeeCents < 0
+          || applicationFeeCents >= Math.max(1, amountCents)) {
+        throw new TypeError('applicationFeeCents fora de [0, amountCents) — a taxa não incide sobre a gorjeta');
       }
 
       // A MOEDA vem do mercado, e NÃO TEM PADRÃO.
@@ -265,8 +280,23 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
       // Limites do esquema Bizum: 0,50 € a 5.000 € por cobrança.
       if (total < BIZUM_MIN_CENTS) throw new TypeError(`bizum: abaixo do mínimo (${BIZUM_MIN_CENTS} centavos)`);
       if (total > BIZUM_MAX_CENTS) throw new TypeError(`bizum: acima do máximo (${BIZUM_MAX_CENTS} centavos)`);
-      if (!Number.isSafeInteger(applicationFeeCents) || applicationFeeCents < 0 || applicationFeeCents >= total) {
-        throw new TypeError('applicationFeeCents fora de [0, total)');
+      /**
+       * A TAXA DA PLATAFORMA NÃO INCIDE SOBRE A GORJETA.
+       *
+       * A faixa era `[0, total)` com `total = amountCents + tipCents`, e
+       * ninguém passa taxa hoje. Mas no dia em que a margem sobre volume
+       * ligar, uma taxa calculada sobre essa base tira um pedaço do serviço —
+       * que não é receita da casa (STJ Tema 1102), é remuneração do empregado
+       * pela Lei 13.419. Margem sobre folha alheia não é um erro que se corrige
+       * depois: ele já teria acontecido no primeiro pagamento.
+       *
+       * A base é o CONSUMO. Fixado antes da primeira taxa existir, que é o
+       * único momento em que isto é uma linha de código e não uma restituição.
+       * Achado pela revisão de segurança de 2026-09-08.
+       */
+      if (!Number.isSafeInteger(applicationFeeCents) || applicationFeeCents < 0
+          || applicationFeeCents >= Math.max(1, amountCents)) {
+        throw new TypeError('applicationFeeCents fora de [0, amountCents) — a taxa não incide sobre a gorjeta');
       }
 
       const pi = await stripe.paymentIntents.create({

@@ -22,7 +22,7 @@ const { disputeCounts } = require('../checks/disputes');
 
 const crypto = require('crypto');
 const { reduce } = require('../checks/check-state');
-const { buildAtivacao } = require('../checks/ativacao');
+const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
 const { isTerminalRecipientStatus } = require('../recipient-status');
 
@@ -346,6 +346,7 @@ function createMemoryStore() {
               // Os CONFIRMADOS: as colunas que viram faturamento e gorjeta.
               confirmedAmountCents: p.confirmedAmountCents,
               confirmedTipCents: p.confirmedTipCents,
+              confirmedAt: p.confirmedAt,   // faz a dívida envelhecer
               // Os acumulados estornados: a conciliação soma LÍQUIDO dos dois
               // lados, senão um estorno parcial vira divergência permanente.
               refundedAmountCents: p.refundedAmountCents || 0,
@@ -358,7 +359,7 @@ function createMemoryStore() {
      * plus day totals. Tips are reported from CONFIRMED payments only and
      * keyed by confirmed_at (Lei 13.419 payroll competência).
      */
-    async getPanelView(venueId) {
+    async getPanelView(venueId, nowIso = new Date().toISOString()) {
       const venue = venues.get(venueId);
       if (!venue) return null;
       const rows = [...checks.values()]
@@ -379,6 +380,24 @@ function createMemoryStore() {
             // número morria ali: nenhum painel, nenhuma tela. Ver
             // `overpaid_pending_restitution` na conciliação.
             overpaidCents: state.overpaidCents,
+            /**
+             * QUAL cobrança devolver — o painel não podia dizer.
+             *
+             * O dono lia "R$ 90,00 a devolver a clientes" e tinha que adivinhar
+             * qual cobrança abrir no painel do adquirente. Uma obrigação que a
+             * tela anuncia e não sabe endereçar não é acionável (CC art. 876:
+             * a restituição não espera o cliente pedir). O txid é do LADO DO
+             * DONO, atrás de auth — a leitura pública segue com ordinal.
+             */
+            ...(state.overpaidCents > 0 ? {
+              overpaidTxids: Object.entries(state.payments)
+                .filter(([, pg]) => pg.amountCents > pg.refundedAmountCents)
+                .map(([txid, pg]) => ({
+                  txid,
+                  refundableCents: (pg.amountCents - pg.refundedAmountCents)
+                    + (pg.tipCents - pg.refundedTipCents),
+                })),
+            } : {}),
               // Disputas por CONTAGEM: é a taxa de chargeback que o
               // adquirente julga, e o dono não tinha como ver a dele.
               disputes: disputeCounts(state),
@@ -398,6 +417,28 @@ function createMemoryStore() {
         p.status === 'confirmado'
         && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId
         && !trainingChecks.has(p.checkId));
+      // A sobra a devolver, com o MESMO filtro de treino que os pagamentos —
+      // senão o excedente de uma mesa de workshop descontava do faturamento
+      // uma receita que nunca foi contada. Ver o store do Supabase.
+      /**
+       * HOJE, no fuso de São Paulo — o mesmo corte da série semanal.
+       *
+       * `confirmed` cobre a janela inteira porque o `buildAtivacao` precisa
+       * dela; o `today` é o recorte do dia. Sem isto a linha rotulada
+       * "recebido hoje" somava tudo o que a casa já recebeu, e é dessa linha
+       * que sai o número da gorjeta que vai pra folha.
+       */
+      // O INSTANTE vem de fora, com padrão de agora.
+      //
+      // Uma função que agrupa por dia tem que receber o dia: com o relógio
+      // lido de dentro, um teste de relógio fixo não conseguia ver o próprio
+      // pagamento — e o mesmo vale pra qualquer reprocessamento de um dia
+      // passado. O `buildAtivacao` já era assim.
+      const hoje = spDay(nowIso);
+      const doDia = confirmed.filter((p) => p.confirmedAt && spDay(p.confirmedAt) === hoje);
+      const overpaidTotal = rows
+        .filter((r) => !trainingChecks.has(r.checkId))
+        .reduce((s, r) => s + (r.state.overpaidCents || 0), 0);
       return {
         // A MOEDA vai no payload do painel porque o painel imprime dinheiro, e
         // o cliente não deve adivinhar. Sem ela, `brl()` caía no padrão BRL e o
@@ -414,18 +455,33 @@ function createMemoryStore() {
           //
           // MENOS a sobra a devolver: o que o cliente pagou a mais é dívida da
           // casa (CC art. 876), não receita dela. Ver o store do Supabase.
-          confirmedCents: confirmed.reduce((s, p) => s + confirmedMoney(p).amountCents, 0)
-            - rows.reduce((s, r) => s + (r.state.overpaidCents || 0), 0),
+          confirmedCents: doDia.reduce((s, p) => s + confirmedMoney(p).amountCents, 0)
+            - overpaidTotal,
           /** A dívida, na sua própria linha. */
-          overpaidCents: rows.reduce((s, r) => s + (r.state.overpaidCents || 0), 0),
-          tipsCents: confirmed.reduce((s, p) => s + confirmedMoney(p).tipCents, 0),
+          overpaidCents: overpaidTotal,
+          tipsCents: doDia.reduce((s, p) => s + confirmedMoney(p).tipCents, 0),
           /** Serviço COBRADO (o que a conta pediu) vs arrecadado (`tipsCents`) —
            *  o contrapeso da regra de imputação. Ver `allocateUnderpayment`. */
-          tipsChargedCents: confirmed.reduce((s, p) => s + (p.tipCents || 0), 0),
-          paymentsCount: confirmed.length,
+          /**
+           * Cobrado vs ARRECADADO — e o estorno de fora dos dois.
+           *
+           * `tipsCents` é líquido de estorno (via `confirmedMoney`), e
+           * `tipsChargedCents` era o bruto pedido: depois de qualquer estorno
+           * parcial o painel dizia "R$ 5,50 de R$ 10,00 cobrados" quando a
+           * diferença era um ESTORNO, não um cliente arredondando pra baixo.
+           * Dois fatos do negócio diferentes debaixo da mesma legenda.
+           *
+           * Agora `tipsChargedCents` também é líquido do estornado: a diferença
+           * que sobra é só a arrecadação a menor, que é o que a regra de
+           * imputação produz e o que a folha precisa ver.
+           */
+          tipsChargedCents: doDia.reduce(
+            (s, p) => s + Math.max(0, (p.tipCents || 0) - (p.refundedTipCents || 0)), 0,
+          ),
+          paymentsCount: doDia.length,
           anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
         },
-        ativacao: buildAtivacao(confirmed),
+        ativacao: buildAtivacao(confirmed, nowIso),
       };
     },
 

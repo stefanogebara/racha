@@ -429,3 +429,67 @@ describe('dinheiro que entrou e VOLTOU sem passar pelo razão', () => {
     expect(reduce(await store.loadEvents(check.id)).anomalies).toEqual([]);
   });
 });
+
+describe('cancelamento parcial que a varredura descobre', () => {
+  /**
+   * A cobrança foi paga, o webhook se perdeu, e a casa cancelou parte pelo
+   * painel do adquirente. `partial_canceled` não estava em lista nenhuma:
+   * saía como `stillPending`, sem lançamento nem anomalia, e depois de 24h
+   * fora da janela pra sempre — o canário verde por cima de dinheiro que saiu.
+   */
+  const { reduce } = require('../_lib/checks/check-state');
+
+  const mundoCom = (info) => {
+    const w = freshWorld();
+    return {
+      ...w,
+      reconciler: createChargeReconciler({
+        store: w.store,
+        psp: { getCharge: async (txid) => ({ txid, ...info }) },
+        confirm: async () => ({ status: 'duplicate' }),
+      }),
+    };
+  };
+
+  test('mensurável: fica registrado com o VALOR que voltou', async () => {
+    const { store, table, charge, reconciler } = mundoCom({
+      status: 'partial_canceled', paid: true, kind: 'refund', cumulativeRefundedCents: 500,
+    });
+    const check = await openDemoCheck(store, table, 10000);
+    const c = await charge({ checkId: check.id, amountCents: 8000, tipCents: 800 });
+
+    const r = await reconciler.reconcile({ checkId: check.id, graceMs: 0 });
+    expect(r.stillPending).toBe(0);            // NUNCA "ainda esperando"
+    expect(r.details[0].refundedCents).toBe(500);
+
+    const a = reduce(await store.loadEvents(check.id)).anomalies.find((x) => x.txid === c.txid);
+    expect(a.severity).toBe('critical');
+    expect(a.reason).toMatch(/500¢ devolvidos/);
+  });
+
+  test('não mensurável: anomalia crítica, e também não é `stillPending`', async () => {
+    const { store, table, charge, reconciler } = mundoCom({
+      status: 'partial_canceled', paid: false, kind: 'unusable_money_event',
+    });
+    const check = await openDemoCheck(store, table, 10000);
+    await charge({ checkId: check.id, amountCents: 8000, tipCents: 800 });
+
+    const r = await reconciler.reconcile({ checkId: check.id, graceMs: 0 });
+    expect(r.stillPending).toBe(0);
+    expect(r.details[0].unusable).toBe(true);
+    const st = reduce(await store.loadEvents(check.id));
+    expect(st.anomalies[0].severity).toBe('critical');
+    expect(st.anomalies[0].reason).toMatch(/não é mensurável/);
+  });
+
+  test('a varredura seguinte não empilha a mesma anomalia', async () => {
+    const { store, table, charge, reconciler } = mundoCom({
+      status: 'partial_canceled', paid: false, kind: 'unusable_money_event',
+    });
+    const check = await openDemoCheck(store, table, 10000);
+    await charge({ checkId: check.id, amountCents: 8000, tipCents: 800 });
+    await reconciler.reconcile({ checkId: check.id, graceMs: 0 });
+    await reconciler.reconcile({ checkId: check.id, graceMs: 0 });
+    expect(reduce(await store.loadEvents(check.id)).anomalies.length).toBe(1);
+  });
+});

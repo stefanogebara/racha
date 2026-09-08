@@ -103,3 +103,38 @@ daquele mês foi calculada sobre o número antigo, e os empregados receberam a
 menos. Se ele alterar alguma linha, o restaurante precisa ser **avisado**; a
 instrução agora tem `returning` pra que o operador veja. Nesta execução não
 alterou nada.
+
+## 0023, 0024, 0025 — aplicadas em 2026-09-08, e o que foi medido de fato
+
+| migração | o que é | medição |
+|---|---|---|
+| **0023** `repair_payment_row` | claim condicional: reprojeta a linha de `payments` do razão **só se ela ainda estiver no estado lido** (versão otimista sobre `status` + os dois acumulados estornados) | assinatura conferida no `pg_proc`; chamada com um `p_expected_status` que não existe devolveu `false` sobre uma linha real. **Só o RPC foi exercitado, não o chamador** — e era no chamador que estava o defeito: `getPayment` não trazia as colunas estornadas, então a guarda recebia `0` sempre e passava apenas na linha virgem. Corrigido, com censo de SELECT (`sql-contract.test.js`) |
+| **0024** `orphan_money_events` | casa durável pro evento de dinheiro que não acha conta; idempotente por `psp_event_id`; lida pela conciliação diária, que fica `high` com fila aberta | tabela e índice conferidos; o caminho é exercitado em teste (memória) |
+| **0025** revokes | `revoke all … from anon, authenticated` nas duas tabelas novas — todas as anteriores fazem isso junto com o RLS | `information_schema.role_table_grants` devolve **vazio** pra `anon` e `authenticated` nas duas |
+
+### A distinção que custou um achado
+
+Medir o **RPC** não é medir o **caminho**. A 0023 respondia certo a toda
+pergunta que eu fiz no banco, e estava inerte na produção porque quem a chamava
+mandava zeros. A lição repete a da 0018: o defeito vive na fronteira entre JS e
+SQL, e só um teste que atravessa a fronteira o vê.
+
+## Em aberto: onde fica o excedente de um Pix pago a mais (inegociável #4)
+
+**Não medido, e é a única coisa neste lote que toca a regra de custódia.**
+
+A `order` do Pagar.me leva `split: [{ recipient_id, amount: total, type: 'flat' }]`,
+onde `total` é o valor **pedido**. Desde que `overpaid` passou a ser dinheiro
+recebido, o valor capturado pode ser **maior** que a soma das regras de split —
+e quem decide onde ficam esses centavos é a Pagar.me, não nós.
+
+Se ficarem no saldo da Racha, é conta-bolsão: exatamente o que o inegociável #4
+proíbe, e a tela do cliente estaria dizendo que **o restaurante** deve o valor
+que na verdade está com a plataforma.
+
+**A prova a fazer, antes de qualquer venue real ver isto:** em sandbox, criar
+uma cobrança com split flat, pagá-la a mais, e ler `GET /charges/{id}` e o saldo
+do recebedor — registrando aqui de quem é o saldo que ficou com a diferença. Se
+for nosso, a regra de split precisa virar percentual (ou ganhar transferência
+posterior), e pelo inegociável #4 **isso é pergunta pra assessoria de pagamentos
+antes de ser mudança de código**.

@@ -252,3 +252,168 @@ test('o valor da reversão chega ao aviso do cliente ponta a ponta', async () =>
   const publico = publicCheckState(reduce(await store.loadEvents(check.id)));
   expect(publico.notices).toEqual([{ code: 'refund_reversed', amountCents: 1000 }]);
 });
+
+describe('restituir por inteiro ZERA a marca — ponta a ponta', () => {
+  /**
+   * A afirmação "é fechável devolvendo pelo trilho, o que zera a marca" era
+   * FALSA sempre que havia gorjeta, que é o caso padrão. O rateio proporcional
+   * deixava um resíduo, e a marca convergia geometricamente sem nunca chegar a
+   * zero: o painel seguia pedindo devolução e a tela do cliente seguia dizendo
+   * que ele era credor, depois de uma restituição completa.
+   */
+  async function contaPagaAMais() {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    // Conta de 100,00. O serviço de 10,00 é escolha do cliente.
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Rodízio', priceCents: 10000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: store.getPayment.bind(store),
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    await store.registerCharge({
+      checkId: check.id, txid: 'ch_1', amountCents: 10000, tipCents: 1000,
+      payerLabel: 'Ana', method: 'pix',
+    });
+    // O cliente digitou 200,00 no app do banco: o excedente (90,00) entra no
+    // CONSUMO, como `parseCharge` faz.
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'ch_1', amountCents: 19000, tipCents: 1000,
+      // `excessCents` é o que o `parseCharge` carrega: quanto DESTE pagamento
+      // entrou a mais. É por pagamento, não por conta — ver `alocarDevolucao`.
+      excessCents: 9000,
+      method: 'pix', eventId: 'evt_pago',
+    }, deps);
+    return { store, check, deps };
+  }
+
+  test('devolver exatamente o excedente zera a marca e não toca a gorjeta', async () => {
+    const { store, check, deps } = await contaPagaAMais();
+    let st = reduce(await store.loadEvents(check.id));
+    expect(st.overpaidCents).toBe(9000);
+    const gorjetaAntes = st.tipCents;
+
+    // A casa devolve exatamente o que o painel e a tela do cliente pedem.
+    await applyConfirmedPayment({
+      kind: 'refund', txid: 'ch_1', cumulativeRefundedCents: 9000, method: 'pix', eventId: 'evt_dev',
+    }, deps);
+
+    st = reduce(await store.loadEvents(check.id));
+    expect(st.overpaidCents).toBe(0);            // a marca FECHA
+    expect(st.tipCents).toBe(gorjetaAntes);      // a folha não pagou a conta
+    // `paidCents` é só o CONSUMO (a gorjeta anda em `tipCents`): a conta de
+    // 100,00 fica exatamente quitada, e os 10,00 de serviço seguem à parte.
+    expect(st.paidCents).toBe(10000);
+    expect(st.tipCents).toBe(1000);
+    expect(st.status).toBe('paga');
+
+    // E o cliente para de ser avisado de que é credor.
+    const { publicCheckState } = require('../_lib/checks/public-state');
+    expect(publicCheckState(st).notices).toEqual([]);
+  });
+
+  test('devolver MAIS que o excedente aí sim toca a gorjeta — é estorno de verdade', async () => {
+    const { store, check, deps } = await contaPagaAMais();
+    await applyConfirmedPayment({
+      kind: 'refund', txid: 'ch_1', cumulativeRefundedCents: 10000, method: 'pix', eventId: 'evt_dev',
+    }, deps);
+    const st = reduce(await store.loadEvents(check.id));
+    expect(st.overpaidCents).toBe(0);
+    expect(st.tipCents).toBeLessThan(1000);      // os 10,00 além do excedente rateiam
+    // Entrou 200,00, voltou 100,00: sobra 100,00 nos livros, somando as duas
+    // partes. Nem um centavo criado ou perdido no caminho.
+    expect(st.paidCents + st.tipCents).toBe(10000);
+  });
+});
+
+describe('conta RACHADA: a sobra de um não rege o estorno do outro', () => {
+  /**
+   * `state.overpaidCents` é da CONTA. Numa conta rachada são dinheiros
+   * diferentes: se B pagou a mais e depois A (que pagou exato) é estornado, a
+   * sobra de B fazia o estorno de A sair todo do consumo — e a gorjeta que
+   * devia voltar ficava na base da folha, com encargos por cima de dinheiro
+   * que voltou pro cliente. Achado pela revisão de segurança de 2026-09-08.
+   */
+  const { allocateRefund } = require('../_lib/checks/split-engine');
+
+  test('A pagou exato, B pagou a mais: o estorno de A rateia normalmente', async () => {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Rodízio', priceCents: 10000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: store.getPayment.bind(store),
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    for (const [txid, amount, tip] of [['ch_a', 5000, 500], ['ch_b', 7050, 500]]) {
+      await store.registerCharge({ checkId: check.id, txid, amountCents: amount, tipCents: tip, method: 'pix' });
+    }
+    // A pagou exatamente a parte dele.
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'ch_a', amountCents: 5000, tipCents: 500,
+      excessCents: 0, method: 'pix', eventId: 'evt_a',
+    }, deps);
+    // B digitou mais no app do banco: 2050 de excedente, parado no consumo.
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'ch_b', amountCents: 7050, tipCents: 500,
+      excessCents: 2050, method: 'pix', eventId: 'evt_b',
+    }, deps);
+    expect(reduce(await store.loadEvents(check.id)).overpaidCents).toBeGreaterThan(0);
+
+    // Agora estorna 1000 de A — quem não tem sobra nenhuma.
+    await applyConfirmedPayment({
+      kind: 'refund', txid: 'ch_a', cumulativeRefundedCents: 1000, method: 'pix', eventId: 'evt_ra',
+    }, deps);
+
+    const st = reduce(await store.loadEvents(check.id));
+    const esperado = allocateRefund(5000, 500, 1000);
+    expect(st.payments.ch_a.refundedTipCents).toBe(esperado.tipCents);
+    expect(st.payments.ch_a.refundedAmountCents).toBe(esperado.amountCents);
+    expect(esperado.tipCents).toBeGreaterThan(0);   // a gorjeta de A volta mesmo
+  });
+
+  test('e o estorno de B, que TEM sobra, sai do consumo', async () => {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Rodízio', priceCents: 10000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: store.getPayment.bind(store),
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    for (const [txid, amount, tip] of [['ch_a', 5000, 500], ['ch_b', 7050, 500]]) {
+      await store.registerCharge({ checkId: check.id, txid, amountCents: amount, tipCents: tip, method: 'pix' });
+    }
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'ch_a', amountCents: 5000, tipCents: 500,
+      excessCents: 0, method: 'pix', eventId: 'evt_a',
+    }, deps);
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'ch_b', amountCents: 7050, tipCents: 500,
+      excessCents: 2050, method: 'pix', eventId: 'evt_b',
+    }, deps);
+    await applyConfirmedPayment({
+      kind: 'refund', txid: 'ch_b', cumulativeRefundedCents: 2050, method: 'pix', eventId: 'evt_rb',
+    }, deps);
+
+    const st = reduce(await store.loadEvents(check.id));
+    expect(st.payments.ch_b.refundedTipCents).toBe(0);        // a folha não paga
+    expect(st.payments.ch_b.refundedAmountCents).toBe(2050);
+    expect(st.overpaidCents).toBe(0);                          // e a marca fecha
+  });
+});

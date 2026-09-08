@@ -44,7 +44,9 @@ describe('evento de dinheiro sem lançamento', () => {
       raw: { status: 'partial_canceled', amountCents: 1000 },
     });
 
-    expect(r).toEqual({ persisted: true, notified: true, quieto: false, found: true });
+    expect(r).toEqual({
+      persisted: true, notified: true, quieto: false, found: true, lookupFailed: false,
+    });
 
     // O DURÁVEL é o que importa: o aviso degrada pra stderr sem
     // RACHA_NOTIFY_SECRET, a anomalia não degrada.
@@ -88,7 +90,9 @@ describe('evento de dinheiro sem lançamento', () => {
   test('estorno EM PROGRESSO não marca nem avisa — ele ainda vai terminar', async () => {
     const { store, check, handle, avisos } = await cenario();
     const r = await handle({ status: 'refund_progress', txid: 'ch_1' });
-    expect(r).toEqual({ persisted: false, notified: false, quieto: true, found: true });
+    expect(r).toEqual({
+      persisted: false, notified: false, quieto: true, found: true, lookupFailed: false,
+    });
     expect(avisos).toEqual([]);
     expect(reduce(await store.loadEvents(check.id)).anomalies).toEqual([]);
   });
@@ -142,9 +146,11 @@ describe('a ROTA do Pix trata a espécie inteira, não uma lista escrita à mão
 
   test('o 503 depende do registro DURÁVEL quando há conta pra pendurar a marca', () => {
     const rota = trecho("url.pathname === '/api/webhooks/psp'");
-    // `found ? !persisted : !notified` — e não `!persisted && !notified`, que
-    // aceitava um alerta (que degrada) no lugar da marca (que não degrada).
-    expect(rota).toMatch(/found \? !persisted : !notified/);
+    // `!persisted` — e não `!persisted && !notified`, que aceitava um alerta
+    // (que degrada) no lugar da marca (que não degrada). O `found ? … : …` que
+    // veio no meio ainda dispensava a marca quando não havia conta; desde a
+    // migração 0024 há sempre onde gravar.
+    expect(rota).toMatch(/const naoConverge = !persisted;/);
   });
 
   test('/api/webhooks/psp chama o tratador e devolve 503 quando nada foi feito', () => {
@@ -306,5 +312,57 @@ describe('avisos DO CLIENTE sobre o próprio dinheiro', () => {
       payments: {}, anomalies: [],
     });
     expect(p.notices).toEqual([]);
+  });
+});
+
+describe('a busca do check que FALHA não é "não existe"', () => {
+  /**
+   * `findCheckByTxid` estourando (5xx do Supabase, `statement_timeout`, conexão
+   * cortada) saía indistinguível de "este txid não tem conta" — e `found` era a
+   * única entrada do portão da rota, onde `false` dispensava o registro durável
+   * e aceitava um alerta. Um soluço do banco fazia a Pagar.me marcar como
+   * entregue um cancelamento parcial que ninguém registrou, com a conciliação
+   * verde por cima. Achado pela revisão de segurança de 2026-09-08.
+   */
+  test('não grava órfão, não finge que achou, e a rota tem que pedir reenvio', async () => {
+    const { store } = await cenario();
+    const avisos = [];
+    const handle = createNonLedgerHandler({
+      store: { ...store, findCheckByTxid: async () => { throw new Error('supabase 503'); } },
+      notify: async (a) => { avisos.push(a); return { ok: true }; },
+    });
+    const r = await handle({
+      status: 'unusable_money_event', type: 'charge.refunded', txid: 'ch_1',
+      raw: { eventId: 'evt_x', status: 'partial_canceled' },
+    });
+    expect(r.lookupFailed).toBe(true);
+    expect(r.found).toBe(false);
+    expect(r.persisted).toBe(false);     // → 503, porque `naoConverge = !persisted`
+    expect(r.notified).toBe(true);       // o alerta ainda sai, por outro caminho
+    // E NÃO virou órfão: o evento provavelmente TEM conta, e gravá-lo na fila
+    // global esconderia a anomalia da conta que devia ficar vermelha.
+    expect(await store.listOrphanMoneyEvents()).toEqual([]);
+  });
+
+  test('o portão da rota não olha mais o aviso', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const src = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+    expect(src).toMatch(/const naoConverge = !persisted;/);
+    // A forma antiga não pode voltar como CÓDIGO. Ela aparece no comentário
+    // que conta a história, então a busca ignora linhas de comentário — senão
+    // o teste proibiria documentar o próprio defeito.
+    const codigo = src.split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join('\n');
+    expect(codigo).not.toMatch(/found \? !persisted : !notified/);
+  });
+
+  test('store sem a fila de órfãos não constrói o tratador — falha alto e cedo', async () => {
+    const { store } = await cenario();
+    const semFila = { ...store };
+    delete semFila.recordOrphanMoneyEvent;
+    expect(() => createNonLedgerHandler({ store: semFila, notify: async () => ({ ok: true }) }))
+      .toThrow(/recordOrphanMoneyEvent/);
   });
 });

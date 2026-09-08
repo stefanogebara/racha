@@ -472,13 +472,56 @@ describe('pagarme adapter', () => {
     });
   });
 
-  test('valor que não é centavo inteiro ESTOURA em vez de virar dinheiro torto', async () => {
-    // Inegociável #5. `parseCharge` era a única função nova de dinheiro sem
-    // afirmação de centavos e sem invariante de soma.
+  test('valor que não é centavo inteiro vira evento NÃO LANÇÁVEL, não dinheiro torto', async () => {
+    // Inegociável #5: `parseCharge` afirma centavos nos dois valores da API e
+    // afirma que as partes somam o recebido. Mas estourar aqui viraria 500 →
+    // reenvio em laço → endpoint desabilitado, o que derruba TODA confirmação
+    // de Pix por causa de uma cobrança. É dinheiro que se moveu e não dá pra
+    // medir: anomalia durável, que é o que `unusable_money_event` significa.
     const { impl } = stubFetch([{ match: '/charges/ch_x', method: 'GET',
       reply: { id: 'ch_x', status: 'paid', amount: 6600.5, payment_method: 'pix', metadata: {} } }]);
-    await expect(createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl }).getCharge('ch_x'))
-      .rejects.toThrow(/integer/);
+    const r = await createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl }).getCharge('ch_x');
+    expect(r.kind).toBe('unusable_money_event');
+    expect(r.paid).toBe(false);
+  });
+
+  describe('cancelamento parcial visto pela CONCILIAÇÃO', () => {
+    /**
+     * `partial_canceled` não estava em `PAID_STATUSES` nem em nenhuma lista de
+     * terminal, então a cobrança saía da varredura como `stillPending`: sem
+     * lançamento, sem anomalia, e depois de 24h fora da janela pra sempre. Os
+     * dois registros concordavam que nada aconteceu e o canário ficava verde.
+     *
+     * E esta é a ÚNICA via quando o webhook não chega — o cenário de um
+     * `PAGARME_WEBHOOK_AUTH` com typo, já que a verificação falha fechado.
+     * Achado pela revisão de compliance de 2026-09-08.
+     */
+    const daApi = async (charge) => {
+      const { impl } = stubFetch([{ match: '/charges/ch_x', method: 'GET', reply: charge }]);
+      return createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl }).getCharge('ch_x');
+    };
+    const base = {
+      id: 'ch_x', status: 'partial_canceled', payment_method: 'pix',
+      amount: 3698, paid_amount: 3698, metadata: { tip_cents: '336' },
+    };
+
+    test('com `canceled_amount` é estorno mensurável', async () => {
+      const r = await daApi({ ...base, canceled_amount: 500 });
+      expect(r.kind).toBe('refund');
+      expect(r.cumulativeRefundedCents).toBe(500);
+      expect(r.paid).toBe(true);        // o dinheiro ENTROU: não é abandono
+    });
+
+    test('sem o valor é evento não lançável, nunca `stillPending`', async () => {
+      const r = await daApi({ ...base });
+      expect(r.kind).toBe('unusable_money_event');
+      expect(r.paid).toBe(false);
+    });
+
+    test('valor cancelado maior que o recebido não é aceito às cegas', async () => {
+      const r = await daApi({ ...base, paid_amount: 3000, canceled_amount: 3698 });
+      expect(r.kind).toBe('unusable_money_event');
+    });
   });
 
   test('getCharge: id fora do padrão ch_ → null sem chamar a API', async () => {
@@ -500,5 +543,37 @@ describe('pagarme adapter', () => {
 
     const s500 = stubFetch([{ match: '/charges/ch_x', method: 'GET', status: 500, reply: { message: 'boom' } }]);
     await expect(createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: s500.impl }).getCharge('ch_x')).rejects.toThrow();
+  });
+});
+
+describe('o retrato mascarado guarda o valor que ENTROU', () => {
+  /**
+   * A lista branca do `mask.js` não tinha `paid_amount`. Numa conta de 36,98
+   * em que o cliente digitou 33,00, o registro que existe pra ser consultado
+   * quando alguém contesta guardava 36,98 — não incompleto, afirmativamente o
+   * número errado, e justo pros estados que esta série acrescentou.
+   * Achado pela revisão de segurança de 2026-09-08.
+   */
+  const { maskPixPayload } = require('../_lib/pay/mask');
+
+  test('`paid_amount` e `canceled_amount` atravessam; o pagador não', () => {
+    const m = maskPixPayload({
+      id: 'ch_x', status: 'underpaid', amount: 3698, paid_amount: 3300,
+      canceled_amount: 500, payment_method: 'pix', created_at: '2026-09-08T12:00:00Z',
+      customer: { name: 'Maria da Silva', document: '39053344705' },
+      last_transaction: { qr_code: '00020126…' },
+    });
+    expect(m.paid_amount).toBe(3300);
+    expect(m.canceled_amount).toBe(500);
+    expect(m.amount).toBe(3698);          // o pedido continua, pra comparação
+    expect(JSON.stringify(m)).not.toContain('Maria');
+    expect(JSON.stringify(m)).not.toContain('39053344705');
+    expect(m.customer).toBeUndefined();   // objeto aninhado nunca entra
+    expect(m.last_transaction).toBeUndefined();
+  });
+
+  test('a lista é BRANCA: campo novo do PSP não entra de carona', () => {
+    const m = maskPixPayload({ id: 'ch_x', campo_inventado_amanha: 'qualquer coisa' });
+    expect(m.campo_inventado_amanha).toBeUndefined();
   });
 });

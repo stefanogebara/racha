@@ -629,3 +629,36 @@ describe('Bizum: os parâmetros exatos que vão pra Stripe', () => {
     expect(() => mk({ secretKey: 'pk_test_abc', webhookSecret: 'whsec_x' }, stubStripe())).toThrow();
   });
 });
+
+describe('a taxa da plataforma não incide sobre a GORJETA', () => {
+  /**
+   * A faixa era `[0, amountCents + tipCents)`. Ninguém passa taxa hoje — e é
+   * por isso que o momento de corrigir é agora: no dia em que a margem sobre
+   * volume ligar, uma taxa calculada sobre essa base tira um pedaço do serviço,
+   * que não é receita da casa (STJ Tema 1102) e sim remuneração do empregado
+   * (Lei 13.419). Margem sobre folha alheia já teria acontecido no primeiro
+   * pagamento. Achado pela revisão de segurança de 2026-09-08.
+   */
+  const stubStripe = () => ({
+    paymentIntents: { create: async (b) => ({ id: 'pi_x', client_secret: 'cs_x', ...b }) },
+  });
+
+  test('taxa que caberia no total mas não no consumo é RECUSADA', async () => {
+    const psp = createStripePsp({ secretKey: 'sk_test_x', stripeClient: stubStripe() });
+    // Consumo 1000, gorjeta 100. Uma taxa de 1050 cabia em [0, 1100) e comia
+    // metade da gorjeta.
+    await expect(psp.createWalletCharge({
+      chargeRef: 'c:0', amountCents: 1000, tipCents: 100,
+      recipientId: 'acct_x', applicationFeeCents: 1050, currency: 'brl',
+    })).rejects.toThrow(/não incide sobre a gorjeta/);
+  });
+
+  test('taxa dentro do consumo passa', async () => {
+    const psp = createStripePsp({ secretKey: 'sk_test_x', stripeClient: stubStripe() });
+    const r = await psp.createWalletCharge({
+      chargeRef: 'c:0', amountCents: 1000, tipCents: 100,
+      recipientId: 'acct_x', applicationFeeCents: 50, currency: 'brl',
+    });
+    expect(r.txid).toBe('pi_x');
+  });
+});

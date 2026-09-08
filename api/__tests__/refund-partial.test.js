@@ -341,3 +341,55 @@ describe('o estorno parcial visto pelo RESTO do sistema', () => {
     expect(r.findings).toEqual([]);
   });
 });
+
+describe('devolver o EXCEDENTE não pode sangrar a folha', () => {
+  /**
+   * O excedente de quem paga a mais é estacionado no consumo de propósito:
+   * inflar a gorjeta criaria direito do empregado sobre dinheiro que a casa
+   * tem que devolver. Mas devolvê-lo pela regra PROPORCIONAL do estorno tirava
+   * uma fatia da gorjeta — o garçom pagando uma restituição que o cliente
+   * nunca pediu que ele pagasse (Lei 13.419 + STJ Tema 1102).
+   *
+   * E pior: a marca "a devolver" convergia geometricamente e NUNCA chegava a
+   * zero. Depois de restituir por inteiro, o painel seguia pedindo devolução e
+   * a tela do cliente seguia dizendo que ele era credor.
+   * Achado pela revisão de compliance de 2026-09-08.
+   */
+  const { allocateRestitution, allocateRefund } = require('../_lib/checks/split-engine');
+
+  test('a restituição do excedente sai TODA do consumo', () => {
+    // Conta 100,00 + 10,00 de serviço; o cliente digitou 200,00. Sobra 90,00.
+    // O que entrou: consumo 190,00 (100 + os 90 de excedente) e gorjeta 10,00.
+    expect(allocateRestitution(19000, 1000, 9000, 9000))
+      .toEqual({ amountCents: 9000, tipCents: 0 });
+    // A regra antiga levava 450 da gorjeta:
+    expect(allocateRefund(19000, 1000, 9000).tipCents).toBe(450);
+  });
+
+  test('o que passa do excedente é estorno comum, e aí vai proporcional', () => {
+    // Devolve 90,00 de excedente + 10,00 de estorno de verdade.
+    const r = allocateRestitution(19000, 1000, 10000, 9000);
+    expect(r.amountCents + r.tipCents).toBe(10000);
+    expect(r.tipCents).toBeGreaterThan(0);        // o estorno real toca a gorjeta
+    expect(r.amountCents).toBeGreaterThanOrEqual(9000);
+  });
+
+  test('sem excedente a regra é a de sempre', () => {
+    expect(allocateRestitution(3390, 339, 500, 0)).toEqual(allocateRefund(3390, 339, 500));
+  });
+
+  test('as partes somam a devolução, sempre — em mil combinações', () => {
+    for (let i = 0; i < 1000; i += 1) {
+      const consumo = Math.floor(Math.random() * 50000);
+      const gorjeta = Math.floor(Math.random() * 5000);
+      const excedente = Math.floor(Math.random() * (consumo + 1));
+      const devolve = Math.floor(Math.random() * (consumo + gorjeta + 1));
+      const r = allocateRestitution(consumo, gorjeta, devolve, excedente);
+      expect(r.amountCents + r.tipCents).toBe(devolve);
+      expect(r.amountCents).toBeGreaterThanOrEqual(0);
+      expect(r.tipCents).toBeGreaterThanOrEqual(0);
+      expect(r.tipCents).toBeLessThanOrEqual(gorjeta);
+      expect(r.amountCents).toBeLessThanOrEqual(consumo);
+    }
+  });
+});

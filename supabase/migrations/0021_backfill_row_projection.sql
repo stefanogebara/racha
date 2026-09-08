@@ -15,6 +15,40 @@
 -- Idempotente por construcao: rodar de novo escreve os mesmos valores.
 
 -- 1) o acumulado ESTORNADO, liquido das reversoes de estorno que falhou.
+-- A imagem ANTERIOR das linhas que o passo 1 vai tocar. Este passo nao tinha
+-- registro nenhum — e o passo 3, que e o que pode mexer na base da folha de um
+-- periodo fechado, tambem nao. So o passo 2 tinha. O arquivo e a 0022
+-- afirmavam a politica em geral; ela valia pra um terco dela.
+-- Achado pela revisao de seguranca de 2026-09-08.
+with mov as (
+  select (payload->>'txid') as txid,
+         sum(case when type = 'PAYMENT_REFUNDED'         then (payload->>'amountCents')::bigint
+                  when type = 'PAYMENT_REFUND_REVERSED'  then -(payload->>'amountCents')::bigint
+                  else 0 end) as amt,
+         sum(case when type = 'PAYMENT_REFUNDED'         then (payload->>'tipCents')::bigint
+                  when type = 'PAYMENT_REFUND_REVERSED'  then -(payload->>'tipCents')::bigint
+                  else 0 end) as tip
+    from check_events
+   where type in ('PAYMENT_REFUNDED', 'PAYMENT_REFUND_REVERSED')
+     and payload ? 'txid'
+   group by 1
+)
+insert into public.payment_repair_log (migration, operator, reason, txid, before_row, after_row)
+select '0021_backfill_row_projection',
+       coalesce(current_setting('racha.operator', true), current_user),
+       'reprojecao do acumulado estornado a partir do razao',
+       p.txid,
+       jsonb_build_object(
+         'status', p.status,
+         'refunded_amount_cents', p.refunded_amount_cents,
+         'refunded_tip_cents', p.refunded_tip_cents),
+       jsonb_build_object(
+         'refunded_amount_cents', greatest(0, mov.amt)::integer,
+         'refunded_tip_cents', greatest(0, mov.tip)::integer)
+  from public.payments p join mov on mov.txid = p.txid
+ where p.refunded_amount_cents is distinct from greatest(0, mov.amt)::integer
+    or p.refunded_tip_cents    is distinct from greatest(0, mov.tip)::integer;
+
 with mov as (
   select (payload->>'txid') as txid,
          sum(case when type = 'PAYMENT_REFUNDED'         then (payload->>'amountCents')::bigint
@@ -71,7 +105,23 @@ select '0021_backfill_row_projection',
        coalesce(current_setting('racha.operator', true), current_user),
        'reprojecao do valor confirmado a partir do razao',
        p.txid,
-       to_jsonb(p) - 'psp_payload_masked',
+       -- LISTA BRANCA, não `to_jsonb(p) - 'psp_payload_masked'`.
+       --
+       -- Aquilo era subtrair-um-e-guardar-o-resto: o campo removido era o que
+       -- ja estava mascarado, e o que ficava incluia `payer_label` — nome que o
+       -- CLIENTE digitou — numa tabela feita pra ser permanente. E a proxima
+       -- coluna que `payments` ganhar (um documento, um telefone) entraria
+       -- sozinha, sem ninguem notar. Um log de reparo precisa das colunas de
+       -- DINHEIRO, nao da linha. Ver `mask.js`, que acerta isso no mesmo commit
+       -- e diz por que. Achado pela revisao de seguranca de 2026-09-08.
+       jsonb_build_object(
+         'txid', p.txid, 'status', p.status,
+         'amount_cents', p.amount_cents, 'tip_cents', p.tip_cents,
+         'confirmed_amount_cents', p.confirmed_amount_cents,
+         'confirmed_tip_cents', p.confirmed_tip_cents,
+         'refunded_amount_cents', p.refunded_amount_cents,
+         'refunded_tip_cents', p.refunded_tip_cents,
+         'confirmed_at', p.confirmed_at),
        jsonb_build_object('confirmed_amount_cents', conf.amt, 'confirmed_tip_cents', conf.tip)
   from public.payments p join conf on conf.txid = p.txid
  where p.confirmed_amount_cents is distinct from conf.amt::integer
@@ -105,6 +155,29 @@ update payments p
 -- menos. Se esta instrucao alterar alguma linha, o restaurante PRECISA ser
 -- avisado; nao basta a linha mudar. Nesta execucao (2026-09-08) ela nao
 -- alterou nada: o unico `devolvido` tinha estorno total.
+-- A imagem ANTERIOR do passo 3 — o de maior risco de auditoria do arquivo,
+-- porque ele devolve a gorjeta de uma linha pra `tipsCents` de um periodo que
+-- pode estar fechado. Era o unico com `returning` e nenhum registro durável:
+-- quem estava olhando o console via, e mais ninguem.
+insert into public.payment_repair_log (migration, operator, reason, txid, before_row, after_row)
+select '0021_backfill_row_projection',
+       coalesce(current_setting('racha.operator', true), current_user),
+       'status devolvido -> confirmado (estorno PARCIAL, nao total) — REVER A FOLHA do periodo',
+       p.txid,
+       jsonb_build_object(
+         'status', p.status,
+         'confirmed_amount_cents', p.confirmed_amount_cents,
+         'confirmed_tip_cents', p.confirmed_tip_cents,
+         'refunded_amount_cents', p.refunded_amount_cents,
+         'refunded_tip_cents', p.refunded_tip_cents,
+         'confirmed_at', p.confirmed_at),
+       jsonb_build_object('status', 'confirmado')
+  from public.payments p
+ where p.status = 'devolvido'
+   and p.confirmed_amount_cents is not null
+   and (p.refunded_amount_cents < p.confirmed_amount_cents
+     or p.refunded_tip_cents    < p.confirmed_tip_cents);
+
 update payments p
    set status = 'confirmado'
  where p.status = 'devolvido'

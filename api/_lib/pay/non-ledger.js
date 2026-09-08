@@ -44,6 +44,13 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
   if (!store || typeof notify !== 'function') {
     throw new Error('createNonLedgerHandler: missing dependencies');
   }
+  // A gravação do órfão é o ÚNICO caminho durável quando não há conta. Um
+  // `typeof … === 'function'` na hora de usar transformaria a ausência em
+  // silêncio; aqui ela é erro na CONSTRUÇÃO, alto e cedo (inegociável #7 —
+  // nada de degradar aberto num caminho de dinheiro).
+  if (typeof store.recordOrphanMoneyEvent !== 'function') {
+    throw new Error('createNonLedgerHandler: store sem recordOrphanMoneyEvent');
+  }
   /**
    * @param {{status: string, type?: string|null, txid?: string|null, raw?: object}} result
    * @returns {Promise<{persisted: boolean, notified: boolean}>}
@@ -59,10 +66,29 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
     const kind = result.status;
     const txid = result.txid || null;
     const quieto = SEM_ALARDE.has(kind);
+    /**
+     * "Não achei a conta" e "não consegui procurar" NÃO são a mesma coisa.
+     *
+     * Isto era um `catch` vazio com o comentário "sem check ligado" — uma
+     * interpretação que o código não tinha como justificar: um 5xx do
+     * Supabase, um `statement_timeout` ou uma conexão cortada saíam
+     * indistinguíveis de "este txid não tem conta". E `found` é a ÚNICA entrada
+     * do portão da rota: com `found = false` o registro durável deixava de ser
+     * exigido e um alerta bastava pra responder 200. Ou seja, um soluço do
+     * banco fazia a Pagar.me marcar como entregue um cancelamento parcial que
+     * ninguém registrou. Achado pela revisão de segurança de 2026-09-08.
+     *
+     * Três estados, então: achou, não existe, e NÃO SEI. O último exige
+     * reenvio.
+     */
     let found = null;
+    let buscaFalhou = false;
     if (txid) {
       try { found = await store.findCheckByTxid(txid); }
-      catch { /* sem check ligado: o alerta ainda sai */ }
+      catch (e) {
+        buscaFalhou = true;
+        process.stderr.write(`[webhook] busca do check falhou pra ${txid}: ${String(e.message).slice(0, 120)}\n`);
+      }
     }
     let persisted = false;
     if (found && !quieto) {
@@ -71,7 +97,13 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
           txid,
           reason: `${kind}${result.type ? ` (${result.type})` : ''}: evento de dinheiro que o razão não sabe lançar`,
           severity: 'critical',
-        }, (result.raw && result.raw.eventId) || null);
+        // SUFIXO na chave. `psp_event_id` é único no banco inteiro, e na rota
+        // da Stripe a MESMA entrega pode gravar tanto um lançamento próprio
+        // (uma disputa, com o prazo) quanto esta anomalia. Chave crua faria o
+        // segundo append virar no-op calado — o defeito que o censo de chaves
+        // pegou aqui, e que a correção à mão tinha achado só nos outros dois
+        // lugares. Achado pelo censo em 2026-09-08.
+        }, (result.raw && result.raw.eventId) ? `${result.raw.eventId}:non_ledger` : null);
         persisted = true;
       } catch (e) {
         process.stderr.write(`[webhook] anomalia não gravada: ${String(e.message).slice(0, 120)}\n`);
@@ -89,12 +121,23 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
      * `orphan_money_events` (migração 0024) e a rota pode responder 200 com o
      * evento guardado. Achado pela revisão de segurança de 2026-09-08.
      */
-    if (!found && !quieto && typeof store.recordOrphanMoneyEvent === 'function') {
+    if (!found && !buscaFalhou && !quieto) {
       try {
         await store.recordOrphanMoneyEvent({
           kind, txid, eventType: result.type || null,
+          // QUAL adquirente: "unusable_money_event ch_…" sem isso não diz que
+          // painel abrir. O prefixo do txid é o que a gente tem.
+          psp: /^pi_|^ch_test/.test(String(txid || '')) ? 'stripe' : 'pagarme',
           pspEventId: (result.raw && result.raw.eventId) || null,
-          amountCents: (result.raw && result.raw.amountCents) ?? null,
+          // O valor RECEBIDO quando existe. Num `unusable_money_event` o
+          // `amountCents` é `undefined` de propósito (o parser estourou, é por
+          // isso que é inutilizável) — e aí a linha provava que algo
+          // aconteceu sem guardar nada sobre o dinheiro. O bruto da API é o
+          // que sobra, e é melhor que nada.
+          amountCents: (result.raw && result.raw.amountCents)
+            ?? (result.raw && result.raw.raw && (
+              Number(result.raw.raw.paid_amount) || Number(result.raw.raw.amount)
+            )) ?? null,
           // MASCARADO: o corpo cru do PSP traz documento do pagador.
           payload: maskPixPayload(result.raw && result.raw.raw ? result.raw.raw : result.raw),
         });
@@ -115,7 +158,10 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
     }
     // `found` sai junto porque a ROTA precisa dele pra decidir o 503: só quem
     // TINHA onde gravar e não gravou é que precisa de reentrega.
-    return { persisted, notified, quieto, found: Boolean(found) };
+    // `found` responde "há onde gravar isto?" — e uma busca que FALHOU não
+    // responde "não". Quem decide o 503 na rota é `persisted`; isto sai só como
+    // diagnóstico.
+    return { persisted, notified, quieto, found: Boolean(found), lookupFailed: buscaFalhou };
   };
 }
 

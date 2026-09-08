@@ -158,6 +158,63 @@ function createChargeReconciler({ store, psp, confirm }) {
       try {
         const info = await psp.getCharge(p.txid);
         if (!info) { unknown += 1; continue; }       // not this PSP's charge (mock/house/gone)
+        /**
+         * Dinheiro que a API sabe que se moveu e o razão não sabe LANÇAR.
+         *
+         * Um cancelamento parcial sem `canceled_amount`, um valor que não é
+         * centavo inteiro: o adaptador devolve `unusable_money_event`. Isso não
+         * é "ainda esperando o Pix" nem "cobrança morta" — é a única categoria
+         * que precisa de anomalia DURÁVEL, senão a cobrança sai da janela de
+         * 24h em silêncio com os dois registros concordando que nada
+         * aconteceu. Achado pela revisão de compliance de 2026-09-08.
+         */
+        if (info.kind === 'unusable_money_event') {
+          terminal += 1;
+          if (p.checkId) {
+            try {
+              await appendValidated(store, p.checkId, 'PAYMENT_ANOMALY', {
+                txid: p.txid, severity: 'critical',
+                reason: `cobrança ${p.txid}: dinheiro se moveu (${info.status}) e o valor não é mensurável`,
+              }, `recon:${p.txid}:${info.status}`);
+            } catch (e) {
+              if (!/idempot|duplicate|unique/i.test(String(e.message))) {
+                process.stderr.write(`[reconcile] anomalia não mensurável não gravada: ${String(e.message).slice(0, 120)}\n`);
+              }
+            }
+          }
+          details.push({ txid: p.txid, checkId: p.checkId, status: `psp:${info.status}`, unusable: true });
+          continue;
+        }
+        /**
+         * ESTORNO visto pela conciliação: o cancelamento parcial mensurável.
+         *
+         * O dinheiro entrou e parte voltou, e nossa confirmação nunca chegou.
+         * Vai pelo MESMO aplicador do webhook, que sabe converter acumulado em
+         * delta — mas ele precisa do pagamento no razão primeiro, e aqui ele
+         * não está. Então: anomalia com o valor, que é honesto (sabemos que
+         * saiu, e quanto) sem inventar um pagamento que ninguém registrou.
+         */
+        if (info.kind === 'refund' && Number.isSafeInteger(info.cumulativeRefundedCents)) {
+          terminal += 1;
+          if (p.checkId) {
+            try {
+              await appendValidated(store, p.checkId, 'PAYMENT_ANOMALY', {
+                txid: p.txid, severity: 'critical',
+                reason: `cobrança ${p.txid} foi paga e ${info.cumulativeRefundedCents}¢ devolvidos `
+                  + 'no adquirente sem passar pelo razão',
+              }, `recon:${p.txid}:partial_refund`);
+            } catch (e) {
+              if (!/idempot|duplicate|unique/i.test(String(e.message))) {
+                process.stderr.write(`[reconcile] estorno visto na varredura não gravado: ${String(e.message).slice(0, 120)}\n`);
+              }
+            }
+          }
+          details.push({
+            txid: p.txid, checkId: p.checkId, status: `psp:${info.status}`,
+            refundedCents: info.cumulativeRefundedCents,
+          });
+          continue;
+        }
         if (!info.paid) {
           // A charge the gateway settled as canceled/failed/refunded before we
           // ever confirmed it is NOT a normal "still awaiting Pix" — surface it

@@ -330,6 +330,18 @@ function applyEvent(state, evt, seq = null) {
         refundedAmountCents: 0,
         refundedTipCents: 0,
         disputedAmountCents: 0,
+        /**
+         * Quanto DESTE pagamento entrou a mais.
+         *
+         * O excedente é estacionado no consumo (ver `parseCharge`), e a
+         * devolução dele sai todo do consumo (ver `allocateRestitution`). Numa
+         * conta rachada, `state.overpaidCents` é da CONTA e não diz de qual
+         * pagamento a sobra veio: usá-lo fazia a sobra de quem pagou a mais
+         * reger o estorno de quem pagou exato — e 91 centavos de gorjeta
+         * estornada ficavam na base da folha. Achado pela revisão de segurança
+         * de 2026-09-08.
+         */
+        excessCents: Number.isSafeInteger(p.excessCents) && p.excessCents > 0 ? p.excessCents : 0,
         late: state.status === STATUS.FECHADA,
       };
       next.paidCents += p.amountCents;

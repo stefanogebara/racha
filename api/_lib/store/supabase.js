@@ -23,7 +23,7 @@ const { disputeCounts } = require('../checks/disputes');
 
 const { createClient } = require('@supabase/supabase-js');
 const { reduce } = require('../checks/check-state');
-const { buildAtivacao } = require('../checks/ativacao');
+const { buildAtivacao, spDay } = require('../checks/ativacao');
 const { RECIPIENT_TERMINAL } = require('../recipient-status');
 
 function required(name) {
@@ -422,7 +422,13 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     async getPayment(txid) {
       const { data, error } = await client
         .from('payments')
-        .select('txid, check_id, amount_cents, tip_cents, payer_label, status, method, psp_payload_masked, confirmed_at')
+        // Os ACUMULADOS ESTORNADOS entram aqui porque a guarda de versão do
+        // reparo (migração 0023) compara justamente eles. Sem as colunas, o
+        // `repairRowFromLedger` mandava `0` sempre — e a guarda passava só na
+        // linha virgem, ficando INERTE em toda linha que já teve estorno, que é
+        // exatamente a família que ela existe pra proteger. Achado pela
+        // revisão de segurança de 2026-09-08.
+        .select('txid, check_id, amount_cents, tip_cents, payer_label, status, method, psp_payload_masked, confirmed_at, refunded_amount_cents, refunded_tip_cents')
         .eq('txid', txid)
         .maybeSingle();
       throwOn(error, 'getPayment');
@@ -432,6 +438,8 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         amountCents: data.amount_cents, tipCents: data.tip_cents,
         payerLabel: data.payer_label, status: data.status, method: data.method,
         pspPayloadMasked: data.psp_payload_masked, confirmedAt: data.confirmed_at,
+        refundedAmountCents: data.refunded_amount_cents || 0,
+        refundedTipCents: data.refunded_tip_cents || 0,
       };
     },
 
@@ -626,7 +634,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           // que o painel soma em faturamento e em GORJETA (base da folha, Lei
           // 13.419), e até aqui elas eram conferidas contra NADA. Ver
           // `reconcileCheck`.
-          .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, status, method, currency')
+          .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, status, method, currency, confirmed_at')
           .eq('check_id', c.id);
         throwOn(pErr, 'listChecksForReconcile.payments');
         out.push({
@@ -639,6 +647,8 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
             // `confirmedMoney` cai no registrado, e a conciliação faz o mesmo.
             confirmedAmountCents: p.confirmed_amount_cents,
             confirmedTipCents: p.confirmed_tip_cents,
+            // A DATA: é ela que faz a dívida de restituição envelhecer.
+            confirmedAt: p.confirmed_at,
             // Acumulados estornados: a conciliação soma LÍQUIDO dos dois lados.
             refundedAmountCents: p.refunded_amount_cents || 0,
             refundedTipCents: p.refunded_tip_cents || 0,
@@ -985,7 +995,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     },
 
     // --- panel --------------------------------------------------------------
-    async getPanelView(venueId) {
+    async getPanelView(venueId, nowIso = new Date().toISOString()) {
       // `market` no SELECT, e não só no objeto de saída.
       //
       // A correção da moeda do painel foi metade da correção: eu acrescentei
@@ -1027,6 +1037,24 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
             // número morria ali: nenhum painel, nenhuma tela. Ver
             // `overpaid_pending_restitution` na conciliação.
             overpaidCents: state.overpaidCents,
+            /**
+             * QUAL cobrança devolver — o painel não podia dizer.
+             *
+             * O dono lia "R$ 90,00 a devolver a clientes" e tinha que adivinhar
+             * qual cobrança abrir no painel do adquirente. Uma obrigação que a
+             * tela anuncia e não sabe endereçar não é acionável (CC art. 876:
+             * a restituição não espera o cliente pedir). O txid é do LADO DO
+             * DONO, atrás de auth — a leitura pública segue com ordinal.
+             */
+            ...(state.overpaidCents > 0 ? {
+              overpaidTxids: Object.entries(state.payments)
+                .filter(([, pg]) => pg.amountCents > pg.refundedAmountCents)
+                .map(([txid, pg]) => ({
+                  txid,
+                  refundableCents: (pg.amountCents - pg.refundedAmountCents)
+                    + (pg.tipCents - pg.refundedTipCents),
+                })),
+            } : {}),
             // Disputas por CONTAGEM: é a taxa de chargeback que o
             // adquirente julga, e o dono não tinha como ver a dele.
             disputes: disputeCounts(state),
@@ -1053,11 +1081,27 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         for (const c of tChecks || []) trainingChecks.add(c.id);
       }
 
+      /**
+       * A janela de 7 DIAS, e o `today` recortado do dia de verdade.
+       *
+       * A consulta não tinha predicado de data nenhum, e o resultado saía sob
+       * o rótulo "recebido hoje" e "serviço da equipe (folha)". Um dono que
+       * leia aquela linha como a gorjeta do dia e distribua está distribuindo o
+       * acumulado da VIDA da casa — base de folha (Lei 13.419) lida de um
+       * agregado com rótulo errado. Achado pela revisão de compliance de
+       * 2026-09-08.
+       *
+       * A série semanal precisa de 7 dias, então a consulta busca 8 (folga de
+       * fuso) e o `today` filtra o dia em São Paulo — o mesmo corte do
+       * `buildAtivacao`, pra as duas linhas do painel nunca discordarem.
+       */
+      const desde = new Date(Date.parse(nowIso) - 8 * 86400000).toISOString();
       const { data: confirmedRaw, error: pErr } = await client
         .from('payments')
         .select('amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, check_id, confirmed_at, method')
         .eq('venue_id', venueId)
-        .eq('status', 'confirmado');
+        .eq('status', 'confirmado')
+        .gte('confirmed_at', desde);
       throwOn(pErr, 'getPanelView.payments');
       const confirmed = (confirmedRaw || [])
         .filter((p) => !trainingChecks.has(p.check_id))
@@ -1069,6 +1113,35 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           refundedTipCents: p.refunded_tip_cents || 0,
           checkId: p.check_id, confirmedAt: p.confirmed_at, method: p.method,
         }));
+
+      /**
+       * A sobra a devolver, EXCLUINDO mesas de treino.
+       *
+       * `rows` é toda conta da casa; `confirmed` já filtra treino. Somar a
+       * sobra sem o mesmo filtro descontava do faturamento um excedente de uma
+       * mesa de treino cujo pagamento nunca foi contado — subnotificando a
+       * receita (e qualquer margem calculada sobre ela). Workshop pré-turno não
+       * é movimento da casa, nos dois sentidos.
+       */
+      /**
+       * HOJE, no fuso de São Paulo — o mesmo corte da série semanal.
+       *
+       * `confirmed` cobre a janela inteira porque o `buildAtivacao` precisa
+       * dela; o `today` é o recorte do dia. Sem isto a linha rotulada
+       * "recebido hoje" somava tudo o que a casa já recebeu, e é dessa linha
+       * que sai o número da gorjeta que vai pra folha.
+       */
+      // O INSTANTE vem de fora, com padrão de agora.
+      //
+      // Uma função que agrupa por dia tem que receber o dia: com o relógio
+      // lido de dentro, um teste de relógio fixo não conseguia ver o próprio
+      // pagamento — e o mesmo vale pra qualquer reprocessamento de um dia
+      // passado. O `buildAtivacao` já era assim.
+      const hoje = spDay(nowIso);
+      const doDia = confirmed.filter((p) => p.confirmedAt && spDay(p.confirmedAt) === hoje);
+      const overpaidTotal = rows
+        .filter((r) => !trainingChecks.has(r.checkId))
+        .reduce((s, r) => s + (r.state.overpaidCents || 0), 0);
 
       return {
         // A MOEDA vai no payload do painel porque o painel imprime dinheiro, e
@@ -1088,11 +1161,11 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           // dívida da casa (CC art. 876), não receita dela. Estava indo
           // direto pro faturamento — e, no dia em que houver margem sobre
           // volume, a gente cobraria margem em cima da dívida também.
-          confirmedCents: confirmed.reduce((s, p) => s + confirmedMoney(p).amountCents, 0)
-            - rows.reduce((s, r) => s + (r.state.overpaidCents || 0), 0),
+          confirmedCents: doDia.reduce((s, p) => s + confirmedMoney(p).amountCents, 0)
+            - overpaidTotal,
           /** A dívida, na sua própria linha — visível, não subtraída em silêncio. */
-          overpaidCents: rows.reduce((s, r) => s + (r.state.overpaidCents || 0), 0),
-          tipsCents: confirmed.reduce((s, p) => s + confirmedMoney(p).tipCents, 0),
+          overpaidCents: overpaidTotal,
+          tipsCents: doDia.reduce((s, p) => s + confirmedMoney(p).tipCents, 0),
           /**
            * Serviço COBRADO vs ARRECADADO — o contrapeso da regra de imputação.
            *
@@ -1103,11 +1176,26 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
            * uma diferença que aparece é um fato do negócio; a mesma diferença
            * escondida é uma reclamação trabalhista.
            */
-          tipsChargedCents: confirmed.reduce((s, p) => s + (p.tipCents || 0), 0),
-          paymentsCount: confirmed.length,
+          /**
+           * Cobrado vs ARRECADADO — e o estorno de fora dos dois.
+           *
+           * `tipsCents` é líquido de estorno (via `confirmedMoney`), e
+           * `tipsChargedCents` era o bruto pedido: depois de qualquer estorno
+           * parcial o painel dizia "R$ 5,50 de R$ 10,00 cobrados" quando a
+           * diferença era um ESTORNO, não um cliente arredondando pra baixo.
+           * Dois fatos do negócio diferentes debaixo da mesma legenda.
+           *
+           * Agora `tipsChargedCents` também é líquido do estornado: a diferença
+           * que sobra é só a arrecadação a menor, que é o que a regra de
+           * imputação produz e o que a folha precisa ver.
+           */
+          tipsChargedCents: doDia.reduce(
+            (s, p) => s + Math.max(0, (p.tipCents || 0) - (p.refundedTipCents || 0)), 0,
+          ),
+          paymentsCount: doDia.length,
           anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
         },
-        ativacao: buildAtivacao(confirmed),
+        ativacao: buildAtivacao(confirmed, nowIso),
       };
     },
   };

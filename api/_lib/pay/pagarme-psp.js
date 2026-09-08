@@ -141,6 +141,11 @@ function parseCharge(charge, eventId = null) {
     kind: 'payment_confirmed',
     amountCents: partes.amountCents + excedente,
     tipCents: partes.tipCents,
+    // QUANTO deste pagamento era excedente. Vai pro razão porque a devolução
+    // precisa saber de qual pagamento o excedente veio: numa conta rachada, a
+    // sobra de quem pagou a mais não pode reger o estorno de quem pagou
+    // exato. Ver `alocarDevolucao`.
+    excessCents: excedente,
     method: charge.payment_method === 'pix' ? 'pix' : 'card',
     raw: charge,
   };
@@ -434,7 +439,52 @@ function createPagarmePsp({
         throw err;
       }
       if (!charge || !charge.id) return null;
-      return parseCharge(charge);
+      /**
+       * `partial_canceled` no caminho da CONCILIAÇÃO.
+       *
+       * O ramo do webhook sabe lidar com isso (estorno normal quando a API diz
+       * `canceled_amount`, anomalia durável quando não diz). O `getCharge` não
+       * sabia, e o status não estava em `PAID_STATUSES` nem em nenhuma lista de
+       * terminal — então a cobrança saía como `stillPending`, sem lançamento,
+       * sem anomalia, sem órfão, e depois de 24h saía da janela pra sempre. Os
+       * dois registros concordavam que nada aconteceu e o canário ficava verde
+       * por cima de dinheiro que saiu da conta.
+       *
+       * E este caminho é o ÚNICO quando o webhook não chega — que é exatamente
+       * o cenário de um `PAGARME_WEBHOOK_AUTH` com typo, já que a verificação
+       * falha fechado. Achado pela revisão de compliance de 2026-09-08.
+       */
+      if (charge.status === 'partial_canceled') {
+        const canceladoCents = Number(charge.canceled_amount);
+        const recebido = receivedCents(charge);
+        if (Number.isSafeInteger(canceladoCents) && canceladoCents > 0
+            && canceladoCents <= recebido) {
+          return {
+            txid: charge.id, eventId: null, status: charge.status,
+            // `paid: true` porque o dinheiro ENTROU: a conciliação tem que
+            // levar isso ao razão, não contar como abandono.
+            paid: true,
+            kind: 'refund', cumulativeRefundedCents: canceladoCents,
+            method: charge.payment_method === 'pix' ? 'pix' : 'card',
+            raw: charge,
+          };
+        }
+        return {
+          txid: charge.id, eventId: null, status: charge.status, paid: false,
+          kind: 'unusable_money_event', raw: charge,
+        };
+      }
+      try {
+        return parseCharge(charge);
+      } catch (e) {
+        // Valor impossível: dinheiro que se moveu e não dá pra medir. Mesmo
+        // desfecho do webhook — evento não lançável, nunca um 500 em laço.
+        process.stderr.write(`[pagarme] cobrança ${charge.id} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
+        return {
+          txid: charge.id, eventId: null, status: charge.status, paid: false,
+          kind: 'unusable_money_event', raw: charge,
+        };
+      }
     },
 
     /**

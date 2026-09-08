@@ -154,15 +154,49 @@ describe('reconcileCheck — event log vs payments table', () => {
       expect(r.findings.some((x) => x.severity === 'critical' || x.severity === 'high')).toBe(false);
     });
 
-    test('pagou a MAIS: mesma ideia, do outro lado', () => {
+    test('pagou a MAIS é ALTO, não informativo — o pagador não escolhe isso', () => {
+      // Numa cobrança Pix com valor, o pagador não tem como pagar além. Então
+      // excedente não é "fato do negócio": é ou um defeito de medição nosso,
+      // ou dinheiro que a casa tem que devolver. Nos dois casos alguém precisa
+      // ver hoje. (O `underpayment` pequeno segue `info`: aquele o cliente
+      // escolhe, digitando outro valor no app do banco.)
       const r = reconcileCheck({
         checkId: 'c1',
         events: [opened(10000), paid('tx1', 4000, 339)],
         payments: [row('tx1', 3390, 339, 'confirmado', [4000, 339])],
       });
       const f = r.findings.find((x) => x.code === 'overpayment');
-      expect(f.severity).toBe('info');
+      expect(f.severity).toBe('high');
       expect(f.deltaCents).toBe(610);
+    });
+
+    test('pagou GROTESCAMENTE menos é defeito de MEDIÇÃO, não gorjeta recusada', () => {
+      // Um adaptador lendo o campo errado depois de uma virada de versão da
+      // API confirmaria 1 centavo pra uma cobrança de 37,29. A coluna
+      // confirmada e o razão saem da MESMA variável, então eles concordariam e
+      // o canário ficaria verde — e a conta seguiria aberta pra ser cobrada de
+      // novo. Esta é a última testemunha independente que sobrou.
+      const r = reconcileCheck({
+        checkId: 'c1',
+        events: [opened(10000), paid('tx1', 1, 0)],
+        payments: [row('tx1', 3390, 339, 'confirmado', [1, 0])],
+      });
+      const f = r.findings.find((x) => x.code === 'underpayment');
+      expect(f.severity).toBe('high');
+      expect(r.ok).toBe(false);
+    });
+
+    test('o serviço recusado por inteiro continua sendo `info`', () => {
+      // 3390 de 3729: o cliente tirou os 10%. Nada errado, e o canário não
+      // pode acender por isso — um alerta que dispara em comportamento correto
+      // está morto em duas semanas.
+      const r = reconcileCheck({
+        checkId: 'c1',
+        events: [opened(10000), paid('tx1', 3390, 0)],
+        payments: [row('tx1', 3390, 339, 'confirmado', [3390, 0])],
+      });
+      expect(r.findings.find((x) => x.code === 'underpayment').severity).toBe('info');
+      expect(r.ok).toBe(true);
     });
 
     test('a casa NÃO é contada como falhando por um pagamento a menor', async () => {
@@ -251,5 +285,64 @@ describe('reconcileVenue — live money paths reconcile clean', () => {
     const report = await reconcileVenue(store, venue.id);
     expect(report.checksFailed).toBe(1);
     expect(['high', 'critical']).toContain(report.worstSeverity);
+  });
+});
+
+describe('dinheiro a DEVOLVER envelhece', () => {
+  /**
+   * `high` na primeira noite e na nonagésima é a mesma coisa que não escalar:
+   * uma dívida com o consumidor que nunca sobe de tom é uma dívida que a casa
+   * pode ir guardando (CC art. 884). Passadas 48h vira `critical`, que é o que
+   * pinta o relatório diário e sai no alerta.
+   * Achado pela revisão de compliance de 2026-09-08.
+   */
+  const pagoAMais = (confirmedAt) => reconcileCheck({
+    checkId: 'c1',
+    events: [opened(10000), paid('tx1', 19000, 1000)],   // 90,00 de excedente
+    payments: [{ ...row('tx1', 19000, 1000), confirmedAt }],
+  });
+
+  test('recém-aberta é ALTA — pede ação, não acorda ninguém de madrugada', () => {
+    const f = pagoAMais(new Date().toISOString())
+      .findings.find((x) => x.code === 'overpaid_pending_restitution');
+    expect(f.severity).toBe('high');
+    // 19000 de consumo contra 10000 de conta: 9000 a devolver. A gorjeta anda
+    // em `tipCents` e não entra nessa comparação.
+    expect(f.overpaidCents).toBe(9000);
+  });
+
+  test('passadas 48h é CRÍTICA, e diz há quantos dias', () => {
+    const tresDias = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
+    const f = pagoAMais(tresDias)
+      .findings.find((x) => x.code === 'overpaid_pending_restitution');
+    expect(f.severity).toBe('critical');
+    expect(f.message).toMatch(/há 3 dia\(s\)/);
+    expect(f.since).toBe(tresDias);
+  });
+
+  test('sem data não inventa idade — segue alta', () => {
+    const f = reconcileCheck({
+      checkId: 'c1',
+      events: [opened(10000), paid('tx1', 19000, 1000)],
+      payments: [row('tx1', 19000, 1000)],
+    }).findings.find((x) => x.code === 'overpaid_pending_restitution');
+    expect(f.severity).toBe('high');
+  });
+
+  test('devolvido o excedente, o achado SAI — a marca fecha', () => {
+    const r = reconcileCheck({
+      checkId: 'c1',
+      events: [
+        opened(10000), paid('tx1', 19000, 1000),
+        // A devolução sai toda do consumo (ver `allocateRestitution`).
+        refunded('tx1', 9000, 0),
+      ],
+      payments: [{
+        ...row('tx1', 19000, 1000), refundedAmountCents: 9000, refundedTipCents: 0,
+        confirmedAt: new Date().toISOString(),
+      }],
+    });
+    expect(r.findings.some((x) => x.code === 'overpaid_pending_restitution')).toBe(false);
+    expect(r.driftCents).toBe(0);
   });
 });

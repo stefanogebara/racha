@@ -20,6 +20,8 @@ function setup() {
   const psp = new MockPsp({ webhookSecret: SECRET });
   let clockIso = '2026-07-19T12:00:00.000Z';
   const clock = {
+    /** Que hora é agora — o painel agrupa por dia e precisa do mesmo relógio. */
+    now: () => clockIso,
     set: (iso) => { clockIso = iso; },
     advanceDays: (d) => { clockIso = new Date(Date.parse(clockIso) + d * 86400000).toISOString(); },
   };
@@ -71,7 +73,7 @@ describe('house service', () => {
   });
 
   test('full loop: load → webhook credits principal+bonus → wallet → redeem bonus-first → check paid → reconcile clean', async () => {
-    const { store, psp, house, webhook } = setup();
+    const { store, psp, house, webhook, clock } = setup();
     const { venue, table } = await seedVenueWithHouse(store, house); // 15% bonus
     const { accountToken } = await house.openAccount({ tableQrToken: table.qrToken, phone: '11987654321', name: 'Ana' });
 
@@ -110,7 +112,7 @@ describe('house service', () => {
     expect(st.payments[red.txid].tipCents).toBe(0);
 
     // Panel counts the redemption like any confirmed payment
-    const panel = await store.getPanelView(venue.id);
+    const panel = await store.getPanelView(venue.id, clock.now());
     expect(panel.today.confirmedCents).toBe(2000);
     expect(panel.today.anomalies).toBe(0);
 

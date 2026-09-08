@@ -238,7 +238,55 @@ function allocateUnderpayment(orderAmountCents, orderTipCents, receivedCents) {
   return { amountCents, tipCents: receivedCents - amountCents };
 }
 
+/**
+ * Reparte uma DEVOLUÇÃO quando parte do que entrou era EXCEDENTE.
+ *
+ * O excedente de quem paga a mais é estacionado no CONSUMO de propósito (ver
+ * `parseCharge`): inflar a gorjeta criaria direito do empregado sobre dinheiro
+ * que a casa tem que devolver. Mas devolvê-lo pela regra proporcional do
+ * estorno tirava uma fatia da GORJETA — dinheiro do garçom pagando uma
+ * restituição que o cliente nunca pediu que ele pagasse.
+ *
+ * Concretamente, com uma conta de 100,00 + 10,00 de serviço e o cliente
+ * digitando 200,00 no app do banco: sobra 90,00. A casa devolve exatamente os
+ * 90,00 que o painel e a tela do cliente mostram, e o rateio proporcional
+ * levava 4,50 da gorjeta junto — sangrando a base da folha (Lei 13.419 + STJ
+ * Tema 1102) e deixando 4,50 ainda marcados como "a devolver". A marca
+ * convergia geometricamente e NUNCA chegava a zero: o painel seguia pedindo
+ * devolução, e a tela do cliente seguia dizendo que ele era credor, depois de
+ * uma restituição feita por inteiro. O canário que grita pra sempre, que é o
+ * modo de falha que este código combate em todo lugar.
+ *
+ * A regra: o que devolve EXCEDENTE sai 100% do consumo — foi por ali que
+ * entrou. Só o que passa do excedente é estorno de verdade, e aí sim vai
+ * proporcional sobre o que sobrou. A gorjeta foi validamente recebida e não é
+ * fundo de onde a casa tira dinheiro.
+ *
+ * Achado pela revisão de compliance de 2026-09-08.
+ *
+ * @param {number} paidAmountCents consumo pago (líquido do já estornado)
+ * @param {number} paidTipCents    gorjeta paga (líquida do já estornado)
+ * @param {number} refundCents     quanto está voltando agora
+ * @param {number} excessCents      quanto do que entrou era excedente
+ */
+function allocateRestitution(paidAmountCents, paidTipCents, refundCents, excessCents) {
+  assertCents(paidAmountCents, 'paidAmountCents');
+  assertCents(paidTipCents, 'paidTipCents');
+  assertCents(refundCents, 'refundCents');
+  assertCents(excessCents, 'excessCents');
+  // A parte que é restituição de excedente: sai do consumo, e nunca mais do que
+  // o consumo tem.
+  const doExcedente = Math.min(refundCents, excessCents, paidAmountCents);
+  const resto = refundCents - doExcedente;
+  if (resto === 0) return { amountCents: doExcedente, tipCents: 0 };
+  // O resto é estorno comum, proporcional sobre o que sobrou depois de tirar a
+  // restituição.
+  const p = allocateProportional(paidAmountCents - doExcedente, paidTipCents, resto);
+  return { amountCents: doExcedente + p.amountCents, tipCents: p.tipCents };
+}
+
 module.exports = {
   splitEqual, validateCustomSplit, splitByItems, servicoCents,
-  allocateProportional, allocateRefund, allocateUnderpayment, assertCents,
+  allocateProportional, allocateRefund, allocateUnderpayment, allocateRestitution,
+  assertCents,
 };

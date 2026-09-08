@@ -12,7 +12,24 @@
  * some PSPs' description), it is masked positionally.
  */
 
-const KEEP = ['txid', 'endToEndId', 'e2eid', 'amount', 'valor', 'status', 'horario', 'timestamp', 'kind'];
+/**
+ * A lista branca. Escalares que a conciliação precisa, e nada mais.
+ *
+ * `paid_amount` entrou porque sem ele o retrato guardava o valor PEDIDO. Numa
+ * conta de 36,98 em que o cliente digitou 33,00 no app do banco, o registro
+ * que este arquivo existe pra produzir — "o retrato forense de quando o
+ * dinheiro entrou, que é o que se olha quando alguém contesta" — dizia 36,98.
+ * Não incompleto: afirmativamente o número errado, exatamente pros estados que
+ * esta série de mudanças acrescentou. `canceled_amount` pelo mesmo motivo, no
+ * cancelamento parcial. Achado pela revisão de segurança de 2026-09-08.
+ *
+ * Todos são escalares não-pessoais, e o filtro de tipo lá embaixo derruba
+ * qualquer um deles que chegue como objeto.
+ */
+const KEEP = [
+  'txid', 'endToEndId', 'e2eid', 'amount', 'valor', 'status', 'horario', 'timestamp', 'kind',
+  'paid_amount', 'canceled_amount', 'payment_method', 'created_at', 'id',
+];
 
 /** "Maria da Silva Sauro" → "Maria d*****" — enough to eyeball, useless to leak. */
 function maskName(name) {

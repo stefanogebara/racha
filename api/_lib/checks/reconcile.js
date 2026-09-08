@@ -116,9 +116,25 @@ function reconcileCheck({ checkId, events, payments }) {
    * Recomendação da revisão de compliance de 2026-09-08.
    */
   if (state && state.overpaidCents > 0) {
-    add('high', 'overpaid_pending_restitution',
-      `conta recebeu ${state.overpaidCents}¢ a mais do que devia — restituição pendente (CC art. 876)`,
-      { overpaidCents: state.overpaidCents });
+    /**
+     * E a dívida ENVELHECE.
+     *
+     * `high` na primeira noite e na nonagésima é a mesma coisa que não
+     * escalar: uma dívida com o consumidor que nunca sobe de tom é uma dívida
+     * que a casa pode ir guardando (CC art. 884, enriquecimento sem causa).
+     * Passadas 48h vira `critical`, que é o que pinta o relatório diário de
+     * vermelho e sai no alerta.
+     */
+    // A data vem da linha do pagamento CONFIRMADO mais antigo desta conta: o
+    // razão não guarda hora (o `loadEvents` lê `seq, type, payload`), e
+    // inventar "agora" faria a dívida nunca envelhecer.
+    const datas = rows.map((r) => r && r.confirmedAt).filter(Boolean).sort();
+    const abertaDesde = datas[0] || null;
+    const horas = abertaDesde ? (Date.now() - Date.parse(abertaDesde)) / 3600000 : 0;
+    add(horas > 48 ? 'critical' : 'high', 'overpaid_pending_restitution',
+      `conta recebeu ${state.overpaidCents}¢ a mais do que devia — restituição pendente`
+      + `${horas > 48 ? ` há ${Math.floor(horas / 24)} dia(s)` : ''} (CC art. 876)`,
+      { overpaidCents: state.overpaidCents, ...(abertaDesde ? { since: abertaDesde } : {}) });
   }
 
   const moedas = new Set(rows.map((r) => r && r.currency).filter(Boolean));
@@ -184,9 +200,53 @@ function reconcileCheck({ checkId, events, payments }) {
     const rowTotal = (row.amountCents || 0) + (row.tipCents || 0);
     if (confirmadoLinha !== null && rowTotal !== confirmadoLinha) {
       const delta = confirmadoLinha - rowTotal;
-      add('info', delta < 0 ? 'underpayment' : 'overpayment',
+      /**
+       * Esta é a ÚLTIMA testemunha independente, e por isso ela não pode ser
+       * `info` em qualquer tamanho.
+       *
+       * `confirmed_*` e o evento do razão saem da MESMA variável na MESMA
+       * chamada (`applyConfirmedPayment` → `recordPayment`): comparar os dois
+       * pega defeito de projeção e mais nada. `amount_cents` foi escrito num
+       * outro momento, por outro caminho (`registerCharge`, na criação da
+       * cobrança) — é o único número que discorda por conta própria.
+       *
+       * Rebaixar TODA discordância a `info` (que não conta como falha e não
+       * chega ao alerta diário) fechou o único olho que restava: um defeito de
+       * medição no adaptador — `receivedCents` lendo o campo errado depois de
+       * uma virada de versão da API, `metadata.tip_cents` torto — confirmaria
+       * 1 centavo pra uma cobrança de 37,29, os dois lados concordariam, o
+       * canário ficaria verde, e a conta ficaria aberta pra ser cobrada de novo.
+       *
+       * Então a FAIXA decide: um Pix pago a menor é o cliente digitando outro
+       * valor no app do banco, e isso é fato do negócio (`info`). Receber MAIS
+       * do que se pediu não é: o pagador não escolhe pagar além numa cobrança
+       * Pix com valor, então excedente é sempre `high`. E uma diferença
+       * grotesca pra menos — menos de um décimo do pedido — é defeito de
+       * medição, não gorjeta recusada.
+       * Achado pela revisão de segurança de 2026-09-08.
+       */
+      const grotesca = delta > 0 || confirmadoLinha * 10 < rowTotal;
+      add(grotesca ? 'high' : 'info', delta < 0 ? 'underpayment' : 'overpayment',
         `txid ${txid}: pedido ${rowTotal}¢, recebido ${confirmadoLinha}¢ (Δ ${delta}¢)`,
         { txid, deltaCents: delta });
+    }
+    /**
+     * Linha `confirmado` SEM valor confirmado é notícia, não dispensa.
+     *
+     * A guarda `confirmadoLinha !== null` acima existe pra histórico anterior à
+     * migração 0015 — mas a 0021 preencheu tudo, então uma linha confirmada sem
+     * o valor hoje só aparece por escrita parcial. Sem isto ela ficava isenta
+     * das duas conferências, em silêncio.
+     */
+    if (confirmadoLinha === null && row.status === 'confirmado') {
+      // `info`: o DINHEIRO desta linha continua conferido pela divergência
+      // total logo abaixo (o bruto entra na soma). O que falta aqui é a
+      // conferência por txid, e isso é higiene de dado, não dinheiro perdido —
+      // subir o tom faria toda linha anterior à 0015 acender o alerta diário,
+      // que é como um canário morre.
+      add('info', 'confirmed_amount_missing',
+        `txid ${txid}: linha confirmada sem valor confirmado (anterior à 0015, ou escrita parcial)`,
+        { txid });
     }
     const fullyRefunded = pay.refundedAmountCents === pay.amountCents && pay.refundedTipCents === pay.tipCents;
     if (fullyRefunded && row.status !== 'devolvido') {
@@ -246,7 +306,19 @@ function reconcileCheck({ checkId, events, payments }) {
 
   return {
     checkId,
-    ok: findings.length === 0,
+    /**
+     * `ok` é AUSÊNCIA DE PROBLEMA, não ausência de achado.
+     *
+     * Era `findings.length === 0`, e desde que a conciliação passou a registrar
+     * fatos do negócio como `info` — um Pix pago a menor, uma linha antiga sem
+     * valor confirmado — isso marcava como não-ok contas onde nada está
+     * errado. E `checksFailed` já contava só o acionável, então as duas
+     * medidas da mesma ideia discordavam entre si.
+     *
+     * Os achados `info` continuam TODOS em `findings`: eles existem pra serem
+     * lidos, só não pra acender o alerta.
+     */
+    ok: !findings.some((f) => f.severity === 'critical' || f.severity === 'high'),
     driftCents,
     findings,
   };

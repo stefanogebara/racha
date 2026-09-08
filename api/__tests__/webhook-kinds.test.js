@@ -274,15 +274,41 @@ describe('censo das chaves de idempotência', () => {
   const path = require('node:path');
   const raiz = path.join(__dirname, '..');
 
+  /**
+   * Os arquivos vêm de uma VARREDURA, não de uma lista escrita à mão.
+   *
+   * A primeira versão listava dois arquivos e havia quatro que gravam
+   * `PAYMENT_ANOMALY` — uma lista de lugares a censar tem o mesmo modo de
+   * falha que a lista de espécies que o censo veio substituir.
+   */
+  function arquivosQueGravamAnomalia() {
+    const achados = [];
+    (function walk(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (['node_modules', '__tests__'].includes(e.name)) continue;
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (e.name.endsWith('.js')
+          && /PAYMENT_ANOMALY|PAYMENT_DISPUTE_CLOSED/.test(fs.readFileSync(full, 'utf8'))) {
+          achados.push(path.relative(raiz, full));
+        }
+      }
+    }(raiz));
+    return achados;
+  }
+
   test('todo append EXTRA de uma mesma entrega usa chave com sufixo', () => {
-    const arquivos = ['_lib/pay/webhook-handler.js', '_app/router.js'];
+    const arquivos = arquivosQueGravamAnomalia();
+    // Quatro hoje: o portão, a rota, o tratador de não-lançáveis e a
+    // conciliação. Se a varredura devolver menos, ela quebrou.
+    expect(arquivos.length).toBeGreaterThanOrEqual(4);
     const semSufixo = [];
     for (const rel of arquivos) {
       const src = fs.readFileSync(path.join(raiz, rel), 'utf8');
       // Appends de ANOMALIA e de FECHO: os dois tipos que acompanham outro
       // lançamento na mesma entrega. O lançamento principal usa a chave pura,
       // e é assim que tem que ser.
-      const alvos = [/PAYMENT_ANOMALY[\s\S]{0,400}?\}\s*,\s*([^)]*)\)/g,
+      const alvos = [/PAYMENT_ANOMALY[\s\S]{0,600}?\}\s*,\s*([^)]*)\)/g,
         /PAYMENT_DISPUTE_CLOSED[\s\S]{0,300}?\}\s*,\s*([^)]*)\)/g];
       for (const re of alvos) {
         for (const m of src.matchAll(re)) {

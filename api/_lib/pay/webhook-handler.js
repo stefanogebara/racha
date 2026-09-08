@@ -25,7 +25,7 @@
 
 const { reduce, validateEvent, EventValidationError } = require('../checks/check-state');
 const { maskPixPayload } = require('./mask');
-const { allocateRefund } = require('../checks/split-engine');
+const { allocateRefund, allocateRestitution } = require('../checks/split-engine');
 
 /**
  * Fold a verified+parsed PSP charge into the check ledger. Pure orchestration
@@ -45,6 +45,48 @@ const { allocateRefund } = require('../checks/split-engine');
  * @param {(parsed:object)=>Promise<object|null>} [deps.fallback]
  * @returns {Promise<{status:'appended'|'duplicate'|'divergent_appended'|'rejected', checkId?:string, seq?:number, reason?:string}>}
  */
+/**
+ * O rateio de uma devolução, considerando o EXCEDENTE da conta.
+ *
+ * Se a conta recebeu mais do que pedia, a primeira parte do que volta é
+ * RESTITUIÇÃO de excedente e sai toda do consumo — foi por ali que entrou (ver
+ * `allocateRestitution`). Sem excedente, é estorno comum e vai proporcional.
+ */
+function alocarDevolucao(state, pay, delta) {
+  const consumo = pay.amountCents - pay.refundedAmountCents;
+  const gorjeta = pay.tipCents - pay.refundedTipCents;
+  /**
+   * O excedente é DO PAGAMENTO, não da conta.
+   *
+   * Isto lia `state.overpaidCents`, que é a sobra da CONTA. Numa conta rachada
+   * são dinheiros diferentes: se B pagou a mais e depois A (que pagou exato) é
+   * estornado, a sobra de B fazia o estorno de A sair todo do consumo — e a
+   * gorjeta que devia voltar ficava na base da folha, com INSS/IRRF/FGTS por
+   * cima de dinheiro que voltou pro cliente. Achado pela revisão de segurança
+   * de 2026-09-08.
+   *
+   * `state` fica na assinatura pra reserva histórica: pagamento gravado antes
+   * deste campo não tem `excessCents`, e aí a sobra da conta é a melhor
+   * informação que existe — só é usada quando a conta tem UM pagamento, onde as
+   * duas coisas coincidem por construção.
+   */
+  const doPagamento = Number.isSafeInteger(pay.excessCents) ? pay.excessCents : null;
+  const umSoPagamento = state && state.payments && Object.keys(state.payments).length === 1;
+  const bruto = doPagamento !== null
+    ? doPagamento
+    : (umSoPagamento ? Math.max(0, (state && state.overpaidCents) || 0) : 0);
+  // Nunca mais do que o consumo que ainda existe, nem do que a conta ainda
+  // tem de sobra: uma restituição já feita não se faz duas vezes.
+  const excedente = Math.min(
+    Math.max(0, bruto),
+    Math.max(0, consumo),
+    Math.max(0, (state && state.overpaidCents) || 0),
+  );
+  return excedente > 0
+    ? allocateRestitution(consumo, gorjeta, delta, excedente)
+    : allocateRefund(consumo, gorjeta, delta);
+}
+
 async function applyConfirmedPayment(parsed, deps) {
   const {
     loadEvents, appendEvent, recordPayment, findCheckByTxid, fallback, seenPspEvent,
@@ -159,7 +201,12 @@ async function applyConfirmedPayment(parsed, deps) {
         await appendEvent(check.id, 'PAYMENT_ANOMALY', {
           txid: parsed.txid,
           reason: `reversão de estorno chegou antes do estorno (valor ${parsed.amountCents ?? '?'})`,
-          severity: 'high',
+          // `info`: este caso CONVERGE sozinho quando o estorno chega e a
+          // reentrega aplica a reversão. Deixá-lo `high` mantinha a casa
+          // vermelha por algo que se curou — o canário que grita pra sempre, e
+          // que este commit corrige em três outros lugares. O log fica com o
+          // registro de que a ordem veio trocada.
+          severity: 'info',
         }, parsed.eventId ? `${parsed.eventId}:out_of_order` : null);
       } catch { /* o registro é o melhor esforço; a resposta 200 não muda */ }
       return { status: 'out_of_order', checkId: check.id, reason: `reversal before refund for txid ${parsed.txid}` };
@@ -229,6 +276,23 @@ async function applyConfirmedPayment(parsed, deps) {
       ? (Array.isArray(pay.disputeIdsClosed) && pay.disputeIdsClosed.includes(parsed.disputeId))
       : pay.disputeStatus === 'lost';
     if (jaEncerrada) {
+      // Se a decisão veio do CINTO CEGO (sem `dp_`), deixa marca.
+      //
+      // A guarda por pagamento acerta a reentrega e não sabe distinguir uma
+      // segunda derrota legítima. Devolver `duplicate` calado nesse caso é o
+      // desfecho que este arquivo passa trinta linhas chamando de inaceitável:
+      // dinheiro debitado, os dois registros mudos, conciliação verde. Sucesso
+      // silencioso é o inimigo — então quando a guarda opera às cegas ela
+      // registra que operou. Achado pela revisão de segurança de 2026-09-08.
+      if (!parsed.disputeId) {
+        try {
+          await appendEvent(check.id, 'PAYMENT_ANOMALY', {
+            txid: parsed.txid, severity: 'high',
+            reason: `disputa perdida recusada como reentrega SEM id de disputa `
+              + `(delta ${parsed.refundDeltaCents}¢) — conferir no adquirente`,
+          }, parsed.eventId ? `${parsed.eventId}:blind_belt` : null);
+        } catch { /* melhor esforço: a recusa segue */ }
+      }
       await repairRowFromLedger(check.id, parsed.txid, deps);
       return { status: 'duplicate', checkId: check.id };
     }
@@ -246,16 +310,22 @@ async function applyConfirmedPayment(parsed, deps) {
       return { status: 'rejected', reason: `refund delta inválido (${parsed.refundDeltaCents}) para ${parsed.txid}` };
     }
     if (parsed.refundDeltaCents > sobra) {
+      // O `checkId` VAI na recusa. Sem ele a rota pula o
+      // `PAYMENT_DISPUTE_CLOSED` (ela testa `if (result.checkId)`) e devolve
+      // 409: a Stripe reenvia até desabilitar o endpoint, e a conta guarda um
+      // `dispute_evidence_overdue` crítico por uma disputa já resolvida.
       return {
         status: 'rejected',
+        checkId: check.id,
         reason: `refund ${parsed.refundDeltaCents} exceeds outstanding ${sobra} for txid ${parsed.txid}`,
       };
     }
-    refundAllocated = allocateRefund(
-      pay.amountCents - pay.refundedAmountCents,
-      pay.tipCents - pay.refundedTipCents,
-      parsed.refundDeltaCents,
-    );
+    // A disputa perdida usa o MESMO rateio: se parte do que entrou era
+    // excedente, é ele que sai primeiro. O chargeback leva a gorjeta junto — e
+    // deixá-la nos livros como paga mentiria pra folha — mas o excedente nunca
+    // foi gorjeta nem receita, e não pode virar desconto na folha por ordem de
+    // subtração.
+    refundAllocated = alocarDevolucao(state, pay, parsed.refundDeltaCents);
   }
   if (type === 'PAYMENT_REFUNDED' && Number.isSafeInteger(parsed.cumulativeRefundedCents)) {
     const pay = state && state.payments[parsed.txid];
@@ -279,11 +349,7 @@ async function applyConfirmedPayment(parsed, deps) {
         reason: `refund ${parsed.cumulativeRefundedCents} exceeds paid ${paidTotal} for txid ${parsed.txid}`,
       };
     }
-    refundAllocated = allocateRefund(
-      pay.amountCents - pay.refundedAmountCents,
-      pay.tipCents - pay.refundedTipCents,
-      delta,
-    );
+    refundAllocated = alocarDevolucao(state, pay, delta);
   }
 
   const payload = type === 'PAYMENT_DISPUTE_CLOSED' ? {
@@ -298,6 +364,9 @@ async function applyConfirmedPayment(parsed, deps) {
     // Real method from the PSP ('card' for Apple/Google Pay) — it used to be
     // hardcoded 'pix', which would mislabel wallet money in the ledger.
     ...(type === 'PAYMENT_CONFIRMED' ? { method: parsed.method || 'pix' } : {}),
+    // O excedente DESTE pagamento (ver `alocarDevolucao`).
+    ...(type === 'PAYMENT_CONFIRMED' && Number.isSafeInteger(parsed.excessCents) && parsed.excessCents > 0
+      ? { excessCents: parsed.excessCents } : {}),
     // O `dp_` fica no LOG: é o que distingue a reentrega de uma derrota da
     // segunda derrota de verdade, e o log é o único lugar durável.
     ...(type === 'PAYMENT_REFUNDED' && parsed.disputeId ? { disputeId: parsed.disputeId } : {}),

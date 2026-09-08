@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
-import { LangToggle, money, tError, useT } from './lang';
+import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
 import Home from './Home';
 import HousePay from './HousePay';
@@ -24,6 +24,16 @@ import { computeShare, splitEqualLocal, type SplitMode } from './split';
  */
 
 type Step = 'conta' | 'pagar' | 'pago' | 'saldo';
+
+/**
+ * Código do servidor → chave de tradução. Mapa, não ternário: o `else` de um
+ * ternário transforma qualquer código desconhecido na frase do vizinho, e aqui
+ * a frase do vizinho diz ao cliente que ele tem dinheiro a receber.
+ */
+const NOTICE_KEY: Record<string, Key> = {
+  overpaid_pending_restitution: 'notice.overpaid_pending_restitution',
+  refund_reversed: 'notice.refund_reversed',
+};
 
 export default function App() {
   const { t, lang, pct } = useT();
@@ -376,9 +386,10 @@ export default function App() {
               cliente vai embora sem saber que tem valor a receber. */}
           {(state.notices || []).map((n, i) => (
             <p key={`${n.code}:${i}`} className="muted small center" style={{ color: 'var(--burgundy)' }}>
-              {n.code === 'overpaid_pending_restitution'
-                ? t('notice.overpaid_pending_restitution', { amount: brl(n.amountCents) })
-                : t('notice.refund_reversed', { amount: brl(n.amountCents) })}
+              {/* Um `switch`, não um ternário: um código novo que o servidor
+                  inventar renderizaria a frase do ESTORNO — uma cobrança de
+                  dinheiro falsa pro cliente. Desconhecido não aparece. */}
+              {NOTICE_KEY[n.code] ? t(NOTICE_KEY[n.code], { amount: brl(n.amountCents) }) : null}
             </p>
           ))}
           <p className="muted small center">{t('paid.notInvoice')}</p>

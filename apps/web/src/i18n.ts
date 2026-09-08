@@ -194,12 +194,26 @@ export const DICT = {
   // de quem lê. Os dois casos são obrigação da casa, não cortesia: dinheiro
   // pago a mais tem que ser restituído (CC art. 876), e um estorno que falhou
   // deixa o cliente credor sem ele saber.
-  'notice.overpaid_pending_restitution': { en: 'You paid {amount} more than the bill asked. The restaurant owes you that back — ask the staff.',
-                        pt: 'Você pagou {amount} a mais do que a conta pedia. O restaurante deve te devolver — fale com a equipe.',
-                        es: 'Has pagado {amount} de más. El restaurante te lo debe devolver — habla con el personal.' },
-  'notice.refund_reversed': { en: 'A refund of {amount} did not go through and went back to the restaurant. You are still owed it — ask the staff.',
-                        pt: 'Um estorno de {amount} não passou e voltou pro restaurante. Você ainda tem esse valor a receber — fale com a equipe.',
-                        es: 'Una devolución de {amount} no se completó y volvió al restaurante. Aún te la deben — habla con el personal.' },
+  // A frase fala da CONTA, não do leitor.
+  //
+  // Era "Você pagou {amount} a mais" — e os dois avisos nascem de estado da
+  // CONTA (`state.overpaidCents`, qualquer anomalia de reversão na mesa),
+  // mostrado no telefone de quem estiver olhando. Numa mesa de quatro em que
+  // uma pessoa pagou a mais, os quatro telefones diziam "você tem a receber":
+  // três estavam errados, num fluxo sem login onde o restaurante não tem como
+  // saber qual deles é o credor. Convite pra alguém cobrar dinheiro de outro,
+  // e a casa sem meio de recusar corretamente. CDC art. 6º III pede informação
+  // CORRETA, não só clara.
+  //
+  // "a mais do que pedia" também cobre o caso em que a conta ENCOLHEU depois
+  // do pagamento (um item estornado no POS): ninguém pagou a mais, a conta
+  // diminuiu — e o dinheiro a devolver é o mesmo.
+  'notice.overpaid_pending_restitution': { en: 'This bill received {amount} more than it asked. The restaurant owes that back — talk to the staff.',
+                        pt: 'Esta conta recebeu {amount} a mais do que pedia. O restaurante deve devolver esse valor — fale com a equipe.',
+                        es: 'Esta cuenta ha recibido {amount} de más. El restaurante debe devolver ese importe — habla con el personal.' },
+  'notice.refund_reversed': { en: 'A refund of {amount} on this bill did not go through and went back to the restaurant. It is still owed — talk to the staff.',
+                        pt: 'Um estorno de {amount} nesta conta não passou e voltou pro restaurante. Esse valor ainda é devido — fale com a equipe.',
+                        es: 'Una devolución de {amount} en esta cuenta no se completó y volvió al restaurante. Ese importe sigue pendiente — habla con el personal.' },
   'paid.receipt':     { en: 'Proof of payment · {venue}',      pt: 'Comprovante de pagamento · {venue}', es: 'Justificante de pago · {venue}' },
   // O NOME do documento da casa, que vem do mercado: "CNPJ 12.345.678/0001-99"
   // e "NIF B12345678" são a mesma linha e não o mesmo rótulo. O valor é do
