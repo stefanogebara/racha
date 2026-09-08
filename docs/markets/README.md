@@ -114,6 +114,48 @@ node dev-server.js
 | O Payment Element do Bizum na tela | renderiza: campo de telefone, `6XX XX XX XX`, Espanha (+34) pré-selecionada |
 | O elemento SEM `locale` | sai em **inglês** numa conta espanhola — corrigido |
 
+**Com o sandbox REIVINDICADO (2026-09-08), chave `sk_test_` completa:**
+
+| O quê | Resultado |
+|---|---|
+| A conta de plataforma do sandbox | `country: ES`, `default_currency: eur` |
+| Confirmar com PaymentMethod de teste | `requires_action` → **`succeeded` sozinho em ~5 s** |
+| Telefone do PaymentMethod | E.164 obrigatório, com o `+` |
+| Id da cobrança de Bizum | **`py_…`**, não `ch_…` |
+| `payment_method_details.type` | `bizum` |
+| `bizum` no detalhe da cobrança | `buyer_id: "testmode_fake_buyer_id"` + `transaction_id` |
+| Eventos por pagamento | **cinco**, e só um é nosso |
+| `getCharge` do nosso adaptador | `{paid: true, method: 'bizum', amountCents: 3390, tipCents: 0}` |
+| Webhook assinado → nosso razão | `appended`, `status: paga`, 0 anomalias |
+| Linha de pagamento | `method: 'bizum'`, `currency: 'EUR'`, `confirmado` |
+| Criar conta conectada | **ainda barrado**: Connect não habilitado no sandbox |
+
+**O trilho é assíncrono e o teste também.** Confirmar devolve `requires_action`
+e a autorização se completa sozinha em segundos no modo de teste. Isso confirma
+o desenho do `bizumStatus.ts` pelos dois lados: a tela diz "espera o teu banco"
+e o poll avança pro ✓ quando o webhook chega. E confirma que enumerar FRACASSO
+em vez de sucesso era o certo — `requires_action` e `succeeded` são os dois
+resultados normais de uma mesma chamada, dependendo de quando se olha.
+
+**Cinco eventos, um razão.** Um único pagamento entrega
+`payment_intent.created`, `payment_intent.requires_action`,
+`payment_intent.succeeded`, `charge.succeeded` e `charge.updated`. Só o
+`succeeded` move dinheiro. Os outros quatro chegavam ao APLICADOR, que não acha
+o txid — uma `charge.succeeded` de Bizum carrega `py_…`, não `pi_…` — e devolvia
+`rejected`, que a rota mapeia pra 409. A Stripe reenvia e depois desabilita o
+endpoint, levando um `refund.failed` junto.
+
+A regra de ignorar existia, mas na ROTA. Agora está no PORTÃO
+(`createWebhookHandler`), onde qualquer chamador a herda. É o mesmo achado da
+revisão anterior um nível abaixo, e só apareceu porque o webhook rodou de verdade.
+
+**A conciliação pegou uma divergência de verdade.** Registrei a cobrança por
+3390 e a Stripe confirmou 2450 (erro meu ao montar o teste). O razão gravou
+2450, que é a verdade do PSP, e o redutor não acusou nada — porque o pagamento é
+internamente consistente. Quem acusou foi a conciliação:
+`amount_mismatch` e `ledger_drift`, os dois críticos, 940¢. O inegociável #8
+funcionando na camada certa, provado contra dinheiro de verdade.
+
 Os limites do `markets.js` (50 e 500000) batem com os da API — agora medidos, não
 confiados na doc.
 

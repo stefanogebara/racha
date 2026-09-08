@@ -141,6 +141,50 @@ describe('stripe adapter — createWalletCharge (destination charge)', () => {
     expect(md.tip_cents).toBe('100');
   });
 
+  test('um pagamento Bizum entrega CINCO eventos, e só um move o razão', async () => {
+    // Medido contra a Stripe de verdade em 2026-09-08, com `stripe listen`
+    // apontado pro nosso handler: um único pagamento Bizum entregou
+    // `payment_intent.created`, `payment_intent.requires_action`,
+    // `payment_intent.succeeded`, `charge.succeeded` e `charge.updated`.
+    //
+    // Só o `succeeded` é nosso. Os outros quatro têm que virar `ignored` no
+    // PORTÃO — se chegarem ao aplicador, ele não acha o txid (uma
+    // `charge.succeeded` de Bizum carrega `py_…`, não `pi_…`), cai no fallback
+    // e devolve `rejected`, que a rota mapeia pra 409. A Stripe reenvia e
+    // depois DESABILITA o endpoint, levando um `refund.failed` junto.
+    const { createWebhookHandler } = require('../_lib/pay/webhook-handler');
+    const psp = {
+      async verifyAndParseWebhook(raw) {
+        const type = String(raw);
+        if (type === 'payment_intent.succeeded') {
+          return { kind: 'payment_confirmed', txid: 'pi_x', amountCents: 3390, tipCents: 0, method: 'bizum' };
+        }
+        return { kind: 'ignored', type };
+      },
+    };
+    const chamadasAoAplicador = [];
+    const handle = createWebhookHandler({
+      psp,
+      loadEvents: async () => [],
+      appendEvent: async () => 1,
+      findCheckByTxid: async (txid) => { chamadasAoAplicador.push(txid); return null; },
+      fallback: async () => null,
+    });
+
+    for (const t of ['payment_intent.created', 'payment_intent.requires_action',
+      'charge.succeeded', 'charge.updated']) {
+      expect(await handle(t, 'sig')).toEqual({ status: 'ignored', type: t });
+    }
+    // Nenhum dos quatro chegou ao aplicador.
+    expect(chamadasAoAplicador).toEqual([]);
+
+    // E o que É nosso passa: chega ao aplicador e é recusado por txid
+    // desconhecido, que é o comportamento certo pra um txid que não emitimos.
+    const r = await handle('payment_intent.succeeded', 'sig');
+    expect(r.status).toBe('rejected');
+    expect(chamadasAoAplicador).toEqual(['pi_x']);
+  });
+
   test('o documento da casa vai na forma do PAÍS, não sempre em dígitos', async () => {
     // Era `replace(/\D/g, '')` sempre. Certo pro CNPJ, destrutivo pro NIF:
     // "B12345674" chegava na Stripe como "12345674". Um documento que não

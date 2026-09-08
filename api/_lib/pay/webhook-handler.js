@@ -126,13 +126,32 @@ function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, fin
   const deps = { loadEvents, appendEvent, recordPayment, findCheckByTxid, fallback };
 
   /**
-   * @returns {Promise<{status: 'appended'|'duplicate'|'divergent_appended'|'rejected', checkId?: string, seq?: number, reason?: string}>}
+   * @returns {Promise<{status: 'appended'|'duplicate'|'divergent_appended'|'rejected'|'ignored', checkId?: string, seq?: number, reason?: string, type?: string}>}
    * Throws WebhookVerificationError upward (HTTP layer → 401).
    */
   return async function handlePspWebhook(rawBody, signatureHeader) {
     // await: o mock verifica em memória (sync), o Pagar.me RE-BUSCA a
     // cobrança na API (async) — o corpo do webhook nunca é a verdade.
     const parsed = await psp.verifyAndParseWebhook(rawBody, signatureHeader); // throws on bad sig/auth
+
+    // Evento que não é do nosso razão para AQUI, não no aplicador.
+    //
+    // A regra existia — na ROTA, que devolve 200 pra `kind: 'ignored'` antes de
+    // chamar o aplicador. Só que a rota é um chamador e este é o portão: um
+    // segundo chamador do `createWebhookHandler` mandaria um evento
+    // desinteressante pro `applyConfirmedPayment`, que não acha o txid (uma
+    // `charge.succeeded` carrega `py_…`, não `pi_…`), cai no `fallback` e
+    // devolve `rejected`. A rota mapeia isso pra 409, a Stripe reenvia e
+    // depois DESABILITA o endpoint — e aí um `refund.failed` se perde junto
+    // com todo o resto. É o mesmo achado da revisão anterior, um nível abaixo.
+    //
+    // Medido rodando de verdade (2026-09-08): um único pagamento Bizum entrega
+    // CINCO eventos — `payment_intent.created`, `payment_intent.requires_action`,
+    // `payment_intent.succeeded`, `charge.succeeded`, `charge.updated`. Só um
+    // deles move o razão. Os outros quatro passavam por aqui.
+    if (parsed && parsed.kind === 'ignored') {
+      return { status: 'ignored', type: parsed.type };
+    }
     return applyConfirmedPayment(parsed, deps);
   };
 }
