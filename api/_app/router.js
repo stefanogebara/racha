@@ -27,6 +27,7 @@ if (fs.existsSync(envPath)) {
 const { createMemoryStore } = require('../_lib/store/memory');
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+const { appendValidated } = require('../_lib/checks/append-validated');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
@@ -618,7 +619,7 @@ async function route(req, res) {
           let persistido = false;
           if (parsed.kind === 'dispute_opened' && found) {
             try {
-              await store.appendEvent(found.id, 'PAYMENT_DISPUTED', {
+              await appendValidated(store, found.id, 'PAYMENT_DISPUTED', {
                 txid: parsed.txid, amountCents: parsed.amountCents, reason: parsed.reason || null,
                 // O PRAZO DE PROVA vai pro log. 40 dias corridos no Bizum, e
                 // perder o prazo é perder o dinheiro por inação — então ele
@@ -640,7 +641,7 @@ async function route(req, res) {
           // virar `dispute_evidence_overdue` crítico falso.
           if (parsed.kind === 'dispute_updated' && found && parsed.dueBy) {
             try {
-              await store.appendEvent(found.id, 'PAYMENT_DISPUTED', {
+              await appendValidated(store, found.id, 'PAYMENT_DISPUTED', {
                 txid: parsed.txid, amountCents: 0, reason: parsed.reason || null,
                 dueBy: parsed.dueBy, status: parsed.status || null,
               });
@@ -697,7 +698,7 @@ async function route(req, res) {
           result = await applyConfirmedPayment(parsed, confirmDeps);
           if (result.checkId) {
             try {
-              await store.appendEvent(result.checkId, 'PAYMENT_DISPUTE_CLOSED', {
+              await appendValidated(store, result.checkId, 'PAYMENT_DISPUTE_CLOSED', {
                 txid: parsed.txid, outcome: 'lost',
               });
             } catch (e) {
@@ -950,6 +951,42 @@ async function route(req, res) {
         ? await houseSvc.refundPrincipal({ accountId: b.accountId, amountCents: b.amountCents })
         : await houseSvc.rotateToken(b.accountId);
       return json(res, 200, { success: true, data });
+    }
+
+    /**
+     * O dono declara que resolveu uma pendência de dinheiro.
+     *
+     * O caso concreto: o estorno falhou, o dinheiro voltou pro restaurante e o
+     * cliente ficou sem. A conta fica marcada até alguém reembolsar por outro
+     * caminho — Pix na mão, dinheiro, o que for. Sem esta rota a marca é
+     * PERMANENTE, e uma casa que nunca fica verde é uma casa que para de olhar
+     * (inegociável #8).
+     *
+     * Exige DONO da casa e exige o porquê: "resolvido" sem autor e sem motivo é
+     * só a marca sumindo. O log fica íntegro — a falha do estorno continua lá.
+     */
+    if (req.method === 'POST' && url.pathname === '/api/checks/resolve-issue') {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.checkId || !b.txid) {
+        return json(res, 400, { success: false, error: 'checkId e txid são obrigatórios', code: 'amount_invalid' });
+      }
+      const issueVenue = await store.getVenueForCheck(b.checkId);
+      if (!issueVenue) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      try { await auth.requireVenueOwner(user, issueVenue.id); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const note = String(b.note || '').trim().slice(0, 200);
+      if (note.length < 3) {
+        return json(res, 400, { success: false, error: 'diga como foi resolvido', code: 'note_required' });
+      }
+      try {
+        const seq = await appendValidated(store, b.checkId, 'PAYMENT_ISSUE_RESOLVED', {
+          txid: String(b.txid), note, by: user.email || user.id || 'dono',
+        });
+        return json(res, 200, { success: true, data: { seq } });
+      } catch (e) {
+        return json(res, e.statusCode || 400, { success: false, error: e.message, code: 'resolve_failed' });
+      }
     }
 
     // --- owner (gated) -------------------------------------------------------

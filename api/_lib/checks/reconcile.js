@@ -43,7 +43,13 @@ function reconcileCheck({ checkId, events, payments }) {
 
   // 1. Event-log anomalies are reconciliation findings in their own right.
   for (const a of state ? state.anomalies : []) {
-    add('high', 'log_anomaly', `event-log anomaly: ${a.reason}`, { seq: a.seq, type: a.type });
+    // A SEVERIDADE vem da anomalia. Antes tudo virava `high`, então uma
+    // informação registrada — uma disputa perdida já contabilizada, uma
+    // pendência já resolvida — deixava a casa vermelha pra sempre. Uma casa que
+    // nunca fica verde é uma casa que para de olhar, que é o modo de falha que
+    // o inegociável #8 descreve.
+    add(a.severity || 'high', 'log_anomaly', `event-log anomaly: ${a.reason}`,
+      { seq: a.seq, type: a.type, ...(a.txid ? { txid: a.txid } : {}) });
   }
 
   const rows = Array.isArray(payments) ? payments : [];

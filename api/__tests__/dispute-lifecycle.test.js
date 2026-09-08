@@ -308,3 +308,75 @@ describe('entrega FORA DE ORDEM', () => {
     expect((await estado(store, check.id)).anomalies).toEqual([]);
   });
 });
+
+describe('pendência de dinheiro pode ser encerrada', () => {
+  test('o estorno que falhou deixa a casa vermelha ATÉ alguém resolver', async () => {
+    // A outra metade do inegociável #8, e eu tinha reintroduzido o defeito que
+    // acabara de corrigir: a marca do estorno que falhou era PERMANENTE, então
+    // a casa nunca mais ficava verde — e casa que nunca fica verde é casa que
+    // para de olhar. Achado pela revisão de compliance de 2026-09-08.
+    const { store, check, deps } = await mesaPaga();
+    await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500 }, deps);
+    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500 }, deps);
+
+    const pagamentos = [{ txid: 'pi_x', amountCents: 3082, tipCents: 308, status: 'confirmado', method: 'card' }];
+    let r = reconcileCheck({ checkId: check.id, events: await store.loadEvents(check.id), payments: pagamentos });
+    // Vermelha: o cliente tem dinheiro a receber por outro caminho.
+    expect(r.findings.some((f) => f.severity === 'high')).toBe(true);
+
+    // O dono registra que reembolsou por fora — com o PORQUÊ.
+    await store.appendEvent(check.id, 'PAYMENT_ISSUE_RESOLVED', {
+      txid: 'pi_x', note: 'devolvido em dinheiro no caixa', by: 'dono@bar.com',
+    });
+
+    const st = await estado(store, check.id);
+    expect(st.anomalies.some((a) => a.type === 'PAYMENT_REFUND_REVERSED')).toBe(false);
+    r = reconcileCheck({ checkId: check.id, events: await store.loadEvents(check.id), payments: pagamentos });
+    expect(r.findings.some((f) => f.severity === 'high' || f.severity === 'critical')).toBe(false);
+
+    // E o log continua íntegro: a falha do estorno está lá, com a resolução
+    // ao lado e com o autor.
+    const log = await store.loadEvents(check.id);
+    expect(log.some((e) => e.type === 'PAYMENT_REFUND_REVERSED')).toBe(true);
+    const resolucao = log.find((e) => e.type === 'PAYMENT_ISSUE_RESOLVED');
+    expect(resolucao.payload.by).toBe('dono@bar.com');
+    expect(resolucao.payload.note).toMatch(/dinheiro no caixa/);
+  });
+
+  test('resolver sem dizer o porquê é recusado', async () => {
+    // "Resolvido" sem motivo é só a marca sumindo do painel.
+    const { store, check, deps } = await mesaPaga();
+    await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500 }, deps);
+    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500 }, deps);
+    // Pelo caminho que a ROTA usa — o `store.appendEvent` cru não valida, e é
+    // justamente por isso que existe o `appendValidated`: os appends diretos da
+    // rota passavam por fora da validação e um evento inválido virava anomalia
+    // do redutor em vez de recusa limpa.
+    const { appendValidated } = require('../_lib/checks/append-validated');
+    await expect(appendValidated(store, check.id, 'PAYMENT_ISSUE_RESOLVED', { txid: 'pi_x', note: 'ok' }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'event_invalid' });
+    // E um evento válido passa.
+    await expect(appendValidated(store, check.id, 'PAYMENT_ISSUE_RESOLVED', {
+      txid: 'pi_x', note: 'devolvido em dinheiro', by: 'dono@bar.com',
+    })).resolves.toBeGreaterThan(0);
+  });
+
+  test('a disputa PERDIDA é informação, não pendência permanente', async () => {
+    // O dinheiro já saiu e está no estorno. Não há nada a fazer, e uma
+    // pendência permanente aqui é o canário gritando pra sempre — o mesmo
+    // defeito, do outro lado.
+    const { store, check, deps } = await mesaPaga();
+    await store.appendEvent(check.id, 'PAYMENT_DISPUTED', { txid: 'pi_x', amountCents: 3390 });
+    await applyConfirmedPayment({ kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 3390, method: 'dispute' }, deps);
+    await store.appendEvent(check.id, 'PAYMENT_DISPUTE_CLOSED', { txid: 'pi_x', outcome: 'lost' });
+
+    const r = reconcileCheck({
+      checkId: check.id,
+      events: await store.loadEvents(check.id),
+      payments: [{ txid: 'pi_x', amountCents: 3082, tipCents: 308, refundedAmountCents: 3082, refundedTipCents: 308, status: 'devolvido', method: 'card' }],
+    });
+    expect(r.findings.some((f) => f.severity === 'high' || f.severity === 'critical')).toBe(false);
+    // Mas o registro continua visível, como informação.
+    expect(r.findings.some((f) => f.severity === 'info' && /PERDIDA/.test(f.message))).toBe(true);
+  });
+});

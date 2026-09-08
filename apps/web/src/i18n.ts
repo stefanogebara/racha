@@ -253,6 +253,17 @@ export const DICT = {
   'err.body_incomplete':  { en: 'The connection dropped. Try again.',
                         pt: 'A conexão caiu. Tente de novo.',
                         es: 'Se cortó la conexión. Inténtalo de nuevo.' },
+  // Erro da tela do DONO ao registrar que resolveu uma pendência: sem o
+  // porquê, "resolvido" é só a marca sumindo do painel.
+  'err.note_required':    { en: 'Say how it was resolved.',
+                        pt: 'Diga como foi resolvido.',
+                        es: 'Di cómo se resolvió.' },
+  'err.event_invalid':    { en: 'That change does not fit this bill.',
+                        pt: 'Essa mudança não cabe nesta conta.',
+                        es: 'Ese cambio no encaja en esta cuenta.' },
+  'err.resolve_failed':   { en: 'Could not record that. Try again.',
+                        pt: 'Não deu pra registrar. Tente de novo.',
+                        es: 'No se pudo registrar. Inténtalo de nuevo.' },
   'err.generic':          { en: 'Something went wrong. Try again.',
                             pt: 'Algo deu errado. Tente de novo.',
                         es: 'Algo ha ido mal. Inténtalo de nuevo.' },

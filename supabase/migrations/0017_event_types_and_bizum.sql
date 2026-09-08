@@ -40,7 +40,11 @@ alter table public.check_events add constraint check_events_type_check
     'PAYMENT_DISPUTED', 'PAYMENT_REFUND_REVERSED', 'PAYMENT_DISPUTE_CLOSED',
     -- Anomalia registrada: o caso fora de ordem, que não pode ser aplicado nem
     -- recusado. Ver `PAYMENT_ANOMALY` no `check-state.js`.
-    'PAYMENT_ANOMALY'
+    'PAYMENT_ANOMALY',
+    -- Resolução de pendência pelo dono, com autor e motivo. Sem ela a marca do
+    -- estorno que falhou é permanente, e casa que nunca fica verde é casa que
+    -- para de olhar.
+    'PAYMENT_ISSUE_RESOLVED'
   ));
 
 alter table public.payments drop constraint if exists payments_method_check;

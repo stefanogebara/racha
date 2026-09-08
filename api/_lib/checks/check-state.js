@@ -105,6 +105,22 @@ const EVENT_TYPES = Object.freeze([
    * Não move saldo. Só marca a conta pra alguém olhar.
    */
   'PAYMENT_ANOMALY',
+  /**
+   * Alguém RESOLVEU uma pendência de dinheiro, por fora.
+   *
+   * Existe pro estorno que falhou: o dinheiro voltou pro restaurante e o
+   * cliente ficou sem, então a conta fica marcada até que alguém reembolse por
+   * outro caminho (Pix na mão, dinheiro, o que for). Sem este evento a marca é
+   * PERMANENTE, e uma casa que nunca fica verde é uma casa que para de olhar —
+   * o mesmo defeito que o fecho de disputa corrigiu, do outro lado.
+   *
+   * O log continua íntegro: a falha do estorno fica lá com data e valor. O que
+   * muda é a projeção parar de acusar.
+   *
+   * Quem dispara é o dono, pelo painel. Registra QUEM e POR QUÊ, porque
+   * "resolvido" sem autor é uma marca que qualquer um pode apagar.
+   */
+  'PAYMENT_ISSUE_RESOLVED',
 ]);
 
 // Money accumulations must stay in exact-integer territory.
@@ -177,6 +193,15 @@ function validateEvent(evt, prevState) {
       }
       if ((p.tipCents ?? 0) > rev.refundedTipCents) {
         invalid(`reversal exceeds refunded tip for txid ${p.txid}`);
+      }
+      break;
+    }
+    case 'PAYMENT_ISSUE_RESOLVED': {
+      if (!prevState) invalid('PAYMENT_ISSUE_RESOLVED before OPENED');
+      if (typeof p.txid !== 'string' || !p.txid) invalid('PAYMENT_ISSUE_RESOLVED.txid required');
+      if (typeof p.note !== 'string' || p.note.trim().length < 3) {
+        // Sem o porquê, "resolvido" é só a marca sumindo.
+        invalid('PAYMENT_ISSUE_RESOLVED.note required');
       }
       break;
     }
@@ -370,14 +395,30 @@ function applyEvent(state, evt, seq = null) {
       // Perdida já virou estorno no saldo; ganha não mexe em dinheiro. Nos dois
       // casos a marca sai, e o desfecho fica registrado em `disputeStatus`.
       if (p.outcome === 'lost') {
+        // INFORMAÇÃO, não pendência: o dinheiro já saiu e está registrado no
+        // estorno. Não há nada a fazer, e uma pendência permanente aqui é o
+        // canário que grita pra sempre — o mesmo defeito que o fecho de
+        // disputa foi escrito pra corrigir, reintroduzido do outro lado.
         return withAnomaly(resolved, seq, 'PAYMENT_DISPUTE_CLOSED',
-          `disputa PERDIDA em ${p.txid} — o dinheiro foi`, p.txid);
+          `disputa PERDIDA em ${p.txid} — o dinheiro foi`, p.txid, 'info');
       }
       return resolved;
     }
     case 'PAYMENT_ANOMALY':
       // Não mexe em dinheiro nenhum: só deixa a marca.
       return withAnomaly(recompute(cloneState(state)), seq, 'PAYMENT_ANOMALY', p.reason, p.txid || null);
+    case 'PAYMENT_ISSUE_RESOLVED': {
+      // Tira da PROJEÇÃO as pendências daquele txid. O log fica: a falha do
+      // estorno continua lá, com data e valor, e agora com o registro de quem
+      // resolveu e por quê.
+      const next = cloneState(state);
+      const RESOLVIVEIS = new Set(['PAYMENT_REFUND_REVERSED', 'PAYMENT_ANOMALY']);
+      next.anomalies = next.anomalies.filter(
+        (a) => !(RESOLVIVEIS.has(a.type) && a.txid === p.txid),
+      );
+      return withAnomaly(recompute(next), seq, 'PAYMENT_ISSUE_RESOLVED',
+        `pendência de ${p.txid} resolvida: ${p.note}`, p.txid, 'info');
+    }
     case 'CLOSED':
       return recompute({ ...cloneState(state), closed: true });
     default:
@@ -417,9 +458,11 @@ function cloneState(state) {
  * quebra, porque o sintoma é uma conta que continua vermelha e ninguém
  * associa à mudança de uma string.
  */
-function withAnomaly(state, seq, type, reason, txid = null) {
+function withAnomaly(state, seq, type, reason, txid = null, severity = 'high') {
   const next = cloneState(state);
-  next.anomalies.push({ seq, type: type || 'UNKNOWN', reason, ...(txid ? { txid } : {}) });
+  next.anomalies.push({
+    seq, type: type || 'UNKNOWN', reason, severity, ...(txid ? { txid } : {}),
+  });
   return next;
 }
 
