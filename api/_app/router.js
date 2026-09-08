@@ -659,7 +659,12 @@ async function route(req, res) {
               // que falhou, capacidade virando inativa e aviso precoce de
               // fraude, e cada um pede uma ação diferente. Sem o tipo, o alerta
               // diz "algo de conta aconteceu".
-              detail: parsed.type || parsed.reason || parsed.status || null,
+              // O tipo E a conta conectada. `payout.failed` sem o nome do
+              // restaurante não é acionável — "um repasse falhou" não diz de
+              // quem. O `accountId` vem de `event.account`.
+              detail: [parsed.type || parsed.reason || parsed.status || null,
+                parsed.accountId ? `acct=${parsed.accountId}` : null]
+                .filter(Boolean).join(' '),
             });
             avisado = Boolean(r && r.ok);
           }

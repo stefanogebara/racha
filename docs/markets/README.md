@@ -223,12 +223,35 @@ com `on_behalf_of`, e a plataforma nunca é a comerciante de liquidação. Mas
 mudança de fluxo de fundos passa por **parecer de advogado de pagamentos
 ANTES**. A janela do Pix (MED) é muito mais curta, então isto é novo.
 
-`charge.dispute.created` **agora é tratado**: vira o evento `PAYMENT_DISPUTED`
-no log (sem mover saldo — o dinheiro ainda é do restaurante até o esquema
-decidir) e alerta o fundador, porque há prazo de prova de 40 dias e perder o
-prazo é perder o dinheiro por inação. `charge.dispute.closed` com `lost` vira
-estorno de verdade; `won` fecha quieto. `refund.failed` alerta e **não** cria
-evento: o estorno não aconteceu, e inventar um seria mentir no razão.
+**A família inteira da disputa é tratada**, e o prazo é a parte cara.
+
+`charge.dispute.created` vira `PAYMENT_DISPUTED` no log — sem mover saldo, o
+dinheiro ainda é do restaurante até o esquema decidir — e leva junto o
+`evidence_details.due_by`. São 40 dias corridos, e perder o prazo é perder o
+dinheiro por INAÇÃO, então a conciliação lê esse prazo e vira achado: alto a
+sete dias do vencimento, crítico depois. Antes o prazo era descartado no
+adaptador e a defesa inteira dele era uma notificação best-effort.
+
+`charge.dispute.updated` atualiza o prazo (a Stripe manda prorrogação por lá).
+`funds_withdrawn` e `funds_reinstated` alertam — é dinheiro saindo e voltando
+do saldo. `closed` com `lost` vira estorno de verdade, com a gorjeta rateada na
+proporção (um chargeback leva a gorjeta junto, e deixá-la nos livros mentiria
+pra folha). `closed` com `won` GRAVA um fecho, porque sem ele a anomalia da
+abertura nunca sai e a conta fica vermelha pra sempre.
+
+**`refund.failed` mudou de decisão, e a decisão anterior estava escrita aqui.**
+A nota dizia "alerta e não cria evento: inventar um seria mentir no razão".
+Isso está certo pro caso síncrono e INVERTIDO pro assíncrono, que é o do Bizum:
+a Stripe incrementa `amount_refunded` quando o estorno é CRIADO, então o
+`charge.refunded` já entrou e o razão já diz "estornado". Quando a falha chega,
+o dinheiro voltou pro restaurante e o cliente ficou sem — e não havia como
+desfazer.
+
+O resultado era o pior possível: cliente com dinheiro a receber, os dois
+registros nossos dizendo que ele foi pago, e a conciliação comparando um com o
+outro, concordando, e reportando VERDE. Agora existe `PAYMENT_REFUND_REVERSED`,
+que devolve o saldo e MARCA a conta — e a marca só sai quando o dono registra,
+pelo painel, que reembolsou por outro caminho, com o motivo e o autor.
 
 **E o ESTORNO tem o mesmo mecanismo, o que a nota anterior não dizia.** Numa
 destination charge — com ou sem `on_behalf_of` — a Stripe debita o estorno do
