@@ -292,6 +292,56 @@ describe('stripe adapter — webhook', () => {
     expect(parsed.tipCents).toBeUndefined();
   });
 
+  test('evento de modo trocado é RECUSADO — teste não confirma dinheiro real', async () => {
+    // A assinatura prova que o corpo veio de quem tem o `whsec_`. Ela NÃO diz
+    // nada sobre modo. Um segredo de webhook de teste emparelhado com chave
+    // live — o desvio de configuração exato em que esta sessão viveu — fazia um
+    // `payment_intent.succeeded` de TESTE virar confirmação válida no razão de
+    // produção: dinheiro de mentira fechando mesa de verdade.
+    const vivo = { type: 'payment_intent.succeeded', livemode: true, data: { object: { id: 'pi_x', status: 'succeeded', amount: 1000, metadata: {} } } };
+    const teste = { ...vivo, livemode: false };
+
+    // Chave de teste + evento LIVE → recusa.
+    await expect(mk({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' }, stubStripe({ event: vivo }))
+      .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).rejects.toThrow(/modo do evento/);
+    // Chave live + evento de TESTE → recusa.
+    await expect(mk({ secretKey: 'sk_live_x', webhookSecret: 'whsec_x' }, stubStripe({ event: teste }))
+      .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).rejects.toThrow(/modo do evento/);
+    // E os pares certos passam.
+    expect((await mk({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' }, stubStripe({ event: teste }))
+      .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).kind).toBe('payment_confirmed');
+    expect((await mk({ secretKey: 'sk_live_x', webhookSecret: 'whsec_x' }, stubStripe({ event: vivo }))
+      .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).kind).toBe('payment_confirmed');
+  });
+
+  test('estorno órfão e eventos de conta não caem em ignorado', async () => {
+    // `Refund.payment_intent` é NULÁVEL (cobrança criada pela API de Charges,
+    // e algumas entregas de Connect). Ignorar isso é 200 pra dinheiro que se
+    // moveu, em cima de um razão que já diz "estornado".
+    const orfao = await mk({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' }, stubStripe({
+      event: { type: 'refund.failed', livemode: false, data: { object: { amount: 1000, status: 'failed' } } },
+    })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+    expect(orfao.kind).toBe('unusable_money_event');
+
+    // `charge.refund.updated` é o nome DEPRECADO: endpoint em versão de API
+    // anterior a 2024-10-28 recebe esse no lugar de `refund.*`. Sem o
+    // sinônimo, um estorno que falhou era ignorado em silêncio.
+    const velho = await mk({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' }, stubStripe({
+      event: { type: 'charge.refund.updated', livemode: false, data: { object: { payment_intent: 'pi_r', amount: 1000, status: 'failed' } } },
+    })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+    expect(velho.kind).toBe('refund_failed');
+
+    // Conta e repasse: cada um é uma promessa nossa quebrando em silêncio.
+    for (const type of ['payout.failed', 'capability.updated', 'account.updated', 'radar.early_fraud_warning.created']) {
+      const p2 = await mk({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' }, stubStripe({
+        event: { type, livemode: false, account: 'acct_v', data: { object: { status: 'inactive' } } },
+      })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+      expect(p2.kind).toBe('account_alert');
+      expect(p2.type).toBe(type);
+      expect(p2.accountId).toBe('acct_v');
+    }
+  });
+
   test('assinatura ruim, sem secret e sem header rejeitam', async () => {
     await expect(mk({ webhookSecret: 'whsec_x' }, stubStripe({ constructThrows: true }))
       .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).rejects.toThrow(WebhookVerificationError);

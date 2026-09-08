@@ -230,8 +230,17 @@ prazo é perder o dinheiro por inação. `charge.dispute.closed` com `lost` vira
 estorno de verdade; `won` fecha quieto. `refund.failed` alerta e **não** cria
 evento: o estorno não aconteceu, e inventar um seria mentir no razão.
 
-Pendências: o parecer do advogado e a cláusula de regresso no contrato do
-restaurante.
+**E o ESTORNO tem o mesmo mecanismo, o que a nota anterior não dizia.** Numa
+destination charge — com ou sem `on_behalf_of` — a Stripe debita o estorno do
+saldo da PLATAFORMA, e um estorno que falha ou é cancelado deixa o dinheiro no
+saldo da plataforma até ela transferir. Esta seção reservava o parecer só pra
+DISPUTA; estorno é o mesmo caminho e não estava mencionado. Dinheiro de
+consumidor parado na conta da plataforma, mesmo por pouco tempo, é pergunta de
+fluxo de fundos: inegociável #4 e BACEN Res. 494/2025 pedem o parecer ANTES,
+não na primeira devolução. Achado pela revisão de compliance de 2026-09-08.
+
+Pendências: o parecer do advogado — cobrindo disputa **e** estorno — e a
+cláusula de regresso no contrato do restaurante.
 
 ### 2. GDPR capítulo V: o banco está em São Paulo
 

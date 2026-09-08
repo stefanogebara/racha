@@ -230,8 +230,43 @@ function rateLimitBucket(req, prefix, limit) {
   b.count += 1;
   return b.count <= limit;
 }
+/**
+ * Texto vindo de fora, pronto pra uma linha de log.
+ *
+ * Sem controle nenhum, quem manda o corpo escreve o log: um `\n` no meio do
+ * valor inventa uma linha inteira no rastro de auditoria do caminho do
+ * dinheiro. Corta em 60 e joga fora tudo que não é caractere de nome de evento
+ * (a Stripe e a Pagar.me usam `[a-z._]`), então nem escape nem tamanho passam.
+ */
+function sanitizeForLog(v) {
+  return String(v).replace(/[^\w.:-]/g, '·').slice(0, 60);
+}
+
 function rateLimitOpen(req) {
   return rateLimitBucket(req, 'open', 10); // 10 wallet creations / 10 min / IP
+}
+/**
+ * Balde PRÓPRIO pros crons.
+ *
+ * Os crons usavam o `rateLimitOpen`, que compartilha o prefixo 'open' com o
+ * `/api/house/open`. Um salão inteiro é UM ip atrás do NAT do restaurante:
+ * dez batidas sem auth em `/api/cron/reconcile-pending` daquele ip consumiam o
+ * orçamento de abertura de carteira da casa por dez minutos. Um caminho não
+ * autenticado derrubando outro. Achado pela revisão de segurança.
+ */
+function rateLimitCron(req) {
+  return rateLimitBucket(req, 'cron', 20);
+}
+/**
+ * Balde próprio pra demo pública.
+ *
+ * Mesmo problema dos crons: `/api/demo/beacon` e `/api/demo/reset` são sem
+ * auth e batidas do mundo inteiro, e dividiam o prefixo 'open' com a abertura
+ * de carteira. Alguém martelando a demo esgotava o orçamento de carteira de
+ * um restaurante que por acaso saísse pelo mesmo ip.
+ */
+function rateLimitDemo(req) {
+  return rateLimitBucket(req, 'demo', 30);
 }
 // A auto-cura da demo ESCREVE (venue/mesa/conta) numa rota sem auth. Em estado
 // saudável é no-op; o limite existe pro estado degradado (achado MÉDIO).
@@ -509,8 +544,15 @@ async function route(req, res) {
       const raw = await readBody(req);
       // Toda chegada de webhook fica visível nos logs — diagnóstico de
       // entrega (Pagar.me chamou? com auth? qual evento?) sem adivinhação.
+      // O tipo vem de corpo NÃO AUTENTICADO — este log é escrito ANTES da
+      // verificação. Sem limpar, um `"type":"x\n[webhook] out status=appended"`
+      // forja linhas de log no rastro de auditoria do caminho do dinheiro.
+      // Achado pela revisão de segurança de 2026-09-08.
       let evtType = '?';
-      try { evtType = JSON.parse(raw).type || JSON.parse(raw).kind || '?'; } catch { /* corpo opaco */ }
+      try {
+        const cru = JSON.parse(raw);
+        evtType = sanitizeForLog(cru.type || cru.kind || '?');
+      } catch { /* corpo opaco */ }
       process.stderr.write(`[webhook] in type=${evtType} auth=${req.headers.authorization ? 'sim' : 'não'} bytes=${raw.length}\n`);
       // Headers inteiros: o mock pega x-racha-signature, o Pagar.me valida o
       // Basic Auth do endpoint (e re-busca a cobrança na API de todo jeito).
@@ -568,7 +610,7 @@ async function route(req, res) {
         // não tem antecedente nenhum.
         if (parsed.kind === 'dispute_opened' || parsed.kind === 'refund_progress'
             || parsed.kind === 'unusable_money_event' || parsed.kind === 'dispute_updated'
-            || parsed.kind === 'dispute_funds') {
+            || parsed.kind === 'dispute_funds' || parsed.kind === 'account_alert') {
           const found = await store.findCheckByTxid(parsed.txid);
           if (parsed.kind === 'dispute_opened' && found) {
             try {
@@ -587,7 +629,12 @@ async function route(req, res) {
           if (parsed.kind !== 'refund_progress') {
             await notifyFounderMoneyEvent({
               kind: parsed.kind, txid: parsed.txid, checkId: found ? found.id : null,
-              amountCents: parsed.amountCents, detail: parsed.reason || parsed.status || null,
+              amountCents: parsed.amountCents,
+              // O TIPO do evento vai no detalhe: `account_alert` cobre repasse
+              // que falhou, capacidade virando inativa e aviso precoce de
+              // fraude, e cada um pede uma ação diferente. Sem o tipo, o alerta
+              // diz "algo de conta aconteceu".
+              detail: parsed.type || parsed.reason || parsed.status || null,
             });
           }
           return json(res, 200, { success: true, data: { status: parsed.kind, txid: parsed.txid } });
@@ -964,7 +1011,7 @@ async function route(req, res) {
     // ela verifica — aqui é opaco, só se repassa (ver notifyPreviaBeacon). O
     // pior abuso com um pl vazado é a reação que a abertura real já dispararia.
     if (req.method === 'POST' && url.pathname === '/api/demo/beacon') {
-      if (!rateLimitOpen(req)) return json(res, 429, { success: false, error: 'calma lá' });
+      if (!rateLimitDemo(req)) return json(res, 429, { success: false, error: 'calma lá' });
       const b = JSON.parse(await readBody(req) || '{}');
       const ev = b.event === 'paid' || b.event === 'opened' ? b.event : null;
       const pl = typeof b.pl === 'string' && b.pl.length >= 40 && b.pl.length <= 400 ? b.pl : null;
@@ -978,7 +1025,7 @@ async function route(req, res) {
     // Sem auth de propósito: só toca a mesa fixa da demonstração, é
     // idempotente e rate-limited — o pior abuso possível é... resetar a demo.
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/demo/reset') {
-      if (!rateLimitOpen(req)) return json(res, 429, { success: false, error: 'calma lá' });
+      if (!rateLimitDemo(req)) return json(res, 429, { success: false, error: 'calma lá' });
       const data = await resetDemoCheck(store, DEMO_TABLE_TOKEN);
       return json(res, 200, { success: true, data });
     }
@@ -993,7 +1040,7 @@ async function route(req, res) {
         if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
           return json(res, 401, { success: false, error: 'unauthorized' });
         }
-      } else if (!rateLimitOpen(req)) {
+      } else if (!rateLimitCron(req)) {
         return json(res, 429, { success: false, error: 'calma lá' });
       }
       if (!psp.getRecipient) return json(res, 200, { success: true, data: { checked: 0, transitions: 0, note: 'PSP sem getRecipient' } });
@@ -1047,7 +1094,7 @@ async function route(req, res) {
         if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
           return json(res, 401, { success: false, error: 'unauthorized' });
         }
-      } else if (!rateLimitOpen(req)) {
+      } else if (!rateLimitCron(req)) {
         return json(res, 429, { success: false, error: 'calma lá' });
       }
       // ?hours= amplia a janela pra uma varredura profunda manual (curar um
@@ -1154,7 +1201,7 @@ async function route(req, res) {
         if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
           return json(res, 401, { success: false, error: 'unauthorized' });
         }
-      } else if (!rateLimitOpen(req)) {
+      } else if (!rateLimitCron(req)) {
         return json(res, 429, { success: false, error: 'calma lá' });
       }
       if (typeof store.listVenueActivation !== 'function') {

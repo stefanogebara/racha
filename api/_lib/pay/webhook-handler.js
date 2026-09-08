@@ -294,6 +294,11 @@ const NON_LEDGER_KINDS = new Set([
   // disputado no SALDO. Nenhum dos dois muda o que a mesa deve; os dois
   // precisam de alerta e de registro, que é do chamador.
   'dispute_updated', 'dispute_funds',
+  // Conta e repasse: `payout.failed` (o dinheiro do restaurante não chegou),
+  // capacidade virando inativa (o trilho falha na mesa), e aviso precoce de
+  // fraude (o único momento em que estornar evita a disputa inteira). Não
+  // movem o razão de nenhuma mesa; precisam de alerta.
+  'account_alert',
 ]);
 
 function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, findCheckByTxid, fallback }) {

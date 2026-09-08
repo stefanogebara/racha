@@ -412,6 +412,27 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         throw new WebhookVerificationError(`assinatura Stripe inválida: ${String(err.message).slice(0, 120)}`);
       }
 
+      /**
+       * O MODO do evento tem que casar com o modo da chave.
+       *
+       * A assinatura só prova que o corpo veio de quem tem o `whsec_`. Ela não
+       * diz nada sobre modo: um segredo de webhook de TESTE emparelhado com uma
+       * chave LIVE — exatamente o desvio de configuração em que esta sessão
+       * viveu, com `rkcs_test_` e `stripe listen` — fazia um
+       * `payment_intent.succeeded` de teste virar confirmação de pagamento
+       * válida no razão de produção. Dinheiro de mentira fechando mesa de
+       * verdade. Achado pela revisão de segurança de 2026-09-08.
+       *
+       * O modo da chave é legível no prefixo. Divergência é 401 alto, não um
+       * evento processado por engano.
+       */
+      const chaveDeTeste = /_test_/.test(String(secretKey));
+      if (typeof event.livemode === 'boolean' && event.livemode === chaveDeTeste) {
+        throw new WebhookVerificationError(
+          `modo do evento (livemode=${event.livemode}) não casa com o modo da chave`,
+        );
+      }
+
       const type = event.type;
       if (type === 'payment_intent.succeeded') {
         const pi = event.data.object;
@@ -524,13 +545,58 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
       // Reembolso que FALHOU. O dinheiro voltou pro saldo do restaurante e o
       // cliente continua sem receber — e ninguém descobre isso sozinho. Não
       // move o ledger (o estorno não aconteceu), mas tem que gritar.
-      if (type === 'refund.failed' || type === 'refund.updated') {
+      // `charge.refund.updated` é o nome DEPRECADO do mesmo evento.
+      //
+      // Os eventos `refund.*` só chegaram na versão 2024-10-28 (`acacia`) da
+      // API; endpoint em versão anterior recebe `charge.refund.updated` no
+      // lugar. Sem o sinônimo, um estorno que FALHOU caía no `ignored` → 200,
+      // em cima de um razão que já dizia "estornado" — cliente sem dinheiro,
+      // nós achando que devolvemos, e nada gritando. Depender de uma versão de
+      // API configurada no painel é a forma do inegociável #7: uma
+      // configuração invisível decidindo se o dinheiro é rastreado.
+      if (type === 'refund.failed' || type === 'refund.updated' || type === 'charge.refund.updated') {
         const r = event.data.object;
         const txid = r.payment_intent;
-        if (typeof txid !== 'string') return { kind: 'ignored', type, raw: r };
+        if (typeof txid !== 'string') {
+          // Estorno de verdade que não sabemos endereçar. `Refund.payment_intent`
+          // é NULÁVEL (cobrança criada pela API de Charges, e algumas entregas
+          // de Connect). Ignorar isso é 200 pra dinheiro que se moveu.
+          return { kind: 'unusable_money_event', type, status: r.status || null, raw: r };
+        }
         return {
           kind: r.status === 'failed' ? 'refund_failed' : 'refund_progress',
           txid, amountCents: Number(r.amount) || 0, status: r.status || null, raw: r,
+        };
+      }
+
+      /**
+       * Eventos de CONTA e de REPASSE: não movem o razão de nenhuma mesa, mas
+       * cada um é uma promessa nossa quebrando em silêncio se ninguém vê.
+       *
+       *  - `payout.failed`: o dinheiro do restaurante NÃO chegou na conta dele.
+       *    "Repasse automático diário" é argumento de venda.
+       *  - `capability.updated` / `account.updated`: `bizum_payments` ou
+       *    `transfers` virando inativo significa o trilho falhando na mesa, ou
+       *    uma destination charge cujo transfer não sai — dinheiro parado no
+       *    saldo da PLATAFORMA, que é território do inegociável #4.
+       *  - `radar.early_fraud_warning.created`: o único evento em que estornar
+       *    no mesmo dia evita a disputa inteira, e com ela os 40 dias de prazo.
+       *
+       * Espécie própria, não `ignored`: quem trata é o chamador, e o nome diz
+       * o que é. Achados da revisão de compliance de 2026-09-08.
+       */
+      if (type === 'payout.failed' || type === 'payout.canceled'
+          || type === 'capability.updated' || type === 'account.updated'
+          || type === 'radar.early_fraud_warning.created') {
+        const o = event.data.object || {};
+        return {
+          kind: 'account_alert',
+          type,
+          txid: typeof o.payment_intent === 'string' ? o.payment_intent : null,
+          amountCents: Number(o.amount) || 0,
+          status: typeof o.status === 'string' ? o.status : null,
+          accountId: typeof event.account === 'string' ? event.account : null,
+          raw: o,
         };
       }
       // Outros eventos não movem o nosso ledger — mas ignorar é 200, não 401.
