@@ -438,7 +438,14 @@ function createPagarmePsp({
       // um `charge.refunded` forjado desquitava uma conta paga de verdade.
       const REEMBOLSADO = new Set(['canceled', 'refunded']);
       if (REEMBOLSADO.has(charge.status)) {
-        return { kind: 'refund', txid: charge.id, amountCents, tipCents, method, raw: charge };
+        // ACUMULADO, como na Stripe: estorno total devolve tudo, então o
+        // acumulado é o valor da cobrança. Quem calcula o delta e rateia entre
+        // consumo e gorjeta é o razão — um só lugar pros dois adquirentes.
+        return {
+          kind: 'refund', txid: charge.id,
+          cumulativeRefundedCents: totalCents,
+          method, raw: charge,
+        };
       }
       if (charge.status === 'partial_canceled') {
         // Dinheiro SAIU e a gente não sabe quanto: exige mapear

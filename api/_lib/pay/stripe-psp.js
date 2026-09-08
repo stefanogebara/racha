@@ -418,37 +418,39 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         return { ...parseIntent(pi), kind: 'payment_confirmed' };
       }
       if (type === 'charge.refunded') {
-        // v1: reembolso TOTAL (paridade com o pagarme). O objeto é uma charge;
-        // charge.payment_intent aponta pro pi (nossa chave). Gorjeta/consumo
-        // separados via metadata do PI (o reembolso parcial entra no checklist).
+        // `charge.refunded` dispara em estorno PARCIAL também, e
+        // `amount_refunded` é ACUMULADO — não é o valor deste estorno, é o
+        // total já devolvido nessa cobrança. O código antigo tratava o
+        // acumulado como se fosse o valor novo, então o segundo estorno parcial
+        // reapresentava o total, o `validateEvent` recusava ("refund exceeds
+        // paid amount"), a rota devolvia 409, a Stripe reenviava e depois
+        // DESABILITAVA o endpoint — levando um `refund.failed` junto. Achado
+        // pela revisão de compliance de 2026-09-08.
+        //
+        // Então o adaptador devolve o ACUMULADO e diz que é acumulado. Quem
+        // sabe quanto já foi estornado é o razão, e é lá que o delta é
+        // calculado (ver `applyConfirmedPayment`). De brinde isso é idempotente
+        // de graça: um reenvio traz o mesmo acumulado, o delta dá zero, nada
+        // acontece.
+        //
+        // E o RATEIO entre consumo e gorjeta saiu daqui. Era
+        // `Math.min(tipCents, refunded)`, que devolvia a gorjeta inteira
+        // primeiro — decisão sobre o salário de alguém tomada por ordem de
+        // subtração. Agora é proporcional, no `allocateRefund`, com o split que
+        // o RAZÃO gravou na confirmação, que é a fonte autoritativa (o
+        // metadata do PI era uma segunda cópia, e exigia uma chamada extra à
+        // API quando a charge não vinha expandida).
         const charge = event.data.object;
         const txid = charge.payment_intent;
         if (typeof txid !== 'string') throw new WebhookVerificationError('refund sem payment_intent');
-        // `tip_cents` é gravado no PAYMENT INTENT (ver createWalletCharge /
-        // createBizumCharge), não na charge — ler da charge devolvia sempre 0 e
-        // punha a gorjeta inteira em `amountCents`, nos DOIS trilhos. A charge
-        // carrega o PI expandido em alguns eventos; quando não carrega,
-        // buscamos. Achado da revisão de compliance.
-        let tipCents = Number((charge.metadata && charge.metadata.tip_cents) || 0) || 0;
-        if (!tipCents) {
-          try {
-            const pi = await stripe.paymentIntents.retrieve(txid);
-            tipCents = Number((pi.metadata && pi.metadata.tip_cents) || 0) || 0;
-          } catch { /* sem o PI, fica 0 — melhor subestimar a gorjeta que inventar */ }
-        }
-        const refunded = Number(charge.amount_refunded) || 0;
         return {
           kind: 'refund', txid,
-          amountCents: Math.max(0, refunded - tipCents),
-          tipCents: Math.min(tipCents, refunded),
+          cumulativeRefundedCents: Number(charge.amount_refunded) || 0,
           method: (charge.payment_method_details && charge.payment_method_details.type) === 'bizum'
             ? 'bizum' : 'card',
           raw: charge,
         };
       }
-      // Disputa aberta. NÃO é estorno: o dinheiro fica retido enquanto o
-      // esquema decide (Bizum dá 120 dias pro cliente reclamar, 40 pra prova,
-      // 90 pra decisão). Vira evento de ledger sem mover saldo, e alerta.
       if (type === 'charge.dispute.created') {
         const d = event.data.object;
         const txid = d.payment_intent;

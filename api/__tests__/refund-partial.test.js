@@ -1,0 +1,124 @@
+'use strict';
+
+/**
+ * Estorno PARCIAL, e por que ele é um teste de folha de pagamento.
+ *
+ * Dois defeitos que a revisão de compliance de 2026-09-08 achou juntos:
+ *
+ * 1. O adaptador rateava com `Math.min(tipCents, refunded)`, devolvendo a
+ *    GORJETA INTEIRA antes de tocar o consumo. A gorjeta é remuneração do
+ *    empregado (Lei 13.419/2017 + STJ Tema 1102) e o total dela é a base da
+ *    folha, então escolher quem perde primeiro num estorno é decisão sobre o
+ *    salário de alguém — e estava sendo tomada por ordem de subtração.
+ * 2. `charge.amount_refunded` é ACUMULADO, e era lido como se fosse o valor
+ *    daquele estorno. O segundo estorno parcial reapresentava o total, o
+ *    `validateEvent` recusava, a rota devolvia 409, a Stripe reenviava e depois
+ *    DESABILITAVA o endpoint — levando um `refund.failed` junto.
+ */
+
+const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+const { createMemoryStore } = require('../_lib/store/memory');
+const { reduce } = require('../_lib/checks/check-state');
+
+async function mesaPaga() {
+  const store = createMemoryStore();
+  const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+  const table = await store.seedTable(venue.id, 'Mesa 1');
+  const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Rodízio', priceCents: 3082 }]);
+  const deps = {
+    loadEvents: store.loadEvents.bind(store),
+    appendEvent: store.appendEvent.bind(store),
+    recordPayment: store.recordPayment.bind(store),
+    findCheckByTxid: store.findCheckByTxid.bind(store),
+  };
+  await store.registerCharge({
+    checkId: check.id, txid: 'pi_x', amountCents: 3082, tipCents: 308,
+    payerLabel: null, method: 'card',
+  });
+  // Consumo 3082 + gorjeta 308 = 3390 pagos.
+  const r = await applyConfirmedPayment({
+    kind: 'payment_confirmed', txid: 'pi_x', amountCents: 3082, tipCents: 308, method: 'card',
+  }, deps);
+  expect(r.status).toBe('appended');
+  return { store, check, deps };
+}
+
+const estado = async (store, checkId) => reduce(await store.loadEvents(checkId));
+
+describe('estorno parcial', () => {
+  test('rateia proporcional: a gorjeta não é raspada primeiro', async () => {
+    const { store, check, deps } = await mesaPaga();
+    // R$ 5,00 de 33,90. A gorjeta é 9,08% do pago, então devolve ~45¢ dela.
+    const r = await applyConfirmedPayment({
+      kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500, method: 'card',
+    }, deps);
+    expect(r.status).toBe('appended');
+
+    const st = await estado(store, check.id);
+    const pay = st.payments.pi_x;
+    expect(pay.refundedTipCents).toBe(45);
+    expect(pay.refundedAmountCents).toBe(455);
+    // Exato: as duas partes somam o estorno, sem centavo criado nem perdido.
+    expect(pay.refundedAmountCents + pay.refundedTipCents).toBe(500);
+    // O comportamento ANTIGO devolvia 308 de gorjeta — o serviço todo. O
+    // garçom fica com 263¢ que o código velho tirava dele.
+    expect(pay.refundedTipCents).toBeLessThan(308);
+    // E o total de gorjeta que a folha lê caiu só o proporcional.
+    expect(st.tipCents).toBe(308 - 45);
+  });
+
+  test('o SEGUNDO estorno parcial funciona, em vez de virar 409 e derrubar o endpoint', async () => {
+    const { store, check, deps } = await mesaPaga();
+    await applyConfirmedPayment({
+      kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500, method: 'card',
+    }, deps);
+    // A Stripe manda o ACUMULADO: 500 + 400 = 900. O código antigo tratava 900
+    // como um estorno novo de 900 sobre um pagamento que só tinha 400 de
+    // gorjeta sobrando — `validateEvent` recusava e a rota devolvia 409.
+    const r = await applyConfirmedPayment({
+      kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 900, method: 'card',
+    }, deps);
+    expect(r.status).toBe('appended');
+
+    const st = await estado(store, check.id);
+    const pay = st.payments.pi_x;
+    expect(pay.refundedAmountCents + pay.refundedTipCents).toBe(900);
+    expect(st.paidCents).toBe(3082 - pay.refundedAmountCents);
+    expect(st.anomalies).toEqual([]);
+  });
+
+  test('reenvio do mesmo acumulado é no-op, não estorno em dobro', async () => {
+    const { store, check, deps } = await mesaPaga();
+    await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500, method: 'card' }, deps);
+    for (let i = 0; i < 3; i += 1) {
+      const r = await applyConfirmedPayment({
+        kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500, method: 'card',
+      }, deps);
+      expect(r.status).toBe('duplicate');
+    }
+    const st = await estado(store, check.id);
+    expect(st.payments.pi_x.refundedAmountCents + st.payments.pi_x.refundedTipCents).toBe(500);
+  });
+
+  test('estorno total devolve exatamente consumo e gorjeta', async () => {
+    const { store, check, deps } = await mesaPaga();
+    const r = await applyConfirmedPayment({
+      kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 3390, method: 'card',
+    }, deps);
+    expect(r.status).toBe('appended');
+    const st = await estado(store, check.id);
+    expect(st.payments.pi_x.refundedAmountCents).toBe(3082);
+    expect(st.payments.pi_x.refundedTipCents).toBe(308);
+    expect(st.paidCents).toBe(0);
+    expect(st.tipCents).toBe(0);
+  });
+
+  test('PSP dizendo ter devolvido mais do que recebeu é RECUSADO, não arredondado', async () => {
+    const { deps } = await mesaPaga();
+    const r = await applyConfirmedPayment({
+      kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 5000, method: 'card',
+    }, deps);
+    expect(r.status).toBe('rejected');
+    expect(r.reason).toMatch(/exceeds paid/);
+  });
+});

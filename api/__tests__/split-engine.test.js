@@ -5,7 +5,7 @@
  * money is being created or destroyed and nothing else matters.
  */
 
-const { splitEqual, validateCustomSplit, splitByItems, servicoCents } = require('../_lib/checks/split-engine');
+const { splitEqual, validateCustomSplit, splitByItems, servicoCents, allocateRefund } = require('../_lib/checks/split-engine');
 
 describe('splitEqual — exact largest-remainder division', () => {
   test('divides evenly when possible', () => {
@@ -147,5 +147,53 @@ describe('servicoCents — optional serviço math (basis points, half-up, NO def
     expect(() => servicoCents(10000, 3001)).toThrow(/out of range/);
     expect(servicoCents(10000, 10)).toBe(10); // 10bp = 0.1% — legal, math is exact
     expect(() => servicoCents(Number.MAX_SAFE_INTEGER - 1, 1000)).toThrow(/safe integer range/);
+  });
+});
+
+describe('allocateRefund — quem perde primeiro num estorno é decisão, não subtração', () => {
+  test('as duas partes SOMAM o estorno, sempre — propriedade, não exemplo', () => {
+    // A invariante que importa: nenhum centavo é criado nem desaparece no
+    // rateio. Mesma disciplina do `splitEqual`, e pelo mesmo motivo.
+    for (let consumo = 0; consumo <= 4000; consumo += 137) {
+      for (let gorjeta = 0; gorjeta <= 600; gorjeta += 43) {
+        const total = consumo + gorjeta;
+        for (let estorno = 0; estorno <= total; estorno += Math.max(1, Math.floor(total / 11))) {
+          const { amountCents, tipCents } = allocateRefund(consumo, gorjeta, estorno);
+          expect(amountCents + tipCents).toBe(estorno);
+          expect(amountCents).toBeGreaterThanOrEqual(0);
+          expect(tipCents).toBeGreaterThanOrEqual(0);
+          // Nunca devolve mais do que aquele lado recebeu.
+          expect(amountCents).toBeLessThanOrEqual(consumo);
+          expect(tipCents).toBeLessThanOrEqual(gorjeta);
+        }
+      }
+    }
+  });
+
+  test('proporcional: a gorjeta devolve a fatia que recebeu, não tudo', () => {
+    // O comportamento antigo era `Math.min(gorjeta, estorno)` — gorjeta
+    // inteira primeiro. Num estorno de 500 sobre 3082+308 isso raspava os 308.
+    expect(allocateRefund(3082, 308, 500)).toEqual({ amountCents: 455, tipCents: 45 });
+    // Metade da conta devolve metade da gorjeta.
+    expect(allocateRefund(1000, 100, 550)).toEqual({ amountCents: 500, tipCents: 50 });
+  });
+
+  test('estorno total devolve exatamente o que foi pago de cada lado', () => {
+    expect(allocateRefund(3082, 308, 3390)).toEqual({ amountCents: 3082, tipCents: 308 });
+    expect(allocateRefund(1, 1, 2)).toEqual({ amountCents: 1, tipCents: 1 });
+  });
+
+  test('sem gorjeta, ou sem consumo, o estorno vai inteiro pro lado que existe', () => {
+    expect(allocateRefund(1000, 0, 400)).toEqual({ amountCents: 400, tipCents: 0 });
+    expect(allocateRefund(0, 300, 100)).toEqual({ amountCents: 0, tipCents: 100 });
+    expect(allocateRefund(0, 0, 0)).toEqual({ amountCents: 0, tipCents: 0 });
+  });
+
+  test('estorno maior que o pago ESTOURA, não arredonda', () => {
+    // Um PSP dizendo ter devolvido mais do que recebeu é divergência de
+    // dinheiro. Inventar um número aqui esconderia isso.
+    expect(() => allocateRefund(1000, 100, 1101)).toThrow(/exceeds paid total/);
+    expect(() => allocateRefund(1000, 100, -1)).toThrow();
+    expect(() => allocateRefund(1000.5, 100, 100)).toThrow();
   });
 });

@@ -264,11 +264,32 @@ describe('stripe adapter — webhook', () => {
     expect(parsed).toMatchObject({ kind: 'payment_confirmed', txid: 'pi_x', amountCents: 8000, tipCents: 800, method: 'card' });
   });
 
-  test('charge.refunded → refund shape (consumo/gorjeta separados)', async () => {
-    const event = { type: 'charge.refunded', data: { object: { payment_intent: 'pi_x', amount_refunded: 8800, metadata: { tip_cents: '800' } } } };
+  test('charge.refunded devolve o ACUMULADO, não um valor já rateado', async () => {
+    // Este teste mudou de forma, e a mudança é o achado.
+    //
+    // Antes ele exigia `amountCents: 8000, tipCents: 800` — o adaptador rateava
+    // ali mesmo, com `Math.min(tipCents, refunded)`, que devolve a gorjeta
+    // INTEIRA antes de tocar o consumo. Num estorno parcial isso raspa o
+    // serviço todo: 500¢ sobre 3082+308 estornava 308 de gorjeta e 192 de
+    // consumo. A gorjeta é remuneração do empregado (Lei 13.419 + STJ Tema
+    // 1102), então quem perde primeiro num estorno é decisão sobre o salário
+    // de alguém — não pode ser efeito colateral de um `Math.min`.
+    //
+    // E `amount_refunded` é ACUMULADO: o segundo estorno parcial reapresentava
+    // o total como se fosse novo, o `validateEvent` recusava, a rota devolvia
+    // 409, a Stripe reenviava e depois DESABILITAVA o endpoint.
+    //
+    // Agora o adaptador reporta o acumulado e diz que é acumulado; o delta e o
+    // rateio proporcional acontecem no razão, que é quem sabe quanto já foi
+    // estornado e qual era o split. Achado pela revisão de compliance de
+    // 2026-09-08.
+    const event = { type: 'charge.refunded', data: { object: { payment_intent: 'pi_x', amount_refunded: 8800 } } };
     const psp = mk({ webhookSecret: 'whsec_x' }, stubStripe({ event }));
     const parsed = await psp.verifyAndParseWebhook('{raw}', { 'stripe-signature': 'x' });
-    expect(parsed).toMatchObject({ kind: 'refund', txid: 'pi_x', amountCents: 8000, tipCents: 800, method: 'card' });
+    expect(parsed).toMatchObject({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 8800, method: 'card' });
+    // O adaptador NÃO rateia mais, e não deve fingir que rateou.
+    expect(parsed.amountCents).toBeUndefined();
+    expect(parsed.tipCents).toBeUndefined();
   });
 
   test('assinatura ruim, sem secret e sem header rejeitam', async () => {

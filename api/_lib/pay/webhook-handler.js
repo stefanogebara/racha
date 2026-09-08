@@ -25,6 +25,7 @@
 
 const { reduce, validateEvent, EventValidationError } = require('../checks/check-state');
 const { maskPixPayload } = require('./mask');
+const { allocateRefund } = require('../checks/split-engine');
 
 /**
  * Fold a verified+parsed PSP charge into the check ledger. Pure orchestration
@@ -62,10 +63,58 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
   const state = reduce(events);
 
   const type = parsed.kind === 'refund' ? 'PAYMENT_REFUNDED' : 'PAYMENT_CONFIRMED';
+
+  /**
+   * Estorno ACUMULADO → delta, e o rateio entre consumo e gorjeta.
+   *
+   * O PSP conta o total já devolvido naquela cobrança (`amount_refunded` da
+   * Stripe é acumulado); o razão registra DELTAS, porque o redutor soma. Os
+   * dois só se encontram aqui, onde se sabe quanto já foi estornado.
+   *
+   * O que isso conserta: o segundo estorno parcial reapresentava o acumulado
+   * como se fosse novo, o `validateEvent` recusava, a rota devolvia 409, a
+   * Stripe reenviava e depois desabilitava o endpoint. E de graça fica
+   * idempotente: reenvio traz o mesmo acumulado, delta zero, nada acontece.
+   *
+   * O rateio é PROPORCIONAL (`allocateRefund`), e mora no motor de centavos
+   * junto do resto da matemática de dinheiro. Era `Math.min(tipCents,
+   * refunded)` no adaptador, que raspava a gorjeta inteira antes de tocar o
+   * consumo — decisão sobre a folha de alguém (Lei 13.419) tomada por ordem de
+   * subtração.
+   */
+  let refundAllocated = null;
+  if (type === 'PAYMENT_REFUNDED' && Number.isSafeInteger(parsed.cumulativeRefundedCents)) {
+    const pay = state && state.payments[parsed.txid];
+    if (!pay) {
+      return { status: 'rejected', reason: `refund for unknown txid ${parsed.txid}` };
+    }
+    const jaEstornado = pay.refundedAmountCents + pay.refundedTipCents;
+    const delta = parsed.cumulativeRefundedCents - jaEstornado;
+    if (delta <= 0) {
+      // Reenvio do mesmo estorno, ou um acumulado mais velho que o que já
+      // temos. Nada a fazer, e nada de anomalia: é o caso normal.
+      return { status: 'duplicate', checkId: check.id };
+    }
+    const paidTotal = pay.amountCents + pay.tipCents;
+    if (parsed.cumulativeRefundedCents > paidTotal) {
+      // O PSP diz ter devolvido mais do que recebeu. Não inventa número: recusa
+      // alto, porque isto é divergência de dinheiro e não arredondamento.
+      return {
+        status: 'rejected',
+        reason: `refund ${parsed.cumulativeRefundedCents} exceeds paid ${paidTotal} for txid ${parsed.txid}`,
+      };
+    }
+    refundAllocated = allocateRefund(
+      pay.amountCents - pay.refundedAmountCents,
+      pay.tipCents - pay.refundedTipCents,
+      delta,
+    );
+  }
+
   const payload = {
     txid: parsed.txid,
-    amountCents: parsed.amountCents,
-    tipCents: parsed.tipCents,
+    amountCents: refundAllocated ? refundAllocated.amountCents : parsed.amountCents,
+    tipCents: refundAllocated ? refundAllocated.tipCents : parsed.tipCents,
     // Real method from the PSP ('card' for Apple/Google Pay) — it used to be
     // hardcoded 'pix', which would mislabel wallet money in the ledger.
     ...(type === 'PAYMENT_CONFIRMED' ? { method: parsed.method || 'pix' } : {}),

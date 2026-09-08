@@ -126,4 +126,57 @@ function servicoCents(baseCents, pctBasisPoints) {
   return Math.floor((baseCents * pctBasisPoints + 5000) / 10000);
 }
 
-module.exports = { splitEqual, validateCustomSplit, splitByItems, servicoCents, assertCents };
+/**
+ * Rateia um ESTORNO entre consumo e gorjeta, na proporção do que foi pago.
+ *
+ * Por que isto existe, e por que é decisão jurídica e não aritmética: o
+ * adaptador da Stripe fazia
+ *
+ *     amountCents: Math.max(0, refunded - tipCents),
+ *     tipCents:    Math.min(tipCents, refunded),
+ *
+ * ou seja, devolvia a GORJETA INTEIRA primeiro e só depois tocava o consumo.
+ * Num estorno parcial de R$ 5,00 sobre uma conta de R$ 30,82 + R$ 3,08 de
+ * serviço, isso estornava R$ 3,08 de gorjeta e R$ 1,92 de consumo: o serviço
+ * todo raspado por acidente de ordem de subtração.
+ *
+ * A gorjeta é remuneração do empregado (Lei 13.419/2017 + STJ Tema 1102) e o
+ * total dela é a base da folha. Escolher quem perde primeiro num estorno é uma
+ * decisão sobre o salário de alguém, e ela não pode ser efeito colateral de
+ * um `Math.min`. Proporcional é a única regra defensável sem contrato dizendo
+ * outra coisa: cada lado devolve a fatia que recebeu.
+ *
+ * Achado pela revisão de compliance de 2026-09-08.
+ *
+ * Exato por construção: as duas partes SOMAM o estorno, sempre. A gorjeta é
+ * arredondada meio-pra-cima (igual ao `servicoCents`) e o consumo recebe o
+ * resto — então nenhum centavo se cria nem desaparece.
+ */
+function allocateRefund(paidAmountCents, paidTipCents, refundCents) {
+  assertCents(paidAmountCents, 'paidAmountCents');
+  assertCents(paidTipCents, 'paidTipCents');
+  assertCents(refundCents, 'refundCents');
+  const paidTotal = paidAmountCents + paidTipCents;
+  if (refundCents > paidTotal) {
+    throw new RangeError(`refund ${refundCents} exceeds paid total ${paidTotal}`);
+  }
+  if (refundCents === 0 || paidTotal === 0) return { amountCents: 0, tipCents: 0 };
+  if (paidTipCents === 0) return { amountCents: refundCents, tipCents: 0 };
+  if (paidAmountCents === 0) return { amountCents: 0, tipCents: refundCents };
+  // Meio-pra-cima em inteiros, sem float: (a*b + t/2) / t com t = paidTotal.
+  const num = refundCents * paidTipCents;
+  let tipCents = Math.floor((num * 2 + paidTotal) / (paidTotal * 2));
+  // A borda: o rateio nunca pode devolver mais gorjeta do que existe, nem mais
+  // consumo do que existe.
+  if (tipCents > paidTipCents) tipCents = paidTipCents;
+  let amountCents = refundCents - tipCents;
+  if (amountCents > paidAmountCents) {
+    amountCents = paidAmountCents;
+    tipCents = refundCents - amountCents;
+  }
+  return { amountCents, tipCents };
+}
+
+module.exports = {
+  splitEqual, validateCustomSplit, splitByItems, servicoCents, allocateRefund, assertCents,
+};
