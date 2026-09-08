@@ -185,3 +185,68 @@ describe('reconcile-charges — heal a missed webhook', () => {
     expect(r.confirmed).toBe(0);
   });
 });
+
+describe('recusa do pagador: `requires_payment_method` é ambíguo', () => {
+  const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
+
+  /**
+   * O caso concreto, e é o trilho PRINCIPAL da Espanha: a pessoa recebe o
+   * pedido no app do banco e recusa. Nada nos avisa — o adaptador nem
+   * interpreta `payment_intent.payment_failed`. A conciliação ativa é o único
+   * lugar que descobre, e ela só descobre se souber separar "ninguém tentou
+   * ainda" de "tentou e não deu".
+   *
+   * Medido contra a API (2026-09-08): um intent recém-criado está em
+   * `requires_payment_method` sem `last_payment_error` e sem cobrança. Uma
+   * recusa de verdade não é reproduzível no modo de teste (o Bizum autoriza
+   * sozinho em segundos), então o dublê abaixo reproduz a FORMA da resposta.
+   */
+  async function world(charge) {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Bar Pepe', servicoBp: 0, pspRecipientId: 'acct_v' });
+    const table = await store.seedTable(venue.id, 'Mesa 4');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 3390 }]);
+    await store.registerCharge({
+      checkId: check.id, txid: 'pi_x', amountCents: 3390, tipCents: 0,
+      payerLabel: null, method: 'bizum',
+    });
+    const reconciler = createChargeReconciler({
+      store,
+      psp: { async getCharge() { return charge; } },
+      confirm: async () => { throw new Error('não deve confirmar o que não foi pago'); },
+    });
+    return reconciler.reconcile({ graceMs: -1 });
+  }
+
+  test('cobrança recém-criada continua PENDENTE, não terminal', async () => {
+    // Se `requires_payment_method` entrasse na lista de terminais, toda
+    // cobrança recém-criada viraria um achado — ruído que esconde o sinal.
+    const r = await world({
+      txid: 'pi_x', status: 'requires_payment_method', paid: false,
+      attempted: false, amountCents: 3390, tipCents: 0, method: 'bizum',
+    });
+    expect(r.stillPending).toBe(1);
+    expect(r.terminal).toBe(0);
+  });
+
+  test('recusa do pagador é TERMINAL e visível, não silêncio até a janela fechar', async () => {
+    // `attempted` é o que separa os dois: houve erro de pagamento ou cobrança.
+    const r = await world({
+      txid: 'pi_x', status: 'requires_payment_method', paid: false,
+      attempted: true, amountCents: 3390, tipCents: 0, method: 'bizum',
+    });
+    expect(r.terminal).toBe(1);
+    expect(r.stillPending).toBe(0);
+    expect(r.details.some((d) => d.txid === 'pi_x' && /requires_payment_method/.test(d.status))).toBe(true);
+  });
+
+  test('cancelado continua terminal mesmo sem `attempted`', async () => {
+    // `canceled` nunca foi ambíguo, e a mudança não pode ter trocado uma
+    // deteção que já funcionava por uma que depende de um campo novo.
+    const r = await world({
+      txid: 'pi_x', status: 'canceled', paid: false,
+      amountCents: 3390, tipCents: 0, method: 'bizum',
+    });
+    expect(r.terminal).toBe(1);
+  });
+});

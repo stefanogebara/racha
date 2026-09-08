@@ -75,6 +75,27 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
       txid: pi.id,
       status: pi.status,
       paid: pi.status === 'succeeded',
+      /**
+       * Houve uma TENTATIVA de pagamento neste intent?
+       *
+       * `requires_payment_method` é ambíguo e é o estado que importa: é o
+       * estado INICIAL de um intent recém-criado E o estado em que ele volta a
+       * cair quando o pagador recusa. Medido contra a API (2026-09-08): um
+       * intent novo tem `last_payment_error` ausente e nenhuma cobrança; um
+       * cancelado vai pra `canceled`, que já é terminal pra gente.
+       *
+       * Então quem separa "ninguém tentou ainda" de "tentou e não deu" é a
+       * presença de um erro de pagamento ou de uma cobrança. Sem isso a
+       * conciliação conta uma recusa como "ainda esperando" até a cobrança sair
+       * da janela — e aí o silêncio é o resultado, que é o que o inegociável #8
+       * existe pra proibir.
+       *
+       * Uma recusa de verdade não é reproduzível no modo de teste (o Bizum
+       * autoriza sozinho em segundos), então isto está fundamentado na FORMA da
+       * API e nos dois estados que deu pra alcançar, não numa recusa observada.
+       * Está escrito assim de propósito.
+       */
+      attempted: Boolean(pi.last_payment_error || pi.latest_charge),
       kind: 'payment_confirmed',
       amountCents,
       tipCents,

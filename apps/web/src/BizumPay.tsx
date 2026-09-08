@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { api, ApiError } from './api';
@@ -54,6 +54,17 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>('');
   const [waiting, setWaiting] = useState(false);
+  /** A espera passou do razoável e a tela oferece uma saída. */
+  const [stalled, setStalled] = useState(false);
+
+  // 45 s. Autorizar no app do banco leva segundos; recusar leva menos. Passado
+  // isso, o silêncio provavelmente é uma recusa que ninguém nos contou — e uma
+  // pessoa em pé numa mesa merece uma saída antes de desistir do produto.
+  useEffect(() => {
+    if (!waiting) return;
+    const id = window.setTimeout(() => setStalled(true), 45_000);
+    return () => window.clearTimeout(id);
+  }, [waiting]);
 
   async function onConfirm() {
     if (!stripe || !elements || busy) return;
@@ -97,6 +108,28 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
     return (
       <div className="bizum">
         <p className="muted small center">{t('bizum.waiting')}</p>
+        {/* A espera precisa TER FIM.
+            Antes esta tela era terminal: uma vez em `waiting`, ela só desenhava
+            "esperando o teu banco" pra sempre. Quem recusasse no app do banco
+            ficava ali, na mesa, com o garçom esperando — e o Bizum é o trilho
+            PRINCIPAL da Espanha, então era o caminho comum.
+            A causa é que o servidor não sabe da recusa: o adaptador não
+            interpreta `payment_intent.payment_failed`, então nada avisa a tela.
+            Consertar o servidor é a resposta longa; dar uma saída é a curta, e
+            é a que tira a pessoa do beco.
+            E a saída não AFIRMA nada: o pagamento pode estar a caminho, então a
+            cópia diz só o que se sabe — que nada chegou ainda. Voltar não
+            cancela nada, e o poll da conta continua: se o dinheiro cair, a
+            tela avança pro ✓ de qualquer forma. */}
+        {stalled && (
+          <>
+            <p className="muted small center">{t('bizum.stalled')}</p>
+            <p className="muted small center">{t('bizum.stalledHow')}</p>
+            <button className="ghost" onClick={() => { setWaiting(false); setStalled(false); setBusy(false); }}>
+              {t('bizum.backToBill')}
+            </button>
+          </>
+        )}
       </div>
     );
   }

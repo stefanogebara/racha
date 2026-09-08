@@ -128,6 +128,17 @@ export const DICT = {
   'bizum.how':        { en: 'Confirm the payment in your bank’s app. It takes a few seconds.',
                         pt: 'Confirme o pagamento no app do seu banco. Leva alguns segundos.',
                         es: 'Confirma el pago en la app de tu banco. Tarda unos segundos.' },
+  // A saída da tela de espera. NÃO diz "cancelado" nem "falhou": o pagamento
+  // pode estar a caminho, e afirmar o contrário é o mesmo erro que a versão
+  // anterior do `bizumStatus` cometia, de trás pra frente. Diz só o que se
+  // sabe — que nada chegou ainda — e devolve o controle.
+  'bizum.stalled':    { en: 'Still nothing from your bank.',
+                        pt: 'Ainda nada do seu banco.',
+                        es: 'Todavía no llega nada de tu banco.' },
+  'bizum.stalledHow': { en: 'If you cancelled in the app, go back and try again. If you approved it, the payment still lands on its own.',
+                        pt: 'Se você cancelou no app, volte e tente de novo. Se aprovou, o pagamento cai sozinho.',
+                        es: 'Si lo cancelaste en la app, vuelve e inténtalo otra vez. Si lo aprobaste, el pago llega solo.' },
+  'bizum.backToBill': { en: 'Back to the bill',                pt: 'Voltar pra conta', es: 'Volver a la cuenta' },
   'bizum.waiting':    { en: 'Waiting for your bank… It takes a few seconds.',
                         pt: 'Esperando seu banco… Leva alguns segundos.',
                         es: 'Esperando a tu banco… Tarda unos segundos.' },

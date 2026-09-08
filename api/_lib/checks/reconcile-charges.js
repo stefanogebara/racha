@@ -32,6 +32,26 @@ const DEFAULT_LIMIT = 50;
 const TERMINAL_UNPAID = new Set(['canceled', 'failed', 'refunded', 'chargedback', 'voided', 'overpaid']);
 
 /**
+ * `requires_payment_method` é ambíguo, e por isso não está na lista acima.
+ *
+ * Na Stripe ele é o estado INICIAL de um intent recém-criado E o estado em que
+ * um intent volta a cair quando o pagador recusa. Pôr na lista marcaria toda
+ * cobrança recém-criada como terminal; deixar de fora conta uma recusa como
+ * "ainda esperando" até a cobrança sair da janela, em silêncio.
+ *
+ * O que separa os dois é `attempted` (ver `parseIntent`): um erro de pagamento
+ * ou uma cobrança existindo. Alguém TENTOU e não deu.
+ *
+ * Isso importa no Bizum mais que em qualquer outro trilho, porque quem recusa
+ * recusa no app do banco e nada nos avisa — o adaptador nem interpreta
+ * `payment_intent.payment_failed`. A conciliação é o único lugar que descobre.
+ */
+function isTerminalUnpaid(info) {
+  if (TERMINAL_UNPAID.has(info.status)) return true;
+  return info.status === 'requires_payment_method' && info.attempted === true;
+}
+
+/**
  * @param {object} deps
  * @param {{ listPendingCharges: Function }} deps.store
  * @param {{ getCharge?: Function }} deps.psp
@@ -84,7 +104,7 @@ function createChargeReconciler({ store, psp, confirm }) {
           // A charge the gateway settled as canceled/failed/refunded before we
           // ever confirmed it is NOT a normal "still awaiting Pix" — surface it
           // separately so it's visible, not silently dropped after windowMs.
-          if (TERMINAL_UNPAID.has(info.status)) {
+          if (isTerminalUnpaid(info)) {
             terminal += 1;
             details.push({ txid: p.txid, checkId: p.checkId, status: `psp:${info.status}` });
           } else {
