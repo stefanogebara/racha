@@ -80,3 +80,49 @@ describe('readBody', () => {
     await expect(p2).rejects.toMatchObject({ statusCode: 413 });
   });
 });
+
+describe('bytes, não caracteres', () => {
+  test('caractere de vários bytes partido entre pedaços sobrevive', async () => {
+    // O bug que este teste fecha, e a razão de ele não ter sido visto: a
+    // função fazia `data += c` com `c` sendo um Buffer, então cada pedaço era
+    // decodificado sozinho e um caractere partido na fronteira virava U+FFFD.
+    // O corpo cru é o que o HMAC assina, então a assinatura não fechava → 401
+    // → reenvio → endpoint DESABILITADO, de forma intermitente.
+    //
+    // Os testes acima emitem STRINGS, e com strings o bug não existe. Este
+    // emite BYTES, como um socket de verdade.
+    const corpo = JSON.stringify({ nome: 'João', casa: 'Bar Pepe · Caña' });
+    const full = Buffer.from(corpo, 'utf8');
+    // Corta no meio do 'ã' (C3 A3) de João.
+    const corte = full.indexOf(Buffer.from([0xc3, 0xa3])) + 1;
+    expect(corte).toBeGreaterThan(1);
+
+    const req = fakeReq();
+    const p = readBody(req);
+    req.emit('data', full.subarray(0, corte));
+    req.emit('data', full.subarray(corte));
+    req.emit('end');
+    const lido = await p;
+    expect(lido).toBe(corpo);
+    // E os bytes lidos são IDÊNTICOS aos enviados — é isso que o HMAC exige.
+    expect(Buffer.from(lido, 'utf8').equals(full)).toBe(true);
+    expect(lido).not.toContain('\uFFFD');
+  });
+
+  test('o teto conta BYTES, não caracteres', async () => {
+    // `data.length` contava unidades UTF-16: um corpo de acentos passava do
+    // teto real por um fator de dois a três antes de ser recusado.
+    const req = fakeReq();
+    const p = readBody(req, { maxBytes: 10 });
+    // 6 caracteres, 12 bytes em UTF-8.
+    req.emit('data', Buffer.from('ãããããã', 'utf8'));
+    await expect(p).rejects.toMatchObject({ statusCode: 413 });
+
+    // E 5 desses cabem em 10 bytes, exatamente.
+    const ok = fakeReq();
+    const p2 = readBody(ok, { maxBytes: 10 });
+    ok.emit('data', Buffer.from('ããããã', 'utf8'));
+    ok.emit('end');
+    expect(await p2).toBe('ããããã');
+  });
+});

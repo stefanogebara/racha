@@ -119,6 +119,22 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
  *   Tried when the txid is not a check charge (e.g. house-account loads).
  *   Returns a result object to use, or null → the unknown-txid rejection.
  */
+/** As duas únicas espécies que viram lançamento no razão. */
+const LEDGER_KINDS = new Set(['payment_confirmed', 'refund']);
+
+/**
+ * Espécies de evento de DINHEIRO que não viram lançamento aqui.
+ *
+ * Cada uma tem um dono: a disputa tem prazo de prova, o estorno que falhou
+ * significa que o dinheiro voltou pro restaurante e o cliente ficou sem, e o
+ * `unusable_money_event` é dinheiro que saiu num valor que o adaptador não
+ * consegue medir. Nenhuma delas move saldo, e nenhuma delas pode cair no
+ * aplicador — lá dentro tudo que não é `refund` é tratado como pagamento.
+ */
+const NON_LEDGER_KINDS = new Set([
+  'dispute_opened', 'refund_failed', 'refund_progress', 'unusable_money_event',
+]);
+
 function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, findCheckByTxid, fallback }) {
   if (!loadEvents || !appendEvent || !psp || !findCheckByTxid) {
     throw new Error('createWebhookHandler: missing dependencies');
@@ -134,26 +150,47 @@ function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, fin
     // cobrança na API (async) — o corpo do webhook nunca é a verdade.
     const parsed = await psp.verifyAndParseWebhook(rawBody, signatureHeader); // throws on bad sig/auth
 
-    // Evento que não é do nosso razão para AQUI, não no aplicador.
+    // CONJUNTO FECHADO. Só duas espécies de evento chegam ao razão.
     //
-    // A regra existia — na ROTA, que devolve 200 pra `kind: 'ignored'` antes de
-    // chamar o aplicador. Só que a rota é um chamador e este é o portão: um
-    // segundo chamador do `createWebhookHandler` mandaria um evento
-    // desinteressante pro `applyConfirmedPayment`, que não acha o txid (uma
-    // `charge.succeeded` carrega `py_…`, não `pi_…`), cai no `fallback` e
-    // devolve `rejected`. A rota mapeia isso pra 409, a Stripe reenvia e
-    // depois DESABILITA o endpoint — e aí um `refund.failed` se perde junto
-    // com todo o resto. É o mesmo achado da revisão anterior, um nível abaixo.
+    // A primeira versão desta guarda testava só `kind === 'ignored'`, e as duas
+    // revisões de 2026-09-08 apontaram o mesmo problema: ela endurecia a
+    // espécie inofensiva e deixava as PERIGOSAS passando. `dispute_opened`,
+    // `refund_failed` e `refund_progress` eram tratadas só na ROTA, então
+    // qualquer outro chamador as mandava pro aplicador, e lá dentro:
     //
-    // Medido rodando de verdade (2026-09-08): um único pagamento Bizum entrega
-    // CINCO eventos — `payment_intent.created`, `payment_intent.requires_action`,
-    // `payment_intent.succeeded`, `charge.succeeded`, `charge.updated`. Só um
-    // deles move o razão. Os outros quatro passavam por aqui.
-    if (parsed && parsed.kind === 'ignored') {
+    //     const type = parsed.kind === 'refund' ? 'PAYMENT_REFUNDED' : 'PAYMENT_CONFIRMED';
+    //
+    // Uma notificação de CHARGEBACK viraria PAYMENT_CONFIRMED. Concretamente:
+    // a disputa chega pra um `pi_` cuja confirmação nunca caiu, o `payments`
+    // resolve o check, o razão grava o valor disputado como dinheiro RECEBIDO,
+    // a conta vira `paga`, o write-back empurra "pago" pro POS e a mesa fecha
+    // em cima de um chargeback.
+    //
+    // Então: lista de quem PODE mover o razão, e tudo o mais para aqui. Espécie
+    // desconhecida ESTOURA — é erro de programação, e um 500 alto é melhor que
+    // um evento de dinheiro classificado por acidente.
+    if (!parsed || typeof parsed.kind !== 'string') {
+      throw new Error('webhook: parse sem `kind`');
+    }
+    // Ignorado é o caso comum e barato. Medido rodando de verdade
+    // (2026-09-08): um pagamento Bizum entrega CINCO eventos —
+    // `payment_intent.created`, `.requires_action`, `.succeeded`,
+    // `charge.succeeded` e `charge.updated` — e só um move dinheiro.
+    if (parsed.kind === 'ignored') {
       return { status: 'ignored', type: parsed.type };
+    }
+    // Evento de dinheiro que NÃO se resolve num lançamento: disputa aberta,
+    // estorno que falhou, estorno em progresso, e o "saiu dinheiro e não
+    // sabemos quanto" de um cancelamento parcial. Quem trata é o chamador
+    // (alerta, prazo, registro) — o razão não se mexe aqui.
+    if (NON_LEDGER_KINDS.has(parsed.kind)) {
+      return { status: parsed.kind, type: parsed.type || null, txid: parsed.txid || null, raw: parsed };
+    }
+    if (!LEDGER_KINDS.has(parsed.kind)) {
+      throw new Error(`webhook: kind desconhecido ${JSON.stringify(parsed.kind)}`);
     }
     return applyConfirmedPayment(parsed, deps);
   };
 }
 
-module.exports = { createWebhookHandler, applyConfirmedPayment };
+module.exports = { createWebhookHandler, applyConfirmedPayment, LEDGER_KINDS, NON_LEDGER_KINDS };

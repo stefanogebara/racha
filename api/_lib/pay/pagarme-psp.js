@@ -28,8 +28,29 @@
 
 const BASE_URL = 'https://api.pagar.me/core/v5';
 
+/**
+ * Falha de verificação de webhook. `name` explícito porque a camada HTTP mapeia
+ * por nome pra 401 (uma subclasse de Error sozinha viraria 'Error' → 500).
+ *
+ * `code` explícito porque sem ele a MENSAGEM viajava.
+ *
+ * O `errorBody` suprime a mensagem interna só quando existe `code`, e esta
+ * classe não punha nenhum — então um POST não autenticado em
+ * `/api/webhooks/*` respondia com o texto da própria Stripe: "No signatures
+ * found matching the expected signature for payload" contra "Timestamp outside
+ * the tolerance zone" contra "Unable to extract timestamp and signatures from
+ * header". Isso é um ORÁCULO DE ASSINATURA — diz a quem está tentando o que
+ * ajustar na próxima. A correção de 2026-09-07 achava ter fechado isso; o teste
+ * dela fabricava um `code` que nenhum caminho de produção produzia, então
+ * provava o redator e não o buraco. Achado pela revisão de segurança de
+ * 2026-09-08.
+ */
 class WebhookVerificationError extends Error {
-  constructor(message) { super(message); this.name = 'WebhookVerificationError'; }
+  constructor(message) {
+    super(message);
+    this.name = 'WebhookVerificationError';
+    this.code = 'webhook_invalid';
+  }
 }
 
 function assertCents(v, name) {
@@ -339,7 +360,29 @@ function createPagarmePsp({
      * cobrança na API — o corpo do POST nunca é a fonte de verdade.
      */
     async verifyAndParseWebhook(rawBody, signatureOrHeaders) {
-      if (webhookBasicAuth) {
+      // FALHA FECHADO. Sem credencial configurada, ninguém entra.
+      //
+      // Era `if (webhookBasicAuth) { …confere… }` — a forma exata do
+      // inegociável #7, no trilho de PRODUÇÃO do Brasil. Com
+      // `PAGARME_WEBHOOK_AUTH` ausente (e o router passa `null` por padrão),
+      // `/api/webhooks/psp` aceitava corpo NÃO AUTENTICADO.
+      //
+      // O que isso permitia, junto com o ramo de reembolso que não conferia
+      // status: o `/api/pay` devolve o `txid` no corpo da resposta, então o
+      // cliente conhece o `ch_` da própria cobrança. Um POST sem cabeçalho
+      // nenhum com `{"type":"charge.refunded","data":{"id":"ch_…"}}` fazia o
+      // razão gravar um PAYMENT_REFUNDED do valor inteiro: a conta
+      // "desquitava" e reabria pra quem já tinha pagado, e a conciliação do dia
+      // divergia pelo ticket todo. Qualquer terceiro que descobrisse um `ch_`
+      // — print compartilhado, ticket de suporte — fazia o mesmo em qualquer
+      // mesa. Achado pela revisão de segurança de 2026-09-08.
+      //
+      // O adaptador da Stripe já falhava fechado. Este não. É a metade
+      // esquecida da mesma correção.
+      if (!webhookBasicAuth) {
+        throw new WebhookVerificationError('webhook auth não configurado — recusando corpo não autenticado');
+      }
+      {
         const headers = (signatureOrHeaders && typeof signatureOrHeaders === 'object')
           ? signatureOrHeaders : {};
         const got = headers.authorization || headers.Authorization || '';
@@ -355,11 +398,23 @@ function createPagarmePsp({
       if (!type || typeof chargeId !== 'string' || !/^ch_/.test(chargeId)) {
         throw new WebhookVerificationError(`webhook sem charge id (type=${type})`);
       }
-      if (!/^charge\.(paid|refunded|partial_canceled)$/.test(type)) {
-        // Outros eventos (order.*, charge.created...) não movem dinheiro no
-        // nosso ledger — o handler rejeita txids desconhecidos, então
-        // devolvemos um shape que nunca casa.
-        throw new WebhookVerificationError(`evento ignorado: ${type}`);
+      // `partial_canceled` SAIU da lista: ele chegava aqui e era tratado como
+      // reembolso TOTAL (ver o ramo de reembolso abaixo), então um cancelamento
+      // de R$ 5 numa cobrança de R$ 200 gravava R$ 200 de estorno. O
+      // `validateEvent` não pega: o estorno é igual ao valor pago, então passa.
+      // A conta reabre, o cliente é chamado pra pagar de novo, e a conciliação
+      // mostra R$ 195 de divergência sem explicação.
+      if (!/^charge\.(paid|refunded)$/.test(type)) {
+        // Evento que não move o nosso razão é IGNORADO, não recusado.
+        //
+        // Era `throw`, que a rota mapeia pra 401: a Pagar.me reenvia e depois
+        // DESABILITA o endpoint, e aí um `charge.refunded` de verdade se perde
+        // junto com todo o resto. `order.paid`, `charge.created` e
+        // `charge.antifraud_*` chegam a toda hora e davam 401 cada um.
+        //
+        // É a mesma correção que o adaptador da Stripe já tinha recebido, na
+        // metade esquecida — o outro adquirente.
+        return { kind: 'ignored', type, raw: event && event.data };
       }
 
       // A VERDADE: estado atual da cobrança direto da API.
@@ -375,9 +430,25 @@ function createPagarmePsp({
         }
         return { kind: 'payment_confirmed', txid: charge.id, amountCents, tipCents, method, raw: charge };
       }
-      // Reembolso: v1 trata reembolso TOTAL (parciais entram no checklist de
-      // ativação — exigem mapear canceled_amount por transação).
-      return { kind: 'refund', txid: charge.id, amountCents, tipCents, method, raw: charge };
+      // REEMBOLSO, e o status da API manda — igual ao ramo de `paid` acima.
+      //
+      // Este ramo não conferia NADA: devolvia estorno total pra qualquer
+      // cobrança, inclusive uma que a API reporta como `paid`. Era a segunda
+      // metade do buraco de autenticação: com o corpo não autenticado aceito,
+      // um `charge.refunded` forjado desquitava uma conta paga de verdade.
+      const REEMBOLSADO = new Set(['canceled', 'refunded']);
+      if (REEMBOLSADO.has(charge.status)) {
+        return { kind: 'refund', txid: charge.id, amountCents, tipCents, method, raw: charge };
+      }
+      if (charge.status === 'partial_canceled') {
+        // Dinheiro SAIU e a gente não sabe quanto: exige mapear
+        // `canceled_amount` por transação. Não é `ignored` — ignorar é dizer
+        // "não me interessa", e um estorno parcial interessa muito. Kind
+        // próprio, pro chamador alertar e persistir em vez de dar 200 calado.
+        return { kind: 'unusable_money_event', type, txid: charge.id, status: charge.status, raw: charge };
+      }
+      // O corpo diz reembolso e a API diz outra coisa: contradição, alto.
+      throw new WebhookVerificationError(`webhook diz ${type} mas API diz ${charge.status}`);
     },
   };
 }

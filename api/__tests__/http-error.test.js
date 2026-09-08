@@ -40,10 +40,23 @@ describe('a forma de um erro na rede', () => {
     expect(body).toEqual({ success: false, code: 'psp_market_mismatch' });
     expect(JSON.stringify(body)).not.toContain('pagarme');
 
-    const wh = Object.assign(new Error('assinatura Stripe inválida: no signatures found'), {
-      statusCode: 401, code: 'webhook_invalid',
-    });
-    expect(JSON.stringify(errorBody(wh))).not.toContain('no signatures found');
+    // Este pedaço estava ERRADO e passava: eu montava o erro à mão com
+    // `code: 'webhook_invalid'`, um código que nenhum caminho de produção
+    // punha. Provava o redator, não o buraco — a `WebhookVerificationError`
+    // real não tinha código, então a mensagem viajava e o oráculo continuava
+    // aberto. Agora o teste usa a classe DE VERDADE, dos três adaptadores.
+    const { WebhookVerificationError: WhStripe } = require('../_lib/pay/stripe-psp');
+    const { WebhookVerificationError: WhPagarme } = require('../_lib/pay/pagarme-psp');
+    const { WebhookVerificationError: WhMock } = require('../_lib/pay/mock-psp');
+    for (const Cls of [WhStripe, WhPagarme, WhMock]) {
+      const wh = new Cls('assinatura Stripe inválida: No signatures found matching the expected signature for payload');
+      expect(errorStatus(wh)).toBe(401);
+      const body = errorBody(wh);
+      expect(body).toEqual({ success: false, code: 'webhook_invalid' });
+      const txt = JSON.stringify(body);
+      // Nada que diga a quem está tentando o que ajustar na próxima.
+      expect(txt).not.toMatch(/signature|timestamp|tolerance|Stripe|assinatura/i);
+    }
   });
 
   test('um 500 não vaza mensagem interna', () => {

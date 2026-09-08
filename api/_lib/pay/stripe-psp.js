@@ -37,8 +37,29 @@ const BIZUM_MAX_CENTS = 500000;
  * Checkout Element) e a confirmação chega por webhook `payment_intent.succeeded`.
  */
 
+/**
+ * Falha de verificação de webhook. `name` explícito porque a camada HTTP mapeia
+ * por nome pra 401 (uma subclasse de Error sozinha viraria 'Error' → 500).
+ *
+ * `code` explícito porque sem ele a MENSAGEM viajava.
+ *
+ * O `errorBody` suprime a mensagem interna só quando existe `code`, e esta
+ * classe não punha nenhum — então um POST não autenticado em
+ * `/api/webhooks/*` respondia com o texto da própria Stripe: "No signatures
+ * found matching the expected signature for payload" contra "Timestamp outside
+ * the tolerance zone" contra "Unable to extract timestamp and signatures from
+ * header". Isso é um ORÁCULO DE ASSINATURA — diz a quem está tentando o que
+ * ajustar na próxima. A correção de 2026-09-07 achava ter fechado isso; o teste
+ * dela fabricava um `code` que nenhum caminho de produção produzia, então
+ * provava o redator e não o buraco. Achado pela revisão de segurança de
+ * 2026-09-08.
+ */
 class WebhookVerificationError extends Error {
-  constructor(message) { super(message); this.name = 'WebhookVerificationError'; }
+  constructor(message) {
+    super(message);
+    this.name = 'WebhookVerificationError';
+    this.code = 'webhook_invalid';
+  }
 }
 
 function assertCents(v, name) {

@@ -114,11 +114,15 @@ describe('pagarme adapter', () => {
       metadata: { tip_cents: '600' },
     };
     const { impl } = stubFetch([{ match: '/charges/ch_pix1', method: 'GET', reply: apiCharge }]);
-    const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+    // A credencial é OBRIGATÓRIA agora. Estes testes rodavam sem ela, o que
+    // significa que encodavam o `if (webhookBasicAuth)` que falhava aberto.
+    const AUTH = 'racha:senha';
+    const HDR = { authorization: `Basic ${Buffer.from(AUTH).toString('base64')}` };
+    const psp = createPagarmePsp({ secretKey: 'sk_test_x', webhookBasicAuth: AUTH, fetchImpl: impl });
 
     // corpo diz "paid" com valores QUAISQUER — o parse usa a API, não o corpo
     const parsed = await psp.verifyAndParseWebhook(
-      JSON.stringify({ type: 'charge.paid', data: { id: 'ch_pix1', amount: 999999 } }), {},
+      JSON.stringify({ type: 'charge.paid', data: { id: 'ch_pix1', amount: 999999 } }), HDR,
     );
     expect(parsed).toMatchObject({
       kind: 'payment_confirmed', txid: 'ch_pix1',
@@ -128,39 +132,96 @@ describe('pagarme adapter', () => {
     // corpo diz paid, API diz pending → verificação falha alto
     const pending = { ...apiCharge, status: 'pending' };
     const s2 = stubFetch([{ match: '/charges/ch_pix1', method: 'GET', reply: pending }]);
-    const psp2 = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: s2.impl });
+    const psp2 = createPagarmePsp({ secretKey: 'sk_test_x', webhookBasicAuth: AUTH, fetchImpl: s2.impl });
     await expect(psp2.verifyAndParseWebhook(
-      JSON.stringify({ type: 'charge.paid', data: { id: 'ch_pix1' } }), {},
+      JSON.stringify({ type: 'charge.paid', data: { id: 'ch_pix1' } }), HDR,
     )).rejects.toThrow(WebhookVerificationError);
   });
 
-  test('webhook: refund mapeado, eventos irrelevantes e basic auth errado rejeitam', async () => {
+  test('webhook: refund mapeado, evento irrelevante é IGNORADO, auth errado rejeita', async () => {
+    const AUTH = 'racha:senha';
+    const HDR = { authorization: `Basic ${Buffer.from(AUTH).toString('base64')}` };
     const refunded = {
       id: 'ch_card1', status: 'canceled', amount: 1000, payment_method: 'credit_card',
       metadata: { tip_cents: '0' },
     };
     const { impl } = stubFetch([{ match: '/charges/ch_card1', method: 'GET', reply: refunded }]);
-    const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+    const psp = createPagarmePsp({ secretKey: 'sk_test_x', webhookBasicAuth: AUTH, fetchImpl: impl });
     const parsed = await psp.verifyAndParseWebhook(
-      JSON.stringify({ type: 'charge.refunded', data: { id: 'ch_card1' } }), {},
+      JSON.stringify({ type: 'charge.refunded', data: { id: 'ch_card1' } }), HDR,
     );
     expect(parsed).toMatchObject({ kind: 'refund', txid: 'ch_card1', method: 'card' });
 
-    await expect(psp.verifyAndParseWebhook(
-      JSON.stringify({ type: 'order.created', data: { id: 'ch_card1' } }), {},
-    )).rejects.toThrow(/ignorado/);
-    await expect(psp.verifyAndParseWebhook('não é json', {})).rejects.toThrow(/JSON/);
+    // Evento irrelevante é IGNORADO, não recusado. Antes era `throw`, que a
+    // rota mapeia pra 401 — a Pagar.me reenvia e depois DESABILITA o endpoint,
+    // levando um `charge.refunded` de verdade junto. `order.*`,
+    // `charge.created` e `charge.antifraud_*` chegam a toda hora.
+    expect(await psp.verifyAndParseWebhook(
+      JSON.stringify({ type: 'order.created', data: { id: 'ch_card1' } }), HDR,
+    )).toMatchObject({ kind: 'ignored', type: 'order.created' });
 
-    const pspAuth = createPagarmePsp({ secretKey: 'sk_test_x', webhookBasicAuth: 'racha:senha', fetchImpl: impl });
-    await expect(pspAuth.verifyAndParseWebhook(
+    await expect(psp.verifyAndParseWebhook('não é json', HDR)).rejects.toThrow(/JSON/);
+    await expect(psp.verifyAndParseWebhook(
       JSON.stringify({ type: 'charge.paid', data: { id: 'ch_card1' } }),
       { authorization: 'Basic errado' },
     )).rejects.toThrow(/basic auth/);
-    const okAuth = await pspAuth.verifyAndParseWebhook(
-      JSON.stringify({ type: 'charge.refunded', data: { id: 'ch_card1' } }),
-      { authorization: `Basic ${Buffer.from('racha:senha').toString('base64')}` },
+  });
+
+  test('SEM credencial configurada, nenhum corpo entra', async () => {
+    // O buraco que este teste fecha, e ele era explorável em produção.
+    //
+    // Era `if (webhookBasicAuth) { …confere… }`: com `PAGARME_WEBHOOK_AUTH`
+    // ausente — e o router passa `null` por padrão — `/api/webhooks/psp`
+    // aceitava corpo NÃO AUTENTICADO. Junto com o ramo de reembolso que não
+    // conferia status, um cliente que conhece o `ch_` da própria cobrança (o
+    // `/api/pay` devolve o txid na resposta) desquitava a própria conta paga
+    // com um POST sem cabeçalho nenhum. Qualquer terceiro que descobrisse um
+    // `ch_` fazia o mesmo em qualquer mesa.
+    //
+    // Os testes antigos rodavam SEM credencial e passavam, então encodavam o
+    // buraco. Achado pela revisão de segurança de 2026-09-08.
+    const { impl } = stubFetch([{ match: '/charges/ch_x', method: 'GET', reply: { id: 'ch_x', status: 'paid', amount: 1000 } }]);
+    const semAuth = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+    for (const headers of [{}, { authorization: 'Basic qualquer' }, null, undefined]) {
+      await expect(semAuth.verifyAndParseWebhook(
+        JSON.stringify({ type: 'charge.refunded', data: { id: 'ch_x' } }), headers,
+      )).rejects.toThrow(/auth não configurado/);
+    }
+  });
+
+  test('estorno só sai de uma cobrança que a API diz estornada', async () => {
+    const AUTH = 'racha:senha';
+    const HDR = { authorization: `Basic ${Buffer.from(AUTH).toString('base64')}` };
+    // O ramo de reembolso não conferia NADA: devolvia estorno total pra
+    // qualquer cobrança, inclusive uma que a API reporta como `paid`. Era a
+    // segunda metade do buraco de autenticação.
+    const paga = { id: 'ch_p', status: 'paid', amount: 20000, payment_method: 'pix', metadata: { tip_cents: '0' } };
+    const s1 = stubFetch([{ match: '/charges/ch_p', method: 'GET', reply: paga }]);
+    const p1 = createPagarmePsp({ secretKey: 'sk_test_x', webhookBasicAuth: AUTH, fetchImpl: s1.impl });
+    await expect(p1.verifyAndParseWebhook(
+      JSON.stringify({ type: 'charge.refunded', data: { id: 'ch_p' } }), HDR,
+    )).rejects.toThrow(/mas API diz paid/);
+
+    // Cancelamento PARCIAL não é estorno total. Era: um cancelamento de R$ 5
+    // numa cobrança de R$ 200 gravava R$ 200 de estorno, a conta reabria, e a
+    // conciliação mostrava R$ 195 de divergência sem explicação. O
+    // `validateEvent` não pega, porque o estorno bate com o valor pago.
+    const parcial = { ...paga, status: 'partial_canceled' };
+    const s2 = stubFetch([{ match: '/charges/ch_p', method: 'GET', reply: parcial }]);
+    const p2 = createPagarmePsp({ secretKey: 'sk_test_x', webhookBasicAuth: AUTH, fetchImpl: s2.impl });
+    const r = await p2.verifyAndParseWebhook(
+      JSON.stringify({ type: 'charge.refunded', data: { id: 'ch_p' } }), HDR,
     );
-    expect(okAuth.kind).toBe('refund');
+    // Nem estorno nem ignorado: dinheiro saiu e não sabemos quanto.
+    expect(r.kind).toBe('unusable_money_event');
+    expect(r.status).toBe('partial_canceled');
+
+    // E `charge.partial_canceled` como TIPO de evento também não vira estorno.
+    const s3 = stubFetch([{ match: '/charges/ch_p', method: 'GET', reply: parcial }]);
+    const p3 = createPagarmePsp({ secretKey: 'sk_test_x', webhookBasicAuth: AUTH, fetchImpl: s3.impl });
+    expect(await p3.verifyAndParseWebhook(
+      JSON.stringify({ type: 'charge.partial_canceled', data: { id: 'ch_p' } }), HDR,
+    )).toMatchObject({ kind: 'ignored' });
   });
 
   test('config: secret key sk_ obrigatória', () => {

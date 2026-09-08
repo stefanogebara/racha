@@ -29,7 +29,13 @@ const crypto = require('crypto');
 class WebhookVerificationError extends Error {
   // name explícito: o router mapeia por err.name → 401 (subclasse de Error
   // sozinha ficaria 'Error' e viraria 500).
-  constructor(message) { super(message); this.name = 'WebhookVerificationError'; }
+  // code explícito: sem ele o `errorBody` deixa a MENSAGEM viajar, e a
+  // mensagem de uma falha de assinatura é um oráculo. Ver os adaptadores reais.
+  constructor(message) {
+    super(message);
+    this.name = 'WebhookVerificationError';
+    this.code = 'webhook_invalid';
+  }
 }
 
 function assertCents(v, name) {

@@ -36,13 +36,34 @@ function readBody(req, { maxBytes = MAX_BYTES } = {}) {
     return Promise.resolve(typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
   }
   return new Promise((resolve, reject) => {
-    let data = '';
+    /**
+     * Os pedaços ficam em BYTES até o fim.
+     *
+     * Era `data += c`, com `c` sendo um Buffer: cada pedaço era decodificado
+     * como UTF-8 por conta própria, então um caractere de vários bytes caindo
+     * na fronteira entre dois pedaços virava U+FFFD. O corpo cru é o que o
+     * HMAC assina — a Stripe recodifica e a assinatura NÃO fecha. Resultado:
+     * 401, reenvio, endpoint DESABILITADO, que é exatamente o desastre que o
+     * commit anterior existiu pra evitar, agora chegando de forma
+     * intermitente. E chega: "João", "Jamón", "Caña" andam em
+     * `billing_details.name` e em descrição de casa espanhola toda hora.
+     *
+     * De carona, `data.length` contava unidades UTF-16 e não bytes, então o
+     * teto de "1 MB" aceitava ~3 MB de UTF-8.
+     *
+     * Achado pela revisão de segurança de 2026-09-08. O teste não podia ver:
+     * ele emitia STRINGS no `req` de mentira, e com strings o bug não existe.
+     */
+    const chunks = [];
+    let bytes = 0;
     let settled = false;
     const done = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
 
     req.on('data', (c) => {
-      data += c;
-      if (data.length > maxBytes) {
+      const buf = Buffer.isBuffer(c) ? c : Buffer.from(String(c), 'utf8');
+      chunks.push(buf);
+      bytes += buf.length;
+      if (bytes > maxBytes) {
         // PAUSA, não destrói.
         //
         // A primeira correção rejeitava a promessa e chamava `req.destroy()` na
@@ -60,7 +81,7 @@ function readBody(req, { maxBytes = MAX_BYTES } = {}) {
         }));
       }
     });
-    req.on('end', () => done(resolve, data));
+    req.on('end', () => done(resolve, Buffer.concat(chunks).toString('utf8')));
     req.on('error', (err) => done(reject, err));
     req.on('close', () => done(reject, Object.assign(
       new Error('conexão encerrada antes do fim do corpo'), {
