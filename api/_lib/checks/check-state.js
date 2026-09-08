@@ -331,21 +331,53 @@ function applyEvent(state, evt, seq = null) {
         refundedTipCents: 0,
         disputedAmountCents: 0,
         /**
-         * Quanto DESTE pagamento entrou a mais.
+         * Quanto DESTE pagamento entrou a mais — DERIVADO, não recebido.
          *
-         * O excedente é estacionado no consumo (ver `parseCharge`), e a
-         * devolução dele sai todo do consumo (ver `allocateRestitution`). Numa
-         * conta rachada, `state.overpaidCents` é da CONTA e não diz de qual
-         * pagamento a sobra veio: usá-lo fazia a sobra de quem pagou a mais
-         * reger o estorno de quem pagou exato — e 91 centavos de gorjeta
-         * estornada ficavam na base da folha. Achado pela revisão de segurança
-         * de 2026-09-08.
+         * O excedente fica no consumo (ver `parseCharge`) e a devolução dele
+         * sai todo do consumo (ver `allocateRestitution`), então o razão
+         * precisa saber de qual pagamento a sobra veio: numa conta rachada,
+         * `state.overpaidCents` é da CONTA e usá-lo fazia a sobra de quem
+         * pagou a mais reger o estorno de quem pagou exato.
+         *
+         * A primeira versão CARREGAVA o número, vindo do adaptador. Três
+         * buracos, todos medidos:
+         *
+         *  - o campo não chegava pelo caminho da CONCILIAÇÃO (o objeto era
+         *    remontado à mão e o campo ficava de fora), que é justamente o
+         *    caminho que existe porque o webhook pode não chegar;
+         *  - todo pagamento gravado ANTES deste campo replayava com zero, e a
+         *    reserva histórica que eu tinha escrito era código morto — o
+         *    próprio redutor normalizava o campo, então a guarda nunca podia
+         *    disparar (inegociável #7);
+         *  - e só o adaptador do Pagar.me o produzia. Duas pessoas pagando a
+         *    conta cheia cada uma, um pagamento atrasado numa conta já paga,
+         *    uma conta reduzida no POS, ou qualquer coisa pela Stripe/carteira
+         *    da casa: sobra de verdade, excedente zero.
+         *
+         * Derivar fecha os três de uma vez: é o quanto este pagamento passou
+         * do que ainda faltava quitar QUANDO ele entrou. O razão é a fonte, e
+         * o razão sempre soube disso. Achado pelas revisões de 2026-09-08.
          */
-        excessCents: Number.isSafeInteger(p.excessCents) && p.excessCents > 0 ? p.excessCents : 0,
+        excessCents: Math.max(0, p.amountCents - Math.max(0, state.totalCents - state.paidCents)),
         late: state.status === STATUS.FECHADA,
       };
+      /**
+       * E o que o adaptador DISSE fica como conferência.
+       *
+       * Se o PSP reporta um excedente diferente do que a conta deriva, uma das
+       * duas medições está errada — e as duas viram dinheiro. Anomalia
+       * informativa: não muda nada no saldo (o derivado é quem manda), e
+       * aparece antes de virar divergência de verdade.
+       */
+      const dito = Number.isSafeInteger(p.excessCents) ? p.excessCents : null;
+      const derivado = next.payments[p.txid].excessCents;
       next.paidCents += p.amountCents;
       next.tipCents += tip;
+      if (dito !== null && dito !== derivado) {
+        return withAnomaly(recompute(next), seq, 'PAYMENT_CONFIRMED',
+          `excedente divergente em ${p.txid}: PSP diz ${dito}¢, a conta deriva ${derivado}¢`,
+          p.txid, 'info');
+      }
       return recompute(next);
     }
     case 'PAYMENT_REFUNDED': {

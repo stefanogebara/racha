@@ -344,6 +344,68 @@ export const DICT = {
   // receita — é dívida (CC art. 876). Uma diferença que aparece é um fato do
   // negócio; a mesma diferença escondida é uma reclamação trabalhista.
   'panel.tipShort':   { en: 'of {charged} charged',              pt: 'de {charged} cobrados', es: 'de {charged} cobrados' },
+  // A dívida na linha da MESA, e a cobrança que a paga. O aviso ao cliente
+  // manda falar com a equipe; a tela da equipe precisa saber de qual mesa e de
+  // qual cobrança se trata, senão a instrução não é executável.
+  // Erros da rota de restituição manual (`/api/checks/record-restitution`).
+  'err.reference_required': { en: 'Enter the refund reference — it is what proves the refund if the diner disputes it.',
+                        pt: 'Informe a referência da devolução — é o que prova o reembolso se o cliente contestar.',
+                        es: 'Indica la referencia de la devolución — es lo que prueba el reembolso si el cliente lo disputa.' },
+  'err.restitution_failed': { en: 'Could not record the refund. Check the amount and try again.',
+                        pt: 'Não foi possível registrar a devolução. Confira o valor e tente de novo.',
+                        es: 'No se pudo registrar la devolución. Revisa el importe e inténtalo de nuevo.' },
+  'err.txid_unknown': { en: 'That charge is not on this bill.',
+                        pt: 'Essa cobrança não é desta conta.',
+                        es: 'Ese cobro no es de esta cuenta.' },
+  /**
+   * OS ACHADOS DA CONCILIAÇÃO, traduzidos.
+   *
+   * O painel do dono imprimia `f.message` — texto em PORTUGUÊS montado no
+   * servidor, com centavos crus (`9000¢`). Contra o acordo de trabalho: o
+   * servidor manda código estável + centavos, o cliente traduz e formata. A
+   * tela do CLIENTE ganhou esse tratamento (`NOTICE_KEY`); a do dono era o
+   * chamador esquecido. Achado pela revisão de segurança de 2026-09-08.
+   */
+  'find.overpaid_pending_restitution': { en: 'received {amount} more than the bill asked — refund pending',
+                        pt: 'recebeu {amount} a mais do que a conta pedia — devolução pendente',
+                        es: 'ha recibido {amount} de más — devolución pendiente' },
+  'find.ledger_drift':{ en: 'the two money records disagree by {amount}',
+                        pt: 'os dois registros de dinheiro divergem em {amount}',
+                        es: 'los dos registros de dinero difieren en {amount}' },
+  'find.amount_mismatch': { en: 'confirmed amount does not match the ledger',
+                        pt: 'valor confirmado não bate com o razão',
+                        es: 'el importe confirmado no coincide con el libro' },
+  'find.tip_mismatch':{ en: 'confirmed service charge does not match the ledger',
+                        pt: 'serviço confirmado não bate com o razão',
+                        es: 'el cargo por servicio confirmado no coincide con el libro' },
+  'find.refund_mismatch': { en: 'refunded amount does not match the ledger',
+                        pt: 'valor estornado não bate com o razão',
+                        es: 'el importe devuelto no coincide con el libro' },
+  'find.status_lag':  { en: 'the payment row is behind the ledger',
+                        pt: 'a linha do pagamento está atrasada em relação ao razão',
+                        es: 'la fila del pago está por detrás del libro' },
+  'find.missing_payment_row': { en: 'the ledger has a payment with no row',
+                        pt: 'o razão tem um pagamento sem linha',
+                        es: 'el libro tiene un pago sin fila' },
+  'find.missing_log_event': { en: 'a confirmed payment is missing from the ledger',
+                        pt: 'um pagamento confirmado não está no razão',
+                        es: 'falta un pago confirmado en el libro' },
+  'find.log_anomaly': { en: 'the ledger flagged something on this bill',
+                        pt: 'o razão marcou algo nesta conta',
+                        es: 'el libro ha marcado algo en esta cuenta' },
+  'find.service_never_collected': { en: 'service charged on every bill and none collected — check the amount reading',
+                        pt: 'serviço cobrado em todas as contas e nada arrecadado — conferir a leitura do valor',
+                        es: 'servicio cobrado en todas las cuentas y nada recaudado — revisar la lectura del importe' },
+  'find.underpayment': { en: 'paid {amount} less than the bill asked',
+                        pt: 'pago {amount} a menos do que a conta pedia',
+                        es: 'pagado {amount} menos de lo que pedía la cuenta' },
+  'find.overpayment': { en: 'paid {amount} more than the bill asked',
+                        pt: 'pago {amount} a mais do que a conta pedia',
+                        es: 'pagado {amount} más de lo que pedía la cuenta' },
+  'find.other':       { en: 'needs a look: {code}',
+                        pt: 'precisa de atenção: {code}',
+                        es: 'necesita atención: {code}' },
+  'panel.owedBack':   { en: 'owed back: {amount}',               pt: 'a devolver: {amount}', es: 'a devolver: {amount}' },
   'panel.toRefund':   { en: 'to refund to diners',               pt: 'a devolver a clientes', es: 'a devolver a clientes' },
   'panel.receivedToday': { en: 'received today · {n} payments', pt: 'recebido hoje · {n} pagamentos', es: 'recibido hoy · {n} pagos' },
   'panel.tables':     { en: 'Tables',                          pt: 'Mesas', es: 'Mesas' },

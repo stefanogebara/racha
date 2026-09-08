@@ -68,7 +68,10 @@ async function reconcileOneVenue(store, venue) {
       ...house.findings,
       ...house.failed.flatMap((f) => f.findings.map((x) => ({ ...x, accountId: f.accountId }))),
     ];
-    const findings = [...checkFindings, ...houseFindings];
+    // Achados do RESTAURANTE: os que só existem no agregado (serviço cobrado
+    // e nunca arrecadado, por exemplo — nenhuma conta sozinha revela isso).
+    // Sem esta linha eles ficavam calculados e não relatados.
+    const findings = [...checkFindings, ...houseFindings, ...(checks.venueFindings || [])];
 
     return {
       ...base,

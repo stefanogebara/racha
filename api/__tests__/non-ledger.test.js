@@ -144,20 +144,11 @@ describe('a ROTA do Pix trata a espécie inteira, não uma lista escrita à mão
     return src.slice(i, fim > i ? fim : undefined);
   };
 
-  test('o 503 depende do registro DURÁVEL quando há conta pra pendurar a marca', () => {
-    const rota = trecho("url.pathname === '/api/webhooks/psp'");
-    // `!persisted` — e não `!persisted && !notified`, que aceitava um alerta
-    // (que degrada) no lugar da marca (que não degrada). O `found ? … : …` que
-    // veio no meio ainda dispensava a marca quando não havia conta; desde a
-    // migração 0024 há sempre onde gravar.
-    expect(rota).toMatch(/const naoConverge = !persisted;/);
-  });
-
   test('/api/webhooks/psp chama o tratador e devolve 503 quando nada foi feito', () => {
     const rota = trecho("url.pathname === '/api/webhooks/psp'");
     // O conjunto, não uma enumeração: a próxima espécie inventada já entra.
     expect(rota).toMatch(/NON_LEDGER_KINDS\.has\(result\.status\)/);
-    expect(rota).toMatch(/handleNonLedgerMoneyEvent\(result\)/);
+    expect(rota).toMatch(/handleNonLedgerMoneyEvent\(result, \{ psp: 'pagarme' \}\)/);
     expect(rota).toMatch(/money_event_unrecorded/);
   });
 
@@ -344,18 +335,48 @@ describe('a busca do check que FALHA não é "não existe"', () => {
     expect(await store.listOrphanMoneyEvents()).toEqual([]);
   });
 
-  test('o portão da rota não olha mais o aviso', () => {
+  test('a regra do reenvio existe em UMA cópia, e nenhuma rota tem a própria', () => {
+    /**
+     * O censo das ROTAS, não de uma delas.
+     *
+     * O teste que guardava esta regra recortava o router entre o marcador do
+     * webhook do Pix e o do Stripe — então era estruturalmente incapaz de ver
+     * a segunda cópia, que ficou com a versão antiga (`!persistido &&
+     * !avisado`). Com `RACHA_NOTIFY_SECRET` configurado, aquele 503 nunca
+     * podia disparar: um chargeback que não conseguiu ser gravado saía 200 e a
+     * Stripe nunca reenviava. Achado pela revisão de segurança de 2026-09-08.
+     */
     const fs = require('node:fs');
     const path = require('node:path');
     const src = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
-    expect(src).toMatch(/const naoConverge = !persisted;/);
-    // A forma antiga não pode voltar como CÓDIGO. Ela aparece no comentário
-    // que conta a história, então a busca ignora linhas de comentário — senão
-    // o teste proibiria documentar o próprio defeito.
+    // Só CÓDIGO: os comentários contam a história do defeito, e proibir isso
+    // proibiria documentar.
     const codigo = src.split('\n')
       .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
       .join('\n');
+
+    // Todo lugar que devolve `money_event_unrecorded` decide pelo `needsRetry`.
+    const sitios = [...codigo.matchAll(/money_event_unrecorded/g)];
+    expect(sitios.length).toBeGreaterThanOrEqual(2);   // Pix e Stripe
+    for (const m of sitios) {
+      const antes = codigo.slice(Math.max(0, m.index - 600), m.index);
+      expect(antes).toMatch(/needsRetry\(/);
+    }
+    // E nenhuma forma anterior sobreviveu como código.
     expect(codigo).not.toMatch(/found \? !persisted : !notified/);
+    expect(codigo).not.toMatch(/!persistido && !avisado/);
+    expect(codigo).not.toMatch(/const naoConverge/);
+  });
+
+  test('a regra: sem registro durável pede reenvio; quieto nunca pede', () => {
+    const { needsRetry } = require('../_lib/pay/non-ledger');
+    expect(needsRetry({ persisted: false })).toBe(true);
+    // Um aviso que saiu NÃO substitui o registro: ele degrada pra stderr sem
+    // `RACHA_NOTIFY_SECRET`, e a falha de gravação costuma ser persistente.
+    expect(needsRetry({ persisted: false, notified: true })).toBe(true);
+    expect(needsRetry({ persisted: true })).toBe(false);
+    // `refund_progress` é estado intermediário: ele ainda vai terminar.
+    expect(needsRetry({ persisted: false, quieto: true })).toBe(false);
   });
 
   test('store sem a fila de órfãos não constrói o tratador — falha alto e cedo', async () => {
@@ -365,4 +386,19 @@ describe('a busca do check que FALHA não é "não existe"', () => {
     expect(() => createNonLedgerHandler({ store: semFila, notify: async () => ({ ok: true }) }))
       .toThrow(/recordOrphanMoneyEvent/);
   });
+});
+
+test('o adquirente é DITO pelo chamador, não adivinhado pelo prefixo', async () => {
+  // A adivinhação errava justo no caso urgente: id de cobrança da Stripe
+  // também começa com `ch_`, e um `payout.failed` chega sem txid nenhum. Um
+  // repasse da Stripe que falhou ia pro log como Pagar.me, e o alerta mandava
+  // abrir o painel errado no meio de um incidente.
+  const { store } = await cenario();
+  const handle = createNonLedgerHandler({ store, notify: async () => ({ ok: true }) });
+  await handle(
+    { status: 'account_alert', type: 'payout.failed', txid: null, raw: { eventId: 'evt_po' } },
+    { psp: 'stripe' },
+  );
+  const [orfao] = await store.listOrphanMoneyEvents();
+  expect(orfao.psp).toBe('stripe');
 });

@@ -105,7 +105,7 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'qrs.print:pt=es', // "Imprimir" é igual nas duas
     // "de {x} cobrados" e "a devolver a clientes" se escrevem igual nas duas
     // línguas — verificado palavra por palavra, não presumido pela semelhança.
-    'panel.tipShort:pt=es', 'panel.toRefund:pt=es',
+    'panel.tipShort:pt=es', 'panel.toRefund:pt=es', 'panel.owedBack:pt=es',
     // "chargeback" é o termo usado em português no mercado de pagamentos
     // brasileiro — adquirente, bandeira e o próprio contrato do restaurante
     // dizem chargeback. Traduzir pra "estorno" seria PIOR: estorno é outra
@@ -548,8 +548,13 @@ test('todo código de erro que a API manda tem tradução', async () => {
   // com o SEU dinheiro que a casa te deve — pagou a mais, estorno que falhou).
   // As duas chegam ao cliente como código estável + centavos, e as duas têm
   // que ter frase nos três idiomas.
+  // TRÊS famílias traduzíveis: `err.` (deu errado), `notice.` (o SEU dinheiro,
+  // na tela de quem pagou) e `find.` (achado da conciliação, na tela do dono).
+  // Todas chegam como código estável + centavos; todas precisam das três
+  // línguas.
   const missing = [...codes]
-    .filter((c) => !INTERNAL.has(c) && !(`err.${c}` in DICT) && !(`notice.${c}` in DICT))
+    .filter((c) => !INTERNAL.has(c)
+      && !(`err.${c}` in DICT) && !(`notice.${c}` in DICT) && !(`find.${c}` in DICT))
     .sort();
   assert.deepEqual(missing, [], `\ncódigos sem tradução (a tela mostraria a frase interna):\n${missing.join('\n')}\n`);
 });

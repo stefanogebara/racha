@@ -52,40 +52,42 @@ const { allocateRefund, allocateRestitution } = require('../checks/split-engine'
  * RESTITUIÇÃO de excedente e sai toda do consumo — foi por ali que entrou (ver
  * `allocateRestitution`). Sem excedente, é estorno comum e vai proporcional.
  */
+/**
+ * O rateio de uma devolução, considerando o EXCEDENTE deste pagamento.
+ *
+ * Se parte do que este pagamento trouxe era sobra, a primeira parte do que
+ * volta é RESTITUIÇÃO e sai toda do consumo — foi por ali que entrou (ver
+ * `allocateRestitution`). O resto é estorno comum e vai proporcional.
+ *
+ * O excedente é DERIVADO pelo redutor (ver `PAYMENT_CONFIRMED`), então aqui
+ * ele nunca falta: a reserva histórica que existia neste lugar era código
+ * morto, porque o redutor já normalizava o campo antes dela poder olhar.
+ *
+ * Quanto ainda falta restituir sai por subtração, e é exato por construção: o
+ * excedente sai do consumo PRIMEIRO, então os primeiros `refundedAmountCents`
+ * centavos devolvidos foram exatamente ele. Nada de teto pela sobra da CONTA —
+ * ela é reduzida por qualquer coisa que mexa no total, e um teto assim vazava
+ * entre pagadores: compensar a dívida de um com o crédito de outro não existe
+ * (CC art. 876).
+ *
+ * A conta que ENCOLHEU depois de paga (`ADJUSTED` pra baixo) também produz
+ * sobra, e nela nenhum pagamento tem excedente — corretamente: ninguém pagou a
+ * mais, a conta diminuiu. Aí o estorno é comum e proporcional, o que devolve
+ * junto a fatia de serviço do item que saiu.
+ */
 function alocarDevolucao(state, pay, delta) {
+  void state;
   const consumo = pay.amountCents - pay.refundedAmountCents;
   const gorjeta = pay.tipCents - pay.refundedTipCents;
-  /**
-   * O excedente é DO PAGAMENTO, não da conta.
-   *
-   * Isto lia `state.overpaidCents`, que é a sobra da CONTA. Numa conta rachada
-   * são dinheiros diferentes: se B pagou a mais e depois A (que pagou exato) é
-   * estornado, a sobra de B fazia o estorno de A sair todo do consumo — e a
-   * gorjeta que devia voltar ficava na base da folha, com INSS/IRRF/FGTS por
-   * cima de dinheiro que voltou pro cliente. Achado pela revisão de segurança
-   * de 2026-09-08.
-   *
-   * `state` fica na assinatura pra reserva histórica: pagamento gravado antes
-   * deste campo não tem `excessCents`, e aí a sobra da conta é a melhor
-   * informação que existe — só é usada quando a conta tem UM pagamento, onde as
-   * duas coisas coincidem por construção.
-   */
-  const doPagamento = Number.isSafeInteger(pay.excessCents) ? pay.excessCents : null;
-  const umSoPagamento = state && state.payments && Object.keys(state.payments).length === 1;
-  const bruto = doPagamento !== null
-    ? doPagamento
-    : (umSoPagamento ? Math.max(0, (state && state.overpaidCents) || 0) : 0);
-  // Nunca mais do que o consumo que ainda existe, nem do que a conta ainda
-  // tem de sobra: uma restituição já feita não se faz duas vezes.
   const excedente = Math.min(
-    Math.max(0, bruto),
+    Math.max(0, (pay.excessCents || 0) - (pay.refundedAmountCents || 0)),
     Math.max(0, consumo),
-    Math.max(0, (state && state.overpaidCents) || 0),
   );
   return excedente > 0
     ? allocateRestitution(consumo, gorjeta, delta, excedente)
     : allocateRefund(consumo, gorjeta, delta);
 }
+
 
 async function applyConfirmedPayment(parsed, deps) {
   const {

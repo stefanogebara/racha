@@ -28,7 +28,27 @@ const { createMemoryStore } = require('../_lib/store/memory');
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
-const { createNonLedgerHandler } = require('../_lib/pay/non-ledger');
+const { allocateRestitution, allocateRefund } = require('../_lib/checks/split-engine');
+
+/**
+ * O rateio de uma restituição registrada à mão — pelo MESMO motor do webhook.
+ *
+ * Não é uma segunda regra de dinheiro: é a de sempre. O excedente daquele
+ * pagamento sai do consumo (foi por ali que entrou), e o que passa dele é
+ * estorno comum e vai proporcional.
+ */
+function alocarRestituicaoManual(pg, valor) {
+  const consumo = pg.amountCents - pg.refundedAmountCents;
+  const gorjeta = pg.tipCents - pg.refundedTipCents;
+  const excedente = Math.min(
+    Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
+    Math.max(0, consumo),
+  );
+  return excedente > 0
+    ? allocateRestitution(consumo, gorjeta, valor, excedente)
+    : allocateRefund(consumo, gorjeta, valor);
+}
+const { createNonLedgerHandler, needsRetry, SEM_ALARDE } = require('../_lib/pay/non-ledger');
 const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
@@ -612,37 +632,24 @@ async function route(req, res) {
       // gravado NEM avisado é 503, pra Pagar.me reenviar — perder o evento em
       // silêncio é o que o inegociável #8 proíbe.
       if (NON_LEDGER_KINDS.has(result.status)) {
-        const { persisted, notified, found } = await handleNonLedgerMoneyEvent(result);
+        const marca = await handleNonLedgerMoneyEvent(result, { psp: 'pagarme' });
         /**
-         * O que decide o 503 é o registro DURÁVEL, não o aviso.
+         * Quem decide o reenvio é `needsRetry`, e ele mora num lugar só.
          *
-         * Estava `!persisted && !notified` — ou seja, um alerta que saiu
-         * bastava. E o módulo que grava a anomalia diz, no próprio cabeçalho,
-         * por que os dois não são equivalentes: o alerta degrada (sem
-         * `RACHA_NOTIFY_SECRET` vira stderr) e a anomalia não. Pior: uma falha
-         * de gravação costuma ser PERSISTENTE — um CHECK que recusa o tipo do
-         * evento, uma permissão — do jeito que a produção recusou três tipos de
-         * evento por doze dias. Nesse estado, todo cancelamento parcial saía
+         * A regra é: o que vale é o registro DURÁVEL, não o aviso — o aviso
+         * degrada pra stderr sem `RACHA_NOTIFY_SECRET` e a anomalia não. Uma
+         * falha de gravação costuma ser PERSISTENTE (um CHECK recusando o tipo
+         * do evento, uma permissão), do jeito que a produção recusou três
+         * tipos por doze dias — e nesse estado todo cancelamento parcial saía
          * 200, a Pagar.me nunca reenviava, e o único vestígio era uma mensagem
-         * de chat, com a conciliação verde por cima do dinheiro que saiu.
+         * de chat com a conciliação verde por cima do dinheiro que saiu.
          *
-         * Agora: se havia conta pra pendurar a marca e a marca não entrou, é
-         * 503 e a Pagar.me reenvia. Sem conta pra pendurar, o reenvio não tem
-         * pra onde convergir — aí o aviso é o que existe, e insistir em 503
-         * só queimaria o endpoint (que derruba TODA confirmação de Pix).
-         * Achado pela revisão de segurança de 2026-09-08.
+         * Esta rota já tinha sido corrigida; a da Stripe ficou com a versão
+         * antiga, e o teste que guardava a regra recortava o arquivo entre as
+         * duas rotas, então era estruturalmente incapaz de ver a segunda
+         * cópia. Agora é uma função e um censo.
          */
-        // O DURÁVEL, nos dois casos.
-        //
-        // Era `found ? !persisted : !notified`, e o segundo ramo era raciocínio
-        // envelhecido: sem conta pra pendurar a marca, "o reenvio não tem pra
-        // onde convergir". Desde a migração 0024 tem — `orphan_money_events` é
-        // idempotente por `psp_event_id`, então o reenvio pousa exatamente uma
-        // vez. Aceitar `notified` aqui deixava um blip do banco virar 200 sobre
-        // dinheiro que saiu, porque o alerta sai por um caminho que não passa
-        // pelo Supabase. `notified` não entra mais nesta decisão.
-        const naoConverge = !persisted;
-        if (naoConverge && result.status !== 'refund_progress') {
+        if (needsRetry(marca)) {
           process.stderr.write(`[webhook] ${result.status} SEM registro e SEM aviso — devolvendo 503 pra reenvio\n`);
           return json(res, 503, {
             success: false, code: 'money_event_unrecorded',
@@ -746,16 +753,23 @@ async function route(req, res) {
            * daqui só com alerta — e alerta degrada pra stderr sem
            * `RACHA_NOTIFY_SECRET`. É o mesmo defeito que o `non-ledger.js`
            * fechou no trilho do Pix, deixado de pé no outro. A abertura e a
-           * atualização de disputa já persistem acima (com o PRAZO, que é o
-           * que importa nelas), então só o resto passa por aqui.
-           * Achado pela revisão de compliance de 2026-09-08.
+           * atualização de disputa persistem acima com o PRAZO, que é o que
+           * importa nelas — mas SÓ quando o txid resolve pra uma conta. Eu
+           * tinha excluído as duas espécies daqui por causa disso, e assim um
+           * chargeback aberto contra um txid que a gente não reconhece não
+           * ganhava anomalia, nem linha de órfão, e saía 200: a única forma que
+           * a migração 0024 existe pra fechar, deixada aberta no trilho onde
+           * chargeback acontece de verdade. A gravação do órfão é idempotente
+           * por `psp_event_id`, então passar por aqui de novo não duplica nada.
+           * Achado pelas revisões de 2026-09-08.
            */
-          if (!persistido && parsed.kind !== 'dispute_opened' && parsed.kind !== 'dispute_updated') {
-            const marca = await handleNonLedgerMoneyEvent({
+          let marcaNaoLancavel = null;
+          if (!persistido) {
+            marcaNaoLancavel = await handleNonLedgerMoneyEvent({
               status: parsed.kind, type: parsed.type || null, txid: parsed.txid || null,
               raw: parsed,
-            }, { alert: false }); // o aviso desta rota sai logo abaixo, com a conta conectada
-            persistido = marca.persisted;
+            }, { alert: false, psp: 'stripe' }); // o aviso sai abaixo, com a conta conectada
+            persistido = marcaNaoLancavel.persisted;
           }
           let avisado = true;
           if (parsed.kind !== 'refund_progress') {
@@ -794,8 +808,21 @@ async function route(req, res) {
            * que ainda vai terminar em `succeeded` ou `failed`, e os dois têm
            * tratamento próprio.
            */
-          if (!persistido && !avisado && parsed.kind !== 'refund_progress') {
-            process.stderr.write(`[stripe-webhook] ${parsed.kind} SEM registro e SEM aviso — devolvendo 503 pra reenvio\n`);
+          // A MESMA regra do trilho do Pix, pela mesma função: o que decide o
+          // reenvio é o registro durável. Aqui estava `!persistido && !avisado`
+          // — e com `RACHA_NOTIFY_SECRET` configurado, que é o estado
+          // pretendido em produção, esse 503 nunca podia disparar. Um
+          // chargeback que não conseguiu ser gravado saía 200 e a Stripe nunca
+          // reenviava. Achado pela revisão de segurança de 2026-09-08.
+          // `quieto` vem do TRATADOR, não de um literal aqui: a lista de
+          // espécies silenciosas (`SEM_ALARDE`) é de lá, e uma espécie nova
+          // acrescentada lá faria estas rotas devolverem 503 pra sempre por
+          // algo que nem devia alertar.
+          if (needsRetry({
+            persisted: persistido,
+            quieto: marcaNaoLancavel ? marcaNaoLancavel.quieto : SEM_ALARDE.has(parsed.kind),
+          })) {
+            process.stderr.write(`[stripe-webhook] ${parsed.kind} SEM registro durável — devolvendo 503 pra reenvio\n`);
             return json(res, 503, {
               success: false, code: 'money_event_unrecorded',
               data: { status: parsed.kind, txid: parsed.txid },
@@ -1110,6 +1137,69 @@ async function route(req, res) {
         return json(res, 200, { success: true, data: { seq } });
       } catch (e) {
         return json(res, e.statusCode || 400, { success: false, error: e.message, code: 'resolve_failed' });
+      }
+    }
+
+    /**
+     * Restituição feita POR FORA do trilho — registrada pelo dono.
+     *
+     * `overpaidCents` só cai quando um `PAYMENT_REFUNDED` entra, e o único
+     * autor desse evento era o caminho do PSP. Mas o runbook prevê o caso duas
+     * vezes, com razão: a devolução Pix tem prazo de 90 dias, e passado isso a
+     * saída é transferência comum; e às vezes a casa devolve em dinheiro na
+     * hora. Sem esta rota, o certo a fazer deixava a marca `critical` PRA
+     * SEMPRE e o telefone do cliente dizendo que a casa ainda devia — o
+     * canário que grita eternamente, instalado justo no caminho de dívida com
+     * o consumidor. Achado pela revisão de compliance de 2026-09-08.
+     *
+     * É `PAYMENT_REFUNDED` mesmo, e não um tipo novo: o dinheiro VOLTOU. O que
+     * muda é o meio, e o meio fica no evento (`offRail` + a referência), pra
+     * uma auditoria distinguir depois. O rateio passa pelo mesmo
+     * `allocateRestitution` — o excedente sai do consumo, nunca da gorjeta.
+     */
+    if (req.method === 'POST' && url.pathname === '/api/checks/record-restitution') {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.checkId || !b.txid) {
+        return json(res, 400, { success: false, error: 'checkId e txid são obrigatórios', code: 'amount_invalid' });
+      }
+      const restVenue = await store.getVenueForCheck(b.checkId);
+      if (!restVenue) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      try { await auth.requireVenueOwner(user, restVenue.id); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      const valor = b.amountCents;
+      if (!Number.isSafeInteger(valor) || valor <= 0) {
+        return json(res, 400, { success: false, error: 'amountCents inválido', code: 'amount_invalid' });
+      }
+      // A REFERÊNCIA não é enfeite: é o que prova a devolução se o cliente
+      // abrir um MED depois, e o que evita a casa pagar duas vezes.
+      const ref = String(b.reference || '').trim().slice(0, 120);
+      if (ref.length < 3) {
+        return json(res, 400, { success: false, error: 'informe a referência da devolução', code: 'reference_required' });
+      }
+      const estado = reduce(await store.loadEvents(b.checkId));
+      const pg = estado && estado.payments[String(b.txid)];
+      if (!pg) return json(res, 404, { success: false, error: 'pagamento desconhecido', code: 'txid_unknown' });
+      const sobra = (pg.amountCents - pg.refundedAmountCents) + (pg.tipCents - pg.refundedTipCents);
+      if (valor > sobra) {
+        return json(res, 400, {
+          success: false, code: 'amount_over',
+          error: 'valor acima do que resta neste pagamento', vars: { leftCents: sobra },
+        });
+      }
+      try {
+        const partes = alocarRestituicaoManual(pg, valor);
+        const seq = await appendValidated(store, b.checkId, 'PAYMENT_REFUNDED', {
+          txid: String(b.txid),
+          amountCents: partes.amountCents,
+          tipCents: partes.tipCents,
+          offRail: true,
+          reference: ref,
+          by: user.email || user.id || 'dono',
+        });
+        return json(res, 200, { success: true, data: { seq, ...partes } });
+      } catch (e) {
+        return json(res, e.statusCode || 400, { success: false, error: e.message, code: 'restitution_failed' });
       }
     }
 
@@ -1517,7 +1607,7 @@ async function route(req, res) {
        * disto. O que muda é que alguém fica sabendo.
        */
       if (NON_LEDGER_KINDS.has(result.status)) {
-        await handleNonLedgerMoneyEvent(result);
+        await handleNonLedgerMoneyEvent(result, { psp: 'mock' });
       }
       return json(res, 200, { success: true, data: result });
     }

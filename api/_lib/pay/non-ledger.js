@@ -63,6 +63,8 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
    *   evento treinam quem lê a ignorar os dois.
    */
   return async function handleNonLedgerMoneyEvent(result, opts = {}) {
+    // `opts.psp` é o adquirente, dito pelo chamador. `opts.alert` desliga o
+    // aviso pra quem manda o próprio.
     const kind = result.status;
     const txid = result.txid || null;
     const quieto = SEM_ALARDE.has(kind);
@@ -125,9 +127,14 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
       try {
         await store.recordOrphanMoneyEvent({
           kind, txid, eventType: result.type || null,
-          // QUAL adquirente: "unusable_money_event ch_…" sem isso não diz que
-          // painel abrir. O prefixo do txid é o que a gente tem.
-          psp: /^pi_|^ch_test/.test(String(txid || '')) ? 'stripe' : 'pagarme',
+          // QUAL adquirente — dito por quem SABE.
+          //
+          // Eu tinha adivinhado pelo prefixo do txid, e a adivinhação erra
+          // justo no caso urgente: id de cobrança da Stripe também começa com
+          // `ch_`, e um `payout.failed` chega sem txid nenhum. Um repasse da
+          // Stripe que falhou era arquivado como Pagar.me, e o alerta mandava
+          // o operador abrir o painel errado no meio de um incidente.
+          psp: opts.psp || null,
           pspEventId: (result.raw && result.raw.eventId) || null,
           // O valor RECEBIDO quando existe. Num `unusable_money_event` o
           // `amountCents` é `undefined` de propósito (o parser estourou, é por
@@ -165,4 +172,24 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
   };
 }
 
-module.exports = { createNonLedgerHandler, SEM_ALARDE };
+/**
+ * Este evento de dinheiro precisa de REENVIO?
+ *
+ * A regra em UMA cópia. Ela nasceu na rota do Pix, foi corrigida lá — o aviso
+ * degrada e não pode substituir o registro durável — e a rota da Stripe ficou
+ * com a versão antiga (`!persistido && !avisado`). Com `RACHA_NOTIFY_SECRET`
+ * configurado, que é o estado pretendido em produção, aquele 503 NUNCA podia
+ * disparar: um chargeback que não conseguiu ser gravado saía 200 e a Stripe
+ * nunca reenviava.
+ *
+ * Duas rotas, uma regra, e um censo que confere as duas.
+ * Achado pela revisão de segurança de 2026-09-08.
+ *
+ * @param {{persisted: boolean, quieto?: boolean}} r
+ */
+function needsRetry(r) {
+  if (!r || r.quieto) return false;
+  return !r.persisted;
+}
+
+module.exports = { createNonLedgerHandler, needsRetry, SEM_ALARDE };

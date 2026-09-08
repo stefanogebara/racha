@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { LangToggle, useT } from './lang';
+import { DICT, LangToggle, useT } from './lang';
 import { type PanelAtivacao } from './api';
-import { type CurrencyCode } from './i18n';
+import { type CurrencyCode, type Key } from './i18n';
 import { authedReq, signOut } from './auth';
 
 /**
@@ -15,7 +15,14 @@ interface Reconcile {
   driftCents: number;
   checksChecked: number;
   accountsChecked: number;
-  findings: Array<{ severity: string; code: string; message: string }>;
+  findings: Array<{
+    severity: string; code: string;
+    /** Texto interno do servidor. NÃO É PRA TELA — ver `FINDING_KEY`. */
+    message: string;
+    /** Os centavos, crus, pra o cliente formatar no idioma do leitor. */
+    overpaidCents?: number; deltaCents?: number; driftCents?: number;
+    chargedTipCents?: number; txid?: string;
+  }>;
   at: string;
 }
 
@@ -30,6 +37,14 @@ interface PanelData {
       status: string; totalCents: number; paidCents: number; tipCents: number; anomalies: number;
       /** Contagem de disputas — o backend antigo não manda, e a linha some. */
       disputes?: { open: number; lost: number; won: number };
+      /** Recebido a MAIS nesta conta: dívida da casa com quem pagou. */
+      overpaidCents?: number;
+      /**
+       * QUAL cobrança devolver, e quanto. Sem isto o dono lia "R$ 90,00 a
+       * devolver" e tinha que adivinhar a cobrança no painel do adquirente —
+       * uma obrigação que a tela anuncia e não sabe endereçar.
+       */
+      overpaidTxids?: Array<{ txid: string; restituteCents: number }>;
     };
   }>;
   today: {
@@ -176,6 +191,20 @@ export default function Panel() {
                   ? t(STATUS_KEY[c.state.status as keyof typeof STATUS_KEY])
                   : c.state.status}
               </span>
+              {/* A DÍVIDA na linha da mesa, com a cobrança a devolver.
+                  O aviso ao cliente manda "falar com a equipe" — e a tela da
+                  equipe não dizia qual mesa, nem qual cobrança. Ver
+                  `docs/runbooks/devolver-dinheiro-a-mais.md`. */}
+              {(c.state.overpaidCents || 0) > 0 && (
+                <span className="owed" style={{ color: 'var(--burgundy)', fontSize: 12 }}>
+                  {t('panel.owedBack', { amount: brl(c.state.overpaidCents || 0) })}
+                  {(c.state.overpaidTxids || []).map((x) => (
+                    <em key={x.txid} className="mono" style={{ display: 'block', opacity: 0.75 }}>
+                      {x.txid} · {brl(x.restituteCents)}
+                    </em>
+                  ))}
+                </span>
+              )}
             </div>
           );
         })}
@@ -199,6 +228,27 @@ export default function Panel() {
  * ele, "não apareceu nada" e "não conferi nada" são a mesma tela, e a segunda é
  * a que quebra restaurante.
  */
+/**
+ * Achado da conciliação → frase, no idioma do leitor.
+ *
+ * Mapa com genérico, nunca ternário: um código novo tem que sair como código,
+ * e não como a frase do vizinho. Os centavos vêm crus do servidor e são
+ * formatados aqui, onde se sabe quem está lendo.
+ */
+function textoDoAchado(
+  f: { code: string; overpaidCents?: number; deltaCents?: number; driftCents?: number },
+  t: (k: Key, v?: Record<string, string | number>) => string,
+  brl: (c: number) => string,
+): string {
+  const chave = `find.${f.code}` as Key;
+  const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents;
+  const vars = valor !== undefined ? { amount: brl(Math.abs(valor)) } : undefined;
+  // Pergunta, não exceção: `t()` de chave desconhecida estoura num
+  // `undefined[lang]`, e depender disso é depender de um acidente.
+  if (!(chave in DICT)) return t('find.other', { code: f.code });
+  return t(chave, vars);
+}
+
 function Conciliacao({ r, currency }: { r: Reconcile | undefined; currency: CurrencyCode }) {
   const { t, brl: fmtMoney, hm } = useT();
   const brl = (c: number) => fmtMoney(c, currency);
@@ -216,8 +266,15 @@ function Conciliacao({ r, currency }: { r: Reconcile | undefined; currency: Curr
                 : t('panel.reconDrift')}
             </strong>
           </p>
+          {/* O ACHADO traduzido, não o texto do servidor.
+              O painel imprimia `f.message`: português montado no servidor, com
+              centavos crus ("9000¢"). Contra o acordo de trabalho — servidor
+              manda código + centavos, cliente traduz e formata — e a tela do
+              CLIENTE já tinha ganhado esse tratamento. Esta era o chamador
+              esquecido. Código sem tradução cai num genérico que mostra o
+              código, nunca a frase de um vizinho. */}
           {r.findings.map((f, i) => (
-            <p className="muted small" key={i}>· {f.message}</p>
+            <p className="muted small" key={i}>· {textoDoAchado(f, t, brl)}</p>
           ))}
           <p className="muted small">
             {t('panel.reconManual')} {t('panel.reconCall')}

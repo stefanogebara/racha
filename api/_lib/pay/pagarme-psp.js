@@ -104,8 +104,18 @@ const PAID_STATUSES = new Set(['paid', 'overpaid', 'underpaid']);
  */
 function receivedCents(charge) {
   const pedido = Number(charge.amount) || 0;
+  /**
+   * AUSENTE cai no pedido; ZERO é zero.
+   *
+   * O teste era `pago > 0`, então um `paid_amount: 0` num status de dinheiro
+   * recebido voltava pro valor PEDIDO — inventando dinheiro que a API disse
+   * não ter chegado. Ausência é versão de API mais velha; zero é uma
+   * afirmação. Achado pela revisão de segurança de 2026-09-08.
+   */
+  if (charge.paid_amount === undefined || charge.paid_amount === null) return pedido;
   const pago = Number(charge.paid_amount);
-  return Number.isFinite(pago) && pago > 0 ? pago : pedido;
+  if (!Number.isFinite(pago) || pago < 0) return pedido;
+  return pago;
 }
 
 function parseCharge(charge, eventId = null) {

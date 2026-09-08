@@ -417,3 +417,79 @@ describe('conta RACHADA: a sobra de um não rege o estorno do outro', () => {
     expect(st.overpaidCents).toBe(0);                          // e a marca fecha
   });
 });
+
+describe('restituição registrada À MÃO fecha a marca', () => {
+  /**
+   * `overpaidCents` só caía com um `PAYMENT_REFUNDED`, e o único autor desse
+   * evento era o caminho do PSP. Mas a devolução Pix tem prazo de 90 dias e às
+   * vezes a casa devolve em dinheiro — o runbook prevê os dois. Sem um caminho,
+   * fazer a coisa certa deixava a marca `critical` pra sempre e o telefone do
+   * cliente dizendo que a casa ainda devia.
+   * Achado pela revisão de compliance de 2026-09-08.
+   */
+  const { appendValidated } = require('../_lib/checks/append-validated');
+  const { allocateRestitution } = require('../_lib/checks/split-engine');
+  const { publicCheckState } = require('../_lib/checks/public-state');
+
+  async function contaComSobra() {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Rodízio', priceCents: 10000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: store.getPayment.bind(store),
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    await store.registerCharge({
+      checkId: check.id, txid: 'ch_1', amountCents: 10000, tipCents: 1000, method: 'pix',
+    });
+    // Digitou 200,00 no app do banco. O excedente é DERIVADO pelo razão.
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'ch_1', amountCents: 19000, tipCents: 1000,
+      method: 'pix', eventId: 'evt_p',
+    }, deps);
+    return { store, check };
+  }
+
+  test('devolução em dinheiro, registrada com referência, zera a sobra', async () => {
+    const { store, check } = await contaComSobra();
+    let st = reduce(await store.loadEvents(check.id));
+    expect(st.payments.ch_1.excessCents).toBe(9000);   // derivado, sem o PSP dizer
+    const gorjetaAntes = st.tipCents;
+
+    // O que a rota faz: rateia pelo MESMO motor e grava o evento com o meio.
+    const pg = st.payments.ch_1;
+    const partes = allocateRestitution(
+      pg.amountCents - pg.refundedAmountCents,
+      pg.tipCents - pg.refundedTipCents,
+      9000,
+      9000,
+    );
+    await appendValidated(store, check.id, 'PAYMENT_REFUNDED', {
+      txid: 'ch_1', ...partes, offRail: true, reference: 'Pix manual E2E-abc123', by: 'dona@bar',
+    });
+
+    st = reduce(await store.loadEvents(check.id));
+    expect(st.overpaidCents).toBe(0);              // a marca FECHA
+    expect(st.tipCents).toBe(gorjetaAntes);        // e a folha não pagou nada
+    expect(publicCheckState(st).notices).toEqual([]);
+  });
+
+  test('o MEIO e a REFERÊNCIA ficam no razão — é o que prova a devolução num MED', async () => {
+    const { store, check } = await contaComSobra();
+    await appendValidated(store, check.id, 'PAYMENT_REFUNDED', {
+      txid: 'ch_1', amountCents: 9000, tipCents: 0,
+      offRail: true, reference: 'Pix manual E2E-abc123', by: 'dona@bar',
+    });
+    const eventos = await store.loadEvents(check.id);
+    const ev = eventos.find((e) => e.type === 'PAYMENT_REFUNDED');
+    expect(ev.payload.offRail).toBe(true);
+    expect(ev.payload.reference).toBe('Pix manual E2E-abc123');
+    expect(ev.payload.by).toBe('dona@bar');
+  });
+});

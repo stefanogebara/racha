@@ -14,6 +14,32 @@
 -- correcao nao "escolhe" numero nenhum — ela recalcula da soma dos eventos.
 -- Idempotente por construcao: rodar de novo escreve os mesmos valores.
 
+-- A TABELA DE REPARO, criada aqui, porque este arquivo escreve nela.
+--
+-- Ela nasceu na 0022 — depois desta — e este arquivo insere nela em tres
+-- pontos. Aplicado na ordem numerica (que e o modelo que o `sql-contract.test`
+-- usa, e o de qualquer replay do esquema), a 0021 morria com `42P01`. Em
+-- producao passou porque foi aplicada a mao; um banco novo, o staging e uma
+-- restauracao de desastre nao passariam — e o canario sintetico do staging
+-- depende de conseguir construir o esquema a partir destes arquivos.
+--
+-- Pior desta rodada: o primeiro dos tres inserts passou a ser a PRIMEIRA
+-- instrucao do arquivo, entao ele deixou de falhar no meio e passou a falhar
+-- na largada — a semantica de aplicacao parcial mudou sem ninguem pedir.
+-- `if not exists` nos dois lugares mantem as duas ordens validas.
+-- Achado pela revisao de seguranca de 2026-09-08.
+
+
+create table if not exists public.payment_repair_log (
+  id           bigserial primary key,
+  at           timestamptz not null default now(),
+  migration    text        not null,
+  operator     text        not null,
+  reason       text        not null,
+  txid         text        not null,
+  before_row   jsonb,
+  after_row    jsonb
+);
 -- 1) o acumulado ESTORNADO, liquido das reversoes de estorno que falhou.
 -- A imagem ANTERIOR das linhas que o passo 1 vai tocar. Este passo nao tinha
 -- registro nenhum — e o passo 3, que e o que pode mexer na base da folha de um

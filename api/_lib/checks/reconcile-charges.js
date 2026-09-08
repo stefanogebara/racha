@@ -182,7 +182,15 @@ function createChargeReconciler({ store, psp, confirm }) {
               }
             }
           }
-          details.push({ txid: p.txid, checkId: p.checkId, status: `psp:${info.status}`, unusable: true });
+          let expUnusable = null;
+          if (typeof store.expirePaymentIfPending === 'function') {
+            try { expUnusable = await store.expirePaymentIfPending(p.txid); }
+            catch { /* a anomalia já está gravada; a varredura segue */ }
+          }
+          details.push({
+            txid: p.txid, checkId: p.checkId, status: `psp:${info.status}`, unusable: true,
+            ...(expUnusable === null ? {} : { expired: expUnusable }),
+          });
           continue;
         }
         /**
@@ -209,9 +217,21 @@ function createChargeReconciler({ store, psp, confirm }) {
               }
             }
           }
+          // E a LINHA sai de `pendente` (condicional, migração 0020): senão
+          // ela deixa a janela de 24h em silêncio e o dinheiro passa a existir
+          // só dentro de uma string de anomalia.
+          let expirada = null;
+          if (typeof store.expirePaymentIfPending === 'function') {
+            try { expirada = await store.expirePaymentIfPending(p.txid); }
+            catch (e) {
+              errors += 1;
+              details.push({ txid: p.txid, error: `expire: ${String(e.message).slice(0, 80)}` });
+            }
+          }
           details.push({
             txid: p.txid, checkId: p.checkId, status: `psp:${info.status}`,
             refundedCents: info.cumulativeRefundedCents,
+            ...(expirada === null ? {} : { expired: expirada }),
           });
           continue;
         }
@@ -276,14 +296,26 @@ function createChargeReconciler({ store, psp, confirm }) {
           }
           continue;
         }
-        const res = await confirm({
-          kind: 'payment_confirmed',
-          txid: info.txid,
-          amountCents: info.amountCents,
-          tipCents: info.tipCents,
-          method: info.method,
-          raw: info.raw,
-        });
+        /**
+         * REPASSA o que o adaptador devolveu. Não copia campo por campo.
+         *
+         * Isto remontava o objeto à mão — e uma cópia à mão é a fábrica do
+         * chamador esquecido. O campo que ficou de fora foi o `excessCents`:
+         * quanto daquele pagamento entrou a mais. Sem ele, TODA restituição
+         * confirmada por este caminho voltava pra regra proporcional, tirava
+         * uma fatia da gorjeta (Lei 13.419), e a marca "a devolver" convergia
+         * geometricamente sem nunca chegar a zero — o painel pedindo devolução
+         * e o cliente sendo avisado de que é credor depois de restituído.
+         *
+         * E este é o caminho GARANTIDO, o que existe justamente porque o
+         * webhook pode não chegar: o defeito valia pra toda conta curada pela
+         * conciliação ou pela leitura do cliente. Achado pela revisão de
+         * compliance de 2026-09-08.
+         *
+         * `kind` é fixado aqui porque o adaptador pode devolver `refund` ou
+         * `unusable_money_event`, e esses ramos saíram acima.
+         */
+        const res = await confirm({ ...info, kind: 'payment_confirmed' });
         if (res.status === 'appended' || res.status === 'divergent_appended') {
           confirmed += 1;
         }

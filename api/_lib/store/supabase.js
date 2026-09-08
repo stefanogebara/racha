@@ -73,8 +73,17 @@ function mapHouseAccount(a) {
   };
 }
 
-function createSupabaseStore({ url, serviceRoleKey } = {}) {
-  const client = createClient(
+/**
+ * @param {object} [opts]
+ * @param {object} [opts.client] cliente pronto — a costura pra teste de
+ *   CONTRATO. Sem ela, o mapeamento coluna→campo não era verificável de fato:
+ *   dava pra conferir que o nome aparece no `select` e que o campo aparece no
+ *   objeto, e uma TROCA entre duas colunas satisfazia as duas conferências.
+ *   Foi assim que a guarda de versão do reparo (0023) ficou inerte sem ninguém
+ *   ver. Achado pela revisão de segurança de 2026-09-08.
+ */
+function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
+  const client = injected || createClient(
     url || required('SUPABASE_URL'),
     serviceRoleKey || required('SUPABASE_SERVICE_ROLE_KEY'),
     { auth: { persistSession: false } },
@@ -1022,8 +1031,21 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       throwOn(cErr, 'getPanelView.checks');
 
       const rows = [];
+      /**
+       * txid → quanto daquele pagamento entrou a MAIS e ainda falta restituir.
+       *
+       * Sai daqui porque é aqui que os eventos são reduzidos: o excedente vive
+       * no RAZÃO, e `payments` não tem coluna pra ele. Serve pra série semanal
+       * não contar dívida como receita (CC art. 876) — o widget do dia já
+       * descontava, e a série ao lado dele não.
+       */
+      const sobraPorTxid = new Map();
       for (const c of checks || []) {
         const state = reduce(await loadEvents(c.id));
+        for (const [txid, pg] of Object.entries(state.payments || {})) {
+          const falta = Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0));
+          if (falta > 0) sobraPorTxid.set(txid, falta);
+        }
         rows.push({
           checkId: c.id,
           tableLabel: c.venue_tables ? c.venue_tables.label : '?',
@@ -1046,14 +1068,29 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
              * a restituição não espera o cliente pedir). O txid é do LADO DO
              * DONO, atrás de auth — a leitura pública segue com ordinal.
              */
+            /**
+             * QUAL cobrança devolver, e QUANTO.
+             *
+             * A primeira versão filtrava "tem consumo devolvível" e reportava
+             * o saldo devolvível INTEIRO — então numa conta rachada listava as
+             * cobranças de quem pagou exato, com o valor cheio do pagamento. O
+             * runbook manda o operador devolver "o valor que o painel indica":
+             * seguido à letra, ele estornava o pagador errado, ou estornava um
+             * pagamento inteiro e reabria uma conta quitada (a mesa cobrada de
+             * novo, CDC art. 42). Achado pela revisão de compliance de
+             * 2026-09-08.
+             *
+             * Agora: só quem TEM excedente, e o valor é o que falta restituir
+             * daquele pagamento. Fica do lado do dono, atrás de auth — a
+             * leitura pública segue com ordinal.
+             */
             ...(state.overpaidCents > 0 ? {
               overpaidTxids: Object.entries(state.payments)
-                .filter(([, pg]) => pg.amountCents > pg.refundedAmountCents)
                 .map(([txid, pg]) => ({
                   txid,
-                  refundableCents: (pg.amountCents - pg.refundedAmountCents)
-                    + (pg.tipCents - pg.refundedTipCents),
-                })),
+                  restituteCents: Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
+                }))
+                .filter((x) => x.restituteCents > 0),
             } : {}),
             // Disputas por CONTAGEM: é a taxa de chargeback que o
             // adquirente julga, e o dono não tinha como ver a dele.
@@ -1139,7 +1176,18 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       // passado. O `buildAtivacao` já era assim.
       const hoje = spDay(nowIso);
       const doDia = confirmed.filter((p) => p.confirmedAt && spDay(p.confirmedAt) === hoje);
+      /**
+       * A sobra do DIA, não a da vida da casa.
+       *
+       * `overpaidTotal` não tinha limite de data e era subtraída do
+       * faturamento de HOJE: uma dívida de 90,00 de três semanas atrás baixava
+       * a receita todo dia, e num dia fraco levava o número pra negativo. A
+       * dívida acumulada continua aparecendo na conciliação, que é onde ela
+       * pertence — o widget do dia fala do dia.
+       */
+      const contasDoDia = new Set(doDia.map((p) => p.checkId));
       const overpaidTotal = rows
+        .filter((r) => contasDoDia.has(r.checkId))
         .filter((r) => !trainingChecks.has(r.checkId))
         .reduce((s, r) => s + (r.state.overpaidCents || 0), 0);
 
@@ -1189,13 +1237,24 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
            * que sobra é só a arrecadação a menor, que é o que a regra de
            * imputação produz e o que a folha precisa ver.
            */
-          tipsChargedCents: doDia.reduce(
-            (s, p) => s + Math.max(0, (p.tipCents || 0) - (p.refundedTipCents || 0)), 0,
-          ),
+          /**
+           * O serviço COBRADO (bruto), o ARRECADADO (`tipsCents`, líquido) e o
+           * ESTORNADO, em três linhas.
+           *
+           * Tentei resolver a confusão "estorno parecendo arrecadação a menor"
+           * descontando o estorno também do cobrado — e aí os dois lados caíam
+           * junto e a diferença DESAPARECIA. Ou seja: uma restituição que
+           * raspasse a gorjeta ficava invisível justo no contrapeso que existe
+           * pra mostrar isso. Três números não se confundem; dois com o mesmo
+           * desconto se anulam. Achado pela revisão de compliance de
+           * 2026-09-08.
+           */
+          tipsChargedCents: doDia.reduce((s, p) => s + (p.tipCents || 0), 0),
+          tipsRefundedCents: doDia.reduce((s, p) => s + (p.refundedTipCents || 0), 0),
           paymentsCount: doDia.length,
           anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
         },
-        ativacao: buildAtivacao(confirmed, nowIso),
+        ativacao: buildAtivacao(confirmed, nowIso, sobraPorTxid),
       };
     },
   };

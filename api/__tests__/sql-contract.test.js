@@ -310,12 +310,97 @@ describe('censo do SELECT: a leitura tem que trazer o que o código usa', () => 
     expect(faltando).toEqual([]);
   });
 
+  test('o mapeamento é conferido por VALOR — troca de coluna não passa', () => {
+    /**
+     * O censo de NOME não pega transposição: `refundedAmountCents:
+     * data.refunded_tip_cents` satisfaz "a coluna está no select" e "o campo
+     * está no objeto", e re-inertiza a guarda de versão da 0023 pra toda linha
+     * com estorno — em silêncio, porque perder a corrida é registrado como
+     * normal. Então: um cliente falso devolve uma linha com valores
+     * distinguíveis, e o objeto mapeado tem que trazer cada um no seu lugar.
+     * Achado pela revisão de segurança de 2026-09-08.
+     */
+    const { createSupabaseStore } = require('../_lib/store/supabase');
+    const linha = {
+      txid: 'ch_1', check_id: 'c1', amount_cents: 111, tip_cents: 222,
+      payer_label: 'Ana', status: 'confirmado', method: 'pix',
+      psp_payload_masked: { a: 1 }, confirmed_at: '2026-09-08T00:00:00Z',
+      refunded_amount_cents: 333, refunded_tip_cents: 444,
+    };
+    // Cliente mínimo: só o encadeamento que o `getPayment` usa.
+    const client = {
+      from: () => ({
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: linha, error: null }) }) }),
+      }),
+    };
+    const store = createSupabaseStore({ client });
+    return store.getPayment('ch_1').then((p) => {
+      expect(p.amountCents).toBe(111);
+      expect(p.tipCents).toBe(222);
+      expect(p.refundedAmountCents).toBe(333);
+      expect(p.refundedTipCents).toBe(444);
+      expect(p.status).toBe('confirmado');
+      expect(p.confirmedAt).toBe('2026-09-08T00:00:00Z');
+    });
+  });
+
   test('e o objeto devolvido MAPEIA essas colunas — a coluna sozinha não basta', () => {
     const sup = fs.readFileSync(path.join(raiz, '_lib', 'store', 'supabase.js'), 'utf8');
     const fn = sup.match(/async getPayment\(txid\)[\s\S]*?\n    \},/);
     expect(fn).not.toBeNull();
     for (const campo of ['refundedAmountCents', 'refundedTipCents', 'status', 'confirmedAt']) {
       expect(fn[0]).toContain(campo);
+    }
+  });
+});
+
+/**
+ * O CENSO DA ORDEM: nada referencia o que ainda não existe.
+ *
+ * A 0021 inseria numa tabela criada pela 0022. Em produção passou porque foi
+ * aplicada à mão, na ordem que eu escolhi. Aplicada na ordem NUMÉRICA — que é
+ * a de um banco novo, do staging e de uma restauração de desastre — ela morria
+ * com `42P01`. E o canário sintético do staging depende de conseguir construir
+ * o esquema a partir destes arquivos.
+ * Achado pela revisão de segurança de 2026-09-08.
+ */
+describe('censo da ordem das migrações', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = path.join(__dirname, '..', '..', 'supabase', 'migrations');
+
+  test('toda tabela referenciada já foi criada por uma migração anterior', () => {
+    const arquivos = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+    expect(arquivos.length).toBeGreaterThan(20);
+    const criadas = new Set();
+    const problemas = [];
+    for (const f of arquivos) {
+      const sql = fs.readFileSync(path.join(dir, f), 'utf8');
+      // O que este arquivo CRIA conta como disponível a partir dele mesmo.
+      for (const m of sql.matchAll(/create table (?:if not exists )?public\.(\w+)/g)) {
+        criadas.add(m[1]);
+      }
+      // E o que ele USA tem que já estar disponível.
+      const usos = [
+        ...sql.matchAll(/insert into public\.(\w+)/g),
+        ...sql.matchAll(/references public\.(\w+)/g),
+        ...sql.matchAll(/alter table public\.(\w+)/g),
+      ];
+      for (const m of usos) {
+        // `checks`, `payments` e cia. vêm da 0001; o censo só precisa saber
+        // que ALGUMA migração anterior (ou esta) as criou.
+        if (!criadas.has(m[1])) problemas.push(`${f}: usa public.${m[1]} antes de existir`);
+      }
+    }
+    expect(problemas).toEqual([]);
+  });
+
+  test('o censo não passa por regex quebrado — ele vê as tabelas de verdade', () => {
+    const arquivos = fs.readdirSync(dir).filter((f) => f.endsWith('.sql'));
+    const sql = arquivos.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+    const criadas = [...sql.matchAll(/create table (?:if not exists )?public\.(\w+)/g)].map((m) => m[1]);
+    for (const t of ['checks', 'payments', 'check_events', 'payment_repair_log', 'orphan_money_events']) {
+      expect(criadas).toContain(t);
     }
   });
 });

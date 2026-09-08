@@ -346,3 +346,82 @@ describe('dinheiro a DEVOLVER envelhece', () => {
     expect(r.driftCents).toBe(0);
   });
 });
+
+describe('a testemunha AGREGADA: serviço cobrado que nunca chega', () => {
+  /**
+   * Nenhuma faixa por pagamento separa os dois casos, porque eles dão o mesmo
+   * número: com serviço de 10%, quem recusa a linha opcional paga
+   * `pedido / 1,1` — e um adaptador que passe a ler o campo errado confirma
+   * exatamente isso, em todo pagamento. A coluna confirmada e o razão saem da
+   * mesma variável na mesma chamada, então concordam.
+   *
+   * O que distingue é a FREQUÊNCIA. Cem pessoas recusando o serviço no mesmo
+   * dia não é fato do negócio; é um adaptador.
+   * Achado pela revisão de segurança de 2026-09-08.
+   */
+  const { acharServicoNuncaArrecadado } = require('../_lib/checks/reconcile');
+
+  const pgto = (tip, confirmedTip) => ({
+    txid: `tx${Math.random()}`, amountCents: 3390, tipCents: tip,
+    confirmedAmountCents: 3390, confirmedTipCents: confirmedTip, status: 'confirmado',
+  });
+  const conta = (...pagamentos) => ({ checkId: 'c', events: [], payments: pagamentos });
+
+  test('serviço cobrado em toda mesa e ZERO arrecadado é ALTO', () => {
+    const inputs = [conta(...Array.from({ length: 10 }, () => pgto(339, 0)))];
+    const f = acharServicoNuncaArrecadado(inputs);
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe('high');
+    expect(f[0].code).toBe('service_never_collected');
+    expect(f[0].chargedTipCents).toBe(3390);
+    expect(f[0].collectedTipCents).toBe(0);
+  });
+
+  test('amostra pequena não acusa — três mesas tirando o serviço é uma terça', () => {
+    const inputs = [conta(pgto(339, 0), pgto(339, 0), pgto(339, 0))];
+    expect(acharServicoNuncaArrecadado(inputs)).toEqual([]);
+  });
+
+  test('arrecadação parcial não acusa — é a regra funcionando', () => {
+    // Metade das mesas tirou o serviço. Fato do negócio, e o painel mostra a
+    // diferença na linha de cobrado vs arrecadado.
+    const inputs = [conta(
+      ...Array.from({ length: 5 }, () => pgto(339, 339)),
+      ...Array.from({ length: 5 }, () => pgto(339, 0)),
+    )];
+    expect(acharServicoNuncaArrecadado(inputs)).toEqual([]);
+  });
+
+  test('casa que não cobra serviço nunca acusa', () => {
+    const inputs = [conta(...Array.from({ length: 10 }, () => pgto(0, 0)))];
+    expect(acharServicoNuncaArrecadado(inputs)).toEqual([]);
+  });
+
+  test('e o achado chega ao RELATÓRIO diário, sozinho, pintando a casa', async () => {
+    const { reconcileOneVenue } = require('../_lib/checks/reconcile-daily');
+    // Uma conta COERENTE: cada linha tem o evento dela no razão, e o valor
+    // confirmado bate. O único problema é o agregado — que é o ponto: sem esta
+    // ligação, o achado era calculado e não relatado, e a casa saía verde com
+    // a base da folha zerada.
+    const eventos = [{ type: 'OPENED', payload: { totalCents: 33900 } }];
+    const linhas = [];
+    for (let i = 0; i < 10; i += 1) {
+      const txid = `tx${i}`;
+      eventos.push({ type: 'PAYMENT_CONFIRMED', payload: { txid, amountCents: 3390, tipCents: 0, method: 'pix' } });
+      linhas.push({
+        txid, amountCents: 3390, tipCents: 339,
+        confirmedAmountCents: 3390, confirmedTipCents: 0,
+        status: 'confirmado', confirmedAt: new Date().toISOString(),
+      });
+    }
+    const store = {
+      listChecksForReconcile: async () => [{ checkId: 'c1', events: eventos, payments: linhas }],
+      listHouseAccountsForReconcile: async () => [],
+    };
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' });
+    // Nada crítico: as contas fecham. O que sobra é o agregado.
+    expect(r.findings.filter((f) => f.severity === 'critical')).toEqual([]);
+    expect(r.findings.some((f) => f.code === 'service_never_collected')).toBe(true);
+    expect(r.severity).toBe('high');
+  });
+});

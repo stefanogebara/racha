@@ -128,7 +128,20 @@ function reconcileCheck({ checkId, events, payments }) {
     // A data vem da linha do pagamento CONFIRMADO mais antigo desta conta: o
     // razão não guarda hora (o `loadEvents` lê `seq, type, payload`), e
     // inventar "agora" faria a dívida nunca envelhecer.
-    const datas = rows.map((r) => r && r.confirmedAt).filter(Boolean).sort();
+    // A data é do pagamento que pagou a MAIS, não da conta inteira.
+    //
+    // Era a menor `confirmedAt` de qualquer pagamento da conta: um excedente
+    // de hoje numa conta velha nascia `critical`, e escalar cedo demais treina
+    // quem lê a ignorar — o mesmo desgaste que este achado quer evitar. Quem
+    // sabe de excedente é o RAZÃO (`state.payments[txid].excessCents`); a
+    // linha só tem a data.
+    const comSobra = new Set(Object.entries((state && state.payments) || {})
+      .filter(([, pg]) => ((pg.excessCents || 0) - (pg.refundedAmountCents || 0)) > 0)
+      .map(([txid]) => txid));
+    const candidatas = comSobra.size > 0
+      ? rows.filter((r) => r && comSobra.has(r.txid))
+      : rows;
+    const datas = candidatas.map((r) => r && r.confirmedAt).filter(Boolean).sort();
     const abertaDesde = datas[0] || null;
     const horas = abertaDesde ? (Date.now() - Date.parse(abertaDesde)) / 3600000 : 0;
     add(horas > 48 ? 'critical' : 'high', 'overpaid_pending_restitution',
@@ -329,9 +342,57 @@ function reconcileCheck({ checkId, events, payments }) {
  * plus per-check results that failed. Store must implement
  * listChecksForReconcile(venueId) → [{ checkId, events, payments }].
  */
+/**
+ * A TESTEMUNHA AGREGADA: o serviço que a casa cobra e nunca arrecada.
+ *
+ * Nenhuma faixa por pagamento consegue separar os dois casos que importam,
+ * porque eles dão o MESMO número: o serviço é 10%, então quem recusa a linha
+ * opcional paga `pedido / 1,1` — e um adaptador que passe a ler o campo errado
+ * (`receivedCents` depois de uma virada de versão da API) confirma exatamente
+ * isso, em todo pagamento. Como a coluna confirmada e o razão saem da mesma
+ * variável na mesma chamada, os dois concordam, e a divergência com o valor
+ * pedido sai como `info` por ser do tamanho do serviço.
+ *
+ * O que distingue não é o tamanho, é a FREQUÊNCIA. Cem pessoas recusando o
+ * serviço no mesmo dia não é fato do negócio; é um adaptador. Então o olho
+ * fica aqui, no agregado do restaurante — que é onde a diferença entre cobrado
+ * e arrecadado já existia como número no painel, e não estava ligada em
+ * canário nenhum. Achado pela revisão de segurança de 2026-09-08.
+ *
+ * @returns {Array} achados no nível do restaurante
+ */
+function acharServicoNuncaArrecadado(inputs) {
+  let cobrado = 0;
+  let arrecadado = 0;
+  let pagamentos = 0;
+  for (const inp of inputs) {
+    for (const row of inp.payments || []) {
+      if (row.status !== 'confirmado') continue;
+      pagamentos += 1;
+      cobrado += row.tipCents || 0;
+      arrecadado += Number.isFinite(row.confirmedTipCents)
+        ? row.confirmedTipCents : (row.tipCents || 0);
+    }
+  }
+  // Amostra pequena não diz nada: três mesas tirando o serviço numa terça é
+  // uma terça.
+  if (pagamentos < 8 || cobrado === 0) return [];
+  if (arrecadado === 0) {
+    return [{
+      severity: 'high',
+      code: 'service_never_collected',
+      message: `${pagamentos} pagamentos confirmados, ${cobrado}¢ de serviço cobrado e ZERO arrecadado`
+        + ' — recusa em massa não existe; conferir a leitura do valor pago',
+      chargedTipCents: cobrado, collectedTipCents: arrecadado, payments: pagamentos,
+    }];
+  }
+  return [];
+}
+
 async function reconcileVenue(store, venueId) {
   const inputs = await store.listChecksForReconcile(venueId);
   const results = inputs.map(reconcileCheck);
+  const daCasa = acharServicoNuncaArrecadado(inputs);
   const severityRank = { critical: 3, high: 2, info: 1 };
   /**
    * FALHOU é achado ACIONÁVEL, não achado qualquer.
@@ -345,11 +406,12 @@ async function reconcileVenue(store, venueId) {
    */
   const acionavel = (r) => r.findings.some((f) => f.severity === 'critical' || f.severity === 'high');
   const failed = results.filter(acionavel);
-  const worst = results
-    .flatMap((r) => r.findings)
+  const worst = [...results.flatMap((r) => r.findings), ...daCasa]
     .reduce((max, f) => Math.max(max, severityRank[f.severity] || 0), 0);
   return {
     venueId,
+    // Achados do RESTAURANTE, não de uma conta: eles só existem no agregado.
+    venueFindings: daCasa,
     checksChecked: results.length,
     checksFailed: failed.length,
     totalDriftCents: results.reduce((s, r) => s + Math.abs(r.driftCents), 0),
@@ -487,4 +549,5 @@ async function reconcileVenueHouse(store, venueId) {
   };
 }
 
-module.exports = { reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+module.exports = {
+  acharServicoNuncaArrecadado, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };

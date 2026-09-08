@@ -24,7 +24,22 @@ function spDay(iso) {
   return new Date(Date.parse(iso) - 3 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-function buildAtivacao(confirmed, nowIso = new Date().toISOString()) {
+/**
+ * @param {Map<string, number>|object} [sobraPorTxid] quanto de cada pagamento
+ *   entrou a MAIS e ainda não foi restituído. Vem do razão (o painel reduz os
+ *   eventos), porque `payments` não tem coluna de excedente.
+ *
+ *   Existe porque dinheiro pago a mais é dívida da casa (CC art. 876) e não
+ *   receita: o widget do dia já descontava, e esta série contava como
+ *   faturamento a mesma quantia que a linha ao lado chamava de dívida.
+ *   Achado pela revisão de compliance de 2026-09-08.
+ */
+function buildAtivacao(confirmed, nowIso = new Date().toISOString(), sobraPorTxid = null) {
+  const sobraDe = (txid) => {
+    if (!sobraPorTxid || !txid) return 0;
+    const v = sobraPorTxid instanceof Map ? sobraPorTxid.get(txid) : sobraPorTxid[txid];
+    return Number.isSafeInteger(v) && v > 0 ? v : 0;
+  };
 
   const dias = [];
   const porDia = new Map();
@@ -62,7 +77,10 @@ function buildAtivacao(confirmed, nowIso = new Date().toISOString()) {
     // valor REGISTRADO na criação da cobrança, então numa divergência entre o
     // que pedimos e o que o PSP confirmou o número estava errado nos dois.
     // Mesma correção do `today` no `getPanelView`. Ver `confirmed-money.js`.
-    const { amountCents: valor, tipCents: gorjeta } = confirmedMoney(p);
+    const bruto = confirmedMoney(p);
+    // MENOS a sobra a devolver: ver `sobraPorTxid` no cabeçalho.
+    const valor = Math.max(0, bruto.amountCents - sobraDe(p.txid));
+    const gorjeta = bruto.tipCents;
     row.pagamentos += 1;
     row.valorCents += valor;
     row.gorjetaCents += gorjeta;
