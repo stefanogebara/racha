@@ -17,8 +17,8 @@ interface Reconcile {
   accountsChecked: number;
   findings: Array<{
     severity: string; code: string;
-    /** Texto interno do servidor. NÃO É PRA TELA — ver `FINDING_KEY`. */
-    message: string;
+    /** O servidor não manda mais texto: só código e centavos. */
+    message?: string;
     /** Os centavos, crus, pra o cliente formatar no idioma do leitor. */
     overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
     chargedTipCents?: number; txid?: string; chargeId?: string; recipientId?: string;

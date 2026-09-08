@@ -64,7 +64,33 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
     return { chargeId, ok: true, findings };
   }
 
+  /**
+   * CONJUNTO FECHADO de tipos, e recebedor ausente não é "tudo bem".
+   *
+   * `(l.type || CREDITO) === CREDITO` fazia tipo ausente ou desconhecido virar
+   * crédito por padrão: uma linha de `refund` sem tipo (valor negativo)
+   * envenenava a soma e produzia um crítico falso. E
+   * `l.recipientId && l.recipientId !== casa` é a forma `if (coisa && !ok)` —
+   * um recebível sem recebedor passava justo pela conferência que NOMEIA a
+   * conta que ficou com o dinheiro. Achado pela revisão de segurança de
+   * 2026-09-08.
+   */
+  const NAO_CREDITO = new Set(['refund', 'chargeback', 'chargeback_refund', 'refund_reversal',
+    'block', 'unblock']);
+  const desconhecidos = linhas.filter((l) => l && l.type && l.type !== CREDITO
+    && !NAO_CREDITO.has(l.type));
+  for (const l of desconhecidos) {
+    add('high', 'payable_type_unknown',
+      `cobrança ${chargeId}: recebível de tipo desconhecido (${l.type}) — não sei se move dinheiro`,
+      { type: l.type, amountCents: l.amountCents });
+  }
   const creditos = linhas.filter((l) => l && (l.type || CREDITO) === CREDITO);
+  const semRecebedor = creditos.filter((l) => !l.recipientId);
+  for (const l of semRecebedor) {
+    add('high', 'payable_no_recipient_field',
+      `cobrança ${chargeId}: recebível de ${l.amountCents}¢ sem recebedor — destino não nomeável`,
+      { amountCents: l.amountCents });
+  }
   const estranhos = creditos.filter((l) => l.recipientId && l.recipientId !== venueRecipientId);
 
   for (const l of estranhos) {
@@ -80,18 +106,38 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
       { recipientId: l.recipientId, amountCents: l.amountCents });
   }
 
-  // E o que a casa recebeu tem que dar o capturado, BRUTO de taxa: a casa
-  // banca a taxa da transação (`charge_processing_fee: true`), então o
-  // recebível dela vem líquido — somar `amount + fee` desfaz isso.
+  /**
+   * `amount` do recebível JÁ É O BRUTO. A taxa é desconto, não parcela.
+   *
+   * Eu tinha escrito `amount + fee` — reconstruindo um bruto que já estava
+   * ali. A documentação do recebível é explícita: `amount` é "valor em centavos
+   * que foi pago" e `fee` é "valor em centavos que foi cobrado (taxa)"; o
+   * recebedor fica com `amount - fee`. Somar dobrava a taxa.
+   *
+   * O efeito era pior que um número errado. A conferência do destino
+   * (`custody_leak`) estava inalcançável por outro defeito — a casa chegava
+   * aqui sem recebedor conhecido — e este saía antes deste ponto. Consertar só
+   * aquele teria ligado ESTE: `critical` em toda cobrança saudável, toda
+   * noite, em toda casa. Os dois defeitos se escondiam um atrás do outro.
+   * Achado pela revisão de segurança de 2026-09-08.
+   */
   const daCasa = creditos.filter((l) => l.recipientId === venueRecipientId);
-  const brutoDaCasa = daCasa.reduce((s, l) => s + l.amountCents + l.feeCents, 0);
+  const brutoDaCasa = daCasa.reduce((s, l) => s + l.amountCents, 0);
+  const liquidoDaCasa = daCasa.reduce((s, l) => s + l.amountCents - l.feeCents, 0);
   if (Number.isSafeInteger(paidAmountCents) && paidAmountCents > 0 && brutoDaCasa !== paidAmountCents) {
     const delta = paidAmountCents - brutoDaCasa;
-    // Um centavo de arredondamento de taxa não é notícia; uma sobra inteira é.
+    // Um centavo é arredondamento; uma sobra inteira é dinheiro em outro lugar.
     add(Math.abs(delta) <= 1 ? 'info' : 'critical', 'payable_amount_mismatch',
       `cobrança ${chargeId}: capturou ${paidAmountCents}¢ e a casa recebeu ${brutoDaCasa}¢ `
-      + `bruto de taxa (Δ ${delta}¢)`,
-      { paidAmountCents, venueGrossCents: brutoDaCasa, deltaCents: delta });
+      + `bruto (Δ ${delta}¢)`,
+      { paidAmountCents, venueGrossCents: brutoDaCasa, venueNetCents: liquidoDaCasa, deltaCents: delta });
+  }
+  // Taxa maior que o recebível é impossível, e um líquido negativo viraria
+  // faturamento negativo silencioso lá na frente.
+  if (liquidoDaCasa < 0) {
+    add('critical', 'payable_net_negative',
+      `cobrança ${chargeId}: a taxa passou do recebível — líquido ${liquidoDaCasa}¢`,
+      { venueNetCents: liquidoDaCasa });
   }
 
   return {

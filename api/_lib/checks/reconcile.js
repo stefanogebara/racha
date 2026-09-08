@@ -238,7 +238,23 @@ function reconcileCheck({ checkId, events, payments }) {
        * medição, não gorjeta recusada.
        * Achado pela revisão de segurança de 2026-09-08.
        */
-      const grotesca = delta > 0 || confirmadoLinha * 10 < rowTotal;
+      /**
+       * E o excedente JÁ RESTITUÍDO não fica alto pra sempre.
+       *
+       * A comparação é com o valor PEDIDO, que nunca muda — então uma cobrança
+       * paga a mais mantinha o achado `high` mesmo depois de a casa devolver
+       * tudo, e a casa ficava na lista vermelha da noite indefinidamente. O
+       * canário que grita pra sempre, instalado no caminho que esta série toda
+       * existe pra servir. O que aconteceu continua registrado (`info`); o que
+       * pede ação é só o que ainda não foi resolvido.
+       * Achado pela revisão de compliance de 2026-09-08.
+       */
+      const sobraNaoRestituida = Math.max(0, (pay.excessCents || 0) - (pay.refundedAmountCents || 0));
+      // Resolvido é: HAVIA excedente nesta conta e ele já voltou. Se nunca
+      // houve — a cobrança capturou mais do que pediu sem que a CONTA ficasse
+      // paga a mais — a diferença é sinal de medição, e segue alta.
+      const resolvido = delta > 0 && (pay.excessCents || 0) > 0 && sobraNaoRestituida === 0;
+      const grotesca = (delta > 0 && !resolvido) || confirmadoLinha * 10 < rowTotal;
       add(grotesca ? 'high' : 'info', delta < 0 ? 'underpayment' : 'overpayment',
         `txid ${txid}: pedido ${rowTotal}¢, recebido ${confirmadoLinha}¢ (Δ ${delta}¢)`,
         { txid, deltaCents: delta });

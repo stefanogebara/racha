@@ -20,15 +20,47 @@ const cred = (recipientId, amountCents, feeCents = 0) =>
   ({ recipientId, amountCents, feeCents, type: 'credit', status: 'waiting_funds' });
 
 describe('recebíveis: o dinheiro foi todo pra casa?', () => {
-  test('cobrança normal, tudo pra casa, taxa descontada dela → limpo', () => {
-    // Capturou 3390; a casa banca a taxa (charge_processing_fee), então o
-    // recebível vem líquido de 120 — e 3270 + 120 fecha o capturado.
+  test('cobrança normal: `amount` é o BRUTO e a taxa é desconto', () => {
+    // A documentação do recebível: `amount` é "valor em centavos que foi pago",
+    // `fee` é "valor em centavos que foi cobrado (taxa)", e o recebedor fica
+    // com `amount - fee`.
+    //
+    // Este teste afirmava o contrário — que `amount` vinha líquido e que
+    // `amount + fee` reconstruía o capturado. Ele ficaria verde enquanto a
+    // produção acusava crítico em toda cobrança saudável.
     const r = reconcilePayables({
       chargeId: 'ch_1', venueRecipientId: CASA, paidAmountCents: 3390,
-      payables: [cred(CASA, 3270, 120)],
+      payables: [cred(CASA, 3390, 120)],   // bruto 3390, líquido 3270
     });
     expect(r.ok).toBe(true);
     expect(r.findings).toEqual([]);
+  });
+
+  test('taxa maior que o recebível é crítico — líquido negativo não passa', () => {
+    const r = reconcilePayables({
+      chargeId: 'ch_1', venueRecipientId: CASA, paidAmountCents: 100,
+      payables: [cred(CASA, 100, 500)],
+    });
+    expect(r.findings.some((x) => x.code === 'payable_net_negative')).toBe(true);
+  });
+
+  test('tipo DESCONHECIDO é alto, não crédito por padrão', () => {
+    // `(type || 'credit') === 'credit'` fazia tipo novo virar crédito e
+    // envenenar a soma.
+    const r = reconcilePayables({
+      chargeId: 'ch_1', venueRecipientId: CASA, paidAmountCents: 3390,
+      payables: [cred(CASA, 3390, 0), { recipientId: CASA, amountCents: -100, feeCents: 0, type: 'coisa_nova' }],
+    });
+    expect(r.findings.some((x) => x.code === 'payable_type_unknown')).toBe(true);
+  });
+
+  test('recebível SEM recebedor é alto — o destino não é nomeável', () => {
+    const r = reconcilePayables({
+      chargeId: 'ch_1', venueRecipientId: CASA, paidAmountCents: 3390,
+      payables: [{ recipientId: null, amountCents: 3390, feeCents: 0, type: 'credit' }],
+    });
+    expect(r.findings.some((x) => x.code === 'payable_no_recipient_field')).toBe(true);
+    expect(r.ok).toBe(false);
   });
 
   test('um centavo de recebível pra OUTRO recebedor é CRÍTICO', () => {
@@ -36,7 +68,7 @@ describe('recebíveis: o dinheiro foi todo pra casa?', () => {
     // PEDIDO, o cliente pagou a mais, e a sobra caiu em outro lugar.
     const r = reconcilePayables({
       chargeId: 'ch_1', venueRecipientId: CASA, paidAmountCents: 20000,
-      payables: [cred(CASA, 10880, 120), cred('re_racha', 9000, 0)],
+      payables: [cred(CASA, 11000, 120), cred('re_racha', 9000, 0)],
     });
     const f = r.findings.find((x) => x.code === 'custody_leak');
     expect(f).toBeDefined();
@@ -51,7 +83,7 @@ describe('recebíveis: o dinheiro foi todo pra casa?', () => {
     // veja. O invariante do valor pega isso de todo jeito.
     const r = reconcilePayables({
       chargeId: 'ch_1', venueRecipientId: CASA, paidAmountCents: 20000,
-      payables: [cred(CASA, 10880, 120)],
+      payables: [cred(CASA, 11000, 120)],
     });
     const f = r.findings.find((x) => x.code === 'payable_amount_mismatch');
     expect(f.severity).toBe('critical');
@@ -61,7 +93,7 @@ describe('recebíveis: o dinheiro foi todo pra casa?', () => {
   test('um centavo de diferença é arredondamento de taxa, não notícia', () => {
     const r = reconcilePayables({
       chargeId: 'ch_1', venueRecipientId: CASA, paidAmountCents: 3390,
-      payables: [cred(CASA, 3269, 120)],
+      payables: [cred(CASA, 3389, 120)],
     });
     expect(r.findings.find((x) => x.code === 'payable_amount_mismatch').severity).toBe('info');
     expect(r.ok).toBe(true);
@@ -73,8 +105,8 @@ describe('recebíveis: o dinheiro foi todo pra casa?', () => {
     const r = reconcilePayables({
       chargeId: 'ch_1', venueRecipientId: CASA, paidAmountCents: 3390,
       payables: [
-        cred(CASA, 3270, 120),
-        { recipientId: 're_racha', amountCents: -3270, feeCents: 0, type: 'refund' },
+        cred(CASA, 3390, 120),
+        { recipientId: 're_racha', amountCents: -3390, feeCents: 0, type: 'refund' },
       ],
     });
     expect(r.findings).toEqual([]);
@@ -124,7 +156,7 @@ describe('a perna chega ao ALERTA diário, não só ao cálculo', () => {
   test('vazamento de custódia pinta a casa de CRÍTICO e sai no alerta', async () => {
     const store = storeVazio([{ txid: 'ch_1', checkId: 'c1', paidAmountCents: 20000, method: 'pix' }]);
     const psp = {
-      listChargePayables: async () => [cred(CASA, 10880, 120), cred('re_racha', 9000, 0)],
+      listChargePayables: async () => [cred(CASA, 11000, 120), cred('re_racha', 9000, 0)],
     };
     const r = await reconcileAllVenues(store, { psp });
     expect(r.worstSeverity).toBe('critical');
@@ -248,5 +280,64 @@ describe('a perna não pode ser desligada em silêncio', () => {
     expect(await psp.listChargePayables('ch_1')).toEqual([
       { recipientId: 're_a', amountCents: 3270, feeCents: 120, type: 'credit', status: 'paid', chargeId: 'ch_1' },
     ]);
+  });
+});
+
+describe('a perna sabe a diferença entre CONFERIDO e não-verificável', () => {
+  const { reconcilePayablesLeg } = require('../_lib/checks/reconcile-daily');
+
+  const storeCom = (n) => ({
+    listRecentConfirmedCharges: async () => Array.from({ length: n }, (_, i) => ({
+      txid: `ch_${i}`, checkId: 'c1', paidAmountCents: 3390, method: 'pix',
+    })),
+  });
+
+  test('nada verificado a noite inteira é ALTO, não um relatório verde', async () => {
+    /**
+     * `payables_absent` e `payables_unchecked` são `info` um por um, e devem
+     * ser: o recebível nasce depois da liquidação e um 502 não é achado de
+     * dinheiro. Mas isso fazia "verificou tudo" e "não verificou NADA" saírem
+     * no mesmo verde. O que distingue é o agregado — a mesma forma do serviço
+     * nunca arrecadado.
+     */
+    const achados = await reconcilePayablesLeg(
+      storeCom(10), { listChargePayables: async () => [] },
+      { id: 'v1', pspRecipientId: CASA }, {},
+    );
+    const f = achados.find((x) => x.code === 'payables_never_verified');
+    expect(f).toBeDefined();
+    expect(f.severity).toBe('high');
+    expect(f.considered).toBe(10);
+  });
+
+  test('amostra pequena não acusa — duas cobranças recentes é latência normal', async () => {
+    const achados = await reconcilePayablesLeg(
+      storeCom(2), { listChargePayables: async () => [] },
+      { id: 'v1', pspRecipientId: CASA }, {},
+    );
+    expect(achados.some((x) => x.code === 'payables_never_verified')).toBe(false);
+  });
+
+  test('uma verificada entre dez já tira o achado agregado', async () => {
+    let n = 0;
+    const achados = await reconcilePayablesLeg(
+      storeCom(10),
+      { listChargePayables: async () => (n++ === 0 ? [cred(CASA, 3390, 0)] : []) },
+      { id: 'v1', pspRecipientId: CASA }, {},
+    );
+    expect(achados.some((x) => x.code === 'payables_never_verified')).toBe(false);
+  });
+
+  test('o ORÇAMENTO de tempo corta e DIZ quantas ficaram', async () => {
+    // Sem orçamento, 30 casas × 25 cobranças matam a função na plataforma — e
+    // uma função morta não produz relatório nem alerta: o caminho silencioso.
+    const achados = await reconcilePayablesLeg(
+      storeCom(10),
+      { listChargePayables: async () => { await new Promise((r) => setTimeout(r, 12)); return [cred(CASA, 3390, 0)]; } },
+      { id: 'v1', pspRecipientId: CASA }, { budgetMs: 25 },
+    );
+    const f = achados.find((x) => x.code === 'payables_unchecked' && x.unchecked > 0);
+    expect(f).toBeDefined();
+    expect(f.message).toMatch(/sem conferir/);
   });
 });

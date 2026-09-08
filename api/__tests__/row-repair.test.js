@@ -493,3 +493,101 @@ describe('restituição registrada À MÃO fecha a marca', () => {
     expect(ev.payload.by).toBe('dona@bar');
   });
 });
+
+describe('a restituição fora do trilho deixa o canário VERDE', () => {
+  /**
+   * O invariante que faltava: fazer a coisa certa não pode fabricar
+   * divergência. A rota gravava o evento e não projetava a linha — o razão
+   * dizia 9000 estornados, a linha dizia zero, e a conciliação acusava
+   * `refund_mismatch` CRÍTICO e `ledger_drift` de 9000¢. O alerta do fundador
+   * passava a dizer "drift 90,00" pra sempre por uma dívida corretamente
+   * quitada, e fabricar divergência destrói o instrumento que o inegociável #8
+   * exige. Meu teste afirmava o razão e nunca rodava o reconciliador.
+   * Achado pelas duas revisões de 2026-09-08.
+   */
+  const { reconcileCheck } = require('../_lib/checks/reconcile');
+  const { appendValidated } = require('../_lib/checks/append-validated');
+  const { allocateRestitution } = require('../_lib/checks/split-engine');
+
+  async function contaPagaAMais() {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 1000, pspRecipientId: 're_x' });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 10000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: store.getPayment.bind(store),
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    await store.registerCharge({
+      checkId: check.id, txid: 'ch_1', amountCents: 10000, tipCents: 1000, method: 'pix',
+    });
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'ch_1', amountCents: 19000, tipCents: 1000,
+      method: 'pix', eventId: 'evt_p',
+    }, deps);
+    return { store, check, venue };
+  }
+
+  /** O que a rota faz: grava o evento E projeta a linha do razão. */
+  async function registraRestituicao(store, checkId, txid, valor) {
+    const st = reduce(await store.loadEvents(checkId));
+    const pg = st.payments[txid];
+    const excedente = Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0));
+    const partes = allocateRestitution(
+      pg.amountCents - pg.refundedAmountCents,
+      pg.tipCents - pg.refundedTipCents,
+      valor, excedente,
+    );
+    await appendValidated(store, checkId, 'PAYMENT_REFUNDED', {
+      txid, ...partes, offRail: true, reference: 'Pix manual E2E-1', by: 'dona@bar',
+    });
+    const depois = reduce(await store.loadEvents(checkId));
+    const pgD = depois.payments[txid];
+    const linha = await store.getPayment(txid);
+    const total = pgD.refundedAmountCents === pgD.amountCents
+      && pgD.refundedTipCents === pgD.tipCents;
+    await store.repairPaymentRow({
+      txid,
+      expectedStatus: linha.status,
+      expectedRefundedAmountCents: linha.refundedAmountCents || 0,
+      expectedRefundedTipCents: linha.refundedTipCents || 0,
+      status: total ? 'devolvido' : 'confirmado',
+      confirmedAmountCents: pgD.amountCents,
+      confirmedTipCents: pgD.tipCents,
+      refundedAmountCents: pgD.refundedAmountCents,
+      refundedTipCents: pgD.refundedTipCents,
+    });
+    return partes;
+  }
+
+  test('sem divergência fabricada, e a conta sai da lista vermelha', async () => {
+    const { store, check, venue } = await contaPagaAMais();
+    const antes = reconcileCheck((await store.listChecksForReconcile(venue.id))[0]);
+    expect(antes.ok).toBe(false);   // há dívida: vermelho é o certo aqui
+
+    await registraRestituicao(store, check.id, 'ch_1', 9000);
+
+    const r = reconcileCheck((await store.listChecksForReconcile(venue.id))[0]);
+    expect(r.driftCents).toBe(0);                 // ZERO, não 9000
+    expect(r.findings.filter((f) => f.severity === 'critical')).toEqual([]);
+    expect(r.findings.some((f) => f.code === 'refund_mismatch')).toBe(false);
+    expect(r.findings.some((f) => f.code === 'overpaid_pending_restitution')).toBe(false);
+    expect(r.ok).toBe(true);                      // a casa fica VERDE
+  });
+
+  test('e o faturamento e a GORJETA da linha param de mentir', async () => {
+    const { store, check } = await contaPagaAMais();
+    await registraRestituicao(store, check.id, 'ch_1', 9000);
+    const { confirmedMoney } = require('../_lib/store/confirmed-money');
+    const linha = await store.getPayment('ch_1');
+    // O excedente saiu do consumo, e a gorjeta ficou inteira (é remuneração do
+    // time, não fundo de restituição).
+    expect(confirmedMoney(linha)).toEqual({ amountCents: 10000, tipCents: 1000 });
+    expect(linha.refundedTipCents).toBe(0);
+  });
+});

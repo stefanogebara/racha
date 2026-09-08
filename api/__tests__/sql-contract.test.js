@@ -404,3 +404,84 @@ describe('censo da ordem das migrações', () => {
     }
   });
 });
+
+/**
+ * O CENSO DA VENUE: todo campo que a varredura LÊ chega dos dois stores.
+ *
+ * `reconcilePayablesLeg` lê `venue.pspRecipientId`, e nenhum dos dois stores
+ * devolvia — a RPC `venue_activation_stats` nem tinha a coluna no `returns
+ * table`. A perna de custódia rodava contra `undefined`: uma chamada de API por
+ * cobrança, paga pra devolver `payables_no_recipient` ALTO, e o achado que
+ * responde a pergunta do inegociável #4 inalcançável.
+ *
+ * Os dois censos que eu tinha escrito conferiam que a perna estava LIGADA —
+ * nenhum viu que a entrada estava vazia. E os testes de integração montavam a
+ * venue à mão com o campo, um dublê que relata MAIS que a produção.
+ * Achado pelas duas revisões de 2026-09-08.
+ */
+describe('censo da venue: a varredura recebe o que lê', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const raiz = path.join(__dirname, '..');
+  const camelParaSnake = (n) => n.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+
+  /** Os campos que o job diário tira de uma `venue`. */
+  function camposLidos() {
+    const src = fs.readFileSync(path.join(raiz, '_lib', 'checks', 'reconcile-daily.js'), 'utf8');
+    return new Set([...src.matchAll(/\bvenue\.(\w+)/g)].map((m) => m[1]));
+  }
+
+  test('a RPC devolve toda coluna que o mapeador do Supabase promete', () => {
+    const mig = fs.readdirSync(path.join(raiz, '..', 'supabase', 'migrations'))
+      .filter((f) => f.endsWith('.sql')).sort()
+      .map((f) => fs.readFileSync(path.join(raiz, '..', 'supabase', 'migrations', f), 'utf8'))
+      .join('\n');
+    // A ÚLTIMA definição da função é a que vale.
+    const defs = [...mig.matchAll(/create or replace function public\.venue_activation_stats[\s\S]*?\$\$;/g)];
+    expect(defs.length).toBeGreaterThanOrEqual(1);
+    const ultima = defs[defs.length - 1][0];
+
+    const sup = fs.readFileSync(path.join(raiz, '_lib', 'store', 'supabase.js'), 'utf8');
+    const fn = sup.match(/async listVenueActivation\(\)[\s\S]*?\n    \},/);
+    expect(fn).not.toBeNull();
+    // Toda coluna que o mapeador lê de `r.` tem que estar no `returns table`.
+    const lidas = [...fn[0].matchAll(/\br\.(\w+)/g)].map((m) => m[1]);
+    expect(lidas.length).toBeGreaterThanOrEqual(8);
+    const faltando = [...new Set(lidas)].filter((c) => !new RegExp(`\\b${c}\\b`).test(ultima)).sort();
+    expect(faltando).toEqual([]);
+  });
+
+  test('o que a varredura lê da venue existe nos DOIS stores', () => {
+    const lidos = camposLidos();
+    expect(lidos.has('pspRecipientId')).toBe(true);   // o que faltava
+    expect(lidos.has('id')).toBe(true);
+
+    const sup = fs.readFileSync(path.join(raiz, '_lib', 'store', 'supabase.js'), 'utf8');
+    const mem = fs.readFileSync(path.join(raiz, '_lib', 'store', 'memory.js'), 'utf8');
+    const bloco = (src) => {
+      const m = src.match(/async listVenueActivation\(\)[\s\S]*?\n    \},/);
+      expect(m).not.toBeNull();
+      return m[0];
+    };
+    for (const [nome, src] of [['supabase', bloco(sup)], ['memory', bloco(mem)]]) {
+      for (const campo of lidos) {
+        expect(src).toContain(`${campo}:`);
+        if (nome === 'supabase') {
+          // E do lado do Supabase, a coluna correspondente.
+          expect(bloco(sup)).toMatch(new RegExp(`r\\.${camelParaSnake(campo)}\\b`));
+        }
+      }
+    }
+  });
+
+  test('o store de MEMÓRIA devolve o campo de verdade, não só o texto', async () => {
+    // O censo acima é textual; este roda. Um dublê que não devolve o campo é a
+    // armadilha que deixou este defeito passar.
+    const { createMemoryStore } = require('../_lib/store/memory');
+    const store = createMemoryStore();
+    await store.seedVenue({ name: 'Boteco', servicoBp: 1000, pspRecipientId: 're_abc' });
+    const [v] = await store.listVenueActivation();
+    expect(v.pspRecipientId).toBe('re_abc');
+    expect(v.id).toBeTruthy();
+  });
+});

@@ -647,3 +647,30 @@ test('todo achado com {amount} na frase tem um campo de centavos que o painel l�
   assert.deepEqual(semDeclaracao, [],
     `frases com {amount} sem campo de centavos declarado:\n${semDeclaracao.join('\n')}`);
 });
+
+test('a rota do painel MANDA os centavos que o painel formata', async () => {
+  // O par (frase, campo) já era conferido; o que faltava era o pedaço do meio.
+  // A projeção de `/api/panel` mandava só `severity`, `code` e `message`, e o
+  // painel traduz pelo código formatando os centavos — então toda frase com
+  // `{amount}` saía LITERAL na tela do dono. Dois arquivos conferidos cada um
+  // por si, e o defeito no espaço entre eles.
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const router = fs.readFileSync(
+    path.join(import.meta.dirname, '..', '..', '..', 'api', '_app', 'router.js'), 'utf8');
+  const panel = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'src', 'Panel.tsx'), 'utf8');
+
+  // A cadeia que o painel lê pra preencher {amount}.
+  const cadeia = panel.match(/const valor = ([^;]+);/);
+  assert.ok(cadeia, 'não achei a cadeia de centavos no Panel');
+  const campos = [...cadeia[1].matchAll(/f\.(\w+)/g)].map((m) => m[1]);
+  assert.ok(campos.length >= 4, `cadeia curta demais: ${campos.join(', ')}`);
+
+  // A projeção da rota, onde os achados são mapeados.
+  const i = router.indexOf('findings: [...r.findings]');
+  assert.ok(i > 0, 'não achei a projeção dos achados na rota');
+  const projecao = router.slice(i, i + 1200);
+  const faltando = campos.filter((c) => !projecao.includes(c));
+  assert.deepEqual(faltando, [], `campos que o painel lê e a rota não manda:\n${faltando.join('\n')}`);
+});

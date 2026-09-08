@@ -803,6 +803,27 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         name: r.name,
         isTest: r.is_test === true,
         recebedorOk: r.recebedor_ok === true,
+        // O ID do recebedor: a terceira perna da conciliação compara os
+        // recebíveis do adquirente contra ELE. Só o booleano chegava, então a
+        // perna rodava cega e devolvia `payables_no_recipient` alto pra toda
+        // casa, toda noite — e `custody_leak`, que é o achado que responde a
+        // pergunta do inegociável #4, era inalcançável. Ver a migração 0027.
+        pspRecipientId: r.psp_recipient_id || null,
+        /**
+         * O ID do recebedor, não só o booleano.
+         *
+         * A terceira perna da conciliação compara os recebíveis do adquirente
+         * contra ELE. Só `recebedor_ok` chegava, então a perna rodava com
+         * `undefined`: `payables_no_recipient` ALTO pra toda casa com cobrança
+         * nas últimas 24h, toda noite, e `custody_leak` — o achado que responde
+         * a pergunta de custódia do inegociável #4 — inalcançável. Uma chamada
+         * de API por cobrança, paga pra não conferir nada.
+         *
+         * Meu teste inventava o campo num store escrito à mão, e o censo de
+         * encanamento conferia os três parâmetros de que eu tinha lembrado.
+         * Ver a migração 0027. Achado pelas duas revisões de 2026-09-08.
+         */
+        pspRecipientId: r.psp_recipient_id || null,
         recipientStatus: r.psp_recipient_status || null,
         mesasReais: Number(r.mesas_reais) || 0,
         mesasTotal: Number(r.mesas_total) || 0,
@@ -1166,7 +1187,12 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const desde = new Date(Date.parse(nowIso) - 8 * 86400000).toISOString();
       const { data: confirmedRaw, error: pErr } = await client
         .from('payments')
-        .select('amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, check_id, confirmed_at, method')
+        // `txid` é a CHAVE do mapa de sobras que o `buildAtivacao` usa. Sem
+        // ele, `sobraDe()` devolvia 0 pra toda linha e a série semanal seguia
+        // contando dívida (CC art. 876) como receita — a correção existia e não
+        // rodava. É a mesma armadilha documentada 120 linhas acima, onde eu
+        // acrescentei `currency` ao mapeador e não ao select.
+        .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, check_id, confirmed_at, method')
         .eq('venue_id', venueId)
         .eq('status', 'confirmado')
         .gte('confirmed_at', desde);
@@ -1174,6 +1200,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const confirmed = (confirmedRaw || [])
         .filter((p) => !trainingChecks.has(p.check_id))
         .map((p) => ({
+          txid: p.txid,
           amountCents: p.amount_cents, tipCents: p.tip_cents,
           confirmedAmountCents: p.confirmed_amount_cents,
           confirmedTipCents: p.confirmed_tip_cents,

@@ -611,6 +611,24 @@ function createPagarmePsp({
       // `validateEvent` não pega: o estorno é igual ao valor pago, então passa.
       // A conta reabre, o cliente é chamado pra pagar de novo, e a conciliação
       // mostra R$ 195 de divergência sem explicação.
+      /**
+       * OS TIPOS que a Pagar.me emite pra cobrança, conferidos na
+       * documentação de webhooks em 2026-09-08: `charge.paid`,
+       * `charge.payment_failed`, `charge.pending` e `charge.refunded`.
+       *
+       * `charge.refunded` cobre estorno TOTAL e PARCIAL — a documentação não
+       * separa os dois no nível do evento. Isso importa porque o runbook manda
+       * o operador *cancelar pelo valor parcial* no painel do adquirente, e a
+       * revisão perguntou se o evento resultante chegaria: chega por aqui, e o
+       * ramo que lê `canceled_amount` é alcançável. Sem essa conferência o
+       * caminho prescrito pra quitar uma dívida com o consumidor podia nunca
+       * virar lançamento, em silêncio.
+       *
+       * `overpaid`/`underpaid` ficam na lista porque são STATUS de cobrança
+       * (não tipos de evento documentados) e a API é a verdade: se um dia
+       * vierem como tipo, entram; se vierem só como status num
+       * `charge.paid`, o ramo de pagamento já os aceita.
+       */
       if (!/^charge\.(paid|refunded|overpaid|underpaid)$/.test(type)) {
         // Evento que não move o nosso razão é IGNORADO, não recusado.
         //

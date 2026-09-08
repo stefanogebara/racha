@@ -55,7 +55,8 @@ function worse(a, b) {
  * `psp` e `store` opcionais mantêm o resto da varredura funcionando onde a
  * perna não existe (mock, memória, um adquirente sem recebíveis).
  */
-async function reconcilePayablesLeg(store, psp, venue, { sinceIso, limit = 25 } = {}) {
+async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
+  const { sinceIso, limit = 25 } = opts;
   if (!psp || typeof psp.listChargePayables !== 'function') return [];
   if (typeof store.listRecentConfirmedCharges !== 'function') return [];
   const recebedor = venue.pspRecipientId || null;
@@ -69,7 +70,33 @@ async function reconcilePayablesLeg(store, psp, venue, { sinceIso, limit = 25 } 
     }];
   }
   const achados = [];
-  for (const c of cobrancas) {
+  /**
+   * ORÇAMENTO DE TEMPO, porque isto é I/O externo dentro do cron.
+   *
+   * O laço é serial e cada volta é uma chamada com timeout de 15s. Trinta casas
+   * × 25 cobranças são até 750 requisições em sequência — e a plataforma mata a
+   * função muito antes, o que produz NENHUM relatório e NENHUM alerta. O commit
+   * anterior a esta série teve trabalho pra fazer um segredo ausente PAGINAR em
+   * vez de emudecer; isto reabria o caminho silencioso pela porta da frente.
+   *
+   * Estourado o orçamento, as cobranças que sobraram viram um achado que diz
+   * quantas ficaram sem conferir. Achado pela revisão de segurança de
+   * 2026-09-08.
+   */
+  const inicio = Date.now();
+  const orcamentoMs = Number.isSafeInteger(opts.budgetMs) ? opts.budgetMs : 20_000;
+  let conferidas = 0;
+  let verificadas = 0;
+  for (const [i, c] of cobrancas.entries()) {
+    if (Date.now() - inicio > orcamentoMs) {
+      achados.push({
+        severity: 'info', code: 'payables_unchecked',
+        message: `orçamento de tempo estourado: ${cobrancas.length - i} cobrança(s) sem conferir`,
+        unchecked: cobrancas.length - i,
+      });
+      break;
+    }
+    conferidas += 1;
     try {
       const payables = await psp.listChargePayables(c.txid);
       const r = reconcilePayables({
@@ -78,6 +105,9 @@ async function reconcilePayablesLeg(store, psp, venue, { sinceIso, limit = 25 } 
         paidAmountCents: c.paidAmountCents,
         payables,
       });
+      // "Conferiu" é ter recebível pra olhar. Sem isso, a perna passou por ali
+      // e não afirmou nada.
+      if (payables.length > 0) verificadas += 1;
       achados.push(...r.findings);
     } catch (e) {
       achados.push({
@@ -85,6 +115,25 @@ async function reconcilePayablesLeg(store, psp, venue, { sinceIso, limit = 25 } 
         message: `recebíveis de ${c.txid} não consultados: ${String(e.message).slice(0, 120)}`,
       });
     }
+  }
+  /**
+   * A TESTEMUNHA AGREGADA da própria perna.
+   *
+   * `payables_absent` e `payables_unchecked` são `info` um por um — e devem
+   * ser, porque o recebível nasce depois da liquidação e um 502 do adquirente
+   * não é achado de dinheiro. Mas isso fazia "a perna verificou tudo" e "a
+   * perna não verificou NADA a noite inteira" saírem no mesmo relatório verde.
+   *
+   * É a mesma forma do serviço nunca arrecadado: o que distingue não é o caso
+   * isolado, é o agregado. Achado pela revisão de segurança de 2026-09-08.
+   */
+  if (conferidas >= 5 && verificadas === 0) {
+    achados.push({
+      severity: 'high',
+      code: 'payables_never_verified',
+      message: `${conferidas} cobranças consideradas e nenhuma verificada — a conferência de destino não está funcionando`,
+      considered: conferidas,
+    });
   }
   return achados;
 }

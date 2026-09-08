@@ -228,6 +228,9 @@ if (AUTH_SUPABASE_URL && AUTH_SUPABASE_KEY) {
   auth = createAuth({ authClient, store });
 }
 
+/** Ordem de gravidade — pra cortar os achados pelo topo, não pela chegada. */
+const RANK = { critical: 3, high: 2, info: 1 };
+
 function json(res, status, body) {
   res.writeHead(status, {
     'Content-Type': 'application/json',
@@ -1180,11 +1183,32 @@ async function route(req, res) {
       const estado = reduce(await store.loadEvents(b.checkId));
       const pg = estado && estado.payments[String(b.txid)];
       if (!pg) return json(res, 404, { success: false, error: 'pagamento desconhecido', code: 'txid_unknown' });
-      const sobra = (pg.amountCents - pg.refundedAmountCents) + (pg.tipCents - pg.refundedTipCents);
-      if (valor > sobra) {
+      /**
+       * O TETO é o que este pagamento DEVE, não o que ele tem.
+       *
+       * Era o saldo devolvível inteiro — então o dono podia registrar a
+       * "devolução" de um pagamento cheio numa conta quitada: `paidCents` caía,
+       * a conta voltava pra `parcial`, o telefone do cliente passava a mostrar
+       * saldo devido e a mesa podia ser cobrada de novo (CDC art. 42 caput e
+       * § único). E, sem excedente, o rateio cai no proporcional e leva uma
+       * fatia da gorjeta — base da folha encolhida por atestação do dono, sem
+       * testemunha do adquirente (Lei 13.419 + STJ Tema 1102).
+       *
+       * Devolução que não é restituição de excedente vai pelo TRILHO, onde o
+       * adquirente é testemunha. Achado pela revisão de compliance de
+       * 2026-09-08.
+       */
+      const aDevolver = Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0));
+      if (aDevolver === 0) {
+        return json(res, 400, {
+          success: false, code: 'nothing_to_restitute',
+          error: 'este pagamento não tem excedente a restituir — use o estorno pelo adquirente',
+        });
+      }
+      if (valor > aDevolver) {
         return json(res, 400, {
           success: false, code: 'amount_over',
-          error: 'valor acima do que resta neste pagamento', vars: { leftCents: sobra },
+          error: 'valor acima do excedente deste pagamento', vars: { leftCents: aDevolver },
         });
       }
       try {
@@ -1197,6 +1221,49 @@ async function route(req, res) {
           reference: ref,
           by: user.email || user.id || 'dono',
         });
+        /**
+         * E a LINHA, projetada do razão — senão isto fabrica divergência.
+         *
+         * `appendValidated` grava só o evento. Quem projeta a linha de
+         * `payments` no caminho do webhook é o `recordPayment`/
+         * `repairRowFromLedger`, e esta rota não passava por lá: o razão
+         * registrava 9000 estornados e a linha seguia em zero. A conciliação
+         * então acusava `refund_mismatch` CRÍTICO e `ledger_drift` de 9000¢ —
+         * medido — e o alerta do fundador passava a dizer "drift 90,00" pra
+         * sempre, por uma dívida que foi corretamente quitada. Fabricar
+         * divergência destrói o instrumento que o inegociável #8 exige.
+         *
+         * E o painel soma a LINHA: sem isto o excedente continuava no
+         * faturamento e `tipsRefundedCents` — a linha que existe pra tornar
+         * visível uma restituição que raspou gorjeta — ficava zerada justo no
+         * caminho onde nada mais mostraria.
+         *
+         * Claim CONDICIONAL (migração 0023), como todo reparo de linha.
+         * Achado pela revisão de compliance de 2026-09-08.
+         */
+        const depois = reduce(await store.loadEvents(b.checkId));
+        const pgDepois = depois && depois.payments[String(b.txid)];
+        const linha = await store.getPayment(String(b.txid));
+        if (pgDepois && linha) {
+          const total = pgDepois.refundedAmountCents === pgDepois.amountCents
+            && pgDepois.refundedTipCents === pgDepois.tipCents;
+          const projetou = await store.repairPaymentRow({
+            txid: String(b.txid),
+            expectedStatus: linha.status,
+            expectedRefundedAmountCents: linha.refundedAmountCents || 0,
+            expectedRefundedTipCents: linha.refundedTipCents || 0,
+            status: total ? 'devolvido' : 'confirmado',
+            confirmedAmountCents: pgDepois.amountCents,
+            confirmedTipCents: pgDepois.tipCents,
+            refundedAmountCents: pgDepois.refundedAmountCents,
+            refundedTipCents: pgDepois.refundedTipCents,
+          });
+          if (!projetou) {
+            // A linha mudou no meio (outra entrega). O razão está certo e a
+            // conciliação vai reparar; não é erro de quem chamou.
+            process.stderr.write(`[restituicao] linha ${b.txid} não projetada — outra escrita ganhou\n`);
+          }
+        }
         return json(res, 200, { success: true, data: { seq, ...partes } });
       } catch (e) {
         return json(res, e.statusCode || 400, { success: false, error: e.message, code: 'restitution_failed' });
@@ -1222,9 +1289,37 @@ async function route(req, res) {
           driftCents: r.driftCents,
           checksChecked: r.checksChecked,
           accountsChecked: r.accountsChecked,
-          findings: r.findings.slice(0, 5).map((f) => ({
-            severity: f.severity, code: f.code, message: f.message,
-          })),
+          /**
+           * Os CENTAVOS vão junto, e os achados vêm ORDENADOS.
+           *
+           * A projeção mandava só `severity`, `code` e `message` — e o painel
+           * traduz pelo código formatando os centavos, então toda frase com
+           * `{amount}` saía LITERAL na tela do dono: "{amount} desta cobrança
+           * foram para uma conta que não é a do restaurante". Um parâmetro
+           * adicionado com padrão e nunca passado, entre dois arquivos que os
+           * testes conferem cada um por si.
+           *
+           * E o corte pegava os cinco PRIMEIROS: `log_anomaly` (muitas vezes
+           * `info`) é empilhado antes de todo achado de dinheiro, então cinco
+           * informativos escondiam um `ledger_drift`. Ordena por gravidade
+           * antes de cortar.
+           *
+           * `message` sai: é texto do servidor com centavos crus, e o painel
+           * não o renderiza mais. Achado pela revisão de segurança de
+           * 2026-09-08.
+           */
+          findings: [...r.findings]
+            .sort((a, b) => (RANK[b.severity] || 0) - (RANK[a.severity] || 0))
+            .slice(0, 5)
+            .map((f) => ({
+              severity: f.severity, code: f.code,
+              ...(f.overpaidCents !== undefined ? { overpaidCents: f.overpaidCents } : {}),
+              ...(f.deltaCents !== undefined ? { deltaCents: f.deltaCents } : {}),
+              ...(f.driftCents !== undefined ? { driftCents: f.driftCents } : {}),
+              ...(f.amountCents !== undefined ? { amountCents: f.amountCents } : {}),
+              ...(f.txid ? { txid: f.txid } : {}),
+              ...(f.chargeId ? { chargeId: f.chargeId } : {}),
+            })),
           at: new Date().toISOString(),
         };
         panelReconcileStore(venueId, recon);

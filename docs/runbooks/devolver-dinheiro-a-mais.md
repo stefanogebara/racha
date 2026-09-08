@@ -32,7 +32,10 @@ quem estiver na mesa mostra "Esta conta recebeu R$ X a mais do que pedia".
    cobrança** (não pelo total do pagamento — devolver o pagamento inteiro
    reabre a conta e a mesa é cobrada de novo):
    - **Pix (Pagar.me):** painel → Cobranças → a cobrança → *Cancelar* pelo
-     valor parcial. A devolução Pix tem prazo: **até 90 dias** contados da
+     valor parcial. O evento que volta é `charge.refunded` (a Pagar.me não
+     separa parcial de total no nível do evento — conferido na documentação de
+     webhooks em 2026-09-08), e a Racha lê o `canceled_amount` da cobrança pra
+     saber quanto voltou. A devolução Pix tem prazo: **até 90 dias** contados da
      transação original. Passado isso, o caminho é uma transferência comum, e
      ela não fecha a marca automaticamente.
    - **Cartão (Stripe):** Payments → o pagamento → *Refund* parcial.
