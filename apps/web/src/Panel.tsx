@@ -26,7 +26,11 @@ interface PanelData {
   checks: Array<{
     checkId: string;
     tableLabel: string;
-    state: { status: string; totalCents: number; paidCents: number; tipCents: number; anomalies: number };
+    state: {
+      status: string; totalCents: number; paidCents: number; tipCents: number; anomalies: number;
+      /** Contagem de disputas — o backend antigo não manda, e a linha some. */
+      disputes?: { open: number; lost: number; won: number };
+    };
   }>;
   today: { confirmedCents: number; tipsCents: number; paymentsCount: number; anomalies: number };
   ativacao: PanelAtivacao;
@@ -75,6 +79,16 @@ export default function Panel() {
   // linha de GORJETA, que é o número que ele leva pra folha. Amarrar o
   // formatador aqui é mais seguro que lembrar a moeda oito vezes.
   const currency: CurrencyCode = data.venue.currency ?? 'BRL';
+  // Somado das contas abertas hoje. Backend antigo não manda `disputes`, e aí
+  // a linha simplesmente não aparece — que é o comportamento certo.
+  const disputas = data.checks.reduce(
+    (acc, c) => {
+      const d = c.state.disputes;
+      if (!d) return acc;
+      return { open: acc.open + d.open, lost: acc.lost + d.lost, total: acc.total + d.open + d.lost };
+    },
+    { open: 0, lost: 0, total: 0 },
+  );
   const brl = (c: number) => fmtMoney(c, currency);
 
   return (
@@ -93,6 +107,18 @@ export default function Panel() {
           <b className="mono">{brl(data.today.tipsCents)}</b>
           <span>{t('panel.tip')}</span>
         </div>
+        {/* Chargebacks: só aparece quando existe. Um zero permanente numa tela
+            de operação é ruído — e a taxa é o número pelo qual o adquirente
+            julga a casa, então quando aparece tem que ser visível. */}
+        {disputas.total > 0 && (
+          <div className="stat">
+            <b className="mono">{disputas.lost}</b>
+            <span>
+              {t('panel.disputes')}
+              {disputas.open > 0 ? ` · ${t('panel.disputesOpen', { n: disputas.open })}` : ''}
+            </span>
+          </div>
+        )}
         <div className="stat">
           <b className="mono">{data.today.anomalies}</b>
           <span>{data.today.anomalies === 0 ? t('panel.noAnomaly') : t('panel.anomalies')}</span>

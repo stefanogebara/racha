@@ -9,6 +9,7 @@ const INLINE_METHODS = new Set(['house_account']);
 
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
 const { confirmedMoney } = require('./confirmed-money');
+const { disputeCounts } = require('../checks/disputes');
 
 /**
  * In-memory store — powers the local demo and integration tests.
@@ -370,6 +371,9 @@ function createMemoryStore() {
               paidCents: state.paidCents,
               tipCents: state.tipCents,
               anomalies: state.anomalies.length,
+              // Disputas por CONTAGEM: é a taxa de chargeback que o
+              // adquirente julga, e o dono não tinha como ver a dele.
+              disputes: disputeCounts(state),
             },
           };
         });

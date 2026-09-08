@@ -380,3 +380,44 @@ describe('pendência de dinheiro pode ser encerrada', () => {
     expect(r.findings.some((f) => f.severity === 'info' && /PERDIDA/.test(f.message))).toBe(true);
   });
 });
+
+describe('a casa consegue ver a própria taxa de chargeback', () => {
+  test('o painel conta disputas por DESFECHO', async () => {
+    // O número pelo qual o adquirente julga a casa — acima de um patamar a
+    // bandeira aplica programa de monitoramento. O razão já sabia o desfecho de
+    // cada disputa e nada mostrava isso pro dono. Achado pela revisão de
+    // compliance de 2026-09-08.
+    const { disputeCounts } = require('../_lib/checks/disputes');
+    const { store, check, deps } = await mesaPaga();
+
+    // Nada ainda.
+    expect(disputeCounts(await estado(store, check.id))).toEqual({ open: 0, lost: 0, won: 0 });
+
+    await store.appendEvent(check.id, 'PAYMENT_DISPUTED', { txid: 'pi_x', amountCents: 3390 });
+    expect(disputeCounts(await estado(store, check.id))).toMatchObject({ open: 1, lost: 0, won: 0 });
+
+    await applyConfirmedPayment({ kind: 'dispute_won', txid: 'pi_x', status: 'won' }, deps);
+    // Ganha sai de "aberta" e conta como ganha: a casa se defendeu.
+    expect(disputeCounts(await estado(store, check.id))).toMatchObject({ open: 0, lost: 0, won: 1 });
+
+    // E o painel agrega isso por conta.
+    const venue = await store.getVenueForCheck(check.id);
+    const panel = await store.getPanelView(venue.id);
+    const linha = panel.checks.find((c) => c.checkId === check.id);
+    expect(linha.state.disputes).toEqual({ open: 0, lost: 0, won: 1 });
+  });
+
+  test('conta por TRANSAÇÃO, não por valor — é assim que a taxa é medida', async () => {
+    const { disputeCounts } = require('../_lib/checks/disputes');
+    const st = {
+      payments: {
+        a: { disputedAmountCents: 100000, disputeStatus: undefined },
+        b: { disputedAmountCents: 1, disputeStatus: 'lost' },
+        c: { disputedAmountCents: 0, disputeStatus: 'won' },
+        d: { disputedAmountCents: 0 },
+      },
+    };
+    // Um chargeback de R$ 0,01 pesa igual a um de R$ 1.000,00 na taxa.
+    expect(disputeCounts(st)).toEqual({ open: 1, lost: 1, won: 1 });
+  });
+});

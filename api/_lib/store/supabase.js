@@ -2,6 +2,7 @@
 
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
 const { confirmedMoney } = require('./confirmed-money');
+const { disputeCounts } = require('../checks/disputes');
 
 /**
  * Supabase store — the production implementation of the store contract
@@ -941,6 +942,9 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
             paidCents: state.paidCents,
             tipCents: state.tipCents,
             anomalies: state.anomalies.length,
+            // Disputas por CONTAGEM: é a taxa de chargeback que o
+            // adquirente julga, e o dono não tinha como ver a dele.
+            disputes: disputeCounts(state),
           },
         });
       }

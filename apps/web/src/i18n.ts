@@ -306,6 +306,11 @@ export const DICT = {
   'panel.reconCall':  { en: 'Talk to us before you close the till.',
                         pt: 'Fale com a gente antes de fechar o caixa.',
                         es: 'Habla con nosotros antes de cerrar la caja.' },
+  // A taxa de chargeback é o número pelo qual o ADQUIRENTE julga a casa — acima
+  // de um patamar a bandeira aplica programa de monitoramento. O razão já sabia
+  // o desfecho de cada disputa e nada mostrava isso pro dono.
+  'panel.disputes':   { en: 'chargebacks',                     pt: 'chargebacks', es: 'contracargos' },
+  'panel.disputesOpen': { en: '{n} open',                      pt: '{n} em aberto', es: '{n} abiertos' },
   'panel.tip':        { en: 'service charge (payroll)',        pt: 'serviço da equipe (folha)', es: 'cargo por servicio (nómina)' },
   'panel.receivedToday': { en: 'received today · {n} payments', pt: 'recebido hoje · {n} pagamentos', es: 'recibido hoy · {n} pagos' },
   'panel.tables':     { en: 'Tables',                          pt: 'Mesas', es: 'Mesas' },

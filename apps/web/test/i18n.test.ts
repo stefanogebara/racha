@@ -103,6 +103,12 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'ledger.load:pt=es', 'ledger.refund:pt=es', 'cat.carne:pt=es',
     'cat.massa:en=es', 'cat.cafe:pt=es', 'land.nav:pt=es',
     'qrs.print:pt=es', // "Imprimir" é igual nas duas
+    // "chargeback" é o termo usado em português no mercado de pagamentos
+    // brasileiro — adquirente, bandeira e o próprio contrato do restaurante
+    // dizem chargeback. Traduzir pra "estorno" seria PIOR: estorno é outra
+    // coisa (devolução voluntária), e o dono precisa reconhecer a palavra que
+    // vai ver na fatura do adquirente. O espanhol tem palavra própria.
+    'panel.disputes:en=pt',
     // O nome do documento é o nome dele: "CNPJ" e "NIF" não se traduzem. O
     // inglês ganha "Tax ID (…)" porque um leitor de inglês não sabe o que a
     // sigla é; português e espanhol sabem, e repetir a sigla é o certo.
