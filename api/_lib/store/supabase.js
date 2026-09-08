@@ -1,6 +1,7 @@
 'use strict';
 
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
+const { confirmedMoney } = require('./confirmed-money');
 
 /**
  * Supabase store — the production implementation of the store contract
@@ -459,10 +460,19 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       throwOn(error, 'registerCharge');
     },
 
-    async recordPayment({ txid, kind, status, pspPayloadMasked, confirmedAt }) {
+    async recordPayment({
+      txid, kind, status, pspPayloadMasked, confirmedAt,
+      confirmedAmountCents = null, confirmedTipCents = null,
+    }) {
       const { error } = await client
         .from('payments')
         .update({
+          // Os valores CONFIRMADOS entram ao lado dos registrados, nunca em
+          // cima (migração 0015). Sobrescrever seria a correção óbvia e
+          // destruiria o detector: é comparar pedido contra log que produz o
+          // `amount_mismatch`.
+          ...(confirmedAmountCents !== null ? { confirmed_amount_cents: confirmedAmountCents } : {}),
+          ...(confirmedTipCents !== null ? { confirmed_tip_cents: confirmedTipCents } : {}),
           // O status vem resolvido do módulo de dinheiro (ver
           // ROW_STATUS_FOR_KIND). Era `kind === 'refund' ? … : 'confirmado'` aqui,
           // e com a família da disputa lida de verdade esse `else` fazia uma
@@ -934,7 +944,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
 
       const { data: confirmedRaw, error: pErr } = await client
         .from('payments')
-        .select('amount_cents, tip_cents, check_id, confirmed_at, method')
+        .select('amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, check_id, confirmed_at, method')
         .eq('venue_id', venueId)
         .eq('status', 'confirmado');
       throwOn(pErr, 'getPanelView.payments');
@@ -942,6 +952,8 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         .filter((p) => !trainingChecks.has(p.check_id))
         .map((p) => ({
           amountCents: p.amount_cents, tipCents: p.tip_cents,
+          confirmedAmountCents: p.confirmed_amount_cents,
+          confirmedTipCents: p.confirmed_tip_cents,
           checkId: p.check_id, confirmedAt: p.confirmed_at, method: p.method,
         }));
 
@@ -954,8 +966,12 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         venue: { name: venue.name, currency: market(venue.market).currency },
         checks: rows,
         today: {
-          confirmedCents: confirmed.reduce((s, p) => s + p.amountCents, 0),
-          tipsCents: confirmed.reduce((s, p) => s + p.tipCents, 0),
+          // O CONFIRMADO, com o registrado como reserva pra histórico anterior
+          // à coluna. Somava o PEDIDO, então numa divergência o dono lia
+          // faturamento e GORJETA errados — e a gorjeta é a base da folha
+          // (Lei 13.419). Ver `confirmed-money.js` e a migração 0015.
+          confirmedCents: confirmed.reduce((s, p) => s + confirmedMoney(p).amountCents, 0),
+          tipsCents: confirmed.reduce((s, p) => s + confirmedMoney(p).tipCents, 0),
           paymentsCount: confirmed.length,
           anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
         },

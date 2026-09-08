@@ -8,6 +8,7 @@
 const INLINE_METHODS = new Set(['house_account']);
 
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
+const { confirmedMoney } = require('./confirmed-money');
 
 /**
  * In-memory store — powers the local demo and integration tests.
@@ -385,8 +386,12 @@ function createMemoryStore() {
         venue: { name: venue.name, currency: market(venue.market).currency },
         checks: rows,
         today: {
-          confirmedCents: confirmed.reduce((s, p) => s + p.amountCents, 0),
-          tipsCents: confirmed.reduce((s, p) => s + p.tipCents, 0),
+          // O CONFIRMADO, com o registrado como reserva pra histórico anterior
+          // à coluna. O painel somava o PEDIDO, então numa divergência o dono
+          // lia faturamento e GORJETA errados — e a gorjeta é a base da folha
+          // (Lei 13.419). Ver `confirmedMoney` e a migração 0015.
+          confirmedCents: confirmed.reduce((s, p) => s + confirmedMoney(p).amountCents, 0),
+          tipsCents: confirmed.reduce((s, p) => s + confirmedMoney(p).tipCents, 0),
           paymentsCount: confirmed.length,
           anomalies: rows.reduce((s, r) => s + r.state.anomalies, 0),
         },
@@ -417,11 +422,19 @@ function createMemoryStore() {
         status: 'pendente', createdAt: new Date().toISOString(),
       });
     },
-    async recordPayment({ txid, kind, status, pspPayloadMasked, confirmedAt }) {
+    async recordPayment({
+      txid, kind, status, pspPayloadMasked, confirmedAt,
+      confirmedAmountCents = null, confirmedTipCents = null,
+    }) {
       const p = payments.get(txid);
       if (!p) return;
       payments.set(txid, {
         ...p,
+        // Os valores CONFIRMADOS entram ao lado dos registrados, nunca em cima
+        // (migração 0015): comparar pedido contra log é o que produz o
+        // `amount_mismatch`, e sobrescrever faria os dois concordarem sempre.
+        ...(confirmedAmountCents !== null ? { confirmedAmountCents } : {}),
+        ...(confirmedTipCents !== null ? { confirmedTipCents } : {}),
         // O status vem resolvido do módulo de dinheiro (ver
         // ROW_STATUS_FOR_KIND). Era `kind === 'refund' ? … : 'confirmado'` aqui,
         // e com a família da disputa lida de verdade esse `else` fazia uma

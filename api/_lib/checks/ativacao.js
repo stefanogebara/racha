@@ -1,5 +1,7 @@
 'use strict';
 
+const { confirmedMoney } = require('../store/confirmed-money');
+
 /**
  * Métricas de ativação do painel — a série que faz o garçom continuar
  * apresentando o QR (playbook de onboarding: mandar % e valores pro dono em
@@ -33,13 +35,19 @@ function buildAtivacao(confirmed, nowIso = new Date().toISOString()) {
     if (!p.confirmedAt) continue; // sem competência, fora da série
     const row = porDia.get(spDay(p.confirmedAt));
     if (!row) continue; // fora da janela de 7 dias
+    // O dinheiro CONFIRMADO, não o pedido. A série semanal do painel — e a
+    // linha `gorjetaCents`, que é a base da folha (Lei 13.419) — somava o
+    // valor REGISTRADO na criação da cobrança, então numa divergência entre o
+    // que pedimos e o que o PSP confirmou o número estava errado nos dois.
+    // Mesma correção do `today` no `getPanelView`. Ver `confirmed-money.js`.
+    const { amountCents: valor, tipCents: gorjeta } = confirmedMoney(p);
     row.pagamentos += 1;
-    row.valorCents += p.amountCents || 0;
-    row.gorjetaCents += p.tipCents || 0;
+    row.valorCents += valor;
+    row.gorjetaCents += gorjeta;
     row._contas.add(p.checkId);
     pagamentos += 1;
-    valorCents += p.amountCents || 0;
-    gorjetaCents += p.tipCents || 0;
+    valorCents += valor;
+    gorjetaCents += gorjeta;
     contasSemana.add(p.checkId);
     if (p.method === 'card') metodos.card += 1;
     else if (p.method === 'house_account') metodos.house_account += 1;

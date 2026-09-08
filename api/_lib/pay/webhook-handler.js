@@ -206,6 +206,17 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
       kind: parsed.kind,
       // O status vem RESOLVIDO daqui. O store não decide dinheiro.
       status: ROW_STATUS_FOR_KIND[parsed.kind] || 'confirmado',
+      // Os valores CONFIRMADOS, e só na confirmação de pagamento: num estorno
+      // `parsed.amountCents` é o delta estornado, não o valor do pagamento, e
+      // gravar isso como "confirmado" trocaria uma verdade por outra.
+      //
+      // Vão em colunas SEPARADAS das registradas (migração 0015). Sobrescrever
+      // as registradas seria a correção óbvia e destruiria o detector: é
+      // comparar o pedido com o log que produz `amount_mismatch`.
+      ...(type === 'PAYMENT_CONFIRMED' ? {
+        confirmedAmountCents: payload.amountCents,
+        confirmedTipCents: payload.tipCents,
+      } : {}),
       pspPayloadMasked: maskPixPayload(parsed.raw), // ONLY the masked subset is storable
       confirmedAt: new Date().toISOString(),
     });
