@@ -494,6 +494,48 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       return true;
     },
 
+    /**
+     * Registra que alguém ABRIU a conta na mesa (migração 0028).
+     *
+     * Idempotente por (conta, sessão): o app consulta a conta a cada 4
+     * segundos, e contar leitura seria contar polling em vez de gente. O
+     * conflito é sucesso — a pessoa já estava contada.
+     */
+    async recordCheckView({ checkId, venueId, tableId, sessionHash }) {
+      const { error } = await client.from('check_views').insert({
+        check_id: checkId, venue_id: venueId, table_id: tableId || null,
+        session_hash: sessionHash,
+      });
+      if (error && error.code === '23505') return false;   // já contada
+      throwOn(error, 'recordCheckView');
+      return true;
+    },
+
+    /**
+     * O FUNIL de adoção por casa: abriram → pagaram. É o que o portão do
+     * CLAUDE.md pede e o banco não sabia responder.
+     */
+    async getAdoptionFunnel(venueId, { sinceIso } = {}) {
+      const desde = sinceIso || new Date(Date.now() - 30 * 86400000).toISOString();
+      const [views, checks, pagos] = await Promise.all([
+        client.from('check_views').select('check_id').eq('venue_id', venueId).gte('at', desde),
+        client.from('checks').select('id').eq('venue_id', venueId).gte('opened_at', desde),
+        client.from('payments').select('check_id').eq('venue_id', venueId)
+          .eq('status', 'confirmado').gte('confirmed_at', desde),
+      ]);
+      throwOn(views.error || checks.error || pagos.error, 'getAdoptionFunnel');
+      const abertas = new Set((views.data || []).map((r) => r.check_id));
+      const pagas = new Set((pagos.data || []).map((r) => r.check_id));
+      return {
+        contasCriadas: (checks.data || []).length,
+        contasAbertasNaMesa: abertas.size,
+        contasPagas: pagas.size,
+        // A leitura do portão: das contas que alguém ABRIU, quantas fecharam
+        // pelo Racha. Sem o denominador certo, 25% não quer dizer nada.
+        conversao: abertas.size > 0 ? pagas.size / abertas.size : null,
+      };
+    },
+
     /** Órfãos ainda ABERTOS — o que a conciliação diária tem que gritar. */
     async listOpenOrphanMoneyEvents(limit = 50) {
       const { data, error } = await client

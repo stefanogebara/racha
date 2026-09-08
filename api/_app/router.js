@@ -1427,6 +1427,49 @@ async function route(req, res) {
     // Sem auth de propósito: o `pl` é um token HMAC que a Olímpia cunhou e só
     // ela verifica — aqui é opaco, só se repassa (ver notifyPreviaBeacon). O
     // pior abuso com um pl vazado é a reação que a abertura real já dispararia.
+    /**
+     * "Alguém ABRIU a conta nesta mesa" — o primeiro degrau do funil.
+     *
+     * O portão de adoção do CLAUDE.md governa o roteiro, e sete semanas depois
+     * da primeira casa o banco não sabia dizer quantas PESSOAS viram a tela: só
+     * quantas contas o restaurante digitou e quantas foram pagas. Com isso,
+     * "40 escanearam e 1 pagou" (problema de produto) e "ninguém escaneou"
+     * (problema de distribuição) produziam o mesmo relatório — e pedem
+     * correções opostas.
+     *
+     * A telemetria que existia media outra coisa: `sendBeacon` só dispara com
+     * `?pl=` na URL, o token de prospecção da Olímpia. Serve pro radar de
+     * vendas; o cliente na mesa de verdade não gerava nada.
+     *
+     * Sem dado pessoal: `session` é aleatório do navegador, não IP nem
+     * impressão digital, e existe só pra não contar o mesmo telefone a cada
+     * consulta de 4 segundos. Limite de taxa pelo balde da demo pública, e
+     * SEMPRE 200 — telemetria jamais pode atrapalhar quem está pagando.
+     */
+    if (req.method === 'POST' && url.pathname === '/api/check/opened') {
+      if (!rateLimitDemo(req)) return json(res, 200, { success: true, data: { skipped: 'rate' } });
+      let contada = false;
+      try {
+        const b = JSON.parse(await readBody(req) || '{}');
+        const sessao = String(b.session || '').slice(0, 64);
+        if (sessao.length >= 8 && b.token) {
+          const view = await store.getCheckByQrToken(String(b.token));
+          const mesa = await store.getVenueByTableToken(String(b.token));
+          if (view && mesa && mesa.venue) {
+            contada = await store.recordCheckView({
+              checkId: view.check.id,
+              venueId: mesa.venue.id,
+              tableId: mesa.table ? mesa.table.id : null,
+              sessionHash: sessao,
+            });
+          }
+        }
+      } catch (e) {
+        process.stderr.write(`[funil] abertura não registrada: ${String(e.message).slice(0, 120)}\n`);
+      }
+      return json(res, 200, { success: true, data: { counted: contada } });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/demo/beacon') {
       if (!rateLimitDemo(req)) return json(res, 429, { success: false, error: 'calma lá' });
       const b = JSON.parse(await readBody(req) || '{}');

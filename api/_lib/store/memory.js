@@ -33,6 +33,7 @@ function createMemoryStore() {
   const events = new Map();   // checkId → [{seq, type, payload}]
   const payments = new Map();   // txid → payment row
   const orphanEvents = [];      // eventos de dinheiro sem conta (migração 0024)
+  const checkViews = new Map();  // `${checkId}:${sessionHash}` → abertura (0028)
   const txidToCheck = new Map();
 
   const tableById = new Map(); // id → table row (stable id; qrToken rotates)
@@ -240,7 +241,15 @@ function createMemoryStore() {
       if (alreadyOpen) { const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; throw e; }
       const id = crypto.randomUUID();
       const totalCents = items.reduce((s, i) => s + i.priceCents, 0);
-      checks.set(id, { id, venueId: table.venueId, tableId: table.id, items });
+      // `openedAt` porque o do Supabase tem `opened_at` e este não tinha
+      // NENHUM horário — mais uma divergência de forma da mesma família que o
+      // `store-shape.test.js` existe pra fechar. Sem ele, qualquer janela de
+      // tempo sobre contas (o funil de adoção, por exemplo) media zero no
+      // dublê e o número certo em produção.
+      checks.set(id, {
+        id, venueId: table.venueId, tableId: table.id, items,
+        openedAt: new Date().toISOString(),
+      });
       events.set(id, []);
       await this.appendEvent(id, 'OPENED', { totalCents });
       return checks.get(id);
@@ -572,6 +581,34 @@ function createMemoryStore() {
       log.push({ seq, type, payload, ...(pspEventId != null ? { pspEventId } : {}) });
       return seq;
     },
+    /** Ver a 0028: quem abriu a conta na mesa. Idempotente por conta+sessão. */
+    async recordCheckView({ checkId, venueId, tableId, sessionHash }) {
+      const chave = `${checkId}:${sessionHash}`;
+      if (checkViews.has(chave)) return false;
+      checkViews.set(chave, { checkId, venueId, tableId, sessionHash, at: new Date().toISOString() });
+      return true;
+    },
+    /** O funil de adoção: abriram → pagaram. Ver o store do Supabase. */
+    async getAdoptionFunnel(venueId, { sinceIso } = {}) {
+      const corte = sinceIso ? Date.parse(sinceIso) : Date.now() - 30 * 86400000;
+      const abertas = new Set([...checkViews.values()]
+        .filter((v) => v.venueId === venueId && Date.parse(v.at) >= corte)
+        .map((v) => v.checkId));
+      const criadas = [...checks.values()]
+        .filter((c) => c.venueId === venueId && Date.parse(c.openedAt || 0) >= corte);
+      const pagas = new Set([...payments.values()]
+        .filter((p) => p.status === 'confirmado' && p.confirmedAt
+          && Date.parse(p.confirmedAt) >= corte
+          && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId)
+        .map((p) => p.checkId));
+      return {
+        contasCriadas: criadas.length,
+        contasAbertasNaMesa: abertas.size,
+        contasPagas: pagas.size,
+        conversao: abertas.size > 0 ? pagas.size / abertas.size : null,
+      };
+    },
+
     /** Ver a migração 0024: evento de dinheiro sem conta correspondente. */
     async recordOrphanMoneyEvent(e) {
       if (e.pspEventId && orphanEvents.some((o) => o.pspEventId === e.pspEventId)) return true;

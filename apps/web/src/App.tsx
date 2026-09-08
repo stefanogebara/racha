@@ -63,6 +63,44 @@ export default function App() {
     }).catch(() => {});
   }, [prospectPl]);
   useEffect(() => { sendBeacon('opened'); }, [sendBeacon]);
+
+  /**
+   * "Alguém abriu a conta nesta mesa" — o primeiro degrau do funil de adoção.
+   *
+   * Separado do `sendBeacon` de propósito: aquele é o radar de VENDAS e só
+   * dispara com `?pl=` na URL (o token de prospecção da Olímpia). Um cliente na
+   * mesa de verdade abre `/?t=<token>` e não gerava nada — então sete semanas
+   * de piloto não sabiam dizer se as pessoas viam a tela e desistiam, ou se
+   * nunca chegavam nela. As duas coisas pedem correções opostas.
+   *
+   * `session` é aleatório e vive na aba: existe pra não contar o mesmo telefone
+   * a cada consulta de 4 segundos. Não é IP, não é impressão digital, e não
+   * identifica ninguém. Best-effort silencioso: nada aqui pode atrapalhar quem
+   * está pagando.
+   */
+  useEffect(() => {
+    if (!token) return;
+    let sessao: string;
+    try {
+      const chave = 'racha-sess';
+      sessao = sessionStorage.getItem(chave) || '';
+      if (!sessao) {
+        sessao = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        sessionStorage.setItem(chave, sessao);
+      }
+      // Uma vez por conta por aba.
+      const marca = `racha-open:${token.slice(-12)}`;
+      if (sessionStorage.getItem(marca)) return;
+      sessionStorage.setItem(marca, '1');
+    } catch {
+      return;   // storage bloqueado → não conta, e não insiste
+    }
+    fetch('/api/check/opened', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token, session: sessao }),
+    }).catch(() => {});
+  }, [token]);
   const [view, setView] = useState<CheckView | null>(null);
 
   // Dois eixos, e confundi-los é o defeito: a MOEDA vem da casa (uma conta em
