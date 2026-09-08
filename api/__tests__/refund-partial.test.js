@@ -181,12 +181,30 @@ describe('estorno que FALHOU', () => {
     expect(fim.tipCents).toBe(308);
   });
 
-  test('reversão sem estorno no razão é RECUSADA, não inventada', async () => {
-    // Reverter o que não existe não é desfazer, é criar dinheiro. Inegociável #6.
-    const { deps } = await mesaPaga();
+  test('reversão ANTES do estorno é REGISTRADA, não recusada nem aplicada', async () => {
+    // Este teste mudou de sentido, e a mudança é o achado.
+    //
+    // Reverter o que não existe continua sendo inventar dinheiro, então não se
+    // aplica (inegociável #6). Mas RECUSAR também estava errado: a Stripe não
+    // garante ordem, `refund.failed` pode chegar antes do `charge.refunded`, e
+    // 409 vira reenvio — que normalmente converge, mas se os reenvios se
+    // esgotarem a reversão some PRA SEMPRE e o razão fica dizendo "estornado"
+    // pra um dinheiro que voltou. E 409 repetido desabilita o endpoint.
+    //
+    // A terceira saída: registra a anomalia e devolve 200. Alto no NOSSO
+    // sistema, não no contador de falhas da Stripe. Achado pela revisão de
+    // segurança de 2026-09-08.
+    const { store, check, deps } = await mesaPaga();
     const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500 }, deps);
-    expect(r.status).toBe('rejected');
-    expect(r.reason).toMatch(/no refund on record/);
+    expect(r.status).toBe('out_of_order');
+
+    const st = await estado(store, check.id);
+    // O dinheiro NÃO se mexeu — nada foi inventado.
+    expect(st.paidCents).toBe(3082);
+    expect(st.tipCents).toBe(308);
+    expect(st.payments.pi_x.refundedAmountCents).toBe(0);
+    // Mas a conta ficou marcada pra alguém olhar.
+    expect(st.anomalies.some((a) => a.type === 'PAYMENT_ANOMALY' && a.txid === 'pi_x')).toBe(true);
   });
 
   test('reversão de txid desconhecido é recusada', async () => {

@@ -93,6 +93,18 @@ const EVENT_TYPES = Object.freeze([
    * marca também sai, porque o desfecho passou a estar no saldo.
    */
   'PAYMENT_DISPUTE_CLOSED',
+  /**
+   * Uma anomalia que o sistema REGISTRA em vez de recusar.
+   *
+   * Existe pro caso fora de ordem: uma reversão de estorno que chega antes do
+   * estorno não pode ser aplicada (seria inventar dinheiro) e não deve ser
+   * recusada (409 → reenvio → endpoint desabilitado, e se os reenvios se
+   * esgotarem a reversão some pra sempre). Registrar é a terceira saída: alto
+   * no NOSSO sistema, e não no contador de falhas do PSP.
+   *
+   * Não move saldo. Só marca a conta pra alguém olhar.
+   */
+  'PAYMENT_ANOMALY',
 ]);
 
 // Money accumulations must stay in exact-integer territory.
@@ -166,6 +178,11 @@ function validateEvent(evt, prevState) {
       if ((p.tipCents ?? 0) > rev.refundedTipCents) {
         invalid(`reversal exceeds refunded tip for txid ${p.txid}`);
       }
+      break;
+    }
+    case 'PAYMENT_ANOMALY': {
+      if (!prevState) invalid('PAYMENT_ANOMALY before OPENED');
+      if (typeof p.reason !== 'string' || !p.reason) invalid('PAYMENT_ANOMALY.reason required');
       break;
     }
     case 'PAYMENT_DISPUTE_CLOSED': {
@@ -303,6 +320,23 @@ function applyEvent(state, evt, seq = null) {
       // normal enquanto alguém contesta.
       const next = cloneState(state);
       const pay = next.payments[p.txid];
+      /**
+       * A disputa já ACABOU? Então esta abertura chegou atrasada.
+       *
+       * A Stripe não garante ordem. `charge.dispute.closed` com `won` chegando
+       * ANTES do `charge.dispute.created` fazia o fecho não achar nada pra
+       * limpar, e depois a abertura gravava o prazo — e a conciliação passava a
+       * gritar `dispute_evidence_due` e depois `dispute_evidence_overdue`
+       * CRÍTICO, pra sempre, sobre uma disputa já ganha. O canário que o
+       * `PAYMENT_DISPUTE_CLOSED` existe pra calar, ressuscitado pela ordem de
+       * entrega. Achado pela revisão de segurança de 2026-09-08.
+       *
+       * O evento entra no log de qualquer jeito (inegociável #6: a abertura
+       * aconteceu e tem data e motivo). O que ele NÃO faz é reabrir uma disputa
+       * que o próprio log já diz encerrada.
+       */
+      const jaEncerrada = pay && ['won', 'lost', 'warning_closed'].includes(pay.disputeStatus);
+      if (jaEncerrada) return recompute(next);
       if (pay) {
         pay.disputedAmountCents = (pay.disputedAmountCents || 0) + (p.amountCents ?? 0);
         // O PRAZO DE PROVA, no estado. É a coisa mais cara do evento: 40 dias
@@ -341,6 +375,9 @@ function applyEvent(state, evt, seq = null) {
       }
       return resolved;
     }
+    case 'PAYMENT_ANOMALY':
+      // Não mexe em dinheiro nenhum: só deixa a marca.
+      return withAnomaly(recompute(cloneState(state)), seq, 'PAYMENT_ANOMALY', p.reason, p.txid || null);
     case 'CLOSED':
       return recompute({ ...cloneState(state), closed: true });
     default:

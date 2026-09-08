@@ -122,9 +122,28 @@ async function applyConfirmedPayment(parsed, {
     const jaEstornado = pay.refundedAmountCents + pay.refundedTipCents;
     const falhou = Number.isSafeInteger(parsed.amountCents) ? parsed.amountCents : jaEstornado;
     if (jaEstornado === 0) {
-      // O estorno nunca entrou no razão. Reverter o que não existe não é
-      // desfazer, é inventar — recusa alta, que é o que o inegociável #6 pede.
-      return { status: 'rejected', reason: `reversal with no refund on record for txid ${parsed.txid}` };
+      /**
+       * O estorno ainda não entrou no razão. Reverter o que não existe não é
+       * desfazer, é inventar (inegociável #6) — mas RECUSAR também está errado.
+       *
+       * A Stripe não garante ordem: `refund.failed` pode chegar antes do
+       * `charge.refunded`. Recusar vira 409, a Stripe reenvia, e o normal é
+       * convergir quando o estorno chega. O que não é normal: se os reenvios
+       * se esgotarem, a reversão some pra sempre e o razão fica dizendo
+       * "estornado" pra um dinheiro que voltou. E 409 repetido é o caminho pro
+       * endpoint ser desabilitado.
+       *
+       * Então: registra a ANOMALIA e devolve 200. Alto no NOSSO sistema, e não
+       * no contador de falhas da Stripe. Achado pela revisão de segurança de
+       * 2026-09-08.
+       */
+      try {
+        await appendEvent(check.id, 'PAYMENT_ANOMALY', {
+          txid: parsed.txid,
+          reason: `reversão de estorno chegou antes do estorno (valor ${parsed.amountCents ?? '?'})`,
+        }, parsed.eventId || null);
+      } catch { /* o registro é o melhor esforço; a resposta 200 não muda */ }
+      return { status: 'out_of_order', checkId: check.id, reason: `reversal before refund for txid ${parsed.txid}` };
     }
     // Valor NEGATIVO ou zero é recusa, não exceção.
     //

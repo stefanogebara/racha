@@ -37,7 +37,10 @@ alter table public.check_events drop constraint if exists check_events_type_chec
 alter table public.check_events add constraint check_events_type_check
   check (type in (
     'OPENED', 'ADJUSTED', 'PAYMENT_CONFIRMED', 'PAYMENT_REFUNDED', 'CLOSED',
-    'PAYMENT_DISPUTED', 'PAYMENT_REFUND_REVERSED', 'PAYMENT_DISPUTE_CLOSED'
+    'PAYMENT_DISPUTED', 'PAYMENT_REFUND_REVERSED', 'PAYMENT_DISPUTE_CLOSED',
+    -- Anomalia registrada: o caso fora de ordem, que não pode ser aplicado nem
+    -- recusado. Ver `PAYMENT_ANOMALY` no `check-state.js`.
+    'PAYMENT_ANOMALY'
   ));
 
 alter table public.payments drop constraint if exists payments_method_check;

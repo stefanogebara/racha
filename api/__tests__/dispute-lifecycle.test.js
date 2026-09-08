@@ -259,3 +259,52 @@ describe('reentrega de disputa perdida', () => {
     expect(fim.paidCents).toBe(3082 - fim.payments.pi_x.refundedAmountCents);
   });
 });
+
+describe('entrega FORA DE ORDEM', () => {
+  test('o fecho chegando antes da abertura não deixa prazo fantasma', async () => {
+    // A Stripe não garante ordem. `dispute.closed` com `won` antes do
+    // `dispute.created`: o fecho não achava nada pra limpar, a abertura
+    // gravava o prazo depois, e a conciliação passava a gritar
+    // `dispute_evidence_overdue` CRÍTICO pra sempre — sobre uma disputa já
+    // GANHA. O canário que o fecho existe pra calar, ressuscitado pela ordem
+    // de entrega. Achado pela revisão de segurança de 2026-09-08.
+    const { store, check, deps } = await mesaPaga();
+
+    // 1) o fecho chega primeiro
+    const fecho = await applyConfirmedPayment({ kind: 'dispute_won', txid: 'pi_x', status: 'won' }, deps);
+    expect(fecho.status).toBe('appended');
+
+    // 2) a abertura chega depois, com prazo já vencido
+    await store.appendEvent(check.id, 'PAYMENT_DISPUTED', {
+      txid: 'pi_x', amountCents: 3390, reason: 'fraudulent',
+      dueBy: new Date(Date.now() - 5 * DIA).toISOString(),
+    });
+
+    const st = await estado(store, check.id);
+    // A abertura ENTRA no log — ela aconteceu, tem data e motivo.
+    const log = await store.loadEvents(check.id);
+    expect(log.some((e) => e.type === 'PAYMENT_DISPUTED')).toBe(true);
+    // Mas não reabre o que o próprio log já diz encerrado.
+    expect(st.payments.pi_x.disputeStatus).toBe('won');
+    expect(st.payments.pi_x.disputedAmountCents).toBe(0);
+    expect(st.payments.pi_x.disputeDueBy).toBeUndefined();
+    expect(st.anomalies).toEqual([]);
+
+    const r = reconcileCheck({
+      checkId: check.id, events: log,
+      payments: [{ txid: 'pi_x', amountCents: 3082, tipCents: 308, status: 'confirmado', method: 'card' }],
+    });
+    expect(r.findings.some((f) => String(f.code).startsWith('dispute_evidence'))).toBe(false);
+    expect(r.ok).toBe(true);
+  });
+
+  test('a ordem NORMAL continua funcionando — o fecho ainda limpa', async () => {
+    const { store, check, deps } = await mesaPaga();
+    await store.appendEvent(check.id, 'PAYMENT_DISPUTED', {
+      txid: 'pi_x', amountCents: 3390, dueBy: new Date(Date.now() + 3 * DIA).toISOString(),
+    });
+    expect((await estado(store, check.id)).anomalies.length).toBe(1);
+    await applyConfirmedPayment({ kind: 'dispute_won', txid: 'pi_x', status: 'won' }, deps);
+    expect((await estado(store, check.id)).anomalies).toEqual([]);
+  });
+});
