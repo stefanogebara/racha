@@ -46,9 +46,37 @@ const TERMINAL_UNPAID = new Set(['canceled', 'failed', 'refunded', 'chargedback'
  * recusa no app do banco e nada nos avisa — o adaptador nem interpreta
  * `payment_intent.payment_failed`. A conciliação é o único lugar que descobre.
  */
-function isTerminalUnpaid(info) {
+/**
+ * Quanto tempo uma autorização de banco pode ficar pendurada antes de a gente
+ * chamar de ABANDONO.
+ *
+ * No Bizum é uma pessoa tocando "aprovar" no app do banco. Isso leva segundos,
+ * às vezes um minuto se ela foi procurar o telefone. Trinta minutos é
+ * generoso: passado isso, ou ela desistiu, ou fechou o app, ou saiu do
+ * restaurante.
+ */
+const ABANDONED_AFTER_MS = 30 * 60 * 1000;
+
+function isTerminalUnpaid(info, charge = null, now = Date.now()) {
   if (TERMINAL_UNPAID.has(info.status)) return true;
-  return info.status === 'requires_payment_method' && info.attempted === true;
+  if (info.status === 'requires_payment_method' && info.attempted === true) return true;
+  /**
+   * `requires_action` ABANDONADO.
+   *
+   * O estado de quem confirmou e nunca autorizou no app do banco. Não é
+   * terminal por si — é o estado normal de quem está autorizando AGORA — então
+   * o que o separa é a IDADE da cobrança.
+   *
+   * Sem isso a cobrança ficava `stillPending` até sair da janela de 24h e
+   * desaparecer sem registro nenhum: ninguém nunca soube que aquela mesa
+   * tentou pagar e não conseguiu. Achado pela revisão de compliance de
+   * 2026-09-08 (M4).
+   */
+  if (info.status === 'requires_action' && charge && charge.createdAt) {
+    const idade = now - Date.parse(charge.createdAt);
+    if (Number.isFinite(idade) && idade > ABANDONED_AFTER_MS) return true;
+  }
+  return false;
 }
 
 /**
@@ -82,6 +110,11 @@ function createChargeReconciler({ store, psp, confirm }) {
       return { checked: 0, confirmed: 0, stillPending: 0, terminal: 0, unknown: 0, errors: 0, details: [], note: 'psp sem getCharge' };
     }
 
+    // Um só instante pra toda a rodada: julgar abandono com relógios
+    // diferentes por cobrança faria duas cobranças da mesma mesa caírem em
+    // lados opostos da linha.
+    const now = Date.now();
+
     let pending;
     try {
       pending = await store.listPendingCharges({ checkId, graceMs, windowMs, limit });
@@ -104,7 +137,7 @@ function createChargeReconciler({ store, psp, confirm }) {
           // A charge the gateway settled as canceled/failed/refunded before we
           // ever confirmed it is NOT a normal "still awaiting Pix" — surface it
           // separately so it's visible, not silently dropped after windowMs.
-          if (isTerminalUnpaid(info)) {
+          if (isTerminalUnpaid(info, p, now)) {
             terminal += 1;
             details.push({ txid: p.txid, checkId: p.checkId, status: `psp:${info.status}` });
           } else {
@@ -136,4 +169,6 @@ function createChargeReconciler({ store, psp, confirm }) {
   return { reconcile };
 }
 
-module.exports = { createChargeReconciler, DEFAULT_GRACE_MS, DEFAULT_WINDOW_MS };
+module.exports = {
+  createChargeReconciler, DEFAULT_GRACE_MS, DEFAULT_WINDOW_MS, ABANDONED_AFTER_MS,
+};

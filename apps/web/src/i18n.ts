@@ -132,9 +132,14 @@ export const DICT = {
   // pode estar a caminho, e afirmar o contrário é o mesmo erro que a versão
   // anterior do `bizumStatus` cometia, de trás pra frente. Diz só o que se
   // sabe — que nada chegou ainda — e devolve o controle.
-  'bizum.stalled':    { en: 'Still nothing from your bank.',
-                        pt: 'Ainda nada do seu banco.',
-                        es: 'Todavía no llega nada de tu banco.' },
+  // A frase de espera PROLONGADA substitui a de "alguns segundos", não se soma
+  // a ela. A revisão de compliance foi específica: dizer "tarda unos segundos"
+  // dois minutos depois é informação inexata, e a INEXATIDÃO é a infração —
+  // CDC art. 6º III (informação clara e adequada) e, em Espanha, TRLGDCU art.
+  // 60. Então a tela para de prometer e passa a dizer há quanto tempo espera.
+  'bizum.stalled':    { en: 'Waiting for your bank for {mins} min.',
+                        pt: 'Esperando seu banco há {mins} min.',
+                        es: 'Esperando a tu banco desde hace {mins} min.' },
   'bizum.stalledHow': { en: 'If you cancelled in the app, go back and try again. If you approved it, the payment still lands on its own.',
                         pt: 'Se você cancelou no app, volte e tente de novo. Se aprovou, o pagamento cai sozinho.',
                         es: 'Si lo cancelaste en la app, vuelve e inténtalo otra vez. Si lo aprobaste, el pago llega solo.' },

@@ -660,6 +660,19 @@ async function route(req, res) {
           const st = result.status === 'rejected' ? 409 : 200;
           return json(res, st, { success: st === 200, data: result });
         }
+        // Pagamento que FALHOU: a linha sai de `pendente` e nada mais.
+        //
+        // Nenhum dinheiro se moveu, então não há lançamento. E não alerta: uma
+        // recusa no app do banco é rotina, não incidente — alertar em cada uma
+        // treinaria o fundador a ignorar o canal. Quem precisa saber é a
+        // conciliação, e ela lê o status da linha.
+        if (parsed.kind === 'payment_failed') {
+          await store.recordPayment({
+            txid: parsed.txid, kind: parsed.kind, status: 'expirado',
+            pspPayloadMasked: null, confirmedAt: null,
+          });
+          return json(res, 200, { success: true, data: { status: 'payment_failed', txid: parsed.txid } });
+        }
         // Estorno que falhou: vira lançamento de REVERSÃO e alerta. As duas
         // coisas — o razão volta a dizer a verdade, e alguém precisa saber que
         // há cliente com reembolso a receber por outro caminho.

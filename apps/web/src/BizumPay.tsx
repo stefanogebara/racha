@@ -29,6 +29,15 @@ import { bizumOutcome } from './bizumStatus';
 
 const PK = (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined) || '';
 
+/**
+ * Quando a tela para de prometer "alguns segundos".
+ *
+ * 45 s: autorizar no app do banco leva segundos, recusar leva menos. Passado
+ * isso a promessa deixa de ser verdadeira, e manter uma frase inexata na tela é
+ * a própria infração (CDC art. 6º III / TRLGDCU art. 60), não só um desconforto.
+ */
+const STALLED_AFTER_MS = 45_000;
+
 let stripePromise: Promise<Stripe | null> | null = null;
 function getStripe(): Promise<Stripe | null> | null {
   if (!stripePromise && PK) stripePromise = loadStripe(PK);
@@ -56,14 +65,21 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
   const [waiting, setWaiting] = useState(false);
   /** A espera passou do razoável e a tela oferece uma saída. */
   const [stalled, setStalled] = useState(false);
+  /** Há quanto tempo se espera — a tela DIZ isso em vez de prometer segundos. */
+  const [waitedMs, setWaitedMs] = useState(0);
 
-  // 45 s. Autorizar no app do banco leva segundos; recusar leva menos. Passado
-  // isso, o silêncio provavelmente é uma recusa que ninguém nos contou — e uma
+  // Autorizar no app do banco leva segundos; recusar leva menos. Passado o
+  // prazo, o silêncio provavelmente é uma recusa que ninguém nos contou — e uma
   // pessoa em pé numa mesa merece uma saída antes de desistir do produto.
   useEffect(() => {
-    if (!waiting) return;
-    const id = window.setTimeout(() => setStalled(true), 45_000);
-    return () => window.clearTimeout(id);
+    if (!waiting) return undefined;
+    const inicio = Date.now();
+    const id = window.setInterval(() => {
+      const passado = Date.now() - inicio;
+      setWaitedMs(passado);
+      if (passado >= STALLED_AFTER_MS) setStalled(true);
+    }, 5_000);
+    return () => window.clearInterval(id);
   }, [waiting]);
 
   async function onConfirm() {
@@ -107,23 +123,35 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
   if (waiting) {
     return (
       <div className="bizum">
-        <p className="muted small center">{t('bizum.waiting')}</p>
+        {/* "Tarda unos segundos" SAI depois do prazo, não fica ao lado da
+            frase que diz que nada chegou. A revisão de compliance foi
+            específica: prometer segundos dois minutos depois é informação
+            inexata, e a inexatidão é a infração (CDC art. 6º III; em Espanha
+            TRLGDCU art. 60). Passado o prazo a tela para de prometer e diz há
+            quanto tempo espera — e nomeia o valor, pra a pessoa saber
+            exatamente qual cobrança está pendurada. */}
+        {!stalled && <p className="muted small center">{t('bizum.waiting')}</p>}
         {/* A espera precisa TER FIM.
             Antes esta tela era terminal: uma vez em `waiting`, ela só desenhava
             "esperando o teu banco" pra sempre. Quem recusasse no app do banco
             ficava ali, na mesa, com o garçom esperando — e o Bizum é o trilho
             PRINCIPAL da Espanha, então era o caminho comum.
-            A causa é que o servidor não sabe da recusa: o adaptador não
-            interpreta `payment_intent.payment_failed`, então nada avisa a tela.
-            Consertar o servidor é a resposta longa; dar uma saída é a curta, e
-            é a que tira a pessoa do beco.
+            O servidor JÁ sabe da recusa: o adaptador interpreta
+            `payment_intent.payment_failed` e a linha da cobrança vira
+            `expirado`. O que ainda falta é a tela SABER — o `/api/check` não
+            expõe o estado da cobrança de um pagador, e expor exigiria decidir
+            o que os outros da mesa podem ver. Enquanto isso, o relógio aqui é
+            o que tira a pessoa do beco.
             E a saída não AFIRMA nada: o pagamento pode estar a caminho, então a
             cópia diz só o que se sabe — que nada chegou ainda. Voltar não
             cancela nada, e o poll da conta continua: se o dinheiro cair, a
             tela avança pro ✓ de qualquer forma. */}
         {stalled && (
           <>
-            <p className="muted small center">{t('bizum.stalled')}</p>
+            <p className="muted small center">
+              {t('bizum.stalled', { mins: Math.max(1, Math.round(waitedMs / 60000)) })}
+              {' · '}{amountLabel}
+            </p>
             <p className="muted small center">{t('bizum.stalledHow')}</p>
             <button className="ghost" onClick={() => { setWaiting(false); setStalled(false); setBusy(false); }}>
               {t('bizum.backToBill')}

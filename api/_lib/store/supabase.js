@@ -518,6 +518,8 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
         // comparar centavos por venue sem saber a moeda é o jeito de atravessar
         // uma troca de moeda reportando 0,00 de divergência.
         currency: r.currency,
+        // `createdAt` pro julgamento de ABANDONO — ver `reconcile-charges.js`.
+        createdAt: r.created_at,
       }));
     },
 

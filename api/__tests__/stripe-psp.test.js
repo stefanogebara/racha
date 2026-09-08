@@ -342,6 +342,28 @@ describe('stripe adapter — webhook', () => {
     }
   });
 
+  test('pagamento que FALHOU é lido, e a linha sai de pendente', async () => {
+    // No Bizum é a pessoa recusando no app do banco. Era `ignored`, e o custo
+    // era concreto: a linha ficava `pendente` até sair da janela de
+    // conciliação, e ninguém nunca soube que aquela mesa tentou e não
+    // conseguiu. Não move o razão — nenhum dinheiro se moveu.
+    const { ROW_STATUS_FOR_KIND, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
+    for (const type of ['payment_intent.payment_failed', 'payment_intent.canceled']) {
+      const p2 = await mk({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' }, stubStripe({
+        event: {
+          type, livemode: false,
+          data: { object: { id: 'pi_f', amount: 3390, status: 'requires_payment_method', last_payment_error: { code: 'payment_intent_authentication_failure' } } },
+        },
+      })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
+      expect(p2).toMatchObject({ kind: 'payment_failed', txid: 'pi_f', amountCents: 3390 });
+      expect(p2.reason).toBe('payment_intent_authentication_failure');
+    }
+    // Não é espécie de razão, e a linha vai pra `expirado` — status que o
+    // esquema tem desde a primeira migração.
+    expect(NON_LEDGER_KINDS.has('payment_failed')).toBe(true);
+    expect(ROW_STATUS_FOR_KIND.payment_failed).toBe('expirado');
+  });
+
   test('assinatura ruim, sem secret e sem header rejeitam', async () => {
     await expect(mk({ webhookSecret: 'whsec_x' }, stubStripe({ constructThrows: true }))
       .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).rejects.toThrow(WebhookVerificationError);

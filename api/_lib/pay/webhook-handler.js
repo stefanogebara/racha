@@ -292,6 +292,9 @@ const ROW_STATUS_FOR_KIND = Object.freeze({
   dispute_lost: 'devolvido',      // o dinheiro foi
   refund_failed: 'confirmado',    // o estorno não aconteceu: o dinheiro é da casa
   dispute_won: 'confirmado',      // a casa manteve o dinheiro
+  // `expirado` já existe no esquema desde a primeira migração e é exatamente
+  // isto: cobrança que não vai se concretizar.
+  payment_failed: 'expirado',
 });
 
 /**
@@ -314,6 +317,10 @@ const NON_LEDGER_KINDS = new Set([
   // fraude (o único momento em que estornar evita a disputa inteira). Não
   // movem o razão de nenhuma mesa; precisam de alerta.
   'account_alert',
+  // Pagamento que falhou (recusa no app do banco, ou intent cancelado). Não
+  // move o razão — nenhum dinheiro se moveu — mas a LINHA da cobrança precisa
+  // sair de `pendente`, senão ela some da janela de conciliação sem registro.
+  'payment_failed',
 ]);
 
 function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, findCheckByTxid, fallback }) {

@@ -570,6 +570,31 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
       }
 
       /**
+       * O pagamento que FALHOU.
+       *
+       * No Bizum é a pessoa recusando no app do banco. Era `ignored`, e o custo
+       * era concreto: a linha de cobrança ficava `pendente` até sair da janela
+       * de conciliação, e o razão nunca soube que aquela mesa tentou pagar e
+       * não conseguiu. Achado da revisão de compliance de 2026-09-08 (H3).
+       *
+       * NÃO move o razão — nenhum dinheiro se moveu, então não há lançamento a
+       * fazer nem a desfazer. O que muda é o ESTADO da cobrança: ela vira
+       * `expirado`, status que o esquema já tem desde a primeira migração.
+       */
+      if (type === 'payment_intent.payment_failed' || type === 'payment_intent.canceled') {
+        const pi = event.data.object;
+        if (typeof pi.id !== 'string') return { kind: 'ignored', type, raw: pi };
+        return {
+          kind: 'payment_failed',
+          txid: pi.id,
+          amountCents: Number(pi.amount) || 0,
+          status: pi.status || null,
+          reason: (pi.last_payment_error && pi.last_payment_error.code) || pi.cancellation_reason || null,
+          raw: pi,
+        };
+      }
+
+      /**
        * Eventos de CONTA e de REPASSE: não movem o razão de nenhuma mesa, mas
        * cada um é uma promessa nossa quebrando em silêncio se ninguém vê.
        *

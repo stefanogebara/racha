@@ -250,3 +250,85 @@ describe('recusa do pagador: `requires_payment_method` é ambíguo', () => {
     expect(r.terminal).toBe(1);
   });
 });
+
+describe('Bizum ABANDONADO: quem abriu o app do banco e não voltou', () => {
+  const { createChargeReconciler, ABANDONED_AFTER_MS } = require('../_lib/checks/reconcile-charges');
+
+  /**
+   * O caso, e ele é comum: a pessoa confirma, o app do banco abre, ela é
+   * chamada pra mesa, fecha o telefone. O intent fica em `requires_action`
+   * pra sempre.
+   *
+   * Sem julgamento de idade, a cobrança ficava `stillPending` até sair da
+   * janela de 24h e DESAPARECER sem registro: ninguém nunca soube que aquela
+   * mesa tentou pagar e não conseguiu. Achado da revisão de compliance (M4).
+   *
+   * E `requires_action` não pode ser terminal por si — é o estado normal de
+   * quem está autorizando neste segundo. Só a IDADE separa os dois.
+   */
+  async function world(idadeMs) {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Bar Pepe', servicoBp: 0, pspRecipientId: 'acct_v' });
+    const table = await store.seedTable(venue.id, 'Mesa 4');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 3390 }]);
+    await store.registerCharge({
+      checkId: check.id, txid: 'pi_ab', amountCents: 3390, tipCents: 0, payerLabel: null, method: 'bizum',
+    });
+    // Envelhece a cobrança na mão: o store guarda `createdAt` na criação.
+    const pend = await store.listPendingCharges({ checkId: check.id, graceMs: -1 });
+    expect(pend[0].createdAt).toBeTruthy();
+    const antigo = new Date(Date.now() - idadeMs).toISOString();
+    const original = store.listPendingCharges.bind(store);
+    store.listPendingCharges = async (o) => (await original(o)).map((r) => ({ ...r, createdAt: antigo }));
+
+    const reconciler = createChargeReconciler({
+      store,
+      psp: {
+        async getCharge() {
+          return {
+            txid: 'pi_ab', status: 'requires_action', paid: false, attempted: true,
+            amountCents: 3390, tipCents: 0, method: 'bizum',
+          };
+        },
+      },
+      confirm: async () => { throw new Error('não deve confirmar o que não foi pago'); },
+    });
+    return reconciler.reconcile({ graceMs: -1 });
+  }
+
+  test('autorização RECENTE segue pendente — a pessoa pode estar aprovando agora', async () => {
+    const r = await world(60 * 1000);
+    expect(r.stillPending).toBe(1);
+    expect(r.terminal).toBe(0);
+  });
+
+  test('autorização VELHA é abandono: terminal e visível, não silêncio', async () => {
+    const r = await world(ABANDONED_AFTER_MS + 60 * 1000);
+    expect(r.terminal).toBe(1);
+    expect(r.stillPending).toBe(0);
+    expect(r.details.some((d) => d.txid === 'pi_ab' && /requires_action/.test(d.status))).toBe(true);
+  });
+
+  test('sem `createdAt` a cobrança NÃO é declarada abandonada', async () => {
+    // Um store antigo, ou uma projeção que esqueceu o campo, não pode fazer o
+    // conciliador inventar abandono — na falta do dado, o lado seguro é
+    // "ainda esperando".
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Bar Pepe', servicoBp: 0, pspRecipientId: 'acct_v' });
+    const table = await store.seedTable(venue.id, 'Mesa 4');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 3390 }]);
+    await store.registerCharge({
+      checkId: check.id, txid: 'pi_ab', amountCents: 3390, tipCents: 0, payerLabel: null, method: 'bizum',
+    });
+    const original = store.listPendingCharges.bind(store);
+    store.listPendingCharges = async (o) => (await original(o)).map(({ createdAt, ...r }) => r);
+    const reconciler = createChargeReconciler({
+      store,
+      psp: { async getCharge() { return { txid: 'pi_ab', status: 'requires_action', paid: false, amountCents: 3390, tipCents: 0 }; } },
+      confirm: async () => ({ status: 'appended' }),
+    });
+    const r = await reconciler.reconcile({ graceMs: -1 });
+    expect(r.stillPending).toBe(1);
+    expect(r.terminal).toBe(0);
+  });
+});

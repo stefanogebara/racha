@@ -321,6 +321,11 @@ function createMemoryStore() {
         .map((p) => ({
           checkId: p.checkId, txid: p.txid, amountCents: p.amountCents,
           tipCents: p.tipCents, method: p.method, currency: p.currency,
+          // `createdAt` viaja porque a conciliação precisa julgar ABANDONO: um
+          // Bizum parado em `requires_action` é alguém que abriu o app do banco
+          // e não voltou, e sem a idade da cobrança isso é indistinguível de
+          // alguém que está autorizando neste segundo.
+          createdAt: p.createdAt,
         }));
     },
 
