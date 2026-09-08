@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "npx jest && npm run test:web",
-    "test:web": "npm --prefix apps/web test"
+    "test:web": "npm --prefix apps/web test",
+    "canary": "node scripts/canary.js"
   },
   "devDependencies": {
     "jest": "^29.7.0"
