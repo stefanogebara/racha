@@ -193,3 +193,31 @@ describe('estorno que FALHOU', () => {
     expect(r.status).toBe('rejected');
   });
 });
+
+describe('valores impossíveis são recusa, não exceção', () => {
+  test('valor negativo não vira 500 — vira 409 com motivo', async () => {
+    // O `allocateRefund` estoura em valor negativo, de propósito: é o motor de
+    // dinheiro e não deve inventar número. Mas uma exceção não tratada aqui
+    // vira 500 `internal`, que a Stripe reenvia até DESABILITAR o endpoint —
+    // levando os eventos que importam junto. Um valor impossível merece 409
+    // com motivo, e o razão intocado.
+    const { store, check, deps } = await mesaPaga();
+    await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500 }, deps);
+
+    for (const amountCents of [-1, -500, 0]) {
+      const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents }, deps);
+      expect(r.status).toBe('rejected');
+      expect(r.reason).toMatch(/inválido/);
+    }
+    for (const refundDeltaCents of [-1, -3390, 0]) {
+      const r = await applyConfirmedPayment({
+        kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents, method: 'dispute',
+      }, deps);
+      expect(r.status).toBe('rejected');
+      expect(r.reason).toMatch(/inválido/);
+    }
+    // E o razão não se mexeu em nenhuma das seis tentativas.
+    const st = await estado(store, check.id);
+    expect(st.payments.pi_x.refundedAmountCents + st.payments.pi_x.refundedTipCents).toBe(500);
+  });
+});

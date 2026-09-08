@@ -108,7 +108,17 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
       // desfazer, é inventar — recusa alta, que é o que o inegociável #6 pede.
       return { status: 'rejected', reason: `reversal with no refund on record for txid ${parsed.txid}` };
     }
+    // Valor NEGATIVO ou zero é recusa, não exceção.
+    //
+    // O `allocateRefund` estoura em `refundCents` negativo — de propósito, é o
+    // motor de dinheiro. Mas um `amountCents` negativo num webhook chegaria
+    // aqui e viraria 500 `internal`, que a Stripe reenvia até desabilitar o
+    // endpoint. Um valor impossível merece 409 com motivo, não uma exceção
+    // não tratada no caminho do dinheiro.
     const aReverter = Math.min(falhou, jaEstornado);
+    if (!Number.isSafeInteger(aReverter) || aReverter <= 0) {
+      return { status: 'rejected', reason: `reversal amount inválido (${parsed.amountCents}) para ${parsed.txid}` };
+    }
     reversalAllocated = allocateRefund(pay.refundedAmountCents, pay.refundedTipCents, aReverter);
   }
 
@@ -120,6 +130,11 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
     const pay = state && state.payments[parsed.txid];
     if (!pay) return { status: 'rejected', reason: `refund for unknown txid ${parsed.txid}` };
     const sobra = (pay.amountCents - pay.refundedAmountCents) + (pay.tipCents - pay.refundedTipCents);
+    if (parsed.refundDeltaCents <= 0) {
+      // Mesma razão do `aReverter`: valor impossível é recusa com motivo, não
+      // uma exceção do motor de dinheiro virando 500.
+      return { status: 'rejected', reason: `refund delta inválido (${parsed.refundDeltaCents}) para ${parsed.txid}` };
+    }
     if (parsed.refundDeltaCents > sobra) {
       return {
         status: 'rejected',

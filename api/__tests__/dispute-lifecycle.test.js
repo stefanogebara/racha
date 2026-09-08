@@ -180,3 +180,45 @@ describe('ciclo de vida da disputa', () => {
     expect(row.status).toBe('confirmado');
   });
 });
+
+describe('a resolução casa por CAMPO, não por texto', () => {
+  test('fechar a disputa de um txid não mexe na anomalia de outro', async () => {
+    // A primeira versão disto procurava o txid DENTRO da frase da anomalia.
+    // Frágil de dois jeitos: uma anomalia de OUTRO pagamento que citasse o
+    // mesmo id sairia junto, e mudar a redação quebraria a resolução em
+    // silêncio — o pior tipo de quebra, porque o sintoma é uma conta que fica
+    // vermelha e ninguém liga à mudança de uma string.
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 0, pspRecipientId: 'rcpt_x' });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Rodízio', priceCents: 6000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+    };
+    // Dois pagamentos na mesma conta, os dois disputados.
+    for (const txid of ['pi_a', 'pi_b']) {
+      await store.registerCharge({
+        checkId: check.id, txid, amountCents: 3000, tipCents: 0, payerLabel: null, method: 'card',
+      });
+      await applyConfirmedPayment({
+        kind: 'payment_confirmed', txid, amountCents: 3000, tipCents: 0, method: 'card',
+      }, deps);
+      await store.appendEvent(check.id, 'PAYMENT_DISPUTED', { txid, amountCents: 3000 });
+    }
+    let st = await estado(store, check.id);
+    expect(st.anomalies.filter((a) => a.type === 'PAYMENT_DISPUTED').length).toBe(2);
+    // Cada anomalia carrega o txid como CAMPO.
+    expect(st.anomalies.map((a) => a.txid).sort()).toEqual(['pi_a', 'pi_b']);
+
+    await applyConfirmedPayment({ kind: 'dispute_won', txid: 'pi_a', status: 'won' }, deps);
+    st = await estado(store, check.id);
+    const abertas = st.anomalies.filter((a) => a.type === 'PAYMENT_DISPUTED');
+    expect(abertas.length).toBe(1);
+    expect(abertas[0].txid).toBe('pi_b');
+    // E o dinheiro dos dois continua lá: ganhar não move saldo.
+    expect(st.paidCents).toBe(6000);
+  });
+});

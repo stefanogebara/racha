@@ -293,7 +293,8 @@ function applyEvent(state, evt, seq = null) {
       next.paidCents += amount;
       next.tipCents += tip;
       return withAnomaly(recompute(next), seq, 'PAYMENT_REFUND_REVERSED',
-        `estorno de ${p.txid} FALHOU: dinheiro voltou pro restaurante e o cliente ficou sem`);
+        `estorno de ${p.txid} FALHOU: dinheiro voltou pro restaurante e o cliente ficou sem`,
+        p.txid);
     }
     case 'PAYMENT_DISPUTED': {
       // Não mexe em `paidCents`: o dinheiro ainda é do restaurante até o
@@ -313,7 +314,7 @@ function applyEvent(state, evt, seq = null) {
       }
       return withAnomaly(recompute(next), seq, 'PAYMENT_DISPUTED',
         `disputa aberta em ${p.txid}${p.reason ? ` (${p.reason})` : ''}`
-        + `${p.dueBy ? ` — prova até ${p.dueBy}` : ''}`);
+        + `${p.dueBy ? ` — prova até ${p.dueBy}` : ''}`, p.txid);
     }
     case 'PAYMENT_DISPUTE_CLOSED': {
       const next = cloneState(state);
@@ -326,14 +327,17 @@ function applyEvent(state, evt, seq = null) {
       // A anomalia daquele txid SAI da projeção. O log fica; o que muda é o
       // que a conciliação vê — e uma disputa resolvida não é uma pendência.
       const resolved = recompute(next);
+      // Casa por CAMPO, não por texto: só a anomalia de disputa DAQUELE txid
+      // sai. Uma anomalia de outro pagamento que citasse o mesmo id na frase
+      // ficava sendo removida junto na primeira versão disto.
       resolved.anomalies = resolved.anomalies.filter(
-        (a) => !(a.type === 'PAYMENT_DISPUTED' && String(a.reason || '').includes(p.txid)),
+        (a) => !(a.type === 'PAYMENT_DISPUTED' && a.txid === p.txid),
       );
       // Perdida já virou estorno no saldo; ganha não mexe em dinheiro. Nos dois
       // casos a marca sai, e o desfecho fica registrado em `disputeStatus`.
       if (p.outcome === 'lost') {
         return withAnomaly(resolved, seq, 'PAYMENT_DISPUTE_CLOSED',
-          `disputa PERDIDA em ${p.txid} — o dinheiro foi`);
+          `disputa PERDIDA em ${p.txid} — o dinheiro foi`, p.txid);
       }
       return resolved;
     }
@@ -365,9 +369,20 @@ function cloneState(state) {
   return { ...state, payments, anomalies: [...state.anomalies] };
 }
 
-function withAnomaly(state, seq, type, reason) {
+/**
+ * Uma anomalia, opcionalmente ATRELADA a um txid.
+ *
+ * O `txid` é campo, não texto dentro da frase. A primeira versão do
+ * `PAYMENT_DISPUTE_CLOSED` procurava o txid DENTRO de `reason` pra saber qual
+ * anomalia resolver, e isso é frágil de dois jeitos: uma anomalia de outro
+ * pagamento que por acaso citasse o mesmo txid seria removida junto, e mudar a
+ * redação da mensagem quebraria a resolução em silêncio — o pior tipo de
+ * quebra, porque o sintoma é uma conta que continua vermelha e ninguém
+ * associa à mudança de uma string.
+ */
+function withAnomaly(state, seq, type, reason, txid = null) {
   const next = cloneState(state);
-  next.anomalies.push({ seq, type: type || 'UNKNOWN', reason });
+  next.anomalies.push({ seq, type: type || 'UNKNOWN', reason, ...(txid ? { txid } : {}) });
   return next;
 }
 
