@@ -1579,24 +1579,29 @@ async function route(req, res) {
       // bate". Estourar é o pior estado possível, então pagina como crítico.
       let report;
       try {
+        /**
+         * A TERCEIRA PERNA, com interruptor.
+         *
+         * A regra #8 diz "razão do PSP vs nossos splits", e até aqui o job
+         * comparava só os nossos dois — que não são independentes, porque um é
+         * projeção do outro, escrita na mesma chamada. Passar o adaptador liga
+         * a conferência dos RECEBÍVEIS: pra quem o dinheiro de cada cobrança
+         * foi de fato, segundo a Pagar.me.
+         *
+         * Janela de 24h e teto por casa porque cada cobrança é uma chamada de
+         * API. E `RACHA_PAYABLES_LEG=off` desliga sem deploy: é a única coisa
+         * desta série que faz I/O externo dentro do cron, e o modo de falha
+         * dela é a varredura inteira morrer calada. Varredura morta não conta
+         * nada a ninguém — um caminho que pode emudecer o canário precisa de um
+         * jeito de desligar mais rápido que um deploy.
+         */
         report = await reconcileAllVenues(store, {
           includeTest: url.searchParams.get('test') === '1',
-          /**
-           * O PSP entra na varredura pra TERCEIRA PERNA existir.
-           *
-           * A regra #8 diz "razão do PSP vs nossos splits", e até aqui o job
-           * comparava só os nossos dois — que não são independentes, porque um
-           * é projeção do outro escrita na mesma chamada. Passar o adaptador
-           * liga a conferência dos RECEBÍVEIS: pra quem o dinheiro de cada
-           * cobrança foi de fato, segundo a Pagar.me.
-           *
-           * Janela de 24h e teto por restaurante: cada cobrança é uma chamada
-           * de API, e a varredura roda no escuro — ela não pode virar mil
-           * requisições porque a casa teve um sábado bom.
-           */
-          psp,
-          sinceIso: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-          limit: 25,
+          ...(process.env.RACHA_PAYABLES_LEG === 'off' ? {} : {
+            psp,
+            sinceIso: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+            limit: 25,
+          }),
         });
       } catch (e) {
         const falha = `Conciliação NÃO RODOU: ${String(e && e.message).slice(0, 200)}`;

@@ -242,10 +242,13 @@ describe('a perna não pode ser desligada em silêncio', () => {
     const src = fs.readFileSync(path.join(raiz, '_app', 'router.js'), 'utf8');
     const i = src.indexOf('reconcileAllVenues(store,');
     expect(i).toBeGreaterThan(0);
-    const chamada = src.slice(i, i + 900);
+    const chamada = src.slice(i, i + 1400);
     expect(chamada).toMatch(/\bpsp,/);
     expect(chamada).toMatch(/sinceIso/);
     expect(chamada).toMatch(/limit/);
+    // E o interruptor: a perna precisa poder ser desligada sem deploy, porque
+    // é a única coisa desta série que faz I/O externo dentro do cron.
+    expect(chamada).toMatch(/RACHA_PAYABLES_LEG/);
   });
 
   test('o adaptador de produção implementa a leitura de recebíveis', () => {
@@ -340,4 +343,23 @@ describe('a perna sabe a diferença entre CONFERIDO e não-verificável', () => 
     expect(f).toBeDefined();
     expect(f.message).toMatch(/sem conferir/);
   });
+});
+
+test('a perna tem INTERRUPTOR — `RACHA_PAYABLES_LEG=off` desliga sem deploy', () => {
+  /**
+   * É a única coisa desta série que faz I/O externo dentro do cron: N chamadas
+   * a um terceiro numa função com limite de tempo. O modo de falha é a
+   * varredura morrer calada, e varredura morta não conta nada a ninguém. Um
+   * caminho que pode emudecer o canário precisa de um jeito de desligar mais
+   * rápido que um deploy.
+   */
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+  const i = src.indexOf('reconcileAllVenues(store,');
+  const chamada = src.slice(i, i + 1200);
+  expect(chamada).toMatch(/RACHA_PAYABLES_LEG === 'off'/);
+  // Desligada, a varredura roda sem `psp` — e a perna some sem quebrar nada,
+  // que é o caso já coberto acima ("sem PSP a varredura segue").
+  expect(chamada).toMatch(/\bpsp,/);
 });
