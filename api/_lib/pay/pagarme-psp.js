@@ -381,6 +381,12 @@ function createPagarmePsp({
       //
       // O adaptador da Stripe já falhava fechado. Este não. É a metade
       // esquecida da mesma correção.
+      //
+      // CONFIRMADO NO PAINEL (2026-09-08): o webhook de produção estava com
+      // `authentication_type: "none"`. O buraco não era teórico — estava
+      // aberto. Ver docs/runbooks/pagarme-webhook-auth.md pra ordem de
+      // aplicação: a credencial entra no painel ANTES do deploy, senão a
+      // confirmação de Pix cai.
       if (!webhookBasicAuth) {
         throw new WebhookVerificationError('webhook auth não configurado — recusando corpo não autenticado');
       }
