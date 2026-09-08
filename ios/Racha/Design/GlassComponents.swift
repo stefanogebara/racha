@@ -289,24 +289,43 @@ struct LiquidProgress: View {
 /// person notices the agent changed something. A number that teleports is a
 /// number that can change without being seen — which is the exact failure mode
 /// the product forbids.
+/// Dinheiro que anima a troca de dígitos — SEM guardar cópia do valor.
+///
+/// A versão anterior espelhava o valor num `@State displayed`, semeado no
+/// `onAppear` e atualizado por `onChange`. Numa tela de pagamento isso produziu
+/// exatamente o que um espelho produz quando dessincroniza: na galeria, o herói
+/// "Sua parte" ficou em **R$ 72,50** enquanto o botão logo abaixo dizia
+/// **Pagar R$ 90,10** — os dois lendo `state.due(of: me)`, a mesma variável na
+/// mesma avaliação do corpo. Estável, oito segundos depois de abrir. A folha de
+/// pagar renderiza o mesmo `due` com um `Text` comum e sempre acertou; quem
+/// espelha erra.
+///
+/// E o defeito era INVISÍVEL pra suíte de testes: o `.accessibilityLabel`
+/// carregava o valor verdadeiro, então o XCUITest — que lê a árvore de
+/// acessibilidade — via 90,10 e passava. Quem ouve a tela ouvia o número certo;
+/// quem olha lia o errado. Doze fluxos verdes não podiam ver isso.
+///
+/// Autorização obtida sobre um valor que não é o valor é CDC art. 6º III, e é a
+/// mesma família do defeito que a revisão de compliance achou na web quando a
+/// folha da carteira cotava a moeda errada.
+///
+/// Agora o texto é DERIVADO de `cents`, e não há estado onde divergir.
+/// `.contentTransition(.numericText)` com `.animation(_:value:)` dá a mesma
+/// animação de dígitos na TROCA, que é pra isso que ela existe — não pra
+/// encenar uma contagem a partir de zero na primeira aparição.
 struct AnimatedMoney: View {
     var cents: Cents
     var currency: Currency = .brl
     var font: Font = Typo.display
     var color: Color = Palette.charcoal
 
-    @State private var displayed: Int = 0
-
     var body: some View {
-        Text(BRL.format(Cents(displayed), currency: currency))
+        Text(BRL.format(cents, currency: currency))
             .font(font)
             .money()
             .foregroundStyle(color)
-            .contentTransition(.numericText(value: Double(displayed)))
-            .onAppear { displayed = cents.raw }
-            .onChange(of: cents) { _, new in
-                withAnimation(Motion.ledger) { displayed = new.raw }
-            }
+            .contentTransition(.numericText(value: Double(cents.raw)))
+            .animation(Motion.ledger, value: cents)
             .accessibilityLabel(BRL.format(cents, currency: currency))
     }
 }

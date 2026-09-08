@@ -127,14 +127,12 @@ struct ThreadOpener: View {
         .padding(.vertical, 8)
     }
 
+    /// Concordância mora em `ThreadCopy`, que é testável. Aqui era texto
+    /// montado à mão dentro do corpo de uma View, e a tela dizia "Faltam 1
+    /// itens sem dono".
     private var headline: String {
-        if state.items.isEmpty {
-            return "Manda a foto da nota, ou só fala o que rolou."
-        }
-        if state.split.hasUnassigned {
-            return "Faltam \(state.split.unassigned.count) itens sem dono."
-        }
-        return "Tudo dividido. Quer acertar?"
+        ThreadCopy.headline(itemCount: state.items.count,
+                            unassignedCount: state.split.unassigned.count)
     }
 
     private var suggestions: [String] {
@@ -144,7 +142,11 @@ struct ThreadOpener: View {
         } else if state.split.hasUnassigned {
             let names = state.items.filter { state.claims(for: $0.id).isEmpty }
                 .prefix(2).map { $0.name.lowercased() }
-            out = names.map { "a \($0) foi minha" }
+            // "a pudim foi minha" — artigo e adjetivo femininos num nome
+            // masculino. Não há conserto por concordância (o gênero de um nome
+            // de prato arbitrário é desconhecido), então a frase deixa de pedir
+            // gênero. Ver `ThreadCopy`.
+            out = names.map { ThreadCopy.claimSuggestion(itemName: $0) }
             out.append("divide o resto por igual")
         } else {
             out = ["quanto cada um deve?", "manda o Pix pra galera"]

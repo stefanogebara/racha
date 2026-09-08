@@ -53,6 +53,53 @@ final class FlowTests: XCTestCase {
                       "não apareceu: \(what)", file: file, line: line)
     }
 
+    // MARK: O número que se mostra é o número que se cobra
+
+    /// O TESTE QUE FALTAVA, e é o único que importa numa tela de dinheiro.
+    ///
+    /// A suíte tinha doze fluxos verdes e nenhum comparava o valor EXIBIDO com
+    /// o valor COBRADO. Na galeria, o herói ("Sua parte") e o botão ("Pagar")
+    /// saem os dois de `state.due(of: me)` — mesma variável, mesma avaliação do
+    /// corpo — e mostravam números diferentes: R$ 72,50 embaixo de "Sua parte"
+    /// e R$ 90,10 no botão, estáveis, oito segundos depois de abrir.
+    ///
+    /// A diferença é o `AnimatedMoney`: ele guarda uma CÓPIA do valor em
+    /// `@State displayed`, semeada no `onAppear`. A folha de pagar renderiza o
+    /// mesmo `due` com um `Text` comum e acerta. Quem espelha erra.
+    ///
+    /// Numa tela de pagamento isso não é detalhe de animação: é autorização
+    /// obtida sobre um valor que não é o valor (CDC art. 6º III), e é a mesma
+    /// família de defeito que a revisão de compliance apontou na web quando a
+    /// folha da carteira cotava a moeda errada.
+    func testTheAmountShownIsTheAmountCharged() {
+        let app = launch(route: "gallery")
+
+        // O botão nomeia o valor que será cobrado.
+        let pagar = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Pagar'")).firstMatch
+        require(pagar, "o botão Pagar da mesa aberta")
+
+        // Deixa qualquer animação de número terminar, com folga.
+        Thread.sleep(forTimeInterval: 3)
+        shoot(app, "00-galeria-valor")
+
+        // "Pagar R$ 90,10" → o valor.
+        let cobrado = pagar.label
+            .replacingOccurrences(of: "Pagar ", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        XCTAssertFalse(cobrado.isEmpty, "o botão Pagar não nomeia valor nenhum")
+
+        /// O herói expõe o valor VERDADEIRO no rótulo de acessibilidade
+        /// (`AnimatedMoney` faz `.accessibilityLabel(BRL.format(cents))`),
+        /// enquanto o texto visível é a cópia. Então o leitor de tela e os
+        /// olhos podem discordar — e é justamente essa discordância que este
+        /// teste procura: se existir, uma das duas está mentindo.
+        let heroi = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'R$'")).firstMatch
+        require(heroi, "o valor grande da mesa aberta")
+
+        XCTAssertEqual(heroi.label, cobrado,
+                       "o valor exibido em 'Sua parte' (\(heroi.label)) não é o que o botão cobra (\(cobrado))")
+    }
+
     // MARK: First run
 
     /// The cover, the name, the three doors. The one flow every single person
