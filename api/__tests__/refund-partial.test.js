@@ -19,6 +19,7 @@
 const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
 const { createMemoryStore } = require('../_lib/store/memory');
 const { reduce } = require('../_lib/checks/check-state');
+const { reconcileCheck } = require('../_lib/checks/reconcile');
 
 async function mesaPaga() {
   const store = createMemoryStore();
@@ -30,6 +31,7 @@ async function mesaPaga() {
     appendEvent: store.appendEvent.bind(store),
     recordPayment: store.recordPayment.bind(store),
     findCheckByTxid: store.findCheckByTxid.bind(store),
+    seenPspEvent: store.seenPspEvent.bind(store),
   };
   await store.registerCharge({
     checkId: check.id, txid: 'pi_x', amountCents: 3082, tipCents: 308,
@@ -219,5 +221,97 @@ describe('valores impossíveis são recusa, não exceção', () => {
     // E o razão não se mexeu em nenhuma das seis tentativas.
     const st = await estado(store, check.id);
     expect(st.payments.pi_x.refundedAmountCents + st.payments.pi_x.refundedTipCents).toBe(500);
+  });
+});
+
+describe('o estorno parcial visto pelo RESTO do sistema', () => {
+  /**
+   * A regressão que eu mesmo criei ao consertar o estorno parcial, achada pela
+   * revisão de compliance de 2026-09-08.
+   *
+   * O razão ficou certo — rateio proporcional, acumulado virando delta. Mas o
+   * status da linha é tri-estado e não sabe dizer "parcialmente estornado".
+   * Marcar `devolvido` num estorno de R$ 5,00 sobre R$ 33,90 fazia a
+   * conciliação gritar pra sempre E o pagamento inteiro sumir do faturamento e
+   * da gorjeta — desfazendo, no relatório, a correção feita no razão.
+   */
+  async function comEstornoParcial() {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Rodízio', priceCents: 3082 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+    seenPspEvent: store.seenPspEvent.bind(store),
+    };
+    await store.registerCharge({
+      checkId: check.id, txid: 'pi_x', amountCents: 3082, tipCents: 308, payerLabel: null, method: 'card',
+    });
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'pi_x', amountCents: 3082, tipCents: 308, method: 'card',
+    }, deps);
+    await applyConfirmedPayment({
+      kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500, method: 'card',
+    }, deps);
+    return { store, venue, check };
+  }
+
+  test('a conciliação NÃO acusa nada: a soma bate dos dois lados', async () => {
+    const { store, venue, check } = await comEstornoParcial();
+    const rows = (await store.listChecksForReconcile(venue.id))[0].payments;
+    const r = reconcileCheck({
+      checkId: check.id, events: await store.loadEvents(check.id), payments: rows,
+    });
+    // Antes: `status_lag` ALTO e `ledger_drift` CRÍTICO de −2890¢, pra sempre,
+    // sem nada faltando de verdade. Um alerta que dispara em comportamento
+    // correto está morto em duas semanas.
+    expect(r.driftCents).toBe(0);
+    expect(r.findings).toEqual([]);
+    expect(r.ok).toBe(true);
+  });
+
+  test('a linha continua CONFIRMADA e diz quanto foi estornado', async () => {
+    const { store, venue } = await comEstornoParcial();
+    const row = (await store.listChecksForReconcile(venue.id))[0].payments.find((p) => p.txid === 'pi_x');
+    expect(row.status).toBe('confirmado');
+    expect(row.refundedAmountCents).toBe(455);
+    expect(row.refundedTipCents).toBe(45);
+  });
+
+  test('o painel desconta só o estornado — a gorjeta cai 45¢, não 308¢', async () => {
+    const { store, venue } = await comEstornoParcial();
+    const panel = await store.getPanelView(venue.id);
+    expect(panel.today.confirmedCents).toBe(3082 - 455);
+    // O número que vai pra folha. Antes o pagamento sumia inteiro e a gorjeta
+    // caía os 308¢ — desfazendo o rateio proporcional no relatório.
+    expect(panel.today.tipsCents).toBe(308 - 45);
+  });
+
+  test('estorno TOTAL aí sim vira devolvido, e some do faturamento', async () => {
+    const { store, venue, check } = await comEstornoParcial();
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+    seenPspEvent: store.seenPspEvent.bind(store),
+    };
+    await applyConfirmedPayment({
+      kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 3390, method: 'card',
+    }, deps);
+    const row = (await store.listChecksForReconcile(venue.id))[0].payments.find((p) => p.txid === 'pi_x');
+    expect(row.status).toBe('devolvido');
+    const panel = await store.getPanelView(venue.id);
+    expect(panel.today.confirmedCents).toBe(0);
+    expect(panel.today.tipsCents).toBe(0);
+    const r = reconcileCheck({
+      checkId: check.id,
+      events: await store.loadEvents(check.id),
+      payments: (await store.listChecksForReconcile(venue.id))[0].payments,
+    });
+    expect(r.findings).toEqual([]);
   });
 });

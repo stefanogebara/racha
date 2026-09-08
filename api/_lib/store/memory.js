@@ -341,6 +341,10 @@ function createMemoryStore() {
             .map((p) => ({
               txid: p.txid, amountCents: p.amountCents, tipCents: p.tipCents,
               status: p.status, method: p.method || 'pix', currency: p.currency,
+              // Os acumulados estornados: a conciliação soma LÍQUIDO dos dois
+              // lados, senão um estorno parcial vira divergência permanente.
+              refundedAmountCents: p.refundedAmountCents || 0,
+              refundedTipCents: p.refundedTipCents || 0,
             })),
         }));
     },
@@ -405,12 +409,45 @@ function createMemoryStore() {
     },
 
     // --- writes --------------------------------------------------------------
-    async appendEvent(checkId, type, payload) {
+    /**
+     * @param {string} [pspEventId] id do evento do PSP. Único quando presente:
+     *   a segunda entrega do MESMO evento é no-op e devolve o `seq` negativo,
+     *   igual ao RPC do Supabase (migração 0018).
+     *
+     *   O mock precisa ser tão restritivo quanto a produção. Um dublê que
+     *   aceita o que o banco recusa é uma armadilha, não um dublê — foi assim
+     *   que três tipos de evento chegaram a produção recusados por um CHECK
+     *   que nenhum teste lia.
+     */
+    async appendEvent(checkId, type, payload, pspEventId = null) {
       if (!events.has(checkId)) throw new Error('unknown check');
+      if (pspEventId != null) {
+        for (const [, log] of events) {
+          const visto = log.find((e) => e.pspEventId === pspEventId);
+          if (visto) return -visto.seq;
+        }
+      }
       const log = events.get(checkId);
       const seq = log.length + 1;
-      log.push({ seq, type, payload });
+      log.push({ seq, type, payload, ...(pspEventId != null ? { pspEventId } : {}) });
       return seq;
+    },
+    /**
+     * Este evento do PSP já foi aplicado?
+     *
+     * Consulta ANTES das conferências de estado, pra uma reentrega sair como
+     * `duplicate` em vez de `rejected`. A garantia de verdade continua sendo o
+     * índice único no append (migração 0018) — só ele fecha a corrida entre
+     * duas entregas simultâneas, porque roda dentro do lock. Esta consulta é
+     * pra a RESPOSTA ficar honesta: um 409 numa reentrega normal faz a Stripe
+     * reenviar e acabar desabilitando o endpoint.
+     */
+    async seenPspEvent(pspEventId) {
+      if (pspEventId == null) return false;
+      for (const [, log] of events) {
+        if (log.some((e) => e.pspEventId === pspEventId)) return true;
+      }
+      return false;
     },
     async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel, method = 'pix' }) {
       txidToCheck.set(txid, checkId);
@@ -430,6 +467,7 @@ function createMemoryStore() {
     async recordPayment({
       txid, kind, status, pspPayloadMasked, confirmedAt,
       confirmedAmountCents = null, confirmedTipCents = null,
+      refundedAmountCents = null, refundedTipCents = null,
     }) {
       const p = payments.get(txid);
       if (!p) return;
@@ -440,6 +478,10 @@ function createMemoryStore() {
         // `amount_mismatch`, e sobrescrever faria os dois concordarem sempre.
         ...(confirmedAmountCents !== null ? { confirmedAmountCents } : {}),
         ...(confirmedTipCents !== null ? { confirmedTipCents } : {}),
+        // Acumulado ESTORNADO na linha: quem soma dinheiro soma líquido, em vez
+        // de dropar a linha inteira num estorno parcial (migração 0016).
+        ...(refundedAmountCents !== null ? { refundedAmountCents } : {}),
+        ...(refundedTipCents !== null ? { refundedTipCents } : {}),
         // O status vem resolvido do módulo de dinheiro (ver
         // ROW_STATUS_FOR_KIND). Era `kind === 'refund' ? … : 'confirmado'` aqui,
         // e com a família da disputa lida de verdade esse `else` fazia uma

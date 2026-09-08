@@ -114,3 +114,35 @@ describe('censo das espécies de evento de webhook', () => {
     await expect(handleWith({ txid: 'pi_z' })).rejects.toThrow(/sem `kind`/);
   });
 });
+
+test('a rota do Stripe conhece exatamente as mesmas espécies que o portão', () => {
+  // O censo prova o `createWebhookHandler`. Mas a rota `/api/webhooks/stripe`
+  // NÃO passa por ele: ela chama o adaptador e o aplicador direto, com uma
+  // lista de espécies copiada à mão. Então o teste provava um portão que a
+  // produção não atravessa — a substância do achado estava fechada, a prova
+  // apontava pro lugar errado. Achado pela revisão de compliance de 2026-09-08.
+  //
+  // O custo de divergir: uma espécie nova acrescentada ao adaptador e ao
+  // `NON_LEDGER_KINDS` e esquecida na lista da rota cai no aplicador, o
+  // `EVENT_FOR_KIND` não a conhece, e vira 500 → reenvio → endpoint
+  // desabilitado → eventos de dinheiro de verdade perdidos.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+
+  // O bloco de despacho da rota do Stripe: `parsed.kind === '…'` dentro dela.
+  const inicio = src.indexOf("url.pathname === '/api/webhooks/stripe'");
+  expect(inicio).toBeGreaterThan(0);
+  const bloco = src.slice(inicio, inicio + 12000);
+  const naRota = new Set([...bloco.matchAll(/parsed\.kind === '([a-z_]+)'/g)].map((m) => m[1]));
+
+  // Toda espécie que NÃO move o razão precisa estar tratada na rota — senão
+  // cai no aplicador, que só conhece as do razão.
+  const faltando = [...NON_LEDGER_KINDS].filter((k) => !naRota.has(k)).sort();
+  expect(faltando).toEqual([]);
+
+  // E a rota não pode inventar espécie que o portão não conhece.
+  const classificadas = new Set([...LEDGER_KINDS, ...NON_LEDGER_KINDS, 'ignored']);
+  const inventadas = [...naRota].filter((k) => !classificadas.has(k)).sort();
+  expect(inventadas).toEqual([]);
+});

@@ -52,6 +52,7 @@ describe('painel numa divergência', () => {
       appendEvent: store.appendEvent.bind(store),
       recordPayment: store.recordPayment.bind(store),
       findCheckByTxid: store.findCheckByTxid.bind(store),
+    seenPspEvent: store.seenPspEvent.bind(store),
     };
     // Pedimos 3082 + 308 de serviço; o PSP confirmou 2450 e nenhuma gorjeta.
     await store.registerCharge({
@@ -87,6 +88,7 @@ describe('painel numa divergência', () => {
       appendEvent: store.appendEvent.bind(store),
       recordPayment: store.recordPayment.bind(store),
       findCheckByTxid: store.findCheckByTxid.bind(store),
+    seenPspEvent: store.seenPspEvent.bind(store),
     };
     await store.registerCharge({
       checkId: check.id, txid: 'pi_y', amountCents: 3082, tipCents: 308, payerLabel: null, method: 'pix',

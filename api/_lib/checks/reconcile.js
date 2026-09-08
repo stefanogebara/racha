@@ -131,6 +131,16 @@ function reconcileCheck({ checkId, events, payments }) {
       add('high', 'status_lag',
         `txid ${txid} confirmed in log but row status is '${row.status}'`, { txid });
     }
+    // O ESTORNO PARCIAL também tem que bater entre a linha e o log. É a mesma
+    // ideia do `amount_mismatch`, no valor devolvido: sem isto a linha podia
+    // dizer que devolveu 500 e o razão 900, e a soma líquida do painel
+    // divergiria do razão sem nada acusar.
+    const rowRefunded = (row.refundedAmountCents || 0) + (row.refundedTipCents || 0);
+    const logRefunded = pay.refundedAmountCents + pay.refundedTipCents;
+    if (rowRefunded !== logRefunded) {
+      add('critical', 'refund_mismatch',
+        `txid ${txid}: estornado na linha ${rowRefunded}¢ vs razão ${logRefunded}¢`, { txid });
+    }
   }
 
   // 3. Every confirmed payments row must have a matching event-log payment
@@ -139,7 +149,14 @@ function reconcileCheck({ checkId, events, payments }) {
   let rowConfirmedCents = 0;
   for (const row of rows) {
     if (row.status === 'confirmado') {
-      rowConfirmedCents += (row.amountCents || 0) + (row.tipCents || 0);
+      // LÍQUIDO de estorno, igual ao lado do razão.
+      //
+      // Somar o bruto fazia o estorno parcial virar `ledger_drift` CRÍTICO
+      // permanente: o razão já descontava o estorno de `paidCents` e a linha
+      // não. Um alerta que dispara em comportamento correto está morto em duas
+      // semanas — o mesmo modo de falha da disputa que nunca encerrava.
+      rowConfirmedCents += (row.amountCents || 0) + (row.tipCents || 0)
+        - (row.refundedAmountCents || 0) - (row.refundedTipCents || 0);
       if (!logPayments[row.txid]) {
         add('critical', 'missing_log_event',
           `txid ${row.txid} is a confirmed payment row but absent from the event log`, { txid: row.txid });

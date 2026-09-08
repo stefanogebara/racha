@@ -97,6 +97,7 @@ const handleWebhook = createWebhookHandler({
   appendEvent: store.appendEvent.bind(store),
   recordPayment: store.recordPayment.bind(store),
   findCheckByTxid: store.findCheckByTxid.bind(store),
+  seenPspEvent: store.seenPspEvent.bind(store),
   psp,
   // txid that isn't a check charge → maybe a house-account load.
   fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
@@ -111,6 +112,7 @@ const confirmDeps = {
   appendEvent: store.appendEvent.bind(store),
   recordPayment: store.recordPayment.bind(store),
   findCheckByTxid: store.findCheckByTxid.bind(store),
+  seenPspEvent: store.seenPspEvent.bind(store),
   fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
 };
 
@@ -159,6 +161,7 @@ const demoWebhook = createWebhookHandler({
   appendEvent: store.appendEvent.bind(store),
   recordPayment: store.recordPayment.bind(store),
   findCheckByTxid: store.findCheckByTxid.bind(store),
+  seenPspEvent: store.seenPspEvent.bind(store),
   psp: demoPsp,
   fallback: (parsed) => houseSvc.confirmLoadFromWebhook(parsed),
 });
@@ -612,6 +615,7 @@ async function route(req, res) {
             || parsed.kind === 'unusable_money_event' || parsed.kind === 'dispute_updated'
             || parsed.kind === 'dispute_funds' || parsed.kind === 'account_alert') {
           const found = await store.findCheckByTxid(parsed.txid);
+          let persistido = false;
           if (parsed.kind === 'dispute_opened' && found) {
             try {
               await store.appendEvent(found.id, 'PAYMENT_DISPUTED', {
@@ -622,12 +626,32 @@ async function route(req, res) {
                 // alerta que degrada pra stderr sem `RACHA_NOTIFY_SECRET`.
                 dueBy: parsed.dueBy || null, status: parsed.status || null,
               });
+              persistido = true;
             } catch (e) {
+              // NÃO engole. Gravar a disputa é gravar o PRAZO DE PROVA, e um
+              // 200 aqui diz pra Stripe "recebido" sobre um prazo que se
+              // perdeu — 40 dias que ninguém vai contar. `persistido` fica
+              // falso e o 503 lá embaixo faz a Stripe tentar de novo.
               process.stderr.write(`[stripe-webhook] disputa não gravada: ${String(e.message).slice(0, 120)}\n`);
             }
           }
+          // O prazo também chega em `dispute.updated` — a Stripe manda mudança
+          // de prazo por lá, e persistir só na abertura fazia uma prorrogação
+          // virar `dispute_evidence_overdue` crítico falso.
+          if (parsed.kind === 'dispute_updated' && found && parsed.dueBy) {
+            try {
+              await store.appendEvent(found.id, 'PAYMENT_DISPUTED', {
+                txid: parsed.txid, amountCents: 0, reason: parsed.reason || null,
+                dueBy: parsed.dueBy, status: parsed.status || null,
+              });
+              persistido = true;
+            } catch (e) {
+              process.stderr.write(`[stripe-webhook] prazo não atualizado: ${String(e.message).slice(0, 120)}\n`);
+            }
+          }
+          let avisado = true;
           if (parsed.kind !== 'refund_progress') {
-            await notifyFounderMoneyEvent({
+            const r = await notifyFounderMoneyEvent({
               kind: parsed.kind, txid: parsed.txid, checkId: found ? found.id : null,
               amountCents: parsed.amountCents,
               // O TIPO do evento vai no detalhe: `account_alert` cobre repasse
@@ -635,6 +659,33 @@ async function route(req, res) {
               // fraude, e cada um pede uma ação diferente. Sem o tipo, o alerta
               // diz "algo de conta aconteceu".
               detail: parsed.type || parsed.reason || parsed.status || null,
+            });
+            avisado = Boolean(r && r.ok);
+          }
+          /**
+           * Evento de dinheiro que não foi gravado NEM avisado é 503.
+           *
+           * O alerta do fundador degrada: sem `RACHA_NOTIFY_SECRET` devolve
+           * `{skipped:true}` e escreve em stderr, e engole qualquer falha de
+           * rede. Então uma variável de ambiente ausente transformava um
+           * CHARGEBACK numa linha de log que a Stripe nunca reenvia — "um
+           * canário vermelho pageia, nunca só loga" (inegociável #8),
+           * invertido. Achado pela revisão de segurança de 2026-09-08.
+           *
+           * 503 faz a Stripe tentar de novo. Sim, reenvio repetido acaba
+           * desabilitando o endpoint — mas isso é uma falha RUIDOSA, e a
+           * alternativa é perder o evento em silêncio. Entre as duas, o
+           * inegociável #8 escolhe o barulho.
+           *
+           * `refund_progress` fica fora: é estado intermediário de um estorno
+           * que ainda vai terminar em `succeeded` ou `failed`, e os dois têm
+           * tratamento próprio.
+           */
+          if (!persistido && !avisado && parsed.kind !== 'refund_progress') {
+            process.stderr.write(`[stripe-webhook] ${parsed.kind} SEM registro e SEM aviso — devolvendo 503 pra reenvio\n`);
+            return json(res, 503, {
+              success: false, code: 'money_event_unrecorded',
+              data: { status: parsed.kind, txid: parsed.txid },
             });
           }
           return json(res, 200, { success: true, data: { status: parsed.kind, txid: parsed.txid } });
@@ -650,7 +701,14 @@ async function route(req, res) {
                 txid: parsed.txid, outcome: 'lost',
               });
             } catch (e) {
+              // Sem o fecho, a conta guarda um `dispute_evidence_overdue`
+              // crítico pra sempre — por uma disputa já resolvida. Não pode
+              // sair daqui como sucesso.
               process.stderr.write(`[stripe-webhook] fecho de disputa não gravado: ${String(e.message).slice(0, 120)}\n`);
+              return json(res, 503, {
+                success: false, code: 'dispute_close_unrecorded',
+                data: { status: parsed.kind, txid: parsed.txid },
+              });
             }
           }
           await notifyFounderMoneyEvent({
@@ -1267,6 +1325,32 @@ async function route(req, res) {
       const result = await handleWebhook(wh.rawBody, wh.signature);
       if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
         await writeBackToPos(result.checkId);
+      }
+      /**
+       * Evento de DINHEIRO que o portão não soube lançar tem que gritar.
+       *
+       * O adaptador do Pagar.me devolve `unusable_money_event` num
+       * cancelamento PARCIAL — dinheiro saiu e não sabemos quanto — com um
+       * comentário dizendo "pro chamador alertar e persistir". O chamador é
+       * ESTA rota, e ela não alertava nada: a linha ficava `confirmado`, o
+       * razão ficava confirmado, os dois registros concordavam, e a conciliação
+       * diária reportava VERDE.
+       *
+       * É o mesmo estado "cliente lesado e canário calado" que acabei de fechar
+       * no `refund.failed`, ainda aberto no trilho que está em produção de
+       * verdade. Achado pela revisão de compliance de 2026-09-08.
+       *
+       * 200 continua: a Pagar.me não pode desabilitar o endpoint por causa
+       * disto. O que muda é que alguém fica sabendo.
+       */
+      if (result.status === 'unusable_money_event' || result.status === 'dispute_opened'
+          || result.status === 'refund_failed' || result.status === 'account_alert') {
+        await notifyFounderMoneyEvent({
+          kind: result.status, txid: result.txid || '?',
+          checkId: result.checkId || null,
+          amountCents: (result.raw && result.raw.amountCents) || 0,
+          detail: result.type || null,
+        });
       }
       return json(res, 200, { success: true, data: result });
     }

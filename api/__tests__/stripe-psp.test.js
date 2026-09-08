@@ -258,7 +258,7 @@ describe('stripe adapter — getCharge (reconciliação)', () => {
 
 describe('stripe adapter — webhook', () => {
   test('payment_intent.succeeded → payment_confirmed parseado', async () => {
-    const event = { type: 'payment_intent.succeeded', data: { object: { id: 'pi_x', status: 'succeeded', amount: 8800, metadata: { tip_cents: '800' } } } };
+    const event = { type: 'payment_intent.succeeded', livemode: false, data: { object: { id: 'pi_x', status: 'succeeded', amount: 8800, metadata: { tip_cents: '800' } } } };
     const psp = mk({ webhookSecret: 'whsec_x' }, stubStripe({ event }));
     const parsed = await psp.verifyAndParseWebhook('{raw}', { 'stripe-signature': 't=1,v1=abc' });
     expect(parsed).toMatchObject({ kind: 'payment_confirmed', txid: 'pi_x', amountCents: 8000, tipCents: 800, method: 'card' });
@@ -283,7 +283,7 @@ describe('stripe adapter — webhook', () => {
     // rateio proporcional acontecem no razão, que é quem sabe quanto já foi
     // estornado e qual era o split. Achado pela revisão de compliance de
     // 2026-09-08.
-    const event = { type: 'charge.refunded', data: { object: { payment_intent: 'pi_x', amount_refunded: 8800 } } };
+    const event = { type: 'charge.refunded', livemode: false, data: { object: { payment_intent: 'pi_x', amount_refunded: 8800 } } };
     const psp = mk({ webhookSecret: 'whsec_x' }, stubStripe({ event }));
     const parsed = await psp.verifyAndParseWebhook('{raw}', { 'stripe-signature': 'x' });
     expect(parsed).toMatchObject({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 8800, method: 'card' });
@@ -307,6 +307,17 @@ describe('stripe adapter — webhook', () => {
     // Chave live + evento de TESTE → recusa.
     await expect(mk({ secretKey: 'sk_live_x', webhookSecret: 'whsec_x' }, stubStripe({ event: teste }))
       .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).rejects.toThrow(/modo do evento/);
+    // AUSÊNCIA do campo é falsificação, não dispensa. A primeira versão da
+    // guarda só rodava quando `livemode` era booleano, então quem tivesse um
+    // `whsec_` de teste vazado — e são os que vazam: `stripe listen`, CI,
+    // print de tela — assinava um corpo SEM o campo e passava. Verificado:
+    // virava um `payment_confirmed` de R$ 5.000,00 no razão de produção.
+    const semCampo = { type: 'payment_intent.succeeded', data: { object: { id: 'pi_forjado', status: 'succeeded', amount: 500000, metadata: {} } } };
+    for (const key of ['sk_live_x', 'sk_test_x']) {
+      await expect(mk({ secretKey: key, webhookSecret: 'whsec_x' }, stubStripe({ event: semCampo }))
+        .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).rejects.toThrow(/modo do evento/);
+    }
+
     // E os pares certos passam.
     expect((await mk({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' }, stubStripe({ event: teste }))
       .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' })).kind).toBe('payment_confirmed');
@@ -384,7 +395,7 @@ describe('stripe adapter — webhook', () => {
     // Recusar uma assinatura boa é dizer "não confio em você" pra quem manda o
     // dinheiro. Achado da revisão de compliance da abertura da Espanha.
     const parsed = await mk({ webhookSecret: 'whsec_x' },
-      stubStripe({ event: { type: 'customer.created', data: { object: {} } } }))
+      stubStripe({ event: { type: 'customer.created', livemode: false, data: { object: {} } } }))
       .verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
     expect(parsed).toMatchObject({ kind: 'ignored', type: 'customer.created' });
   });
@@ -434,6 +445,9 @@ describe('disputa e reembolso que falha', () => {
   // reembolso assíncrono que pode falhar depois de ter sido pedido.
   const dispute = (over) => ({
     type: 'charge.dispute.created',
+    // `livemode` explícito: a guarda de modo trata AUSÊNCIA como falsificação,
+    // e um dublê sem o campo seria um dublê mais permissivo que a produção.
+    livemode: false,
     data: { object: { payment_intent: 'pi_d', amount: 3390, reason: 'fraudulent', ...over } },
   });
 
@@ -448,7 +462,7 @@ describe('disputa e reembolso que falha', () => {
 
   test('disputa PERDIDA vira estorno, com o valor pra ratear no razão', async () => {
     const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
-      event: { type: 'charge.dispute.closed', data: { object: { payment_intent: 'pi_d', amount: 3390, status: 'lost' } } },
+      event: { type: 'charge.dispute.closed', livemode: false, data: { object: { payment_intent: 'pi_d', amount: 3390, status: 'lost' } } },
     })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
     // `dispute_lost`, não `refund` genérico: o razão precisa saber que isto é
     // desfecho de disputa pra também LIMPAR a marca. E o valor vai como delta
@@ -470,7 +484,7 @@ describe('disputa e reembolso que falha', () => {
     // #8. Achado pela revisão de compliance de 2026-09-08.
     for (const status of ['won', 'warning_closed']) {
       const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
-        event: { type: 'charge.dispute.closed', data: { object: { payment_intent: 'pi_d', amount: 3390, status } } },
+        event: { type: 'charge.dispute.closed', livemode: false, data: { object: { payment_intent: 'pi_d', amount: 3390, status } } },
       })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
       expect(parsed).toMatchObject({ kind: 'dispute_won', txid: 'pi_d', status });
     }
@@ -484,7 +498,7 @@ describe('disputa e reembolso que falha', () => {
     const dueBy = 1789000000; // unix, como a Stripe manda
     const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
       event: {
-        type: 'charge.dispute.created',
+        type: 'charge.dispute.created', livemode: false,
         data: { object: { payment_intent: 'pi_d', amount: 3390, reason: 'fraudulent', status: 'needs_response', evidence_details: { due_by: dueBy } } },
       },
     })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
@@ -505,28 +519,28 @@ describe('disputa e reembolso que falha', () => {
     ];
     for (const [type, kind] of casos) {
       const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
-        event: { type, data: { object: { payment_intent: 'pi_d', amount: 3390, status: 'under_review' } } },
+        event: { type, livemode: false, data: { object: { payment_intent: 'pi_d', amount: 3390, status: 'under_review' } } },
       })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
       expect(parsed.kind).toBe(kind);
     }
     // E a direção do dinheiro é explícita, não deduzida do nome do evento
     // por quem lê depois.
     const saiu = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
-      event: { type: 'charge.dispute.funds_withdrawn', data: { object: { payment_intent: 'pi_d', amount: 3390 } } },
+      event: { type: 'charge.dispute.funds_withdrawn', livemode: false, data: { object: { payment_intent: 'pi_d', amount: 3390 } } },
     })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
     expect(saiu.direction).toBe('withdrawn');
 
     // Disputa sem `payment_intent` é dinheiro que não sabemos endereçar —
     // nem ignorado nem processado.
     const orfa = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
-      event: { type: 'charge.dispute.created', data: { object: { amount: 3390, status: 'needs_response' } } },
+      event: { type: 'charge.dispute.created', livemode: false, data: { object: { amount: 3390, status: 'needs_response' } } },
     })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
     expect(orfa.kind).toBe('unusable_money_event');
   });
 
   test('reembolso que falhou é reconhecido — o dinheiro voltou pro restaurante e o cliente ficou sem', async () => {
     const parsed = await mk({ webhookSecret: 'whsec_x' }, stubStripe({
-      event: { type: 'refund.failed', data: { object: { payment_intent: 'pi_r', amount: 1000, status: 'failed' } } },
+      event: { type: 'refund.failed', livemode: false, data: { object: { payment_intent: 'pi_r', amount: 1000, status: 'failed' } } },
     })).verifyAndParseWebhook('{}', { 'stripe-signature': 'x' });
     expect(parsed).toMatchObject({ kind: 'refund_failed', txid: 'pi_r', amountCents: 1000 });
   });

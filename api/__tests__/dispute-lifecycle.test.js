@@ -33,6 +33,7 @@ async function mesaPaga() {
     appendEvent: store.appendEvent.bind(store),
     recordPayment: store.recordPayment.bind(store),
     findCheckByTxid: store.findCheckByTxid.bind(store),
+    seenPspEvent: store.seenPspEvent.bind(store),
   };
   await store.registerCharge({
     checkId: check.id, txid: 'pi_x', amountCents: 3082, tipCents: 308, payerLabel: null, method: 'card',
@@ -197,6 +198,7 @@ describe('a resolução casa por CAMPO, não por texto', () => {
       appendEvent: store.appendEvent.bind(store),
       recordPayment: store.recordPayment.bind(store),
       findCheckByTxid: store.findCheckByTxid.bind(store),
+    seenPspEvent: store.seenPspEvent.bind(store),
     };
     // Dois pagamentos na mesma conta, os dois disputados.
     for (const txid of ['pi_a', 'pi_b']) {
@@ -220,5 +222,40 @@ describe('a resolução casa por CAMPO, não por texto', () => {
     expect(abertas[0].txid).toBe('pi_b');
     // E o dinheiro dos dois continua lá: ganhar não move saldo.
     expect(st.paidCents).toBe(6000);
+  });
+});
+
+describe('reentrega de disputa perdida', () => {
+  test('não estorna duas vezes — nem quando a disputa é parcial', async () => {
+    // O único caminho de razão que reporta um DELTA e não um acumulado. Sem
+    // dedupe, a reentrega do `charge.dispute.closed` (a Stripe é
+    // at-least-once) aplicava o estorno de novo. No chargeback do valor
+    // inteiro a segunda entrega já era recusada por exceder o que sobrou — mas
+    // uma disputa PARCIAL cabia no saldo restante, e a conta reabria por
+    // dinheiro que saiu uma vez só.
+    const { store, check, deps } = await mesaPaga();
+    await store.appendEvent(check.id, 'PAYMENT_DISPUTED', { txid: 'pi_x', amountCents: 1000 });
+
+    const r1 = await applyConfirmedPayment({
+      kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 1000, method: 'dispute',
+    }, deps);
+    expect(r1.status).toBe('appended');
+    await store.appendEvent(check.id, 'PAYMENT_DISPUTE_CLOSED', { txid: 'pi_x', outcome: 'lost' });
+
+    const depois = await estado(store, check.id);
+    const estornado = depois.payments.pi_x.refundedAmountCents + depois.payments.pi_x.refundedTipCents;
+    expect(estornado).toBe(1000);
+
+    // Três reentregas do mesmo evento.
+    for (let i = 0; i < 3; i += 1) {
+      const r = await applyConfirmedPayment({
+        kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 1000, method: 'dispute',
+      }, deps);
+      expect(r.status).toBe('duplicate');
+    }
+    const fim = await estado(store, check.id);
+    expect(fim.payments.pi_x.refundedAmountCents + fim.payments.pi_x.refundedTipCents).toBe(1000);
+    // E o saldo só perdeu os 1000, uma vez.
+    expect(fim.paidCents).toBe(3082 - fim.payments.pi_x.refundedAmountCents);
   });
 });

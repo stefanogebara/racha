@@ -45,7 +45,9 @@ const { allocateRefund } = require('../checks/split-engine');
  * @param {(parsed:object)=>Promise<object|null>} [deps.fallback]
  * @returns {Promise<{status:'appended'|'duplicate'|'divergent_appended'|'rejected', checkId?:string, seq?:number, reason?:string}>}
  */
-async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPayment, findCheckByTxid, fallback }) {
+async function applyConfirmedPayment(parsed, {
+  loadEvents, appendEvent, recordPayment, findCheckByTxid, fallback, seenPspEvent,
+}) {
   const check = await findCheckByTxid(parsed.txid);
   if (!check) {
     // Not a check charge — maybe another charge family (house-account loads).
@@ -57,6 +59,22 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
     // A webhook for a txid we never issued: reject loudly. Never 200 an
     // unknown money event — that is how funds disappear from ledgers.
     return { status: 'rejected', reason: `unknown txid ${parsed.txid}` };
+  }
+
+  /**
+   * Reentrega ANTES de qualquer conferência de estado.
+   *
+   * Sem isto, a segunda entrega do mesmo evento batia nas guardas de estado e
+   * saía como `rejected` → 409 → a Stripe reenvia e acaba desabilitando o
+   * endpoint. Uma reversão de estorno, por exemplo: depois da primeira o
+   * estornado é zero, e a segunda caía em "reverter o que não existe".
+   *
+   * A GARANTIA continua sendo o índice único no append (migração 0018), que é
+   * o único que fecha a corrida entre entregas simultâneas porque roda dentro
+   * do lock. Esta consulta existe pra a RESPOSTA ficar honesta.
+   */
+  if (parsed.eventId && typeof seenPspEvent === 'function' && await seenPspEvent(parsed.eventId)) {
+    return { status: 'duplicate', checkId: check.id };
   }
 
   const events = await loadEvents(check.id);
@@ -130,6 +148,24 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
     const pay = state && state.payments[parsed.txid];
     if (!pay) return { status: 'rejected', reason: `refund for unknown txid ${parsed.txid}` };
     const sobra = (pay.amountCents - pay.refundedAmountCents) + (pay.tipCents - pay.refundedTipCents);
+    // IDEMPOTÊNCIA da disputa perdida.
+    //
+    // Este é o único caminho de razão que reporta um DELTA e não um acumulado —
+    // justamente a forma que o resto do estorno abandonou. Sem dedupe, uma
+    // reentrega do `charge.dispute.closed` (a Stripe é at-least-once, e o
+    // contrato no topo deste arquivo diz isso) aplicava o estorno de novo.
+    //
+    // No chargeback do valor inteiro a segunda entrega já era recusada por
+    // exceder o que sobrou. Mas uma disputa de valor PARCIAL — que a rede
+    // permite, e duas disputas numa cobrança também — cabia no saldo restante:
+    // um segundo PAYMENT_REFUNDED entrava e a conta reabria por dinheiro que
+    // saiu uma vez só. Achado pela revisão de compliance de 2026-09-08.
+    //
+    // A marca é o próprio desfecho no razão: uma disputa já encerrada como
+    // perdida não encerra de novo.
+    if (pay.disputeStatus === 'lost') {
+      return { status: 'duplicate', checkId: check.id };
+    }
     if (parsed.refundDeltaCents <= 0) {
       // Mesma razão do `aReverter`: valor impossível é recusa com motivo, não
       // uma exceção do motor de dinheiro virando 500.
@@ -195,7 +231,10 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
       return { status: 'duplicate', checkId: check.id }; // clean at-least-once replay
     }
     // Divergent replay: append so the anomaly is durable and alertable.
-    const seq = await appendEvent(check.id, type, payload);
+    const seq = await appendEvent(check.id, type, payload, parsed.eventId || null);
+    if (typeof seq === 'number' && seq < 0) {
+      return { status: 'duplicate', checkId: check.id, seq: -seq };
+    }
     return { status: 'divergent_appended', checkId: check.id, seq };
   }
 
@@ -211,7 +250,49 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
     throw err;
   }
 
-  const seq = await appendEvent(check.id, type, payload);
+  /**
+   * O append é a fronteira de IDEMPOTÊNCIA.
+   *
+   * `seq` negativo quer dizer "este evento do PSP já foi aplicado" — o append
+   * confere DENTRO do lock por conta (migração 0018) e não grava nada. É o que
+   * fecha a corrida entre duas entregas simultâneas do mesmo evento, que a
+   * checagem em memória logo acima não fecha: ela lê o estado antes, e duas
+   * entregas leem o mesmo estado velho.
+   *
+   * Necessário porque uma falha de estorno chega em DOIS eventos diferentes
+   * (`refund.failed` e `refund.updated` com status `failed`), e antes disto
+   * cada um aplicava uma reversão. Reproduzido: um estorno de 900 do qual 500
+   * tinha dado certo era apagado inteiro, a conta voltava pra `paga` e o POS
+   * era informado de que a mesa tinha pago.
+   */
+  const seq = await appendEvent(check.id, type, payload, parsed.eventId || null);
+  if (typeof seq === 'number' && seq < 0) {
+    return { status: 'duplicate', checkId: check.id, seq: -seq };
+  }
+
+  /**
+   * O estado da LINHA depois deste evento.
+   *
+   * Recalculado do razão, não deduzido da espécie: só o razão sabe se o
+   * estorno acumulado igualou o pagamento. `devolvido` é desfecho, não é
+   * "houve um estorno".
+   */
+  let rowStatus = ROW_STATUS_FOR_KIND[parsed.kind] || 'confirmado';
+  let refundedTotals = null;
+  if (type === 'PAYMENT_REFUNDED' || type === 'PAYMENT_REFUND_REVERSED') {
+    const depois = reduce(await loadEvents(check.id));
+    const pay = depois && depois.payments[parsed.txid];
+    if (pay) {
+      refundedTotals = {
+        amountCents: pay.refundedAmountCents,
+        tipCents: pay.refundedTipCents,
+      };
+      const total = pay.refundedAmountCents === pay.amountCents
+        && pay.refundedTipCents === pay.tipCents;
+      rowStatus = total ? 'devolvido' : 'confirmado';
+    }
+  }
+
   if (recordPayment) {
     await recordPayment({
       checkId: check.id,
@@ -220,7 +301,18 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
       tipCents: parsed.tipCents,
       kind: parsed.kind,
       // O status vem RESOLVIDO daqui. O store não decide dinheiro.
-      status: ROW_STATUS_FOR_KIND[parsed.kind] || 'confirmado',
+      //
+      // `devolvido` SÓ no estorno total. O tri-estado da linha não sabe dizer
+      // "parcialmente estornado", e marcar `devolvido` num estorno parcial
+      // fazia a conciliação gritar pra sempre e o pagamento inteiro sumir do
+      // faturamento e da gorjeta. Ver a migração 0016.
+      status: rowStatus,
+      // Os ACUMULADOS estornados vão pra linha, pra quem soma dinheiro somar
+      // líquido em vez de dropar a linha inteira.
+      ...(refundedTotals ? {
+        refundedAmountCents: refundedTotals.amountCents,
+        refundedTipCents: refundedTotals.tipCents,
+      } : {}),
       // Os valores CONFIRMADOS, e só na confirmação de pagamento: num estorno
       // `parsed.amountCents` é o delta estornado, não o valor do pagamento, e
       // gravar isso como "confirmado" trocaria uma verdade por outra.

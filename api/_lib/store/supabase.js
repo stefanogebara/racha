@@ -435,14 +435,27 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     },
 
     // --- writes ------------------------------------------------------------
-    async appendEvent(checkId, type, payload) {
+    /**
+     * @param {string} [pspEventId] id do evento do PSP. O RPC confere DENTRO do
+     *   lock e devolve `seq` negativo quando já aplicou (migração 0018) — é o
+     *   que fecha a corrida entre duas entregas simultâneas do mesmo evento.
+     */
+    async appendEvent(checkId, type, payload, pspEventId = null) {
       const { data, error } = await client.rpc('append_check_event', {
-        p_check_id: checkId, p_type: type, p_payload: payload,
+        p_check_id: checkId, p_type: type, p_payload: payload, p_psp_event_id: pspEventId,
       });
       throwOn(error, 'appendEvent'); // NEVER treat an errored claim as "skipped"
       return data;
     },
 
+    /** Ver `seenPspEvent` no store de memória: resposta honesta, não garantia. */
+    async seenPspEvent(pspEventId) {
+      if (pspEventId == null) return false;
+      const { data, error } = await client
+        .from('check_events').select('seq').eq('psp_event_id', pspEventId).limit(1);
+      throwOn(error, 'seenPspEvent');
+      return Boolean(data && data.length);
+    },
     async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel, method = 'pix' }) {
       const { data: check, error: cErr } = await client
         .from('checks').select('venue_id, venues(market)').eq('id', checkId).single();
@@ -463,6 +476,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
     async recordPayment({
       txid, kind, status, pspPayloadMasked, confirmedAt,
       confirmedAmountCents = null, confirmedTipCents = null,
+      refundedAmountCents = null, refundedTipCents = null,
     }) {
       const { error } = await client
         .from('payments')
@@ -473,6 +487,9 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           // `amount_mismatch`.
           ...(confirmedAmountCents !== null ? { confirmed_amount_cents: confirmedAmountCents } : {}),
           ...(confirmedTipCents !== null ? { confirmed_tip_cents: confirmedTipCents } : {}),
+          // Acumulado ESTORNADO na linha (migração 0016) — ver `confirmedMoney`.
+          ...(refundedAmountCents !== null ? { refunded_amount_cents: refundedAmountCents } : {}),
+          ...(refundedTipCents !== null ? { refunded_tip_cents: refundedTipCents } : {}),
           // O status vem resolvido do módulo de dinheiro (ver
           // ROW_STATUS_FOR_KIND). Era `kind === 'refund' ? … : 'confirmado'` aqui,
           // e com a família da disputa lida de verdade esse `else` fazia uma
@@ -531,7 +548,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
       for (const c of checks || []) {
         const { data: pays, error: pErr } = await client
           .from('payments')
-          .select('txid, amount_cents, tip_cents, status, method, currency')
+          .select('txid, amount_cents, tip_cents, refunded_amount_cents, refunded_tip_cents, status, method, currency')
           .eq('check_id', c.id);
         throwOn(pErr, 'listChecksForReconcile.payments');
         out.push({
@@ -540,6 +557,9 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           payments: (pays || []).map((p) => ({
             txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents,
             status: p.status, method: p.method, currency: p.currency,
+            // Acumulados estornados: a conciliação soma LÍQUIDO dos dois lados.
+            refundedAmountCents: p.refunded_amount_cents || 0,
+            refundedTipCents: p.refunded_tip_cents || 0,
           })),
         });
       }
@@ -946,7 +966,7 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
 
       const { data: confirmedRaw, error: pErr } = await client
         .from('payments')
-        .select('amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, check_id, confirmed_at, method')
+        .select('amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, check_id, confirmed_at, method')
         .eq('venue_id', venueId)
         .eq('status', 'confirmado');
       throwOn(pErr, 'getPanelView.payments');
@@ -956,6 +976,8 @@ function createSupabaseStore({ url, serviceRoleKey } = {}) {
           amountCents: p.amount_cents, tipCents: p.tip_cents,
           confirmedAmountCents: p.confirmed_amount_cents,
           confirmedTipCents: p.confirmed_tip_cents,
+          refundedAmountCents: p.refunded_amount_cents || 0,
+          refundedTipCents: p.refunded_tip_cents || 0,
           checkId: p.check_id, confirmedAt: p.confirmed_at, method: p.method,
         }));
 

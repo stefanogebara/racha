@@ -427,16 +427,47 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
        * evento processado por engano.
        */
       const chaveDeTeste = /_test_/.test(String(secretKey));
-      if (typeof event.livemode === 'boolean' && event.livemode === chaveDeTeste) {
+      // AUSÊNCIA é falsificação, não dispensa.
+      //
+      // A primeira versão desta guarda era `typeof event.livemode === 'boolean'
+      // && event.livemode === chaveDeTeste` — a forma `if (coisa && !ok)` de
+      // novo, e desta vez o modelo de ameaça que motivou a guarda era
+      // exatamente o que a derrotava. Ela existe porque um `whsec_` de TESTE
+      // pode estar emparelhado com uma `sk_live_`, e segredos de teste são os
+      // que vazam: saem em `stripe listen`, em CI, em print de tela, nesta
+      // sessão. Quem tivesse um `whsec_` de teste assinava um corpo que
+      // simplesmente OMITIA `livemode` e passava.
+      //
+      // Verificado contra o adaptador de verdade: um evento forjado sem o
+      // campo virava `payment_confirmed` de R$ 5.000,00 no razão de produção,
+      // conta marcada `paga`, write-back fechando a mesa. E o teste escrito
+      // passava ao lado do desvio, porque ele mandava `livemode: false`.
+      //
+      // A Stripe põe `livemode` em todo evento v1. Não existe evento legítimo
+      // sem ele. Achado pela revisão de segurança de 2026-09-08.
+      if (event.livemode !== !chaveDeTeste) {
         throw new WebhookVerificationError(
-          `modo do evento (livemode=${event.livemode}) não casa com o modo da chave`,
+          `modo do evento (livemode=${JSON.stringify(event.livemode)}) não casa com o modo da chave`,
         );
       }
 
       const type = event.type;
+      /**
+       * O ID DO EVENTO viaja com tudo.
+       *
+       * É a chave de idempotência de verdade: `evt_…` é único por entrega
+       * lógica, e a Stripe manda a MESMA `evt_` de novo num reenvio. O append
+       * confere dentro do lock (migração 0018), então duas entregas
+       * simultâneas do mesmo evento não conseguem mais somar duas vezes.
+       *
+       * Isso é necessário porque uma falha de estorno chega em DOIS eventos
+       * diferentes — `refund.failed` e `refund.updated` com status `failed` —
+       * e os dois viram `refund_failed`. Não é reenvio: é a entrega normal.
+       */
+      const eventId = typeof event.id === 'string' ? event.id : null;
       if (type === 'payment_intent.succeeded') {
         const pi = event.data.object;
-        return { ...parseIntent(pi), kind: 'payment_confirmed' };
+        return { ...parseIntent(pi), kind: 'payment_confirmed', eventId };
       }
       if (type === 'charge.refunded') {
         // `charge.refunded` dispara em estorno PARCIAL também, e
@@ -465,7 +496,7 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         const txid = charge.payment_intent;
         if (typeof txid !== 'string') throw new WebhookVerificationError('refund sem payment_intent');
         return {
-          kind: 'refund', txid,
+          kind: 'refund', txid, eventId,
           cumulativeRefundedCents: Number(charge.amount_refunded) || 0,
           method: (charge.payment_method_details && charge.payment_method_details.type) === 'bizum'
             ? 'bizum' : 'card',
@@ -497,7 +528,7 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         if (typeof txid !== 'string') {
           // Dinheiro de verdade que não sabemos endereçar. Não é `ignored` —
           // ignorar é dizer "não me interessa".
-          return { kind: 'unusable_money_event', type, status: d.status || null, raw: d };
+          return { kind: 'unusable_money_event', type, status: d.status || null, raw: d, eventId };
         }
         const dueBy = Number.isFinite(Number(d.evidence_details && d.evidence_details.due_by))
           ? new Date(Number(d.evidence_details.due_by) * 1000).toISOString()
@@ -511,11 +542,11 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
           raw: d,
         };
 
-        if (type === 'charge.dispute.created') return { kind: 'dispute_opened', ...base };
+        if (type === 'charge.dispute.created') return { kind: 'dispute_opened', ...base, eventId };
 
         if (type === 'charge.dispute.funds_withdrawn' || type === 'charge.dispute.funds_reinstated') {
           return {
-            kind: 'dispute_funds',
+            kind: 'dispute_funds', eventId,
             direction: type.endsWith('withdrawn') ? 'withdrawn' : 'reinstated',
             ...base,
           };
@@ -527,20 +558,20 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
           // um chargeback leva a gorjeta junto, e deixá-la nos livros como
           // "paga" mentiria pra folha (Lei 13.419).
           if (d.status === 'lost') {
-            return { kind: 'dispute_lost', refundDeltaCents: base.amountCents, method: 'dispute', ...base };
+            return { kind: 'dispute_lost', refundDeltaCents: base.amountCents, method: 'dispute', ...base, eventId };
           }
           // GANHA (ou aviso encerrado sem virar disputa): o dinheiro fica.
           // Precisa de evento pra LIMPAR a marca — sem isso a conta fica
           // vermelha pra sempre.
           if (d.status === 'won' || d.status === 'warning_closed') {
-            return { kind: 'dispute_won', ...base };
+            return { kind: 'dispute_won', ...base, eventId };
           }
           // Qualquer outro encerramento é mudança de estado, não desfecho.
-          return { kind: 'dispute_updated', ...base };
+          return { kind: 'dispute_updated', ...base, eventId };
         }
 
         // `updated`, `warning_needs_response`, `warning_under_review`…
-        return { kind: 'dispute_updated', ...base };
+        return { kind: 'dispute_updated', ...base, eventId };
       }
       // Reembolso que FALHOU. O dinheiro voltou pro saldo do restaurante e o
       // cliente continua sem receber — e ninguém descobre isso sozinho. Não
@@ -561,10 +592,11 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
           // Estorno de verdade que não sabemos endereçar. `Refund.payment_intent`
           // é NULÁVEL (cobrança criada pela API de Charges, e algumas entregas
           // de Connect). Ignorar isso é 200 pra dinheiro que se moveu.
-          return { kind: 'unusable_money_event', type, status: r.status || null, raw: r };
+          return { kind: 'unusable_money_event', type, status: r.status || null, raw: r, eventId };
         }
         return {
           kind: r.status === 'failed' ? 'refund_failed' : 'refund_progress',
+          eventId,
           txid, amountCents: Number(r.amount) || 0, status: r.status || null, raw: r,
         };
       }
@@ -583,9 +615,10 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
        */
       if (type === 'payment_intent.payment_failed' || type === 'payment_intent.canceled') {
         const pi = event.data.object;
-        if (typeof pi.id !== 'string') return { kind: 'ignored', type, raw: pi };
+        if (typeof pi.id !== 'string') return { kind: 'ignored', type, raw: pi, eventId };
         return {
           kind: 'payment_failed',
+          eventId,
           txid: pi.id,
           amountCents: Number(pi.amount) || 0,
           status: pi.status || null,
@@ -616,6 +649,7 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         const o = event.data.object || {};
         return {
           kind: 'account_alert',
+          eventId,
           type,
           txid: typeof o.payment_intent === 'string' ? o.payment_intent : null,
           amountCents: Number(o.amount) || 0,
@@ -630,7 +664,7 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
       // `refund.failed` (dinheiro de volta no saldo do restaurante, cliente
       // sem reembolso) se perde junto com todo o resto. A assinatura ESTAVA
       // válida; o evento é que não nos interessa. Achado da revisão.
-      return { kind: 'ignored', type, raw: event.data && event.data.object };
+      return { kind: 'ignored', type, raw: event.data && event.data.object, eventId };
     },
   };
 }

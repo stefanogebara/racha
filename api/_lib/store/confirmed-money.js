@@ -23,7 +23,20 @@ function confirmedMoney(row) {
     ? row.confirmedAmountCents : (row ? row.amountCents : 0);
   const tipCents = Number.isFinite(row && row.confirmedTipCents)
     ? row.confirmedTipCents : (row ? row.tipCents : 0);
-  return { amountCents: amountCents || 0, tipCents: tipCents || 0 };
+  // LÍQUIDO: confirmado menos estornado.
+  //
+  // Sem isto, um estorno parcial fazia o pagamento inteiro sumir do
+  // faturamento e da gorjeta, porque a linha virava `devolvido` e os
+  // agregadores filtram por `confirmado`. Num estorno de R$ 5,00 sobre
+  // R$ 33,90 a linha de gorjeta caía 308¢ em vez dos 45¢ do rateio
+  // proporcional — desfazendo no relatório a correção feita no razão.
+  // Ver a migração 0016.
+  const estornado = Number(row && row.refundedAmountCents) || 0;
+  const estornadoGorjeta = Number(row && row.refundedTipCents) || 0;
+  return {
+    amountCents: Math.max(0, (amountCents || 0) - estornado),
+    tipCents: Math.max(0, (tipCents || 0) - estornadoGorjeta),
+  };
 }
 
 module.exports = { confirmedMoney };
