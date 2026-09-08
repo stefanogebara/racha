@@ -122,3 +122,74 @@ describe('estorno parcial', () => {
     expect(r.reason).toMatch(/exceeds paid/);
   });
 });
+
+describe('estorno que FALHOU', () => {
+  test('desfaz o lançamento e deixa a conta VERMELHA, em vez de verde e errada', async () => {
+    // O pior estado possível, e era o estado real: a Stripe incrementa
+    // `amount_refunded` quando o estorno é CRIADO, então o `charge.refunded`
+    // já tinha entrado e o razão já dizia "estornado". Quando o
+    // `refund.failed` chegava, o dinheiro tinha voltado pro restaurante e o
+    // cliente ficado sem — e não havia como desfazer, porque a decisão
+    // registrada era "não inventar evento".
+    //
+    // Resultado: cliente com dinheiro a receber, os DOIS registros nossos
+    // dizendo que ele foi pago, e a conciliação comparando um com o outro,
+    // concordando, e reportando VERDE. Um cliente lesado e um canário calado.
+    // CDC art. 6º III e art. 42, § único.
+    const { store, check, deps } = await mesaPaga();
+    await applyConfirmedPayment({
+      kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500, method: 'card',
+    }, deps);
+    let st = await estado(store, check.id);
+    expect(st.paidCents).toBe(3082 - 455);
+
+    const r = await applyConfirmedPayment({
+      kind: 'refund_failed', txid: 'pi_x', amountCents: 500, status: 'failed',
+    }, deps);
+    expect(r.status).toBe('appended');
+
+    st = await estado(store, check.id);
+    // O saldo volta ao que era: o dinheiro é do restaurante de novo.
+    expect(st.paidCents).toBe(3082);
+    expect(st.tipCents).toBe(308);
+    expect(st.payments.pi_x.refundedAmountCents).toBe(0);
+    expect(st.payments.pi_x.refundedTipCents).toBe(0);
+    // E a conta fica MARCADA: sem isso ela voltaria a parecer normal, que é
+    // exatamente o buraco. Alguém tem que reembolsar por outro caminho.
+    expect(st.anomalies.length).toBe(1);
+    expect(st.anomalies[0].type).toBe('PAYMENT_REFUND_REVERSED');
+    expect(st.anomalies[0].reason).toMatch(/cliente ficou sem/);
+  });
+
+  test('a ida e a volta usam o MESMO rateio, então não divergem', async () => {
+    const { store, check, deps } = await mesaPaga();
+    await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 777 }, deps);
+    const meio = await estado(store, check.id);
+    const tirado = {
+      amount: meio.payments.pi_x.refundedAmountCents,
+      tip: meio.payments.pi_x.refundedTipCents,
+    };
+    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 777 }, deps);
+    const fim = await estado(store, check.id);
+    // Devolveu exatamente o que tirou, centavo por centavo.
+    expect(tirado.amount + tirado.tip).toBe(777);
+    expect(fim.payments.pi_x.refundedAmountCents).toBe(0);
+    expect(fim.payments.pi_x.refundedTipCents).toBe(0);
+    expect(fim.paidCents).toBe(3082);
+    expect(fim.tipCents).toBe(308);
+  });
+
+  test('reversão sem estorno no razão é RECUSADA, não inventada', async () => {
+    // Reverter o que não existe não é desfazer, é criar dinheiro. Inegociável #6.
+    const { deps } = await mesaPaga();
+    const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500 }, deps);
+    expect(r.status).toBe('rejected');
+    expect(r.reason).toMatch(/no refund on record/);
+  });
+
+  test('reversão de txid desconhecido é recusada', async () => {
+    const { deps } = await mesaPaga();
+    const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_nunca', amountCents: 500 }, deps);
+    expect(r.status).toBe('rejected');
+  });
+});

@@ -56,6 +56,18 @@ describe('censo das espécies de evento de webhook', () => {
     expect([...emitidas.keys()]).toContain('refund');
   });
 
+  test('toda espécie do razão tem um tipo de evento, e o razão conhece o tipo', () => {
+    const { EVENT_FOR_KIND } = require('../_lib/pay/webhook-handler');
+    const { EVENT_TYPES } = require('../_lib/checks/check-state');
+    expect(new Set(Object.keys(EVENT_FOR_KIND))).toEqual(LEDGER_KINDS);
+    for (const [kind, tipo] of Object.entries(EVENT_FOR_KIND)) {
+      // O mapa substituiu o ternário `kind === 'refund' ? … : PAYMENT_CONFIRMED`,
+      // cujo `else` fazia qualquer espécie desconhecida virar PAGAMENTO.
+      expect(EVENT_TYPES).toContain(tipo);
+      expect(typeof kind).toBe('string');
+    }
+  });
+
   test('as duas listas são DISJUNTAS — nada move e não move o razão ao mesmo tempo', () => {
     for (const k of LEDGER_KINDS) expect(NON_LEDGER_KINDS.has(k)).toBe(false);
     expect(LEDGER_KINDS.has('ignored')).toBe(false);
@@ -91,7 +103,10 @@ describe('censo das espécies de evento de webhook', () => {
       const r = await handleWith({ kind, txid: 'pi_y', amountCents: 3390, tipCents: 0 });
       expect(r.status).toBe('rejected');
     }
-    expect(aplicou).toEqual(['pi_y', 'pi_y']);
+    // Uma entrada por espécie do razão — contagem derivada da lista, não
+    // escrita à mão: `refund_failed` mudou de lado quando ganhou evento
+    // próprio, e um número fixo aqui só teria dado trabalho.
+    expect(aplicou).toEqual(new Array(LEDGER_KINDS.size).fill('pi_y'));
 
     // Espécie desconhecida não é ignorada nem aplicada: estoura.
     await expect(handleWith({ kind: 'especie_nova', txid: 'pi_z' }))

@@ -55,6 +55,29 @@ const EVENT_TYPES = Object.freeze([
   // O Bizum abriu essa necessidade: 120 dias de janela, contra a janela curta
   // do MED do Pix.
   'PAYMENT_DISPUTED',
+  /**
+   * O estorno que NÃO aconteceu.
+   *
+   * A Stripe incrementa `amount_refunded` quando o estorno é CRIADO, então o
+   * `charge.refunded` chega e o razão grava PAYMENT_REFUNDED. Se o
+   * `refund.failed` vier depois — e no Bizum o estorno é assíncrono, então vem
+   * — o dinheiro voltou pro saldo e o cliente ficou sem.
+   *
+   * Antes disto não havia como representar isso: a decisão registrada era
+   * "não inventar evento", e ela está certa pro caso síncrono e INVERTIDA pro
+   * assíncrono. O estorno já estava no razão; faltava poder desfazê-lo.
+   *
+   * O resultado era o pior possível: o cliente com dinheiro a receber, os dois
+   * registros nossos dizendo que ele foi pago, e a conciliação comparando os
+   * dois entre si, achando que concordam, e reportando VERDE. Um cliente lesado
+   * e um canário calado.
+   *
+   * Devolve o saldo ao estado de pago E marca anomalia: o dinheiro é do
+   * restaurante de novo, mas alguém tem que reembolsar por outro caminho.
+   * Achado pela revisão de compliance de 2026-09-08 (CDC art. 6º III e art.
+   * 42, § único).
+   */
+  'PAYMENT_REFUND_REVERSED',
 ]);
 
 // Money accumulations must stay in exact-integer territory.
@@ -108,6 +131,25 @@ function validateEvent(evt, prevState) {
       }
       if (pay.refundedTipCents + (p.tipCents ?? 0) > pay.tipCents) {
         invalid(`tip refund exceeds paid tip for txid ${p.txid}`);
+      }
+      break;
+    }
+    case 'PAYMENT_REFUND_REVERSED': {
+      if (!prevState) invalid('PAYMENT_REFUND_REVERSED before OPENED');
+      if (typeof p.txid !== 'string' || p.txid.length < 1) invalid('PAYMENT_REFUND_REVERSED.txid required');
+      assertCents(p.amountCents ?? 0, 'PAYMENT_REFUND_REVERSED.amountCents');
+      assertCents(p.tipCents ?? 0, 'PAYMENT_REFUND_REVERSED.tipCents');
+      if ((p.amountCents ?? 0) === 0 && (p.tipCents ?? 0) === 0) invalid('zero-value reversal');
+      const rev = prevState.payments[p.txid];
+      if (!rev) invalid(`reversal for unknown txid ${p.txid}`);
+      // Não se pode desfazer mais estorno do que existe. Um `refund.failed`
+      // que chega duas vezes, ou pra um estorno que nunca entrou, é
+      // divergência — alto, não absorvido.
+      if ((p.amountCents ?? 0) > rev.refundedAmountCents) {
+        invalid(`reversal exceeds refunded amount for txid ${p.txid}`);
+      }
+      if ((p.tipCents ?? 0) > rev.refundedTipCents) {
+        invalid(`reversal exceeds refunded tip for txid ${p.txid}`);
       }
       break;
     }
@@ -212,6 +254,22 @@ function applyEvent(state, evt, seq = null) {
       next.paidCents -= amount;
       next.tipCents -= tip;
       return recompute(next);
+    }
+    case 'PAYMENT_REFUND_REVERSED': {
+      // O espelho exato do PAYMENT_REFUNDED, e uma anomalia por cima: o
+      // dinheiro é do restaurante de novo, mas o cliente continua com um
+      // reembolso a receber por outro caminho. Sem a anomalia, a conta volta a
+      // parecer normal — o que era justamente o buraco.
+      const next = cloneState(state);
+      const amount = p.amountCents ?? 0;
+      const tip = p.tipCents ?? 0;
+      const pay = next.payments[p.txid];
+      pay.refundedAmountCents -= amount;
+      pay.refundedTipCents -= tip;
+      next.paidCents += amount;
+      next.tipCents += tip;
+      return withAnomaly(recompute(next), seq, 'PAYMENT_REFUND_REVERSED',
+        `estorno de ${p.txid} FALHOU: dinheiro voltou pro restaurante e o cliente ficou sem`);
     }
     case 'PAYMENT_DISPUTED': {
       // Não mexe em `paidCents`: o dinheiro ainda é do restaurante até o

@@ -547,13 +547,27 @@ async function route(req, res) {
         if (parsed.kind === 'ignored') {
           return json(res, 200, { success: true, data: { status: 'ignored', type: parsed.type } });
         }
-        // Disputa aberta e reembolso que falhou: não movem saldo, mas ninguém
-        // descobre sozinho. A disputa vira EVENTO de ledger (o inegociável #6
-        // — se ela não entra no log, o estorno de noventa dias depois não tem
-        // antecedente); o reembolso falho é só alerta, porque o estorno não
-        // aconteceu e inventar um evento seria mentir no razão.
-        if (parsed.kind === 'dispute_opened' || parsed.kind === 'refund_failed'
-            || parsed.kind === 'refund_progress') {
+        // O reembolso que FALHOU saiu daqui e virou lançamento.
+        //
+        // O comentário antigo dizia "é só alerta, porque o estorno não
+        // aconteceu e inventar um evento seria mentir no razão". Isso está
+        // certo pro caso síncrono e INVERTIDO pro assíncrono, que é o do
+        // Bizum: a Stripe incrementa `amount_refunded` quando o estorno é
+        // CRIADO, então o `charge.refunded` já entrou e o razão já diz
+        // "estornado". Quando o `refund.failed` chega, o dinheiro voltou pro
+        // restaurante e o cliente ficou sem — e não havia como desfazer.
+        //
+        // O resultado era o pior possível: cliente com dinheiro a receber, os
+        // dois registros nossos dizendo que ele foi pago, e a conciliação
+        // comparando um com o outro, concordando, e reportando VERDE. Agora
+        // vira PAYMENT_REFUND_REVERSED pelo aplicador, com anomalia.
+        //
+        // Disputa continua aqui: ela não move saldo (o dinheiro é do
+        // restaurante até o esquema decidir) mas É evento de razão pelo
+        // inegociável #6 — sem ela no log, o estorno de noventa dias depois
+        // não tem antecedente nenhum.
+        if (parsed.kind === 'dispute_opened' || parsed.kind === 'refund_progress'
+            || parsed.kind === 'unusable_money_event') {
           const found = await store.findCheckByTxid(parsed.txid);
           if (parsed.kind === 'dispute_opened' && found) {
             try {
@@ -571,6 +585,19 @@ async function route(req, res) {
             });
           }
           return json(res, 200, { success: true, data: { status: parsed.kind, txid: parsed.txid } });
+        }
+        // Estorno que falhou: vira lançamento de REVERSÃO e alerta. As duas
+        // coisas — o razão volta a dizer a verdade, e alguém precisa saber que
+        // há cliente com reembolso a receber por outro caminho.
+        if (parsed.kind === 'refund_failed') {
+          result = await applyConfirmedPayment(parsed, confirmDeps);
+          await notifyFounderMoneyEvent({
+            kind: parsed.kind, txid: parsed.txid,
+            checkId: result.checkId || null,
+            amountCents: parsed.amountCents, detail: parsed.status || null,
+          });
+          const st = result.status === 'rejected' ? 409 : 200;
+          return json(res, st, { success: st === 200, data: result });
         }
         result = await applyConfirmedPayment(parsed, confirmDeps);
       } catch (err) {

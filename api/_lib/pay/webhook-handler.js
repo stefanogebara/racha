@@ -62,7 +62,15 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
   const events = await loadEvents(check.id);
   const state = reduce(events);
 
-  const type = parsed.kind === 'refund' ? 'PAYMENT_REFUNDED' : 'PAYMENT_CONFIRMED';
+  // MAPA, não ternário.
+  //
+  // Era `parsed.kind === 'refund' ? 'PAYMENT_REFUNDED' : 'PAYMENT_CONFIRMED'`,
+  // e esse `else` era a raiz do achado mais perigoso das revisões: qualquer
+  // espécie que chegasse aqui e não fosse `refund` virava PAGAMENTO. Um
+  // chargeback viraria dinheiro recebido. O portão agora filtra por conjunto
+  // fechado, e aqui a tradução é explícita — as duas defesas, não uma.
+  const type = EVENT_FOR_KIND[parsed.kind];
+  if (!type) throw new Error(`applyConfirmedPayment: kind sem evento ${JSON.stringify(parsed.kind)}`);
 
   /**
    * Estorno ACUMULADO → delta, e o rateio entre consumo e gorjeta.
@@ -82,6 +90,28 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
    * consumo — decisão sobre a folha de alguém (Lei 13.419) tomada por ordem de
    * subtração.
    */
+  /**
+   * Reversão: desfaz o que ESTE estorno tirou, na mesma proporção.
+   *
+   * O `refund.failed` traz o valor do estorno que falhou. Rateá-lo contra o
+   * que já foi estornado devolve exatamente as partes que foram tiradas —
+   * pelo mesmo `allocateRefund`, então a ida e a volta não podem divergir.
+   */
+  let reversalAllocated = null;
+  if (type === 'PAYMENT_REFUND_REVERSED') {
+    const pay = state && state.payments[parsed.txid];
+    if (!pay) return { status: 'rejected', reason: `reversal for unknown txid ${parsed.txid}` };
+    const jaEstornado = pay.refundedAmountCents + pay.refundedTipCents;
+    const falhou = Number.isSafeInteger(parsed.amountCents) ? parsed.amountCents : jaEstornado;
+    if (jaEstornado === 0) {
+      // O estorno nunca entrou no razão. Reverter o que não existe não é
+      // desfazer, é inventar — recusa alta, que é o que o inegociável #6 pede.
+      return { status: 'rejected', reason: `reversal with no refund on record for txid ${parsed.txid}` };
+    }
+    const aReverter = Math.min(falhou, jaEstornado);
+    reversalAllocated = allocateRefund(pay.refundedAmountCents, pay.refundedTipCents, aReverter);
+  }
+
   let refundAllocated = null;
   if (type === 'PAYMENT_REFUNDED' && Number.isSafeInteger(parsed.cumulativeRefundedCents)) {
     const pay = state && state.payments[parsed.txid];
@@ -113,8 +143,10 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
 
   const payload = {
     txid: parsed.txid,
-    amountCents: refundAllocated ? refundAllocated.amountCents : parsed.amountCents,
-    tipCents: refundAllocated ? refundAllocated.tipCents : parsed.tipCents,
+    amountCents: (refundAllocated || reversalAllocated)
+      ? (refundAllocated || reversalAllocated).amountCents : parsed.amountCents,
+    tipCents: (refundAllocated || reversalAllocated)
+      ? (refundAllocated || reversalAllocated).tipCents : parsed.tipCents,
     // Real method from the PSP ('card' for Apple/Google Pay) — it used to be
     // hardcoded 'pix', which would mislabel wallet money in the ledger.
     ...(type === 'PAYMENT_CONFIRMED' ? { method: parsed.method || 'pix' } : {}),
@@ -168,8 +200,22 @@ async function applyConfirmedPayment(parsed, { loadEvents, appendEvent, recordPa
  *   Tried when the txid is not a check charge (e.g. house-account loads).
  *   Returns a result object to use, or null → the unknown-txid rejection.
  */
-/** As duas únicas espécies que viram lançamento no razão. */
-const LEDGER_KINDS = new Set(['payment_confirmed', 'refund']);
+/**
+ * Espécie de evento → tipo de evento do razão. Quem não está aqui não entra.
+ *
+ * `refund_failed` está: o estorno já tinha sido gravado quando foi CRIADO
+ * (a Stripe incrementa `amount_refunded` na criação), então "não fazer nada"
+ * deixava o razão dizendo que o cliente foi reembolsado quando o dinheiro
+ * voltou pro restaurante. Desfazer é o único registro verdadeiro.
+ */
+const EVENT_FOR_KIND = Object.freeze({
+  payment_confirmed: 'PAYMENT_CONFIRMED',
+  refund: 'PAYMENT_REFUNDED',
+  refund_failed: 'PAYMENT_REFUND_REVERSED',
+});
+
+/** As espécies que viram lançamento no razão. */
+const LEDGER_KINDS = new Set(Object.keys(EVENT_FOR_KIND));
 
 /**
  * Espécies de evento de DINHEIRO que não viram lançamento aqui.
@@ -181,7 +227,7 @@ const LEDGER_KINDS = new Set(['payment_confirmed', 'refund']);
  * aplicador — lá dentro tudo que não é `refund` é tratado como pagamento.
  */
 const NON_LEDGER_KINDS = new Set([
-  'dispute_opened', 'refund_failed', 'refund_progress', 'unusable_money_event',
+  'dispute_opened', 'refund_progress', 'unusable_money_event',
 ]);
 
 function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, findCheckByTxid, fallback }) {
@@ -242,4 +288,7 @@ function createWebhookHandler({ loadEvents, appendEvent, recordPayment, psp, fin
   };
 }
 
-module.exports = { createWebhookHandler, applyConfirmedPayment, LEDGER_KINDS, NON_LEDGER_KINDS };
+module.exports = {
+  createWebhookHandler, applyConfirmedPayment,
+  EVENT_FOR_KIND, LEDGER_KINDS, NON_LEDGER_KINDS,
+};
