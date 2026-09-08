@@ -437,7 +437,13 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         // linha virgem, ficando INERTE em toda linha que já teve estorno, que é
         // exatamente a família que ela existe pra proteger. Achado pela
         // revisão de segurança de 2026-09-08.
-        .select('txid, check_id, amount_cents, tip_cents, payer_label, status, method, psp_payload_masked, confirmed_at, refunded_amount_cents, refunded_tip_cents')
+        // `venue_id`, `currency` e `created_at` entram porque o store de MEMÓRIA
+        // os devolve, e um dublê que oferece campo que a produção não tem é uma
+        // armadilha esperando o próximo leitor: ele usa, passa no teste, e em
+        // produção recebe `undefined`. Nenhum código lê estes três hoje — é
+        // justamente por isso que dá pra igualar agora, de graça. Ver
+        // `store-shape.test.js`.
+        .select('txid, check_id, venue_id, amount_cents, tip_cents, currency, confirmed_amount_cents, confirmed_tip_cents, payer_label, status, method, psp_payload_masked, confirmed_at, created_at, refunded_amount_cents, refunded_tip_cents')
         .eq('txid', txid)
         .maybeSingle();
       throwOn(error, 'getPayment');
@@ -449,6 +455,11 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         pspPayloadMasked: data.psp_payload_masked, confirmedAt: data.confirmed_at,
         refundedAmountCents: data.refunded_amount_cents || 0,
         refundedTipCents: data.refunded_tip_cents || 0,
+        venueId: data.venue_id, currency: data.currency, createdAt: data.created_at,
+        // Os CONFIRMADOS: as colunas que viram faturamento e gorjeta. O store
+        // de memória as devolvia e este não — mesma armadilha dos três acima.
+        confirmedAmountCents: data.confirmed_amount_cents,
+        confirmedTipCents: data.confirmed_tip_cents,
       };
     },
 
@@ -803,17 +814,11 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         name: r.name,
         isTest: r.is_test === true,
         recebedorOk: r.recebedor_ok === true,
-        // O ID do recebedor: a terceira perna da conciliação compara os
-        // recebíveis do adquirente contra ELE. Só o booleano chegava, então a
-        // perna rodava cega e devolvia `payables_no_recipient` alto pra toda
-        // casa, toda noite — e `custody_leak`, que é o achado que responde a
-        // pergunta do inegociável #4, era inalcançável. Ver a migração 0027.
-        pspRecipientId: r.psp_recipient_id || null,
         /**
-         * O ID do recebedor, não só o booleano.
+         * O ID do recebedor, não só o booleano `recebedor_ok`.
          *
          * A terceira perna da conciliação compara os recebíveis do adquirente
-         * contra ELE. Só `recebedor_ok` chegava, então a perna rodava com
+         * contra ELE. Só o booleano chegava, então a perna rodava com
          * `undefined`: `payables_no_recipient` ALTO pra toda casa com cobrança
          * nas últimas 24h, toda noite, e `custody_leak` — o achado que responde
          * a pergunta de custódia do inegociável #4 — inalcançável. Uma chamada
@@ -821,7 +826,8 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
          *
          * Meu teste inventava o campo num store escrito à mão, e o censo de
          * encanamento conferia os três parâmetros de que eu tinha lembrado.
-         * Ver a migração 0027. Achado pelas duas revisões de 2026-09-08.
+         * Ver a migração 0027 e `store-shape.test.js`.
+         * Achado pelas duas revisões de 2026-09-08.
          */
         pspRecipientId: r.psp_recipient_id || null,
         recipientStatus: r.psp_recipient_status || null,
