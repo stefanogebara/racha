@@ -174,3 +174,64 @@ describe('as projeções SQL conhecem os mesmos eventos que o redutor', () => {
     expect(semDrop).toEqual([]);
   });
 });
+
+describe('redefinir uma função não pode APAGAR o que outra migração acrescentou', () => {
+  /**
+   * `create or replace function` substitui o corpo INTEIRO. Reescrever uma
+   * função a partir de uma versão antiga apaga em silêncio tudo que migrações
+   * do meio acrescentaram.
+   *
+   * Aconteceu em produção em 2026-09-08. Reescrevi `append_check_event` a
+   * partir da versão da 0001 pra acrescentar idempotência, e apaguei o bloco
+   * que a 0004 tinha posto:
+   *
+   *     if p_type = 'CLOSED' then
+   *       update checks set status = 'fechada' ...
+   *
+   * Em trinta segundos a mesa da demonstração travou: o evento CLOSED entrou,
+   * o cache ficou 'aberta', e a mesa passou a ser ao mesmo tempo impossível de
+   * ler (404, estado derivado diz fechada) e impossível de reabrir (409, cache
+   * diz aberta). E o índice único "no máximo uma conta não fechada por mesa"
+   * depende desse cache, então TODA mesa que fechasse uma conta ficaria presa.
+   *
+   * Este teste é sobre INVARIANTES DE CORPO, não sobre assinatura: certas
+   * responsabilidades, uma vez acrescentadas a uma função, não podem sumir da
+   * última definição dela.
+   */
+  const INVARIANTES = [
+    {
+      funcao: 'append_check_event',
+      precisa: [
+        // da 0004: o cache de status que o índice único usa
+        /if\s+p_type\s*=\s*'CLOSED'\s+then/i,
+        /update\s+checks\s+set\s+status\s*=\s*'fechada'/i,
+        // da 0001: o lock por conta que serializa o seq
+        /pg_advisory_xact_lock/i,
+      ],
+    },
+    {
+      funcao: 'append_house_payment_guarded',
+      precisa: [
+        /pg_advisory_xact_lock/i,
+        /PAYMENT_REFUND_REVERSED/,   // da 0019
+        /excede o que falta pagar/,  // da 0006
+      ],
+    },
+  ];
+
+  test('a ÚLTIMA definição de cada função guarda tudo que ela já teve', () => {
+    const sql = sqlNaOrdem();
+    const faltando = [];
+    for (const { funcao, precisa } of INVARIANTES) {
+      const defs = [...sql.matchAll(
+        new RegExp(`create or replace function public\\.${funcao}[\\s\\S]*?\\$\\$;`, 'g'),
+      )];
+      if (!defs.length) { faltando.push(`${funcao}: nenhuma definição`); continue; }
+      const ultima = defs[defs.length - 1][0];
+      for (const re of precisa) {
+        if (!re.test(ultima)) faltando.push(`${funcao}: perdeu ${re}`);
+      }
+    }
+    expect(faltando).toEqual([]);
+  });
+});

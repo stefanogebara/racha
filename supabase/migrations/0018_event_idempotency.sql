@@ -87,8 +87,37 @@ begin
     from check_events where check_id = p_check_id;
   insert into check_events (check_id, seq, type, payload, psp_event_id)
     values (p_check_id, v_seq, p_type, p_payload, p_psp_event_id);
+
+  -- A manutenção do CACHE de status, que veio na 0004 e que esta migração
+  -- QUASE apagou.
+  --
+  -- Eu reescrevi esta função a partir da versão da 0001, que não tinha este
+  -- bloco — a 0004 o acrescentou depois. `create or replace` substitui o corpo
+  -- INTEIRO, então reescrever a partir de uma versão velha apaga em silêncio
+  -- tudo que foi acrescentado no meio.
+  --
+  -- Aconteceu em produção em 2026-09-08 e travou a mesa da demonstração em
+  -- trinta segundos: o evento CLOSED entrou no log, o cache continuou
+  -- 'aberta', e aí a leitura devolvia 404 (estado derivado diz fechada) e o
+  -- reset devolvia 409 (cache diz aberta). A mesa ficou impossível de ler e
+  -- impossível de reabrir ao mesmo tempo.
+  --
+  -- Pior que o sintoma: o índice único "no máximo uma conta não fechada por
+  -- mesa" (0004) depende deste cache. Sem ele, toda mesa que fechasse uma
+  -- conta ficaria bloqueada pra abrir a próxima.
+  if p_type = 'CLOSED' then
+    update checks set status = 'fechada', closed_at = coalesce(closed_at, now())
+      where id = p_check_id;
+  end if;
+
   return v_seq;
 end;
 $$;
+
+-- Backfill idêntico ao da 0004, porque o intervalo entre aplicar esta migração
+-- e restaurar o bloco acima deixa contas com CLOSED e cache velho.
+update public.checks set status = 'fechada', closed_at = coalesce(closed_at, now())
+  where status <> 'fechada'
+    and id in (select check_id from public.check_events where type = 'CLOSED');
 
 revoke all on function public.append_check_event(uuid, text, jsonb, text) from public, anon, authenticated;
