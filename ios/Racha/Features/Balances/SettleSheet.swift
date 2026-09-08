@@ -76,25 +76,48 @@ struct SettleSheet: View {
                 if let tip = state.extras.first(where: { $0.isGratuity && $0.isEnabled }) {
                     let mine = state.split.share(for: repository.meID)?.extras
                         .first { $0.extraID == tip.id }?.amount ?? .zero
-                    HStack(spacing: 6) {
-                        Text("Inclui \(BRL.format(mine, currency: state.currency)) de serviço, que vai pra equipe da casa. É opcional:")
+                    /// TIRAR o serviço é um BOTÃO, não a última palavra da frase.
+                    ///
+                    /// O inegociável #3 e o CDC art. 39 V pedem que os 10%
+                    /// sejam removíveis na interface. Eram — por uma palavra
+                    /// sem contorno, sem sublinhado e sem cor, encostada no fim
+                    /// de um parágrafo cinza, alinhada na segunda linha de um
+                    /// texto que quebra em duas. O controle mais sensível da
+                    /// tela era o menos visível dela, e o alvo de toque tinha a
+                    /// altura de uma linha de texto pequeno.
+                    ///
+                    /// Agora: cápsula com contorno, 44pt de altura, e em linha
+                    /// própria — legível como controle sem virar um botão
+                    /// primário que compete com "Copiar Pix".
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Inclui \(BRL.format(mine, currency: state.currency)) de serviço, que vai pra equipe da casa. É opcional.")
                             .font(Typo.small)
                             .foregroundStyle(Palette.ink3)
-                        Button("tirar") { toggle(tip, on: false) }
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Tirar o serviço") { toggle(tip, on: false) }
                             .accessibilityIdentifier("pay.service.remove")
                             .accessibilityLabel("Tirar o serviço")
-                            .font(Typo.small.weight(.medium))
+                            .font(Typo.small.weight(.semibold))
                             .foregroundStyle(Palette.ink)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
+                            .overlay(Capsule().strokeBorder(Palette.inputBorder.opacity(0.9), lineWidth: 1))
+                            .contentShape(Capsule())
+                            .buttonStyle(.plain)
                     }
-                    .fixedSize(horizontal: false, vertical: true)
                 } else if let tip = state.extras.first(where: { $0.isGratuity && !$0.isEnabled }) {
-                    HStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Sem o serviço.").font(Typo.small).foregroundStyle(Palette.ink3)
-                        Button("pôr de volta") { toggle(tip, on: true) }
+                        Button("Pôr o serviço de volta") { toggle(tip, on: true) }
                             .accessibilityIdentifier("pay.service.restore")
                             .accessibilityLabel("Pôr o serviço de volta")
-                            .font(Typo.small.weight(.medium))
+                            .font(Typo.small.weight(.semibold))
                             .foregroundStyle(Palette.ink)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
+                            .overlay(Capsule().strokeBorder(Palette.inputBorder.opacity(0.9), lineWidth: 1))
+                            .contentShape(Capsule())
+                            .buttonStyle(.plain)
                     }
                 }
             }

@@ -142,7 +142,17 @@ struct RachaButton: View {
         .clipShape(Capsule())
         .overlay {
             if style == .ghost {
-                Capsule().strokeBorder(Palette.inputBorder, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                /// Contorno CONTÍNUO, e não tracejado.
+                ///
+                /// Tracejado no iOS quer dizer três coisas, e nenhuma é "botão
+                /// secundário": vaga vazia, área de soltar, e rascunho. "Abrir a
+                /// conversa" é navegação de verdade e aparecia com a cara de um
+                /// componente inacabado — na tela principal, logo abaixo do
+                /// botão de pagar.
+                ///
+                /// (O tracejado continua certo onde ele significa mesmo "vazio
+                /// esperando alguém": o `UnownedBubble` da linha "Sem dono".)
+                Capsule().strokeBorder(Palette.inputBorder.opacity(0.85), lineWidth: 1)
             }
         }
         .shadow(color: style == .primary ? Palette.burgundy.opacity(0.28) : .clear, radius: 18, y: 6)
@@ -214,6 +224,31 @@ struct AvatarBubble: View {
                                   lineWidth: isMe ? 1.5 : 1)
         }
         .shadow(color: .black.opacity(0.10), radius: 3, y: 1)
+    }
+}
+
+/// O "rosto" da parte que não é de ninguém.
+///
+/// Um contorno tracejado com uma interrogação, do tamanho de um avatar, pra a
+/// linha "Sem dono" ocupar a mesma coluna que as pessoas sem fingir ser uma.
+/// Tracejado aqui é o significado certo — a vaga existe e está vazia — ao
+/// contrário de um botão de navegação tracejado, que só parece inacabado.
+struct UnownedBubble: View {
+    var size: CGFloat = 30
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Palette.amber.opacity(0.12))
+            Image(systemName: "questionmark")
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .foregroundStyle(Palette.amber)
+        }
+        .frame(width: size, height: size)
+        .overlay {
+            Circle().strokeBorder(Palette.amber.opacity(0.55),
+                                  style: StrokeStyle(lineWidth: 1, dash: [3, 2.5]))
+        }
+        .accessibilityHidden(true)
     }
 }
 

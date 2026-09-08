@@ -13,14 +13,22 @@ struct QuickActions: View {
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
+                /// PAGAR VEM PRIMEIRO, e cheio.
+                ///
+                /// Estava em segundo, atrás do aviso "N sem dono", e com o
+                /// mesmo preenchimento de todos os outros — só a cor da borda
+                /// mudava. Numa fileira que rola, a posição decide o que a
+                /// pessoa vê sem esforço; e a ação de dinheiro parecia par de
+                /// um alerta. Primeiro, preenchido, e o resto atrás.
+                if !state.remainingOnTable.isZero {
+                    chip("Pagar minha parte", icon: "qrcode",
+                         tint: Palette.action, filled: true, action: onSettle)
+                }
                 if state.split.hasUnassigned {
                     chip("\(state.split.unassigned.count) sem dono", icon: "questionmark.circle",
                          tint: Palette.amber) {
                         onAsk("divide o que sobrou por igual entre todo mundo")
                     }
-                }
-                if !state.remainingOnTable.isZero {
-                    chip("Pagar minha parte", icon: "qrcode", tint: Palette.action, action: onSettle)
                 }
                 chip("Quanto eu pago?", icon: "person.fill", tint: Palette.stone) {
                     onAsk("quanto eu pago?")
@@ -34,9 +42,24 @@ struct QuickActions: View {
             .padding(.horizontal, 2)
         }
         .scrollIndicators(.hidden)
+        /// E a fileira DIZ que continua.
+        ///
+        /// Ela sempre rolou, com o indicador escondido — então o último chip
+        /// aparecia cortado no meio de uma palavra ("Quanto eu…") e lia como
+        /// erro de layout, não como "arrasta pra ver mais". Um esmaecido na
+        /// borda é a dica que um chip cortado devia ter tido desde o começo, e
+        /// não rouba altura de nada.
+        .mask(
+            LinearGradient(stops: [
+                .init(color: .black, location: 0),
+                .init(color: .black, location: 0.90),
+                .init(color: .black.opacity(0), location: 1),
+            ], startPoint: .leading, endPoint: .trailing)
+        )
     }
 
     private func chip(_ title: String, icon: String, tint: Color,
+                      filled: Bool = false,
                       action: @escaping () -> Void) -> some View {
         Button {
             Haptics.shared.tick()
@@ -46,11 +69,11 @@ struct QuickActions: View {
                 Image(systemName: icon).font(.system(size: 11, weight: .semibold))
                 Text(title).font(Typo.small)
             }
-            .foregroundStyle(tint)
+            .foregroundStyle(filled ? Palette.cream : tint)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Capsule().fill(Palette.field))
-            .overlay { Capsule().strokeBorder(tint.opacity(0.22), lineWidth: 1) }
+            .frame(minHeight: 40)
+            .background(Capsule().fill(filled ? tint : Palette.field))
+            .overlay { Capsule().strokeBorder(filled ? .clear : tint.opacity(0.22), lineWidth: 1) }
         }
         .buttonStyle(.plain)
     }

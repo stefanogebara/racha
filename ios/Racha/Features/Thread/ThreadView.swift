@@ -150,11 +150,37 @@ struct ThreadView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
+                    /// A conversa VAZIA fica ANCORADA EMBAIXO, junto do campo.
+                    ///
+                    /// Antes a abertura ficava colada no topo e sobravam uns 55%
+                    /// de tela preta até o campo de escrever. Numa conversa,
+                    /// vazio no topo com um buraco embaixo lê como "não
+                    /// carregou" — e a sugestão que a pessoa deve tocar ficava
+                    /// no canto mais longe do polegar, num aparelho de 6,3".
+                    ///
+                    /// É a convenção de toda conversa no iOS: o conteúdo cresce
+                    /// de baixo pra cima. Um `Spacer` de altura mínima empurra a
+                    /// abertura pro pé da tela e desaparece sozinho quando a
+                    /// primeira mensagem chega.
                     if let state, session?.messages.isEmpty == true {
+                        /// A abertura ocupa a ALTURA DO CONTÊINER, alinhada
+                        /// embaixo — junto do campo de escrever.
+                        ///
+                        /// Antes ela ficava colada no topo e sobravam uns 55%
+                        /// de tela preta até o campo. Numa conversa, vazio no
+                        /// topo com um buraco embaixo lê como "não carregou", e
+                        /// a sugestão que a pessoa deve tocar ficava no canto
+                        /// mais longe do polegar num aparelho de 6,3". Toda
+                        /// conversa no iOS cresce de baixo pra cima.
+                        ///
+                        /// `Spacer` não serve aqui: dentro de um `ScrollView` a
+                        /// pilha se dimensiona pelo conteúdo, e um espaçador
+                        /// infinito não tem altura pra preencher.
                         ThreadOpener(state: state) { suggestion in
                             send(suggestion)
                         }
                         .padding(.horizontal, 18)
+                        .containerRelativeFrame(.vertical, alignment: .bottom)
                     }
 
                     ForEach(session?.messages ?? []) { message in

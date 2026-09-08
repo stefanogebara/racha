@@ -116,18 +116,34 @@ struct GalleryView: View {
                 .font(Typo.tileTitle)
                 .foregroundStyle(Palette.ink)
             Spacer()
+            /// ALVO DE TOQUE de 44pt, e o QR com o peso que a porta de
+            /// entrada do produto merece.
+            ///
+            /// Era um glifo de 17pt num `Button` `.plain` sem moldura: a área
+            /// clicável era o desenho, uns 21×17pt, contra os 44×44 que o HIG
+            /// pede. Num bar, em pé, com o telefone numa mão. E "QR na mesa" é
+            /// o primeiro passo do produto inteiro — ele estava com metade do
+            /// peso visual de "Ajustes".
+            ///
+            /// (A descoberta em si já estava resolvida pelo `scanPrompt`, que
+            /// ocupa a tela quando não há mesa aberta. Isto é o atalho de quem
+            /// já tem uma.)
             Button { Haptics.shared.press(); sheet = .scanner } label: {
                 Image(systemName: "qrcode.viewfinder")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(Palette.ink2)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(Palette.ink)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Escanear a mesa")
             Button("Ajustes") { sheet = .settings }
                 .font(Typo.bodyMedium)
-                .foregroundStyle(Palette.ink2)
+                .foregroundStyle(Palette.ink3)
                 .buttonStyle(.plain)
-                .padding(.leading, 16)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+                .padding(.leading, 8)
         }
     }
 

@@ -72,6 +72,36 @@ struct LedgerSheet: View {
                                  isMe: person.id == repository.meID)
                     }
                 }
+                /// A PARTE DE NINGUÉM, para a coluna fechar no Total.
+                ///
+                /// As partes somavam R$ 352,70 debaixo de um "Total R$ 372,50",
+                /// e os R$ 19,80 que faltavam — o pudim sem dono mais o serviço
+                /// que a casa cobra nele — estavam explicados dois cartões
+                /// abaixo. Uma coluna de números que não fecha com o total
+                /// impresso embaixo dela faz o leitor procurar o erro nosso, e
+                /// o erro não existe: é uma linha que ninguém desenhou.
+                ///
+                /// `unassignedWithExtras` é do modelo desde sempre — a conta
+                /// estava certa e a tela é que não contava. Aparece só quando
+                /// existe, porque um "R$ 0,00 sem dono" em toda mesa é ruído.
+                if !split.unassignedWithExtras.isZero {
+                    HStack(spacing: 10) {
+                        UnownedBubble(size: 30)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Sem dono")
+                                .font(Typo.bodyMedium)
+                                .foregroundStyle(Palette.charcoal)
+                            Text("entra na conta de quem assumir")
+                                .font(Typo.caption)
+                                .foregroundStyle(Palette.amber)
+                        }
+                        Spacer()
+                        Text(BRL.format(split.unassignedWithExtras, currency: state.currency))
+                            .font(Typo.serifBody).money()
+                            .foregroundStyle(Palette.charcoal)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
                 Divider().overlay(Palette.charcoal.opacity(0.5))
                 HStack {
                     Text("Total").font(Typo.bodyMedium)
@@ -229,6 +259,17 @@ struct ShareRow: View {
 
     @State private var expanded = false
 
+    /// "não pagou" quando o devido é a parte inteira (a coluna já diz quanto),
+    /// e o valor só quando ele é NOVO — pagou parte e falta o resto.
+    private func statusLine(balance: NetBalance, share: Cents) -> String {
+        if !balance.net.isNegative {
+            return "a receber \(BRL.format(balance.net, currency: currency))"
+        }
+        let devido = balance.net.magnitude
+        return devido == share ? "não pagou"
+                               : "falta \(BRL.format(devido, currency: currency))"
+    }
+
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 10) {
@@ -237,10 +278,14 @@ struct ShareRow: View {
                     Text(isMe ? "Você" : person.shortName)
                         .font(Typo.bodyMedium)
                         .foregroundStyle(Palette.charcoal)
+                    /// O subtítulo diz o ESTADO; a coluna diz a PARTE.
+                    ///
+                    /// Antes ele repetia o número: quem não pagou nada aparecia
+                    /// como "deve R$ 107,70" ao lado de uma coluna que já dizia
+                    /// R$ 107,70. Duas vezes o mesmo dado, e o olho perde a
+                    /// informação nova — que é quanto FALTA de quem pagou parte.
                     if let balance, !balance.net.isZero {
-                        Text(balance.net.isNegative
-                             ? "deve \(BRL.format(balance.net.magnitude, currency: currency))"
-                             : "a receber \(BRL.format(balance.net, currency: currency))")
+                        Text(statusLine(balance: balance, share: share.total))
                             .font(Typo.caption).money()
                             .foregroundStyle(balance.net.isNegative ? Palette.burgundy : Palette.emerald)
                     } else if balance != nil {

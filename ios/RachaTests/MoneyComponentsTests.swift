@@ -72,3 +72,63 @@ struct ThreadCopyTests {
         }
     }
 }
+
+/// O cartão "Quem deve o quê" tem que FECHAR no total que ele imprime embaixo.
+struct LedgerCardArithmeticTests {
+
+    private func state(items: [LineItem], claims: [LineItem.ID: [Claim]],
+                       people: [Participant], extras: [Extra]) -> RachaState {
+        var s = RachaState(id: UUID(), title: "Teste", kind: .jantar, currency: .brl,
+                           createdAt: Date(), updatedAt: Date())
+        s.participants = people
+        s.items = items
+        s.claimsByItem = claims
+        s.extras = extras
+        return s
+    }
+
+    /// As partes somavam R$ 352,70 debaixo de um "Total R$ 372,50", e os
+    /// R$ 19,80 que faltavam — o item sem dono mais o serviço que a casa cobra
+    /// nele — estavam explicados dois cartões abaixo. Uma coluna que não fecha
+    /// com o total impresso embaixo dela manda o leitor procurar um erro nosso.
+    ///
+    /// O invariante é do MODELO, então dá pra afirmar sem tela: o que o cartão
+    /// desenha (uma linha por pessoa, mais a linha sem dono) soma o total.
+    @Test("as linhas do cartão somam o total impresso")
+    func rowsSumToTheTotal() {
+        let gente = [Participant(name: "Você"), Participant(name: "Gui"), Participant(name: "Ju")]
+        let picanha = LineItem(name: "Picanha na chapa", unitPrice: Cents(12900))
+        let chopp = LineItem(name: "Chopp 500ml", quantity: 4, unitPrice: Cents(1600))
+        let pudim = LineItem(name: "Pudim", unitPrice: Cents(1800))
+        var claims: [LineItem.ID: [Claim]] = [:]
+        claims[picanha.id] = gente.map { Claim(itemID: picanha.id, personID: $0.id) }
+        claims[chopp.id] = [Claim(itemID: chopp.id, personID: gente[0].id),
+                            Claim(itemID: chopp.id, personID: gente[1].id)]
+        // O pudim fica SEM DONO de propósito: é o caso que quebrava a soma.
+
+        let servico = Extra(label: "Serviço", kind: .percentage(bp: 1000), isGratuity: true)
+        let split = SplitEngine.split(state(items: [picanha, chopp, pudim], claims: claims,
+                                            people: gente, extras: [servico]))
+
+        let somaDasPartes = split.shares.map(\.total).total
+        #expect(somaDasPartes + split.unassignedWithExtras == split.total,
+                """
+                as linhas do cartão não fecham: partes \(somaDasPartes.raw)¢ \
+                + sem dono \(split.unassignedWithExtras.raw)¢ ≠ total \(split.total.raw)¢
+                """)
+        // E a linha sem dono não é zero neste cenário — senão o teste passaria
+        // sem exercitar o caso que estava errado.
+        #expect(!split.unassignedWithExtras.isZero)
+    }
+
+    @Test("sem item órfão, as partes já somam o total sozinhas")
+    func noUnownedRow() {
+        let gente = [Participant(name: "Você"), Participant(name: "Gui")]
+        let picanha = LineItem(name: "Picanha", unitPrice: Cents(10000))
+        let claims = [picanha.id: gente.map { Claim(itemID: picanha.id, personID: $0.id) }]
+        let split = SplitEngine.split(state(items: [picanha], claims: claims,
+                                            people: gente, extras: []))
+        #expect(split.unassignedWithExtras.isZero)
+        #expect(split.shares.map(\.total).total == split.total)
+    }
+}
