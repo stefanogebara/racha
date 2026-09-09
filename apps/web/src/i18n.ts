@@ -436,9 +436,12 @@ export const DICT = {
   'find.payment_row_repaired': { en: 'we corrected payment rows that were showing outdated amounts — your revenue totals for the affected days may have changed',
                         pt: 'corrigimos linhas de pagamento que mostravam valores desatualizados — o faturamento dos dias afetados pode ter mudado',
                         es: 'corregimos filas de pago que mostraban importes desactualizados — la facturación de esos días puede haber cambiado' },
-  'find.payment_row_repair_failed': { en: 'payment rows could not be corrected — what you see stays behind the ledger until this is resolved',
-                        pt: 'linhas de pagamento não puderam ser corrigidas — o que você vê segue atrás do razão até isso ser resolvido',
-                        es: 'no se pudieron corregir filas de pago — lo que ve sigue atrás del libro hasta resolverlo' },
+  // NÃO SEI SE ESCREVEU. A RPC pode ter dado commit com a resposta perdida —
+  // dizer "falhou" seria uma afirmação falsa na direção contrária, e mandaria o
+  // dono caçar um travamento que não existe.
+  'find.payment_repair_ack_lost': { en: 'we tried to correct payment rows and got no answer from the database — the correction may or may not have been applied; check these payments before closing the period',
+                        pt: 'tentamos corrigir linhas de pagamento e não tivemos resposta do banco — a correção pode ou não ter sido aplicada; confira esses pagamentos antes de fechar o período',
+                        es: 'intentamos corregir filas de pago y no hubo respuesta de la base — la corrección puede haberse aplicado o no; revise esos pagos antes de cerrar el período' },
   // A GORJETA tem a sua própria: é a única que a casa leva pra FOLHA, e uma vez
   // distribuída não volta (CLT art. 462). Ver `payment_tip_base_repaired`.
   'find.payment_row_repair_raced': { en: 'a correction did not apply because another process had already updated the row — nothing was lost',

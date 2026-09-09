@@ -960,14 +960,14 @@ describe('o reparo aparece no relatório e no alerta', () => {
 
   test('uma linha reparada SAI no relatório — e não como noite parada', async () => {
     const store = storeComLinhaAtrasada();
-    const rel = await reconcileAllVenues(store, {});
+    const rel = await reconcileAllVenues(store, { repair: true });
 
     expect(store.reparados).toEqual(['ch_0']);
     // O contador da varredura inteira — é o que a resposta do cron carrega, e
     // era exatamente ele que não existia: sem isto esta noite e uma noite em
     // que nada foi escrito produzem o MESMO relatório.
     expect(rel.rowsRepaired).toBe(1);
-    expect(rel.rowsRepairFailed).toBe(0);
+    expect(rel.rowsRepairAckLost).toBe(0);
     expect(rel.venues[0].rowsRepaired).toBe(1);
     // E a casa deixa de sair `ok`: uma linha de dinheiro foi reescrita, e isso
     // não é uma noite verde. Um reparo isolado é `info` de propósito — não
@@ -989,20 +989,23 @@ describe('o reparo aparece no relatório e no alerta', () => {
     expect(formatReconcileAlert(rel)).toMatch(/reprojetou 1 linha/);
   });
 
-  test('reparo que FALHA é `high`, vira casa vermelha e entra no alerta', async () => {
+  test('reparo SEM RESPOSTA é `high`, vira casa vermelha e entra no alerta', async () => {
+    /**
+     * "Falhou" não é uma saída que dê pra afirmar: a RPC pode ter dado commit
+     * com a resposta perdida. Então o achado carrega a DÚVIDA — e continua
+     * acordando alguém, porque `refunded_tip_cents` pode ter se movido.
+     */
     const store = storeComLinhaAtrasada({ falha: true });
-    const rel = await reconcileAllVenues(store, {});
+    const rel = await reconcileAllVenues(store, { repair: true });
 
     expect(rel.rowsRepaired).toBe(0);
-    expect(rel.rowsRepairFailed).toBe(1);
+    expect(rel.rowsRepairAckLost).toBe(1);
     expect(rel.worstSeverity).toBe('critical'); // a divergência segue lá também
     expect(rel.venuesRed).toBe(1);
 
     const alerta = formatReconcileAlert(rel);
-    // O ALERTA diz que a varredura tentou escrever e não conseguiu. Sem isto um
-    // grant revogado é uma linha de stderr que ninguém lê.
-    expect(alerta).toMatch(/FALHOU em 1/);
-    expect(rel.red[0].findings.some((f) => f.code === 'payment_row_repair_failed'
+    expect(alerta).toMatch(/SEM RESPOSTA em 1/);
+    expect(rel.red[0].findings.some((f) => f.code === 'payment_repair_ack_lost'
       && f.severity === 'high')).toBe(true);
   });
 
@@ -1010,7 +1013,7 @@ describe('o reparo aparece no relatório e no alerta', () => {
     // Uma linha atrás é soluço; muitas é bug de projeção, e a diferença tem que
     // aparecer no alerta — senão o remendo noturno esconde a causa raiz.
     const store = storeComLinhaAtrasada({ quantas: 5 });
-    const rel = await reconcileAllVenues(store, {});
+    const rel = await reconcileAllVenues(store, { repair: true });
 
     expect(rel.rowsRepaired).toBe(5);
     expect(rel.venuesRed).toBe(1);
@@ -1029,9 +1032,9 @@ describe('o reparo aparece no relatório e no alerta', () => {
       listRecentConfirmedCharges: async () => [],
       repairPaymentRow: async () => true,
     };
-    const rel = await reconcileAllVenues(store, {});
+    const rel = await reconcileAllVenues(store, { repair: true });
     expect(rel.rowsRepaired).toBe(0);
-    expect(rel.rowsRepairFailed).toBe(0);
+    expect(rel.rowsRepairAckLost).toBe(0);
     expect(formatReconcileAlert(rel)).toBe(null);
   });
 });
@@ -1089,8 +1092,14 @@ describe('censo: nenhuma ROTA pede a escrita do reparo', () => {
   test('a varredura é o ÚNICO lugar que liga a escrita', () => {
     const daily = fs.readFileSync(path.join(__dirname, '../_lib/checks/reconcile-daily.js'), 'utf8');
     const recon = fs.readFileSync(path.join(__dirname, '../_lib/checks/reconcile.js'), 'utf8');
-    // Uma única origem, em `reconcileAllVenues`.
-    expect((daily.match(/repair:\s*opts\.repair\s*!==\s*false/g) || []).length).toBe(1);
+    // Uma única origem, em `reconcileAllVenues` — e ela também é OPT-IN.
+    //
+    // Era `opts.repair !== false` (opt-OUT): o `reconcileVenue` nascia lendo e
+    // esta camada não, então uma rota nova chamando `reconcileAllVenues(store,
+    // {})` escrevia calada e o censo de rotas (que procura a string literal)
+    // não pegava. O padrão tem que ser o mesmo nos dois níveis.
+    expect((daily.match(/repair:\s*opts\.repair\s*===\s*true/g) || []).length).toBe(1);
+    expect(daily).not.toMatch(/repair:\s*opts\.repair\s*!==\s*false/);
     // E o guarda é opt-IN: `=== true`, não `!== false`. Se alguém inverter isso
     // de volta, toda rota que chama a conciliação volta a escrever calada.
     //
@@ -1321,8 +1330,8 @@ describe('prazo e teto: só contam o que era candidato', () => {
     const r = await repararLinhasAtrasadas(store, atrasadas(300), {});
     expect(r.reparadas).toBe(0);
     expect(chamadas).toBeLessThanOrEqual(200);   // TETO_DE_REPAROS
-    expect(r.falhas).toBe(chamadas);
-    expect(r.achados.some((f) => f.code === 'payment_row_repair_failed' && f.severity === 'high')).toBe(true);
+    expect(r.ackPerdidos).toBe(chamadas);
+    expect(r.achados.some((f) => f.code === 'payment_repair_ack_lost' && f.severity === 'high')).toBe(true);
   });
 
   test('claim que não pega (`false`) é CORRIDA, não falha — e não pinta a casa de vermelho', async () => {
@@ -1341,12 +1350,12 @@ describe('prazo e teto: só contam o que era candidato', () => {
     const store = { repairPaymentRow: async () => false };
     const r = await repararLinhasAtrasadas(store, atrasadas(2), {});
     expect(r.reparadas).toBe(0);
-    expect(r.falhas).toBe(0);          // NÃO é falha
+    expect(r.ackPerdidos).toBe(0);     // NÃO é resposta perdida
     expect(r.corridas).toBe(2);        // é corrida, e fica dita
     const achado = r.achados.find((f) => f.code === 'payment_row_repair_raced');
     expect(achado).toBeTruthy();
     expect(achado.severity).toBe('info');
-    expect(r.achados.some((f) => f.code === 'payment_row_repair_failed')).toBe(false);
+    expect(r.achados.some((f) => f.code === 'payment_repair_ack_lost')).toBe(false);
   });
 
   test('a corrida perdida NÃO deixa a casa vermelha — a varredura inteira', async () => {
@@ -1372,10 +1381,15 @@ describe('prazo e teto: só contam o que era candidato', () => {
       listRecentConfirmedCharges: async () => [],
       repairPaymentRow: async () => false,
     };
-    const rel = await reconcileAllVenues(store, {});
-    expect(rel.rowsRepairFailed).toBe(0);
+    const rel = await reconcileAllVenues(store, { repair: true });
+    expect(rel.rowsRepairAckLost).toBe(0);
+    // O contador ATRAVESSA a fronteira — era criado e jogado fora aqui.
+    expect(rel.rowsRepairRaced).toBe(1);
     expect(rel.venuesRed).toBe(0);
     expect(rel.worstSeverity).toBe('info');
+    // E o tier `info` deixa de ser só-escrita: `venues[]` descarta `findings`
+    // de casa não-vermelha, então sem isto a noite inteira saía muda.
+    expect(rel.venues[0].infoFindings).toContain('payment_row_repair_raced');
   });
 });
 
@@ -1458,7 +1472,7 @@ describe('a escrita sobrevive à leitura que falhou', () => {
 
   test('e o alerta do fundador carrega as duas coisas', async () => {
     const store = storeQueRepara({ quebra: true });
-    const rel = await reconcileAllVenues(store, {});
+    const rel = await reconcileAllVenues(store, { repair: true });
     expect(rel.rowsRepaired).toBe(1);
     const alerta = formatReconcileAlert(rel);
     expect(alerta).toMatch(/reprojetou 1 linha/);
@@ -1467,7 +1481,7 @@ describe('a escrita sobrevive à leitura que falhou', () => {
 
   test('sem estouro, o caminho normal continua igual', async () => {
     const store = storeQueRepara({ quebra: false });
-    const rel = await reconcileAllVenues(store, {});
+    const rel = await reconcileAllVenues(store, { repair: true });
     expect(rel.rowsRepaired).toBe(1);
     expect(rel.venuesRed).toBe(1);   // a gorjeta mexeu → `high`
     expect(formatReconcileAlert(rel)).toMatch(/base da folha/);
@@ -1489,11 +1503,227 @@ describe('a escrita sobrevive à leitura que falhou', () => {
     expect(corpoBase).not.toBeNull();
     const chavesBase = new Set([...corpoBase[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
 
-    // O que o agregado soma por casa — é o que o relatório do cron carrega.
-    for (const chave of ['rowsRepaired', 'rowsRepairFailed', 'driftCents', 'checksChecked']) {
-      expect(chavesBase.has(chave)).toBe(true);
-    }
+    /**
+     * DERIVADO, não fixado.
+     *
+     * A primeira versão listava quatro nomes à mão e o cabeçalho dizia "toda
+     * chave que o relatório consome". Não era censo, era pino: uma quinta
+     * chave acrescentada ao retorno de sucesso e esquecida no `base` passava
+     * verde — o defeito exato que a revisão tinha acabado de bloquear, uma
+     * chave depois. (`accountsChecked` já estava fora da lista.) Agora o
+     * conjunto sai do AGREGADO: tudo que `reconcileAllVenues` soma por casa
+     * tem que existir no `base`, senão o `catch` devolve `undefined` num
+     * relatório de dinheiro.
+     */
+    const agregado = daily.match(/return \{\s*\n\s*at: new Date[\s\S]*?\n {2}\};/);
+    expect(agregado).not.toBeNull();
+    const lidasPorCasa = new Set(
+      [...agregado[0].matchAll(/\br\.(\w+)/g)].map((m) => m[1]),
+    );
+    expect(lidasPorCasa.size).toBeGreaterThanOrEqual(4);
+
+    const faltando = [...lidasPorCasa].filter((k) => !chavesBase.has(k)).sort();
+    expect(faltando).toEqual([]);
+
     // E o `catch` devolve a partir do `base`, não de um objeto próprio.
     expect(daily).toMatch(/return \{\s*\.\.\.base,\s*severity: 'critical'/);
+  });
+});
+
+/**
+ * ESCREVEU E A RESPOSTA SE PERDEU — o caso que o duplo antigo não sabia fazer.
+ *
+ * O teste do `'grant revogado'` lançava de um store que NUNCA mutava, então
+ * "lança" e "não escreveu" estavam soldados no duplo — a mesma forma de todos
+ * os defeitos desta série: o duplo dizendo menos que a produção. Uma RPC de
+ * verdade pode dar COMMIT e a resposta se perder (socket resetado, timeout no
+ * retorno, a Vercel matando o fetch), e aí a linha foi escrita e o `catch`
+ * roda.
+ *
+ * Classificar isso como "falhou" produzia uma afirmação falsa na direção
+ * CONTRÁRIA — "a projeção segue atrás do razão" sobre uma linha recém-projetada
+ * — e mandava o operador caçar um travamento inexistente. Pior: o achado da
+ * gorjeta vivia só no ramo do sucesso, então `refunded_tip_cents` (base da
+ * folha, CLT art. 462) podia se mover com testemunha NENHUMA.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
+ */
+describe('a resposta se perde depois do commit', () => {
+  const { repararLinhasAtrasadas } = require('../_lib/checks/reconcile');
+
+  function storeQueEscreveEEstoura() {
+    const linha = {
+      txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 1000,
+      confirmedAmountCents: 10000, confirmedTipCents: 1000,
+      confirmedAt: '2026-02-14T12:00:00.000Z',
+      refundedAmountCents: 0, refundedTipCents: 0,
+    };
+    return {
+      linha,
+      async repairPaymentRow(p) {
+        // COMMIT…
+        linha.refundedAmountCents = p.refundedAmountCents;
+        linha.refundedTipCents = p.refundedTipCents;
+        // …e a resposta some.
+        throw new Error('fetch failed');
+      },
+    };
+  }
+
+  const entrada = (linha) => [{
+    checkId: 'c1',
+    events: [
+      { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+      { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 1000, method: 'pix' } },
+      { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 500, offRail: true, reference: 'x', by: 'd@b' } },
+    ],
+    payments: [linha],
+  }];
+
+  test('a linha É escrita, e o achado carrega a DÚVIDA — não "falhou"', async () => {
+    const store = storeQueEscreveEEstoura();
+    const r = await repararLinhasAtrasadas(store, entrada(store.linha), {});
+
+    // A escrita aconteceu de verdade.
+    expect(store.linha.refundedAmountCents).toBe(2000);
+    expect(store.linha.refundedTipCents).toBe(500);
+
+    expect(r.reparadas).toBe(0);       // não dá pra afirmar que reparou
+    expect(r.ackPerdidos).toBe(1);     // nem que falhou: a dúvida é o fato
+
+    const achado = r.achados.find((f) => f.code === 'payment_repair_ack_lost');
+    expect(achado).toBeTruthy();
+    expect(achado.severity).toBe('high');
+    expect(achado.message).toMatch(/PODE ter escrito/);
+  });
+
+  test('e a GORJETA aparece mesmo sem resposta — com o período', async () => {
+    // É o ponto inteiro: a base da folha não pode se mover em silêncio só
+    // porque a rede piscou. Lei 13.419/2017 + CLT art. 462.
+    const store = storeQueEscreveEEstoura();
+    const r = await repararLinhasAtrasadas(store, entrada(store.linha), {});
+    const achado = r.achados.find((f) => f.code === 'payment_repair_ack_lost');
+    expect(achado.tipDeltaCents).toBe(-500);
+    expect(achado.periods).toEqual(['2026-02']);
+    expect(achado.message).toMatch(/base da folha de 2026-02/);
+  });
+});
+
+/**
+ * UM ESTOURO DENTRO DO ESCRITOR não apaga o que ele já escreveu.
+ *
+ * O conserto anterior tirou o `reconcileVenue` do `Promise.all` pra que a
+ * escrita sobrevivesse a uma perna IRMÃ. Mas `reparo` só é atribuído quando a
+ * função RESOLVE, então um lance de dentro dela — um `reduce()` que estoura na
+ * conta seguinte, depois de a anterior já ter sido escrita — apagava os
+ * contadores do mesmo jeito: `escritas: ["ch_1"]`, `rowsRepaired: 0`.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (MEDIUM-2). Fechado com o
+ * sumidouro: quem chama lê o que já aconteceu, sem depender de a gente
+ * retornar.
+ */
+describe('o sumidouro sobrevive a um estouro de dentro', () => {
+  const { reconcileOneVenue } = require('../_lib/checks/reconcile-daily');
+
+  test('primeira conta reparada, segunda envenenada: o contador sobrevive', async () => {
+    const escritas = [];
+    const boa = {
+      checkId: 'c1',
+      events: [
+        { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+        { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix' } },
+        { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 0, offRail: true, reference: 'x', by: 'd@b' } },
+      ],
+      payments: [{
+        txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
+        confirmedAmountCents: 10000, confirmedTipCents: 0,
+        confirmedAt: '2026-07-20T12:00:00.000Z',
+        refundedAmountCents: 0, refundedTipCents: 0,
+      }],
+    };
+    // `events` não-array faz o `reduce` estourar (`check-state.js`), que é o
+    // que um log corrompido produz — e o laço já escreveu na conta anterior.
+    const envenenada = { checkId: 'c2', events: 'não é array', payments: [] };
+
+    const store = {
+      listChecksForReconcile: async () => [boa, envenenada],
+      listHouseAccountsForReconcile: async () => [],
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      async repairPaymentRow(p) {
+        escritas.push(p.txid);
+        boa.payments[0].refundedAmountCents = p.refundedAmountCents;
+        return true;
+      },
+    };
+
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Casa Um' }, { repair: true });
+
+    expect(escritas).toEqual(['ch_1']);        // escreveu
+    expect(r.rowsRepaired).toBe(1);            // e o relatório NÃO diz zero
+    expect(r.severity).toBe('critical');       // a conciliação de fato caiu
+    expect(r.findings.some((f) => f.code === 'venue_reconcile_threw')).toBe(true);
+  });
+});
+
+/**
+ * `confirmed_at_missing` — o detector que ninguém tinha exercitado.
+ *
+ * Ele entrou como `high` e nada afirmava que dispara. Pior: o RECORTE dele é a
+ * afirmação de projeto inteira — ele tem que ficar CALADO na linha nunca
+ * projetada, porque essa já tem o seu achado (`confirmed_amount_missing`) e
+ * acusar as duas coisas na mesma linha é barulho. Nada afirmava isso tampouco,
+ * e a medição diz que zero linhas de produção estão nesse estado, então nem
+ * observar dava. Um `high` sem prova de que dispara é o inegociável #7: guarda
+ * que nunca dispara é testada em produção, não confiada.
+ *
+ * Achado pela revisão de compliance de 2026-09-09 (MEDIUM-A).
+ */
+describe('confirmed_at_missing: dispara, e só onde deve', () => {
+  const { reconcileCheck } = require('../_lib/checks/reconcile');
+
+  const conta = (linha) => reconcileCheck({
+    checkId: 'c1',
+    events: [
+      { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+      { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix' } },
+    ],
+    payments: [linha],
+  }).findings;
+
+  const base = {
+    txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
+    confirmedAmountCents: 10000, confirmedTipCents: 0,
+    refundedAmountCents: 0, refundedTipCents: 0,
+  };
+
+  test('DISPARA na linha projetada sem data — a população da 0021', () => {
+    const f = conta({ ...base, confirmedAt: null })
+      .find((x) => x.code === 'confirmed_at_missing');
+    expect(f).toBeTruthy();
+    expect(f.severity).toBe('high');
+    expect(f.txid).toBe('ch_1');
+  });
+
+  test('CALA na linha nunca projetada — ela já tem o achado dela', () => {
+    // É o recorte inteiro: a 0021 reprojetou os dois valores e nunca escreveu a
+    // data, então "sem valor" e "sem data" são populações diferentes. Acusar as
+    // duas na mesma linha faz o alerta diário crescer sem dizer nada novo.
+    const achados = conta({
+      ...base, confirmedAmountCents: null, confirmedTipCents: null, confirmedAt: null,
+    });
+    expect(achados.some((x) => x.code === 'confirmed_at_missing')).toBe(false);
+    expect(achados.some((x) => x.code === 'confirmed_amount_missing')).toBe(true);
+  });
+
+  test('CALA na linha sadia — com valor e com data', () => {
+    const achados = conta({ ...base, confirmedAt: '2026-07-20T12:00:00.000Z' });
+    expect(achados.some((x) => x.code === 'confirmed_at_missing')).toBe(false);
+  });
+
+  test('CALA na linha que ainda não confirmou', () => {
+    // `pendente` sem data é o estado normal de uma cobrança aberta.
+    const achados = conta({ ...base, status: 'pendente', confirmedAt: null });
+    expect(achados.some((x) => x.code === 'confirmed_at_missing')).toBe(false);
   });
 });

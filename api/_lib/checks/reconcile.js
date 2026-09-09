@@ -451,8 +451,53 @@ const REPAROS_DEMAIS = 3;
  *
  * Achado pela revisão de segurança de 2026-09-09 (HIGH-2).
  */
-function acharReparos(reparados, falhados, naoOlhadas, gorjeta = [], corridas = []) {
+/**
+ * O SUMIDOURO vira números e achados — de UMA função, chamável de fora.
+ *
+ * Existe pra que o `catch` de quem chama produza exatamente o mesmo resumo que
+ * o caminho feliz, a partir do mesmo objeto. Duas construções do relatório é
+ * como um dos lados fica pra trás — foi assim que os contadores nasceram em
+ * quatro lugares e faltaram no quinto.
+ */
+function resumoDoReparo(pia = {}) {
+  const reparados = pia.repaired || [];
+  const corridas = pia.raced || [];
+  const ackPerdido = pia.ackLost || [];
+  const gorjeta = pia.tip || [];
+  return {
+    reparadas: reparados.length,
+    corridas: corridas.length,
+    ackPerdidos: ackPerdido.length,
+    achados: acharReparos(reparados, pia.skipped || 0, gorjeta, corridas, ackPerdido),
+  };
+}
+
+function acharReparos(reparados, naoOlhadas, gorjeta = [], corridas = [], ackPerdido = []) {
   const achados = [];
+  /**
+   * NÃO SEI SE ESCREVEU — `high`, e diz isso.
+   *
+   * A RPC pode ter dado commit com a resposta perdida. O achado tem que
+   * carregar a dúvida, não resolvê-la pro lado otimista nem pro pessimista, e
+   * tem que carregar a GORJETA — senão a base da folha se move sem testemunha
+   * sempre que a rede pisca. (HIGH-1 da revisão de segurança de 2026-09-09.)
+   */
+  if (ackPerdido.length > 0) {
+    const somaAck = ackPerdido.reduce((s, g) => s + (g.deltaCents || 0), 0);
+    const periodosAck = [...new Set(ackPerdido.map((g) => g.periodo).filter(Boolean))].sort();
+    achados.push({
+      severity: 'high',
+      code: 'payment_repair_ack_lost',
+      message: `${ackPerdido.length} reparo(s) sem resposta do banco — PODE ter escrito`
+        + (somaAck !== 0
+          ? `, incluindo ${somaAck}¢ na base da folha de ${periodosAck.join(', ')}; confira a linha antes de fechar`
+          : '; confira a linha'),
+      txids: ackPerdido.slice(0, 10).map((g) => g.txid),
+      tipDeltaCents: somaAck,
+      periods: periodosAck,
+      uncertain: ackPerdido.length,
+    });
+  }
   if (corridas.length > 0) {
     // `info`: a linha mudou porque OUTRO caminho a projetou. Isso é o sistema
     // funcionando, não um achado de dinheiro — mas fica dito, porque uma
@@ -496,15 +541,6 @@ function acharReparos(reparados, falhados, naoOlhadas, gorjeta = [], corridas = 
         + (reparados.length > REPAROS_DEMAIS ? ' — atraso sistemático, olhe a causa' : ''),
       txids: reparados.slice(0, 10),
       repaired: reparados.length,
-    });
-  }
-  if (falhados.length > 0) {
-    achados.push({
-      severity: 'high',
-      code: 'payment_row_repair_failed',
-      message: `${falhados.length} reparo(s) de linha falharam — a projeção segue atrás do razão`,
-      txids: falhados.slice(0, 10),
-      failed: falhados.length,
     });
   }
   if (naoOlhadas > 0) {
@@ -561,10 +597,29 @@ function acharReparos(reparados, falhados, naoOlhadas, gorjeta = [], corridas = 
  * decide. É o que o cabeçalho do `reconcile-daily` promete.
  */
 async function repararLinhasAtrasadas(store, inputs, opts = {}) {
-  const vazio = { reparadas: 0, falhas: 0, achados: [] };
+  const vazio = { reparadas: 0, corridas: 0, ackPerdidos: 0, achados: [] };
   if (typeof store.repairPaymentRow !== 'function') return vazio;
-  const reparados = [];
-  const falhados = [];
+  /**
+   * O SUMIDOURO — a testemunha não depende de esta função RETORNAR.
+   *
+   * O conserto anterior tirou o `reconcileVenue` do `Promise.all` pra que a
+   * escrita sobrevivesse a uma perna IRMÃ que estourasse. Mas `reparo` só é
+   * atribuído quando esta função resolve, então um lance de DENTRO dela — um
+   * `reduce()` que estoura na conta seguinte, depois de já ter escrito —
+   * apagava os contadores do mesmo jeito. Medido: `escritas: ["ch_1"]`,
+   * `rowsRepaired: 0`, código `venue_reconcile_threw`.
+   *
+   * Com o sumidouro, quem chama lê o que já aconteceu mesmo que a gente exploda
+   * no meio. A invariante deixa de depender de enumerar o que pode estourar —
+   * que é a diferença entre conserto de instância e conserto de classe.
+   * (MEDIUM-2 da revisão de segurança de 2026-09-09.)
+   */
+  const pia = opts.witness || {};
+  pia.repaired = pia.repaired || [];
+  pia.raced = pia.raced || [];
+  pia.ackLost = pia.ackLost || [];
+  pia.tip = pia.tip || [];
+  const reparados = pia.repaired;
   /**
    * CORRIDA PERDIDA não é falha.
    *
@@ -578,9 +633,11 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
    * único alerta que o inegociável #8 diz que não pode ser ignorável.
    * (MEDIUM-1 da revisão de segurança de 2026-09-09.)
    */
-  const corridasPerdidas = [];
+  const corridasPerdidas = pia.raced;
   /** Os que mexeram na BASE DA FOLHA — severidade própria, ver `acharReparos`. */
-  const mexeramNaGorjeta = [];
+  const mexeramNaGorjeta = pia.tip;
+  /** Escreveu ou não? Não dá pra saber — ver o `catch`. */
+  const ackPerdido = pia.ackLost;
   let naoOlhadas = 0;
   let cortou = false;
 
@@ -627,7 +684,11 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
       // TETO conta TENTATIVAS, não sucessos. Com um grant revogado ou a
       // assinatura trocada — a classe do inegociável #7 — o laço gastava a
       // varredura inteira em escritas que falhavam e o teto nunca engatava.
-      if (reparados.length + falhados.length + corridasPerdidas.length >= TETO_DE_REPAROS) { naoOlhadas += 1; cortou = true; break; }
+      // TENTATIVAS, nas quatro saídas: reparo, corrida, resposta perdida e o
+      // que quer que seja classificável. Contando só sucesso, uma RPC que só
+      // estoura gastava a varredura inteira sem nunca engatar o corte.
+      const tentativas = reparados.length + corridasPerdidas.length + ackPerdido.length;
+      if (tentativas >= TETO_DE_REPAROS) { naoOlhadas += 1; cortou = true; break; }
 
       /**
        * A GORJETA que este reparo vai MOVER — medida antes de escrever.
@@ -641,6 +702,14 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
        * contagem: mexeu na gorjeta é `high` no primeiro.
        */
       const deltaGorjeta = (row.refundedTipCents || 0) - pay.refundedTipCents;
+      // O PERÍODO vai junto. `listChecksForReconcile` não tem recorte de data,
+      // então a varredura olha a história inteira da casa: sem isto a mensagem
+      // dizia "confira antes de fechar o período" sobre uma folha de sete meses
+      // atrás. O dever de escrituração da Lei 13.419/2017 é POR PERÍODO —
+      // dizer que um número mexeu sem dizer qual mês não é acionável.
+      // Calculado FORA do `try` porque o `catch` também precisa dele: uma
+      // resposta perdida pode ter mexido na folha.
+      const periodo = String(row.confirmedAt || '').slice(0, 7) || 'sem data';
 
       try {
         const ok = await store.repairPaymentRow({
@@ -662,18 +731,7 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
         });
         if (ok) {
           reparados.push(row.txid);
-          if (deltaGorjeta !== 0) {
-            // O PERÍODO vai junto. `listChecksForReconcile` não tem recorte de
-            // data, então a varredura olha a história inteira da casa: sem isto
-            // a mensagem dizia "confira antes de fechar o período" sobre uma
-            // folha de sete meses atrás. O dever de escrituração da Lei
-            // 13.419/2017 é POR PERÍODO — dizer que um número mexeu sem dizer
-            // qual mês não é acionável. (LOW-2 da revisão de 2026-09-09.)
-            mexeramNaGorjeta.push({
-              txid: row.txid, deltaCents: deltaGorjeta,
-              periodo: String(row.confirmedAt || '').slice(0, 7) || 'sem data',
-            });
-          }
+          if (deltaGorjeta !== 0) mexeramNaGorjeta.push({ txid: row.txid, deltaCents: deltaGorjeta, periodo });
         } else {
           // A linha mudou entre a leitura e o claim, ou sumiu. Contado — uma
           // escrita de dinheiro que vira no-op sem testemunha é como a
@@ -683,19 +741,32 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
           process.stderr.write(`[reconcile] reparo da linha ${row.txid} não pegou: a linha mudou desde a leitura\n`);
         }
       } catch (e) {
-        // Reparo é oportunista: falhar aqui não pode derrubar a varredura —
-        // mas TAMBÉM não pode virar só uma linha de stderr.
-        falhados.push(row.txid);
-        process.stderr.write(`[reconcile] reparo da linha ${row.txid} falhou: ${String(e.message).slice(0, 120)}\n`);
+        /**
+         * NÃO SEI SE ESCREVEU — e é isso que o relatório tem que dizer.
+         *
+         * A RPC pode ter feito COMMIT e a resposta ter se perdido: socket
+         * resetado, timeout no retorno, a Vercel matando o fetch. A linha foi
+         * escrita e este `catch` roda. Classificar isso como "falhou" produzia
+         * uma afirmação FALSA na direção contrária — "a projeção segue atrás do
+         * razão" sobre uma linha que acabou de ser projetada — e mandava o
+         * operador caçar um travamento que não existe. Pior: o
+         * `payment_tip_base_repaired` vive no ramo do sucesso, então
+         * `refunded_tip_cents` (a base da folha, CLT art. 462) podia se mover
+         * com testemunha NENHUMA.
+         *
+         * Então a gorjeta é registrada aqui também, e o achado próprio diz a
+         * verdade: pode ter escrito, pode não ter. (HIGH-1 da revisão de
+         * segurança de 2026-09-09.)
+         */
+        ackPerdido.push({ txid: row.txid, deltaCents: deltaGorjeta, periodo });
+        // `e && e.message`: uma rejeição com valor não-objeto estourava um
+        // TypeError DE DENTRO do catch, e aí sim a varredura caía (LOW-5).
+        process.stderr.write(`[reconcile] reparo da linha ${row.txid}: resposta perdida — pode ter escrito: ${String(e && e.message).slice(0, 120)}\n`);
       }
     }
   }
-  return {
-    reparadas: reparados.length,
-    falhas: falhados.length,
-    corridas: corridasPerdidas.length,
-    achados: acharReparos(reparados, falhados, naoOlhadas, mexeramNaGorjeta, corridasPerdidas),
-  };
+  pia.skipped = naoOlhadas;
+  return resumoDoReparo(pia);
 }
 
 async function reconcileVenue(store, venueId, opts = {}) {
@@ -715,9 +786,12 @@ async function reconcileVenue(store, venueId, opts = {}) {
    * testemunha no relatório — pede a escrita. Qualquer chamador novo nasce
    * lendo. Achado pela revisão de compliance de 2026-09-09 (CRITICAL-1).
    */
+  // O SUMIDOURO é criado AQUI e passado adiante: quem chamou `reconcileVenue`
+  // pode lê-lo pelo mesmo objeto, mesmo que esta função exploda no meio.
+  const pia = opts.witness || {};
   const reparo = opts.repair === true
-    ? await repararLinhasAtrasadas(store, inputs, opts)
-    : { reparadas: 0, falhas: 0, achados: [] };
+    ? await repararLinhasAtrasadas(store, inputs, { ...opts, witness: pia })
+    : { reparadas: 0, corridas: 0, ackPerdidos: 0, achados: [] };
   /**
    * A RELEITURA falha sem derrubar a casa.
    *
@@ -727,12 +801,12 @@ async function reconcileVenue(store, venueId, opts = {}) {
    * inteira saía como "não deu pra conciliar". Releitura que falha quer dizer
    * que o RELATÓRIO está velho, não que o restaurante é inconciliável.
    *
-   * E vale pra `falhas` também: numa noite em que só houve corrida perdida, a
+   * E vale pra corrida perdida também: numa noite em que só houve corrida, a
    * outra escrita PEGOU, e julgar sobre a leitura antiga acusa `refund_mismatch`
    * numa linha que já está certa. (HIGH-1 e MEDIUM-1 da revisão de segurança de
    * 2026-09-09.)
    */
-  if (reparo.reparadas > 0 || reparo.falhas > 0 || reparo.corridas > 0) {
+  if (reparo.reparadas > 0 || reparo.ackPerdidos > 0 || reparo.corridas > 0) {
     try { inputs = await store.listChecksForReconcile(venueId); }
     catch (e) {
       process.stderr.write(`[reconcile] releitura pós-reparo falhou (relatório fica velho): ${String(e.message).slice(0, 120)}\n`);
@@ -763,8 +837,20 @@ async function reconcileVenue(store, venueId, opts = {}) {
     venueFindings: [...daCasa, ...reparo.achados],
     /** Quantas linhas a varredura reprojetou do razão nesta passada. */
     rowsRepaired: reparo.reparadas,
-    /** Quantos reparos FALHARAM — projeção segue atrás, e o relatório diz. */
-    rowsRepairFailed: reparo.falhas,
+    /**
+     * CORRIDA PERDIDA e SEM RESPOSTA — as outras duas saídas.
+     *
+     * O contador de corrida morria nesta fronteira: `repararLinhasAtrasadas` o
+     * produzia e `reconcileVenue` não o devolvia, então o achado `info` era
+     * criado e jogado fora pelo relatório. Um comentário que diz "fica dito" e
+     * um número que não atravessa a função é pior que não contar.
+     *
+     * E "falhou" não é saída: não dá pra distinguir um erro de um commit cuja
+     * resposta se perdeu, então o contador que só sabia dizer zero deu lugar a
+     * `rowsRepairAckLost`, que carrega a dúvida em vez de resolvê-la.
+     */
+    rowsRepairRaced: reparo.corridas,
+    rowsRepairAckLost: reparo.ackPerdidos,
     checksChecked: results.length,
     checksFailed: failed.length,
     totalDriftCents: results.reduce((s, r) => s + Math.abs(r.driftCents), 0),
@@ -903,4 +989,4 @@ async function reconcileVenueHouse(store, venueId) {
 }
 
 module.exports = {
-  acharServicoNuncaArrecadado, repararLinhasAtrasadas, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+  acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };

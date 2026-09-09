@@ -118,7 +118,7 @@ async function notifyPreviaBeacon({ pl, event }) {
  */
 async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked = 0,
                                         driftCents = 0, worstSeverity = 'ok', heartbeat = false,
-                                        rowsRepaired = 0, rowsRepairFailed = 0 }) {
+                                        rowsRepaired = 0, rowsRepairAckLost = 0 }) {
   const secret = process.env.RACHA_NOTIFY_SECRET;
   if (!secret) {
     // Batimento sem ponte não merece um bloco de stderr por noite; alerta sim.
@@ -139,7 +139,7 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
         // reprojetou quatro linhas de `payments` é indistinguível de uma noite
         // em que nada foi tocado — e o batimento é justamente o que se olha
         // quando nada está vermelho (HIGH-3, revisão de 2026-09-09).
-        rowsRepaired, rowsRepairFailed,
+        rowsRepaired, rowsRepairAckLost,
       }),
     });
     const data = await res.json().catch(() => ({}));

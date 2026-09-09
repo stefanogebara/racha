@@ -28,7 +28,7 @@
  * código tem, e não maior.
  */
 
-const { reconcileVenue, reconcileVenueHouse } = require('./reconcile');
+const { reconcileVenue, reconcileVenueHouse, resumoDoReparo } = require('./reconcile');
 const { reconcilePayables } = require('./reconcile-payables');
 
 const RANK = { ok: 0, info: 1, high: 2, critical: 3 };
@@ -197,7 +197,8 @@ async function reconcileOneVenue(store, venue, opts = {}) {
     // junto. Ausência silenciosa seria ruim; isto era uma afirmação FALSA num
     // relatório de dinheiro (HIGH-1 da revisão de segurança de 2026-09-09).
     rowsRepaired: 0,
-    rowsRepairFailed: 0,
+    rowsRepairRaced: 0,
+    rowsRepairAckLost: 0,
   };
   /**
    * O REPARO SAI DO `Promise.all` — escrita que aconteceu sobrevive a leitura
@@ -212,12 +213,19 @@ async function reconcileOneVenue(store, venue, opts = {}) {
    * transitório nela é a classe exata de transitório que esta função existe
    * pra consertar.
    */
-  let reparo = { rowsRepaired: 0, rowsRepairFailed: 0, venueFindings: [] };
+  // O SUMIDOURO: `repararLinhasAtrasadas` escreve nele À MEDIDA que age, então
+  // o `catch` lê o que já aconteceu mesmo que o estouro venha de DENTRO do
+  // `reconcileVenue` — de um `reduce()` na conta seguinte, por exemplo, depois
+  // de a linha anterior já ter sido escrita. Sem ele a testemunha só sobrevivia
+  // a um estouro de perna IRMÃ. (MEDIUM-2 da revisão de segurança.)
+  const pia = { repaired: [], failed: [], raced: [], ackLost: [], tip: [], skipped: 0 };
+  let reparo = { rowsRepaired: 0, rowsRepairRaced: 0, rowsRepairAckLost: 0, venueFindings: [] };
   try {
-    const checks = await reconcileVenue(store, venue.id, opts);
+    const checks = await reconcileVenue(store, venue.id, { ...opts, witness: pia });
     reparo = {
       rowsRepaired: checks.rowsRepaired || 0,
-      rowsRepairFailed: checks.rowsRepairFailed || 0,
+      rowsRepairRaced: checks.rowsRepairRaced || 0,
+      rowsRepairAckLost: checks.rowsRepairAckLost || 0,
       venueFindings: checks.venueFindings || [],
     };
     const [house, payables] = await Promise.all([
@@ -264,9 +272,17 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       // segurança de 2026-09-09). O achado correspondente vem em `findings`,
       // via `venueFindings`; estes contadores são pro relatório e pro alerta.
       rowsRepaired: checks.rowsRepaired || 0,
-      rowsRepairFailed: checks.rowsRepairFailed || 0,
+      rowsRepairRaced: checks.rowsRepairRaced || 0,
+      rowsRepairAckLost: checks.rowsRepairAckLost || 0,
+      // O TIER `info` para de ser só-escrita. `venues[]` descarta `findings` de
+      // casa não-vermelha, então uma noite inteira de corridas perdidas — ou a
+      // perna de custódia pulada por prazo — saía como um relatório mudo.
+      infoFindings: findings.filter((f) => f.severity === 'info').map((f) => f.code),
     };
   } catch (err) {
+    // Reconstrói o resumo a partir da pia — mesma função do caminho feliz, pra
+    // que os dois lados não possam divergir.
+    const resumo = resumoDoReparo(pia);
     // Um restaurante que estoura é ele próprio um achado crítico: significa que
     // o dinheiro dele não pôde ser conferido, que é o pior estado possível —
     // pior que drift conhecido.
@@ -276,13 +292,17 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       // O que o reparo JÁ FEZ vem junto: os contadores e os achados dele. A
       // conciliação não pôde ser concluída, mas as linhas que foram reescritas
       // foram reescritas, e quem lê o alerta precisa saber disso.
-      rowsRepaired: reparo.rowsRepaired,
-      rowsRepairFailed: reparo.rowsRepairFailed,
+      // Do SUMIDOURO, não do `reparo`: se o estouro veio de dentro do
+      // `reconcileVenue`, `reparo` nunca foi atribuído — mas a pia já tem o que
+      // foi escrito até ali.
+      rowsRepaired: resumo.reparadas,
+      rowsRepairRaced: resumo.corridas,
+      rowsRepairAckLost: resumo.ackPerdidos,
       findings: [{
         severity: 'critical',
         code: 'venue_reconcile_threw',
         message: `não deu pra conciliar: ${String(err && err.message).slice(0, 200)}`,
-      }, ...reparo.venueFindings],
+      }, ...resumo.achados],
     };
   }
 }
@@ -309,10 +329,21 @@ async function reconcileAllVenues(store, opts = {}) {
   for (const v of venues) {
     // Em série de propósito: a varredura é diária e roda no escuro; martelar o
     // banco em paralelo pra terminar meio segundo antes não paga o risco.
-    // `repair: true` sai DAQUI e de nenhum outro lugar: a varredura é o único
-    // caminho com prazo, teto e testemunha no relatório. Ver `reconcileVenue`.
+    /**
+     * OPT-IN AQUI TAMBÉM. Era `opts.repair !== false` — opt-OUT.
+     *
+     * O `reconcileVenue` virou opt-in e o comentário dele diz "qualquer chamador
+     * novo nasce lendo". Era verdade pra ele e MENTIRA uma camada acima: uma
+     * rota nova fazendo `reconcileAllVenues(store, {})` escrevia calada, e o
+     * censo de rotas procura a string `repair: true`, então não pegaria. O
+     * padrão tem que ser o mesmo nos dois níveis, senão a frase protege só
+     * metade do caminho. (LOW-3 da revisão de segurança de 2026-09-09.)
+     *
+     * O cron passa `repair` explicitamente — ele já calcula
+     * `url.searchParams.get('dry') !== '1'`.
+     */
     venueReports.push(await reconcileOneVenue(store, v, {
-      ...opts, deadline: prazoDaVarredura, repair: opts.repair !== false,
+      ...opts, deadline: prazoDaVarredura, repair: opts.repair === true,
     }));
   }
 
@@ -351,7 +382,8 @@ async function reconcileAllVenues(store, opts = {}) {
     // que se repete seria remendado pra sempre e reportado verde: a forma exata
     // dos 12 dias do incidente do Seatable (HIGH-2, revisão de 2026-09-09).
     rowsRepaired: venueReports.reduce((s, r) => s + (r.rowsRepaired || 0), 0),
-    rowsRepairFailed: venueReports.reduce((s, r) => s + (r.rowsRepairFailed || 0), 0),
+    rowsRepairRaced: venueReports.reduce((s, r) => s + (r.rowsRepairRaced || 0), 0),
+    rowsRepairAckLost: venueReports.reduce((s, r) => s + (r.rowsRepairAckLost || 0), 0),
     // O relatório inteiro é grande e ninguém lê trinta casas verdes: só o que
     // pede ação sai detalhado.
     red,
@@ -383,16 +415,19 @@ function formatReconcileAlert(report) {
    * sistemático — mas QUALQUER escrita bem-sucedida aparece na mensagem.
    * (HIGH-3 da revisão de segurança de 2026-09-09.)
    */
-  const escreveu = (report.rowsRepaired || 0) > 0 || (report.rowsRepairFailed || 0) > 0;
+  // ACK PERDIDO conta como escrita: "pode ter escrito" precisa acordar alguém
+  // tanto quanto "escreveu". Corrida perdida não escreveu nada, mas o número
+  // atravessa o relatório pra que o tier `info` deixe de ser só-escrita.
+  const escreveu = (report.rowsRepaired || 0) > 0 || (report.rowsRepairAckLost || 0) > 0;
   if (report.venuesRed === 0 && orfaos === 0 && !escreveu) return null;
   // O que a varredura ESCREVEU sai na mensagem, não só no JSON: quem lê o
   // alerta às 4 da manhã precisa saber que a conciliação mexeu em linha de
   // dinheiro antes de julgar o resto do texto.
   const reparos = report.rowsRepaired || 0;
-  const reparosRuins = report.rowsRepairFailed || 0;
-  const linhaReparos = (reparos > 0 || reparosRuins > 0)
+  const semResposta = report.rowsRepairAckLost || 0;
+  const linhaReparos = (reparos > 0 || semResposta > 0)
     ? `\n\na varredura reprojetou ${reparos} linha(s) de pagamento do razão`
-      + (reparosRuins > 0 ? ` e FALHOU em ${reparosRuins}` : '')
+      + (semResposta > 0 ? ` e ficou SEM RESPOSTA em ${semResposta} (pode ter escrito)` : '')
     : '';
   const linhaOrfaos = orfaos > 0
     ? `\n\n${orfaos} evento(s) de dinheiro SEM conta correspondente: `

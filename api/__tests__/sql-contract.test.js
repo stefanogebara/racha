@@ -602,3 +602,65 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
     expect(apend.test(antes)).toBe(true);
   }
 });
+
+/**
+ * A IMAGEM ANTERIOR não pode encolher em silêncio.
+ *
+ * A 0026 gravava seis campos. A 0029 — a migração de PROCEDÊNCIA, escrita pra
+ * FORTALECER esse registro — reconstruiu o `jsonb_build_object` com cinco e
+ * perdeu `confirmed_at`, no mesmo arquivo, sem uma linha dizendo por quê.
+ * Conserto pela metade: melhorou o "quem pediu" e piorou o "o que era antes".
+ *
+ * A imagem anterior é o único registro durável do estado pré-reparo — LGPD art.
+ * 37, e CLT art. 11 (cinco anos) numa discussão sobre a gorjeta de um período.
+ * Ela pode ganhar campos; encolher exige mexer aqui.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (LOW-4).
+ */
+test('a imagem ANTERIOR do reparo nunca perde um campo', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = path.join(__dirname, '..', '..', 'supabase', 'migrations');
+  const arquivos = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+
+  // Todo arquivo que redefine a função, na ordem: o conjunto de campos da
+  // imagem anterior só pode crescer.
+  const versoes = [];
+  for (const f of arquivos) {
+    const sql = fs.readFileSync(path.join(dir, f), 'utf8');
+    if (!sql.includes('function public.repair_payment_row(')) continue;
+    const antes = sql.match(/into\s+v_antes/);
+    if (!antes) continue;
+    // O `jsonb_build_object` que alimenta `v_antes`.
+    const bloco = sql.slice(0, antes.index);
+    const ultimo = bloco.lastIndexOf('jsonb_build_object');
+    const campos = [...bloco.slice(ultimo).matchAll(/'(\w+)',/g)].map((m) => m[1]);
+    versoes.push({ arquivo: f, campos: new Set(campos) });
+  }
+  expect(versoes.length).toBeGreaterThanOrEqual(2);
+
+  /**
+   * A regra é sobre o ESTADO ATUAL, não sobre a história.
+   *
+   * Migração é append-only: a 0029 de fato encolheu, e a 0030 devolveu. Fixar
+   * "nenhuma versão jamais encolheu" faria este teste falhar pra sempre por um
+   * fato já corrigido — e um teste que não dá pra deixar verde é um teste que
+   * alguém apaga. A invariante que importa é que nada que já foi registrado
+   * esteja PERMANENTEMENTE fora: a união de tudo que qualquer versão gravou tem
+   * que caber na versão vigente.
+   */
+  const jaGravados = new Set(versoes.flatMap((v) => [...v.campos]));
+  const atual = versoes[versoes.length - 1].campos;
+  const perdidosDeVez = [...jaGravados].filter((c) => !atual.has(c)).sort();
+  expect(perdidosDeVez).toEqual([]);
+
+  // E a versão vigente guarda as colunas de dinheiro MAIS a data.
+  const vigente = versoes[versoes.length - 1].campos;
+  for (const c of ['status', 'confirmed_amount_cents', 'confirmed_tip_cents',
+    'refunded_amount_cents', 'refunded_tip_cents', 'confirmed_at']) {
+    expect([...vigente]).toContain(c);
+  }
+  // E NUNCA o que o cliente digitou: a tabela é permanente (LGPD art. 6º III).
+  expect([...vigente]).not.toContain('payer_label');
+  expect([...vigente]).not.toContain('payer_document');
+});
