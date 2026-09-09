@@ -32,8 +32,28 @@ function required(name) {
   return v;
 }
 
+/**
+ * O CÓDIGO DO POSTGRES SOBREVIVE AO `throw`.
+ *
+ * O erro do postgrest-js carrega um discriminador que estava sendo jogado fora:
+ * uma falha de TRANSPORTE vira `{ code: '' | 'UND_ERR_*' }`, enquanto um erro
+ * do SERVIDOR carrega um SQLSTATE. E SQLSTATE quer dizer que o servidor
+ * produziu uma resposta completa — ou seja, a transação deu ROLLBACK e nada foi
+ * escrito. Provável de esperar: `42883` (assinatura mudou — a 0030 acabou de
+ * fazer um `create or replace`), `42703` (o código do incidente do Seatable),
+ * `42501` (grant revogado), `23514`.
+ *
+ * Sem isso, o reparo tratava todo lance como "pode ter escrito" e reportava um
+ * movimento na base da folha que provadamente não aconteceu — com valor em
+ * centavos e mês, até 200 linhas por casa por noite, sob uma causa sistemática.
+ * Achado pela revisão de segurança de 2026-09-09 (MEDIUM-1).
+ */
 function throwOn(error, op) {
-  if (error) throw new Error(`supabase store ${op}: ${error.message}`);
+  if (!error) return;
+  const e = new Error(`supabase store ${op}: ${error.message}`);
+  // `code` vazio ou `UND_ERR_*` é transporte: aí sim não dá pra saber.
+  if (error.code && !/^UND_ERR/.test(error.code)) e.pgCode = error.code;
+  throw e;
 }
 
 // Postgres errors on a non-uuid string in a uuid column; a malformed id from

@@ -1515,14 +1515,28 @@ describe('a escrita sobrevive à leitura que falhou', () => {
      * tem que existir no `base`, senão o `catch` devolve `undefined` num
      * relatório de dinheiro.
      */
-    const agregado = daily.match(/return \{\s*\n\s*at: new Date[\s\S]*?\n {2}\};/);
-    expect(agregado).not.toBeNull();
-    const lidasPorCasa = new Set(
-      [...agregado[0].matchAll(/\br\.(\w+)/g)].map((m) => m[1]),
+    /**
+     * A SUPERFÍCIE é o RETORNO DE SUCESSO, não os redutores do agregado.
+     *
+     * A versão anterior derivava de `r.(\w+)` dentro dos redutores de
+     * `reconcileAllVenues` — o que fecha aquela classe, mas o contrato de
+     * verdade é uma linha abaixo: `venues: venueReports.map(({ findings,
+     * ...rest }) => rest)` projeta TODA chave de `rest`. Uma chave consumida
+     * pela projeção e não por um redutor é invisível pra ela — e eu enviei
+     * exatamente uma dessas no mesmo commit (`infoFindings`).
+     *
+     * Então: toda chave do retorno de SUCESSO tem que existir no `base`, senão o
+     * `catch` devolve uma casa com a chave faltando e o relatório fica com
+     * formas diferentes conforme o dia. (LOW-1 da revisão de segurança.)
+     */
+    const sucesso = daily.match(/return \{\s*\n\s*\.\.\.base,[\s\S]*?\n {4}\};/);
+    expect(sucesso).not.toBeNull();
+    const doSucesso = new Set(
+      [...sucesso[0].matchAll(/^\s{6}(\w+):/gm)].map((m) => m[1]),
     );
-    expect(lidasPorCasa.size).toBeGreaterThanOrEqual(4);
+    expect(doSucesso.size).toBeGreaterThanOrEqual(4);
 
-    const faltando = [...lidasPorCasa].filter((k) => !chavesBase.has(k)).sort();
+    const faltando = [...doSucesso].filter((k) => !chavesBase.has(k)).sort();
     expect(faltando).toEqual([]);
 
     // E o `catch` devolve a partir do `base`, não de um objeto próprio.
@@ -1726,4 +1740,193 @@ describe('confirmed_at_missing: dispara, e só onde deve', () => {
     const achados = conta({ ...base, status: 'pendente', confirmedAt: null });
     expect(achados.some((x) => x.code === 'confirmed_at_missing')).toBe(false);
   });
+});
+
+/**
+ * O ACHADO DE AGREGADO SOBREVIVE AO ERRO DA PERNA IRMÃ.
+ *
+ * A troca pela pia fez o `catch` montar os achados de `resumo.achados` — que é
+ * só do reparo — no lugar de `checks.venueFindings`, que é
+ * `[...daCasa, ...reparo.achados]`. O `service_never_collected` sumiu do
+ * caminho de erro sem nada acusar.
+ *
+ * O estrago: um adaptador de POS passa a ler o campo errado depois de uma
+ * virada de versão, toda cobrança confirma em `pedido / 1,1` e a casa arrecada
+ * ZERO de serviço. É o achado que só existe no agregado — nenhuma faixa por
+ * pagamento separa isso. Numa noite em que a perna da casa toma um 5xx
+ * transitório, esse `high` era descartado e a única linha que o fundador lia às
+ * 4 da manhã era "não deu pra conciliar: supabase 503": uma mensagem que parece
+ * transitória engolindo a que diz que o restaurante está perdendo 10% em toda
+ * conta. E `venues[]` descarta `findings`, então nem do JSON dava pra recuperar.
+ *
+ * O teste que existia afirmava `findings.some(f => f.code === 'venue_reconcile_threw')`.
+ * Afirmação de EXISTÊNCIA sobre um array nunca pega uma remoção desse array — e
+ * ele ainda envenenava a segunda conta, que é o único caminho em que
+ * `venueFindings` está legitimamente vazio. Invisível no cenário escolhido.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
+ */
+describe('perna irmã estoura: o achado de agregado fica', () => {
+  const { reconcileOneVenue } = require('../_lib/checks/reconcile-daily');
+
+  /** Nove pagamentos confirmados, serviço COBRADO e nada arrecadado. */
+  function mundoComServicoNaoArrecadado() {
+    const inputs = [];
+    for (let i = 0; i < 9; i += 1) {
+      inputs.push({
+        checkId: `c_${i}`,
+        events: [
+          { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 1000, currency: 'BRL' } },
+          { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: `ch_${i}`, amountCents: 10000, tipCents: 1000, method: 'pix' } },
+        ],
+        payments: [{
+          // COBRADO 1000¢ de serviço, ARRECADADO zero: é o que
+          // `acharServicoNuncaArrecadado` procura, e nenhuma faixa por
+          // pagamento separa isso — só o agregado.
+          txid: `ch_${i}`, status: 'confirmado', amountCents: 10000, tipCents: 1000,
+          confirmedAmountCents: 10000, confirmedTipCents: 0,
+          confirmedAt: '2026-07-20T12:00:00.000Z',
+          refundedAmountCents: 0, refundedTipCents: 0,
+        }],
+      });
+    }
+    return {
+      listChecksForReconcile: async () => inputs,
+      // A perna IRMÃ estoura — DEPOIS de o `reconcileVenue` ter resolvido.
+      listHouseAccountsForReconcile: async () => { throw new Error('supabase 503'); },
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      repairPaymentRow: async () => true,
+    };
+  }
+
+  test('`service_never_collected` continua no relatório da casa que estourou', async () => {
+    const store = mundoComServicoNaoArrecadado();
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' }, { repair: true });
+
+    const codigos = r.findings.map((f) => f.code);
+    expect(codigos).toContain('venue_reconcile_threw');
+    // A afirmação que faltava: o achado do AGREGADO não pode ser engolido pela
+    // mensagem transitória.
+    expect(codigos).toContain('service_never_collected');
+  });
+
+  test('e sem estouro nenhum ele também está lá — a comparação é justa', async () => {
+    const store = mundoComServicoNaoArrecadado();
+    store.listHouseAccountsForReconcile = async () => [];
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' }, { repair: true });
+    expect(r.findings.map((f) => f.code)).toContain('service_never_collected');
+  });
+});
+
+/**
+ * SQLSTATE é prova de ROLLBACK — "não dá pra classificar" era falso.
+ *
+ * O erro do postgrest-js carrega um discriminador que o `throwOn` jogava fora:
+ * falha de TRANSPORTE não tem código (ou tem `UND_ERR_*`), enquanto erro do
+ * SERVIDOR carrega SQLSTATE — e SQLSTATE quer dizer que o servidor produziu uma
+ * resposta completa, logo a transação caiu e NADA foi escrito.
+ *
+ * Sem isso, um grant revogado (`42501`) ou uma assinatura trocada (`42883` — a
+ * 0030 acabou de fazer um `create or replace`) produzia "PODE ter escrito,
+ * incluindo -500¢ na base da folha de 2026-02" para até 200 linhas por casa,
+ * toda noite. Falso na direção oposta ao HIGH-1, na mesma coluna.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (MEDIUM-1).
+ */
+describe('recusado pelo banco ≠ resposta perdida', () => {
+  const { repararLinhasAtrasadas } = require('../_lib/checks/reconcile');
+
+  const entrada = () => [{
+    checkId: 'c1',
+    events: [
+      { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+      { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 1000, method: 'pix' } },
+      { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 500, offRail: true, reference: 'x', by: 'd@b' } },
+    ],
+    payments: [{
+      txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 1000,
+      confirmedAmountCents: 10000, confirmedTipCents: 1000,
+      confirmedAt: '2026-02-14T12:00:00.000Z',
+      refundedAmountCents: 0, refundedTipCents: 0,
+    }],
+  }];
+
+  test('`42501` (grant revogado) é RECUSA — nada de "pode ter escrito"', async () => {
+    const store = {
+      async repairPaymentRow() {
+        const e = new Error('supabase store repairPaymentRow: permission denied');
+        e.pgCode = '42501';
+        throw e;
+      },
+    };
+    const r = await repararLinhasAtrasadas(store, entrada(), {});
+    expect(r.rejeitados).toBe(1);
+    expect(r.ackPerdidos).toBe(0);
+    const f = r.achados.find((x) => x.code === 'payment_row_repair_rejected');
+    expect(f.severity).toBe('high');
+    // E NÃO afirma movimento na base da folha, porque não houve.
+    expect(r.achados.some((x) => x.code === 'payment_repair_ack_lost')).toBe(false);
+  });
+
+  test('falha de TRANSPORTE segue sendo dúvida — com a gorjeta', async () => {
+    const store = { async repairPaymentRow() { throw new Error('fetch failed'); } };
+    const r = await repararLinhasAtrasadas(store, entrada(), {});
+    expect(r.rejeitados).toBe(0);
+    expect(r.ackPerdidos).toBe(1);
+    const f = r.achados.find((x) => x.code === 'payment_repair_ack_lost');
+    expect(f.tipDeltaCents).toBe(-500);
+  });
+
+  test('`UND_ERR_*` é transporte, não SQLSTATE', async () => {
+    // O postgrest-js usa esse prefixo pra falha de rede do undici. Tratar como
+    // recusa afirmaria rollback onde não há resposta nenhuma.
+    const store = {
+      async repairPaymentRow() {
+        const e = new Error('fetch failed');
+        e.pgCode = undefined;   // o `throwOn` não anexa em UND_ERR_*
+        throw e;
+      },
+    };
+    const r = await repararLinhasAtrasadas(store, entrada(), {});
+    expect(r.ackPerdidos).toBe(1);
+    expect(r.rejeitados).toBe(0);
+  });
+});
+
+/**
+ * A PIA É POR INVOCAÇÃO. Era `pia.x = pia.x || []` — acumulava.
+ *
+ * Nenhum chamador reusa o `opts` hoje, e nada proibia. A retentativa que vai ser
+ * acrescentada é justamente pro "5xx transitório" que estes comentários vivem
+ * descrevendo, e ela dobraria os contadores E a soma de centavos da gorjeta.
+ */
+test('duas chamadas com o mesmo `opts` não somam duas vezes', async () => {
+  const { reconcileVenue } = require('../_lib/checks/reconcile');
+  const linha = {
+    txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 1000,
+    confirmedAmountCents: 10000, confirmedTipCents: 1000,
+    confirmedAt: '2026-02-14T12:00:00.000Z',
+    refundedAmountCents: 0, refundedTipCents: 0,
+  };
+  const inputs = [{
+    checkId: 'c1',
+    events: [
+      { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+      { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 1000, method: 'pix' } },
+      { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 500, offRail: true, reference: 'x', by: 'd@b' } },
+    ],
+    payments: [linha],
+  }];
+  const store = {
+    listChecksForReconcile: async () => inputs,
+    repairPaymentRow: async () => true,   // sempre "reparou", sem mutar o input
+  };
+  const opts = { repair: true, witness: {} };
+  const a = await reconcileVenue(store, 'v1', opts);
+  const b = await reconcileVenue(store, 'v1', opts);
+  expect(a.rowsRepaired).toBe(1);
+  expect(b.rowsRepaired).toBe(1);   // não 2
+  const gorj = b.venueFindings.find((f) => f.code === 'payment_tip_base_repaired');
+  expect(gorj.tipDeltaCents).toBe(-500);   // não -1000
 });

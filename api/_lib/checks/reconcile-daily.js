@@ -199,6 +199,8 @@ async function reconcileOneVenue(store, venue, opts = {}) {
     rowsRepaired: 0,
     rowsRepairRaced: 0,
     rowsRepairAckLost: 0,
+    rowsRepairRejected: 0,
+    infoFindings: [],
   };
   /**
    * O REPARO SAI DO `Promise.all` — escrita que aconteceu sobrevive a leitura
@@ -219,13 +221,14 @@ async function reconcileOneVenue(store, venue, opts = {}) {
   // de a linha anterior já ter sido escrita. Sem ele a testemunha só sobrevivia
   // a um estouro de perna IRMÃ. (MEDIUM-2 da revisão de segurança.)
   const pia = { repaired: [], failed: [], raced: [], ackLost: [], tip: [], skipped: 0 };
-  let reparo = { rowsRepaired: 0, rowsRepairRaced: 0, rowsRepairAckLost: 0, venueFindings: [] };
+  let reparo = { rowsRepaired: 0, rowsRepairRaced: 0, rowsRepairAckLost: 0, rowsRepairRejected: 0, venueFindings: [] };
   try {
     const checks = await reconcileVenue(store, venue.id, { ...opts, witness: pia });
     reparo = {
       rowsRepaired: checks.rowsRepaired || 0,
       rowsRepairRaced: checks.rowsRepairRaced || 0,
       rowsRepairAckLost: checks.rowsRepairAckLost || 0,
+      rowsRepairRejected: checks.rowsRepairRejected || 0,
       venueFindings: checks.venueFindings || [],
     };
     const [house, payables] = await Promise.all([
@@ -274,6 +277,7 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       rowsRepaired: checks.rowsRepaired || 0,
       rowsRepairRaced: checks.rowsRepairRaced || 0,
       rowsRepairAckLost: checks.rowsRepairAckLost || 0,
+      rowsRepairRejected: checks.rowsRepairRejected || 0,
       // O TIER `info` para de ser só-escrita. `venues[]` descarta `findings` de
       // casa não-vermelha, então uma noite inteira de corridas perdidas — ou a
       // perna de custódia pulada por prazo — saía como um relatório mudo.
@@ -298,11 +302,16 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       rowsRepaired: resumo.reparadas,
       rowsRepairRaced: resumo.corridas,
       rowsRepairAckLost: resumo.ackPerdidos,
+      rowsRepairRejected: resumo.rejeitados,
+      // `venueFindings` VEM JUNTO: sem ele o `service_never_collected` — o
+      // achado que só existe no agregado — sumia do caminho de erro, e uma
+      // noite em que o restaurante perde 10% em toda conta virava uma linha
+      // dizendo "supabase 503".
       findings: [{
         severity: 'critical',
         code: 'venue_reconcile_threw',
         message: `não deu pra conciliar: ${String(err && err.message).slice(0, 200)}`,
-      }, ...resumo.achados],
+      }, ...resumo.achados, ...resumo.venueFindings],
     };
   }
 }
@@ -384,6 +393,12 @@ async function reconcileAllVenues(store, opts = {}) {
     rowsRepaired: venueReports.reduce((s, r) => s + (r.rowsRepaired || 0), 0),
     rowsRepairRaced: venueReports.reduce((s, r) => s + (r.rowsRepairRaced || 0), 0),
     rowsRepairAckLost: venueReports.reduce((s, r) => s + (r.rowsRepairAckLost || 0), 0),
+    rowsRepairRejected: venueReports.reduce((s, r) => s + (r.rowsRepairRejected || 0), 0),
+    // O TIER `info` DO SWEEP INTEIRO. Ele atravessava uma fronteira e parava na
+    // seguinte: `infoFindings` existia por casa e nada o lia. `payables_unchecked`
+    // é `info`, então a perna de custódia podia apagar a varredura inteira e o
+    // relatório sair verde. (MEDIUM-2 da revisão de segurança de 2026-09-09.)
+    infoCodes: [...new Set(venueReports.flatMap((r) => r.infoFindings || []))].sort(),
     // O relatório inteiro é grande e ninguém lê trinta casas verdes: só o que
     // pede ação sai detalhado.
     red,
@@ -418,15 +433,18 @@ function formatReconcileAlert(report) {
   // ACK PERDIDO conta como escrita: "pode ter escrito" precisa acordar alguém
   // tanto quanto "escreveu". Corrida perdida não escreveu nada, mas o número
   // atravessa o relatório pra que o tier `info` deixe de ser só-escrita.
-  const escreveu = (report.rowsRepaired || 0) > 0 || (report.rowsRepairAckLost || 0) > 0;
+  const escreveu = (report.rowsRepaired || 0) > 0 || (report.rowsRepairAckLost || 0) > 0
+    || (report.rowsRepairRejected || 0) > 0;
   if (report.venuesRed === 0 && orfaos === 0 && !escreveu) return null;
   // O que a varredura ESCREVEU sai na mensagem, não só no JSON: quem lê o
   // alerta às 4 da manhã precisa saber que a conciliação mexeu em linha de
   // dinheiro antes de julgar o resto do texto.
   const reparos = report.rowsRepaired || 0;
   const semResposta = report.rowsRepairAckLost || 0;
-  const linhaReparos = (reparos > 0 || semResposta > 0)
+  const recusados = report.rowsRepairRejected || 0;
+  const linhaReparos = (reparos > 0 || semResposta > 0 || recusados > 0)
     ? `\n\na varredura reprojetou ${reparos} linha(s) de pagamento do razão`
+      + (recusados > 0 ? `, teve ${recusados} RECUSADA(S) pelo banco (nada escrito)` : '')
       + (semResposta > 0 ? ` e ficou SEM RESPOSTA em ${semResposta} (pode ter escrito)` : '')
     : '';
   const linhaOrfaos = orfaos > 0

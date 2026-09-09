@@ -589,19 +589,91 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
   const path = require('node:path');
   const raiz = path.join(__dirname, '..');
 
-  const casos = [
-    ['_lib/pay/webhook-handler.js', /appendEvent|appendValidated|append\(/],
-    ['_app/router.js', /appendValidated/],
-  ];
-  for (const [rel, apend] of casos) {
-    const fonte = fs.readFileSync(path.join(raiz, rel), 'utf8');
+  /**
+   * SEM COMENTÁRIO, e no BLOCO certo — a versão anterior era vazia.
+   *
+   * Ela procurava o append em QUALQUER lugar do arquivo antes da projeção. No
+   * `webhook-handler.js` isso casava com uma linha de JSDoc do topo (`The store
+   * is injected ({ loadEvents, appendEvent, recordPayment })`), então a
+   * afirmação passava mesmo apagando TODO append do arquivo. No `router.js`
+   * casava com um `appendValidated` de outra rota, milhares de linhas antes.
+   *
+   * E a regra não é a mesma nos dois. No `router.js` a rota apenda e projeta no
+   * mesmo trecho. No `webhook-handler.js` quem projeta é `repairRowFromLedger`,
+   * que NÃO apenda — ela deriva do razão (`loadEvents`) e escreve só a linha. A
+   * ordenação ali é da CADEIA: cada chamador apenda e só depois chama. Então
+   * são duas afirmações diferentes, e a antiga não fazia nenhuma das duas.
+   * (LOW-2 da revisão de segurança de 2026-09-09.)
+   */
+  const semComentario = (t) => t
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  // --- a ROTA: apenda e projeta no mesmo trecho ---------------------------
+  {
+    const fonte = semComentario(fs.readFileSync(path.join(raiz, '_app', 'router.js'), 'utf8'));
     const iProj = fonte.indexOf('repairPaymentRow({');
     expect(iProj).toBeGreaterThan(0);
-    // Existe um append ANTES da projeção, no mesmo arquivo.
     const antes = fonte.slice(0, iProj);
-    expect(apend.test(antes)).toBe(true);
+    let inicio = 0;
+    for (const m of antes.matchAll(/url\.pathname ===/g)) inicio = m.index;
+    expect(inicio).toBeGreaterThan(0);
+    expect(/appendValidated/.test(antes.slice(inicio))).toBe(true);
+  }
+
+  // --- o WEBHOOK: a projeção não apenda, e todo chamador apenda antes ------
+  {
+    const fonte = semComentario(fs.readFileSync(path.join(raiz, '_lib', 'pay', 'webhook-handler.js'), 'utf8'));
+
+    // 1. `repairRowFromLedger` é PROJEÇÃO: lê o razão e não escreve nele.
+    const corpo = fonte.match(/async function repairRowFromLedger[\s\S]*?\n\}/);
+    expect(corpo).not.toBeNull();
+    expect(/loadEvents\(/.test(corpo[0])).toBe(true);
+    expect(/appendEvent\(|appendValidated\(/.test(corpo[0])).toBe(false);
+
+    /**
+     * 2. Ela só é chamada em caminho de REENTREGA — CHEIRO, não prova.
+     *
+     * Dito na cara: esta segunda metade procura o NOME do teste de reentrega
+     * perto da chamada, não o fluxo de controle. Medido: trocando
+     * `if (jaEncerrada)` por `if (true)`, ela continua verde, porque a palavra
+     * segue no texto acima. Provar de verdade pediria analisar controle de
+     * fluxo, e um teste que promete mais do que entrega é o pino com cabeçalho
+     * de censo outra vez — então fica dito o que ele é.
+     *
+     * A afirmação FORTE é a (1): `repairRowFromLedger` nunca apenda. Essa é
+     * mutation-provada (pôr um `appendEvent` no corpo derruba o teste), e é ela
+     * que sustenta "a linha nunca lidera o razão".
+     *
+     * A revisão sugeriu afirmar "o append precede a chamada na mesma função".
+     * Medindo, não é assim que o handler funciona: as oito chamadas estão todas
+     * em caminho de DUPLICATA — `seenPspEvent`, `seq < 0` (seq negativo é
+     * duplicata), `delta <= 0`, `existing.*Cents === parsed.*Cents`. O append
+     * aconteceu numa entrega ANTERIOR, que é a premissa inteira de
+     * `repairRowFromLedger`: o razão já tem o evento e só a linha ficou atrás.
+     *
+     * Então a ordenação não é intra-função, é entre entregas — e o que a
+     * sustenta é (1) acima mais o fato de que todo chamador está atrás de um
+     * teste de duplicata. É isso que dá pra afirmar, e é isso que se afirma.
+     */
+    // `check.id` e não `checkId`: exclui a própria DEFINIÇÃO da função.
+    const chamadas = [...fonte.matchAll(/repairRowFromLedger\(check\.id/g)].map((m) => m.index);
+    expect(chamadas.length).toBeGreaterThanOrEqual(7);
+    /**
+     * Os testes de reentrega que guardam cada chamada. `jaEncerrada` é uma
+     * disputa já fechada — reentrega também, só que dita por outro nome.
+     */
+    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada/;
+    const semGuarda = [];
+    for (const idx of chamadas) {
+      // O trecho antes da chamada, até o `if` que a guarda.
+      const contexto = fonte.slice(Math.max(0, idx - 800), idx);
+      if (!DUPLICATA.test(contexto)) semGuarda.push(fonte.slice(idx - 60, idx + 40).replace(/\s+/g, ' '));
+    }
+    expect(semGuarda).toEqual([]);
   }
 });
+
 
 /**
  * A IMAGEM ANTERIOR não pode encolher em silêncio.

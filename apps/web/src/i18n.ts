@@ -436,12 +436,26 @@ export const DICT = {
   'find.payment_row_repaired': { en: 'we corrected payment rows that were showing outdated amounts — your revenue totals for the affected days may have changed',
                         pt: 'corrigimos linhas de pagamento que mostravam valores desatualizados — o faturamento dos dias afetados pode ter mudado',
                         es: 'corregimos filas de pago que mostraban importes desactualizados — la facturación de esos días puede haber cambiado' },
+  // RECUSADO pelo banco: afirmação FIRME, nada foi escrito.
+  'find.payment_row_repair_rejected': { en: 'the database refused to correct some payment rows — nothing was written, and what you see stays behind the ledger until this is resolved',
+                        pt: 'o banco recusou a correção de algumas linhas de pagamento — nada foi escrito, e o que você vê segue atrás do razão até isso ser resolvido',
+                        es: 'la base rechazó corregir algunas filas de pago — no se escribió nada, y lo que ve sigue atrás del libro hasta resolverlo' },
   // NÃO SEI SE ESCREVEU. A RPC pode ter dado commit com a resposta perdida —
   // dizer "falhou" seria uma afirmação falsa na direção contrária, e mandaria o
   // dono caçar um travamento que não existe.
-  'find.payment_repair_ack_lost': { en: 'we tried to correct payment rows and got no answer from the database — the correction may or may not have been applied; check these payments before closing the period',
-                        pt: 'tentamos corrigir linhas de pagamento e não tivemos resposta do banco — a correção pode ou não ter sido aplicada; confira esses pagamentos antes de fechar o período',
-                        es: 'intentamos corregir filas de pago y no hubo respuesta de la base — la corrección puede haberse aplicado o no; revise esos pagos antes de cerrar el período' },
+  // A DÚVIDA É DE UM LADO SÓ, e o lado seguro tem nome.
+  //
+  // O reparo só entra numa linha ATRÁS do razão nas pernas de estorno, então
+  // ele só pode AUMENTAR `refunded_tip_cents` — ou seja, só pode DIMINUIR a
+  // base da folha. Nunca é "subiu ou desceu": é "o número exibido já alcançou
+  // ou não". E os dois erros não são simétricos: distribuir pelo número ANTIGO
+  // (maior) e estar errado é distribuição a mais, que o CLT art. 462 proíbe
+  // descontar depois — o dinheiro foi. Distribuir pelo do RAZÃO (menor) e estar
+  // errado se conserta com um complemento no período seguinte. Então a
+  // mensagem nomeia o lado seguro, em vez de devolver a dúvida crua.
+  'find.payment_repair_ack_lost': { en: 'we tried to correct payment rows and got no answer from the database — the correction may or may not have been applied. The ledger figure is the lower one and it is the safe one to distribute on; check these payments before closing the period',
+                        pt: 'tentamos corrigir linhas de pagamento e não tivemos resposta do banco — a correção pode ou não ter sido aplicada. O valor do razão é o menor e é o seguro para distribuir; confira esses pagamentos antes de fechar o período',
+                        es: 'intentamos corregir filas de pago y no hubo respuesta de la base — la corrección puede haberse aplicado o no. El importe del libro es el menor y es el seguro para distribuir; revise esos pagos antes de cerrar el período' },
   // A GORJETA tem a sua própria: é a única que a casa leva pra FOLHA, e uma vez
   // distribuída não volta (CLT art. 462). Ver `payment_tip_base_repaired`.
   'find.payment_row_repair_raced': { en: 'a correction did not apply because another process had already updated the row — nothing was lost',

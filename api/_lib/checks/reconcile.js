@@ -463,17 +463,39 @@ function resumoDoReparo(pia = {}) {
   const reparados = pia.repaired || [];
   const corridas = pia.raced || [];
   const ackPerdido = pia.ackLost || [];
+  const rejeitados = pia.rejected || [];
   const gorjeta = pia.tip || [];
   return {
     reparadas: reparados.length,
     corridas: corridas.length,
     ackPerdidos: ackPerdido.length,
-    achados: acharReparos(reparados, pia.skipped || 0, gorjeta, corridas, ackPerdido),
+    rejeitados: rejeitados.length,
+    achados: acharReparos(reparados, pia.skipped || 0, gorjeta, corridas, ackPerdido, rejeitados),
+    // Os achados de AGREGADO (serviço nunca arrecadado) vivem na pia também,
+    // pra que o `catch` monte a lista de UMA fonte. Ver `reconcileVenue`.
+    venueFindings: pia.venueFindings || [],
   };
 }
 
-function acharReparos(reparados, naoOlhadas, gorjeta = [], corridas = [], ackPerdido = []) {
+function acharReparos(reparados, naoOlhadas, gorjeta = [], corridas = [], ackPerdido = [], rejeitados = []) {
   const achados = [];
+  /**
+   * RECUSADO pelo banco — `high`, e a afirmação é firme: nada foi escrito.
+   *
+   * Esta é a metade classificável do que antes virava tudo "pode ter escrito".
+   * Grant revogado, assinatura trocada, `42703`: o servidor respondeu, a
+   * transação caiu, a projeção segue atrás do razão. É a mensagem antiga —
+   * agora dita só quando é verdade, e com um guarda que dispara de fato.
+   */
+  if (rejeitados.length > 0) {
+    achados.push({
+      severity: 'high',
+      code: 'payment_row_repair_rejected',
+      message: `${rejeitados.length} reparo(s) RECUSADOS pelo banco — nada foi escrito, a projeção segue atrás do razão`,
+      txids: rejeitados.slice(0, 10),
+      rejected: rejeitados.length,
+    });
+  }
   /**
    * NÃO SEI SE ESCREVEU — `high`, e diz isso.
    *
@@ -615,10 +637,16 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
    * (MEDIUM-2 da revisão de segurança de 2026-09-09.)
    */
   const pia = opts.witness || {};
-  pia.repaired = pia.repaired || [];
-  pia.raced = pia.raced || [];
-  pia.ackLost = pia.ackLost || [];
-  pia.tip = pia.tip || [];
+  // ZERADO A CADA INVOCAÇÃO. Era `pia.x = pia.x || []`, que ACUMULA se alguém
+  // reusar o mesmo `opts` — e a retentativa que vai ser acrescentada é
+  // justamente pro "5xx transitório" que estes comentários vivem descrevendo.
+  // Medido: duas chamadas com o mesmo `opts` davam `rowsRepaired` 1 e depois 2,
+  // e a soma de centavos da gorjeta dobrava junto.
+  pia.repaired = [];
+  pia.raced = [];
+  pia.ackLost = [];
+  pia.rejected = [];
+  pia.tip = [];
   const reparados = pia.repaired;
   /**
    * CORRIDA PERDIDA não é falha.
@@ -638,6 +666,8 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
   const mexeramNaGorjeta = pia.tip;
   /** Escreveu ou não? Não dá pra saber — ver o `catch`. */
   const ackPerdido = pia.ackLost;
+  /** RECUSADOS pelo banco: SQLSTATE = resposta completa = rollback. */
+  const rejeitados = pia.rejected;
   let naoOlhadas = 0;
   let cortou = false;
 
@@ -687,7 +717,7 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
       // TENTATIVAS, nas quatro saídas: reparo, corrida, resposta perdida e o
       // que quer que seja classificável. Contando só sucesso, uma RPC que só
       // estoura gastava a varredura inteira sem nunca engatar o corte.
-      const tentativas = reparados.length + corridasPerdidas.length + ackPerdido.length;
+      const tentativas = reparados.length + corridasPerdidas.length + ackPerdido.length + rejeitados.length;
       if (tentativas >= TETO_DE_REPAROS) { naoOlhadas += 1; cortou = true; break; }
 
       /**
@@ -758,10 +788,26 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
          * verdade: pode ter escrito, pode não ter. (HIGH-1 da revisão de
          * segurança de 2026-09-09.)
          */
-        ackPerdido.push({ txid: row.txid, deltaCents: deltaGorjeta, periodo });
-        // `e && e.message`: uma rejeição com valor não-objeto estourava um
-        // TypeError DE DENTRO do catch, e aí sim a varredura caía (LOW-5).
-        process.stderr.write(`[reconcile] reparo da linha ${row.txid}: resposta perdida — pode ter escrito: ${String(e && e.message).slice(0, 120)}\n`);
+        /**
+         * SQLSTATE quer dizer que o servidor RESPONDEU — logo, rollback.
+         *
+         * "Não dá pra classificar o lance" é falso pra uma classe grande: se o
+         * Postgres devolveu um código, a transação foi desfeita e NADA foi
+         * escrito. Tratar isso como "pode ter escrito" afirmava um movimento na
+         * base da folha que provadamente não houve — com centavos e mês, e sob
+         * causa sistemática (grant revogado, assinatura trocada) até 200 linhas
+         * por casa, toda noite. Falso na direção oposta ao HIGH-1, na mesma
+         * coluna. (MEDIUM-1 da revisão de segurança de 2026-09-09.)
+         */
+        if (e && e.pgCode) {
+          rejeitados.push(row.txid);
+          process.stderr.write(`[reconcile] reparo da linha ${row.txid} RECUSADO pelo banco (${e.pgCode}), nada escrito: ${String(e && e.message).slice(0, 120)}\n`);
+        } else {
+          // `e && e.message`: uma rejeição com valor não-objeto estourava um
+          // TypeError DE DENTRO do catch, e aí sim a varredura caía (LOW-5).
+          ackPerdido.push({ txid: row.txid, deltaCents: deltaGorjeta, periodo });
+          process.stderr.write(`[reconcile] reparo da linha ${row.txid}: resposta perdida — pode ter escrito: ${String(e && e.message).slice(0, 120)}\n`);
+        }
       }
     }
   }
@@ -791,7 +837,7 @@ async function reconcileVenue(store, venueId, opts = {}) {
   const pia = opts.witness || {};
   const reparo = opts.repair === true
     ? await repararLinhasAtrasadas(store, inputs, { ...opts, witness: pia })
-    : { reparadas: 0, corridas: 0, ackPerdidos: 0, achados: [] };
+    : { reparadas: 0, corridas: 0, ackPerdidos: 0, rejeitados: 0, achados: [] };
   /**
    * A RELEITURA falha sem derrubar a casa.
    *
@@ -806,7 +852,7 @@ async function reconcileVenue(store, venueId, opts = {}) {
    * numa linha que já está certa. (HIGH-1 e MEDIUM-1 da revisão de segurança de
    * 2026-09-09.)
    */
-  if (reparo.reparadas > 0 || reparo.ackPerdidos > 0 || reparo.corridas > 0) {
+  if (reparo.reparadas > 0 || reparo.ackPerdidos > 0 || reparo.corridas > 0 || reparo.rejeitados > 0) {
     try { inputs = await store.listChecksForReconcile(venueId); }
     catch (e) {
       process.stderr.write(`[reconcile] releitura pós-reparo falhou (relatório fica velho): ${String(e.message).slice(0, 120)}\n`);
@@ -814,6 +860,25 @@ async function reconcileVenue(store, venueId, opts = {}) {
   }
   const results = inputs.map(reconcileCheck);
   const daCasa = acharServicoNuncaArrecadado(inputs);
+  /**
+   * OS ACHADOS DE AGREGADO ENTRAM NO SUMIDOURO — uma fonte, não duas.
+   *
+   * O `catch` de quem chama passou a montar os achados de `resumo.achados`, que
+   * é só do reparo. Antes ele usava `checks.venueFindings`, que é
+   * `[...daCasa, ...reparo.achados]` — então o `service_never_collected` sumiu
+   * do caminho de erro. Medido: com a perna da casa estourando, o `82511a3`
+   * relatava `venue_reconcile_threw` + `service_never_collected`; o `fe9c845`
+   * relatava só o primeiro.
+   *
+   * O estrago é o de sempre: uma noite em que o restaurante está perdendo 10%
+   * em toda conta vira uma linha que diz "supabase 503". E `venues[]` descarta
+   * `findings`, então nem do JSON dá pra recuperar.
+   *
+   * Pela pia, não por um `||` no chamador: dois jeitos de montar a mesma lista
+   * é exatamente o que a pia existe pra impedir. (HIGH-1 da revisão de
+   * segurança de 2026-09-09.)
+   */
+  pia.venueFindings = daCasa;
   const severityRank = { critical: 3, high: 2, info: 1 };
   /**
    * FALHOU é achado ACIONÁVEL, não achado qualquer.
@@ -851,6 +916,7 @@ async function reconcileVenue(store, venueId, opts = {}) {
      */
     rowsRepairRaced: reparo.corridas,
     rowsRepairAckLost: reparo.ackPerdidos,
+    rowsRepairRejected: reparo.rejeitados,
     checksChecked: results.length,
     checksFailed: failed.length,
     totalDriftCents: results.reduce((s, r) => s + Math.abs(r.driftCents), 0),
