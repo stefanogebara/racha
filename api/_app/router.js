@@ -1702,6 +1702,20 @@ async function route(req, res) {
          */
         report = await reconcileAllVenues(store, {
           includeTest: url.searchParams.get('test') === '1',
+          /**
+           * SECO QUER DIZER SECO.
+           *
+           * `?dry=1` é documentado logo acima como "devolve o relatório sem
+           * avisar ninguém (inspeção)", e só era consultado nas duas chamadas
+           * de aviso — então uma inspeção RODAVA a varredura de reparo inteira
+           * e depois calava o alerta sobre as escritas que acabara de fazer.
+           * A testemunha que o HIGH-3 instalou era desligada exatamente pelo
+           * caminho que alguém usa pra "só dar uma olhada primeiro" — e é o
+           * primeiro movimento natural ao apontar `?since=` pras cobranças de
+           * julho. Achado, independentemente, pelas duas revisões de
+           * 2026-09-09 (compliance HIGH-A, segurança MEDIUM-2).
+           */
+          repair: url.searchParams.get('dry') !== '1',
           // Desligada, ela DIZ que está desligada: o relatório saía idêntico a
           // uma noite saudável e o `custody_leak` simplesmente não existia.
           ...(process.env.RACHA_PAYABLES_LEG === 'off' ? { legDisabled: true } : {

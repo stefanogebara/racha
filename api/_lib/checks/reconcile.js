@@ -277,6 +277,29 @@ function reconcileCheck({ checkId, events, payments }) {
         `txid ${txid}: linha confirmada sem valor confirmado (anterior à 0015, ou escrita parcial)`,
         { txid });
     }
+    /**
+     * CONFIRMADA SEM DATA — invisível pra casa e pra perna de custódia.
+     *
+     * `getPanelView` e `listRecentConfirmedCharges` filtram por
+     * `confirmed_at`, e o funil também. Uma linha `confirmado` com a data nula
+     * some do faturamento, some da base de gorjeta e nunca chega à conferência
+     * de destino — com o canário verde, porque nenhum achado olhava a DATA:
+     * `confirmed_amount_missing` só dispara quando o VALOR é nulo.
+     *
+     * A 0021 reprojetou `confirmed_amount_cents` e `confirmed_tip_cents` e
+     * nunca escreveu `confirmed_at`, então a premissa "a 0021 preencheu tudo"
+     * valia pra duas das três colunas. Detector, não conserto: o escopo do
+     * reparo não cresce. (HIGH-C da revisão de compliance de 2026-09-09.)
+     */
+    // Só onde a PROJEÇÃO existe e a data não: é exatamente a população da 0021,
+    // que reprojetou as duas colunas de valor e nunca escreveu a data. Linha
+    // sem valor confirmado já tem o seu achado (`confirmed_amount_missing`), e
+    // acusar as duas coisas na mesma linha é barulho, não informação.
+    if (row.status === 'confirmado' && confirmadoLinha !== null && !row.confirmedAt) {
+      add('high', 'confirmed_at_missing',
+        `txid ${txid}: linha confirmada SEM data — fora do faturamento, da gorjeta e da conferência de destino`,
+        { txid });
+    }
     const fullyRefunded = pay.refundedAmountCents === pay.amountCents && pay.refundedTipCents === pay.tipCents;
     if (fullyRefunded && row.status !== 'devolvido') {
       add('high', 'status_lag',
@@ -428,8 +451,21 @@ const REPAROS_DEMAIS = 3;
  *
  * Achado pela revisão de segurança de 2026-09-09 (HIGH-2).
  */
-function acharReparos(reparados, falhados, naoOlhadas, gorjeta = []) {
+function acharReparos(reparados, falhados, naoOlhadas, gorjeta = [], corridas = []) {
   const achados = [];
+  if (corridas.length > 0) {
+    // `info`: a linha mudou porque OUTRO caminho a projetou. Isso é o sistema
+    // funcionando, não um achado de dinheiro — mas fica dito, porque uma
+    // escrita que virou no-op sem registro nenhum é como se começa a confiar
+    // num guarda que nunca dispara.
+    achados.push({
+      severity: 'info',
+      code: 'payment_row_repair_raced',
+      message: `${corridas.length} reparo(s) não pegaram — a linha foi projetada por outro caminho antes`,
+      txids: corridas.slice(0, 10),
+      raced: corridas.length,
+    });
+  }
   /**
    * A BASE DA FOLHA mexeu — `high` no PRIMEIRO, sem esperar contagem.
    *
@@ -440,13 +476,15 @@ function acharReparos(reparados, falhados, naoOlhadas, gorjeta = []) {
    */
   if (gorjeta.length > 0) {
     const soma = gorjeta.reduce((s, g) => s + g.deltaCents, 0);
+    const periodos = [...new Set(gorjeta.map((g) => g.periodo))].sort();
     achados.push({
       severity: 'high',
       code: 'payment_tip_base_repaired',
       message: `${gorjeta.length} linha(s) tiveram a GORJETA reprojetada do razão `
-        + `(${soma >= 0 ? '+' : ''}${soma}¢ na base da folha) — confira antes de fechar o período`,
+        + `(${soma >= 0 ? '+' : ''}${soma}¢ na base da folha) — confira a folha de ${periodos.join(', ')}`,
       txids: gorjeta.slice(0, 10).map((g) => g.txid),
       tipDeltaCents: soma,
+      periods: periodos,
       repaired: gorjeta.length,
     });
   }
@@ -527,6 +565,20 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
   if (typeof store.repairPaymentRow !== 'function') return vazio;
   const reparados = [];
   const falhados = [];
+  /**
+   * CORRIDA PERDIDA não é falha.
+   *
+   * `false` deste claim quer dizer que a linha MUDOU entre a leitura e a
+   * escrita — sob concorrência é o desfecho benigno, e o chamador irmão já diz
+   * isso por escrito ("Perder a corrida é NORMAL e não é erro: a outra entrega
+   * sabia mais"). Contando como falha, um webhook que pousasse no meio da
+   * varredura e projetasse a linha CORRETAMENTE produzia um `high` afirmando
+   * que a projeção está atrás do razão — quando ela acabara de ficar em dia.
+   * Uma corrida benigna virava um `high` e dois `critical`, todos falsos, no
+   * único alerta que o inegociável #8 diz que não pode ser ignorável.
+   * (MEDIUM-1 da revisão de segurança de 2026-09-09.)
+   */
+  const corridasPerdidas = [];
   /** Os que mexeram na BASE DA FOLHA — severidade própria, ver `acharReparos`. */
   const mexeramNaGorjeta = [];
   let naoOlhadas = 0;
@@ -575,7 +627,7 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
       // TETO conta TENTATIVAS, não sucessos. Com um grant revogado ou a
       // assinatura trocada — a classe do inegociável #7 — o laço gastava a
       // varredura inteira em escritas que falhavam e o teto nunca engatava.
-      if (reparados.length + falhados.length >= TETO_DE_REPAROS) { naoOlhadas += 1; cortou = true; break; }
+      if (reparados.length + falhados.length + corridasPerdidas.length >= TETO_DE_REPAROS) { naoOlhadas += 1; cortou = true; break; }
 
       /**
        * A GORJETA que este reparo vai MOVER — medida antes de escrever.
@@ -610,12 +662,24 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
         });
         if (ok) {
           reparados.push(row.txid);
-          if (deltaGorjeta !== 0) mexeramNaGorjeta.push({ txid: row.txid, deltaCents: deltaGorjeta });
+          if (deltaGorjeta !== 0) {
+            // O PERÍODO vai junto. `listChecksForReconcile` não tem recorte de
+            // data, então a varredura olha a história inteira da casa: sem isto
+            // a mensagem dizia "confira antes de fechar o período" sobre uma
+            // folha de sete meses atrás. O dever de escrituração da Lei
+            // 13.419/2017 é POR PERÍODO — dizer que um número mexeu sem dizer
+            // qual mês não é acionável. (LOW-2 da revisão de 2026-09-09.)
+            mexeramNaGorjeta.push({
+              txid: row.txid, deltaCents: deltaGorjeta,
+              periodo: String(row.confirmedAt || '').slice(0, 7) || 'sem data',
+            });
+          }
         } else {
-          // NEM reparou NEM falhou: a linha mudou entre a leitura e o claim, ou
-          // sumiu. Escrita de dinheiro que vira no-op sem testemunha é como a
-          // degradação silenciosa começa (inegociável #7).
-          falhados.push(row.txid);
+          // A linha mudou entre a leitura e o claim, ou sumiu. Contado — uma
+          // escrita de dinheiro que vira no-op sem testemunha é como a
+          // degradação silenciosa começa (inegociável #7) — mas como CORRIDA,
+          // não como falha: quem venceu sabia mais.
+          corridasPerdidas.push(row.txid);
           process.stderr.write(`[reconcile] reparo da linha ${row.txid} não pegou: a linha mudou desde a leitura\n`);
         }
       } catch (e) {
@@ -629,7 +693,8 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
   return {
     reparadas: reparados.length,
     falhas: falhados.length,
-    achados: acharReparos(reparados, falhados, naoOlhadas, mexeramNaGorjeta),
+    corridas: corridasPerdidas.length,
+    achados: acharReparos(reparados, falhados, naoOlhadas, mexeramNaGorjeta, corridasPerdidas),
   };
 }
 
@@ -653,7 +718,26 @@ async function reconcileVenue(store, venueId, opts = {}) {
   const reparo = opts.repair === true
     ? await repararLinhasAtrasadas(store, inputs, opts)
     : { reparadas: 0, falhas: 0, achados: [] };
-  if (reparo.reparadas > 0) inputs = await store.listChecksForReconcile(venueId);
+  /**
+   * A RELEITURA falha sem derrubar a casa.
+   *
+   * Ela só acontece nas noites em que houve escrita, é uma ida a mais ao banco,
+   * e estava crua: um 5xx transitório nela — a classe exata de transitório que
+   * este reparo existe pra consertar — virava `venue_reconcile_threw` e a casa
+   * inteira saía como "não deu pra conciliar". Releitura que falha quer dizer
+   * que o RELATÓRIO está velho, não que o restaurante é inconciliável.
+   *
+   * E vale pra `falhas` também: numa noite em que só houve corrida perdida, a
+   * outra escrita PEGOU, e julgar sobre a leitura antiga acusa `refund_mismatch`
+   * numa linha que já está certa. (HIGH-1 e MEDIUM-1 da revisão de segurança de
+   * 2026-09-09.)
+   */
+  if (reparo.reparadas > 0 || reparo.falhas > 0 || reparo.corridas > 0) {
+    try { inputs = await store.listChecksForReconcile(venueId); }
+    catch (e) {
+      process.stderr.write(`[reconcile] releitura pós-reparo falhou (relatório fica velho): ${String(e.message).slice(0, 120)}\n`);
+    }
+  }
   const results = inputs.map(reconcileCheck);
   const daCasa = acharServicoNuncaArrecadado(inputs);
   const severityRank = { critical: 3, high: 2, info: 1 };

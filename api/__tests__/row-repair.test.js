@@ -928,6 +928,7 @@ describe('o reparo aparece no relatório e no alerta', () => {
         payments: [{
           txid, status: 'confirmado', amountCents: 10000, tipCents: 0,
           confirmedAmountCents: 10000, confirmedTipCents: 0,
+          confirmedAt: '2026-07-20T12:00:00.000Z',
           refundedAmountCents: 0, refundedTipCents: 0,
         }],
       });
@@ -1054,11 +1055,35 @@ describe('censo: nenhuma ROTA pede a escrita do reparo', () => {
   const fs = require('fs');
   const path = require('path');
 
-  test('`repair: true` não aparece em nenhum arquivo de rota', () => {
-    const fonte = fs.readFileSync(path.join(__dirname, '../_app/router.js'), 'utf8');
+  test('`repair: true` não aparece em NENHUM arquivo de rota', () => {
+    /**
+     * Varre TODOS os arquivos de rota, não só o `router.js`.
+     *
+     * Hoje `api/*.js` é só o `index.js` e todo o roteamento vive no
+     * `_app/router.js`, então ler um arquivo bastava — mas um arquivo de rota
+     * novo escapava do censo em silêncio, que é a forma exata do defeito que
+     * este censo existe pra impedir (eu consertei uma rota e esqueci a outra,
+     * duas vezes). Achado pela revisão de compliance de 2026-09-09 (MEDIUM-4).
+     */
+    const raiz = path.join(__dirname, '..');
+    const rotas = [];
+    // Tudo que a Vercel publica como função (`api/*` sem `_`) e o roteador.
+    for (const e of fs.readdirSync(raiz, { withFileTypes: true })) {
+      if (e.isFile() && e.name.endsWith('.js') && !e.name.startsWith('_')) rotas.push(path.join(raiz, e.name));
+    }
+    const app = path.join(raiz, '_app');
+    if (fs.existsSync(app)) {
+      for (const e of fs.readdirSync(app, { withFileTypes: true })) {
+        if (e.isFile() && e.name.endsWith('.js')) rotas.push(path.join(app, e.name));
+      }
+    }
+    expect(rotas.length).toBeGreaterThan(0);
+
     // A varredura noturna é chamada pelo cron via `reconcileAllVenues`, que põe
-    // o `repair` ela mesma — a rota não precisa (e não pode) pedir.
-    expect(fonte).not.toMatch(/repair:\s*true/);
+    // o `repair` ela mesma — rota nenhuma precisa (nem pode) pedir.
+    const pedintes = rotas.filter((f) => /repair:\s*true/.test(fs.readFileSync(f, 'utf8')))
+      .map((f) => path.relative(raiz, f));
+    expect(pedintes).toEqual([]);
   });
 
   test('a varredura é o ÚNICO lugar que liga a escrita', () => {
@@ -1095,6 +1120,7 @@ describe('censo: nenhuma ROTA pede a escrita do reparo', () => {
         payments: [{
           txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
           confirmedAmountCents: 10000, confirmedTipCents: 0,
+          confirmedAt: '2026-07-20T12:00:00.000Z',
           refundedAmountCents: 0, refundedTipCents: 0,   // ATRÁS do razão: reparável
         }],
       }],
@@ -1129,6 +1155,7 @@ describe('censo: nenhuma ROTA pede a escrita do reparo', () => {
         payments: [{
           txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
           confirmedAmountCents: 10000, confirmedTipCents: 0,
+          confirmedAt: '2026-07-20T12:00:00.000Z',
           refundedAmountCents: 0, refundedTipCents: 0,
         }],
       }],
@@ -1250,6 +1277,7 @@ describe('prazo e teto: só contam o que era candidato', () => {
         payments: [{
           txid: `ch_${i}`, status: 'confirmado', amountCents: 10000, tipCents: 0,
           confirmedAmountCents: 10000, confirmedTipCents: 0,
+          confirmedAt: '2026-07-20T12:00:00.000Z',
           refundedAmountCents: 0, refundedTipCents: 0,
         }],
       });
@@ -1297,14 +1325,175 @@ describe('prazo e teto: só contam o que era candidato', () => {
     expect(r.achados.some((f) => f.code === 'payment_row_repair_failed' && f.severity === 'high')).toBe(true);
   });
 
-  test('claim que não pega (`false`) é CONTADO — no-op em dinheiro tem testemunha', async () => {
-    // A linha mudou entre a leitura e o claim, ou sumiu. Não reparou e não
-    // falhou: sem esta contagem é uma escrita de dinheiro que vira nada e
-    // ninguém fica sabendo (inegociável #7).
+  test('claim que não pega (`false`) é CORRIDA, não falha — e não pinta a casa de vermelho', async () => {
+    /**
+     * Contar era certo; chamar de FALHA não.
+     *
+     * `false` deste claim quer dizer que a linha mudou entre a leitura e a
+     * escrita — sob concorrência é o desfecho benigno, e o chamador irmão já
+     * diz isso por escrito ("Perder a corrida é NORMAL e não é erro: a outra
+     * entrega sabia mais"). Como `high`, um webhook que pousasse no meio da
+     * varredura e projetasse a linha CORRETAMENTE gerava um alerta afirmando
+     * que a projeção está atrás do razão — quando ela acabara de ficar em dia.
+     * Alerta falso no único alerta que o inegociável #8 diz que não pode ser
+     * ignorável. (MEDIUM-1 da revisão de segurança de 2026-09-09.)
+     */
     const store = { repairPaymentRow: async () => false };
     const r = await repararLinhasAtrasadas(store, atrasadas(2), {});
     expect(r.reparadas).toBe(0);
-    expect(r.falhas).toBe(2);
-    expect(r.achados.some((f) => f.code === 'payment_row_repair_failed')).toBe(true);
+    expect(r.falhas).toBe(0);          // NÃO é falha
+    expect(r.corridas).toBe(2);        // é corrida, e fica dita
+    const achado = r.achados.find((f) => f.code === 'payment_row_repair_raced');
+    expect(achado).toBeTruthy();
+    expect(achado.severity).toBe('info');
+    expect(r.achados.some((f) => f.code === 'payment_row_repair_failed')).toBe(false);
+  });
+
+  test('a corrida perdida NÃO deixa a casa vermelha — a varredura inteira', async () => {
+    // O teste acima afirma sobre a função; este sobre o que o cron RELATA, que
+    // é o que chega no fundador. Sem ele, o `info` poderia estar certo e o
+    // relatório ainda sair vermelho por outro caminho.
+    const { reconcileAllVenues } = require('../_lib/checks/reconcile-daily');
+    const inputs = atrasadas(1);
+    let leituras = 0;
+    const store = {
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listChecksForReconcile: async () => {
+        // Na PRIMEIRA leitura a linha está atrás (é candidata). Da segunda em
+        // diante ela já está em dia: é a outra escrita que pegou, que é o que
+        // "perder a corrida" significa. Mutar já na primeira faria a linha
+        // nunca ser candidata e o teste passaria por não exercitar nada.
+        leituras += 1;
+        if (leituras > 1) inputs[0].payments[0].refundedAmountCents = 2000;
+        return inputs;
+      },
+      listHouseAccountsForReconcile: async () => [],
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      repairPaymentRow: async () => false,
+    };
+    const rel = await reconcileAllVenues(store, {});
+    expect(rel.rowsRepairFailed).toBe(0);
+    expect(rel.venuesRed).toBe(0);
+    expect(rel.worstSeverity).toBe('info');
+  });
+});
+
+/**
+ * A TESTEMUNHA SOBREVIVE AO ERRO — e a forma do relatório tem UMA fonte.
+ *
+ * `rowsRepaired`/`rowsRepairFailed` foram acrescentados ao retorno de SUCESSO,
+ * ao agregado, ao `formatReconcileAlert` e ao payload do aviso. Quatro lugares.
+ * O `base` — a forma que o `catch` devolve — é o quinto, e ficou de fora. Três
+ * de quatro, o mesmo padrão de sempre.
+ *
+ * Medido: a varredura reprojetava `refunded_tip_cents` (a base da folha, o
+ * número que o CLT art. 462 diz que não volta), uma das outras pernas
+ * estourava, e o relatório afirmava `rowsRepaired: 0`. Ausência silenciosa já
+ * seria ruim; isto era uma afirmação FALSA num relatório de dinheiro. E a
+ * janela de erro é CAUSADA pelo reparo: a releitura só acontece nas noites em
+ * que houve escrita.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
+ */
+describe('a escrita sobrevive à leitura que falhou', () => {
+  const { reconcileOneVenue, reconcileAllVenues, formatReconcileAlert } =
+    require('../_lib/checks/reconcile-daily');
+
+  function storeQueRepara({ quebra }) {
+    const inputs = [{
+      checkId: 'c1',
+      events: [
+        { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+        { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 1000, method: 'pix' } },
+        { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 500, offRail: true, reference: 'x', by: 'd@b' } },
+      ],
+      payments: [{
+        txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 1000,
+        confirmedAmountCents: 10000, confirmedTipCents: 1000,
+        confirmedAt: '2026-07-20T12:00:00.000Z',
+        refundedAmountCents: 0, refundedTipCents: 0,
+      }],
+    }];
+    const escritas = [];
+    return {
+      escritas,
+      listVenueActivation: async () => [{ id: 'v1', name: 'Casa Um', pspRecipientId: 're_x' }],
+      listChecksForReconcile: async () => inputs,
+      // A perna que estoura — DEPOIS de o reparo já ter escrito.
+      listHouseAccountsForReconcile: async () => {
+        if (quebra) throw new Error('supabase 503');
+        return [];
+      },
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      async repairPaymentRow(p) {
+        escritas.push(p.txid);
+        for (const row of inputs[0].payments) {
+          if (row.txid === p.txid) {
+            row.refundedAmountCents = p.refundedAmountCents;
+            row.refundedTipCents = p.refundedTipCents;
+          }
+        }
+        return true;
+      },
+    };
+  }
+
+  test('uma perna estoura DEPOIS do reparo: o relatório não diz zero', async () => {
+    const store = storeQueRepara({ quebra: true });
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Casa Um' }, { repair: true });
+
+    // A escrita ACONTECEU.
+    expect(store.escritas).toEqual(['ch_1']);
+    // E o relatório diz isso, apesar do estouro.
+    expect(r.rowsRepaired).toBe(1);
+    expect(r.severity).toBe('critical');   // a conciliação de fato não fechou
+    expect(r.findings.some((f) => f.code === 'venue_reconcile_threw')).toBe(true);
+    // E o achado da GORJETA — `high` no primeiro reparo justamente pra não se
+    // esconder atrás de contagem — não é descartado junto.
+    expect(r.findings.some((f) => f.code === 'payment_tip_base_repaired'
+      && f.severity === 'high')).toBe(true);
+  });
+
+  test('e o alerta do fundador carrega as duas coisas', async () => {
+    const store = storeQueRepara({ quebra: true });
+    const rel = await reconcileAllVenues(store, {});
+    expect(rel.rowsRepaired).toBe(1);
+    const alerta = formatReconcileAlert(rel);
+    expect(alerta).toMatch(/reprojetou 1 linha/);
+    expect(alerta).toMatch(/não deu pra conciliar/);
+  });
+
+  test('sem estouro, o caminho normal continua igual', async () => {
+    const store = storeQueRepara({ quebra: false });
+    const rel = await reconcileAllVenues(store, {});
+    expect(rel.rowsRepaired).toBe(1);
+    expect(rel.venuesRed).toBe(1);   // a gorjeta mexeu → `high`
+    expect(formatReconcileAlert(rel)).toMatch(/base da folha/);
+  });
+
+  test('CENSO: toda chave que o relatório LÊ existe em TODO retorno', () => {
+    /**
+     * O conserto de instância seria pôr dois campos no `base`. Este é o de
+     * CLASSE: `base` tem que ser a única fonte da forma do relatório, então
+     * toda chave que o `formatReconcileAlert` e o `notifyFounderReconcile`
+     * consomem precisa existir lá — e derrubar qualquer uma tem que quebrar a
+     * suíte, não produzir um `undefined` num relatório de dinheiro.
+     */
+    const fs = require('fs');
+    const path = require('path');
+    const daily = fs.readFileSync(path.join(__dirname, '../_lib/checks/reconcile-daily.js'), 'utf8');
+
+    const corpoBase = daily.match(/const base = \{([\s\S]*?)\n {2}\};/);
+    expect(corpoBase).not.toBeNull();
+    const chavesBase = new Set([...corpoBase[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
+
+    // O que o agregado soma por casa — é o que o relatório do cron carrega.
+    for (const chave of ['rowsRepaired', 'rowsRepairFailed', 'driftCents', 'checksChecked']) {
+      expect(chavesBase.has(chave)).toBe(true);
+    }
+    // E o `catch` devolve a partir do `base`, não de um objeto próprio.
+    expect(daily).toMatch(/return \{\s*\.\.\.base,\s*severity: 'critical'/);
   });
 });

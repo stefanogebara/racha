@@ -127,7 +127,10 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
       continue;
     }
     add('high', 'payable_shape_invalid',
-      `cobrança ${chargeId}: recebível com valor ilegível — não entra na soma`,
+      // NÃO diz mais "não entra na soma": quando o ilegível é um CRÉDITO, a
+      // soma nem é feita (ver a suspensão abaixo). Afirmar verificação parcial
+      // onde não houve verificação nenhuma é o erro que a suspensão evitou.
+      `cobrança ${chargeId}: recebível com valor ilegível — não deu pra conferir o destino desta cobrança`,
       { recipientId: l.recipientId || null });
   }
   const creditos = linhas.filter((l) => l && l.type === CREDITO && formaOk(l));

@@ -441,6 +441,14 @@ export const DICT = {
                         es: 'no se pudieron corregir filas de pago — lo que ve sigue atrás del libro hasta resolverlo' },
   // A GORJETA tem a sua própria: é a única que a casa leva pra FOLHA, e uma vez
   // distribuída não volta (CLT art. 462). Ver `payment_tip_base_repaired`.
+  'find.payment_row_repair_raced': { en: 'a correction did not apply because another process had already updated the row — nothing was lost',
+                        pt: 'uma correção não pegou porque outro processo já tinha atualizado a linha — nada se perdeu',
+                        es: 'una corrección no se aplicó porque otro proceso ya había actualizado la fila — no se perdió nada' },
+  // CONFIRMADA SEM DATA: some do faturamento, da gorjeta e da conferência de
+  // destino, e o painel filtra por essa coluna.
+  'find.confirmed_at_missing': { en: 'a confirmed payment has no confirmation date — it is missing from your revenue, your service-charge totals and the destination check',
+                        pt: 'um pagamento confirmado está sem data de confirmação — ele fica fora do faturamento, do total de serviço e da conferência de destino',
+                        es: 'un pago confirmado no tiene fecha de confirmación — queda fuera de la facturación, del total de servicio y de la verificación de destino' },
   'find.payment_tip_base_repaired': { en: 'we corrected the service-charge figures on some payments — check them before closing payroll for the period',
                         pt: 'corrigimos os valores de serviço de alguns pagamentos — confira antes de fechar a folha do período',
                         es: 'corregimos los importes de servicio de algunos pagos — revíselos antes de cerrar la nómina del período' },

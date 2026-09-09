@@ -187,12 +187,40 @@ async function reconcileOneVenue(store, venue, opts = {}) {
     findings: [],
     checksChecked: 0,
     accountsChecked: 0,
+    // ESTES DOIS EXISTEM EM TODO RETORNO, inclusive no do `catch`.
+    //
+    // Eles foram acrescentados ao retorno de SUCESSO, ao agregado, ao
+    // `formatReconcileAlert` e ao payload do aviso — quatro lugares — e o
+    // `base`, que é a forma que o `catch` devolve, ficou de fora. Três de
+    // quatro, de novo. O efeito medido: a varredura ESCREVIA numa linha e o
+    // relatório afirmava `rowsRepaired: 0`, com o achado da gorjeta descartado
+    // junto. Ausência silenciosa seria ruim; isto era uma afirmação FALSA num
+    // relatório de dinheiro (HIGH-1 da revisão de segurança de 2026-09-09).
+    rowsRepaired: 0,
+    rowsRepairFailed: 0,
   };
+  /**
+   * O REPARO SAI DO `Promise.all` — escrita que aconteceu sobrevive a leitura
+   * que falhou.
+   *
+   * `reconcileVenue` é quem escreve. Dentro do `Promise.all`, a rejeição de
+   * QUALQUER uma das três pernas levava junto o que ele já tinha feito: os
+   * contadores e o `payment_tip_base_repaired` (o `high` que a compliance
+   * exigiu no primeiro reparo justamente pra não se esconder atrás de
+   * contagem). Pior, a janela de erro é CAUSADA pelo reparo — a releitura em
+   * `reconcile.js` só acontece nas noites em que houve escrita, e um 5xx
+   * transitório nela é a classe exata de transitório que esta função existe
+   * pra consertar.
+   */
+  let reparo = { rowsRepaired: 0, rowsRepairFailed: 0, venueFindings: [] };
   try {
-    const [checks, house, payables] = await Promise.all([
-      // O prazo da varredura vale pro reparo de linha também — ele escreve, e
-      // é justamente depois de uma queda de projeção que ele pesa mais.
-      reconcileVenue(store, venue.id, opts),
+    const checks = await reconcileVenue(store, venue.id, opts);
+    reparo = {
+      rowsRepaired: checks.rowsRepaired || 0,
+      rowsRepairFailed: checks.rowsRepairFailed || 0,
+      venueFindings: checks.venueFindings || [],
+    };
+    const [house, payables] = await Promise.all([
       reconcileVenueHouse(store, venue.id),
       // A terceira perna: o razão do ADQUIRENTE. As outras duas são nossas, e
       // uma é projeção da outra — só esta é testemunha independente.
@@ -245,11 +273,16 @@ async function reconcileOneVenue(store, venue, opts = {}) {
     return {
       ...base,
       severity: 'critical',
+      // O que o reparo JÁ FEZ vem junto: os contadores e os achados dele. A
+      // conciliação não pôde ser concluída, mas as linhas que foram reescritas
+      // foram reescritas, e quem lê o alerta precisa saber disso.
+      rowsRepaired: reparo.rowsRepaired,
+      rowsRepairFailed: reparo.rowsRepairFailed,
       findings: [{
         severity: 'critical',
         code: 'venue_reconcile_threw',
         message: `não deu pra conciliar: ${String(err && err.message).slice(0, 200)}`,
-      }],
+      }, ...reparo.venueFindings],
     };
   }
 }

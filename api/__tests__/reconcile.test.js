@@ -25,6 +25,16 @@ const row = (txid, a, tip, status = 'confirmado', confirmed = null) => ({
   txid, amountCents: a, tipCents: tip, status,
   confirmedAmountCents: confirmed ? confirmed[0] : a,
   confirmedTipCents: confirmed ? confirmed[1] : tip,
+  // A DATA faz parte de uma linha confirmada saudável, e faltava aqui.
+  //
+  // `getPanelView`, `listRecentConfirmedCharges` e o funil filtram por ela: uma
+  // linha `confirmado` sem data some do faturamento, da base de gorjeta e da
+  // conferência de destino. O duplo omitia a coluna e por isso o estado
+  // "confirmada sem data" era indistinguível de uma linha sadia aqui dentro —
+  // a mesma forma de todos os defeitos desta série (o duplo dizendo menos que a
+  // produção). Ver `confirmed_at_missing`.
+  confirmedAt: status === 'confirmado' || status === 'devolvido'
+    ? '2026-07-20T12:00:00.000Z' : null,
 });
 /** Linha ANTERIOR à migração 0015: sem os valores confirmados. */
 const legacyRow = (txid, a, tip, status = 'confirmado') => ({ txid, amountCents: a, tipCents: tip, status });
@@ -324,7 +334,10 @@ describe('dinheiro a DEVOLVER envelhece', () => {
     const f = reconcileCheck({
       checkId: 'c1',
       events: [opened(10000), paid('tx1', 19000, 1000)],
-      payments: [row('tx1', 19000, 1000)],
+      // SEM data, de propósito — é o assunto do teste. O `row()` passou a pôr
+      // uma, porque linha confirmada saudável TEM data; aqui a ausência é a
+      // condição sob teste, então ela é escrita à mão.
+      payments: [{ ...row('tx1', 19000, 1000), confirmedAt: null }],
     }).findings.find((x) => x.code === 'overpaid_pending_restitution');
     expect(f.severity).toBe('high');
   });

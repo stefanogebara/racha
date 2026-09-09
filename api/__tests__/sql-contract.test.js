@@ -520,3 +520,85 @@ describe('censo da venue: a varredura recebe o que lê', () => {
     expect(v.id).toBeTruthy();
   });
 });
+
+/**
+ * O CLAIM CONDICIONAL COMPARA O QUE ESCREVE.
+ *
+ * `repair_payment_row` escreve CINCO colunas e o `where` cobre TRÊS
+ * (`status`, `refunded_amount_cents`, `refunded_tip_cents`). As duas de
+ * confirmação são escritas sem serem comparadas — hoje sem consequência, porque
+ * o único chamador que as toca escreve de volta o que leu e nenhum outro
+ * escritor mexe nelas isoladamente. Mas isso é INVARIANTE NÃO DITA: um sexto
+ * escritor que mova `confirmed_*` deixando `status` e `refunded_*` parados seria
+ * sobrescrito em silêncio, e o inegociável #7 é exatamente sobre claim cuja
+ * condição não cobre o que ele faz.
+ *
+ * `confirmed_at` é a exceção deliberada: ele entra por `coalesce(confirmed_at,
+ * p_confirmed_at)`, que só preenche o nulo e nunca sobrescreve — então não há o
+ * que comparar. A exceção fica escrita aqui pra que seja uma decisão, e não um
+ * esquecimento que alguém repete.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (LOW-1).
+ */
+test('toda coluna que a RPC de reparo ESCREVE também é COMPARADA', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = path.join(__dirname, '..', '..', 'supabase', 'migrations');
+  // A versão VIGENTE é a do arquivo de maior número que redefine a função.
+  const arquivos = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+  const vigente = arquivos.filter((f) => fs.readFileSync(path.join(dir, f), 'utf8')
+    .includes('function public.repair_payment_row(')).pop();
+  expect(vigente).toBeTruthy();
+  const sql = fs.readFileSync(path.join(dir, vigente), 'utf8');
+
+  const corpo = sql.slice(sql.indexOf('update payments'), sql.indexOf('returning txid'));
+  const setBloco = corpo.slice(0, corpo.indexOf('where'));
+  const whereBloco = corpo.slice(corpo.indexOf('where'));
+
+  const escritas = [...setBloco.matchAll(/^\s*(\w+)\s*=/gm)].map((m) => m[1])
+    .filter((c) => c !== 'set');
+  // A coluna comparada pode estar dentro de um `coalesce(col, 0) = ...`, então
+  // o que vale é APARECER no `where` — não estar colada num `=`.
+  const comparadas = new Set([...whereBloco.matchAll(/\b(\w+)\b/g)].map((m) => m[1]));
+
+  // `confirmed_at` é a exceção documentada acima: `coalesce` só preenche nulo.
+  const EXCECOES = new Set(['confirmed_at']);
+  const semComparacao = escritas.filter((c) => !EXCECOES.has(c) && !comparadas.has(c));
+  expect(semComparacao).toEqual(['confirmed_amount_cents', 'confirmed_tip_cents']);
+  // Fixado como DÍVIDA CONHECIDA, não como aprovação: mudar esta lista exige
+  // mexer aqui e dizer por quê. A saída definitiva é uma RPC irmã que escreva
+  // só as duas colunas de estorno, e aí esta lista fica vazia.
+});
+
+/**
+ * O RAZÃO É ESCRITO ANTES DA LINHA — a defesa estrutural, não a guarda.
+ *
+ * Os outros dois chamadores de `repairPaymentRow` (a reentrega do webhook e a
+ * devolução fora do trilho) escrevem `confirmed_*`/`refunded_*` a partir do
+ * razão sem conferência de direção. Isso é SEGURO por um motivo que não estava
+ * em teste nenhum: os dois APENDAM no razão primeiro e projetam depois, então o
+ * razão sempre lidera a linha e "linha à frente" exigiria que uma tabela
+ * append-only perdesse um evento já commitado.
+ *
+ * A ordenação é a defesa; uma guarda de direção seria a mais fraca das duas. O
+ * que faltava era travar a ordenação. Achado pela revisão de segurança de
+ * 2026-09-09 (M-3, rebaixado pelo próprio revisor a esta forma).
+ */
+test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const raiz = path.join(__dirname, '..');
+
+  const casos = [
+    ['_lib/pay/webhook-handler.js', /appendEvent|appendValidated|append\(/],
+    ['_app/router.js', /appendValidated/],
+  ];
+  for (const [rel, apend] of casos) {
+    const fonte = fs.readFileSync(path.join(raiz, rel), 'utf8');
+    const iProj = fonte.indexOf('repairPaymentRow({');
+    expect(iProj).toBeGreaterThan(0);
+    // Existe um append ANTES da projeção, no mesmo arquivo.
+    const antes = fonte.slice(0, iProj);
+    expect(apend.test(antes)).toBe(true);
+  }
+});
