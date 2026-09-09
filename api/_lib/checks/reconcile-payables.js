@@ -96,9 +96,36 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
   // omite `fee`, porque taxa ausente fazia o LÍQUIDO parecer melhor do que é —
   // e é o líquido que decide `payable_net_negative`. Sem ela aqui, `amountCents
   // - feeCents` daria `NaN` e a soma inteira da casa viraria `NaN` calada.
-  const formaOk = (l) => Number.isSafeInteger(l.amountCents) && Number.isSafeInteger(l.feeCents);
+  //
+  // E a TAXA só é exigida de quem entra na soma: um `refund`/`chargeback` sem
+  // `fee` não some em lugar nenhum, e exigi-la dele fazia toda cobrança
+  // estornada virar `high` E cega ao mesmo tempo (MEDIUM-1 da compliance).
+  const somaEsta = (l) => l.type === CREDITO;
+  const formaOk = (l) => Number.isSafeInteger(l.amountCents)
+    && (!somaEsta(l) || Number.isSafeInteger(l.feeCents));
   const invalidos = linhas.filter((l) => l && !formaOk(l));
   for (const l of invalidos) {
+    /**
+     * O DESTINO é legível mesmo quando o VALOR não é — e custódia se decide
+     * pelo destino.
+     *
+     * A linha de forma inválida saía de `creditos`, então `estranhos` nunca a
+     * via, então o `custody_leak` não podia disparar: um crédito de valor
+     * ilegível para um recebedor que NÃO é a casa virava `payable_shape_invalid`
+     * (`high`) em vez de crítico. Exatamente "um vazamento de verdade
+     * reportado como problema de forma". Mas o `recipient_id` atravessa o
+     * adaptador intacto — dá pra nomear pra quem foi, mesmo sem saber quanto.
+     *
+     * Inegociável #4 e BACEN Res. 494/2025. Achado pela revisão de compliance
+     * de 2026-09-09 (HIGH-2).
+     */
+    if (somaEsta(l) && l.recipientId && l.recipientId !== venueRecipientId) {
+      add('critical', 'custody_leak_unreadable',
+        `cobrança ${chargeId}: recebível de valor ILEGÍVEL destinado a ${l.recipientId}, `
+        + 'que não é a casa — não sei quanto, sei pra quem',
+        { recipientId: l.recipientId });
+      continue;
+    }
     add('high', 'payable_shape_invalid',
       `cobrança ${chargeId}: recebível com valor ilegível — não entra na soma`,
       { recipientId: l.recipientId || null });
@@ -154,7 +181,9 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
    * achado (`payable_shape_invalid`, `high`). Afirmar que o dinheiro não chegou
    * é uma afirmação diferente, e não é esta que os dados sustentam.
    */
-  const ilegivel = linhas.some((l) => l && !formaOk(l));
+  // Só CRÉDITO ilegível suspende: a soma é feita de créditos, e um `refund`
+  // malformado não a torna incerta (MEDIUM-1 da compliance de 2026-09-09).
+  const ilegivel = linhas.some((l) => l && somaEsta(l) && !formaOk(l));
   if (!ilegivel
       && Number.isSafeInteger(paidAmountCents) && paidAmountCents > 0 && brutoDaCasa !== paidAmountCents) {
     const delta = paidAmountCents - brutoDaCasa;

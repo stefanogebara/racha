@@ -570,6 +570,11 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         p_refunded_amount: p.refundedAmountCents,
         p_refunded_tip: p.refundedTipCents,
         p_confirmed_at: p.confirmedAt || null,
+        // QUEM pediu (migração 0029). O log gravava "reentrega de webhook" pros
+        // três chamadores, e a varredura noturna — que roda sem ninguém
+        // presente e escreve a base da folha — era um deles. Registro que
+        // descreve a operação errada é prova pior que nenhuma (LGPD art. 37).
+        p_source: p.source || null,
       });
       throwOn(error, 'repairPaymentRow'); // claim com erro NUNCA é "pulou"
       return data === true;

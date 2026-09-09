@@ -639,3 +639,73 @@ describe('listChargePayables: número tem que CHEGAR número', () => {
     expect(achados.some((f) => f.code === 'payable_shape_invalid' && f.severity === 'high')).toBe(true);
   });
 });
+
+/**
+ * CUSTÓDIA SE DECIDE PELO DESTINO — e o destino é legível mesmo sem o valor.
+ *
+ * A linha de forma inválida saía de `creditos`, então `estranhos` nunca a via,
+ * então o `custody_leak` não podia disparar: um crédito de valor ilegível
+ * destinado a um recebedor que NÃO é a casa virava `payable_shape_invalid`
+ * (`high`) em vez de crítico. É literalmente "um vazamento de verdade
+ * reportado como problema de forma" — o modo de falha que eu disse temer ao
+ * propor a suspensão da soma, vivo na linha de cima dela.
+ *
+ * Achado pela revisão de compliance de 2026-09-09 (HIGH-2).
+ */
+describe('recebível ilegível: o que ainda dá pra afirmar', () => {
+  const { reconcilePayables } = require('../_lib/checks/reconcile-payables');
+  const CASA = 're_casa';
+
+  const conferir = (payables, paidAmountCents = 23710) =>
+    reconcilePayables({ chargeId: 'ch_1', paidAmountCents, venueRecipientId: CASA, payables }).findings;
+
+  test('valor ilegível para um recebedor ESTRANHO segue CRÍTICO', () => {
+    const achados = conferir([
+      { recipientId: 're_outro', amountCents: null, feeCents: 100, type: 'credit' },
+    ]);
+    const vaz = achados.find((f) => f.code === 'custody_leak_unreadable');
+    expect(vaz).toBeTruthy();
+    expect(vaz.severity).toBe('critical');
+    expect(vaz.recipientId).toBe('re_outro');   // dá pra nomear pra quem foi
+    // E NÃO é rebaixado a problema de forma.
+    expect(achados.some((f) => f.code === 'payable_shape_invalid')).toBe(false);
+  });
+
+  test('valor ilegível SEM recebedor nomeável é problema de forma — não sei pra quem', () => {
+    const achados = conferir([
+      { recipientId: null, amountCents: null, feeCents: 100, type: 'credit' },
+    ]);
+    expect(achados.some((f) => f.code === 'payable_shape_invalid' && f.severity === 'high')).toBe(true);
+    expect(achados.some((f) => f.code === 'custody_leak_unreadable')).toBe(false);
+  });
+
+  test('valor ilegível da PRÓPRIA casa é forma, não vazamento', () => {
+    const achados = conferir([
+      { recipientId: CASA, amountCents: null, feeCents: 100, type: 'credit' },
+    ]);
+    expect(achados.some((f) => f.code === 'payable_shape_invalid')).toBe(true);
+    expect(achados.some((f) => f.code === 'custody_leak_unreadable')).toBe(false);
+    // E a soma fica SUSPENSA: não poder ler não é "o dinheiro sumiu".
+    expect(achados.some((f) => f.code === 'payable_amount_mismatch')).toBe(false);
+  });
+
+  test('um ESTORNO sem taxa não cega a conferência de uma cobrança sadia', () => {
+    // A taxa só é exigida de quem entra na soma. Antes, um `refund` sem `fee`
+    // virava `high` E suspendia a comparação de uma cobrança cujos créditos
+    // liam perfeitamente — barulhenta e cega ao mesmo tempo.
+    const achados = conferir([
+      { recipientId: CASA, amountCents: 23710, feeCents: 300, type: 'credit' },
+      { recipientId: CASA, amountCents: -1000, feeCents: null, type: 'refund' },
+    ]);
+    expect(achados.some((f) => f.code === 'payable_shape_invalid')).toBe(false);
+    // A soma dos créditos bate, então nada de mismatch.
+    expect(achados.some((f) => f.code === 'payable_amount_mismatch')).toBe(false);
+  });
+
+  test('e o vazamento LEGÍVEL de sempre continua crítico', () => {
+    const achados = conferir([
+      { recipientId: 're_outro', amountCents: 23710, feeCents: 300, type: 'credit' },
+    ]);
+    expect(achados.some((f) => f.code === 'custody_leak' && f.severity === 'critical')).toBe(true);
+  });
+});

@@ -453,8 +453,28 @@ const REPAROS_DEMAIS = 3;
  *
  * Achado pela revisão de segurança de 2026-09-09 (HIGH-2).
  */
-function acharReparos(reparados, falhados, naoOlhadas) {
+function acharReparos(reparados, falhados, naoOlhadas, gorjeta = []) {
   const achados = [];
+  /**
+   * A BASE DA FOLHA mexeu — `high` no PRIMEIRO, sem esperar contagem.
+   *
+   * Ver a justificativa longa em `repararLinhasAtrasadas`: CLT art. 457 §§ e
+   * art. 462, STJ Tema 1102. Um reparo de principal ou de status pode esperar
+   * a contagem; este não, porque a casa distribui a gorjeta e não a
+   * desdistribui.
+   */
+  if (gorjeta.length > 0) {
+    const soma = gorjeta.reduce((s, g) => s + g.deltaCents, 0);
+    achados.push({
+      severity: 'high',
+      code: 'payment_tip_base_repaired',
+      message: `${gorjeta.length} linha(s) tiveram a GORJETA reprojetada do razão `
+        + `(${soma >= 0 ? '+' : ''}${soma}¢ na base da folha) — confira antes de fechar o período`,
+      txids: gorjeta.slice(0, 10).map((g) => g.txid),
+      tipDeltaCents: soma,
+      repaired: gorjeta.length,
+    });
+  }
   if (reparados.length > 0) {
     achados.push({
       severity: reparados.length > REPAROS_DEMAIS ? 'high' : 'info',
@@ -490,6 +510,8 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
   if (typeof store.repairPaymentRow !== 'function') return vazio;
   const reparados = [];
   const falhados = [];
+  /** Os que mexeram na BASE DA FOLHA — severidade própria, ver abaixo. */
+  const mexeramNaGorjeta = [];
   let naoOlhadas = 0;
   for (const inp of inputs) {
     const estado = reduce(inp.events || []);
@@ -560,6 +582,36 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
 
       const total = pay.refundedAmountCents === pay.amountCents
         && pay.refundedTipCents === pay.tipCents;
+
+      /**
+       * A GORJETA que este reparo vai MOVER — medida antes de escrever.
+       *
+       * A severidade estava presa à CONTAGEM (1 a 3 reparos = `info`), e com
+       * nada mais vermelho o `formatReconcileAlert` devolve `null`: uma noite
+       * em que a conciliação reescreveu a base da folha não acordava ninguém.
+       * Só que a contagem é a dimensão errada. `confirmedMoney` cai no
+       * `tipCents` PEDIDO quando `confirmed_tip_cents` é nulo, e subtrai o
+       * `refunded_tip_cents` direto — então tanto preencher o confirmado a
+       * partir do nulo quanto lançar o estorno de gorjeta MUDA o número que a
+       * casa leva pra folha.
+       *
+       * E esse número, uma vez distribuído, não volta: CLT art. 462 proíbe o
+       * desconto unilateral no salário do garçom. Uma revisão pra baixo que a
+       * casa descobre DEPOIS da folha é prejuízo dela, causado por nós. Lei
+       * 13.419/2017 (CLT art. 457 §§3º-12) põe nela o dever de escriturar por
+       * período; STJ Tema 1102 mantém a gorjeta na base remuneratória.
+       *
+       * Então: severidade por COLUNA, não por contagem. Reparo que mexe na
+       * gorjeta é `high` já no primeiro. Achado pela revisão de compliance de
+       * 2026-09-09 (HIGH-1).
+       */
+      const gorjetaAntes = Number.isFinite(row.confirmedTipCents)
+        ? row.confirmedTipCents : (row.tipCents || 0);
+      const gorjetaDepois = pay.tipCents;
+      const liquidaAntes = Math.max(0, gorjetaAntes - (row.refundedTipCents || 0));
+      const liquidaDepois = Math.max(0, gorjetaDepois - pay.refundedTipCents);
+      const deltaGorjeta = liquidaDepois - liquidaAntes;
+
       try {
         const ok = await store.repairPaymentRow({
           txid: row.txid,
@@ -571,8 +623,13 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
           confirmedTipCents: pay.tipCents,
           refundedAmountCents: pay.refundedAmountCents,
           refundedTipCents: pay.refundedTipCents,
+          // Procedência pro log de reparo (migração 0029): a varredura noturna, sem operador presente.
+          source: 'reconciler_sweep',
         });
-        if (ok) reparados.push(row.txid);
+        if (ok) {
+          reparados.push(row.txid);
+          if (deltaGorjeta !== 0) mexeramNaGorjeta.push({ txid: row.txid, deltaCents: deltaGorjeta });
+        }
       } catch (e) {
         // Reparo é oportunista: falhar aqui não pode derrubar a varredura —
         // mas TAMBÉM não pode virar só uma linha de stderr. Um grant revogado
@@ -583,21 +640,33 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
       }
     }
   }
-  return { reparadas: reparados.length, falhas: falhados.length, achados: acharReparos(reparados, falhados, naoOlhadas) };
+  return {
+    reparadas: reparados.length,
+    falhas: falhados.length,
+    achados: acharReparos(reparados, falhados, naoOlhadas, mexeramNaGorjeta),
+  };
 }
 
 async function reconcileVenue(store, venueId, opts = {}) {
   let inputs = await store.listChecksForReconcile(venueId);
-  // Repara ANTES de julgar, e relê: senão a varredura acusa a divergência que
-  // ela mesma acabou de fechar, e a casa aparece vermelha por uma noite.
-  //
-  // `repair: false` desliga a ESCRITA e deixa só o julgamento — é o que a rota
-  // de leitura do painel passa, porque um GET que escreve em linha de dinheiro,
-  // no horário que o chamador escolher, é mudança de postura e não detalhe
-  // (LOW-1 da revisão de segurança de 2026-09-09). O dono do conserto é o cron.
-  const reparo = opts.repair === false
-    ? { reparadas: 0, falhas: 0, achados: [] }
-    : await repararLinhasAtrasadas(store, inputs, opts);
+  /**
+   * A ESCRITA É OPT-IN. Quem não pede, não escreve.
+   *
+   * Era `opts.repair === false` pra desligar — e portanto LIGADA por omissão.
+   * Consertei o `/api/house/admin`, esqueci o `/api/panel`, e afirmei que "o
+   * cron é o único que repara". A rota do painel seguiu escrevendo em linha de
+   * dinheiro (inclusive `confirmed_tip_cents`, base da folha), autenticada como
+   * dono, recarregando a cada 4s, sem prazo, e mostrando "tudo bate" na mesma
+   * carga. Dois consertos pontuais e dois esquecimentos: o problema não era a
+   * rota, era o PADRÃO.
+   *
+   * Agora só `reconcileAllVenues` — a varredura noturna, que tem prazo, teto e
+   * testemunha no relatório — pede a escrita. Qualquer chamador novo nasce
+   * lendo. Achado pela revisão de compliance de 2026-09-09 (CRITICAL-1).
+   */
+  const reparo = opts.repair === true
+    ? await repararLinhasAtrasadas(store, inputs, opts)
+    : { reparadas: 0, falhas: 0, achados: [] };
   if (reparo.reparadas > 0) inputs = await store.listChecksForReconcile(venueId);
   const results = inputs.map(reconcileCheck);
   const daCasa = acharServicoNuncaArrecadado(inputs);

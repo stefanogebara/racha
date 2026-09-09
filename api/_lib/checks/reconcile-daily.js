@@ -276,7 +276,11 @@ async function reconcileAllVenues(store, opts = {}) {
   for (const v of venues) {
     // Em série de propósito: a varredura é diária e roda no escuro; martelar o
     // banco em paralelo pra terminar meio segundo antes não paga o risco.
-    venueReports.push(await reconcileOneVenue(store, v, { ...opts, deadline: prazoDaVarredura }));
+    // `repair: true` sai DAQUI e de nenhum outro lugar: a varredura é o único
+    // caminho com prazo, teto e testemunha no relatório. Ver `reconcileVenue`.
+    venueReports.push(await reconcileOneVenue(store, v, {
+      ...opts, deadline: prazoDaVarredura, repair: opts.repair !== false,
+    }));
   }
 
   const red = venueReports.filter((r) => r.severity === 'critical' || r.severity === 'high');

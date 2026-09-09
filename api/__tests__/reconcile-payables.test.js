@@ -239,13 +239,21 @@ describe('a perna não pode ser desligada em silêncio', () => {
   });
 
   test('a rota do cron PASSA o psp — sem ele a perna existe e não roda', () => {
-    const src = fs.readFileSync(path.join(raiz, '_app', 'router.js'), 'utf8');
+    // SEM COMENTÁRIO antes de fatiar: o censo lê CÓDIGO. Uma janela de N
+    // caracteres sobre o fonte cru mede o tamanho da explicação, não o da
+    // chamada — comentar melhor a chamada quebrava o teste dela.
+    const src = fs.readFileSync(path.join(raiz, '_app', 'router.js'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
     const i = src.indexOf('reconcileAllVenues(store,');
     expect(i).toBeGreaterThan(0);
     const chamada = src.slice(i, i + 1400);
     expect(chamada).toMatch(/\bpsp,/);
     expect(chamada).toMatch(/sinceIso/);
     expect(chamada).toMatch(/limit/);
+    // A janela dá pra apontar pra trás: sem isso a perna de custódia roda
+    // contra as últimas 24h pra sempre, e as cobranças reais são de julho.
+    expect(chamada).toMatch(/searchParams\.get\('since'\)/);
     // E o interruptor: a perna precisa poder ser desligada sem deploy, porque
     // é a única coisa desta série que faz I/O externo dentro do cron.
     expect(chamada).toMatch(/RACHA_PAYABLES_LEG/);

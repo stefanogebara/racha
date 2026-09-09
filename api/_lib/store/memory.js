@@ -625,6 +625,9 @@ function createMemoryStore() {
      * deveria demonstrar passa verde aqui e falha lá.
      */
     async repairPaymentRow(p) {
+      // `p.source` (migração 0029) é a procedência que o log grava. O duplo não
+      // tem log, mas o CENSO de forma compara as chaves — e um duplo que aceita
+      // menos que a produção é como o defeito de projeção começa.
       const atual = payments.get(p.txid);
       if (!atual) return false;
       if (atual.status !== p.expectedStatus) return false;

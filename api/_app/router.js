@@ -1305,6 +1305,8 @@ async function route(req, res) {
             confirmedTipCents: pgDepois.tipCents,
             refundedAmountCents: pgDepois.refundedAmountCents,
             refundedTipCents: pgDepois.refundedTipCents,
+            // Procedência pro log de reparo (migração 0029): a devolução fora do trilho, pedida por um dono logado.
+            source: 'owner_offrail_refund',
           });
         }
       } catch (e) {
@@ -1332,7 +1334,18 @@ async function route(req, res) {
       // dinheiro. Cacheada por 60s (o painel recarrega a cada 4s).
       let recon = panelReconcileCached(venueId);
       if (!recon) {
-        const r = await reconcileOneVenue(store, { id: venueId, name: data.venue.name });
+        // `repair: false`: ESTE é o GET que importa. O painel recarrega a cada
+        // 4s e o cache de 60s é um Map em processo — por instância quente e por
+        // partida fria, não "uma vez por minuto" no mundo. A rota escrevia em
+        // linha de dinheiro (inclusive `confirmed_tip_cents`, base da folha),
+        // autenticada como dono, no horário que o chamador escolhesse, sem
+        // prazo, e MOSTRAVA "tudo bate" na mesma carga — o achado do reparo é
+        // `info` e o painel só desenha achado quando está vermelho.
+        //
+        // Eu tinha consertado o `/api/house/admin` e afirmado que "o cron é o
+        // único que repara". Era falso: esta é a rota que os donos abrem.
+        // Achado pela revisão de compliance de 2026-09-09 (CRITICAL-1).
+        const r = await reconcileOneVenue(store, { id: venueId, name: data.venue.name }, { repair: false });
         recon = {
           severity: r.severity,
           driftCents: r.driftCents,
@@ -1693,7 +1706,30 @@ async function route(req, res) {
           // uma noite saudável e o `custody_leak` simplesmente não existia.
           ...(process.env.RACHA_PAYABLES_LEG === 'off' ? { legDisabled: true } : {
             psp,
-            sinceIso: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+            /**
+             * A JANELA dá pra apontar pra trás — senão a perna nunca foi
+             * medida contra dado real.
+             *
+             * Era 24h fixas, e as 7 cobranças reais são todas de 2026-07-20:
+             * a conferência de custódia rodaria contra NADA e reportaria ok,
+             * pra sempre, até a primeira mesa de verdade. Todas as
+             * propriedades dela (que `custody_leak` dispara num recebedor
+             * estranho, que cobrança sadia volta verde, que
+             * `payable_shape_invalid` é raro e não constante) seriam lidas do
+             * fonte, nunca observadas.
+             *
+             * `?since=` transforma quatro suposições em quatro observações, e
+             * a rota já é fechada por `CRON_SECRET` e já tem `?dry=1`. Teto de
+             * 90 dias porque cada cobrança é uma chamada de API — janela
+             * aberta é varredura que não termina.
+             */
+            sinceIso: (() => {
+              const pedido = url.searchParams.get('since');
+              const t = pedido ? Date.parse(pedido) : NaN;
+              const teto = Date.now() - 90 * 24 * 3600 * 1000;
+              if (Number.isFinite(t) && t >= teto && t <= Date.now()) return new Date(t).toISOString();
+              return new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+            })(),
             limit: 25,
           }),
         });

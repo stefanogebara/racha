@@ -655,6 +655,8 @@ async function repairRowFromLedger(checkId, txid, deps) {
       refundedAmountCents: pay.refundedAmountCents,
       refundedTipCents: pay.refundedTipCents,
       ...(faltaData ? { confirmedAt: new Date().toISOString() } : {}),
+      // Procedência pro log de reparo (migração 0029): a reentrega do adquirente — o único caso que a frase antiga descrevia.
+      source: 'webhook_redelivery',
     });
     if (!reparou) {
       process.stderr.write(`[webhook] linha ${txid} mudou no meio do reparo — a outra entrega ganhou\n`);

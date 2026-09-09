@@ -433,18 +433,27 @@ export const DICT = {
   // O REPARO DE LINHA, dito pra quem lê o painel. A conciliação escreve em
   // `payments` quando a projeção ficou atrás do razão, e um reparo sem nome na
   // tela é uma escrita de dinheiro que só o JSON do cron conhece.
-  'find.payment_row_repaired': { en: 'payment rows were re-projected from the ledger — the displayed row had fallen behind',
-                        pt: 'linhas de pagamento foram reprojetadas do razão — a linha exibida ficou atrás',
-                        es: 'se reproyectaron filas de pago desde el libro — la fila mostrada se había quedado atrás' },
-  'find.payment_row_repair_failed': { en: 'a payment row could not be re-projected — the display stays behind the ledger',
-                        pt: 'uma linha de pagamento não pôde ser reprojetada — a exibição segue atrás do razão',
-                        es: 'una fila de pago no pudo reproyectarse — la vista sigue atrás del libro' },
+  'find.payment_row_repaired': { en: 'we corrected payment rows that were showing outdated amounts — your revenue totals for the affected days may have changed',
+                        pt: 'corrigimos linhas de pagamento que mostravam valores desatualizados — o faturamento dos dias afetados pode ter mudado',
+                        es: 'corregimos filas de pago que mostraban importes desactualizados — la facturación de esos días puede haber cambiado' },
+  'find.payment_row_repair_failed': { en: 'payment rows could not be corrected — what you see stays behind the ledger until this is resolved',
+                        pt: 'linhas de pagamento não puderam ser corrigidas — o que você vê segue atrás do razão até isso ser resolvido',
+                        es: 'no se pudieron corregir filas de pago — lo que ve sigue atrás del libro hasta resolverlo' },
+  // A GORJETA tem a sua própria: é a única que a casa leva pra FOLHA, e uma vez
+  // distribuída não volta (CLT art. 462). Ver `payment_tip_base_repaired`.
+  'find.payment_tip_base_repaired': { en: 'we corrected the service-charge figures on some payments — check them before closing payroll for the period',
+                        pt: 'corrigimos os valores de serviço de alguns pagamentos — confira antes de fechar a folha do período',
+                        es: 'corregimos los importes de servicio de algunos pagos — revíselos antes de cerrar la nómina del período' },
   'find.payment_rows_unrepaired': { en: 'some payment rows were not even examined (sweep deadline or repair cap)',
                         pt: 'algumas linhas de pagamento não foram nem olhadas (prazo da varredura ou teto de reparos)',
                         es: 'algunas filas de pago no se revisaron (plazo del barrido o tope de reparaciones)' },
-  'find.payable_shape_invalid': { en: 'the acquirer sent a receivable with an unreadable amount — left out of the sum',
-                        pt: 'o adquirente mandou um recebível com valor ilegível — ficou fora da soma',
-                        es: 'el adquirente envió un abono con importe ilegible — queda fuera de la suma' },
+  'find.payable_shape_invalid': { en: 'the acquirer sent a receivable with an unreadable amount — the destination could not be verified for this charge',
+                        pt: 'o adquirente mandou um recebível com valor ilegível — não deu pra conferir o destino desta cobrança',
+                        es: 'el adquirente envió un abono con importe ilegible — no se pudo verificar el destino de este cobro' },
+  // NÃO SEI QUANTO, SEI PRA QUEM. Custódia se decide pelo destino.
+  'find.custody_leak_unreadable': { en: 'part of this charge settled to a recipient that is not this venue — the amount is unreadable, the destination is not',
+                        pt: 'parte desta cobrança caiu num recebedor que não é esta casa — o valor está ilegível, o destino não',
+                        es: 'parte de este cobro fue a un receptor que no es este local — el importe es ilegible, el destino no' },
   'find.payables_absent': { en: 'the acquirer has no receivable for this charge yet — destination not verified',
                         pt: 'o adquirente ainda não tem recebível desta cobrança — destino não conferido',
                         es: 'el adquirente aún no tiene el abono de este cobro — destino sin verificar' },

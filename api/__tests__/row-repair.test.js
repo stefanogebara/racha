@@ -652,7 +652,9 @@ describe('a restituição fora do trilho: o caminho de ERRO', () => {
     expect(linhaAntes.refundedAmountCents || 0).toBe(0);
 
     // A varredura vê a linha atrás do razão — e agora fecha a própria detecção.
-    const v = await reconcileVenue(store, venue.id);
+    // `repair: true` explícito: a escrita é OPT-IN desde o CRITICAL-1 da
+    // revisão de compliance de 2026-09-09, e só a varredura noturna a pede.
+    const v = await reconcileVenue(store, venue.id, { repair: true });
     expect(v.rowsRepaired).toBe(1);
     expect(v.failed.filter((f) => f.findings.some((x) => x.code === 'refund_mismatch'))).toEqual([]);
     expect(v.totalDriftCents).toBe(0);
@@ -671,7 +673,7 @@ describe('a restituição fora do trilho: o caminho de ERRO', () => {
       status: 'confirmado', confirmedAmountCents: 19000, confirmedTipCents: 0,
       refundedAmountCents: 5000, refundedTipCents: 0,   // a linha inventou um estorno
     });
-    const v = await reconcileVenue(store, venue.id);
+    const v = await reconcileVenue(store, venue.id, { repair: true });
     expect(v.rowsRepaired).toBe(0);
     // E a divergência CONTINUA sendo acusada, que é o certo.
     expect(v.failed.some((f) => f.findings.some((x) => x.code === 'refund_mismatch'))).toBe(true);
@@ -797,7 +799,9 @@ describe('censo das colunas que o reparo escreve', () => {
       const { store, venue } = await cenario(caso);
       const linhaAntes = await store.getPayment('ch_1');
 
-      const v = await reconcileVenue(store, venue.id);
+      // Pede a escrita DE PROPÓSITO: um censo que não a pede provaria o opt-in,
+      // não o guarda por coluna. São duas defesas e cada uma tem o seu teste.
+      const v = await reconcileVenue(store, venue.id, { repair: true });
 
       // 1. Não escreveu.
       expect(v.rowsRepaired).toBe(0);
@@ -817,7 +821,7 @@ describe('censo das colunas que o reparo escreve', () => {
       linha: { refundedAmountCents: 0, refundedTipCents: 0 },
       razao: { refundedAmountCents: 2000, refundedTipCents: 0 },
     });
-    const v = await reconcileVenue(store, venue.id);
+    const v = await reconcileVenue(store, venue.id, { repair: true });
     expect(v.rowsRepaired).toBe(1);
     expect((await store.getPayment('ch_1')).refundedAmountCents).toBe(2000);
   });
@@ -959,5 +963,188 @@ describe('o reparo aparece no relatório e no alerta', () => {
     expect(rel.rowsRepaired).toBe(0);
     expect(rel.rowsRepairFailed).toBe(0);
     expect(formatReconcileAlert(rel)).toBe(null);
+  });
+});
+
+/**
+ * O CENSO DAS ROTAS QUE LEEM — a terceira instância que não vai acontecer.
+ *
+ * Duas vezes seguidas eu consertei UMA rota e afirmei que o cron era o único
+ * que escrevia. Primeiro o `/api/house/admin` (e o `/api/panel` seguiu
+ * escrevendo); a revisão de compliance de 2026-09-09 achou o segundo e chamou
+ * de CRITICAL, porque o painel recarrega a cada 4s, autenticado como dono, sem
+ * prazo, mexendo em `confirmed_tip_cents` — e mostrando "tudo bate" na mesma
+ * carga em que reescreveu a linha.
+ *
+ * O conserto de verdade foi inverter o padrão: a escrita virou OPT-IN, então um
+ * chamador esquecido nasce lendo. Este censo é a segunda defesa — ele não deixa
+ * `repair: true` aparecer numa rota, onde quer que ela esteja, sem que alguém
+ * tenha que mexer neste arquivo e explicar por quê.
+ */
+describe('censo: nenhuma ROTA pede a escrita do reparo', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  test('`repair: true` não aparece em nenhum arquivo de rota', () => {
+    const fonte = fs.readFileSync(path.join(__dirname, '../_app/router.js'), 'utf8');
+    // A varredura noturna é chamada pelo cron via `reconcileAllVenues`, que põe
+    // o `repair` ela mesma — a rota não precisa (e não pode) pedir.
+    expect(fonte).not.toMatch(/repair:\s*true/);
+  });
+
+  test('a varredura é o ÚNICO lugar que liga a escrita', () => {
+    const daily = fs.readFileSync(path.join(__dirname, '../_lib/checks/reconcile-daily.js'), 'utf8');
+    const recon = fs.readFileSync(path.join(__dirname, '../_lib/checks/reconcile.js'), 'utf8');
+    // Uma única origem, em `reconcileAllVenues`.
+    expect((daily.match(/repair:\s*opts\.repair\s*!==\s*false/g) || []).length).toBe(1);
+    // E o guarda é opt-IN: `=== true`, não `!== false`. Se alguém inverter isso
+    // de volta, toda rota que chama a conciliação volta a escrever calada.
+    //
+    // Sem os COMENTÁRIOS: o cabeçalho da função cita o predicado antigo pra
+    // explicar por que ele mudou, e um censo que lê prosa acusaria a própria
+    // explicação. Censo lê código.
+    const semComentario = recon
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(semComentario).toMatch(/opts\.repair === true/);
+    expect(semComentario).not.toMatch(/opts\.repair === false/);
+  });
+
+  test('a rota do painel NÃO escreve — com um store que grita se chamarem', async () => {
+    // O censo de fonte acima pega a string; este pega o COMPORTAMENTO, que é o
+    // que de fato importa e o que nenhum teste cobria.
+    const { reconcileOneVenue } = require('../_lib/checks/reconcile-daily');
+    let chamou = false;
+    const store = {
+      listChecksForReconcile: async () => [{
+        checkId: 'c1',
+        events: [
+          { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+          { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix' } },
+          { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 0, offRail: true, reference: 'caixa', by: 'd@b' } },
+        ],
+        payments: [{
+          txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
+          confirmedAmountCents: 10000, confirmedTipCents: 0,
+          refundedAmountCents: 0, refundedTipCents: 0,   // ATRÁS do razão: reparável
+        }],
+      }],
+      listHouseAccountsForReconcile: async () => [],
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      async repairPaymentRow() { chamou = true; return true; },
+    };
+
+    // Do jeito que o painel chama.
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' }, { repair: false });
+    expect(chamou).toBe(false);
+    // E o achado da divergência CONTINUA saindo: ler não é fingir que bate.
+    expect(r.severity).toBe('critical');
+
+    // Do jeito que a varredura chama — aí sim escreve.
+    await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' }, { repair: true });
+    expect(chamou).toBe(true);
+  });
+
+  test('por OMISSÃO não escreve — o padrão é o que salva o chamador esquecido', async () => {
+    const { reconcileVenue } = require('../_lib/checks/reconcile');
+    let chamou = false;
+    const store = {
+      listChecksForReconcile: async () => [{
+        checkId: 'c1',
+        events: [
+          { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+          { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix' } },
+          { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 0, offRail: true, reference: 'caixa', by: 'd@b' } },
+        ],
+        payments: [{
+          txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
+          confirmedAmountCents: 10000, confirmedTipCents: 0,
+          refundedAmountCents: 0, refundedTipCents: 0,
+        }],
+      }],
+      async repairPaymentRow() { chamou = true; return true; },
+    };
+    await reconcileVenue(store, 'v1');            // sem opts nenhum
+    expect(chamou).toBe(false);
+    await reconcileVenue(store, 'v1', {});        // opts vazio
+    expect(chamou).toBe(false);
+  });
+});
+
+/**
+ * A PROCEDÊNCIA do reparo — quem pediu, e por quê (migração 0029).
+ *
+ * O `payment_repair_log` gravava, pros TRÊS chamadores, "reprojecao da linha a
+ * partir do razao, na reentrega de um webhook". Só um deles é uma reentrega. O
+ * commit anterior fez da varredura noturna o chamador de MAIOR VOLUME, sem
+ * ninguém presente, escrevendo `confirmed_tip_cents` — e o log é o único
+ * registro durável dessa escrita. Registro que descreve a operação errada é
+ * prova PIOR que nenhuma numa discussão trabalhista sobre a gorjeta de um
+ * período (CLT art. 11: cinco anos) — LGPD art. 37.
+ *
+ * Achado pela revisão de compliance de 2026-09-09 (M2 → HIGH-3).
+ */
+describe('censo: todo reparo declara a sua procedência', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  /** Os três chamadores, e a origem que cada um tem que declarar. */
+  const CHAMADORES = [
+    ['../_lib/checks/reconcile.js', 'reconciler_sweep'],
+    ['../_lib/pay/webhook-handler.js', 'webhook_redelivery'],
+    ['../_app/router.js', 'owner_offrail_refund'],
+  ];
+
+  for (const [arquivo, origem] of CHAMADORES) {
+    test(`${arquivo.split('/').pop()} declara \`${origem}\``, () => {
+      const fonte = fs.readFileSync(path.join(__dirname, arquivo), 'utf8');
+      expect(fonte).toMatch(new RegExp(`source: '${origem}'`));
+    });
+  }
+
+  test('nenhum chamador de `repairPaymentRow` fica SEM origem', () => {
+    // O censo de verdade: não é "os três que eu conheço declaram", é "não
+    // existe um quarto". Um chamador novo sem `source` grava
+    // 'origem nao declarada' no log — explícito, mas ainda assim uma escrita
+    // de dinheiro anônima, e é aqui que ela para.
+    const raiz = path.join(__dirname, '..');
+    const arquivos = [];
+    (function varrer(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name === '__tests__') continue;
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) varrer(p);
+        else if (e.name.endsWith('.js')) arquivos.push(p);
+      }
+    })(raiz);
+
+    const semOrigem = [];
+    for (const p of arquivos) {
+      const fonte = fs.readFileSync(p, 'utf8');
+      let i = fonte.indexOf('repairPaymentRow({');
+      while (i !== -1) {
+        // Fatia até o fecho da chamada e exige `source:` dentro dela.
+        let prof = 0; let fim = i;
+        for (let j = fonte.indexOf('{', i); j < fonte.length; j += 1) {
+          if (fonte[j] === '{') prof += 1;
+          else if (fonte[j] === '}') { prof -= 1; if (prof === 0) { fim = j; break; } }
+        }
+        const chamada = fonte.slice(i, fim + 1);
+        if (!/source:\s*'/.test(chamada)) semOrigem.push(`${path.relative(raiz, p)}`);
+        i = fonte.indexOf('repairPaymentRow({', fim);
+      }
+    }
+    expect(semOrigem).toEqual([]);
+  });
+
+  test('a migração 0029 fecha o conjunto — origem desconhecida não vira texto livre', () => {
+    const sql = fs.readFileSync(
+      path.join(__dirname, '../../supabase/migrations/0029_repair_log_provenance.sql'), 'utf8');
+    for (const origem of ['webhook_redelivery', 'owner_offrail_refund', 'reconciler_sweep']) {
+      expect(sql).toMatch(new RegExp(`when '${origem}'`));
+    }
+    // E o `else` existe: um `p_source` inventado não escapa pro log.
+    expect(sql).toMatch(/else 'origem nao declarada pelo chamador'/);
   });
 });
