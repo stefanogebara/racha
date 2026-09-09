@@ -406,36 +406,11 @@ function acharServicoNuncaArrecadado(inputs) {
 }
 
 /**
- * A LINHA QUE FICOU ATRÁS DO RAZÃO — reparada aqui, e não deixada pra ninguém.
- *
- * Toda escrita de dinheiro faz dois passos: o razão (a verdade) e a linha de
- * `payments` (uma projeção). Entre os dois cabe uma falha, e até agora o único
- * dono desse conserto era a reentrega do webhook (`repairRowFromLedger`) — que
- * nunca chega numa restituição feita FORA do trilho, porque não há PSP pra
- * reenviar nada.
- *
- * O resultado era o pior possível: um 5xx transitório no meio de uma devolução
- * corretamente paga virava `refund_mismatch` + `ledger_drift` CRÍTICOS
- * PERMANENTES, e o alerta noturno passava a dizer "drift 90,00" pra sempre.
- * O cabeçalho do `reconcile-daily` diz, com razão, que ele não conserta — mas
- * ninguém consertava, e um canário que grita pra sempre morre.
- *
- * Então a conciliação passa a fechar a própria detecção: onde ela vê a linha
- * ATRÁS do razão, ela reprojeta. Claim CONDICIONAL com o erro conferido
- * (inegociável #7, migração 0023) — se a linha mudou desde a leitura, não
- * escreve e não mente. E só na direção segura: a linha é projeção do razão,
- * então escrever o que o razão diz não pode inventar dinheiro.
- *
- * Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
- */
-/**
  * Teto de reparos por varredura. Atraso sistemático é BUG, não soluço: passar
  * disto, o certo é um humano olhar a causa, não a varredura reprojetar mil
  * linhas no escuro.
  */
 const TETO_DE_REPAROS = 200;
-/** `expirado` fora: contra um razão confirmado é conflito, não atraso. */
-const STATUS_REPARAVEL = ['pendente', 'confirmado', 'devolvido'];
 /** Acima disto o reparo deixa de ser `info` e passa a pedir gente. */
 const REPAROS_DEMAIS = 3;
 
@@ -505,112 +480,115 @@ function acharReparos(reparados, falhados, naoOlhadas, gorjeta = []) {
   return achados;
 }
 
+/**
+ * A LINHA QUE FICOU ATRÁS DO RAZÃO — só nas colunas de ESTORNO, e só isso.
+ *
+ * ESCOPO, e por que ele encolheu tanto.
+ *
+ * Este reparo existe por UM caso: uma restituição fora do trilho entra no razão,
+ * a projeção da linha falha, e nasce um `refund_mismatch` + `ledger_drift`
+ * CRÍTICO PERMANENTE por uma dívida corretamente quitada. Não há webhook pra
+ * reentregar, então `repairRowFromLedger` nunca chega, e um canário que grita
+ * pra sempre morre.
+ *
+ * Nesse caso a linha tem `status` certo, `confirmed_*` certo, e só `refunded_*`
+ * atrasado. Mas eu escrevi o reparo pra reprojetar as CINCO colunas que a RPC
+ * escreve, e três revisões seguidas acharam bloqueador dentro dele:
+ *
+ *  - a guarda somava duas colunas e escrevia cinco, então uma linha À FRENTE
+ *    passava por "atrás" e o reparo APAGAVA um evento de devolução perdido;
+ *  - virando `status` pra `confirmado` sem `confirmed_at`, a linha sumia de
+ *    `getPanelView`, de `listRecentConfirmedCharges` e do funil — dinheiro
+ *    ausente dos livros da casa e cobrança fora da perna de custódia, PRA
+ *    SEMPRE, com o canário verde;
+ *  - `devolvido → confirmado` era um rebaixamento sem guarda nenhuma, e devolvia
+ *    a gorjeta estornada pra base da folha. A migração 0021 faz exatamente esse
+ *    flip e o trata como o comando de maior risco do arquivo: rodado à mão, com
+ *    imagem anterior, dizendo "REVER A FOLHA do periodo" e "o restaurante
+ *    PRECISA ser avisado". A varredura fazia igual, sozinha, de madrugada, em
+ *    `info`, justo nas linhas que a 0021 EXCLUI de propósito.
+ *
+ * Três consertos aumentaram a superfície. Este a corta: o reparo escreve as
+ * DUAS colunas de estorno, e só quando todo o resto da linha já bate com o
+ * razão. Fecha o caso que motivou a coisa e não pode fazer mais nada.
+ *
+ *  - `status` nunca é escrito → o rebaixamento não existe;
+ *  - `confirmed_*` nunca é escrito → não há linha sem `confirmed_at`, e a
+ *    divergência de confirmação segue sendo `amount_mismatch`/`tip_mismatch`,
+ *    CRÍTICOS, decididos por gente;
+ *  - a linha nunca projetada (`confirmed_*` nulo) não é reparável: ela é o
+ *    caso de risco da 0021 e continua sendo achado.
+ *
+ * O que ele NÃO cobre volta a ser o que sempre foi: achado alto, e um humano
+ * decide. É o que o cabeçalho do `reconcile-daily` promete.
+ */
 async function repararLinhasAtrasadas(store, inputs, opts = {}) {
   const vazio = { reparadas: 0, falhas: 0, achados: [] };
   if (typeof store.repairPaymentRow !== 'function') return vazio;
   const reparados = [];
   const falhados = [];
-  /** Os que mexeram na BASE DA FOLHA — severidade própria, ver abaixo. */
+  /** Os que mexeram na BASE DA FOLHA — severidade própria, ver `acharReparos`. */
   const mexeramNaGorjeta = [];
   let naoOlhadas = 0;
+  let cortou = false;
+
   for (const inp of inputs) {
+    if (cortou) break;
     const estado = reduce(inp.events || []);
     for (const row of inp.payments || []) {
-      // O PRAZO vale aqui também.
-      //
-      // A varredura ganhou um prazo (`reconcile-daily`), e só a perna dos
-      // recebíveis o obedecia. Esta é a hora em que o reparo pesa mais — logo
-      // depois de uma queda de projeção deixar muitas linhas atrás — e é
-      // exatamente quando ele estourava o `maxDuration` e matava a varredura
-      // inteira. Função morta não paga promessa nenhuma: o `catch` da rota não
-      // roda, nenhum alerta sai, e o único sinal é o batimento que não veio.
-      // (MEDIUM-2 da revisão de segurança de 2026-09-09.)
-      if (Number.isFinite(opts.deadline) && Date.now() > opts.deadline) { naoOlhadas += 1; continue; }
-      if (reparados.length >= TETO_DE_REPAROS) { naoOlhadas += 1; continue; }
-
       const pay = estado && estado.payments[row.txid];
       if (!pay) continue;
 
       /**
-       * ATRÁS é POR COLUNA. A soma deixava passar a linha à FRENTE.
+       * CANDIDATA primeiro, PRAZO depois.
        *
-       * O teto era `refundedAmount + refundedTip` das duas bandas somadas, e
-       * a `repair_payment_row` escreve CINCO colunas. Duas consequências
-       * medidas na revisão de 2026-09-09 (HIGH-1):
-       *
-       *  - linha 500/0 contra razão 0/1000: a soma diz "atrás" (500 < 1000) e
-       *    o reparo apagava os 500 que só a linha conhecia — ou seja, um
-       *    evento de devolução PERDIDO, dinheiro que saiu de verdade. O painel
-       *    subia 500¢ e os dois críticos sumiam.
-       *  - linha com `confirmed_tip` 1400 contra razão 1000: o reparo
-       *    reescrevia a BASE DA FOLHA (inegociável #2, Lei 13.419/2017) e
-       *    zerava um drift de R$ 64,00 — o alarme que o inegociável #8 manda
-       *    tocar.
-       *
-       * Então: à frente em QUALQUER perna, não toca. Isso quer dizer que o
-       * razão é que perdeu um evento, e reprojetar apaga a evidência.
+       * A conferência de prazo estava no topo do laço, antes de saber se a
+       * linha era sequer reparável — então, estourado o prazo, TODA linha de
+       * TODA casa restante entrava em `payment_rows_unrepaired` (`high`) e a
+       * casa saía vermelha. Com 90s globais e a perna de recebíveis
+       * consumindo o seu, isso disparava lá pela quinta casa: o alerta noturno
+       * viraria "N de M restaurantes com divergência" com quase nenhuma
+       * divergência — a morte por alerta que o inegociável #8 descreve.
+       * (MEDIUM-1 da revisão de segurança de 2026-09-09.)
        */
+      const atrasada = (row.refundedAmountCents || 0) < pay.refundedAmountCents
+        || (row.refundedTipCents || 0) < pay.refundedTipCents;
+      if (!atrasada) continue;
+
+      /**
+       * O RESTO DA LINHA tem que bater com o razão. Este reparo é de estorno.
+       *
+       * Nunca projetada (`confirmed_*` nulo) NÃO é reparável aqui: é a
+       * população que a 0021 exclui à mão, e mexer nela é decisão de gente.
+       * `status` divergente idem — `status_lag` já é `high` e diz melhor.
+       */
+      if (row.confirmedAmountCents !== pay.amountCents) continue;
+      if (row.confirmedTipCents !== pay.tipCents) continue;
+      if (row.status !== 'confirmado') continue;
+      // À FRENTE em qualquer perna: o razão é que perdeu um evento, e
+      // reprojetar apagaria a evidência.
       if ((row.refundedAmountCents || 0) > pay.refundedAmountCents) continue;
       if ((row.refundedTipCents || 0) > pay.refundedTipCents) continue;
 
-      /**
-       * O CONFIRMADO não é reparo — é achado.
-       *
-       * A linha só pode ser reprojetada nas colunas de confirmação quando ela
-       * ainda NÃO tem projeção (a devolução fora do trilho que nunca projetou)
-       * ou quando ela já bate com o razão. Diferente é divergência de
-       * confirmação, e quem julga isso é `reconcileCheck` (`amount_mismatch`,
-       * `tip_mismatch`, os dois CRÍTICOS) — não este reparo, calado.
-       */
-      const semProjecao = (row.confirmedAmountCents === null || row.confirmedAmountCents === undefined)
-        && (row.confirmedTipCents === null || row.confirmedTipCents === undefined);
-      const confirmadoBate = row.confirmedAmountCents === pay.amountCents
-        && row.confirmedTipCents === pay.tipCents;
-      if (!semProjecao && !confirmadoBate) continue;
-
-      // `expirado` contra um razão que diz confirmado é CONFLITO, não atraso.
-      // Virar a linha pra `confirmado` aqui esconderia a pergunta.
-      if (!STATUS_REPARAVEL.includes(row.status)) continue;
-
-      // Nada a fazer: as duas pernas em dia e o confirmado batendo. Sem isto o
-      // reparo dispararia em toda linha, toda noite — e agora que ele PRODUZ
-      // achado, isso seria um alerta por pagamento.
-      const atrasada = (row.refundedAmountCents || 0) < pay.refundedAmountCents
-        || (row.refundedTipCents || 0) < pay.refundedTipCents
-        || semProjecao;
-      if (!atrasada) continue;
-
-      const total = pay.refundedAmountCents === pay.amountCents
-        && pay.refundedTipCents === pay.tipCents;
+      // Só agora custa alguma coisa: uma chamada de RPC por linha.
+      if (Number.isFinite(opts.deadline) && Date.now() > opts.deadline) { naoOlhadas += 1; cortou = true; break; }
+      // TETO conta TENTATIVAS, não sucessos. Com um grant revogado ou a
+      // assinatura trocada — a classe do inegociável #7 — o laço gastava a
+      // varredura inteira em escritas que falhavam e o teto nunca engatava.
+      if (reparados.length + falhados.length >= TETO_DE_REPAROS) { naoOlhadas += 1; cortou = true; break; }
 
       /**
        * A GORJETA que este reparo vai MOVER — medida antes de escrever.
        *
-       * A severidade estava presa à CONTAGEM (1 a 3 reparos = `info`), e com
-       * nada mais vermelho o `formatReconcileAlert` devolve `null`: uma noite
-       * em que a conciliação reescreveu a base da folha não acordava ninguém.
-       * Só que a contagem é a dimensão errada. `confirmedMoney` cai no
-       * `tipCents` PEDIDO quando `confirmed_tip_cents` é nulo, e subtrai o
-       * `refunded_tip_cents` direto — então tanto preencher o confirmado a
-       * partir do nulo quanto lançar o estorno de gorjeta MUDA o número que a
-       * casa leva pra folha.
-       *
-       * E esse número, uma vez distribuído, não volta: CLT art. 462 proíbe o
-       * desconto unilateral no salário do garçom. Uma revisão pra baixo que a
-       * casa descobre DEPOIS da folha é prejuízo dela, causado por nós. Lei
-       * 13.419/2017 (CLT art. 457 §§3º-12) põe nela o dever de escriturar por
-       * período; STJ Tema 1102 mantém a gorjeta na base remuneratória.
-       *
-       * Então: severidade por COLUNA, não por contagem. Reparo que mexe na
-       * gorjeta é `high` já no primeiro. Achado pela revisão de compliance de
-       * 2026-09-09 (HIGH-1).
+       * `confirmedMoney` subtrai `refunded_tip_cents` direto, então lançar o
+       * estorno de gorjeta MUDA o número que a casa leva pra folha. E esse
+       * número, uma vez distribuído, não volta: CLT art. 462 proíbe o desconto
+       * unilateral no salário do garçom. Lei 13.419/2017 (CLT art. 457 §§) põe
+       * na casa o dever de escriturar por período; STJ Tema 1102 mantém a
+       * gorjeta na base remuneratória. Severidade por COLUNA, não por
+       * contagem: mexeu na gorjeta é `high` no primeiro.
        */
-      const gorjetaAntes = Number.isFinite(row.confirmedTipCents)
-        ? row.confirmedTipCents : (row.tipCents || 0);
-      const gorjetaDepois = pay.tipCents;
-      const liquidaAntes = Math.max(0, gorjetaAntes - (row.refundedTipCents || 0));
-      const liquidaDepois = Math.max(0, gorjetaDepois - pay.refundedTipCents);
-      const deltaGorjeta = liquidaDepois - liquidaAntes;
+      const deltaGorjeta = (row.refundedTipCents || 0) - pay.refundedTipCents;
 
       try {
         const ok = await store.repairPaymentRow({
@@ -618,23 +596,31 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
           expectedStatus: row.status,
           expectedRefundedAmountCents: row.refundedAmountCents || 0,
           expectedRefundedTipCents: row.refundedTipCents || 0,
-          status: total ? 'devolvido' : 'confirmado',
-          confirmedAmountCents: pay.amountCents,
-          confirmedTipCents: pay.tipCents,
+          // `status` e `confirmed_*` vão de volta COMO FORAM LIDOS: a RPC
+          // escreve as cinco colunas, e reescrever o mesmo valor é a única
+          // forma de não mexer nelas sem mudar a assinatura da 0023.
+          status: row.status,
+          confirmedAmountCents: row.confirmedAmountCents,
+          confirmedTipCents: row.confirmedTipCents,
           refundedAmountCents: pay.refundedAmountCents,
           refundedTipCents: pay.refundedTipCents,
-          // Procedência pro log de reparo (migração 0029): a varredura noturna, sem operador presente.
+          // Procedência pro log de reparo (migração 0029): a varredura
+          // noturna, sem operador presente.
           source: 'reconciler_sweep',
         });
         if (ok) {
           reparados.push(row.txid);
           if (deltaGorjeta !== 0) mexeramNaGorjeta.push({ txid: row.txid, deltaCents: deltaGorjeta });
+        } else {
+          // NEM reparou NEM falhou: a linha mudou entre a leitura e o claim, ou
+          // sumiu. Escrita de dinheiro que vira no-op sem testemunha é como a
+          // degradação silenciosa começa (inegociável #7).
+          falhados.push(row.txid);
+          process.stderr.write(`[reconcile] reparo da linha ${row.txid} não pegou: a linha mudou desde a leitura\n`);
         }
       } catch (e) {
         // Reparo é oportunista: falhar aqui não pode derrubar a varredura —
-        // mas TAMBÉM não pode virar só uma linha de stderr. Um grant revogado
-        // ou uma RPC quebrada é justamente a classe do inegociável #7, e ela
-        // precisa sair no relatório.
+        // mas TAMBÉM não pode virar só uma linha de stderr.
         falhados.push(row.txid);
         process.stderr.write(`[reconcile] reparo da linha ${row.txid} falhou: ${String(e.message).slice(0, 120)}\n`);
       }

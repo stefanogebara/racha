@@ -1750,6 +1750,8 @@ async function route(req, res) {
           venuesChecked: report.venuesChecked,
           driftCents: report.totalDriftCents,
           worstSeverity: report.worstSeverity,
+          rowsRepaired: report.rowsRepaired,
+          rowsRepairFailed: report.rowsRepairFailed,
         });
       } else if (!mensagem && url.searchParams.get('dry') !== '1') {
         // Batimento: verde também fala. Do lado da Olímpia, a AUSÊNCIA da batida
@@ -1758,13 +1760,15 @@ async function route(req, res) {
           mensagem: null, heartbeat: true,
           venuesRed: 0, venuesChecked: report.venuesChecked,
           driftCents: report.totalDriftCents, worstSeverity: report.worstSeverity,
+          rowsRepaired: report.rowsRepaired, rowsRepairFailed: report.rowsRepairFailed,
         });
       }
       // Verde também sai no log: um canário que só fala quando está ruim é
       // indistinguível de um canário quebrado.
       process.stderr.write(
         `[reconcile-cron] casas=${report.venuesChecked} vermelhas=${report.venuesRed} `
-        + `pior=${report.worstSeverity} drift=${report.totalDriftCents}¢\n`);
+        + `pior=${report.worstSeverity} drift=${report.totalDriftCents}¢ `
+        + `reparadas=${report.rowsRepaired || 0} reparo_falhou=${report.rowsRepairFailed || 0}\n`);
       return json(res, 200, { success: true, data: { ...report, mensagem, envio } });
     }
 

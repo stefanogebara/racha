@@ -117,7 +117,8 @@ async function notifyPreviaBeacon({ pl, event }) {
  * alerta de dinheiro que não sai não pode também sumir.
  */
 async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked = 0,
-                                        driftCents = 0, worstSeverity = 'ok', heartbeat = false }) {
+                                        driftCents = 0, worstSeverity = 'ok', heartbeat = false,
+                                        rowsRepaired = 0, rowsRepairFailed = 0 }) {
   const secret = process.env.RACHA_NOTIFY_SECRET;
   if (!secret) {
     // Batimento sem ponte não merece um bloco de stderr por noite; alerta sim.
@@ -134,6 +135,11 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
         // indistinguível de um canário morto (#8).
         event: heartbeat ? 'reconcile_heartbeat' : 'reconcile_drift',
         mensagem, venuesRed, venuesChecked, driftCents, worstSeverity,
+        // QUANTAS LINHAS a varredura reescreveu. Sem isto uma batida verde que
+        // reprojetou quatro linhas de `payments` é indistinguível de uma noite
+        // em que nada foi tocado — e o batimento é justamente o que se olha
+        // quando nada está vermelho (HIGH-3, revisão de 2026-09-09).
+        rowsRepaired, rowsRepairFailed,
       }),
     });
     const data = await res.json().catch(() => ({}));

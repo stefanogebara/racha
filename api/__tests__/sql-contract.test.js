@@ -310,6 +310,41 @@ describe('censo do SELECT: a leitura tem que trazer o que o código usa', () => 
     expect(faltando).toEqual([]);
   });
 
+  test('todo campo que a VARREDURA lê de `listChecksForReconcile` está no SELECT', () => {
+    /**
+     * O SEGUNDO leitor, que não tinha censo.
+     *
+     * O de cima cobre `getPayment` ← `repairRowFromLedger`, escrito depois do
+     * incidente em que o SELECT perdeu as colunas de estorno e a guarda de
+     * versão da 0023 recebia zero pra toda linha — inerte, em silêncio.
+     * `repararLinhasAtrasadas` lê de OUTRO caminho
+     * (`listChecksForReconcile`) e ficou de fora.
+     *
+     * O que ele lê agora decide se ESCREVE: sem `confirmed_amount_cents` /
+     * `confirmed_tip_cents` no SELECT, a comparação
+     * `row.confirmedAmountCents !== pay.amountCents` compara `undefined` e a
+     * guarda recusa TUDO — o reparo morre calado. Nas duas direções o defeito
+     * é invisível, que é a assinatura desta classe.
+     * Achado pela revisão de segurança de 2026-09-09 (MEDIUM-4).
+     */
+    const recon = fs.readFileSync(path.join(raiz, '_lib', 'checks', 'reconcile.js'), 'utf8');
+    const sup = fs.readFileSync(path.join(raiz, '_lib', 'store', 'supabase.js'), 'utf8');
+
+    const corpo = recon.match(/async function repararLinhasAtrasadas[\s\S]*?\n\}/);
+    expect(corpo).not.toBeNull();
+    const lidos = new Set([...corpo[0].matchAll(/\brow\.(\w+)/g)].map((m) => m[1]));
+    expect(lidos.size).toBeGreaterThanOrEqual(4);
+
+    // O SELECT das LINHAS de pagamento dentro do `listChecksForReconcile`.
+    const bloco = sup.match(/async listChecksForReconcile\(venueId\)[\s\S]*?\n {4}\}/);
+    expect(bloco).not.toBeNull();
+    const selects = [...bloco[0].matchAll(/\.select\('([^']+)'\)/g)].map((m) => m[1]);
+    const colunas = new Set(selects.join(',').split(',').map((c) => c.trim()));
+
+    const faltando = [...lidos].filter((n) => !colunas.has(camelParaSnake(n))).sort();
+    expect(faltando).toEqual([]);
+  });
+
   test('o mapeamento é conferido por VALOR — troca de coluna não passa', () => {
     /**
      * O censo de NOME não pega transposição: `refundedAmountCents:

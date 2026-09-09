@@ -335,7 +335,23 @@ function formatReconcileAlert(report) {
   // ÓRFÃO ABERTO acorda o alerta mesmo com todo restaurante verde: é dinheiro
   // que se moveu e não achou conta, e ele não sai de lá sozinho.
   const orfaos = report.orphanMoneyEvents || 0;
-  if (report.venuesRed === 0 && orfaos === 0) return null;
+  /**
+   * ESCRITA em linha de dinheiro SEMPRE fala — a contagem é o eixo errado.
+   *
+   * O corte era `> 3` pra virar `high`, e abaixo disso a casa não ficava
+   * vermelha, e sem casa vermelha esta função devolvia `null` ANTES de anexar
+   * a linha do reparo. Resultado medido: 1, 2 ou 3 reprojeções por noite
+   * saíam com alerta NENHUM, e o trecho que carrega `linhaReparos` no ramo
+   * verde era código morto (só alcançável com órfão aberto). Três por noite é
+   * noventa por mês de escrita não anunciada em `payments`.
+   *
+   * Contagem é bom proxy pra "isto é sistemático"; não é proxy nenhum pra
+   * "mexemos em dinheiro sem perguntar". O `> 3 → high` continua, pro caso
+   * sistemático — mas QUALQUER escrita bem-sucedida aparece na mensagem.
+   * (HIGH-3 da revisão de segurança de 2026-09-09.)
+   */
+  const escreveu = (report.rowsRepaired || 0) > 0 || (report.rowsRepairFailed || 0) > 0;
+  if (report.venuesRed === 0 && orfaos === 0 && !escreveu) return null;
   // O que a varredura ESCREVEU sai na mensagem, não só no JSON: quem lê o
   // alerta às 4 da manhã precisa saber que a conciliação mexeu em linha de
   // dinheiro antes de julgar o resto do texto.

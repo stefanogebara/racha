@@ -735,6 +735,46 @@ describe('censo das colunas que o reparo escreve', () => {
       linha: { refundedAmountCents: 0, refundedTipCents: 0, status: 'expirado' },
       razao: { refundedAmountCents: 2000, refundedTipCents: 0 },
     },
+    {
+      /**
+       * `devolvido` — o REBAIXAMENTO que a migração 0021 se recusa a fazer
+       * sozinha.
+       *
+       * A guarda de `status` era pertencimento a uma lista (`['pendente',
+       * 'confirmado', 'devolvido']`) enquanto as outras quatro colunas ganharam
+       * guarda de DIREÇÃO. `devolvido` estava na lista e é justamente o valor
+       * que pode estar À FRENTE: era o único registro de que o dinheiro
+       * voltou, e virava `confirmado` — devolvendo a gorjeta estornada pra
+       * `tipsCents`, a base da folha, e levando junto o `status_lag` e o
+       * `ledger_drift`.
+       *
+       * A 0021 faz esse mesmo flip e o trata como o comando de maior risco do
+       * arquivo: rodado à mão, com imagem anterior, dizendo "REVER A FOLHA do
+       * periodo" e "o restaurante PRECISA ser avisado". A varredura fazia igual,
+       * de madrugada, em `info`. Achado pela revisão de segurança de
+       * 2026-09-09 (HIGH-2); fechado por escopo — o reparo não escreve
+       * `status`, ponto.
+       */
+      coluna: 'status (devolvido, sem estorno no razão)',
+      linha: { refundedAmountCents: 0, refundedTipCents: 0, status: 'devolvido' },
+      razao: { refundedAmountCents: 2000, refundedTipCents: 0 },
+    },
+    {
+      /**
+       * A linha NUNCA PROJETADA (`confirmed_*` nulo) não é reparável.
+       *
+       * É a população que a 0021 EXCLUI de propósito (`and
+       * p.confirmed_amount_cents is not null`), e virá-la pra `confirmado` sem
+       * `confirmed_at` a fazia sumir de `getPanelView`, de
+       * `listRecentConfirmedCharges` e do funil — dinheiro ausente dos livros
+       * da casa e cobrança fora da perna de custódia, pra sempre, com o
+       * canário verde. Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
+       */
+      coluna: 'confirmed_* nulo (nunca projetada)',
+      linha: { refundedAmountCents: 0, refundedTipCents: 0, status: 'pendente',
+        confirmedAmountCents: null, confirmedTipCents: null },
+      razao: { refundedAmountCents: 2000, refundedTipCents: 0 },
+    },
   ];
 
   /**
@@ -821,9 +861,29 @@ describe('censo das colunas que o reparo escreve', () => {
       linha: { refundedAmountCents: 0, refundedTipCents: 0 },
       razao: { refundedAmountCents: 2000, refundedTipCents: 0 },
     });
+    const antes = await store.getPayment('ch_1');
     const v = await reconcileVenue(store, venue.id, { repair: true });
     expect(v.rowsRepaired).toBe(1);
-    expect((await store.getPayment('ch_1')).refundedAmountCents).toBe(2000);
+    const depois = await store.getPayment('ch_1');
+    expect(depois.refundedAmountCents).toBe(2000);
+
+    /**
+     * E SÓ as colunas de estorno mudaram. Esta é a promessa do escopo, e é a
+     * única forma de afirmá-la: o censo acima prova o que o reparo RECUSA;
+     * nada provava a forma da linha quando ele ACEITA.
+     *
+     * Três revisões seguidas acharam bloqueador no que este reparo escrevia
+     * ALÉM do estorno — `status` rebaixado de `devolvido`, `confirmed_at`
+     * deixado nulo, `confirmed_*` reprojetado. Escrever menos foi o conserto;
+     * esta afirmação é o que impede a superfície de crescer de novo.
+     */
+    expect(depois.status).toBe(antes.status);
+    expect(depois.confirmedAmountCents).toBe(antes.confirmedAmountCents);
+    expect(depois.confirmedTipCents).toBe(antes.confirmedTipCents);
+    expect(depois.confirmedAt).toBe(antes.confirmedAt);
+    // E a linha reparada continua CONTÁVEL: `confirmed_at` não nulo é o que
+    // `getPanelView`, `listRecentConfirmedCharges` e o funil filtram.
+    expect(depois.confirmedAt).toBeTruthy();
   });
 });
 
@@ -917,6 +977,15 @@ describe('o reparo aparece no relatório e no alerta', () => {
     // reparo existe); o que sobra no relatório é o registro de que houve reparo.
     expect(rel.venuesRed).toBe(0);
     expect(rel.totalDriftCents).toBe(0);
+    // E O ALERTA FALA — com UMA linha, não a partir de quatro.
+    //
+    // O corte era `> 3` pra virar `high`, e sem casa vermelha o
+    // `formatReconcileAlert` devolvia `null` ANTES de anexar a linha do
+    // reparo: 1, 2 ou 3 reprojeções por noite saíam com alerta nenhum, e o
+    // trecho que carrega a linha no ramo verde era código morto. Três por
+    // noite é noventa por mês de escrita não anunciada em `payments`.
+    // (HIGH-3 da revisão de segurança de 2026-09-09.)
+    expect(formatReconcileAlert(rel)).toMatch(/reprojetou 1 linha/);
   });
 
   test('reparo que FALHA é `high`, vira casa vermelha e entra no alerta', async () => {
@@ -1146,5 +1215,96 @@ describe('censo: todo reparo declara a sua procedência', () => {
     }
     // E o `else` existe: um `p_source` inventado não escapa pro log.
     expect(sql).toMatch(/else 'origem nao declarada pelo chamador'/);
+  });
+});
+
+/**
+ * O PRAZO e o TETO — contabilidade, que é onde eles machucavam.
+ *
+ * Medido pela revisão de segurança de 2026-09-09:
+ *
+ *  - MEDIUM-1: a conferência de prazo estava no TOPO do laço, antes de saber se
+ *    a linha era sequer candidata. Estourado o prazo, TODA linha de TODA casa
+ *    restante entrava em `payment_rows_unrepaired` (`high`) e a casa saía
+ *    vermelha — três linhas em dia perfeito viravam "3 linha(s) não foram nem
+ *    olhadas". Com 90s globais isso disparava lá pela quinta casa, e o alerta
+ *    noturno viraria "N de M restaurantes com divergência" com quase nenhuma
+ *    divergência: a morte por alerta do inegociável #8.
+ *  - MEDIUM-2: o teto contava SUCESSOS. Com a RPC falhando em toda chamada — um
+ *    grant revogado, a assinatura trocada: a classe do inegociável #7 — 500
+ *    linhas atrasadas viravam 500 tentativas e o teto nunca engatava.
+ */
+describe('prazo e teto: só contam o que era candidato', () => {
+  const { repararLinhasAtrasadas } = require('../_lib/checks/reconcile');
+
+  /** N linhas em dia PERFEITO — nada a reparar em nenhuma. */
+  function emDia(n) {
+    const inputs = [];
+    for (let i = 0; i < n; i += 1) {
+      inputs.push({
+        checkId: `c_${i}`,
+        events: [
+          { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+          { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: `ch_${i}`, amountCents: 10000, tipCents: 0, method: 'pix' } },
+        ],
+        payments: [{
+          txid: `ch_${i}`, status: 'confirmado', amountCents: 10000, tipCents: 0,
+          confirmedAmountCents: 10000, confirmedTipCents: 0,
+          refundedAmountCents: 0, refundedTipCents: 0,
+        }],
+      });
+    }
+    return inputs;
+  }
+
+  /** N linhas ATRASADAS — todas candidatas. */
+  function atrasadas(n) {
+    const inputs = emDia(n);
+    for (const inp of inputs) {
+      inp.events.push({
+        seq: 3, type: 'PAYMENT_REFUNDED',
+        payload: { txid: inp.payments[0].txid, amountCents: 2000, tipCents: 0, offRail: true, reference: 'x', by: 'd@b' },
+      });
+    }
+    return inputs;
+  }
+
+  test('prazo estourado com tudo EM DIA não acusa nada', async () => {
+    const store = { repairPaymentRow: async () => true };
+    const r = await repararLinhasAtrasadas(store, emDia(3), { deadline: Date.now() - 1 });
+    expect(r.reparadas).toBe(0);
+    expect(r.achados).toEqual([]);   // e a casa NÃO fica vermelha
+  });
+
+  test('prazo estourado com linhas ATRASADAS acusa — e só as candidatas', async () => {
+    const store = { repairPaymentRow: async () => true };
+    const r = await repararLinhasAtrasadas(store, atrasadas(3), { deadline: Date.now() - 1 });
+    expect(r.reparadas).toBe(0);
+    const achado = r.achados.find((f) => f.code === 'payment_rows_unrepaired');
+    expect(achado).toBeTruthy();
+    // Corta na primeira e para: o resto não foi nem lido, e prometer contagem
+    // exata do que não se olhou é inventar número.
+    expect(achado.skipped).toBeGreaterThan(0);
+  });
+
+  test('o teto conta TENTATIVAS: uma RPC que só falha não gasta a varredura', async () => {
+    let chamadas = 0;
+    const store = { async repairPaymentRow() { chamadas += 1; throw new Error('grant revogado'); } };
+    const r = await repararLinhasAtrasadas(store, atrasadas(300), {});
+    expect(r.reparadas).toBe(0);
+    expect(chamadas).toBeLessThanOrEqual(200);   // TETO_DE_REPAROS
+    expect(r.falhas).toBe(chamadas);
+    expect(r.achados.some((f) => f.code === 'payment_row_repair_failed' && f.severity === 'high')).toBe(true);
+  });
+
+  test('claim que não pega (`false`) é CONTADO — no-op em dinheiro tem testemunha', async () => {
+    // A linha mudou entre a leitura e o claim, ou sumiu. Não reparou e não
+    // falhou: sem esta contagem é uma escrita de dinheiro que vira nada e
+    // ninguém fica sabendo (inegociável #7).
+    const store = { repairPaymentRow: async () => false };
+    const r = await repararLinhasAtrasadas(store, atrasadas(2), {});
+    expect(r.reparadas).toBe(0);
+    expect(r.falhas).toBe(2);
+    expect(r.achados.some((f) => f.code === 'payment_row_repair_failed')).toBe(true);
   });
 });
