@@ -484,14 +484,42 @@ const REPAROS_DEMAIS = 3;
  * Achado pela revisão de segurança de 2026-09-09 (HIGH-2), que leu o
  * `postgrest-js` 2.110.7 em vez de deduzir.
  */
-const EM_DUVIDA = [/^08/, /^57P0/, /^XX/];
+/**
+ * LISTA DE PERMISSÃO — o desconhecido cai pro lado conservador.
+ *
+ * Era uma lista de EXCLUSÃO (`08*`, `57P0*`, `XX*`), então todo SQLSTATE que
+ * não estivesse nela voltava `true` — recusa firme. O comentário aqui dizia
+ * "o resto cai no lado conservador" e o código fazia o contrário: o padrão era
+ * a direção agressiva, a única em que errar custa dinheiro que não volta.
+ *
+ * O exemplo que decide a discussão, achado pelas DUAS revisões de 2026-09-09:
+ * `40003 statement_completion_unknown` — o SQLSTATE que LITERALMENTE quer dizer
+ * "não sei se completou" — era classificado como "provadamente não escreveu".
+ * Junto dele vinham `58030 io_error`, `57000 operator_intervention` e qualquer
+ * código que um pooler futuro invente.
+ *
+ * Agora só entra classe cujo significado é rollback determinístico. Um código
+ * legítimo que fique de fora custa um `ackLost` desnecessário e uma consulta ao
+ * `payment_repair_log` — a direção barata, pelo critério que já estava escrito
+ * três linhas acima.
+ */
+const RECUSA_DETERMINISTICA = [
+  /^22/,      // data exception
+  /^23/,      // integrity constraint violation
+  /^25/,      // invalid transaction state
+  /^42/,      // syntax/access rule (42501 permissão, 42883 função, 42703 coluna)
+  /^53/,      // insufficient resources
+  /^55/,      // object not in prerequisite state
+  /^P0/,      // plpgsql (P0001 raise_exception)
+  /^40001$/,  // serialization_failure — rollback de verdade…
+  /^57014$/,  // …e query_canceled/statement timeout, idem
+];
 function recusaProvada(codigo) {
-  if (typeof codigo !== 'string' || !codigo) return false;
+  if (typeof codigo !== 'string' || !/^[0-9A-Z]{5}$/.test(codigo)) return false;
   // `PGRST116` vem anexado a uma resposta 2xx — depois de um commit bem
   // sucedido. Nunca é prova de que nada foi escrito.
   if (/^PGRST/.test(codigo)) return false;
-  if (!/^[0-9A-Z]{5}$/.test(codigo)) return false;
-  return !EM_DUVIDA.some((re) => re.test(codigo));
+  return RECUSA_DETERMINISTICA.some((re) => re.test(codigo));
 }
 
 function resumoDoReparo(pia = {}) {
@@ -523,11 +551,18 @@ function acharReparos(reparados, naoOlhadas, gorjeta = [], corridas = [], ackPer
    * agora dita só quando é verdade, e com um guarda que dispara de fato.
    */
   if (rejeitados.length > 0) {
+    const somaRej = rejeitados.reduce((s, g) => s + (g.deltaCents || 0), 0);
+    const periodosRej = [...new Set(rejeitados.map((g) => g.periodo).filter(Boolean))].sort();
     achados.push({
       severity: 'high',
       code: 'payment_row_repair_rejected',
-      message: `${rejeitados.length} reparo(s) RECUSADOS pelo banco — nada foi escrito, a projeção segue atrás do razão`,
-      txids: rejeitados.slice(0, 10),
+      message: `${rejeitados.length} reparo(s) RECUSADOS pelo banco — nada foi escrito, a projeção segue atrás do razão`
+        + (somaRej !== 0
+          ? `; a base da folha exibida está ${-somaRej}¢ ACIMA do razão em ${periodosRej.join(', ')}`
+          : ''),
+      txids: rejeitados.slice(0, 10).map((g) => g.txid),
+      tipDeltaCents: somaRej,
+      periods: periodosRej,
       rejected: rejeitados.length,
     });
   }
@@ -838,7 +873,16 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
          * coluna. (MEDIUM-1 da revisão de segurança de 2026-09-09.)
          */
         if (recusaProvada(e && e.pgCode)) {
-          rejeitados.push(row.txid);
+          // A GORJETA E O PERÍODO VÃO JUNTO — e aqui mais do que no outro ramo.
+          //
+          // Este é o caso em que a linha está PROVADAMENTE atrás do razão: a
+          // afirmação mais forte possível de que a base da folha exibida está
+          // INFLADA, que é a direção que o CLT art. 462 não deixa desfazer. E
+          // era o único código de reparo que chegava ao restaurante sem valor e
+          // sem mês — as duas variáveis já estavam em escopo, calculadas fora do
+          // `try` justamente pra isso, e eu as usei só no outro ramo.
+          // (MEDIUM-G da revisão de compliance de 2026-09-09.)
+          rejeitados.push({ txid: row.txid, deltaCents: deltaGorjeta, periodo });
           process.stderr.write(`[reconcile] reparo da linha ${row.txid} RECUSADO pelo banco (${e.pgCode}), nada escrito: ${String(e && e.message).slice(0, 120)}\n`);
         } else {
           // `e && e.message`: uma rejeição com valor não-objeto estourava um
@@ -875,7 +919,10 @@ async function reconcileVenue(store, venueId, opts = {}) {
   const pia = opts.witness || {};
   const reparo = opts.repair === true
     ? await repararLinhasAtrasadas(store, inputs, { ...opts, witness: pia })
-    : { reparadas: 0, corridas: 0, ackPerdidos: 0, rejeitados: 0, achados: [] };
+    // De `resumoDoReparo({})`, como o outro. Este ficou montado à mão e sem
+    // `venueFindings` — o irmão do que eu consertei 218 linhas acima, no MESMO
+    // commit, sob um comentário que dizia "faltaram no quinto".
+    : resumoDoReparo({});
   /**
    * A RELEITURA falha sem derrubar a casa.
    *

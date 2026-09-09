@@ -275,8 +275,9 @@ describe('redefinir uma função não pode APAGAR o que outra migração acresce
        */
       funcao: 'repair_payment_row',
       precisa: [
-        /insert into payment_repair_log/i,   // o oráculo do runbook
-        /if v_id is not null then/i,         // …condicionado ao COMMIT
+        // UM regex só: separados, eles não provam que o `insert` está DENTRO
+        // do condicional — e o "se e somente se" do runbook depende disso.
+        /if v_id is not null then[\s\S]{0,200}insert into payment_repair_log/i,
         /'confirmed_at', confirmed_at/,      // before_row inteiro (a regressão da 0029)
         /when 'reconciler_sweep'/,           // a procedência da 0029
         // a lista branca: nunca a linha toda (LGPD art. 6º III)
@@ -767,4 +768,60 @@ test('a imagem ANTERIOR do reparo nunca perde um campo', () => {
   // E NUNCA o que o cliente digitou: a tabela é permanente (LGPD art. 6º III).
   expect([...vigente]).not.toContain('payer_label');
   expect([...vigente]).not.toContain('payer_document');
+});
+
+/**
+ * QUEM PODE LER `pgCode` — um só, e dentro do `recusaProvada`.
+ *
+ * O `throwOn` agora anexa `pgCode` nos 26 call sites do store, e o nome LÊ como
+ * "o código de erro do Postgres" — mas ele pode ser `PGRST116`, que não é
+ * SQLSTATE e viaja numa resposta 2xx, depois de um commit bem sucedido. Um
+ * `if (err.pgCode) return 'o banco recusou'` em qualquer lugar novo estaria
+ * errado, e errado na direção que custa dinheiro que não volta.
+ *
+ * Então o campo tem UM leitor, e ele é a função cujo trabalho é decidir o que o
+ * código prova. Achado pela revisão de segurança de 2026-09-09 (LOW-4).
+ */
+test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const raiz = path.join(__dirname, '..');
+
+  const arquivos = [];
+  (function varrer(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === '__tests__') continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) varrer(p);
+      else if (e.name.endsWith('.js')) arquivos.push(p);
+    }
+  })(raiz);
+
+  /**
+   * A regra é sobre DECISÃO, não sobre menção.
+   *
+   * Ler o código pra escrever no stderr é diagnóstico e é bom — quem for
+   * investigar quer o código na linha. O que não pode é DECIDIR a partir dele
+   * fora do classificador: é aí que `PGRST116` (que viaja num 2xx, depois de um
+   * commit) viraria "o banco recusou".
+   */
+  const decisoes = [];
+  for (const p of arquivos) {
+    const fonte = fs.readFileSync(p, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    for (const m of fonte.matchAll(/\.pgCode\b/g)) {
+      const antes = fonte.slice(Math.max(0, m.index - 60), m.index);
+      const linha = fonte.slice(Math.max(0, m.index - 120), m.index + 60).replace(/\s+/g, ' ').trim();
+      if (/\.pgCode\s*=[^=]/.test(fonte.slice(m.index, m.index + 12))) continue;  // escrita
+      // Dentro de uma interpolação (`${e.pgCode}`) é texto, não decisão.
+      if (/\$\{[^}]*$/.test(antes)) continue;
+      decisoes.push({ arquivo: path.relative(raiz, p), linha });
+    }
+  }
+
+  // Toda DECISÃO passa pelo classificador, e só há uma.
+  expect(decisoes.length).toBe(1);
+  expect(decisoes[0].arquivo).toBe('_lib/checks/reconcile.js');
+  expect(decisoes[0].linha).toMatch(/recusaProvada\(/);
 });

@@ -1917,6 +1917,53 @@ describe('recusado pelo banco ≠ resposta perdida', () => {
     expect(f.tipDeltaCents).toBe(-500);
   });
 
+  /**
+   * A JUNÇÃO — sem isto, apagar o `recusaProvada` do laço fica VERDE.
+   *
+   * Medido pela revisão: trocando `recusaProvada(e && e.pgCode)` de volta por
+   * `e && e.pgCode`, a suíte inteira passava. As duas metades tinham teste — o
+   * `throwOn` anexa `'08006'` (forma), e `recusaProvada('08006')` é `false`
+   * (significado) — e a COSTURA entre elas, nenhuma. Os testes que passavam
+   * pelo reparo usavam só `42501`, que classifica igual dos dois jeitos: o
+   * único caminho que alguém já tinha consertado.
+   *
+   * É o chamador esquecido, uma emenda adiante, dentro do conserto do chamador
+   * esquecido anterior. Achado pela revisão de segurança de 2026-09-09.
+   */
+  const EM_DUVIDA_PELO_REPARO = ['08006', '08007', '57P01', '57P02', 'XX000', '40003', '58030'];
+  for (const codigo of EM_DUVIDA_PELO_REPARO) {
+    test(`${codigo} atravessa o REPARO como dúvida — com a gorjeta`, async () => {
+      const store = {
+        async repairPaymentRow() {
+          const e = new Error(`supabase store repairPaymentRow: ${codigo}`);
+          e.pgCode = codigo;
+          throw e;
+        },
+      };
+      const r = await repararLinhasAtrasadas(store, entrada(), {});
+      expect(r.rejeitados).toBe(0);
+      expect(r.ackPerdidos).toBe(1);
+      const f = r.achados.find((x) => x.code === 'payment_repair_ack_lost');
+      expect(f).toBeTruthy();
+      // A gorjeta VAI JUNTO: é o ponto inteiro de não afirmar rollback.
+      expect(f.tipDeltaCents).toBe(-500);
+      expect(f.periods).toEqual(['2026-02']);
+    });
+  }
+
+  test('e um código DETERMINÍSTICO atravessa como recusa — a costura nos dois sentidos', async () => {
+    const store = {
+      async repairPaymentRow() {
+        const e = new Error('supabase store repairPaymentRow: permission denied');
+        e.pgCode = '42501';
+        throw e;
+      },
+    };
+    const r = await repararLinhasAtrasadas(store, entrada(), {});
+    expect(r.rejeitados).toBe(1);
+    expect(r.ackPerdidos).toBe(0);
+  });
+
   test('`UND_ERR_*` é transporte, não SQLSTATE', async () => {
     // O postgrest-js usa esse prefixo pra falha de rede do undici. Tratar como
     // recusa afirmaria rollback onde não há resposta nenhuma.
@@ -2022,9 +2069,14 @@ describe('a batida carrega o tier `info`', () => {
     // O alerta é NULO — nada vermelho, e isso está certo.
     expect(formatReconcileAlert(rel)).toBe(null);
     expect(rel.venuesRed).toBe(0);
-    // Mas a batida NÃO pode ser indistinguível de uma noite parada.
-    expect(rel.rowsRepairRaced).toBe(1);
-    expect(rel.infoCodes).toContain('payment_row_repair_raced');
+    // Mas a batida NÃO pode ser indistinguível de uma noite parada — e a
+    // afirmação é sobre o TEXTO, não sobre o campo estruturado. Foi com esse
+    // argumento que o HIGH-1 foi fechado; afirmar em `rel.infoCodes` seria a
+    // mesma profundidade que o cabeçalho daquele teste chama de defeito.
+    const { formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
+    const batida = formatReconcileHeartbeat(rel);
+    expect(batida).toMatch(/corridas 1/);
+    expect(batida).toMatch(/info payment_row_repair_raced/);
   });
 
   test('noite parada mesmo: nada nos dois', async () => {
@@ -2037,9 +2089,10 @@ describe('a batida carrega o tier `info`', () => {
       repairPaymentRow: async () => true,
     };
     const rel = await reconcileAllVenues(store, { repair: true });
-    expect(rel.rowsRepairRaced).toBe(0);
-    expect(rel.infoCodes).toEqual([]);
+    const { formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
     expect(formatReconcileAlert(rel)).toBe(null);
+    // A batida de uma noite parada DIZ que foi parada — zeros e `info -`.
+    expect(formatReconcileHeartbeat(rel)).toMatch(/reparadas 0 · corridas 0 · recusadas 0 · sem resposta 0 · info -/);
   });
 
   test('o payload da BATIDA carrega os dois — é o que se lê quando nada é vermelho', () => {
@@ -2051,7 +2104,25 @@ describe('a batida carrega o tier `info`', () => {
     const router = fs.readFileSync(path.join(__dirname, '../_app/router.js'), 'utf8');
     for (const chave of ['infoCodes', 'rowsRepairRaced', 'rowsRepairRejected']) {
       expect(notify).toMatch(new RegExp(chave));
-      expect(router).toMatch(new RegExp(`${chave}: report\\.${chave}`));
+    }
+    /**
+     * TODOS os call sites, não "existe um".
+     *
+     * Há duas chamadas de `notifyFounderReconcile` que carregam campos do
+     * relatório — o alerta e a BATIDA — e um `toMatch` é satisfeito por uma só.
+     * Tirar as chaves da batida deixava o censo verde, e a batida é justamente
+     * a que se lê quando nada está vermelho.
+     */
+    const chamadas = [...router.matchAll(/notifyFounderReconcile\(\{/g)].map((m) => m.index);
+    expect(chamadas.length).toBeGreaterThanOrEqual(2);
+    const comRelatorio = chamadas
+      .map((i) => router.slice(i, router.indexOf('});', i)))
+      .filter((t) => /report\./.test(t));
+    expect(comRelatorio.length).toBe(2);
+    for (const trecho of comRelatorio) {
+      for (const chave of ['infoCodes', 'rowsRepairRaced', 'rowsRepairRejected']) {
+        expect(trecho).toMatch(new RegExp(`${chave}: report\\.${chave}`));
+      }
     }
   });
 });

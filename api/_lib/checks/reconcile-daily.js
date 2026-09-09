@@ -303,6 +303,14 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       rowsRepairRaced: resumo.corridas,
       rowsRepairAckLost: resumo.ackPerdidos,
       rowsRepairRejected: resumo.rejeitados,
+      // DERIVADO no catch também. Os quatro contadores eram re-derivados da pia
+      // aqui e o `infoFindings` — o membro mais novo — herdava o `[]` do `base`.
+      // Resultado medido: `rowsRepairRaced: 1` e `infoCodes: []` no MESMO
+      // relatório. Sob causa sistemática (Supabase meio fora, toda casa correndo
+      // E estourando) o agregado que fechou o MEDIUM-1 fica vazio justo quando
+      // mais importa. Existir no `base` não é o mesmo que ser derivado.
+      infoFindings: [...resumo.achados, ...resumo.venueFindings]
+        .filter((f) => f.severity === 'info').map((f) => f.code),
       // `venueFindings` VEM JUNTO: sem ele o `service_never_collected` — o
       // achado que só existe no agregado — sumia do caminho de erro, e uma
       // noite em que o restaurante perde 10% em toda conta virava uma linha
@@ -407,6 +415,30 @@ async function reconcileAllVenues(store, opts = {}) {
 }
 
 /**
+ * A MENSAGEM DA BATIDA VERDE — porque campo estruturado não é leitura.
+ *
+ * O batimento saía com `mensagem: null` e os contadores como campos irmãos. Foi
+ * exatamente com esse argumento que o HIGH-1 desta série foi fechado: achado que
+ * vive só num campo de payload que ninguém renderiza não chegou em ninguém. A
+ * ponte da Olímpia mora em outro repositório e não dá pra afirmar daqui que ela
+ * desenha algo além de `mensagem`.
+ *
+ * Então a noite verde ganha texto — e é nela que se lê "todo reparo virou
+ * corrida perdida", que é o mundo em que o conserto morreu e tudo mais parece
+ * saudável. Achado pela revisão de segurança de 2026-09-09 (MEDIUM-3).
+ */
+function formatReconcileHeartbeat(report) {
+  const reparos = report.rowsRepaired || 0;
+  const corridas = report.rowsRepairRaced || 0;
+  const recusadas = report.rowsRepairRejected || 0;
+  const semResposta = report.rowsRepairAckLost || 0;
+  const info = (report.infoCodes || []).join(', ') || '-';
+  return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesChecked} restaurante(s) ok`
+    + ` · reparadas ${reparos} · corridas ${corridas} · recusadas ${recusadas}`
+    + ` · sem resposta ${semResposta} · info ${info}`;
+}
+
+/**
  * A mensagem que o fundador recebe. Uma linha por casa vermelha, com o achado
  * mais grave junto — um alerta que só diz "tem drift" obriga a abrir o painel
  * pra descobrir onde, e às 4 da manhã isso vira "vejo amanhã".
@@ -472,10 +504,13 @@ function formatReconcileAlert(report) {
      */
     const estouro = v.findings.find((f) => f.code === 'venue_reconcile_threw');
     const reais = v.findings.filter((f) => f.code !== 'venue_reconcile_threw');
+    // O ESTOURO vem antes de um `info`: sem `critical`/`high` de verdade, uma
+    // corrida perdida virava manchete de uma casa cujo dinheiro não pôde ser
+    // conferido. `info` é o último recurso, não o penúltimo.
     const pior = reais.find((f) => f.severity === 'critical')
       || reais.find((f) => f.severity === 'high')
-      || reais[0]
-      || estouro;
+      || estouro
+      || reais[0];
     const drift = v.driftCents ? ` · drift ${(v.driftCents / 100).toFixed(2).replace('.', ',')}` : '';
     // Quando há os dois, os dois saem: o achado primeiro, porque é o que pede
     // ação, e o estouro em seguida, porque explica por que a conta pode estar
@@ -490,5 +525,5 @@ function formatReconcileAlert(report) {
 
 module.exports = {
   reconcileAllVenues, reconcileOneVenue, reconcilePayablesLeg,
-  formatReconcileAlert, worse,
+  formatReconcileAlert, formatReconcileHeartbeat, worse,
 };

@@ -50,8 +50,13 @@ consulta acima é o árbitro, e ela custa nada.
 
 ## 2. Se mexeu na gorjeta, antes de fechar a folha
 
-`payment_tip_base_repaired` e `payment_repair_ack_lost` carregam `tipDeltaCents`
-e `periods`.
+`payment_tip_base_repaired`, `payment_repair_ack_lost` **e
+`payment_row_repair_rejected`** carregam `tipDeltaCents` e `periods`.
+
+O `rejected` é o mais forte dos três: ali a linha está **provadamente** atrás do
+razão, ou seja, a base da folha exibida está **acima** da verdadeira. É a direção
+que o CLT art. 462 não deixa desfazer, e por isso ele estava na seção errada — a
+mais certa das três era a única que não vinha pra cá.
 
 **A dúvida é de um lado só.** O reparo só entra numa linha **atrás** do razão nas
 pernas de estorno, então ele só pode **aumentar** `refunded_tip_cents` — ou seja,

@@ -63,7 +63,8 @@ const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
 const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
-const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
+  formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
@@ -1774,7 +1775,8 @@ async function route(req, res) {
         // Batimento: verde também fala. Do lado da Olímpia, a AUSÊNCIA da batida
         // noturna é o alarme — que é o único jeito de detectar cron desligado.
         envio = await notifyFounderReconcile({
-          mensagem: null, heartbeat: true,
+          // A batida LEVA TEXTO: o campo estruturado sozinho não é leitura.
+          mensagem: formatReconcileHeartbeat(report), heartbeat: true,
           venuesRed: 0, venuesChecked: report.venuesChecked,
           driftCents: report.totalDriftCents, worstSeverity: report.worstSeverity,
           rowsRepaired: report.rowsRepaired, rowsRepairAckLost: report.rowsRepairAckLost,
