@@ -677,3 +677,287 @@ describe('a restituição fora do trilho: o caminho de ERRO', () => {
     expect(v.failed.some((f) => f.findings.some((x) => x.code === 'refund_mismatch'))).toBe(true);
   });
 });
+
+/**
+ * O CENSO DE COLUNAS — a única forma de teste que pega esta classe.
+ *
+ * O teste "não reprojeta uma linha à FRENTE" acima primava `refundedAmount:
+ * 5000` contra um razão de 0: a linha vinha à frente NA MESMA escalar que o
+ * guarda comparava. Ele não podia falhar, porque o guarda era a SOMA das duas
+ * pernas de estorno — e a `repair_payment_row` escreve CINCO colunas. Duas
+ * consequências, as duas medidas pela revisão de segurança de 2026-09-09
+ * (HIGH-1) e as duas verdes na suíte inteira:
+ *
+ *  - linha 500/0 contra razão 0/1000: a soma diz "atrás" (500 < 1000) e o
+ *    reparo apagava os 500¢ que só a linha conhecia — um evento de devolução
+ *    PERDIDO, dinheiro que saiu de verdade. Os dois críticos sumiam.
+ *  - linha `confirmed_tip` 1400 contra razão 1000: o reparo reescrevia a BASE
+ *    DA FOLHA (inegociável #2, Lei 13.419/2017) e zerava R$ 64,00 de drift —
+ *    o alarme que o inegociável #8 manda tocar.
+ *
+ * Então o teste deixa de ser um caso e passa a ser um CENSO: pra cada coluna
+ * que a RPC escreve, um caso em que ELA vem à frente enquanto outra fica
+ * atrás. O que o `MEMORY.md` chama de "censo ganha de conserto pontual" — o
+ * conserto pontual prova o caminho que já estava certo.
+ */
+describe('censo das colunas que o reparo escreve', () => {
+  const { reconcileVenue } = require('../_lib/checks/reconcile');
+  const { appendValidated } = require('../_lib/checks/append-validated');
+
+  /** As cinco colunas de `repair_payment_row`, e como pôr cada uma À FRENTE. */
+  const COLUNAS = [
+    {
+      coluna: 'refunded_amount_cents',
+      // Atrás na gorjeta, À FRENTE no principal: a SOMA dizia "atrás".
+      linha: { refundedAmountCents: 500, refundedTipCents: 0 },
+      razao: { refundedAmountCents: 0, refundedTipCents: 1000 },
+    },
+    {
+      coluna: 'refunded_tip_cents',
+      linha: { refundedAmountCents: 0, refundedTipCents: 500 },
+      razao: { refundedAmountCents: 1000, refundedTipCents: 0 },
+    },
+    {
+      coluna: 'confirmed_amount_cents',
+      linha: { refundedAmountCents: 0, refundedTipCents: 0, confirmedAmountCents: 14000 },
+      razao: { refundedAmountCents: 2000, refundedTipCents: 0 },
+    },
+    {
+      coluna: 'confirmed_tip_cents',
+      linha: { refundedAmountCents: 0, refundedTipCents: 0, confirmedTipCents: 1400 },
+      razao: { refundedAmountCents: 2000, refundedTipCents: 0 },
+    },
+    {
+      coluna: 'status',
+      // `expirado` contra um razão confirmado é CONFLITO, não atraso.
+      linha: { refundedAmountCents: 0, refundedTipCents: 0, status: 'expirado' },
+      razao: { refundedAmountCents: 2000, refundedTipCents: 0 },
+    },
+  ];
+
+  /**
+   * Monta uma conta paga com gorjeta, põe o razão no estado pedido e a linha
+   * de `payments` no estado pedido — sem passar pelo reparo, escrevendo direto
+   * na linha do store de memória, que é o que um backfill ou um SQL na mão faz.
+   */
+  async function cenario({ linha, razao }) {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 0, pspRecipientId: 're_x' });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 10000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: store.getPayment.bind(store),
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    await store.registerCharge({
+      checkId: check.id, txid: 'ch_1', amountCents: 10000, tipCents: 1000, method: 'pix',
+    });
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'ch_1', amountCents: 10000, tipCents: 1000,
+      method: 'pix', eventId: 'evt_p',
+    }, deps);
+    // O RAZÃO ganha o estorno pedido (a verdade). Só o razão: `appendValidated`
+    // não projeta, então a linha fica onde o prime a deixou.
+    if (razao.refundedAmountCents || razao.refundedTipCents) {
+      // O payload do evento usa `amountCents`/`tipCents` — as colunas
+      // `refunded_*` são a PROJEÇÃO desses valores, não o nome do evento.
+      await appendValidated(store, check.id, 'PAYMENT_REFUNDED', {
+        txid: 'ch_1',
+        amountCents: razao.refundedAmountCents,
+        tipCents: razao.refundedTipCents,
+        offRail: true, reference: 'caixa', by: 'dona@bar',
+      });
+    }
+    // A LINHA vai pro estado divergente — pela própria RPC de reparo, que é o
+    // único jeito de escrever nela sem alcançar o privado do store. É o que um
+    // backfill ou um SQL na mão deixaria pra trás.
+    const antes = await store.getPayment('ch_1');
+    const ok = await store.repairPaymentRow({
+      txid: 'ch_1',
+      expectedStatus: antes.status,
+      expectedRefundedAmountCents: antes.refundedAmountCents || 0,
+      expectedRefundedTipCents: antes.refundedTipCents || 0,
+      status: linha.status ?? antes.status,
+      confirmedAmountCents: linha.confirmedAmountCents ?? antes.confirmedAmountCents,
+      confirmedTipCents: linha.confirmedTipCents ?? antes.confirmedTipCents,
+      refundedAmountCents: linha.refundedAmountCents ?? (antes.refundedAmountCents || 0),
+      refundedTipCents: linha.refundedTipCents ?? (antes.refundedTipCents || 0),
+    });
+    expect(ok).toBe(true);
+    return { store, venue, check };
+  }
+
+  for (const caso of COLUNAS) {
+    test(`${caso.coluna} à frente do razão: NÃO repara, e o achado sobrevive`, async () => {
+      const { store, venue } = await cenario(caso);
+      const linhaAntes = await store.getPayment('ch_1');
+
+      const v = await reconcileVenue(store, venue.id);
+
+      // 1. Não escreveu.
+      expect(v.rowsRepaired).toBe(0);
+      // 2. A linha ficou EXATAMENTE como estava — nenhuma coluna tocada.
+      expect(await store.getPayment('ch_1')).toEqual(linhaAntes);
+      // 3. E a divergência continua sendo acusada: apagar o alarme é o dano.
+      expect(v.worstSeverity).toBe('critical');
+      expect(v.checksFailed).toBe(1);
+    });
+  }
+
+  test('o caso LEGÍTIMO segue reparado — o guarda não fechou a porta certa', async () => {
+    // Atrás nas duas pernas, confirmado batendo: puro atraso de projeção, que
+    // é a razão de este reparo existir. Sem esta afirmação o censo acima
+    // passaria com um `return 0` no topo da função.
+    const { store, venue } = await cenario({
+      linha: { refundedAmountCents: 0, refundedTipCents: 0 },
+      razao: { refundedAmountCents: 2000, refundedTipCents: 0 },
+    });
+    const v = await reconcileVenue(store, venue.id);
+    expect(v.rowsRepaired).toBe(1);
+    expect((await store.getPayment('ch_1')).refundedAmountCents).toBe(2000);
+  });
+});
+
+/**
+ * O REPARO TEM TESTEMUNHA — senão a varredura conserta e reporta verde.
+ *
+ * A conciliação passou a ESCREVER em `payments`, em toda casa, toda noite, sem
+ * ninguém olhando. E o relatório saía idêntico ao de uma noite parada:
+ * `reconcileOneVenue` nunca lia `rowsRepaired`, o `formatReconcileAlert` nunca
+ * falava dele, e o único rastro durável (`payment_repair_log`, migração 0026)
+ * não é lido por nada — diferente de `orphan_money_events`, que o relatório
+ * diário lê. Um bug de projeção que se repete seria remendado toda noite e
+ * reportado verde pra sempre: a forma exata dos 12 dias do incidente do
+ * Seatable, e o oposto do que o cabeçalho do `reconcile-daily` promete
+ * ("ela grita e um humano decide").
+ *
+ * Os dois testes de reparo acima afirmavam sobre o retorno de `reconcileVenue`,
+ * que NÃO é o que o cron relata. Este dirige a varredura inteira e a mensagem
+ * que o fundador recebe — o mesmo formato do teste do interruptor da perna dos
+ * recebíveis, que já existia neste repositório e não tinha sido aplicado a esta
+ * metade do mesmo commit. Achado pela revisão de segurança de 2026-09-09
+ * (HIGH-2): o chamador esquecido.
+ */
+describe('o reparo aparece no relatório e no alerta', () => {
+  const { reconcileAllVenues, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+
+  /** Um store cujo `listChecksForReconcile` entrega uma linha ATRÁS do razão. */
+  function storeComLinhaAtrasada({ falha = false, quantas = 1 } = {}) {
+    const venue = { id: 'v1', name: 'Boteco', pspRecipientId: 're_x' };
+    const reparados = [];
+    const inputs = [];
+    for (let i = 0; i < quantas; i += 1) {
+      const txid = `ch_${i}`;
+      inputs.push({
+        checkId: `c_${i}`,
+        events: [
+          { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+          { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid, amountCents: 10000, tipCents: 0, method: 'pix' } },
+          { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid, amountCents: 2000, tipCents: 0, offRail: true, reference: 'caixa', by: 'dona@bar' } },
+        ],
+        // A linha não sabe do estorno: puro atraso de projeção.
+        payments: [{
+          txid, status: 'confirmado', amountCents: 10000, tipCents: 0,
+          confirmedAmountCents: 10000, confirmedTipCents: 0,
+          refundedAmountCents: 0, refundedTipCents: 0,
+        }],
+      });
+    }
+    return {
+      reparados,
+      listVenueActivation: async () => [venue],
+      listChecksForReconcile: async () => inputs,
+      listHouseAccountsForReconcile: async () => [],
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      async repairPaymentRow(p) {
+        if (falha) throw new Error('grant revogado');
+        reparados.push(p.txid);
+        // Reprojeta o input pra releitura não acusar o que acabou de fechar.
+        for (const inp of inputs) {
+          for (const row of inp.payments) {
+            if (row.txid === p.txid) {
+              row.refundedAmountCents = p.refundedAmountCents;
+              row.refundedTipCents = p.refundedTipCents;
+              row.status = p.status;
+            }
+          }
+        }
+        return true;
+      },
+    };
+  }
+
+  test('uma linha reparada SAI no relatório — e não como noite parada', async () => {
+    const store = storeComLinhaAtrasada();
+    const rel = await reconcileAllVenues(store, {});
+
+    expect(store.reparados).toEqual(['ch_0']);
+    // O contador da varredura inteira — é o que a resposta do cron carrega, e
+    // era exatamente ele que não existia: sem isto esta noite e uma noite em
+    // que nada foi escrito produzem o MESMO relatório.
+    expect(rel.rowsRepaired).toBe(1);
+    expect(rel.rowsRepairFailed).toBe(0);
+    expect(rel.venues[0].rowsRepaired).toBe(1);
+    // E a casa deixa de sair `ok`: uma linha de dinheiro foi reescrita, e isso
+    // não é uma noite verde. Um reparo isolado é `info` de propósito — não
+    // acorda ninguém às 4 da manhã —, mas aparece.
+    expect(rel.venues[0].severity).toBe('info');
+    expect(rel.worstSeverity).toBe('info');
+    // A divergência que existia ANTES foi de fato fechada (é pra isso que o
+    // reparo existe); o que sobra no relatório é o registro de que houve reparo.
+    expect(rel.venuesRed).toBe(0);
+    expect(rel.totalDriftCents).toBe(0);
+  });
+
+  test('reparo que FALHA é `high`, vira casa vermelha e entra no alerta', async () => {
+    const store = storeComLinhaAtrasada({ falha: true });
+    const rel = await reconcileAllVenues(store, {});
+
+    expect(rel.rowsRepaired).toBe(0);
+    expect(rel.rowsRepairFailed).toBe(1);
+    expect(rel.worstSeverity).toBe('critical'); // a divergência segue lá também
+    expect(rel.venuesRed).toBe(1);
+
+    const alerta = formatReconcileAlert(rel);
+    // O ALERTA diz que a varredura tentou escrever e não conseguiu. Sem isto um
+    // grant revogado é uma linha de stderr que ninguém lê.
+    expect(alerta).toMatch(/FALHOU em 1/);
+    expect(rel.red[0].findings.some((f) => f.code === 'payment_row_repair_failed'
+      && f.severity === 'high')).toBe(true);
+  });
+
+  test('atraso SISTEMÁTICO (muitas linhas) deixa de ser `info` e pede gente', async () => {
+    // Uma linha atrás é soluço; muitas é bug de projeção, e a diferença tem que
+    // aparecer no alerta — senão o remendo noturno esconde a causa raiz.
+    const store = storeComLinhaAtrasada({ quantas: 5 });
+    const rel = await reconcileAllVenues(store, {});
+
+    expect(rel.rowsRepaired).toBe(5);
+    expect(rel.venuesRed).toBe(1);
+    const alerta = formatReconcileAlert(rel);
+    expect(alerta).toMatch(/reprojetou 5 linha/);
+    expect(rel.red[0].findings.some((f) => f.code === 'payment_row_repaired'
+      && f.severity === 'high')).toBe(true);
+  });
+
+  test('noite parada segue parada — o contador não inventa escrita', async () => {
+    const store = {
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listChecksForReconcile: async () => [],
+      listHouseAccountsForReconcile: async () => [],
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      repairPaymentRow: async () => true,
+    };
+    const rel = await reconcileAllVenues(store, {});
+    expect(rel.rowsRepaired).toBe(0);
+    expect(rel.rowsRepairFailed).toBe(0);
+    expect(formatReconcileAlert(rel)).toBe(null);
+  });
+});

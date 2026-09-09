@@ -430,6 +430,18 @@ export const DICT = {
   'find.payables_leg_disabled': { en: 'the money-destination check is switched OFF — nobody is verifying where charges settle',
                         pt: 'a conferência de destino do dinheiro está DESLIGADA — ninguém está verificando onde as cobranças caem',
                         es: 'la verificación del destino del dinero está DESACTIVADA — nadie comprueba dónde caen los cobros' },
+  // O REPARO DE LINHA, dito pra quem lê o painel. A conciliação escreve em
+  // `payments` quando a projeção ficou atrás do razão, e um reparo sem nome na
+  // tela é uma escrita de dinheiro que só o JSON do cron conhece.
+  'find.payment_row_repaired': { en: 'payment rows were re-projected from the ledger — the displayed row had fallen behind',
+                        pt: 'linhas de pagamento foram reprojetadas do razão — a linha exibida ficou atrás',
+                        es: 'se reproyectaron filas de pago desde el libro — la fila mostrada se había quedado atrás' },
+  'find.payment_row_repair_failed': { en: 'a payment row could not be re-projected — the display stays behind the ledger',
+                        pt: 'uma linha de pagamento não pôde ser reprojetada — a exibição segue atrás do razão',
+                        es: 'una fila de pago no pudo reproyectarse — la vista sigue atrás del libro' },
+  'find.payment_rows_unrepaired': { en: 'some payment rows were not even examined (sweep deadline or repair cap)',
+                        pt: 'algumas linhas de pagamento não foram nem olhadas (prazo da varredura ou teto de reparos)',
+                        es: 'algunas filas de pago no se revisaron (plazo del barrido o tope de reparaciones)' },
   'find.payable_shape_invalid': { en: 'the acquirer sent a receivable with an unreadable amount — left out of the sum',
                         pt: 'o adquirente mandou um recebível com valor ilegível — ficou fora da soma',
                         es: 'el adquirente envió un abono con importe ilegible — queda fuera de la suma' },

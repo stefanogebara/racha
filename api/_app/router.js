@@ -1070,7 +1070,12 @@ async function route(req, res) {
       // (review finding): partial redeem failures were permanently silent.
       const [houseRecon, checkRecon] = await Promise.all([
         reconcileVenueHouse(store, venueId),
-        reconcileVenue(store, venueId),
+        // `repair: false`: este é um GET. Ele passou a escrever em linha de
+        // dinheiro sem querer, quando a conciliação ganhou o reparo de
+        // projeção — sem teto, sem limite de taxa e no horário que o chamador
+        // escolher. O dono do conserto é o cron, que roda uma vez, com prazo e
+        // com testemunha no relatório (LOW-1 da revisão de 2026-09-09).
+        reconcileVenue(store, venueId, { repair: false }),
       ]);
       data.reconcile = {
         ok: houseRecon.ok && checkRecon.checksFailed === 0,

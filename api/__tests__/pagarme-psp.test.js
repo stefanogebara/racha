@@ -577,3 +577,65 @@ describe('o retrato mascarado guarda o valor que ENTROU', () => {
     expect(m.campo_inventado_amanha).toBeUndefined();
   });
 });
+
+/**
+ * O MAPEADOR DE RECEBÍVEIS CONTRA FORMA HOSTIL.
+ *
+ * `centavos()` nasceu pra tirar o `|| 0` — um `amount` ausente virava zero
+ * DENTRO da soma que decide `custody_leak` (inegociável #5). Mas a primeira
+ * versão era `Number.isSafeInteger(Number(v))`, e `Number()` coage: medido,
+ * `null → 0`, `'' → 0`, `false → 0`, `[] → 0`, `'1e3' → 1000`. Só `undefined`,
+ * `12.5` e `{}` viravam `null`.
+ *
+ * Consequência: um `"amount": null` no JSON do adquirente virava um crédito
+ * VÁLIDO de 0¢. Passava pelo `Number.isSafeInteger` do módulo puro (logo, não
+ * era `payable_shape_invalid`), entrava no bruto da casa e produzia um
+ * `payable_amount_mismatch` CRÍTICO falso — "capturou 23710¢ e a casa recebeu
+ * 0¢" — justamente na perna cuja única função é decidir custódia. Um crítico
+ * falso na primeira noite é como um canário morre na semana um.
+ *
+ * Este bloco não tinha teste nenhum com forma hostil. Achado pela revisão de
+ * segurança de 2026-09-09 (MEDIUM-4).
+ */
+describe('listChargePayables: número tem que CHEGAR número', () => {
+  async function mapear(linhas) {
+    const { impl } = stubFetch([{ match: '/payables', method: 'GET', reply: { data: linhas } }]);
+    const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+    return psp.listChargePayables('ch_1');
+  }
+
+  const HOSTIS = [null, '', false, [], '12', '1e3', 12.5, {}, undefined, NaN, Infinity];
+
+  test('nenhuma forma hostil vira centavo — todas viram `null`', async () => {
+    for (const v of HOSTIS) {
+      const [linha] = await mapear([{ recipient_id: 're_x', type: 'credit', amount: v, fee: 100 }]);
+      expect(linha.amountCents).toBe(null);
+    }
+    // E o inteiro de verdade passa: o guarda não fechou a porta certa.
+    const [ok] = await mapear([{ recipient_id: 're_x', type: 'credit', amount: 23710, fee: 100 }]);
+    expect(ok.amountCents).toBe(23710);
+  });
+
+  test('taxa AUSENTE não vira taxa zero — zero mente sobre o líquido', async () => {
+    for (const v of HOSTIS) {
+      const [linha] = await mapear([{ recipient_id: 're_x', type: 'credit', amount: 23710, fee: v }]);
+      expect(linha.feeCents).toBe(null);
+    }
+    const [ok] = await mapear([{ recipient_id: 're_x', type: 'credit', amount: 23710, fee: 0 }]);
+    expect(ok.feeCents).toBe(0); // taxa zero DECLARADA é legítima
+  });
+
+  test('e a forma ilegível sai como ACHADO, não como crédito de 0¢', async () => {
+    const { reconcilePayables } = require('../_lib/checks/reconcile-payables');
+    const linhas = await mapear([
+      { recipient_id: 're_casa', type: 'credit', amount: null, fee: 100 },
+    ]);
+    const { findings: achados } = reconcilePayables({
+      chargeId: 'ch_1', paidAmountCents: 23710, venueRecipientId: 're_casa', payables: linhas,
+    });
+    // O crítico FALSO de custódia não sai…
+    expect(achados.some((f) => f.code === 'payable_amount_mismatch')).toBe(false);
+    // …e a linha ilegível é dita, com a severidade de quem pede olhada.
+    expect(achados.some((f) => f.code === 'payable_shape_invalid' && f.severity === 'high')).toBe(true);
+  });
+});

@@ -428,19 +428,136 @@ function acharServicoNuncaArrecadado(inputs) {
  *
  * Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
  */
-async function repararLinhasAtrasadas(store, inputs) {
-  if (typeof store.repairPaymentRow !== 'function') return 0;
-  let reparadas = 0;
+/**
+ * Teto de reparos por varredura. Atraso sistemático é BUG, não soluço: passar
+ * disto, o certo é um humano olhar a causa, não a varredura reprojetar mil
+ * linhas no escuro.
+ */
+const TETO_DE_REPAROS = 200;
+/** `expirado` fora: contra um razão confirmado é conflito, não atraso. */
+const STATUS_REPARAVEL = ['pendente', 'confirmado', 'devolvido'];
+/** Acima disto o reparo deixa de ser `info` e passa a pedir gente. */
+const REPAROS_DEMAIS = 3;
+
+/**
+ * O REPARO TEM TESTEMUNHA — senão a varredura conserta e reporta verde.
+ *
+ * A varredura passou a ESCREVER em `payments`, em toda casa, toda noite, sem
+ * ninguém olhando. E o relatório saía idêntico a uma noite em que ela não fez
+ * nada: `reconcileOneVenue` nunca lia `rowsRepaired`, o `formatReconcileAlert`
+ * nunca falava dele, e o único rastro durável (`payment_repair_log`, migração
+ * 0026) não é lido por nada. Um bug de projeção que se repete seria remendado
+ * toda noite e reportado verde pra sempre — a forma exata dos 12 dias do
+ * incidente do Seatable, e o oposto do que o cabeçalho deste módulo promete
+ * ("ela grita e um humano decide").
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (HIGH-2).
+ */
+function acharReparos(reparados, falhados, naoOlhadas) {
+  const achados = [];
+  if (reparados.length > 0) {
+    achados.push({
+      severity: reparados.length > REPAROS_DEMAIS ? 'high' : 'info',
+      code: 'payment_row_repaired',
+      message: `${reparados.length} linha(s) de pagamento reprojetada(s) do razão`
+        + (reparados.length > REPAROS_DEMAIS ? ' — atraso sistemático, olhe a causa' : ''),
+      txids: reparados.slice(0, 10),
+      repaired: reparados.length,
+    });
+  }
+  if (falhados.length > 0) {
+    achados.push({
+      severity: 'high',
+      code: 'payment_row_repair_failed',
+      message: `${falhados.length} reparo(s) de linha falharam — a projeção segue atrás do razão`,
+      txids: falhados.slice(0, 10),
+      failed: falhados.length,
+    });
+  }
+  if (naoOlhadas > 0) {
+    achados.push({
+      severity: 'high',
+      code: 'payment_rows_unrepaired',
+      message: `${naoOlhadas} linha(s) não foram nem olhadas (prazo da varredura ou teto de reparos)`,
+      skipped: naoOlhadas,
+    });
+  }
+  return achados;
+}
+
+async function repararLinhasAtrasadas(store, inputs, opts = {}) {
+  const vazio = { reparadas: 0, falhas: 0, achados: [] };
+  if (typeof store.repairPaymentRow !== 'function') return vazio;
+  const reparados = [];
+  const falhados = [];
+  let naoOlhadas = 0;
   for (const inp of inputs) {
     const estado = reduce(inp.events || []);
     for (const row of inp.payments || []) {
+      // O PRAZO vale aqui também.
+      //
+      // A varredura ganhou um prazo (`reconcile-daily`), e só a perna dos
+      // recebíveis o obedecia. Esta é a hora em que o reparo pesa mais — logo
+      // depois de uma queda de projeção deixar muitas linhas atrás — e é
+      // exatamente quando ele estourava o `maxDuration` e matava a varredura
+      // inteira. Função morta não paga promessa nenhuma: o `catch` da rota não
+      // roda, nenhum alerta sai, e o único sinal é o batimento que não veio.
+      // (MEDIUM-2 da revisão de segurança de 2026-09-09.)
+      if (Number.isFinite(opts.deadline) && Date.now() > opts.deadline) { naoOlhadas += 1; continue; }
+      if (reparados.length >= TETO_DE_REPAROS) { naoOlhadas += 1; continue; }
+
       const pay = estado && estado.payments[row.txid];
       if (!pay) continue;
-      const naLinha = (row.refundedAmountCents || 0) + (row.refundedTipCents || 0);
-      const noRazao = pay.refundedAmountCents + pay.refundedTipCents;
-      // Só quando a linha está ATRÁS: à frente é outra história (o razão é que
-      // perdeu um evento) e reprojetar apagaria a evidência.
-      if (naLinha >= noRazao) continue;
+
+      /**
+       * ATRÁS é POR COLUNA. A soma deixava passar a linha à FRENTE.
+       *
+       * O teto era `refundedAmount + refundedTip` das duas bandas somadas, e
+       * a `repair_payment_row` escreve CINCO colunas. Duas consequências
+       * medidas na revisão de 2026-09-09 (HIGH-1):
+       *
+       *  - linha 500/0 contra razão 0/1000: a soma diz "atrás" (500 < 1000) e
+       *    o reparo apagava os 500 que só a linha conhecia — ou seja, um
+       *    evento de devolução PERDIDO, dinheiro que saiu de verdade. O painel
+       *    subia 500¢ e os dois críticos sumiam.
+       *  - linha com `confirmed_tip` 1400 contra razão 1000: o reparo
+       *    reescrevia a BASE DA FOLHA (inegociável #2, Lei 13.419/2017) e
+       *    zerava um drift de R$ 64,00 — o alarme que o inegociável #8 manda
+       *    tocar.
+       *
+       * Então: à frente em QUALQUER perna, não toca. Isso quer dizer que o
+       * razão é que perdeu um evento, e reprojetar apaga a evidência.
+       */
+      if ((row.refundedAmountCents || 0) > pay.refundedAmountCents) continue;
+      if ((row.refundedTipCents || 0) > pay.refundedTipCents) continue;
+
+      /**
+       * O CONFIRMADO não é reparo — é achado.
+       *
+       * A linha só pode ser reprojetada nas colunas de confirmação quando ela
+       * ainda NÃO tem projeção (a devolução fora do trilho que nunca projetou)
+       * ou quando ela já bate com o razão. Diferente é divergência de
+       * confirmação, e quem julga isso é `reconcileCheck` (`amount_mismatch`,
+       * `tip_mismatch`, os dois CRÍTICOS) — não este reparo, calado.
+       */
+      const semProjecao = (row.confirmedAmountCents === null || row.confirmedAmountCents === undefined)
+        && (row.confirmedTipCents === null || row.confirmedTipCents === undefined);
+      const confirmadoBate = row.confirmedAmountCents === pay.amountCents
+        && row.confirmedTipCents === pay.tipCents;
+      if (!semProjecao && !confirmadoBate) continue;
+
+      // `expirado` contra um razão que diz confirmado é CONFLITO, não atraso.
+      // Virar a linha pra `confirmado` aqui esconderia a pergunta.
+      if (!STATUS_REPARAVEL.includes(row.status)) continue;
+
+      // Nada a fazer: as duas pernas em dia e o confirmado batendo. Sem isto o
+      // reparo dispararia em toda linha, toda noite — e agora que ele PRODUZ
+      // achado, isso seria um alerta por pagamento.
+      const atrasada = (row.refundedAmountCents || 0) < pay.refundedAmountCents
+        || (row.refundedTipCents || 0) < pay.refundedTipCents
+        || semProjecao;
+      if (!atrasada) continue;
+
       const total = pay.refundedAmountCents === pay.amountCents
         && pay.refundedTipCents === pay.tipCents;
       try {
@@ -455,22 +572,33 @@ async function repararLinhasAtrasadas(store, inputs) {
           refundedAmountCents: pay.refundedAmountCents,
           refundedTipCents: pay.refundedTipCents,
         });
-        if (ok) reparadas += 1;
+        if (ok) reparados.push(row.txid);
       } catch (e) {
-        // Reparo é oportunista: falhar aqui não pode derrubar a varredura.
+        // Reparo é oportunista: falhar aqui não pode derrubar a varredura —
+        // mas TAMBÉM não pode virar só uma linha de stderr. Um grant revogado
+        // ou uma RPC quebrada é justamente a classe do inegociável #7, e ela
+        // precisa sair no relatório.
+        falhados.push(row.txid);
         process.stderr.write(`[reconcile] reparo da linha ${row.txid} falhou: ${String(e.message).slice(0, 120)}\n`);
       }
     }
   }
-  return reparadas;
+  return { reparadas: reparados.length, falhas: falhados.length, achados: acharReparos(reparados, falhados, naoOlhadas) };
 }
 
-async function reconcileVenue(store, venueId) {
+async function reconcileVenue(store, venueId, opts = {}) {
   let inputs = await store.listChecksForReconcile(venueId);
   // Repara ANTES de julgar, e relê: senão a varredura acusa a divergência que
   // ela mesma acabou de fechar, e a casa aparece vermelha por uma noite.
-  const reparadas = await repararLinhasAtrasadas(store, inputs);
-  if (reparadas > 0) inputs = await store.listChecksForReconcile(venueId);
+  //
+  // `repair: false` desliga a ESCRITA e deixa só o julgamento — é o que a rota
+  // de leitura do painel passa, porque um GET que escreve em linha de dinheiro,
+  // no horário que o chamador escolher, é mudança de postura e não detalhe
+  // (LOW-1 da revisão de segurança de 2026-09-09). O dono do conserto é o cron.
+  const reparo = opts.repair === false
+    ? { reparadas: 0, falhas: 0, achados: [] }
+    : await repararLinhasAtrasadas(store, inputs, opts);
+  if (reparo.reparadas > 0) inputs = await store.listChecksForReconcile(venueId);
   const results = inputs.map(reconcileCheck);
   const daCasa = acharServicoNuncaArrecadado(inputs);
   const severityRank = { critical: 3, high: 2, info: 1 };
@@ -486,14 +614,18 @@ async function reconcileVenue(store, venueId) {
    */
   const acionavel = (r) => r.findings.some((f) => f.severity === 'critical' || f.severity === 'high');
   const failed = results.filter(acionavel);
-  const worst = [...results.flatMap((r) => r.findings), ...daCasa]
+  const worst = [...results.flatMap((r) => r.findings), ...daCasa, ...reparo.achados]
     .reduce((max, f) => Math.max(max, severityRank[f.severity] || 0), 0);
   return {
     venueId,
     // Achados do RESTAURANTE, não de uma conta: eles só existem no agregado.
-    venueFindings: daCasa,
+    // Os do REPARO entram aqui de propósito: é por `venueFindings` que
+    // `reconcileOneVenue` já leva achado pro relatório e pro alerta do fundador.
+    venueFindings: [...daCasa, ...reparo.achados],
     /** Quantas linhas a varredura reprojetou do razão nesta passada. */
-    rowsRepaired: reparadas,
+    rowsRepaired: reparo.reparadas,
+    /** Quantos reparos FALHARAM — projeção segue atrás, e o relatório diz. */
+    rowsRepairFailed: reparo.falhas,
     checksChecked: results.length,
     checksFailed: failed.length,
     totalDriftCents: results.reduce((s, r) => s + Math.abs(r.driftCents), 0),

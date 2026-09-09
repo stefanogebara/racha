@@ -440,11 +440,21 @@ function createPagarmePsp({
       // da soma que decide `custody_leak` (inegociável #5 — centavo inteiro,
       // nunca coagido). Valor impossível vira `null`, e o módulo puro trata a
       // linha como forma inválida em vez de somar um zero inventado.
-      const centavos = (v) => (Number.isSafeInteger(Number(v)) ? Number(v) : null);
+      //
+      // E o `Number(v)` ainda coagia: medido, `null → 0`, `'' → 0`,
+      // `false → 0`, `[] → 0`, `'1e3' → 1000`. Um `"amount": null` no JSON
+      // virava um crédito VÁLIDO de 0¢, passava pelo `Number.isSafeInteger` do
+      // módulo puro (não era forma inválida), entrava no bruto da casa e
+      // produzia um `payable_amount_mismatch` CRÍTICO falso — "capturou 23710¢
+      // e a casa recebeu 0¢" — na perna cuja única função é decidir custódia.
+      // Número tem que CHEGAR número (MEDIUM-4, revisão de 2026-09-09).
+      const centavos = (v) => (typeof v === 'number' && Number.isSafeInteger(v) ? v : null);
       return linhas.map((x) => ({
         recipientId: x.recipient_id || null,
         amountCents: centavos(x.amount),
-        feeCents: centavos(x.fee) ?? 0,
+        // A taxa AUSENTE não é taxa zero: zero faz o líquido parecer melhor do
+        // que é, e é o líquido que decide `payable_net_negative`.
+        feeCents: centavos(x.fee),
         type: x.type || null,
         status: x.status || null,
         chargeId: x.charge_id || chargeId,

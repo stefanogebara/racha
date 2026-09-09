@@ -190,7 +190,9 @@ async function reconcileOneVenue(store, venue, opts = {}) {
   };
   try {
     const [checks, house, payables] = await Promise.all([
-      reconcileVenue(store, venue.id),
+      // O prazo da varredura vale pro reparo de linha também — ele escreve, e
+      // é justamente depois de uma queda de projeção que ele pesa mais.
+      reconcileVenue(store, venue.id, opts),
       reconcileVenueHouse(store, venue.id),
       // A terceira perna: o razão do ADQUIRENTE. As outras duas são nossas, e
       // uma é projeção da outra — só esta é testemunha independente.
@@ -228,6 +230,13 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       findings,
       checksChecked: checks.checksChecked,
       accountsChecked: house.accountsChecked,
+      // O que a varredura ESCREVEU nesta casa. Sem estas duas linhas o
+      // relatório de uma noite em que ela reprojetou linhas de dinheiro saía
+      // idêntico ao de uma noite em que ela não fez nada (HIGH-2 da revisão de
+      // segurança de 2026-09-09). O achado correspondente vem em `findings`,
+      // via `venueFindings`; estes contadores são pro relatório e pro alerta.
+      rowsRepaired: checks.rowsRepaired || 0,
+      rowsRepairFailed: checks.rowsRepairFailed || 0,
     };
   } catch (err) {
     // Um restaurante que estoura é ele próprio um achado crítico: significa que
@@ -299,6 +308,13 @@ async function reconcileAllVenues(store, opts = {}) {
     orphans: orphans.slice(0, 10),
     worstSeverity: severidadeGeral,
     totalDriftCents: venueReports.reduce((s, r) => s + r.driftCents, 0),
+    // QUANTAS LINHAS A VARREDURA ESCREVEU. Ela repara `payments` em toda casa,
+    // toda noite, sem ninguém olhando — e sem estes dois números o relatório de
+    // uma noite dessas é indistinguível de uma noite parada. Um bug de projeção
+    // que se repete seria remendado pra sempre e reportado verde: a forma exata
+    // dos 12 dias do incidente do Seatable (HIGH-2, revisão de 2026-09-09).
+    rowsRepaired: venueReports.reduce((s, r) => s + (r.rowsRepaired || 0), 0),
+    rowsRepairFailed: venueReports.reduce((s, r) => s + (r.rowsRepairFailed || 0), 0),
     // O relatório inteiro é grande e ninguém lê trinta casas verdes: só o que
     // pede ação sai detalhado.
     red,
@@ -316,13 +332,22 @@ function formatReconcileAlert(report) {
   // que se moveu e não achou conta, e ele não sai de lá sozinho.
   const orfaos = report.orphanMoneyEvents || 0;
   if (report.venuesRed === 0 && orfaos === 0) return null;
+  // O que a varredura ESCREVEU sai na mensagem, não só no JSON: quem lê o
+  // alerta às 4 da manhã precisa saber que a conciliação mexeu em linha de
+  // dinheiro antes de julgar o resto do texto.
+  const reparos = report.rowsRepaired || 0;
+  const reparosRuins = report.rowsRepairFailed || 0;
+  const linhaReparos = (reparos > 0 || reparosRuins > 0)
+    ? `\n\na varredura reprojetou ${reparos} linha(s) de pagamento do razão`
+      + (reparosRuins > 0 ? ` e FALHOU em ${reparosRuins}` : '')
+    : '';
   const linhaOrfaos = orfaos > 0
     ? `\n\n${orfaos} evento(s) de dinheiro SEM conta correspondente: `
       + (report.orphans || []).slice(0, 5)
         .map((o) => `${o.kind}${o.txid ? ` ${o.txid}` : ''}`).join(', ')
     : '';
   if (report.venuesRed === 0) {
-    return `Conciliação ${report.at.slice(0, 10)}: restaurantes ok.${linhaOrfaos}`;
+    return `Conciliação ${report.at.slice(0, 10)}: restaurantes ok.${linhaOrfaos}${linhaReparos}`;
   }
   const linhas = report.red.slice(0, 10).map((v) => {
     const pior = v.findings.find((f) => f.severity === 'critical')
@@ -332,7 +357,7 @@ function formatReconcileAlert(report) {
     return `• ${v.name} [${v.severity}]${drift} — ${pior ? pior.message : 'sem detalhe'}`;
   });
   const resto = report.red.length > 10 ? `\n(+${report.red.length - 10} restaurantes)` : '';
-  return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesRed} de ${report.venuesChecked} restaurantes com divergência.\n\n${linhas.join('\n')}${resto}${linhaOrfaos}`;
+  return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesRed} de ${report.venuesChecked} restaurantes com divergência.\n\n${linhas.join('\n')}${resto}${linhaOrfaos}${linhaReparos}`;
 }
 
 module.exports = {

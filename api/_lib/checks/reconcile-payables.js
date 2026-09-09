@@ -91,14 +91,19 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
       { type: l.type, amountCents: l.amountCents });
   }
   // Forma inválida é achado, não zero somado. Ver `centavos()` no adaptador.
-  const invalidos = linhas.filter((l) => l && !Number.isSafeInteger(l.amountCents));
+  //
+  // A TAXA conta como forma: `feeCents` deixou de virar `0` quando o adquirente
+  // omite `fee`, porque taxa ausente fazia o LÍQUIDO parecer melhor do que é —
+  // e é o líquido que decide `payable_net_negative`. Sem ela aqui, `amountCents
+  // - feeCents` daria `NaN` e a soma inteira da casa viraria `NaN` calada.
+  const formaOk = (l) => Number.isSafeInteger(l.amountCents) && Number.isSafeInteger(l.feeCents);
+  const invalidos = linhas.filter((l) => l && !formaOk(l));
   for (const l of invalidos) {
     add('high', 'payable_shape_invalid',
       `cobrança ${chargeId}: recebível com valor ilegível — não entra na soma`,
       { recipientId: l.recipientId || null });
   }
-  const creditos = linhas.filter((l) => l && l.type === CREDITO
-    && Number.isSafeInteger(l.amountCents));
+  const creditos = linhas.filter((l) => l && l.type === CREDITO && formaOk(l));
   const semRecebedor = creditos.filter((l) => !l.recipientId);
   for (const l of semRecebedor) {
     add('high', 'payable_no_recipient_field',
@@ -138,7 +143,20 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
   const daCasa = creditos.filter((l) => l.recipientId === venueRecipientId);
   const brutoDaCasa = daCasa.reduce((s, l) => s + l.amountCents, 0);
   const liquidoDaCasa = daCasa.reduce((s, l) => s + l.amountCents - l.feeCents, 0);
-  if (Number.isSafeInteger(paidAmountCents) && paidAmountCents > 0 && brutoDaCasa !== paidAmountCents) {
+  /**
+   * LINHA ILEGÍVEL SUSPENDE A SOMA — cego não é vazado.
+   *
+   * Com uma linha de forma inválida ela sai de `creditos`, e o bruto da casa
+   * caía pro que restou. No caso de UMA linha só, isso virava "capturou 23710¢
+   * e a casa recebeu 0¢" — um `custody_leak` por vizinhança, CRÍTICO, contando
+   * uma história falsa numa perna cuja única função é decidir custódia. Não
+   * poder LER o razão do adquirente é "não sei", e "não sei" já tem o seu
+   * achado (`payable_shape_invalid`, `high`). Afirmar que o dinheiro não chegou
+   * é uma afirmação diferente, e não é esta que os dados sustentam.
+   */
+  const ilegivel = linhas.some((l) => l && !formaOk(l));
+  if (!ilegivel
+      && Number.isSafeInteger(paidAmountCents) && paidAmountCents > 0 && brutoDaCasa !== paidAmountCents) {
     const delta = paidAmountCents - brutoDaCasa;
     // Um centavo é arredondamento; uma sobra inteira é dinheiro em outro lugar.
     add(Math.abs(delta) <= 1 ? 'info' : 'critical', 'payable_amount_mismatch',
