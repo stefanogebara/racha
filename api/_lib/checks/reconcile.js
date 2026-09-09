@@ -405,8 +405,72 @@ function acharServicoNuncaArrecadado(inputs) {
   return [];
 }
 
+/**
+ * A LINHA QUE FICOU ATRÁS DO RAZÃO — reparada aqui, e não deixada pra ninguém.
+ *
+ * Toda escrita de dinheiro faz dois passos: o razão (a verdade) e a linha de
+ * `payments` (uma projeção). Entre os dois cabe uma falha, e até agora o único
+ * dono desse conserto era a reentrega do webhook (`repairRowFromLedger`) — que
+ * nunca chega numa restituição feita FORA do trilho, porque não há PSP pra
+ * reenviar nada.
+ *
+ * O resultado era o pior possível: um 5xx transitório no meio de uma devolução
+ * corretamente paga virava `refund_mismatch` + `ledger_drift` CRÍTICOS
+ * PERMANENTES, e o alerta noturno passava a dizer "drift 90,00" pra sempre.
+ * O cabeçalho do `reconcile-daily` diz, com razão, que ele não conserta — mas
+ * ninguém consertava, e um canário que grita pra sempre morre.
+ *
+ * Então a conciliação passa a fechar a própria detecção: onde ela vê a linha
+ * ATRÁS do razão, ela reprojeta. Claim CONDICIONAL com o erro conferido
+ * (inegociável #7, migração 0023) — se a linha mudou desde a leitura, não
+ * escreve e não mente. E só na direção segura: a linha é projeção do razão,
+ * então escrever o que o razão diz não pode inventar dinheiro.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
+ */
+async function repararLinhasAtrasadas(store, inputs) {
+  if (typeof store.repairPaymentRow !== 'function') return 0;
+  let reparadas = 0;
+  for (const inp of inputs) {
+    const estado = reduce(inp.events || []);
+    for (const row of inp.payments || []) {
+      const pay = estado && estado.payments[row.txid];
+      if (!pay) continue;
+      const naLinha = (row.refundedAmountCents || 0) + (row.refundedTipCents || 0);
+      const noRazao = pay.refundedAmountCents + pay.refundedTipCents;
+      // Só quando a linha está ATRÁS: à frente é outra história (o razão é que
+      // perdeu um evento) e reprojetar apagaria a evidência.
+      if (naLinha >= noRazao) continue;
+      const total = pay.refundedAmountCents === pay.amountCents
+        && pay.refundedTipCents === pay.tipCents;
+      try {
+        const ok = await store.repairPaymentRow({
+          txid: row.txid,
+          expectedStatus: row.status,
+          expectedRefundedAmountCents: row.refundedAmountCents || 0,
+          expectedRefundedTipCents: row.refundedTipCents || 0,
+          status: total ? 'devolvido' : 'confirmado',
+          confirmedAmountCents: pay.amountCents,
+          confirmedTipCents: pay.tipCents,
+          refundedAmountCents: pay.refundedAmountCents,
+          refundedTipCents: pay.refundedTipCents,
+        });
+        if (ok) reparadas += 1;
+      } catch (e) {
+        // Reparo é oportunista: falhar aqui não pode derrubar a varredura.
+        process.stderr.write(`[reconcile] reparo da linha ${row.txid} falhou: ${String(e.message).slice(0, 120)}\n`);
+      }
+    }
+  }
+  return reparadas;
+}
+
 async function reconcileVenue(store, venueId) {
-  const inputs = await store.listChecksForReconcile(venueId);
+  let inputs = await store.listChecksForReconcile(venueId);
+  // Repara ANTES de julgar, e relê: senão a varredura acusa a divergência que
+  // ela mesma acabou de fechar, e a casa aparece vermelha por uma noite.
+  const reparadas = await repararLinhasAtrasadas(store, inputs);
+  if (reparadas > 0) inputs = await store.listChecksForReconcile(venueId);
   const results = inputs.map(reconcileCheck);
   const daCasa = acharServicoNuncaArrecadado(inputs);
   const severityRank = { critical: 3, high: 2, info: 1 };
@@ -428,6 +492,8 @@ async function reconcileVenue(store, venueId) {
     venueId,
     // Achados do RESTAURANTE, não de uma conta: eles só existem no agregado.
     venueFindings: daCasa,
+    /** Quantas linhas a varredura reprojetou do razão nesta passada. */
+    rowsRepaired: reparadas,
     checksChecked: results.length,
     checksFailed: failed.length,
     totalDriftCents: results.reduce((s, r) => s + Math.abs(r.driftCents), 0),
@@ -566,4 +632,4 @@ async function reconcileVenueHouse(store, venueId) {
 }
 
 module.exports = {
-  acharServicoNuncaArrecadado, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+  acharServicoNuncaArrecadado, repararLinhasAtrasadas, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };

@@ -591,3 +591,89 @@ describe('a restituição fora do trilho deixa o canário VERDE', () => {
     expect(linha.refundedTipCents).toBe(0);
   });
 });
+
+describe('a restituição fora do trilho: o caminho de ERRO', () => {
+  /**
+   * O caminho de erro era pior que não ter projeção nenhuma.
+   *
+   * O lançamento e a projeção estavam no mesmo `try`. Uma falha transitória na
+   * projeção devolvia **400** com o texto interno do PostgREST, o dono lia "não
+   * foi possível registrar a devolução" sobre um lançamento que JÁ ESTAVA no
+   * razão, tentava de novo e recebia `nothing_to_restitute` — dois erros
+   * contraditórios e nenhuma saída. E a linha ficava atrás do razão pra sempre:
+   * `refund_mismatch` + `ledger_drift` CRÍTICOS por uma dívida corretamente
+   * quitada. Antes da projeção existir, a mesma falha só significava
+   * "restituição não registrada".
+   *
+   * Dois consertos, os dois exercitados aqui: a resposta deixa de depender da
+   * projeção, e a CONCILIAÇÃO passa a reparar a linha que ficou atrás.
+   * Achado pela revisão de segurança de 2026-09-09.
+   */
+  const { reconcileVenue } = require('../_lib/checks/reconcile');
+  const { appendValidated } = require('../_lib/checks/append-validated');
+  const { allocateRestitution } = require('../_lib/checks/split-engine');
+
+  async function contaPagaAMais() {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 0, pspRecipientId: 're_x' });
+    const table = await store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 10000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: store.getPayment.bind(store),
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    await store.registerCharge({
+      checkId: check.id, txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix',
+    });
+    await applyConfirmedPayment({
+      kind: 'payment_confirmed', txid: 'ch_1', amountCents: 19000, tipCents: 0,
+      method: 'pix', eventId: 'evt_p',
+    }, deps);
+    return { store, check, venue };
+  }
+
+  test('a projeção falha, e a CONCILIAÇÃO repara — a divergência não fica', async () => {
+    const { store, check, venue } = await contaPagaAMais();
+
+    // O lançamento entra no razão…
+    const st = reduce(await store.loadEvents(check.id));
+    const pg = st.payments.ch_1;
+    const partes = allocateRestitution(pg.amountCents, pg.tipCents, 9000, pg.excessCents);
+    await appendValidated(store, check.id, 'PAYMENT_REFUNDED', {
+      txid: 'ch_1', ...partes, offRail: true, reference: 'dinheiro no caixa', by: 'dona@bar',
+    });
+    // …e a projeção NÃO acontece (é o que uma falha transitória deixa).
+    const linhaAntes = await store.getPayment('ch_1');
+    expect(linhaAntes.refundedAmountCents || 0).toBe(0);
+
+    // A varredura vê a linha atrás do razão — e agora fecha a própria detecção.
+    const v = await reconcileVenue(store, venue.id);
+    expect(v.rowsRepaired).toBe(1);
+    expect(v.failed.filter((f) => f.findings.some((x) => x.code === 'refund_mismatch'))).toEqual([]);
+    expect(v.totalDriftCents).toBe(0);
+
+    const linhaDepois = await store.getPayment('ch_1');
+    expect(linhaDepois.refundedAmountCents).toBe(9000);
+  });
+
+  test('a varredura NÃO reprojeta uma linha à FRENTE do razão', async () => {
+    // Linha à frente significa que o razão perdeu um evento — reprojetar
+    // apagaria a evidência do que aconteceu. Só a direção segura.
+    const { store, venue } = await contaPagaAMais();
+    await store.repairPaymentRow({
+      txid: 'ch_1', expectedStatus: 'confirmado',
+      expectedRefundedAmountCents: 0, expectedRefundedTipCents: 0,
+      status: 'confirmado', confirmedAmountCents: 19000, confirmedTipCents: 0,
+      refundedAmountCents: 5000, refundedTipCents: 0,   // a linha inventou um estorno
+    });
+    const v = await reconcileVenue(store, venue.id);
+    expect(v.rowsRepaired).toBe(0);
+    // E a divergência CONTINUA sendo acusada, que é o certo.
+    expect(v.failed.some((f) => f.findings.some((x) => x.code === 'refund_mismatch'))).toBe(true);
+  });
+});

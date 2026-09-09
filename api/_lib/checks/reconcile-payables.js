@@ -77,14 +77,28 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
    */
   const NAO_CREDITO = new Set(['refund', 'chargeback', 'chargeback_refund', 'refund_reversal',
     'block', 'unblock']);
-  const desconhecidos = linhas.filter((l) => l && l.type && l.type !== CREDITO
+  // Tipo AUSENTE conta como desconhecido, não como crédito. O comentário acima
+  // dizia "tipo ausente ou desconhecido" e só a segunda metade tinha pousado:
+  // uma linha de `refund` sem tipo (valor negativo) seguia entrando na soma e
+  // podia produzir um `payable_amount_mismatch` CRÍTICO falso — o cenário que
+  // o comentário dizia estar fechado. Achado pela revisão de segurança de
+  // 2026-09-09 (LOW-2).
+  const desconhecidos = linhas.filter((l) => l && l.type !== CREDITO
     && !NAO_CREDITO.has(l.type));
   for (const l of desconhecidos) {
     add('high', 'payable_type_unknown',
       `cobrança ${chargeId}: recebível de tipo desconhecido (${l.type}) — não sei se move dinheiro`,
       { type: l.type, amountCents: l.amountCents });
   }
-  const creditos = linhas.filter((l) => l && (l.type || CREDITO) === CREDITO);
+  // Forma inválida é achado, não zero somado. Ver `centavos()` no adaptador.
+  const invalidos = linhas.filter((l) => l && !Number.isSafeInteger(l.amountCents));
+  for (const l of invalidos) {
+    add('high', 'payable_shape_invalid',
+      `cobrança ${chargeId}: recebível com valor ilegível — não entra na soma`,
+      { recipientId: l.recipientId || null });
+  }
+  const creditos = linhas.filter((l) => l && l.type === CREDITO
+    && Number.isSafeInteger(l.amountCents));
   const semRecebedor = creditos.filter((l) => !l.recipientId);
   for (const l of semRecebedor) {
     add('high', 'payable_no_recipient_field',

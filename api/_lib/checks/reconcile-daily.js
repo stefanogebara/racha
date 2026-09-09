@@ -57,6 +57,31 @@ function worse(a, b) {
  */
 async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
   const { sinceIso, limit = 25 } = opts;
+  /**
+   * DESLIGADA é um ACHADO, não um silêncio.
+   *
+   * Com `RACHA_PAYABLES_LEG=off` a rota não passa o `psp`, e isto devolvia
+   * `[]`: o relatório noturno saía idêntico a uma noite saudável —
+   * `worstSeverity: 'ok'`, `venuesRed: 0`, o alerta nem sai — e o
+   * `custody_leak`, que é o achado que responde a pergunta de custódia do
+   * inegociável #4, simplesmente não existia. É o estado em que alguém entra
+   * às 2h de uma madrugada e nunca mais sai.
+   *
+   * O commit 4930caa fez a coisa certa com o irmão deste caso: `CRON_SECRET`
+   * ausente PAGINA em vez de desligar em silêncio. Um interruptor de controle
+   * de custódia merece o mesmo. Achado pela revisão de segurança de
+   * 2026-09-09.
+   */
+  if (opts.legDisabled === true) {
+    return [{
+      severity: 'high',
+      code: 'payables_leg_disabled',
+      message: 'a conferência de destino do dinheiro (recebíveis do adquirente) está DESLIGADA por configuração',
+    }];
+  }
+  // Ausência de PSP por outro motivo — um chamador que não tem adquirente
+  // (store de memória, conciliação só de carteira) — é silêncio legítimo: não
+  // houve decisão de desligar nada.
   if (!psp || typeof psp.listChargePayables !== 'function') return [];
   if (typeof store.listRecentConfirmedCharges !== 'function') return [];
   const recebedor = venue.pspRecipientId || null;
@@ -83,12 +108,27 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
    * quantas ficaram sem conferir. Achado pela revisão de segurança de
    * 2026-09-08.
    */
+  /**
+   * O orçamento é da VARREDURA INTEIRA, não de cada casa.
+   *
+   * Era por casa e conferido ENTRE chamadas: dez casas × 20s de orçamento mais
+   * uma chamada de 15s já em vôo passava dos 300s do padrão da plataforma — e
+   * uma função morta não resolve a promessa, então o `catch` da rota nunca
+   * roda e o alerta noturno não sai NEM como falha. A ausência da batida vira
+   * o único sinal, que é a forma silenciosa que o inegociável #8 proíbe.
+   *
+   * `opts.deadline` é um instante absoluto que a varredura passa adiante, e
+   * `maxDuration` está declarado no `vercel.json` em vez de herdado de um
+   * padrão que já mudou duas vezes.
+   * Achado pela revisão de segurança de 2026-09-09.
+   */
   const inicio = Date.now();
   const orcamentoMs = Number.isSafeInteger(opts.budgetMs) ? opts.budgetMs : 20_000;
+  const prazoFinal = Number.isSafeInteger(opts.deadline) ? opts.deadline : Infinity;
   let conferidas = 0;
   let verificadas = 0;
   for (const [i, c] of cobrancas.entries()) {
-    if (Date.now() - inicio > orcamentoMs) {
+    if (Date.now() - inicio > orcamentoMs || Date.now() > prazoFinal) {
       achados.push({
         severity: 'info', code: 'payables_unchecked',
         message: `orçamento de tempo estourado: ${cobrancas.length - i} cobrança(s) sem conferir`,
@@ -220,10 +260,14 @@ async function reconcileAllVenues(store, opts = {}) {
   const venues = opts.includeTest ? all : all.filter((v) => v.isTest !== true);
 
   const venueReports = [];
+  // Um prazo só pra varredura inteira: 90s dos 120s declarados, deixando folga
+  // pro relatório e pro alerta saírem.
+  const prazoDaVarredura = Date.now() + (Number.isSafeInteger(opts.sweepBudgetMs)
+    ? opts.sweepBudgetMs : 90_000);
   for (const v of venues) {
     // Em série de propósito: a varredura é diária e roda no escuro; martelar o
     // banco em paralelo pra terminar meio segundo antes não paga o risco.
-    venueReports.push(await reconcileOneVenue(store, v, opts));
+    venueReports.push(await reconcileOneVenue(store, v, { ...opts, deadline: prazoDaVarredura }));
   }
 
   const red = venueReports.filter((r) => r.severity === 'critical' || r.severity === 'high');

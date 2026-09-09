@@ -436,10 +436,15 @@ function createPagarmePsp({
       if (typeof chargeId !== 'string' || !/^ch_/.test(chargeId)) return [];
       const r = await api('GET', `/payables?charge_id=${encodeURIComponent(chargeId)}&size=1000`);
       const linhas = Array.isArray(r) ? r : (r && Array.isArray(r.data) ? r.data : []);
+      // `|| 0` era coerção silenciosa: um `amount` ausente virava zero DENTRO
+      // da soma que decide `custody_leak` (inegociável #5 — centavo inteiro,
+      // nunca coagido). Valor impossível vira `null`, e o módulo puro trata a
+      // linha como forma inválida em vez de somar um zero inventado.
+      const centavos = (v) => (Number.isSafeInteger(Number(v)) ? Number(v) : null);
       return linhas.map((x) => ({
         recipientId: x.recipient_id || null,
-        amountCents: Number(x.amount) || 0,
-        feeCents: Number(x.fee) || 0,
+        amountCents: centavos(x.amount),
+        feeCents: centavos(x.fee) ?? 0,
         type: x.type || null,
         status: x.status || null,
         chargeId: x.charge_id || chargeId,

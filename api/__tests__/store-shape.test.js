@@ -34,16 +34,51 @@ const { createSupabaseStore } = require('../_lib/store/supabase');
  * Cliente PostgREST falso: encadeia qualquer método e resolve na linha dada.
  * `maybeSingle`/`single` devolvem a primeira; o resto devolve a lista.
  */
+/**
+ * Cliente PostgREST falso que HONRA o `select`.
+ *
+ * A primeira versão ignorava `.select()` e devolvia a linha inteira que o teste
+ * escrevia à mão — então o censo não podia detectar a classe pela qual ele foi
+ * escrito. Provado por mutação: apagar `venue_id, amount_cents, tip_cents,
+ * currency, confirmed_amount_cents, confirmed_tip_cents` do `select` do
+ * `getPayment`, ou `txid` do `select` do painel (que é O defeito que a rodada
+ * anterior consertou), deixava a suíte inteira VERDE.
+ *
+ * Duas causas, as duas fechadas aqui: o `select` era ignorado, e a comparação
+ * era `Object.keys`, que lista chave com valor `undefined` — o mapeador atribui
+ * `venueId: data.venue_id` sem condição, então a chave existe mesmo quando a
+ * coluna nunca foi pedida.
+ *
+ * Agora a linha é PROJETADA pelo `select`, e a comparação só conta chave com
+ * valor definido. Achado pela revisão de segurança de 2026-09-09.
+ */
 function fakeClient(rows) {
+  let colunas = null;   // o último `.select(...)` visto
+
+  const projeta = (linha) => {
+    if (!linha || !colunas) return linha;
+    const pedidas = colunas.split(',').map((c) => c.trim()).filter(Boolean);
+    if (pedidas.includes('*')) return linha;
+    return Object.fromEntries(
+      pedidas.filter((c) => c in linha).map((c) => [c, linha[c]]),
+    );
+  };
+  const lista = () => (Array.isArray(rows) ? rows.map(projeta) : projeta(rows));
+
   const thenable = {
-    then: (res) => Promise.resolve({ data: rows, error: null }).then(res),
+    then: (res) => Promise.resolve({ data: lista(), error: null }).then(res),
     catch: () => thenable,
   };
   const builder = new Proxy(thenable, {
     get(t, prop) {
       if (prop === 'then' || prop === 'catch') return t[prop];
+      if (prop === 'select') {
+        return (cols) => { colunas = typeof cols === 'string' ? cols : null; return builder; };
+      }
       if (prop === 'maybeSingle' || prop === 'single') {
-        return async () => ({ data: Array.isArray(rows) ? rows[0] : rows, error: null });
+        return async () => ({
+          data: projeta(Array.isArray(rows) ? rows[0] : rows), error: null,
+        });
       }
       return () => builder;
     },
@@ -51,7 +86,15 @@ function fakeClient(rows) {
   return { from: () => builder, rpc: async () => ({ data: rows, error: null }) };
 }
 
-const chaves = (o) => (o ? Object.keys(o).sort() : []);
+/**
+ * Chaves com valor DEFINIDO.
+ *
+ * `Object.keys` lista `{ venueId: undefined }` — e o mapeador do Supabase
+ * atribui todo campo sem condição, então uma coluna ausente do `select`
+ * aparecia como chave presente. A comparação media a existência da linha de
+ * código, não a chegada do dado.
+ */
+const chaves = (o) => (o ? Object.keys(o).filter((k) => o[k] !== undefined).sort() : []);
 
 describe('os dois stores devolvem a MESMA forma', () => {
   test('getPayment', async () => {
@@ -70,10 +113,16 @@ describe('os dois stores devolvem a MESMA forma', () => {
     const doMemoria = await store.getPayment('ch_1');
 
     const sup = createSupabaseStore({
+      // A linha COMO A PRODUÇÃO devolveria: todas as colunas da tabela. Se o
+      // `select` pedir menos, a projeção do cliente falso entrega menos — que
+      // é o ponto do censo.
       client: fakeClient([{
-        txid: 'ch_1', check_id: check.id, amount_cents: 5000, tip_cents: 500,
+        txid: 'ch_1', check_id: check.id, venue_id: venue.id,
+        amount_cents: 5000, tip_cents: 500, currency: 'BRL',
+        confirmed_amount_cents: 5000, confirmed_tip_cents: 500,
         payer_label: 'Ana', status: 'confirmado', method: 'pix', psp_payload_masked: null,
-        confirmed_at: '2026-01-01T00:00:00Z', refunded_amount_cents: 0, refunded_tip_cents: 0,
+        confirmed_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z',
+        refunded_amount_cents: 0, refunded_tip_cents: 0,
       }]),
     });
     const doSupabase = await sup.getPayment('ch_1');

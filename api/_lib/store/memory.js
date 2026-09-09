@@ -786,7 +786,6 @@ function createMemoryStore() {
           // Ver o store do Supabase e a 0027: a perna de custódia precisa do ID.
         pspRecipientId: v.pspRecipientId || null,
         // Ver o store do Supabase e a 0027: a perna de custódia precisa do ID.
-        pspRecipientId: v.pspRecipientId || null,
         recebedorOk: /^r[ep]_/.test(v.pspRecipientId || '')
             && !RUINS.includes(v.pspRecipientStatus || ''),
           recipientStatus: v.pspRecipientStatus || null,

@@ -363,3 +363,42 @@ test('a perna tem INTERRUPTOR — `RACHA_PAYABLES_LEG=off` desliga sem deploy', 
   // que é o caso já coberto acima ("sem PSP a varredura segue").
   expect(chamada).toMatch(/\bpsp,/);
 });
+
+test('DESLIGAR a perna muda o relatório — não é silêncio', async () => {
+  /**
+   * Com o interruptor em `off` o relatório saía idêntico a uma noite saudável:
+   * `ok`, zero casas vermelhas, alerta nenhum — e o `custody_leak`, o achado
+   * que responde a pergunta do inegociável #4, simplesmente não existia. É o
+   * estado em que alguém entra numa madrugada e nunca mais sai.
+   *
+   * O teste anterior deste bloco afirmava que a STRING `RACHA_PAYABLES_LEG`
+   * aparecia no fonte da rota. Provava que o interruptor existe; não podia
+   * falhar se apertá-lo fosse silencioso.
+   */
+  const { reconcilePayablesLeg, reconcileAllVenues, formatReconcileAlert } =
+    require('../_lib/checks/reconcile-daily');
+
+  const achados = await reconcilePayablesLeg(
+    { listRecentConfirmedCharges: async () => [] }, null,
+    { id: 'v1', pspRecipientId: CASA }, { legDisabled: true },
+  );
+  expect(achados).toHaveLength(1);
+  expect(achados[0].code).toBe('payables_leg_disabled');
+  expect(achados[0].severity).toBe('high');
+
+  // E o relatório inteiro deixa de sair verde.
+  const store = {
+    listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: CASA }],
+    listChecksForReconcile: async () => [],
+    listHouseAccountsForReconcile: async () => [],
+    listOpenOrphanMoneyEvents: async () => [],
+    listRecentConfirmedCharges: async () => [],
+  };
+  const desligada = await reconcileAllVenues(store, { legDisabled: true });
+  expect(desligada.worstSeverity).toBe('high');
+  expect(formatReconcileAlert(desligada)).toMatch(/DESLIGADA/);
+
+  // Sem o interruptor, e sem psp por outro motivo, segue silêncio legítimo.
+  const semPsp = await reconcileAllVenues(store, {});
+  expect(semPsp.worstSeverity).toBe('ok');
+});

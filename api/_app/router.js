@@ -1198,7 +1198,32 @@ async function route(req, res) {
        * adquirente é testemunha. Achado pela revisão de compliance de
        * 2026-09-08.
        */
-      const aDevolver = Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0));
+      /**
+       * O teto é o MENOR entre o excedente deste pagamento e o que a CONTA
+       * ainda deve — porque `excessCents` é derivado uma vez, na confirmação,
+       * e não é redevirado quando o total muda.
+       *
+       * O caso: paga-se 120,00 numa conta de 100,00 (excedente 20,00), a mesa
+       * pede mais, `ADJUSTED` leva o total a 120,00 e `overpaidCents` vira
+       * ZERO — ninguém deve nada a ninguém. Mas o excedente do pagamento
+       * seguia 20,00, e a rota aceitava "restituir" isso: `paidCents` caía
+       * abaixo do total, a conta voltava pra `parcial`, e uma cobrança nova
+       * podia ser emitida contra quem não deve — CDC art. 42 caput e § único.
+       * Medido antes de consertar: teto da rota 2000¢, devido 0¢.
+       *
+       * O teto da CONTA entra aqui e NÃO no `alocarDevolucao` — lá a recusa de
+       * um teto por conta está certa por outro motivo: naquele caminho o
+       * adquirente já testemunhou o estorno e a única pergunta é como ratear
+       * entre consumo e gorjeta. Aqui a pergunta é de AUTORIZAÇÃO: quanto um
+       * dono pode afirmar, sem testemunha, e com isso reduzir `paidCents`. O
+       * teto por pagamento fica, então a justiça entre pagadores se mantém.
+       *
+       * Achado pela revisão de compliance de 2026-09-09 (R-1).
+       */
+      const aDevolver = Math.min(
+        Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
+        Math.max(0, estado.overpaidCents || 0),
+      );
       if (aDevolver === 0) {
         return json(res, 400, {
           success: false, code: 'nothing_to_restitute',
@@ -1211,9 +1236,34 @@ async function route(req, res) {
           error: 'valor acima do excedente deste pagamento', vars: { leftCents: aDevolver },
         });
       }
+      /**
+       * O LANÇAMENTO e a PROJEÇÃO são dois passos, e só o primeiro decide a
+       * resposta.
+       *
+       * Estavam no mesmo `try`. Quando a projeção falhava — um 5xx do Supabase,
+       * uma conexão cortada — o `catch` devolvia **400** com o texto interno do
+       * PostgREST, e o dono lia "não foi possível registrar a devolução" sobre
+       * um lançamento que JÁ ESTAVA no razão. Ele tentava de novo, o teto agora
+       * calculava zero, e a segunda resposta era `nothing_to_restitute`: dois
+       * erros contraditórios e nenhum caminho de saída.
+       *
+       * E o estado que ficava era pior que o de antes de existir projeção: o
+       * razão dizia 9000 estornados, a linha zero, e a conciliação acusava
+       * `refund_mismatch` + `ledger_drift` CRÍTICOS pra sempre — medido — por
+       * uma dívida corretamente quitada. Antes da projeção, a mesma falha só
+       * significava "restituição não registrada". Um conserto cujo caminho de
+       * erro é pior que a ausência dele não é conserto.
+       *
+       * Agora: assim que o `appendValidated` devolve `seq`, a chamada deu
+       * certo. A projeção é melhor-esforço e sai como aviso, nunca como falha —
+       * e a conciliação passou a REPARAR essa linha (ver `reconcileCheck`), que
+       * é o dono durável que faltava.
+       * Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
+       */
+      let seq;
       try {
         const partes = alocarRestituicaoManual(pg, valor);
-        const seq = await appendValidated(store, b.checkId, 'PAYMENT_REFUNDED', {
+        seq = await appendValidated(store, b.checkId, 'PAYMENT_REFUNDED', {
           txid: String(b.txid),
           amountCents: partes.amountCents,
           tipCents: partes.tipCents,
@@ -1221,33 +1271,26 @@ async function route(req, res) {
           reference: ref,
           by: user.email || user.id || 'dono',
         });
-        /**
-         * E a LINHA, projetada do razão — senão isto fabrica divergência.
-         *
-         * `appendValidated` grava só o evento. Quem projeta a linha de
-         * `payments` no caminho do webhook é o `recordPayment`/
-         * `repairRowFromLedger`, e esta rota não passava por lá: o razão
-         * registrava 9000 estornados e a linha seguia em zero. A conciliação
-         * então acusava `refund_mismatch` CRÍTICO e `ledger_drift` de 9000¢ —
-         * medido — e o alerta do fundador passava a dizer "drift 90,00" pra
-         * sempre, por uma dívida que foi corretamente quitada. Fabricar
-         * divergência destrói o instrumento que o inegociável #8 exige.
-         *
-         * E o painel soma a LINHA: sem isto o excedente continuava no
-         * faturamento e `tipsRefundedCents` — a linha que existe pra tornar
-         * visível uma restituição que raspou gorjeta — ficava zerada justo no
-         * caminho onde nada mais mostraria.
-         *
-         * Claim CONDICIONAL (migração 0023), como todo reparo de linha.
-         * Achado pela revisão de compliance de 2026-09-08.
-         */
+        var partesGravadas = partes;
+      } catch (e) {
+        // AQUI sim é falha: o razão não recebeu nada.
+        process.stderr.write(`[restituicao] lançamento recusado: ${String(e.message).slice(0, 160)}\n`);
+        return json(res, e.statusCode || 400, { success: false, code: 'restitution_failed' });
+      }
+
+      /**
+       * A linha, projetada do razão. Melhor esforço, com claim condicional
+       * (migração 0023) — e a conciliação repara o que não pousar aqui.
+       */
+      let projetada = false;
+      try {
         const depois = reduce(await store.loadEvents(b.checkId));
         const pgDepois = depois && depois.payments[String(b.txid)];
         const linha = await store.getPayment(String(b.txid));
         if (pgDepois && linha) {
           const total = pgDepois.refundedAmountCents === pgDepois.amountCents
             && pgDepois.refundedTipCents === pgDepois.tipCents;
-          const projetou = await store.repairPaymentRow({
+          projetada = await store.repairPaymentRow({
             txid: String(b.txid),
             expectedStatus: linha.status,
             expectedRefundedAmountCents: linha.refundedAmountCents || 0,
@@ -1258,16 +1301,17 @@ async function route(req, res) {
             refundedAmountCents: pgDepois.refundedAmountCents,
             refundedTipCents: pgDepois.refundedTipCents,
           });
-          if (!projetou) {
-            // A linha mudou no meio (outra entrega). O razão está certo e a
-            // conciliação vai reparar; não é erro de quem chamou.
-            process.stderr.write(`[restituicao] linha ${b.txid} não projetada — outra escrita ganhou\n`);
-          }
         }
-        return json(res, 200, { success: true, data: { seq, ...partes } });
       } catch (e) {
-        return json(res, e.statusCode || 400, { success: false, error: e.message, code: 'restitution_failed' });
+        process.stderr.write(`[restituicao] linha não projetada (a conciliação repara): ${String(e.message).slice(0, 160)}\n`);
       }
+      if (!projetada) {
+        process.stderr.write(`[restituicao] linha ${b.txid} pendente de projeção — a conciliação repara na varredura\n`);
+      }
+      return json(res, 200, {
+        success: true,
+        data: { seq, ...partesGravadas, rowProjectionPending: !projetada },
+      });
     }
 
     // --- owner (gated) -------------------------------------------------------
@@ -1640,7 +1684,9 @@ async function route(req, res) {
          */
         report = await reconcileAllVenues(store, {
           includeTest: url.searchParams.get('test') === '1',
-          ...(process.env.RACHA_PAYABLES_LEG === 'off' ? {} : {
+          // Desligada, ela DIZ que está desligada: o relatório saía idêntico a
+          // uma noite saudável e o `custody_leak` simplesmente não existia.
+          ...(process.env.RACHA_PAYABLES_LEG === 'off' ? { legDisabled: true } : {
             psp,
             sinceIso: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
             limit: 25,
