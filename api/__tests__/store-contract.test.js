@@ -478,3 +478,99 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     expect(view.state.totalCents).toBe(4200);
   });
 });
+
+/**
+ * O CONTRATO DO `throwOn` — a terceira parte de que a afirmação sobre a FOLHA
+ * depende.
+ *
+ * O reparo classifica "recusado pelo banco" (nada escrito) contra "sem resposta"
+ * (pode ter escrito) a partir de `e.pgCode`, e essa distinção decide se o dono
+ * distribui pelo número do razão ou pelo antigo. Os testes dessa classificação
+ * montavam o erro À MÃO, com `pgCode` já setado — testavam o consumidor contra
+ * um contrato que NADA afirmava sobre o produtor.
+ *
+ * Medido no `@supabase/postgrest-js` 2.110.7 (o do lock): numa rejeição de
+ * fetch o `code` nasce `''` e nunca é atribuído — os ramos de `AbortError` e
+ * `UND_ERR_HEADERS_OVERFLOW` até o reatribuem pra `''`. Logo o teste
+ * `/^UND_ERR/` que eu tinha era código morto, e a condição real ("qualquer
+ * `code` verdadeiro") deixava passar um corpo JSON de gateway com `code: 504`.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (HIGH-2).
+ */
+describe('throwOn: só forma de código atravessa', () => {
+  const { createSupabaseStore } = require('../_lib/store/supabase');
+
+  /** Chama `throwOn` pelo caminho real: um cliente falso que devolve `error`. */
+  async function pgCodeDe(error) {
+    const client = {
+      rpc: async () => ({ data: null, error }),
+    };
+    const store = createSupabaseStore({ client });
+    try {
+      await store.repairPaymentRow({ txid: 'ch_1', expectedStatus: 'confirmado' });
+      return { lancou: false };
+    } catch (e) {
+      return { lancou: true, pgCode: e.pgCode };
+    }
+  }
+
+  const CASOS = [
+    // [ o que o postgrest devolve, o pgCode esperado ]
+    [{ message: 'FetchError: fetch failed', code: '' }, undefined],   // transporte
+    [{ message: 'permission denied', code: '42501' }, '42501'],
+    [{ message: 'function does not exist', code: '42883' }, '42883'],
+    [{ message: 'column missing', code: '42703' }, '42703'],
+    [{ message: 'statement timeout', code: '57014' }, '57014'],
+    [{ message: 'connection failure', code: '08006' }, '08006'],
+    [{ message: 'admin shutdown', code: '57P01' }, '57P01'],
+    [{ message: 'no rows', code: 'PGRST116' }, 'PGRST116'],
+    // Um corpo de GATEWAY com `code` numérico: forma inválida, não atravessa.
+    [{ message: 'gateway timeout', code: 504 }, undefined],
+    [{ message: 'weird', code: 'ABC' }, undefined],
+    [{ message: 'sem code' }, undefined],
+  ];
+
+  for (const [erro, esperado] of CASOS) {
+    test(`code ${JSON.stringify(erro.code)} → pgCode ${JSON.stringify(esperado)}`, async () => {
+      const r = await pgCodeDe(erro);
+      expect(r.lancou).toBe(true);
+      expect(r.pgCode).toBe(esperado);
+    });
+  }
+});
+
+/**
+ * E o que o pgCode PROVA — a segunda metade, que é onde o dinheiro está.
+ *
+ * Ter SQLSTATE não basta. Há classes emitidas JUSTAMENTE porque a conexão ou o
+ * backend morreram: `08*`, `57P0x`, `XX*`. Se o elo caiu depois do COMMIT e
+ * antes de o PostgREST ler o resultado, a linha ESTÁ escrita. E não dá pra
+ * excluir a classe 57 inteira, porque `57014` (timeout) é a recusa mais comum e
+ * essa é rollback de verdade.
+ */
+describe('recusaProvada: em dúvida cai pro lado conservador', () => {
+  const { recusaProvada } = require('../_lib/checks/reconcile');
+
+  test('recusas DETERMINÍSTICAS são provadas', () => {
+    for (const c of ['42501', '42883', '42703', '23514', '57014']) {
+      expect(recusaProvada(c)).toBe(true);
+    }
+  });
+
+  test('as classes EM DÚVIDA não são — pode ter escrito', () => {
+    // Estado em dúvida: o servidor respondeu porque morreu, não porque recusou.
+    for (const c of ['08006', '08003', '57P01', '57P02', '57P03', 'XX000']) {
+      expect(recusaProvada(c)).toBe(false);
+    }
+  });
+
+  test('`PGRST116` vem de uma resposta 2xx — nunca prova que nada foi escrito', () => {
+    expect(recusaProvada('PGRST116')).toBe(false);
+  });
+
+  test('forma inválida e ausência caem no conservador', () => {
+    for (const c of [undefined, null, '', 504, 'ABC', '4250', '425011']) {
+      expect(recusaProvada(c)).toBe(false);
+    }
+  });
+});

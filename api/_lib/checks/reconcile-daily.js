@@ -456,11 +456,33 @@ function formatReconcileAlert(report) {
     return `Conciliação ${report.at.slice(0, 10)}: restaurantes ok.${linhaOrfaos}${linhaReparos}`;
   }
   const linhas = report.red.slice(0, 10).map((v) => {
-    const pior = v.findings.find((f) => f.severity === 'critical')
-      || v.findings.find((f) => f.severity === 'high')
-      || v.findings[0];
+    /**
+     * "NÃO DEU PRA CONCILIAR" NÃO PODE ENCOBRIR O QUE FOI ACHADO.
+     *
+     * `venue_reconcile_threw` é `critical` e entra na FRENTE da lista, então
+     * `find(critical)` devolvia sempre ele — e uma casa arrecadando ZERO de
+     * serviço saía como "• Boteco [critical] — não deu pra conciliar: supabase
+     * 503". Eu tinha acabado de pôr o `service_never_collected` de volta no
+     * array e ele parava aqui, uma camada abaixo de quem lê: o achado existe em
+     * `report.red[].findings`, que só vive no corpo da resposta HTTP do cron —
+     * e o invocador de cron da Vercel joga esse corpo fora.
+     *
+     * Então o estouro vira CONTEXTO e o pior achado de verdade vira a mensagem.
+     * (HIGH-1, reaberto pela revisão de segurança de 2026-09-09.)
+     */
+    const estouro = v.findings.find((f) => f.code === 'venue_reconcile_threw');
+    const reais = v.findings.filter((f) => f.code !== 'venue_reconcile_threw');
+    const pior = reais.find((f) => f.severity === 'critical')
+      || reais.find((f) => f.severity === 'high')
+      || reais[0]
+      || estouro;
     const drift = v.driftCents ? ` · drift ${(v.driftCents / 100).toFixed(2).replace('.', ',')}` : '';
-    return `• ${v.name} [${v.severity}]${drift} — ${pior ? pior.message : 'sem detalhe'}`;
+    // Quando há os dois, os dois saem: o achado primeiro, porque é o que pede
+    // ação, e o estouro em seguida, porque explica por que a conta pode estar
+    // incompleta.
+    const contexto = (estouro && pior && pior !== estouro)
+      ? ` (e ${estouro.message})` : '';
+    return `• ${v.name} [${v.severity}]${drift} — ${pior ? pior.message : 'sem detalhe'}${contexto}`;
   });
   const resto = report.red.length > 10 ? `\n(+${report.red.length - 10} restaurantes)` : '';
   return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesRed} de ${report.venuesChecked} restaurantes com divergência.\n\n${linhas.join('\n')}${resto}${linhaOrfaos}${linhaReparos}`;

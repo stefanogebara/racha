@@ -1244,8 +1244,21 @@ describe('censo: todo reparo declara a sua procedência', () => {
   });
 
   test('a migração 0029 fecha o conjunto — origem desconhecida não vira texto livre', () => {
-    const sql = fs.readFileSync(
-      path.join(__dirname, '../../supabase/migrations/0029_repair_log_provenance.sql'), 'utf8');
+    /**
+     * A definição VIGENTE, não um arquivo histórico.
+     *
+     * Isto lia `0029_repair_log_provenance.sql` pelo nome, e a definição efetiva
+     * passou a ser a da 0030. Passava só porque a 0030 preservou o bloco — que
+     * é exatamente a coisa sob teste. O helper `sqlNaOrdem()` deste repositório
+     * já diz a regra: a ÚLTIMA definição vence.
+     * (MEDIUM-F da revisão de compliance de 2026-09-09.)
+     */
+    const dir = path.join(__dirname, '../../supabase/migrations');
+    const vigente = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
+      .filter((f) => fs.readFileSync(path.join(dir, f), 'utf8')
+        .includes('function public.repair_payment_row(')).pop();
+    expect(vigente).toBeTruthy();
+    const sql = fs.readFileSync(path.join(dir, vigente), 'utf8');
     for (const origem of ['webhook_redelivery', 'owner_offrail_refund', 'reconciler_sweep']) {
       expect(sql).toMatch(new RegExp(`when '${origem}'`));
     }
@@ -1806,9 +1819,35 @@ describe('perna irmã estoura: o achado de agregado fica', () => {
 
     const codigos = r.findings.map((f) => f.code);
     expect(codigos).toContain('venue_reconcile_threw');
-    // A afirmação que faltava: o achado do AGREGADO não pode ser engolido pela
-    // mensagem transitória.
     expect(codigos).toContain('service_never_collected');
+  });
+
+  test('E CHEGA NA MENSAGEM que o fundador lê — não só no array', async () => {
+    /**
+     * A afirmação anterior era sobre `r.findings`, uma camada ABAIXO de quem
+     * consome — exatamente o vício que o cabeçalho deste bloco descreve
+     * ("afirmação de EXISTÊNCIA sobre um array"). E o consumidor mostrava UMA
+     * linha por casa, escolhida por `find(critical)`: como
+     * `venue_reconcile_threw` é `critical` e entra na frente, ele ganhava
+     * sempre. O achado voltou pro array e continuou não chegando em ninguém.
+     *
+     * `report.red[].findings` só vive no corpo da resposta HTTP do cron, que o
+     * invocador da Vercel descarta. `formatReconcileAlert` é o único canal que
+     * uma pessoa lê. (HIGH-1 reaberto.)
+     */
+    const { reconcileAllVenues, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+    const store = mundoComServicoNaoArrecadado();
+    store.listVenueActivation = async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }];
+    const rel = await reconcileAllVenues(store, { repair: true });
+    const alerta = formatReconcileAlert(rel);
+
+    // O que pede AÇÃO é a mensagem; o estouro vira contexto.
+    expect(alerta).toMatch(/serviço cobrado e ZERO arrecadado/);
+    expect(alerta).toMatch(/supabase 503/);
+    // E o estouro não é mais a única coisa na linha da casa.
+    const linhaDaCasa = alerta.split('\n').find((l) => l.startsWith('• Boteco'));
+    expect(linhaDaCasa).toBeTruthy();
+    expect(linhaDaCasa).toMatch(/ZERO arrecadado/);
   });
 
   test('e sem estouro nenhum ele também está lá — a comparação é justa', async () => {
@@ -1929,4 +1968,90 @@ test('duas chamadas com o mesmo `opts` não somam duas vezes', async () => {
   expect(b.rowsRepaired).toBe(1);   // não 2
   const gorj = b.venueFindings.find((f) => f.code === 'payment_tip_base_repaired');
   expect(gorj.tipDeltaCents).toBe(-500);   // não -1000
+});
+
+/**
+ * A BATIDA VERDE tem que distinguir "noite parada" de "o reparo parou de
+ * funcionar".
+ *
+ * `repairPaymentRow` devolve `data === true`. A 0030 foi um `create or
+ * replace`. Se uma migração futura mudar a forma do retorno, TODO reparo passa
+ * a avaliar `false` → corrida perdida → `payment_row_repair_raced`, `info`.
+ * Nesse mundo: a casa fica `info` e não vermelha; `escreveu` é falso, então o
+ * `formatReconcileAlert` devolve `null`; e o fundador recebe uma BATIDA VERDE.
+ * O conserto parou por inteiro e todo sinal lê saudável — a forma dos 12 dias
+ * do Seatable com outro mecanismo.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (MEDIUM-1).
+ */
+describe('a batida carrega o tier `info`', () => {
+  const { reconcileAllVenues, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+
+  test('reparo que sempre perde a corrida: alerta nulo, mas a batida DIZ', async () => {
+    const inputs = [{
+      checkId: 'c1',
+      events: [
+        { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+        { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix' } },
+        { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 0, offRail: true, reference: 'x', by: 'd@b' } },
+      ],
+      payments: [{
+        txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
+        confirmedAmountCents: 10000, confirmedTipCents: 0,
+        confirmedAt: '2026-07-20T12:00:00.000Z',
+        refundedAmountCents: 2000, refundedTipCents: 0,   // já em dia na releitura
+      }],
+    }];
+    let leituras = 0;
+    const store = {
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listChecksForReconcile: async () => {
+        leituras += 1;
+        if (leituras === 1) inputs[0].payments[0].refundedAmountCents = 0;
+        else inputs[0].payments[0].refundedAmountCents = 2000;
+        return inputs;
+      },
+      listHouseAccountsForReconcile: async () => [],
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      repairPaymentRow: async () => false,   // a RPC mudou de forma
+    };
+
+    const rel = await reconcileAllVenues(store, { repair: true });
+
+    // O alerta é NULO — nada vermelho, e isso está certo.
+    expect(formatReconcileAlert(rel)).toBe(null);
+    expect(rel.venuesRed).toBe(0);
+    // Mas a batida NÃO pode ser indistinguível de uma noite parada.
+    expect(rel.rowsRepairRaced).toBe(1);
+    expect(rel.infoCodes).toContain('payment_row_repair_raced');
+  });
+
+  test('noite parada mesmo: nada nos dois', async () => {
+    const store = {
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listChecksForReconcile: async () => [],
+      listHouseAccountsForReconcile: async () => [],
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      repairPaymentRow: async () => true,
+    };
+    const rel = await reconcileAllVenues(store, { repair: true });
+    expect(rel.rowsRepairRaced).toBe(0);
+    expect(rel.infoCodes).toEqual([]);
+    expect(formatReconcileAlert(rel)).toBe(null);
+  });
+
+  test('o payload da BATIDA carrega os dois — é o que se lê quando nada é vermelho', () => {
+    // Censo de fonte: a assinatura do `notifyFounderReconcile` e a chamada da
+    // rota têm que passar o tier `info` e os dois contadores novos.
+    const fs = require('fs');
+    const path = require('path');
+    const notify = fs.readFileSync(path.join(__dirname, '../_lib/notify.js'), 'utf8');
+    const router = fs.readFileSync(path.join(__dirname, '../_app/router.js'), 'utf8');
+    for (const chave of ['infoCodes', 'rowsRepairRaced', 'rowsRepairRejected']) {
+      expect(notify).toMatch(new RegExp(chave));
+      expect(router).toMatch(new RegExp(`${chave}: report\\.${chave}`));
+    }
+  });
 });

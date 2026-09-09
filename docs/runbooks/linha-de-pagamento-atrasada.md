@@ -37,6 +37,17 @@ select txid, at, migration, reason, before_row, after_row
 - **Não voltou nada** → não escreveu. A projeção segue atrás; a varredura da
   noite seguinte tenta de novo.
 
+**Vale pro `payment_row_repair_rejected` também.** Ele afirma que nada foi
+escrito, e a afirmação é sólida — o código só é classificado como recusa quando
+é um SQLSTATE determinístico (`42501`, `42883`, `42703`, `23514`, `57014`). As
+classes em que o servidor respondeu PORQUE morreu (`08*`, `57P0*`, `XX*`) caem
+em `payment_repair_ack_lost` de propósito. Ainda assim: em qualquer dúvida, a
+consulta acima é o árbitro, e ela custa nada.
+
+> Se esta consulta parar de responder a pergunta — porque alguém mexeu na
+> `repair_payment_row` — o censo `INVARIANTES` em `sql-contract.test.js` quebra
+> antes de a migração entrar. Ele existe por causa deste parágrafo.
+
 ## 2. Se mexeu na gorjeta, antes de fechar a folha
 
 `payment_tip_base_repaired` e `payment_repair_ack_lost` carregam `tipDeltaCents`

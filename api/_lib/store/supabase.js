@@ -48,11 +48,32 @@ function required(name) {
  * centavos e mês, até 200 linhas por casa por noite, sob uma causa sistemática.
  * Achado pela revisão de segurança de 2026-09-09 (MEDIUM-1).
  */
+/** SQLSTATE tem exatamente cinco caracteres; o PostgREST usa `PGRSTnnn`. */
+const SQLSTATE_RE = /^[0-9A-Z]{5}$/;
+const PGRST_RE = /^PGRST\d+$/;
+
 function throwOn(error, op) {
   if (!error) return;
   const e = new Error(`supabase store ${op}: ${error.message}`);
-  // `code` vazio ou `UND_ERR_*` é transporte: aí sim não dá pra saber.
-  if (error.code && !/^UND_ERR/.test(error.code)) e.pgCode = error.code;
+  /**
+   * SÓ FORMA DE CÓDIGO — quem decide o que ele PROVA é quem lê.
+   *
+   * Medido no `@supabase/postgrest-js` 2.110.7 (o que está no lock): na rejeição
+   * de fetch o `code` nasce `''` e nunca é atribuído — os ramos de `AbortError`
+   * e `UND_ERR_HEADERS_OVERFLOW` até o reatribuem pra `''` de propósito. Então
+   * o teste `/^UND_ERR/` que eu tinha escrito era CÓDIGO MORTO, e pior: a
+   * condição real era "qualquer `code` verdadeiro", o que deixava passar um
+   * corpo JSON de gateway com `code: 504` — número, que vira `'504'` na
+   * coerção do regex e escapa. Um 504 de gateway é justamente o caso em que a
+   * escrita PODE ter acontecido.
+   *
+   * Aqui só se afirma a FORMA. Quem decide se aquilo prova rollback é
+   * `reconcile.js`, com lista de permissão — porque a resposta depende da
+   * CLASSE do SQLSTATE, e classe é assunto de quem está julgando dinheiro.
+   */
+  if (typeof error.code === 'string' && (SQLSTATE_RE.test(error.code) || PGRST_RE.test(error.code))) {
+    e.pgCode = error.code;
+  }
   throw e;
 }
 

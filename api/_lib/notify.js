@@ -118,7 +118,9 @@ async function notifyPreviaBeacon({ pl, event }) {
  */
 async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked = 0,
                                         driftCents = 0, worstSeverity = 'ok', heartbeat = false,
-                                        rowsRepaired = 0, rowsRepairAckLost = 0 }) {
+                                        rowsRepaired = 0, rowsRepairAckLost = 0,
+                                        rowsRepairRaced = 0, rowsRepairRejected = 0,
+                                        infoCodes = [] }) {
   const secret = process.env.RACHA_NOTIFY_SECRET;
   if (!secret) {
     // Batimento sem ponte não merece um bloco de stderr por noite; alerta sim.
@@ -139,7 +141,13 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
         // reprojetou quatro linhas de `payments` é indistinguível de uma noite
         // em que nada foi tocado — e o batimento é justamente o que se olha
         // quando nada está vermelho (HIGH-3, revisão de 2026-09-09).
-        rowsRepaired, rowsRepairAckLost,
+        rowsRepaired, rowsRepairAckLost, rowsRepairRaced, rowsRepairRejected,
+        // O TIER `info` CHEGA NA BATIDA. É o que se olha quando nada está
+        // vermelho — e sem ele um mundo em que TODO reparo vira corrida perdida
+        // (uma migração muda o retorno da RPC e `data === true` deixa de valer)
+        // manda batimento verde enquanto o conserto parou de funcionar por
+        // inteiro. Achado pela revisão de segurança de 2026-09-09.
+        infoCodes,
       }),
     });
     const data = await res.json().catch(() => ({}));

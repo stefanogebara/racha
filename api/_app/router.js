@@ -1766,6 +1766,9 @@ async function route(req, res) {
           worstSeverity: report.worstSeverity,
           rowsRepaired: report.rowsRepaired,
           rowsRepairAckLost: report.rowsRepairAckLost,
+          rowsRepairRaced: report.rowsRepairRaced,
+          rowsRepairRejected: report.rowsRepairRejected,
+          infoCodes: report.infoCodes,
         });
       } else if (!mensagem && url.searchParams.get('dry') !== '1') {
         // Batimento: verde também fala. Do lado da Olímpia, a AUSÊNCIA da batida
@@ -1775,6 +1778,8 @@ async function route(req, res) {
           venuesRed: 0, venuesChecked: report.venuesChecked,
           driftCents: report.totalDriftCents, worstSeverity: report.worstSeverity,
           rowsRepaired: report.rowsRepaired, rowsRepairAckLost: report.rowsRepairAckLost,
+          rowsRepairRaced: report.rowsRepairRaced, rowsRepairRejected: report.rowsRepairRejected,
+          infoCodes: report.infoCodes,
         });
       }
       // Verde também sai no log: um canário que só fala quando está ruim é
@@ -1783,7 +1788,8 @@ async function route(req, res) {
         `[reconcile-cron] casas=${report.venuesChecked} vermelhas=${report.venuesRed} `
         + `pior=${report.worstSeverity} drift=${report.totalDriftCents}¢ `
         + `reparadas=${report.rowsRepaired || 0} sem_resposta=${report.rowsRepairAckLost || 0} `
-        + `corridas=${report.rowsRepairRaced || 0}\n`);
+        + `corridas=${report.rowsRepairRaced || 0} recusadas=${report.rowsRepairRejected || 0} `
+        + `info=${(report.infoCodes || []).join(',') || '-'}\n`);
       return json(res, 200, { success: true, data: { ...report, mensagem, envio } });
     }
 

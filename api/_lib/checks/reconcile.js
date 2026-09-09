@@ -459,6 +459,41 @@ const REPAROS_DEMAIS = 3;
  * como um dos lados fica pra trás — foi assim que os contadores nasceram em
  * quatro lugares e faltaram no quinto.
  */
+/**
+ * ESTE CÓDIGO PROVA QUE NADA FOI ESCRITO?
+ *
+ * "Tem SQLSTATE" NÃO basta, e a diferença decide dinheiro. O PostgREST devolve
+ * o SQLSTATE cru, e há classes inteiras emitidas JUSTAMENTE PORQUE a conexão ou
+ * o backend morreram — ou seja, o estado fica EM DÚVIDA, não em rollback:
+ *
+ *   `08*`   (`08006 connection_failure`, `08003`) — o elo caiu. Se caiu depois
+ *           do COMMIT e antes de o PostgREST ler o resultado, a linha ESTÁ
+ *           escrita.
+ *   `57P01` `57P02` `57P03` — backend terminado (manutenção do Supabase,
+ *           failover). Terminar durante o COMMIT é o caso clássico de dúvida.
+ *   `XX*`   (`XX000 internal_error`).
+ *
+ * E não dá pra excluir a classe 57 inteira: `57014 statement timeout` é a
+ * recusa mais comum de verdade, e essa É rollback.
+ *
+ * Então: lista de permissão por forma, exclusão por classe, e o resto cai no
+ * lado conservador (`ackLost`, "pode ter escrito"). Errar pra cá custa uma
+ * conferência; errar pro outro lado faz o dono distribuir pelo número antigo e
+ * maior, e o CLT art. 462 não deixa descontar depois.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (HIGH-2), que leu o
+ * `postgrest-js` 2.110.7 em vez de deduzir.
+ */
+const EM_DUVIDA = [/^08/, /^57P0/, /^XX/];
+function recusaProvada(codigo) {
+  if (typeof codigo !== 'string' || !codigo) return false;
+  // `PGRST116` vem anexado a uma resposta 2xx — depois de um commit bem
+  // sucedido. Nunca é prova de que nada foi escrito.
+  if (/^PGRST/.test(codigo)) return false;
+  if (!/^[0-9A-Z]{5}$/.test(codigo)) return false;
+  return !EM_DUVIDA.some((re) => re.test(codigo));
+}
+
 function resumoDoReparo(pia = {}) {
   const reparados = pia.repaired || [];
   const corridas = pia.raced || [];
@@ -619,7 +654,10 @@ function acharReparos(reparados, naoOlhadas, gorjeta = [], corridas = [], ackPer
  * decide. É o que o cabeçalho do `reconcile-daily` promete.
  */
 async function repararLinhasAtrasadas(store, inputs, opts = {}) {
-  const vazio = { reparadas: 0, corridas: 0, ackPerdidos: 0, achados: [] };
+  // De UMA forma, como o `base` do relatório: montar à mão foi como os
+  // contadores nasceram em quatro lugares e faltaram no quinto. Faltavam aqui
+  // `rejeitados` e `venueFindings` — a mesma "três de quatro".
+  const vazio = resumoDoReparo({});
   if (typeof store.repairPaymentRow !== 'function') return vazio;
   /**
    * O SUMIDOURO — a testemunha não depende de esta função RETORNAR.
@@ -799,7 +837,7 @@ async function repararLinhasAtrasadas(store, inputs, opts = {}) {
          * por casa, toda noite. Falso na direção oposta ao HIGH-1, na mesma
          * coluna. (MEDIUM-1 da revisão de segurança de 2026-09-09.)
          */
-        if (e && e.pgCode) {
+        if (recusaProvada(e && e.pgCode)) {
           rejeitados.push(row.txid);
           process.stderr.write(`[reconcile] reparo da linha ${row.txid} RECUSADO pelo banco (${e.pgCode}), nada escrito: ${String(e && e.message).slice(0, 120)}\n`);
         } else {
@@ -858,8 +896,16 @@ async function reconcileVenue(store, venueId, opts = {}) {
       process.stderr.write(`[reconcile] releitura pós-reparo falhou (relatório fica velho): ${String(e.message).slice(0, 120)}\n`);
     }
   }
-  const results = inputs.map(reconcileCheck);
+  /**
+   * O AGREGADO ENTRA NA PIA ANTES DO `map`.
+   *
+   * `daCasa` só precisa de `inputs`. Calculado depois do `inputs.map(...)`, um
+   * lance dentro do `reconcileCheck` — o cenário do `reduce()` que a pia foi
+   * construída pra cobrir — perdia o achado de agregado outra vez.
+   */
   const daCasa = acharServicoNuncaArrecadado(inputs);
+  pia.venueFindings = daCasa;
+  const results = inputs.map(reconcileCheck);
   /**
    * OS ACHADOS DE AGREGADO ENTRAM NO SUMIDOURO — uma fonte, não duas.
    *
@@ -878,7 +924,6 @@ async function reconcileVenue(store, venueId, opts = {}) {
    * é exatamente o que a pia existe pra impedir. (HIGH-1 da revisão de
    * segurança de 2026-09-09.)
    */
-  pia.venueFindings = daCasa;
   const severityRank = { critical: 3, high: 2, info: 1 };
   /**
    * FALHOU é achado ACIONÁVEL, não achado qualquer.
@@ -1055,4 +1100,4 @@ async function reconcileVenueHouse(store, venueId) {
 }
 
 module.exports = {
-  acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+  acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, recusaProvada, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };

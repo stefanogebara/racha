@@ -252,6 +252,37 @@ describe('redefinir uma função não pode APAGAR o que outra migração acresce
         /excede o que falta pagar/,  // da 0006
       ],
     },
+    {
+      /**
+       * `repair_payment_row` estava FORA desta lista — e é justamente ela que
+       * sofreu a regressão que esta lista existe pra impedir.
+       *
+       * A 0029, escrita pra FORTALECER o registro, reconstruiu o
+       * `jsonb_build_object` com cinco campos em vez de seis e perdeu o
+       * `confirmed_at` do `before_row`. Uma regressão em duas reescritas,
+       * pega por gente, não pelo censo. A 0030 consertou a instância.
+       *
+       * E agora o log virou PROCEDIMENTO: o runbook
+       * `linha-de-pagamento-atrasada.md` diz "existe linha no log se e somente
+       * se a escrita foi commitada", e manda o operador resolver por ali um
+       * `high` sobre a base da folha. Se um `create or replace` futuro derrubar
+       * o `insert`, "sem linha" deixa de significar "não escreveu" e passa a
+       * significar "não sei" — e o operador distribui pelo número antigo, que é
+       * o maior. CLT art. 462 não deixa descontar isso depois. LGPD art. 37 e
+       * CLT art. 11 (cinco anos) pro registro em si.
+       *
+       * Achado pela revisão de compliance de 2026-09-09 (HIGH-E).
+       */
+      funcao: 'repair_payment_row',
+      precisa: [
+        /insert into payment_repair_log/i,   // o oráculo do runbook
+        /if v_id is not null then/i,         // …condicionado ao COMMIT
+        /'confirmed_at', confirmed_at/,      // before_row inteiro (a regressão da 0029)
+        /when 'reconciler_sweep'/,           // a procedência da 0029
+        // a lista branca: nunca a linha toda (LGPD art. 6º III)
+        /'refunded_tip_cents', refunded_tip_cents/,
+      ],
+    },
   ];
 
   test('a ÚLTIMA definição de cada função guarda tudo que ela já teve', () => {
@@ -658,7 +689,8 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
      */
     // `check.id` e não `checkId`: exclui a própria DEFINIÇÃO da função.
     const chamadas = [...fonte.matchAll(/repairRowFromLedger\(check\.id/g)].map((m) => m.index);
-    expect(chamadas.length).toBeGreaterThanOrEqual(7);
+    // `toBe`, não `>=`: um censo com folga na direção da DELEÇÃO não é censo.
+    expect(chamadas.length).toBe(7);
     /**
      * Os testes de reentrega que guardam cada chamada. `jaEncerrada` é uma
      * disputa já fechada — reentrega também, só que dita por outro nome.
