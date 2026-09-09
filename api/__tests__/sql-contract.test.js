@@ -275,9 +275,20 @@ describe('redefinir uma função não pode APAGAR o que outra migração acresce
        */
       funcao: 'repair_payment_row',
       precisa: [
-        // UM regex só: separados, eles não provam que o `insert` está DENTRO
-        // do condicional — e o "se e somente se" do runbook depende disso.
-        /if v_id is not null then[\s\S]{0,200}insert into payment_repair_log/i,
+        /**
+         * CONTENÇÃO, não proximidade.
+         *
+         * A primeira versão eram dois regexes soltos, que não provavam que o
+         * `insert` está DENTRO do condicional. A segunda foi uma janela de 200
+         * chars — e uma sonda que fecha o `if` e põe o `insert` 30 caracteres
+         * depois passava verde. Essa é a forma NATURAL da edição futura:
+         * alguém acrescenta um ramo dentro do condicional e tira o log de lá.
+         *
+         * Agora: nenhum `end if` entre os dois. O "se e somente se" do runbook
+         * — o árbitro de todo o balde `ack_lost`, que este commit AUMENTOU —
+         * depende disso.
+         */
+        /if v_id is not null then(?:(?!end if)[\s\S])*?insert into payment_repair_log/i,
         /'confirmed_at', confirmed_at/,      // before_row inteiro (a regressão da 0029)
         /when 'reconciler_sweep'/,           // a procedência da 0029
         // a lista branca: nunca a linha toda (LGPD art. 6º III)
@@ -810,10 +821,16 @@ test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
     const fonte = fs.readFileSync(p, 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
-    for (const m of fonte.matchAll(/\.pgCode\b/g)) {
+    // `\bpgCode\b`, não `\.pgCode`: um decisor escrito como
+    // `const { pgCode } = e; if (pgCode) ...` não tem acesso pontuado e passava
+    // verde. A minha mutação usou a forma pontuada, que é por isso que ela
+    // falhou como esperado. (LOW-3 da revisão de segurança de 2026-09-09.)
+    for (const m of fonte.matchAll(/\bpgCode\b/g)) {
       const antes = fonte.slice(Math.max(0, m.index - 60), m.index);
       const linha = fonte.slice(Math.max(0, m.index - 120), m.index + 60).replace(/\s+/g, ' ').trim();
-      if (/\.pgCode\s*=[^=]/.test(fonte.slice(m.index, m.index + 12))) continue;  // escrita
+      // ESCRITA (`e.pgCode = ...`) não é leitura. Casa a partir do nome, porque
+      // o match agora é a palavra e não o acesso pontuado.
+      if (/^pgCode\s*=[^=]/.test(fonte.slice(m.index, m.index + 14))) continue;
       // Dentro de uma interpolação (`${e.pgCode}`) é texto, não decisão.
       if (/\$\{[^}]*$/.test(antes)) continue;
       decisoes.push({ arquivo: path.relative(raiz, p), linha });

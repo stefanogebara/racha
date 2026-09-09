@@ -2126,3 +2126,92 @@ describe('a batida carrega o tier `info`', () => {
     }
   });
 });
+
+/**
+ * O NÚMERO DA FOLHA CHEGA NA MENSAGEM — nos dois códigos que a seleção descarta.
+ *
+ * `formatReconcileAlert` imprime UM achado por casa, e um reparo recusado
+ * GARANTE um `critical` concorrente: "recusado" quer dizer que a linha segue
+ * atrás do razão, que é exatamente a condição que produz `refund_mismatch` e
+ * `ledger_drift`. Os dois vêm de `checkFindings`, que precedem `venueFindings`,
+ * então `find(critical)` ganha SEMPRE.
+ *
+ * E pro `ack_lost` o sinal ficava INVERTIDO: escrita que pegou → releitura
+ * limpa → sem `critical` → o número aparece, justo quando a base já está certa.
+ * Escrita que não pegou → `critical` encobre, justo quando ela segue inflada.
+ *
+ * Só `payment_tip_base_repaired` aparecia, porque ele só existe DEPOIS de uma
+ * escrita bem sucedida — que limpa os críticos. Era o único caso que os testes
+ * cobriam, e por isso parecia certo.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (HIGH-1) e, por outro caminho,
+ * pela de compliance (HIGH-E: a correção do MEDIUM-G não tinha teste nenhum).
+ */
+describe('o delta da folha atravessa a seleção do alerta', () => {
+  const { reconcileAllVenues, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+
+  /** Uma casa com estorno no razão e a linha atrás — divergência garantida. */
+  function casaComDivergencia(comportamentoDaRpc) {
+    const inputs = [{
+      checkId: 'c1',
+      events: [
+        { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
+        { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 1000, method: 'pix' } },
+        { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 500, offRail: true, reference: 'x', by: 'd@b' } },
+      ],
+      payments: [{
+        txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 1000,
+        confirmedAmountCents: 10000, confirmedTipCents: 1000,
+        confirmedAt: '2026-02-14T12:00:00.000Z',
+        refundedAmountCents: 0, refundedTipCents: 0,
+      }],
+    }];
+    return {
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listChecksForReconcile: async () => inputs,
+      listHouseAccountsForReconcile: async () => [],
+      listOpenOrphanMoneyEvents: async () => [],
+      listRecentConfirmedCharges: async () => [],
+      repairPaymentRow: comportamentoDaRpc,
+    };
+  }
+
+  test('RECUSADO: os críticos ganham a linha, e o número da folha sai mesmo assim', async () => {
+    const rel = await reconcileAllVenues(casaComDivergencia(async () => {
+      const e = new Error('permission denied'); e.pgCode = '42501'; throw e;
+    }), { repair: true });
+
+    expect(rel.rowsRepairRejected).toBe(1);
+    const alerta = formatReconcileAlert(rel);
+    // O crítico É a manchete, e isso está certo — ele pede ação primeiro.
+    expect(alerta).toMatch(/critical/);
+    // Mas os centavos e o MÊS chegam junto, na linha que não passa por seleção.
+    expect(alerta).toMatch(/base da folha: 500¢/);
+    expect(alerta).toMatch(/2026-02/);
+    expect(alerta).toMatch(/o valor do razão é o menor e é o seguro/);
+  });
+
+  test('SEM RESPOSTA com a divergência de pé: idem — o sinal não é mais invertido', async () => {
+    const rel = await reconcileAllVenues(casaComDivergencia(async () => {
+      throw new Error('fetch failed');
+    }), { repair: true });
+
+    expect(rel.rowsRepairAckLost).toBe(1);
+    const alerta = formatReconcileAlert(rel);
+    expect(alerta).toMatch(/base da folha: 500¢/);
+    expect(alerta).toMatch(/2026-02/);
+  });
+
+  test('e o achado `rejected` carrega os campos que o runbook manda usar', async () => {
+    // A correção do MEDIUM-G não tinha asserção nenhuma: apagar
+    // `deltaCents`/`periodo` do `rejeitados.push` deixava a suíte verde.
+    const rel = await reconcileAllVenues(casaComDivergencia(async () => {
+      const e = new Error('permission denied'); e.pgCode = '42501'; throw e;
+    }), { repair: true });
+    const f = rel.red[0].findings.find((x) => x.code === 'payment_row_repair_rejected');
+    expect(f).toBeTruthy();
+    expect(f.tipDeltaCents).toBe(-500);
+    expect(f.periods).toEqual(['2026-02']);
+    expect(f.message).toMatch(/500¢ ACIMA do razão em 2026-02/);
+  });
+});

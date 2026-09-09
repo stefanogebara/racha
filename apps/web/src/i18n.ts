@@ -437,9 +437,17 @@ export const DICT = {
                         pt: 'corrigimos linhas de pagamento que mostravam valores desatualizados — o faturamento dos dias afetados pode ter mudado',
                         es: 'corregimos filas de pago que mostraban importes desactualizados — la facturación de esos días puede haber cambiado' },
   // RECUSADO pelo banco: afirmação FIRME, nada foi escrito.
-  'find.payment_row_repair_rejected': { en: 'the database refused to correct some payment rows — nothing was written, and what you see stays behind the ledger until this is resolved',
-                        pt: 'o banco recusou a correção de algumas linhas de pagamento — nada foi escrito, e o que você vê segue atrás do razão até isso ser resolvido',
-                        es: 'la base rechazó corregir algunas filas de pago — no se escribió nada, y lo que ve sigue atrás del libro hasta resolverlo' },
+  // "ATRÁS DO RAZÃO" LIA AO CONTRÁRIO — e ao contrário na direção que custa.
+  //
+  // Três descrições da MESMA condição diziam coisas diferentes: o achado do
+  // servidor dizia que a base exibida está ACIMA do razão, o runbook idem, e
+  // esta — a única que o dono lê — dizia "o que você vê segue atrás do razão".
+  // A leitura natural de "está atrás" é "o número vai SUBIR", que é a direção
+  // que produz distribuição a mais, e o CLT art. 462 não deixa descontar isso
+  // depois. O irmão `ack_lost` logo abaixo já acertava.
+  'find.payment_row_repair_rejected': { en: 'the database refused to correct some payment rows — nothing was written, so the service-charge figures you see are HIGHER than the ledger. The ledger figure is the safe one to distribute on; resolve this before closing the period',
+                        pt: 'o banco recusou a correção de algumas linhas de pagamento — nada foi escrito, então os valores de serviço que você vê estão ACIMA do razão. O valor do razão é o seguro para distribuir; resolva isso antes de fechar o período',
+                        es: 'la base rechazó corregir algunas filas de pago — no se escribió nada, así que los importes de servicio que ve están POR ENCIMA del libro. El importe del libro es el seguro para distribuir; resuélvalo antes de cerrar el período' },
   // NÃO SEI SE ESCREVEU. A RPC pode ter dado commit com a resposta perdida —
   // dizer "falhou" seria uma afirmação falsa na direção contrária, e mandaria o
   // dono caçar um travamento que não existe.

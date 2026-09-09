@@ -38,11 +38,18 @@ select txid, at, migration, reason, before_row, after_row
   noite seguinte tenta de novo.
 
 **Vale pro `payment_row_repair_rejected` também.** Ele afirma que nada foi
-escrito, e a afirmação é sólida — o código só é classificado como recusa quando
-é um SQLSTATE determinístico (`42501`, `42883`, `42703`, `23514`, `57014`). As
-classes em que o servidor respondeu PORQUE morreu (`08*`, `57P0*`, `XX*`) caem
-em `payment_repair_ack_lost` de propósito. Ainda assim: em qualquer dúvida, a
-consulta acima é o árbitro, e ela custa nada.
+escrito, e a afirmação é sólida: o código só vira recusa quando está numa LISTA
+DE PERMISSÃO de classes cujo significado é rollback determinístico — `22`, `23`,
+`25`, `42`, `53`, `55`, `P0`, mais `40001` e `40P01` e `57014`.
+
+Todo o resto cai em `payment_repair_ack_lost` de propósito, e "todo o resto" é
+maior do que parece: inclui `08*` e `57P0*` e `XX*` (o servidor respondeu PORQUE
+morreu), mas também `40003 statement_completion_unknown` — o código que
+literalmente quer dizer "não sei se completou" —, `58030 io_error`, e qualquer
+coisa que um pooler futuro invente. Um código legítimo caindo aí custa uma
+consulta; o contrário custa distribuição a mais.
+
+Em qualquer dúvida, a consulta acima é o árbitro, e ela custa nada.
 
 > Se esta consulta parar de responder a pergunta — porque alguém mexeu na
 > `repair_payment_row` — o censo `INVARIANTES` em `sql-contract.test.js` quebra

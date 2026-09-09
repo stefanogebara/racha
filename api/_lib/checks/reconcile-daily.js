@@ -200,6 +200,8 @@ async function reconcileOneVenue(store, venue, opts = {}) {
     rowsRepairRaced: 0,
     rowsRepairAckLost: 0,
     rowsRepairRejected: 0,
+    repairTipDeltaCents: 0,
+    repairPeriods: [],
     infoFindings: [],
   };
   /**
@@ -220,8 +222,13 @@ async function reconcileOneVenue(store, venue, opts = {}) {
   // `reconcileVenue` — de um `reduce()` na conta seguinte, por exemplo, depois
   // de a linha anterior já ter sido escrita. Sem ele a testemunha só sobrevivia
   // a um estouro de perna IRMÃ. (MEDIUM-2 da revisão de segurança.)
-  const pia = { repaired: [], failed: [], raced: [], ackLost: [], tip: [], skipped: 0 };
-  let reparo = { rowsRepaired: 0, rowsRepairRaced: 0, rowsRepairAckLost: 0, rowsRepairRejected: 0, venueFindings: [] };
+  // VAZIA, sem redeclarar a forma: `repararLinhasAtrasadas` a inicializa e
+  // `resumoDoReparo` tem os padrões. Esta linha já tinha `failed` (que não
+  // existe mais) e não tinha `rejected` — segunda declaração da forma, já
+  // divergida, no padrão que a pia foi criada pra encerrar.
+  const pia = {};
+  let reparo = { rowsRepaired: 0, rowsRepairRaced: 0, rowsRepairAckLost: 0, rowsRepairRejected: 0,
+    repairTipDeltaCents: 0, repairPeriods: [], venueFindings: [] };
   try {
     const checks = await reconcileVenue(store, venue.id, { ...opts, witness: pia });
     reparo = {
@@ -229,6 +236,8 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       rowsRepairRaced: checks.rowsRepairRaced || 0,
       rowsRepairAckLost: checks.rowsRepairAckLost || 0,
       rowsRepairRejected: checks.rowsRepairRejected || 0,
+      repairTipDeltaCents: checks.repairTipDeltaCents || 0,
+      repairPeriods: checks.repairPeriods || [],
       venueFindings: checks.venueFindings || [],
     };
     const [house, payables] = await Promise.all([
@@ -278,6 +287,8 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       rowsRepairRaced: checks.rowsRepairRaced || 0,
       rowsRepairAckLost: checks.rowsRepairAckLost || 0,
       rowsRepairRejected: checks.rowsRepairRejected || 0,
+      repairTipDeltaCents: checks.repairTipDeltaCents || 0,
+      repairPeriods: checks.repairPeriods || [],
       // O TIER `info` para de ser só-escrita. `venues[]` descarta `findings` de
       // casa não-vermelha, então uma noite inteira de corridas perdidas — ou a
       // perna de custódia pulada por prazo — saía como um relatório mudo.
@@ -303,6 +314,8 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       rowsRepairRaced: resumo.corridas,
       rowsRepairAckLost: resumo.ackPerdidos,
       rowsRepairRejected: resumo.rejeitados,
+      repairTipDeltaCents: resumo.deltaGorjeta,
+      repairPeriods: resumo.periodos,
       // DERIVADO no catch também. Os quatro contadores eram re-derivados da pia
       // aqui e o `infoFindings` — o membro mais novo — herdava o `[]` do `base`.
       // Resultado medido: `rowsRepairRaced: 1` e `infoCodes: []` no MESMO
@@ -402,6 +415,8 @@ async function reconcileAllVenues(store, opts = {}) {
     rowsRepairRaced: venueReports.reduce((s, r) => s + (r.rowsRepairRaced || 0), 0),
     rowsRepairAckLost: venueReports.reduce((s, r) => s + (r.rowsRepairAckLost || 0), 0),
     rowsRepairRejected: venueReports.reduce((s, r) => s + (r.rowsRepairRejected || 0), 0),
+    repairTipDeltaCents: venueReports.reduce((s, r) => s + (r.repairTipDeltaCents || 0), 0),
+    repairPeriods: [...new Set(venueReports.flatMap((r) => r.repairPeriods || []))].sort(),
     // O TIER `info` DO SWEEP INTEIRO. Ele atravessava uma fronteira e parava na
     // seguinte: `infoFindings` existia por casa e nada o lia. `payables_unchecked`
     // é `info`, então a perna de custódia podia apagar a varredura inteira e o
@@ -428,12 +443,15 @@ async function reconcileAllVenues(store, opts = {}) {
  * saudável. Achado pela revisão de segurança de 2026-09-09 (MEDIUM-3).
  */
 function formatReconcileHeartbeat(report) {
+  // `at` sempre vem de `reconcileAllVenues`, mas esta função é chamada FORA do
+  // `try` da rota: se ela estourar, o cron cai no catch-all, devolve 500 e não
+  // avisa ninguém — depois de a varredura já ter escrito em `payments`.
   const reparos = report.rowsRepaired || 0;
   const corridas = report.rowsRepairRaced || 0;
   const recusadas = report.rowsRepairRejected || 0;
   const semResposta = report.rowsRepairAckLost || 0;
   const info = (report.infoCodes || []).join(', ') || '-';
-  return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesChecked} restaurante(s) ok`
+  return `Conciliação ${String(report.at || '').slice(0, 10) || '?'}: ${report.venuesChecked} restaurante(s) ok`
     + ` · reparadas ${reparos} · corridas ${corridas} · recusadas ${recusadas}`
     + ` · sem resposta ${semResposta} · info ${info}`;
 }
@@ -474,10 +492,18 @@ function formatReconcileAlert(report) {
   const reparos = report.rowsRepaired || 0;
   const semResposta = report.rowsRepairAckLost || 0;
   const recusados = report.rowsRepairRejected || 0;
+  // O DELTA DA FOLHA vive AQUI, não num achado que a seleção pode descartar.
+  const deltaFolha = report.repairTipDeltaCents || 0;
+  const periodosFolha = report.repairPeriods || [];
+  const linhaFolha = deltaFolha !== 0
+    ? `\n  base da folha: ${-deltaFolha}¢ de diferença em ${periodosFolha.join(', ') || 'período não datado'}`
+      + ' — confira antes de fechar (o valor do razão é o menor e é o seguro)'
+    : '';
   const linhaReparos = (reparos > 0 || semResposta > 0 || recusados > 0)
     ? `\n\na varredura reprojetou ${reparos} linha(s) de pagamento do razão`
       + (recusados > 0 ? `, teve ${recusados} RECUSADA(S) pelo banco (nada escrito)` : '')
       + (semResposta > 0 ? ` e ficou SEM RESPOSTA em ${semResposta} (pode ter escrito)` : '')
+      + linhaFolha
     : '';
   const linhaOrfaos = orfaos > 0
     ? `\n\n${orfaos} evento(s) de dinheiro SEM conta correspondente: `

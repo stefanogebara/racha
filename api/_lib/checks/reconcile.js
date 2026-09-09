@@ -512,6 +512,11 @@ const RECUSA_DETERMINISTICA = [
   /^55/,      // object not in prerequisite state
   /^P0/,      // plpgsql (P0001 raise_exception)
   /^40001$/,  // serialization_failure — rollback de verdade…
+  // …e `40P01 deadlock_detected`, que é o código MAIS provável neste caminho:
+  // uma varredura noturna mexendo em `payments` enquanto reentregas de webhook
+  // mexem nas mesmas linhas. O Postgres garante rollback nele. Fixar `40001`
+  // pra manter o `40003` fora tirou este junto, sem querer.
+  /^40P01$/,
   /^57014$/,  // …e query_canceled/statement timeout, idem
 ];
 function recusaProvada(codigo) {
@@ -528,11 +533,16 @@ function resumoDoReparo(pia = {}) {
   const ackPerdido = pia.ackLost || [];
   const rejeitados = pia.rejected || [];
   const gorjeta = pia.tip || [];
+  // O delta e os períodos das TRÊS fontes que mexem na folha: o reparo bem
+  // sucedido, o recusado (a linha segue atrás) e o sem resposta.
+  const daFolha = [...gorjeta, ...rejeitados, ...ackPerdido];
   return {
     reparadas: reparados.length,
     corridas: corridas.length,
     ackPerdidos: ackPerdido.length,
     rejeitados: rejeitados.length,
+    deltaGorjeta: daFolha.reduce((s, g) => s + (g.deltaCents || 0), 0),
+    periodos: [...new Set(daFolha.map((g) => g.periodo).filter(Boolean))].sort(),
     achados: acharReparos(reparados, pia.skipped || 0, gorjeta, corridas, ackPerdido, rejeitados),
     // Os achados de AGREGADO (serviço nunca arrecadado) vivem na pia também,
     // pra que o `catch` monte a lista de UMA fonte. Ver `reconcileVenue`.
@@ -1009,6 +1019,26 @@ async function reconcileVenue(store, venueId, opts = {}) {
     rowsRepairRaced: reparo.corridas,
     rowsRepairAckLost: reparo.ackPerdidos,
     rowsRepairRejected: reparo.rejeitados,
+    /**
+     * O DELTA DA FOLHA sai do achado e vira CONTADOR — senão ele nunca é lido.
+     *
+     * `formatReconcileAlert` imprime UM achado por casa, e um reparo recusado
+     * GARANTE um `critical` concorrente na mesma casa: "recusado" quer dizer
+     * que a linha segue atrás do razão, que é exatamente a condição que produz
+     * `refund_mismatch` e `ledger_drift`. Os dois vêm de `checkFindings`, que
+     * precedem `venueFindings`, então `find(critical)` ganha 100% das vezes.
+     *
+     * E pro `ack_lost` o sinal ficava INVERTIDO: se a escrita pegou, a
+     * releitura limpa a divergência, não há `critical`, e o número aparece —
+     * justo quando a base já está certa. Se não pegou, o `critical` encobre —
+     * justo quando a base segue inflada.
+     *
+     * Como contador, ele entra na `linhaReparos`, que sai nos DOIS ramos da
+     * mensagem e não passa por seleção. Achado pela revisão de segurança de
+     * 2026-09-09 (HIGH-1) e, por outro caminho, pela de compliance (HIGH-E).
+     */
+    repairTipDeltaCents: reparo.deltaGorjeta,
+    repairPeriods: reparo.periodos,
     checksChecked: results.length,
     checksFailed: failed.length,
     totalDriftCents: results.reduce((s, r) => s + Math.abs(r.driftCents), 0),
