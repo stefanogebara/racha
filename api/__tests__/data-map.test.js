@@ -119,6 +119,39 @@ describe('o mapa de dados acompanha o código', () => {
     expect(faltando).toEqual([]);
   });
 
+  test('o host que o QR imprime é um host que o app aceita', () => {
+    // O par atravessa dois idiomas e nada os obrigava a concordar. O
+    // `allowedHosts` do iOS perdeu `racha-gray.vercel.app` por uma rodada — e
+    // é justamente o host que o `Qrs.tsx` imprime no cartão da mesa e o padrão
+    // do `CLIENT_URL`. Um build de release recusaria TODA mesa de verdade.
+    // Falha fechada, então não era buraco de segurança: era o produto
+    // quebrado, na forma "cópia divergente" pela quarta vez nesta série.
+    //
+    // Adesivo em mesa não se chama de volta, então a direção que importa é
+    // esta: tudo que a gente IMPRIME tem que estar no que o app ACEITA. O
+    // contrário não — a lista pode ser mais larga durante uma migração.
+    const qrs = fs.readFileSync(path.join(RAIZ, 'apps', 'web', 'src', 'Qrs.tsx'), 'utf8');
+    const router = fs.readFileSync(path.join(RAIZ, 'api', '_app', 'router.js'), 'utf8');
+    const swift = fs.readFileSync(path.join(RAIZ, 'ios', 'Racha', 'Core', 'POS', 'TableQR.swift'), 'utf8');
+
+    const host = (u) => new URL(u).host.toLowerCase();
+    const impressos = new Set();
+    const prod = qrs.match(/const PROD_ORIGIN = '([^']+)'/);
+    expect(prod).toBeTruthy();
+    impressos.add(host(prod[1]));
+    const clientUrl = router.match(/process\.env\.CLIENT_URL \|\| '([^']+)'/);
+    expect(clientUrl).toBeTruthy();
+    impressos.add(host(clientUrl[1]));
+
+    // A lista de RELEASE: a declaração literal, sem nada que `#if DEBUG` some.
+    const decl = swift.match(/static let allowedHosts: Set<String> = \[([^\]]+)\]/);
+    expect(decl).toBeTruthy();
+    const aceitos = new Set((decl[1].match(/"([^"]+)"/g) || []).map((x) => x.replace(/"/g, '').toLowerCase()));
+
+    const faltando = [...impressos].filter((h) => !aceitos.has(h)).sort();
+    expect(faltando).toEqual([]);
+  });
+
   test('o número de campos guardados do webhook é o do código', () => {
     // O mapa dizia "15 campos"; o `KEEP` tem 14, e nada conferia. Um número
     // pequeno e não testado dentro de um registro do art. 37 é a mesma coisa

@@ -164,7 +164,12 @@ test('nenhuma tela entrega a URL da conta a um SDK de terceiro', () => {
     const texto = readFileSync(join(SRC, f), 'utf8');
     const linhas = texto.split('\n');
     linhas.forEach((linha, i) => {
-      if (!entregas.test(linha)) return;
+      // Comentário não entrega nada. A regra ficou mais larga pra ver a forma
+      // abreviada e passou a casar prosa junto — e um censo que falha num
+      // comentário é um censo que alguém afrouxa.
+      const semComentario = linha.replace(/(^|[^:])\/\/.*$/, '$1');
+      if (!entregas.test(semComentario)) return;
+      linha = semComentario;
       // O VALOR entregue, não a linha: `const volta = window.location.href` uma
       // linha acima e `return_url: volta` embaixo passava, porque a regra
       // exigia o par na MESMA linha. Aqui o valor tem que ser literalmente a
@@ -277,14 +282,22 @@ test('só um lugar no cliente transforma resposta HTTP em erro', () => {
   const PODEM_FALAR_HTTP = new Set([
     'api.ts',            // `request` → erroDaResposta
     'auth.ts',           // `authedReq` → erroDaResposta
-    'App.tsx',           // farol de prospecção e config da casa: best-effort
-    'useVenueAdmin.ts',  // busca o id da conta antes de fechar; trata ausência
+    'App.tsx',           // dois faróis best-effort; os CAMINHOS estão fixados abaixo
   ]);
   const novos = arquivosTsx(SRC).filter((f) => /\bfetch\(/.test(readFileSync(join(SRC, f), 'utf8')))
     .filter((f) => !PODEM_FALAR_HTTP.has(f));
   assert.deepEqual(novos, [],
     `\n${novos.join('\n')}\nArquivo novo falando HTTP direto. Passe pelo \`api.ts\`/\`auth.ts\` — `
     + 'o `code` e os `vars` do servidor só atravessam por `erroDaResposta`.\n');
+
+  // A dispensa do `App.tsx` é por CAMINHO, não pelo arquivo: dispensar o
+  // arquivo inteiro deixaria um decodificador futuro invisível bem no meio da
+  // tela de pagar.
+  const farois = readFileSync(join(SRC, 'App.tsx'), 'utf8')
+    .split('\n').filter((l) => /\bfetch\(/.test(l));
+  const forasDoFarol = farois.filter((l) => !/'\/api\/(demo\/beacon|check\/opened)'/.test(l));
+  assert.deepEqual(forasDoFarol.map((l) => l.trim()), [],
+    'fetch novo no App.tsx: só os dois faróis best-effort podem falar HTTP direto daqui');
 
   // E quem decodifica tem que usar o decodificador — não montar o erro à mão.
   const donos: string[] = [];

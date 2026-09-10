@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useT } from './lang';
-import { parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
+import { api, parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
 import { authedReq as req } from './auth';
 
 /**
@@ -94,8 +94,11 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
   const closeManualCheck = useCallback(async (t: VenueTable) => {
     if (!confirm(tr('admin.closeCheckConfirm', { table: t.label }))) return;
     try {
-      const view = await fetch(`/api/check?t=${encodeURIComponent(t.qrToken)}`).then((r) => r.json());
-      const checkId = view?.data?.check?.id;
+      // `api.getCheck`, não um `fetch` à mão: é a MESMA requisição, e aberta
+      // aqui ela pulava o decodificador — o que tirava este arquivo do censo
+      // que existe pra impedir erro montado à mão. Menos uma dispensa.
+      const view = await api.getCheck(t.qrToken).catch(() => null);
+      const checkId = view?.check?.id;
       // A code, not a sentence. This hook has no language: it runs above the
       // React tree that knows which one the reader picked. `tError` at the
       // display site turns it into the right words, and falls back to the raw

@@ -38,19 +38,29 @@ struct TableQR: Equatable, Sendable {
     /// API and merging them here — until then the list is what ships.
     /// Found by the security review of 2026-09-10.
     ///
-    /// `racha-gray.vercel.app` só existe em DEBUG. Um nome `*.vercel.app` não é
-    /// propriedade nossa — mora no registrador de outra pessoa e volta a ser
-    /// reivindicável se o projeto for renomeado ou apagado. Numa lista que
-    /// decide se o app desenha o JSON de alguém como CONTA, isso é caro demais
-    /// pela conveniência de QA. É o mesmo raciocínio que tirou o padrão
-    /// `racha-*.vercel.app` do censo, uma camada acima.
-    static let allowedHosts: Set<String> = {
-        var hosts: Set<String> = ["racha.app", "www.racha.app"]
-        #if DEBUG
-        hosts.insert("racha-gray.vercel.app")
-        #endif
-        return hosts
-    }()
+    /// `racha-gray.vercel.app` ESTÁ NA LISTA DE RELEASE, e tem que estar.
+    ///
+    /// Ele saiu daqui por uma rodada, pra DEBUG: um nome `*.vercel.app` mora no
+    /// registrador de outra pessoa e volta a ser reivindicável se o projeto for
+    /// renomeado ou apagado, e numa lista que decide se o app desenha o JSON de
+    /// alguém como CONTA isso é caro. O raciocínio está certo e o remédio
+    /// estava errado, pelo motivo mais simples possível: é o host que o
+    /// `Qrs.tsx` IMPRIME no QR (`PROD_ORIGIN`), é o padrão do `CLIENT_URL`, e
+    /// `racha.app` não resolve — não está registrado. Um build de release com a
+    /// lista curta recusaria TODA mesa de verdade, e adesivo colado em mesa não
+    /// se chama de volta.
+    ///
+    /// A mitigação do risco de registrador não é tirar da lista: é CONTINUAR
+    /// DONO do projeto na Vercel. A saída é migrar `PROD_ORIGIN` pra um domínio
+    /// nosso, servir o antigo com redirect enquanto houver folha impressa
+    /// apontando pra ele, girar as folhas (`POST /api/tables/rotate`) e só
+    /// então encurtar esta lista. Nessa ordem.
+    ///
+    /// Falha fechada, então não era buraco — era o produto quebrado. Achado da
+    /// revisão de segurança de 2026-09-10, contra uma correção que eu tinha
+    /// acabado de fazer por causa da revisão de compliance. Quando os dois
+    /// portões discordam, quem decide é o que o produto FAZ.
+    static let allowedHosts: Set<String> = ["racha.app", "www.racha.app", "racha-gray.vercel.app"]
 
     /// A origem é aceitável? `https` e um host que a gente já conhece.
     ///

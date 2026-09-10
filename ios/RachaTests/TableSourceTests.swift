@@ -38,6 +38,19 @@ struct TableQRTests {
         #expect(TableQR.parse("") == nil)
     }
 
+    @Test("a lista de release conhece o host que o QR realmente imprime")
+    func allowlistCoversWhatWePrint() {
+        // O `Qrs.tsx` imprime `PROD_ORIGIN` no cartão da mesa, e por uma rodada
+        // esta lista não tinha esse host em release — um build publicado
+        // recusaria toda mesa de verdade. Falha fechada, então não era buraco:
+        // era o produto quebrado. O par (o que imprime, o que aceita) atravessa
+        // dois idiomas e nada os obrigava a concordar; o censo do
+        // `data-map.test.js` amarra os dois lados, e isto amarra o lado daqui.
+        #expect(TableQR.allowedHosts.contains("racha.app"))
+        #expect(TableQR.allowedHosts.contains("racha-gray.vercel.app"))
+        #expect(TableQR.parse("https://racha-gray.vercel.app/?t=tok_9")?.token == "tok_9")
+    }
+
     @Test("o código digitado também passa pela lista de permissão")
     func typedPathIsGuardedToo() {
         // O ramo que ficou de fora na primeira versão. `defaultOrigin` entrava

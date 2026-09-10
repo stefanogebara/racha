@@ -27,7 +27,12 @@ enum RachaEnvironment {
             return url
         }
         #endif
-        return URL(string: "https://racha.app")!
+        // O host que de fato responde. `racha.app` é o nome que a gente quer e
+        // ele NÃO RESOLVE — não está registrado — enquanto `Qrs.tsx` imprime
+        // `racha-gray.vercel.app` no QR e o `CLIENT_URL` cai nele. O padrão de
+        // um cliente nativo não pode ser um domínio morto; vira `racha.app` no
+        // dia em que `racha.app` servir o produto, junto com o `PROD_ORIGIN`.
+        return URL(string: "https://racha-gray.vercel.app")!
     }
 
     /// Demo mode: no backend, everything through `DemoTableSource`. On by

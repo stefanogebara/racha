@@ -251,16 +251,22 @@ de o pacote sair do aparelho.
 
 A primeira versão desta correção guardava **um dos dois ramos** da mesma função,
 e esta frase, escrita a partir do ramo que eu estava olhando, ficou mais estreita
-que o código. As duas revisões acharam isso separadamente. É o terceiro caso
-seguido da mesma forma, e por isso a garantia agora tem teste próprio
-(`RachaTests/TableQRTests`, incluindo `defaultOrigin` hostil): frase e código
-falham juntos, ou a frase não vale.
+que o código. As duas revisões acharam isso separadamente, e por isso a garantia
+agora tem teste próprio (`RachaTests/TableQRTests`, incluindo `defaultOrigin`
+hostil): frase e código falham juntos, ou a frase não vale. O padrão que produziu
+isso está registrado em `docs/decisions/2026-09-10-frase-escrita-do-guarda-que-eu-olhava.md`
+— aqui fica o que é verdade sobre ESTE controle.
 
-**Alcance retroativo: zero, e dá pra afirmar.** Enquanto o comportamento antigo
-valeu, não havia telemetria pra dizer se algum adesivo apontou algum build pra
-outro lugar — mas nenhum build público existiu, então não há usuário exposto. Um
-registro do art. 37 tem que distinguir "alcance zero" de "alcance desconhecido",
-e aqui é zero.
+**Alcance retroativo: zero, e não é de memória.** O caminho vulnerável só existia
+no `BackendTableSource`, e `RachaEnvironment.isDemo` devolve `true` no simulador
+e em qualquer build DEBUG — então `tableSource` entrega o `DemoTableSource`, que
+não toca a rede. O comportamento antigo era **inalcançável em qualquer build que
+não fosse Release**, e não apenas não-alcançado; isso se confere no
+`RachaEnvironment.swift` para sempre, por quem não estava aqui. Somando: nenhum
+build público existiu (sem fastlane, sem `ExportOptions.plist`, sem configuração
+de App Store Connect no repositório — só a `ArchiveAction` padrão do Xcode), logo
+nenhum titular exposto. Um registro do art. 37 tem que distinguir "alcance zero"
+de "alcance desconhecido", e esta frase só se escreve quando é zero.
 
 A conveniência que se perdeu era real: uma casa white-label imprimia o domínio
 dela sem release do app. Ela volta quando a lista vier da NOSSA API com os
