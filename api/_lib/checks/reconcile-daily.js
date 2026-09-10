@@ -92,11 +92,35 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
    * migração 0027 documenta ter acontecido uma vez neste repositório.
    * (MEDIUM-3 da revisão de segurança de 2026-09-10.)
    */
-  // Só quando o guarda de recebedor pode de fato rodar: sem o contador no store
-  // (duplo de teste, conciliação só de carteira) nada aqui olha a venue, e
-  // exigir a forma dela seria exigir um campo que ninguém vai ler.
-  const podeContar = typeof store.contarCobrancasConfirmadas === 'function';
-  if (podeContar && (!('pspRecipientId' in venue) || !('isTest' in venue))) {
+  /**
+   * OS GUARDAS DE CASA SÓ RODAM NA VARREDURA — e o `podeContar` não bastava.
+   *
+   * Eu tinha gateado em `typeof store.contarCobrancasConfirmadas === 'function'`
+   * achando que isso protegia o chamador de leitura. Não protege: `podeContar` é
+   * propriedade do STORE, não de quem chama. Em produção o store é o Supabase,
+   * que TEM o método — então os guardas disparavam no PAINEL, que passa
+   * `{ id, name }` montado à mão (`router.js`). Medido: o painel recebia
+   * `severity: high` pra toda casa, em toda carga, e o dono lia "Divergência
+   * entre o registro e os pagamentos — fale com a gente antes de fechar o
+   * caixa". Afirmação falsa sobre o dinheiro dele, na tela do dinheiro dele
+   * (CDC art. 6º III e art. 31), e o detalhe interno "quem chamou montou o
+   * objeto à mão" virando reclamação sobre os fundos DELE.
+   *
+   * E o meu próprio comentário dizia "hoje é inerte porque essa rota não passa
+   * `psp`" — enquanto eu punha os guardas ACIMA do `return` por falta de `psp`,
+   * de propósito.
+   *
+   * Gatear em `opts.psp` desfaria o MEDIUM-1 da segurança (um adaptador
+   * quebrado voltaria a desligar em silêncio justo o achado que existe pra
+   * dizer "não dá pra conferir"). Então quem liga é a VARREDURA, explicitamente:
+   * `reconcileAllVenues` passa `custodyChecks`, o painel não passa nada, e o
+   * estado do adaptador não decide mais nada.
+   *
+   * Achado pela revisão de compliance de 2026-09-10 (HIGH-1).
+   */
+  const guardasDeCasa = opts.custodyChecks === true
+    && typeof store.contarCobrancasConfirmadas === 'function';
+  if (guardasDeCasa && (!('pspRecipientId' in venue) || !('isTest' in venue))) {
     return [{
       severity: 'high',
       code: 'payables_venue_shape_unknown',
@@ -127,7 +151,7 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
    * com a string `'rcpt_demo'`. A denylist de uma string deixava passar
    * recebedor recusado, suspenso, e qualquer outro placeholder.
    */
-  if (podeContar && venue.isTest !== true && venue.recebedorOk !== true) {
+  if (guardasDeCasa && venue.isTest !== true && venue.recebedorOk !== true) {
     const quantas = await store.contarCobrancasConfirmadas(venue.id);
     if (quantas > 0) {
       return [{
@@ -212,6 +236,8 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
   const prazoFinal = Number.isSafeInteger(opts.deadline) ? opts.deadline : Infinity;
   let conferidas = 0;
   let verificadas = 0;
+  /** Cobranças que não são do adquirente — agregadas, ver o laço. */
+  const foraDoAdquirente = [];
   for (const [i, c] of cobrancas.entries()) {
     if (Date.now() - inicio > orcamentoMs || Date.now() > prazoFinal) {
       achados.push({
@@ -232,8 +258,30 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
       });
       // "Conferiu" é ter recebível pra olhar. Sem isso, a perna passou por ali
       // e não afirmou nada.
-      if (payables.length > 0) verificadas += 1;
-      achados.push(...r.findings);
+      //
+      // `Array.isArray` porque o adaptador passou a devolver um MARCADOR
+      // (`{ notFromAcquirer: true }`) pra cobrança que não é do adquirente.
+      // `.length` num objeto é `undefined`, então `undefined > 0` é false e o
+      // efeito era só não contar — mas o `payables_never_verified` disparava
+      // POR CIMA dos achados por cobrança, contando duas vezes a mesma coisa.
+      if (Array.isArray(payables) && payables.length > 0) verificadas += 1;
+      // O `charge_not_from_acquirer` é fato PERMANENTE de uma linha histórica —
+      // ninguém pode consertar um txid `mock*`. Um `high` por cobrança, toda
+      // noite, sobre algo que não tem remediação, é canário vermelho pra
+      // sempre — o que estas três rodadas passaram tirando do agregado. Junta
+      // num só, com contagem, como o `payables_never_verified` já faz.
+      for (const f of r.findings) {
+        if (f.code === 'charge_not_from_acquirer') {
+          foraDoAdquirente.push(c.txid);
+          // E ela sai de `conferidas`: nunca foi CANDIDATA a verificação, então
+          // contá-la faz o `payables_never_verified` disparar por cima de um
+          // achado que já respondeu a mesma pergunta — a perna acusando duas
+          // vezes o mesmo fato, com dois códigos diferentes.
+          conferidas -= 1;
+          continue;
+        }
+        achados.push(f);
+      }
     } catch (e) {
       achados.push({
         severity: 'info', code: 'payables_unchecked', chargeId: c.txid,
@@ -252,6 +300,23 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
    * É a mesma forma do serviço nunca arrecadado: o que distingue não é o caso
    * isolado, é o agregado. Achado pela revisão de segurança de 2026-09-08.
    */
+  /**
+   * As cobranças fora do adquirente, num achado só.
+   *
+   * `high` porque o destino delas não é conferível — mas UM por casa, com a
+   * contagem, e não um por cobrança: é fato permanente de linha histórica e
+   * ninguém pode consertar um txid `mock*`.
+   */
+  if (foraDoAdquirente.length > 0) {
+    achados.push({
+      severity: 'high',
+      code: 'charge_not_from_acquirer',
+      message: `${foraDoAdquirente.length} cobrança(s) desta casa não passaram pelo adquirente`
+        + ' — não existe recebível a conferir e o destino delas não é conferível por aqui',
+      txids: foraDoAdquirente.slice(0, 10),
+      charges: foraDoAdquirente.length,
+    });
+  }
   if (conferidas >= 5 && verificadas === 0) {
     achados.push({
       severity: 'high',
@@ -492,6 +557,9 @@ async function reconcileAllVenues(store, opts = {}) {
      */
     venueReports.push(await reconcileOneVenue(store, v, {
       ...opts, deadline: prazoDaVarredura, repair: opts.repair === true,
+      // A VARREDURA liga os guardas de casa. Quem lê (o painel) não liga, e por
+      // isso não recebe achado sobre a forma da venue que ele mesmo montou.
+      custodyChecks: true,
     }));
   }
 
@@ -557,10 +625,29 @@ async function reconcileAllVenues(store, opts = {}) {
     rowsRepairRaced: venueReports.reduce((s, r) => s + (r.rowsRepairRaced || 0), 0),
     rowsRepairAckLost: venueReports.reduce((s, r) => s + (r.rowsRepairAckLost || 0), 0),
     rowsRepairRejected: venueReports.reduce((s, r) => s + (r.rowsRepairRejected || 0), 0),
-    repairTipApplied: venueReports.reduce((s, r) => s + (r.repairTipApplied || 0), 0),
-    repairPeriodsApplied: [...new Set(venueReports.flatMap((r) => r.repairPeriodsApplied || []))].sort(),
-    repairTipPending: venueReports.reduce((s, r) => s + (r.repairTipPending || 0), 0),
-    repairPeriodsPending: [...new Set(venueReports.flatMap((r) => r.repairPeriodsPending || []))].sort(),
+    /**
+     * POR CASA, não somado entre casas — o mesmo defeito um nível acima.
+     *
+     * Eu separei aplicado de pendente DENTRO da casa e depois torrei os dois
+     * numa soma de plataforma. Casa A com −500¢ em 2026-02 e casa B com −1000¢
+     * em 2026-03 imprimiam "1500¢ em 2026-02, 2026-03" — um número que não é de
+     * período nenhum E de casa nenhuma. É exatamente o caso 2 que a segurança
+     * me mostrou, uma agregação adiante, e este está VIVO a partir de duas
+     * casas por noite, que é o estado normal da varredura.
+     *
+     * Base da folha é obrigação POR RESTAURANTE (Lei 13.419/2017, CLT art. 457
+     * §§). Somar entre restaurantes não produz número acionável pra ninguém.
+     */
+    repairTipByVenue: venueReports
+      .filter((r) => (r.repairTipApplied || 0) !== 0 || (r.repairTipPending || 0) !== 0)
+      .map((r) => ({
+        venueId: r.venueId,
+        name: r.name,
+        applied: r.repairTipApplied || 0,
+        appliedPeriods: r.repairPeriodsApplied || [],
+        pending: r.repairTipPending || 0,
+        pendingPeriods: r.repairPeriodsPending || [],
+      })),
     // O TIER `info` DO SWEEP INTEIRO. Ele atravessava uma fronteira e parava na
     // seguinte: `infoFindings` existia por casa e nada o lia. `payables_unchecked`
     // é `info`, então a perna de custódia podia apagar a varredura inteira e o
@@ -656,13 +743,23 @@ function formatReconcileAlert(report) {
   const clausulaFolha = (delta, periodos, rotulo) => {
     if (!delta) return '';
     const mes = periodos.join(', ') || 'período não datado';
-    const seguro = delta < 0
-      ? 'o valor do razão é o MENOR e é o seguro para distribuir'
-      : 'o valor do razão é o MAIOR — confira antes de distribuir';
-    return `\n  base da folha (${rotulo}): ${Math.abs(delta)}¢ em ${mes} — ${seguro}`;
+    // `já corrigida` é RETROSPECTIVO: a base exibida já desceu, e o risco é a
+    // folha ter saído antes, pelo número inflado. `AINDA divergente` é
+    // prospectivo. A mesma frase nos dois era vazia num deles.
+    const nota = rotulo === 'já corrigida'
+      ? 'se a folha já saiu deste período, ela saiu pelo número ANTIGO (maior)'
+      : (delta < 0
+        ? 'o valor do razão é o MENOR e é o seguro para distribuir'
+        : 'o valor do razão é o MAIOR — confira antes de distribuir');
+    return `\n  base da folha (${rotulo}): ${Math.abs(delta)}¢ em ${mes} — ${nota}`;
   };
-  const linhaFolha = clausulaFolha(report.repairTipApplied || 0, report.repairPeriodsApplied || [], 'já corrigida')
-    + clausulaFolha(report.repairTipPending || 0, report.repairPeriodsPending || [], 'AINDA divergente');
+  // POR CASA: a obrigação de escrituração é do restaurante, e um total de
+  // plataforma não é acionável por ninguém.
+  const linhaFolha = (report.repairTipByVenue || [])
+    .map((v) => `\n• ${v.name}`
+      + clausulaFolha(v.applied, v.appliedPeriods, 'já corrigida')
+      + clausulaFolha(v.pending, v.pendingPeriods, 'AINDA divergente'))
+    .join('');
   const linhaReparos = (reparos > 0 || semResposta > 0 || recusados > 0 || linhaFolha)
     ? `\n\na varredura reprojetou ${reparos} linha(s) de pagamento do razão`
       + (recusados > 0 ? `, teve ${recusados} RECUSADA(S) pelo banco (nada escrito)` : '')

@@ -2247,8 +2247,12 @@ describe('a folha sai em duas cláusulas', () => {
       at: '2026-09-10T04:10:00.000Z', venuesChecked: 1, venuesRed: 0, orphanMoneyEvents: 0,
       rowsRepaired: (pia.repaired || []).length, rowsRepairAckLost: (pia.ackLost || []).length,
       rowsRepairRejected: (pia.rejected || []).length, rowsRepairRaced: 0,
-      repairTipApplied: r.deltaGorjetaAplicado, repairPeriodsApplied: r.periodosAplicado,
-      repairTipPending: r.deltaGorjetaPendente, repairPeriodsPending: r.periodosPendente,
+      // POR CASA, como o relatório de verdade monta.
+      repairTipByVenue: [{
+        venueId: 'v1', name: 'Boteco',
+        applied: r.deltaGorjetaAplicado, appliedPeriods: r.periodosAplicado,
+        pending: r.deltaGorjetaPendente, pendingPeriods: r.periodosPendente,
+      }].filter((v) => v.applied !== 0 || v.pending !== 0),
       red: [], venues: [], infoCodes: [], totalDriftCents: 0,
     };
   };
@@ -2259,6 +2263,7 @@ describe('a folha sai em duas cláusulas', () => {
       tip: [{ txid: 'a', deltaCents: -500, periodo: '2026-02' }],
       rejected: [{ txid: 'b', deltaCents: -500, periodo: '2026-03' }],
     }));
+    expect(alerta).toMatch(/• Boteco/);
     expect(alerta).toMatch(/já corrigida\): 500¢ em 2026-02/);
     expect(alerta).toMatch(/AINDA divergente\): 500¢ em 2026-03/);
     // E NUNCA a soma dos dois num número que não é de período nenhum.
