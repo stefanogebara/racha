@@ -14,7 +14,14 @@ export type { Key, Lang } from './i18n';
 
 /* ── contexto ─────────────────────────────────────────────────────────────── */
 
-function readStored(): Lang {
+/**
+ * O idioma inicial, e se ele foi ESCOLHIDO por alguém.
+ *
+ * A distinção importa: só um idioma que ninguém escolheu pode ser trocado pelo
+ * padrão da CASA quando a conta chega. Escolha de gente sempre ganha — um
+ * turista que pôs EN em Barcelona não quer PT porque jantou em São Paulo.
+ */
+function readStored(): { lang: Lang; escolhido: boolean } {
   // `?lang=` wins over the stored choice. It exists for one real case: the
   // landing embeds the product in an iframe, and an iframe is its own document
   // — it reads storage once at mount and never hears the parent's toggle. The
@@ -24,29 +31,53 @@ function readStored(): Lang {
   // still stores and reads the person's own choice.
   try {
     const url = asLang(new URLSearchParams(window.location.search).get('lang'));
-    if (url) return url;
+    if (url) return { lang: url, escolhido: true };
   } catch { /* sem window (teste) → segue pro armazenado */ }
   try {
     const stored = asLang(localStorage.getItem(STORAGE_KEY));
-    if (stored) return stored;
+    if (stored) return { lang: stored, escolhido: true };
   } catch { /* storage bloqueado → fica no padrão */ }
-  return 'en';   // padrão do produto
+  return { lang: 'en', escolhido: false };   // padrão do produto, não escolha
 }
 
 /** O atributo `lang` do documento e dos botões, pro leitor de tela pronunciar
  *  certo. Declarado antes de quem o usa. */
 const HTML_LANG: Record<Lang, string> = { en: 'en', pt: 'pt-BR', es: 'es-ES' };
 
-const LangContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({
-  lang: 'en', setLang: () => {},
+const LangContext = createContext<{
+  lang: Lang;
+  setLang: (l: Lang) => void;
+  adotarPadraoDaCasa: (l: Lang | null | undefined) => void;
+}>({
+  lang: 'en', setLang: () => {}, adotarPadraoDaCasa: () => {},
 });
 
 export function LangProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(readStored);
+  const inicial = useMemo(readStored, []);
+  const [lang, setLangState] = useState<Lang>(inicial.lang);
+  const [escolhido, setEscolhido] = useState<boolean>(inicial.escolhido);
   const setLang = useCallback((l: Lang) => {
     setLangState(l);
+    setEscolhido(true);
     try { localStorage.setItem(STORAGE_KEY, l); } catch { /* segue sem lembrar */ }
   }, []);
+  /**
+   * O PADRÃO DA CASA, quando ninguém escolheu nada.
+   *
+   * O servidor manda `venue.defaultLang` em toda conta — e o cliente declarava
+   * o TIPO do campo e nunca o lia. Efeito medido em 2026-09-10: um cliente
+   * brasileiro, num restaurante brasileiro, no primeiro QR da vida, recebia a
+   * conta em INGLÊS, com `R$213.10` de ponto decimal, enquanto a casa dizia
+   * `pt`. Campo calculado, enviado e morto — a mesma forma do `offRail`.
+   *
+   * NÃO sobrescreve escolha: só age quando o idioma atual é o padrão do
+   * produto, e o que ele faz também não vira escolha (não grava no storage),
+   * senão a casa seguinte herdaria o idioma desta.
+   */
+  const adotarPadraoDaCasa = useCallback((l: Lang | null | undefined) => {
+    if (!l || escolhido) return;
+    setLangState((atual) => (atual === l ? atual : l));
+  }, [escolhido]);
   // O `lang` do documento e o TÍTULO seguem a escolha juntos, num só efeito:
   // são as duas coisas que vivem fora do React e por isso são as duas que
   // ficam pra trás. O título vinha fixo em inglês do `index.html`.
@@ -54,14 +85,14 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.lang = HTML_LANG[lang];
     document.title = DICT['doc.title'][lang];
   }, [lang]);
-  const value = useMemo(() => ({ lang, setLang }), [lang, setLang]);
+  const value = useMemo(() => ({ lang, setLang, adotarPadraoDaCasa }), [lang, setLang, adotarPadraoDaCasa]);
   return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
 }
 
 export function useLang() { return useContext(LangContext); }
 
 export function useT() {
-  const { lang, setLang } = useLang();
+  const { lang, setLang, adotarPadraoDaCasa } = useLang();
   const t = useCallback(
     (key: Key, vars?: Record<string, string | number>) => fill(DICT[key][lang], vars),
     [lang],
@@ -101,7 +132,7 @@ export function useT() {
     (bp: number) => (bp / 100).toLocaleString(LOCALE[lang]),
     [lang],
   );
-  return { t, lang, setLang, brl, dmy, hm, pct };
+  return { t, lang, setLang, adotarPadraoDaCasa, brl, dmy, hm, pct };
 }
 
 /**

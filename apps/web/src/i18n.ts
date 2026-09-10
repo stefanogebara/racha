@@ -225,6 +225,14 @@ export const DICT = {
   // show it", e a tela de pago nunca mostrou.
   'rcpt.taxIdCnpj':   { en: 'Tax ID (CNPJ)',                   pt: 'CNPJ', es: 'CNPJ' },
   'rcpt.taxIdNif':    { en: 'Tax ID (NIF)',                    pt: 'NIF', es: 'NIF' },
+  // O QUE ELE PAGOU, no comprovante. A barra de progresso é da CONTA (consumo);
+  // o comprovante tem que dizer o que saiu da conta DELE — e o serviço em
+  // separado, porque é a parte que vai pra equipe.
+  'paid.youPaid':     { en: 'You paid {amount}',                pt: 'Você pagou {amount}', es: 'Pagaste {amount}' },
+  'paid.ofWhichTip':  { en: 'of which {amount} service charge for the staff',
+                        pt: 'sendo {amount} de serviço para a equipe',
+                        es: 'de los cuales {amount} de servicio para el personal' },
+  'paid.at':          { en: 'on {when}',                        pt: 'em {when}', es: 'el {when}' },
   'paid.notInvoice':  { en: 'This is not an invoice. Ask the restaurant for one if you need it.',
                         pt: 'Isto não é uma nota fiscal. Peça a nota ao restaurante se precisar.',
                         es: 'Esto no es una factura. Pídesela al restaurante si la necesitas.' },

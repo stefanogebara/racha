@@ -1,15 +1,35 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
 import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
 import Home from './Home';
 import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
-import BizumPay from './BizumPay';
 
 /** Sem chave publicável não há elemento da Stripe pra montar. */
 const STRIPE_READY = !!(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined);
-import StripeWalletPay from './StripeWalletPay';
+
+/**
+ * OS TRILHOS DA STRIPE CARREGAM SOB DEMANDA — e não em toda conta de Pix.
+ *
+ * `import` estático de `StripeWalletPay`/`BizumPay` traz junto o
+ * `@stripe/stripe-js`, e importar esse módulo INJETA o `js.stripe.com` na
+ * página — o componente devolver `null` não desfaz isso. Medido em 2026-09-10
+ * numa conta brasileira de Pix, SEM chave publicável configurada: carregavam
+ * `js.stripe.com/dahlia/stripe.js`, dois scripts `m-outer` de impressão
+ * digital, o `m.stripe.network/inner.html` e um `POST m.stripe.com/6`.
+ *
+ * Ou seja: um destinatário de dados a mais (Stripe, EUA) recebendo sinal do
+ * navegador de todo cliente que abre a conta — inclusive quem paga por Pix via
+ * Pagar.me e nunca encosta na Stripe. O `docs/markets/README.md` já discute
+ * mapa de destinatários pro Bizum/Open Bank; este caso não estava lá. LGPD
+ * art. 6º III (necessidade) e o inegociável #10.
+ *
+ * Com `lazy`, o módulo — e o script — só entram quando a casa de fato oferece
+ * o trilho.
+ */
+const StripeWalletPay = lazy(() => import('./StripeWalletPay'));
+const BizumPay = lazy(() => import('./BizumPay'));
 import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, splitEqualLocal, type SplitMode } from './split';
 
@@ -36,7 +56,7 @@ const NOTICE_KEY: Record<string, Key> = {
 };
 
 export default function App() {
-  const { t, lang, pct } = useT();
+  const { t, lang, pct, adotarPadraoDaCasa, dmy, hm } = useT();
   const token = useMemo(
     () => new URLSearchParams(window.location.search).get('t') ?? '',
     [],
@@ -153,6 +173,9 @@ export default function App() {
   // Quanto já estava pago no instante em que criei MINHA cobrança — quando o
   // pago passar disso, é a minha que caiu → avança pro ✓ sozinho.
   const [paidBaseline, setPaidBaseline] = useState<number | null>(null);
+  /** Quando o pagamento foi confirmado NESTA sessão — o carimbo do comprovante.
+   *  Fixado na transição, não no render: no render ele andaria a cada poll. */
+  const [paidAt, setPaidAt] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [demoGone, setDemoGone] = useState(false);
@@ -168,7 +191,11 @@ export default function App() {
   const refresh = useCallback(async () => {
     if (!token) return;
     try {
-      setView(await api.getCheck(token));
+      const fresco = await api.getCheck(token);
+      setView(fresco);
+      // O IDIOMA DA CASA, quando ninguém escolheu nada. O servidor mandava
+      // `defaultLang` em toda conta e o cliente só declarava o tipo dele.
+      adotarPadraoDaCasa(fresco.venue.defaultLang);
       setError(null);
       setStale(false);
     } catch (e) {
@@ -218,7 +245,7 @@ export default function App() {
   // confirmação sozinho (antes ficava travado na tela do código Pix).
   useEffect(() => {
     if (step === 'pagar' && charge && paidBaseline !== null && view && view.state.paidCents > paidBaseline) {
-      setStep('pago');
+      setPaidAt(new Date().toISOString()); setStep('pago');
     }
   }, [view, step, charge, paidBaseline]);
 
@@ -320,7 +347,7 @@ export default function App() {
     try {
       await api.devConfirm(charge.txid);
       await refresh();
-      setStep('pago');
+      setPaidAt(new Date().toISOString()); setStep('pago');
     } catch (e) {
       // Fora do modo demo /api/dev/confirm não existe (404) — some o botão.
       if ((e as ApiError).status === 404) setDemoGone(true);
@@ -402,6 +429,30 @@ export default function App() {
             <button className="cta" onClick={() => { setSelectedItems(new Set()); setStep('conta'); refresh(); }}>
               {t('paid.payMore')}
             </button>
+          )}
+          {/* O QUE ELE PAGOU. A barra acima é o progresso da CONTA — consumo —
+              e o comprovante mostrava só esse número: o cliente pagava
+              R$ 117,21 e lia R$ 106,55, sem nenhuma menção ao serviço. Um
+              comprovante cujo valor não bate com o extrato do cartão não serve
+              de comprovante. O serviço sai em linha própria porque é a parte
+              que vai pra equipe (Lei 13.419/2017), e a hora entra porque
+              recibo sem data é prova fraca. Medido no e2e de 2026-09-10. */}
+          {charge && (
+            <>
+              <p className="center" style={{ marginBottom: 0 }}>
+                <strong>{t('paid.youPaid', { amount: brl(charge.amountCents + charge.tipCents) })}</strong>
+              </p>
+              {charge.tipCents > 0 && (
+                <p className="muted small center" style={{ marginTop: 2 }}>
+                  {t('paid.ofWhichTip', { amount: brl(charge.tipCents) })}
+                </p>
+              )}
+              {paidAt && (
+                <p className="muted small center" style={{ marginTop: 2 }}>
+                  {t('paid.at', { when: `${dmy(paidAt)} ${hm(paidAt)}` })}
+                </p>
+              )}
+            </>
           )}
           {/* Quem cobrou, e o que esta tela é. Antes ela não nomeava
               comerciante nenhum — e uma tela de "pago" sem comerciante lê como
@@ -659,6 +710,7 @@ export default function App() {
               jeitos de chegar nele. */}
           {primaryRail === 'bizum' ? (
             <>
+              <Suspense fallback={null}>
               <BizumPay
                 token={token}
                 amountCents={cappedBase}
@@ -668,6 +720,7 @@ export default function App() {
                 disabled={totalToPay === 0}
                 onAuthorized={() => { setPaidBaseline(state.paidCents); }}
               />
+              </Suspense>
               {!STRIPE_READY && (
                 <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
                   {t('pay.ctaBizum', { amount: brl(totalToPay) })}
@@ -697,10 +750,11 @@ export default function App() {
             disabled={totalToPay === 0}
             venueName={venue.name}
             simulated={venue.demo === true}
-            onPaid={async () => { await refresh(); setStep('pago'); }}
+            onPaid={async () => { await refresh(); setPaidAt(new Date().toISOString()); setStep('pago'); }}
           />
           )}
           {venue.acceptsCard && (
+            <Suspense fallback={null}>
             <StripeWalletPay
               token={token}
               amountCents={cappedBase}
@@ -709,8 +763,9 @@ export default function App() {
               payerDocument={cpfDigits}
               disabled={totalToPay === 0}
               currency={currency}
-              onPaid={async () => { await refresh(); setStep('pago'); }}
+              onPaid={async () => { await refresh(); setPaidAt(new Date().toISOString()); setStep('pago'); }}
             />
+            </Suspense>
           )}
           {house && house.balanceCents > 0 && (
             <button className="ghost" onClick={() => setStep('saldo')}>
