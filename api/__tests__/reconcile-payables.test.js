@@ -410,3 +410,75 @@ test('DESLIGAR a perna muda o relatório — não é silêncio', async () => {
   const semPsp = await reconcileAllVenues(store, {});
   expect(semPsp.worstSeverity).toBe('ok');
 });
+
+/**
+ * RECEBEDOR DE MENTIRA NUMA CASA DE PRODUÇÃO.
+ *
+ * `seedVenue` põe `pspRecipientId: 'rcpt_demo'` por padrão, e `isDemoVenue`
+ * exige as DUAS marcas (`isTest === true` E o placeholder). Uma casa semeada
+ * sem `isTest` fica com o placeholder e SEM a identidade de demo: a varredura
+ * noturna a trata como produção, e o adquirente não conhece esse id.
+ *
+ * Medido em produção em 2026-09-10, na primeira execução real da perna: das 9
+ * casas conferidas, 7 eram semeadas com `rcpt_demo` sem `isTest`; as duas
+ * únicas com recebedor de verdade estavam marcadas `isTest` e ficaram FORA. O
+ * controle do inegociável #4 apontado só pra onde ele não pode funcionar.
+ */
+describe('casa de produção com recebedor inutilizável', () => {
+  const { reconcilePayablesLeg } = require('../_lib/checks/reconcile-daily');
+
+  const pspQualquer = { listChargePayables: async () => [] };
+  const storeCom = (n) => ({
+    listRecentConfirmedCharges: async () => Array.from({ length: n }, (_, i) => ({
+      txid: `ch_${i}`, paidAmountCents: 1000,
+    })),
+  });
+
+  test('placeholder + cobrança confirmada = `high`, e a perna PARA aí', async () => {
+    const achados = await reconcilePayablesLeg(
+      storeCom(3), pspQualquer,
+      { id: 'v1', pspRecipientId: 'rcpt_demo', isTest: false }, {},
+    );
+    expect(achados).toHaveLength(1);
+    expect(achados[0].code).toBe('venue_recipient_unusable');
+    expect(achados[0].severity).toBe('high');
+    expect(achados[0].charges).toBe(3);
+    // E não sai um monte de `payables_absent` por cima: a pergunta já foi
+    // respondida, e responder duas vezes vira ruído.
+    expect(achados.some((f) => f.code === 'payables_absent')).toBe(false);
+  });
+
+  test('SEM recebedor e com cobrança confirmada, idem', async () => {
+    const achados = await reconcilePayablesLeg(
+      storeCom(1), pspQualquer, { id: 'v1', pspRecipientId: null, isTest: false }, {},
+    );
+    expect(achados[0].code).toBe('venue_recipient_unusable');
+    expect(achados[0].recipientId).toBe(null);
+  });
+
+  test('casa de TESTE com placeholder é normal — não acusa', async () => {
+    const achados = await reconcilePayablesLeg(
+      storeCom(3), pspQualquer,
+      { id: 'v1', pspRecipientId: 'rcpt_demo', isTest: true }, {},
+    );
+    expect(achados.some((f) => f.code === 'venue_recipient_unusable')).toBe(false);
+  });
+
+  test('cadastro novo (sem recebedor, SEM cobrança) é do radar de ativação, não daqui', async () => {
+    // Uma casa que acabou de se cadastrar não tem recebedor ainda. Acusar isso
+    // aqui faria o canário noturno gritar por todo cadastro incompleto — e é
+    // assim que um canário morre.
+    const achados = await reconcilePayablesLeg(
+      storeCom(0), pspQualquer, { id: 'v1', pspRecipientId: null, isTest: false }, {},
+    );
+    expect(achados.some((f) => f.code === 'venue_recipient_unusable')).toBe(false);
+  });
+
+  test('recebedor de VERDADE segue pro caminho normal', async () => {
+    const achados = await reconcilePayablesLeg(
+      storeCom(1), pspQualquer,
+      { id: 'v1', pspRecipientId: 're_cmrtc9vppm8xq0l9tae7a4ru6', isTest: false }, {},
+    );
+    expect(achados.some((f) => f.code === 'venue_recipient_unusable')).toBe(false);
+  });
+});

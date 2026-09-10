@@ -490,6 +490,10 @@ export const DICT = {
   'find.payables_absent': { en: 'the acquirer has no receivable for this charge yet — destination not verified',
                         pt: 'o adquirente ainda não tem recebível desta cobrança — destino não conferido',
                         es: 'el adquirente aún no tiene el abono de este cobro — destino sin verificar' },
+  // DINHEIRO ANDOU E NÃO DÁ PRA DIZER PRA ONDE. Inegociável #4.
+  'find.venue_recipient_unusable': { en: 'this venue took confirmed payments but its payout account is a test placeholder — the acquirer does not know that destination, so where the money went cannot be verified',
+                        pt: 'esta casa recebeu pagamentos confirmados mas a conta de repasse é um recebedor de teste — o adquirente não conhece esse destino, então não dá pra conferir pra onde o dinheiro foi',
+                        es: 'este local recibió pagos confirmados pero su cuenta de abono es un receptor de prueba — el adquirente no conoce ese destino, así que no se puede verificar adónde fue el dinero' },
   'find.payables_no_recipient': { en: 'this venue has no known acquirer recipient — the destination cannot be checked',
                         pt: 'esta casa não tem recebedor conhecido no adquirente — não dá pra conferir o destino',
                         es: 'este local no tiene receptor conocido en el adquirente — no se puede verificar el destino' },

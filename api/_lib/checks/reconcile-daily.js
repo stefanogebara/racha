@@ -85,6 +85,46 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
   if (!psp || typeof psp.listChargePayables !== 'function') return [];
   if (typeof store.listRecentConfirmedCharges !== 'function') return [];
   const recebedor = venue.pspRecipientId || null;
+
+  /**
+   * RECEBEDOR DE MENTIRA NUMA CASA DE PRODUÇÃO — dinheiro sem destino conferível.
+   *
+   * `seedVenue` põe `pspRecipientId: 'rcpt_demo'` por padrão, e `isDemoVenue`
+   * exige as DUAS marcas (`isTest === true` E o recebedor placeholder). Uma
+   * casa semeada sem `isTest` fica com o placeholder e SEM a identidade de
+   * demo: a varredura noturna a trata como produção, e o adquirente não conhece
+   * recebedor nenhum com esse id.
+   *
+   * Medido em produção em 2026-09-10, na primeira execução real da perna: das
+   * 9 casas que a varredura conferiu, 7 eram semeadas com `rcpt_demo` e sem
+   * `isTest`; as duas ÚNICAS com recebedor de verdade (`re_...`) estavam
+   * marcadas `isTest` e ficaram de fora. O controle que responde ao inegociável
+   * #4 estava apontado só pra casas onde ele não pode funcionar.
+   *
+   * Isto é `high` e não `info` porque a casa TEM cobrança confirmada: dinheiro
+   * andou e não há como afirmar pra onde. Casa sem recebedor e sem cobrança é
+   * cadastro incompleto — assunto do radar de ativação, não deste canário.
+   */
+  const PLACEHOLDER = 'rcpt_demo';
+  if (venue.isTest !== true && (!recebedor || recebedor === PLACEHOLDER)) {
+    const quantas = typeof store.listRecentConfirmedCharges === 'function'
+      ? (await store.listRecentConfirmedCharges(venue.id, { sinceIso, limit }).catch(() => [])).length
+      : 0;
+    if (quantas > 0) {
+      return [{
+        severity: 'high',
+        code: 'venue_recipient_unusable',
+        message: recebedor
+          ? `casa de produção com recebedor de teste (${recebedor}) e ${quantas} cobrança(s) confirmada(s)`
+            + ' — o adquirente não conhece esse destino, não dá pra conferir pra onde o dinheiro foi'
+          : `casa de produção SEM recebedor e ${quantas} cobrança(s) confirmada(s)`
+            + ' — dinheiro andou sem destino conferível',
+        recipientId: recebedor,
+        charges: quantas,
+      }];
+    }
+  }
+
   let cobrancas;
   try {
     cobrancas = await store.listRecentConfirmedCharges(venue.id, { sinceIso, limit });
