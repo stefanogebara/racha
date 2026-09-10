@@ -171,22 +171,22 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
 
       <div className="cfggrid">
         <label>
-          Bônus por recarga (%)
+          {t('house.cfgBonus')}
           <input className="namefield" inputMode="decimal" value={bonusPct}
             onChange={(e) => setBonusPct(e.target.value)} />
         </label>
         <label>
-          Validade do bônus (dias) — mínimo legal 30 dias
+          {t('house.cfgValidity')}
           <input className="namefield" inputMode="numeric" value={validity}
             onChange={(e) => setValidity(e.target.value)} />
         </label>
         <label>
-          Recarga mínima (R$)
+          {t('house.cfgMinLoad', { symbol: 'R$' })}
           <input className="namefield" inputMode="decimal" value={minLoad}
             onChange={(e) => setMinLoad(e.target.value)} />
         </label>
         <label>
-          Recarga máxima (R$)
+          {t('house.cfgMaxLoad', { symbol: 'R$' })}
           <input className="namefield" inputMode="decimal" value={maxLoad}
             onChange={(e) => setMaxLoad(e.target.value)} />
         </label>

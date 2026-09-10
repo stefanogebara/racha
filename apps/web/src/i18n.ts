@@ -271,6 +271,18 @@ export const DICT = {
   'paid.ofWhichTip':  { en: 'of which {amount} service charge — the restaurant distributes it to the staff, as the law requires',
                         pt: 'sendo {amount} de serviço — o restaurante distribui à equipe, como manda a lei',
                         es: 'de los cuales {amount} de servicio — el restaurante lo distribuye al equipo, como exige la ley' },
+  // A VOLTA SEM TOKEN. Acontece quando o banco (ou o 3DS do cartão) devolve a
+  // pessoa numa ABA NOVA, ou quando o navegador bloqueia armazenamento: o
+  // `sessionStorage` da aba original não existe aqui. Antes disto a pessoa caía
+  // na LANDING depois de ter autorizado o pagamento — nenhuma conta, nenhum
+  // comprovante, nenhum "confirmando". A leitura razoável é que falhou, e a
+  // ação razoável é pagar de novo. Achado da revisão de segurança de 2026-09-10.
+  'ret.title':        { en: 'Your payment is being confirmed',
+                        pt: 'Seu pagamento está sendo confirmado',
+                        es: 'Tu pago se está confirmando' },
+  'ret.body':         { en: 'Scan the table’s QR code again to see the bill — if the payment went through, it is already there. Do not pay twice.',
+                        pt: 'Escaneie o QR da mesa de novo para ver a conta — se o pagamento passou, ele já está lá. Não pague duas vezes.',
+                        es: 'Escanea otra vez el QR de la mesa para ver la cuenta — si el pago pasó, ya está ahí. No pagues dos veces.' },
   'paid.at':          { en: 'on {when}',                        pt: 'em {when}', es: 'el {when}' },
   'paid.notInvoice':  { en: 'This is not an invoice. Ask the restaurant for one if you need it.',
                         pt: 'Isto não é uma nota fiscal. Peça a nota ao restaurante se precisar.',
@@ -988,6 +1000,16 @@ export const DICT = {
   'stripe.connect':   { en: 'Connect Stripe',                  pt: 'Conectar Stripe', es: 'Conectar Stripe' },
 
   // ── créditos da casa (admin) ───────────────────────────────────────────
+  // Os quatro rótulos do formulário de configuração do saldo. Ficaram em
+  // português cru até 2026-09-10 porque *validade*, *bônus*, *recarga*,
+  // *mínima* e *máxima* não estavam na lista de palavras do censo — a lista é o
+  // teto do método, não a âncora. Achado da revisão de compliance.
+  'house.cfgBonus':   { en: 'Bonus per top-up (%)',            pt: 'Bônus por recarga (%)', es: 'Bono por recarga (%)' },
+  'house.cfgValidity': { en: 'Bonus validity (days) — the legal floor is 30',
+                        pt: 'Validade do bônus (dias) — mínimo legal 30 dias',
+                        es: 'Validez del bono (días) — el mínimo legal es 30' },
+  'house.cfgMinLoad': { en: 'Minimum top-up ({symbol})',       pt: 'Recarga mínima ({symbol})', es: 'Recarga mínima ({symbol})' },
+  'house.cfgMaxLoad': { en: 'Maximum top-up ({symbol})',       pt: 'Recarga máxima ({symbol})', es: 'Recarga máxima ({symbol})' },
   'house.badValues':  { en: 'Check the amounts — use a comma for the cents (e.g. 1000,00).',
                         pt: 'Confira os valores — use vírgula para os centavos (ex.: 1000,00).',
                         es: 'Revisa los importes — usa coma para los céntimos (p. ej. 1000,00).' },

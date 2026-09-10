@@ -25,6 +25,11 @@ const CHAVE = 'racha-t';
 /** A marca da volta. Sem ela, uma visita a `/` não ressuscita mesa nenhuma. */
 const MARCA = 'r';
 
+/** A pessoa VOLTOU de um trilho que redireciona — com ou sem token guardado. */
+export function voltandoDePagamento(busca: string): boolean {
+  return new URLSearchParams(busca).get(MARCA) === '1';
+}
+
 /** Guarda o token da aba assim que a conta abre. Falha em silêncio. */
 export function lembrarToken(token: string): void {
   if (!token) return;

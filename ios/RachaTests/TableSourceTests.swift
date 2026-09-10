@@ -12,12 +12,21 @@ struct TableQRTests {
         #expect(qr?.origin.absoluteString == "https://racha.app")
     }
 
-    @Test("a origem vem do próprio QR, não do build")
-    func originFollowsTheSticker() {
-        // A white-label venue prints its own domain; the app has to follow it
-        // without a release.
-        let qr = TableQR.parse("https://menu.bardoze.com.br/?t=tok_9")
-        #expect(qr?.origin.absoluteString == "https://menu.bardoze.com.br")
+    @Test("a origem vem do QR, mas só se for uma origem que a gente já conhece")
+    func originMustBeKnown() {
+        // Isto ACEITAVA qualquer domínio, pra uma casa white-label poder
+        // imprimir o dela sem release do app. A conveniência é um primitivo de
+        // desvio de pagamento: um adesivo colado sobre o QR da mesa, com
+        // `https://atacante.example/?t=qualquer`, aponta o app pro servidor de
+        // outra pessoa e o app desenha a resposta como conta do Racha. É a
+        // fraude de adesivo de QR de sempre, com o app tirando a única defesa
+        // que o navegador dava: a barra de endereço.
+        #expect(TableQR.parse("https://racha.app/?t=tok_9")?.origin.absoluteString == "https://racha.app")
+        #expect(TableQR.parse("https://menu.bardoze.com.br/?t=tok_9") == nil)
+        #expect(TableQR.parse("https://racha.app.atacante.example/?t=tok_9") == nil)
+        // Sem texto claro: na wifi do bar qualquer um reescreve a conta no meio
+        // do caminho.
+        #expect(TableQR.parse("http://racha.app/?t=tok_9") == nil)
     }
 
     @Test("QR que não é do Racha não vira mesa")

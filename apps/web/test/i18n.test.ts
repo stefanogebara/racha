@@ -141,6 +141,8 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'wallet.cancel:pt=es', 'wallet.payAmount:pt=es', 'wallet.authorizing:pt=es',
     // O saldo da casa: "pagando…" e "Mesa" se escrevem igual nas duas.
     'housepay.paying:pt=es', 'qrs.tableTitle:pt=es',
+    // "Recarga mínima/máxima" se escreve igual nas duas.
+    'house.cfgMinLoad:pt=es', 'house.cfgMaxLoad:pt=es',
     'rcpt.holder:pt=es', 'rcpt.bankLabel:pt=es', 'rcpt.bankCodeKnown:pt=es',
     'rcpt.optionalPh:pt=es', 'rcpt.sending:pt=es', 'rcpt.cancel:pt=es',
     'ledger.load:pt=es', 'ledger.refund:pt=es', 'cat.carne:pt=es',
@@ -386,7 +388,11 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
     // negação só encontra o que alguém já pensou em escrever nela.
     'girar', 'desativar', 'reembolsar', 'reembolso', 'código', 'impresso',
     'funcionar', 'disponível', 'carteira', 'bônus', 'informe', 'equipe',
-    'valor', 'valores', 'escanear', 'restaurante', 'idioma', 'enviar'];
+    'valor', 'valores', 'escanear', 'restaurante', 'idioma', 'enviar',
+    // Segunda rodada, mesma lição: quatro rótulos do formulário do saldo
+    // sobreviveram porque *validade*, *recarga*, *mínima* e *máxima* não
+    // estavam aqui. O mecanismo vai continuar produzindo esses um lote por vez.
+    'validade', 'recarga', 'mínima', 'máxima', 'mínimo', 'máximo'];
   const re = new RegExp(`\\b(${ptOnly.join('|')})\\b`, 'i');
 
   const offenders: string[] = [];
@@ -616,6 +622,11 @@ test('todo código de erro que a API manda tem tradução', async () => {
         const src = fs.readFileSync(full, 'utf8');
         for (const m of src.matchAll(/code: '([a-z_]+)'/g)) codes.add(m[1]);
         for (const m of src.matchAll(/badRequest\([^;]*?'([a-z_]+)'\s*[,)]/g)) codes.add(m[1]);
+        // `httpError(404, 'venue not found', 'venue_not_found')` — a terceira
+        // forma. Dois dos seis códigos novos do saldo da casa estavam fora do
+        // guarda e passaram só porque eu escrevi as traduções à mão. O
+        // próximo `httpError(…, 'novo')` sairia verde mostrando `err.generic`.
+        for (const m of src.matchAll(/httpError\([^;]*?'([a-z_]+)'\s*[,)]/g)) codes.add(m[1]);
         // A forma POSICIONAL da conciliação: `add('critical', 'ledger_drift', …)`.
         //
         // O censo só via `code: '…'`, e é assim que TODO achado de conciliação

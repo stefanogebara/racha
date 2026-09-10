@@ -179,12 +179,27 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A ÚNICA tradução de resposta HTTP pra erro no cliente.
+ *
+ * Existiam duas, e só esta foi atualizada quando o servidor passou a mandar
+ * `code` + `vars` em vez de frase. A outra (`authedReq`, no `auth.ts`) fazia
+ * `new Error(body.error || \`HTTP ${res.status}\`)` — e o `errorBody` OMITE
+ * `error` quando há código, então todo painel do dono passou a mostrar
+ * "HTTP 404" no lugar de uma frase. Exatamente a regressão que o `tErr` foi
+ * escrito pra evitar, na metade que eu não conferi. Achado da revisão de
+ * segurança de 2026-09-10.
+ *
+ * Uma função só, e um censo em `bundle.test.ts` que proíbe a segunda.
+ */
+export function erroDaResposta(res: Response, body: any): ApiError {
+  return new ApiError(body?.error || `HTTP ${res.status}`, res.status, body?.code, body?.vars);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init); // falha de rede rejeita aqui, sem status
   const body = await res.json().catch(() => ({}));
-  if (!res.ok || body.success === false) {
-    throw new ApiError(body.error || `HTTP ${res.status}`, res.status, body.code, body.vars);
-  }
+  if (!res.ok || body.success === false) throw erroDaResposta(res, body);
   return body.data as T;
 }
 

@@ -122,6 +122,18 @@ test('o comprovante nunca mostra número sem a cobrança que o gerou', () => {
 
 /* ── o que a gente MANDA pro terceiro ────────────────────────────────────── */
 
+/** Os `.ts`/`.tsx` de `src`, DESCENDO — `src` é plana hoje, e a primeira
+ *  subpasta tirava telas deste censo em silêncio (o mesmo conserto que os
+ *  quatro censos de idioma ganharam; este ficou pra trás no mesmo commit). */
+function arquivosTsx(raiz: string, sub = '', out: string[] = []): string[] {
+  for (const e of readdirSync(join(raiz, sub), { withFileTypes: true })) {
+    const rel = sub ? `${sub}/${e.name}` : e.name;
+    if (e.isDirectory()) arquivosTsx(raiz, rel, out);
+    else if (/\.tsx?$/.test(e.name)) out.push(rel);
+  }
+  return out;
+}
+
 /**
  * Os testes acima perguntam QUEM o cliente carrega. Este pergunta O QUE a gente
  * entrega — e era o eixo que faltava.
@@ -144,26 +156,45 @@ test('nenhuma tela entrega a URL da conta a um SDK de terceiro', () => {
   // Os pontos onde a gente ENTREGA string pra um SDK que a persiste.
   const entregas = /(return_url|returnUrl|redirect_uri|redirectUrl|success_url|cancel_url)\s*:/;
   const achados: string[] = [];
-  for (const f of readdirSync(SRC).filter((f) => /\.tsx?$/.test(f))) {
+  for (const f of arquivosTsx(SRC)) {
     // `payReturn.ts` é o lugar que TEM que ler a URL — é ele quem a limpa.
     if (f === 'payReturn.ts') continue;
-    const linhas = readFileSync(join(SRC, f), 'utf8').split('\n');
+    const texto = readFileSync(join(SRC, f), 'utf8');
+    const linhas = texto.split('\n');
     linhas.forEach((linha, i) => {
       if (!entregas.test(linha)) return;
+      // O VALOR entregue, não a linha: `const volta = window.location.href` uma
+      // linha acima e `return_url: volta` embaixo passava, porque a regra
+      // exigia o par na MESMA linha. Aqui o valor tem que ser literalmente a
+      // chamada que limpa.
+      const valor = linha.split(/(?:return_url|returnUrl|redirect_uri|redirectUrl|success_url|cancel_url)\s*:/)[1] ?? '';
+      if (!/urlDeVolta\(\)/.test(valor)) achados.push(`${f}:${i + 1} ${linha.trim()}`);
       if (suspeitas.some((re) => re.test(linha))) achados.push(`${f}:${i + 1} ${linha.trim()}`);
     });
   }
   assert.deepEqual(achados, [],
-    `\n${achados.join('\n')}\nA URL da conta carrega o token da mesa. Use urlDeVolta().\n`);
+    `\n${achados.join('\n')}\nA volta de um PSP só pode ser urlDeVolta(): a URL da conta carrega o token da mesa.\n`);
 });
 
 test('o token da mesa não entra na URL de volta', () => {
   // O outro lado da mesma garantia: `urlDeVolta` é o único construtor da volta,
   // e ele não pode ganhar um `t` de volta num refactor distraído.
+  //
+  // A PRIMEIRA VERSÃO DESTE TESTE ERA VAZIA. Ela recortava até o primeiro `}`
+  // do arquivo — que é o fecho de `${window.location.origin}`, dentro do
+  // template — então inspecionava 73 caracteres e nunca via o resto do
+  // `return`. Reescrever a função pra `...?r=1&t=${sessionStorage.getItem(...)}`
+  // passava verde. Um portão escrito no mesmo commit do achado, com a forma do
+  // achado dentro dele. Achado da revisão de segurança de 2026-09-10.
+  //
+  // Por isso agora é LISTA DE PERMISSÃO de uma forma só, e não busca de
+  // palavra proibida — o mesmo argumento que o `KEEP` do `mask.js` faz.
   const fonte = readFileSync(join(import.meta.dirname, '..', 'src', 'payReturn.ts'), 'utf8');
-  const construtor = fonte.slice(fonte.indexOf('export function urlDeVolta'));
-  assert.ok(!/\bt=|qrToken|token/.test(construtor.slice(0, construtor.indexOf('}'))),
-    'urlDeVolta() voltou a carregar o token da mesa');
+  const corpo = fonte.slice(fonte.indexOf('export function urlDeVolta'));
+  const linhas = corpo.slice(0, corpo.indexOf('\n}')).split('\n').slice(1)
+    .map((l) => l.trim()).filter(Boolean);
+  assert.deepEqual(linhas, ['return `${window.location.origin}${window.location.pathname}?${MARCA}=1`;'],
+    'urlDeVolta() mudou de forma — a volta só pode ser origem + caminho + a marca');
 });
 
 /**
@@ -204,8 +235,43 @@ test('todo trilho de terceiro exige bandeira por casa, e o servidor só a emite 
 
   // 3. E o servidor só a emite pra casa que tem recebedor DE VERDADE. Sem esta
   //    parte, a bandeira existiria e não significaria nada.
-  const emissao = router.slice(router.indexOf('acceptsWallet: true') - 400,
-                               router.indexOf('acceptsWallet: true'));
-  assert.match(emissao, /\^re_/, 'acceptsWallet sai sem exigir recebedor real');
+  // Da resolução da casa até a emissão da bandeira — não uma janela de N
+  // caracteres, que muda de significado quando alguém move uma linha.
+  const emissao = router.slice(router.indexOf('const casa ='), router.indexOf('acceptsWallet: true'));
+  assert.ok(emissao.length > 0 && emissao.length < 2000, 'a emissão de acceptsWallet mudou de forma');
+  // A MESMA forma que o resto do repositório usa pra recebedor (`pagarme-psp`,
+  // `setupComplete`). Fixar `re_` aqui congelava uma cópia divergente.
+  assert.match(emissao, /\^r\[ep\]_/, 'acceptsWallet sai sem exigir recebedor real, na forma canônica');
   assert.match(emissao, /DEMO_TABLE_TOKEN/, 'a mesa de demo tem que ficar de fora do trilho real');
+});
+
+/**
+ * UMA tradução de resposta HTTP pra erro, não duas.
+ *
+ * Havia duas: `request` no `api.ts` e `authedReq` no `auth.ts`. Quando o
+ * servidor parou de mandar frase e passou a mandar `code` + `vars`, só a
+ * primeira foi atualizada — e como o `errorBody` OMITE `error` quando há
+ * código, todo painel do dono passou a mostrar "HTTP 404". A metade que eu não
+ * conferi. Achado da revisão de segurança de 2026-09-10.
+ *
+ * O modo de falha é geral: qualquer erro com código novo degrada do mesmo
+ * jeito no lado que não decodifica. Então o teste não é "authedReq está certo",
+ * é "só existe um lugar que pode estar errado".
+ */
+test('só um lugar no cliente transforma resposta HTTP em erro', () => {
+  const SRC = join(import.meta.dirname, '..', 'src');
+  const donos: string[] = [];
+  for (const f of arquivosTsx(SRC)) {
+    const texto = readFileSync(join(SRC, f), 'utf8');
+    // Quem lê `body.success === false` está decodificando resposta de API.
+    if (!/body\.success === false|!res\.ok/.test(texto)) continue;
+    // E quem decodifica tem que usar o decodificador — não montar o erro à mão.
+    for (const [i, linha] of texto.split('\n').entries()) {
+      if (!/body\.success === false|!res\.ok/.test(linha)) continue;
+      if (!/erroDaResposta/.test(linha)) donos.push(`${f}:${i + 1} ${linha.trim()}`);
+    }
+  }
+  assert.deepEqual(donos, [],
+    `\n${donos.join('\n')}\nUse erroDaResposta(res, body): sem ela o \`code\` e os \`vars\` somem `
+    + 'e a tela mostra "HTTP 4xx".\n');
 });

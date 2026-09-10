@@ -426,11 +426,13 @@ async function route(req, res) {
       if (token === DEMO_TABLE_TOKEN) {
         data = { ...data, venue: { ...data.venue, demo: true } };
       }
-      if (stripePsp && token !== DEMO_TABLE_TOKEN) {
-        const v = await store.getVenueForCheck(data.check.id);
-        if (v && v.stripeAccountId && /^acct_/.test(v.stripeAccountId)) {
-          data = { ...data, venue: { ...data.venue, acceptsCard: true } };
-        }
+      // UMA consulta pras duas bandeiras. Eram duas idênticas na mesma
+      // requisição — e `/api/check` é público, sem limite de taxa, consultado a
+      // cada 4 segundos por cada telefone da mesa. Amplificação constante de
+      // trabalho já sem teto, no caminho crítico de quem está pagando.
+      const casa = token !== DEMO_TABLE_TOKEN ? await store.getVenueForCheck(data.check.id) : null;
+      if (stripePsp && casa && casa.stripeAccountId && /^acct_/.test(casa.stripeAccountId)) {
+        data = { ...data, venue: { ...data.venue, acceptsCard: true } };
       }
       // A CARTEIRA (Google Pay) pelo mesmo contrato do cartão: quem declara é
       // o SERVIDOR, por casa.
@@ -446,11 +448,15 @@ async function route(req, res) {
       //
       // A carteira liquida pelo gateway `pagarme`, então a condição é a mesma
       // que permite cobrar: recebedor de verdade nesta casa.
-      if (token !== DEMO_TABLE_TOKEN) {
-        const v = await store.getVenueForCheck(data.check.id);
-        if (v && /^re_/.test(v.pspRecipientId || '')) {
-          data = { ...data, venue: { ...data.venue, acceptsWallet: true } };
-        }
+      //
+      // `r[ep]_`, não `re_`: é a MESMA forma que o `pagarme-psp.js` aceita pra
+      // cobrar e que o `setupComplete` usa pra dizer que a casa está pronta.
+      // A primeira versão desta linha divergiu pra `re_`, o que deixava uma
+      // casa legada `rp_` cobrando normalmente e sem carteira — falha fechada,
+      // então não era buraco, mas é a forma "cópia divergente" que aparece
+      // depois como "o Google Pay parou de funcionar num restaurante só".
+      if (casa && /^r[ep]_/.test(casa.pspRecipientId || '')) {
+        data = { ...data, venue: { ...data.venue, acceptsWallet: true } };
       }
       // O estado sai PROJETADO. `/api/check` é público — quem tem o QR da mesa
       // lê, sem login — e devolvia o estado reduzido inteiro: motivo de disputa

@@ -50,8 +50,17 @@ function deps(pkgRelativo) {
  * deploy (o `embed-ios.mjs` copia de lá só as imagens). O que ANDA é o que
  * sobe: o servidor, o cliente, a casca do cliente, o protótipo publicado em
  * `/ios` e o app nativo.
+ *
+ * `apps/web/public` ANDA, e os artefatos COPIADOS pra lá ficam de fora — não
+ * porque não importem, mas porque a FONTE deles já é censurada e um censo cujo
+ * resultado depende de ter rodado build antes é um censo que responde
+ * diferente na CI e na máquina de quem escreveu. O que sobra em `public/` é o
+ * que alguém pôs à mão, e é exatamente aí que a Google Fonts do `/ios`
+ * entraria de novo. Os nomes vêm do `embed-ios.mjs`.
  */
-const ANDA_EM = ['api', 'apps/web/src', 'ios/Racha'];
+const ANDA_EM = ['api', 'apps/web/src', 'apps/web/public', 'ios/Racha'];
+/** Copiados pelo `embed-ios.mjs` no prebuild; a fonte deles está em `ios/`. */
+const COPIADOS = /^(ios\.html|img|carved|ios-fonts)$/;
 const ARQUIVOS_SOLTOS = ['apps/web/index.html', 'ios/racha-ios.html', 'vercel.json'];
 const EXTENSOES = /\.(js|mjs|ts|tsx|html|css|swift|json)$/;
 
@@ -60,8 +69,10 @@ function fontes(dir, out = []) {
     const p = path.join(dir, entrada.name);
     if (entrada.isDirectory()) {
       if (/^(node_modules|dist|build|Pods|__tests__|test|DerivedData)$/.test(entrada.name)) continue;
+      if (COPIADOS.test(entrada.name)) continue;
       fontes(p, out);
-    } else if (EXTENSOES.test(entrada.name) && !/\.test\./.test(entrada.name)) {
+    } else if (EXTENSOES.test(entrada.name) && !COPIADOS.test(entrada.name)
+               && !/\.test\./.test(entrada.name)) {
       out.push(p);
     }
   }
@@ -92,14 +103,31 @@ describe('o mapa de dados acompanha o código', () => {
     // LITERAIS, não padrões. Era `/^racha-[a-z]+\.vercel\.app$/`, e nomes de
     // projeto na Vercel são de quem chegar primeiro: `racha-exfil.vercel.app`
     // casava e o censo chamava de nosso.
-    const nossos = new Set(['racha.app', 'racha-gray.vercel.app', 'localhost',
-      'openapi.vercel.sh', 'menu.bardoze.com.br']);
+    const nossos = new Set(['racha.app', 'racha-gray.vercel.app', 'localhost']);
+    // NÃO são nossos — só não são destinatários de dado em runtime. Separado de
+    // `nossos` de propósito: a primeira versão pôs o domínio de um CLIENTE
+    // (`menu.bardoze.com.br`, de uma fixture) na lista de "nossos", que é
+    // rótulo errado numa lista de permissão. Achado da revisão de segurança.
+    const naoSaoDestinatarios = new Set([
+      'openapi.vercel.sh',   // `$schema` do vercel.json, nunca buscado em runtime
+    ]);
     const externos = [...hosts]
-      .filter((h) => !nossos.has(h) && !/\.example$/.test(h))
+      .filter((h) => !nossos.has(h) && !naoSaoDestinatarios.has(h) && !/\.example$/.test(h))
       .sort();
     expect(externos.length).toBeGreaterThan(0);
     const faltando = externos.filter((h) => !MAPA.includes(h));
     expect(faltando).toEqual([]);
+  });
+
+  test('o número de campos guardados do webhook é o do código', () => {
+    // O mapa dizia "15 campos"; o `KEEP` tem 14, e nada conferia. Um número
+    // pequeno e não testado dentro de um registro do art. 37 é a mesma coisa
+    // que fez a primeira versão deste mapa estar errada sobre o `payer_hint`.
+    const mask = fs.readFileSync(path.join(RAIZ, 'api', '_lib', 'pay', 'mask.js'), 'utf8');
+    const bloco = mask.slice(mask.indexOf('const KEEP = ['), mask.indexOf('];', mask.indexOf('const KEEP = [')));
+    const quantos = (bloco.match(/'[^']+'/g) || []).length;
+    expect(quantos).toBeGreaterThan(0);
+    expect(MAPA).toContain(`${quantos} campos`);
   });
 
   test('o mapa nomeia as lacunas em vez de deixá-las implícitas', () => {

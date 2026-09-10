@@ -14,9 +14,26 @@ import Foundation
 struct TableQR: Equatable, Sendable {
     /// The opaque table token. Credential: keep it out of logs and events.
     let token: String
-    /// Where the check lives. Taken from the QR's own origin, so a venue on a
-    /// white-label domain works without a client release.
+    /// Where the check lives. Taken from the QR's own origin — but only from an
+    /// origin we already know. See `allowedHosts`.
     let origin: URL
+
+    /// The hosts a scanned sticker is allowed to name.
+    ///
+    /// This used to be "any https or http origin", so a venue on a white-label
+    /// domain would work without a client release. That convenience is a
+    /// payment-redirection primitive: a sticker pasted over a real table's QR,
+    /// encoding `https://attacker.example/?t=anything`, points the app at
+    /// someone else's server and the app renders the response as a Racha bill —
+    /// their amounts, their Pix key, our chrome. It is the ordinary Brazilian
+    /// QR-sticker fraud, with the native client removing the one defence a
+    /// browser gives: a visible address bar. `http` was accepted too.
+    ///
+    /// White-label stays possible; it just stops being self-service for whoever
+    /// holds a printer. The next step is fetching onboarded domains from our own
+    /// API and merging them here — until then the list is what ships.
+    /// Found by the security review of 2026-09-10.
+    static let allowedHosts: Set<String> = ["racha.app", "www.racha.app", "racha-gray.vercel.app"]
 
     /// Parse a scanned string. Accepts the printed URL form; a bare token is
     /// accepted only with an explicit fallback origin, which is what the
@@ -25,9 +42,12 @@ struct TableQR: Equatable, Sendable {
         let trimmed = scanned.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
-           scheme == "https" || scheme == "http" {
+        // `https` only: plaintext would let anyone on the café wifi rewrite the
+        // bill on the way to the phone.
+        if let url = URL(string: trimmed), url.scheme?.lowercased() == "https" {
             guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  let host = components.host?.lowercased(),
+                  allowedHosts.contains(host),
                   let token = components.queryItems?.first(where: { $0.name == "t" })?.value,
                   isPlausibleToken(token) else { return nil }
             var originComponents = URLComponents()

@@ -32,7 +32,7 @@ const StripeWalletPay = lazy(() => import('./StripeWalletPay'));
 const BizumPay = lazy(() => import('./BizumPay'));
 import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, splitEqualLocal, type SplitMode } from './split';
-import { lembrarToken, tokenDaVolta } from './payReturn';
+import { lembrarToken, tokenDaVolta, voltandoDePagamento } from './payReturn';
 
 /**
  * Racha diner flow — one screen, three acts:
@@ -261,6 +261,23 @@ export default function App() {
   }, [step, sendBeacon]);
 
   // Sem token de mesa = visita direta (desktop/prospect/KYC) → landing.
+  //
+  // MENOS quando a pessoa está VOLTANDO de um pagamento: aí a landing é a
+  // resposta errada — ela acabou de autorizar dinheiro e a tela diz "conheça o
+  // Racha". Aba nova ou armazenamento bloqueado tiram o token guardado, e o
+  // caminho é alcançável no Brasil (3DS de cartão que a Stripe não resolve em
+  // modal). Melhor mandar de volta pro QR do que deixar pagar duas vezes.
+  if (!token && voltandoDePagamento(window.location.search)) {
+    return (
+      <Shell>
+        <section className="card center">
+          <h2>{t('ret.title')}</h2>
+          <p className="muted">{t('ret.body')}</p>
+          <LangToggle />
+        </section>
+      </Shell>
+    );
+  }
   if (!token) return <Home />;
   if (error && !view) return <Shell><p className="muted center">{error}</p></Shell>;
   if (!view) return <Shell><p className="muted center">{t('common.loading')}</p></Shell>;

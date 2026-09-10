@@ -40,9 +40,9 @@ documentada, em nome próprio. Ver lacuna 4.
 | Dado | De quem | Pra quê | Base legal | Onde mora | Prazo |
 |---|---|---|---|---|---|
 | `payments.payer_label` — nome livre que a pessoa digita ("Ste", "mesa toda") | cliente | dizer no painel e no comprovante quem pagou qual parte | operadora, por conta da casa (art. 7º V da casa) | Supabase `payments` | **sem prazo definido — lacuna 1** |
-| `payments.psp_payload_masked` — subconjunto ESCALAR do webhook (15 campos: txid, valores, status, horários) | cliente | reconciliar e reproduzir o histórico | operadora | Supabase `payments` | segue a conta |
+| `payments.psp_payload_masked` — subconjunto ESCALAR do webhook (14 campos: txid, valores, status, horários) | cliente | reconciliar e reproduzir o histórico | operadora | Supabase `payments` | segue a conta |
 | `house_accounts.phone` + `.name` | cliente que abre carteira pré-paga | achar a carteira dele na casa e saber de quem é o saldo | operadora | Supabase `house_accounts` | **sem prazo — lacuna 1** |
-| `check_views.session_hash` | ninguém — aleatório do navegador | contar quantas pessoas ABREM a conta (portão de adoção) | interesse legítimo (art. 7º IX), minimização por construção | Supabase `check_views` | segue a conta |
+| `check_views.session_hash` | ninguém — aleatório do navegador | contar quantas pessoas ABREM a conta (portão de adoção) | interesse legítimo (art. 7º IX) — **e a lacuna 2 é PRÉ-CONDIÇÃO dela**, não item vizinho: o art. 7º IX é a única base que chega com dever de transparência (art. 10 §2) e direito de oposição (art. 18 §2). Sem o aviso, a base é alegada, não constituída | Supabase `check_views` | segue a conta — **e a conta não expira (lacuna 1), então isto é sobre-retenção pra um CONTADOR. Agregar por casa/semana e apagar a linha crua tira o `check_views` do perímetro quase inteiro, que é melhor do que ganhar o teste de balanceamento** |
 | `venues.cnpj`, `venues.notify_email`, `venues.notify_whatsapp` | dono | cadastro, KYC do recebedor, aviso de status | controladora, contrato (art. 7º V) | Supabase `venues` | vida do contrato |
 | e-mail e senha do dono | dono | login do painel | controladora, contrato | Supabase Auth (GoTrue), `auth.users` | vida do contrato |
 | dados bancários da casa (banco, agência, conta, titular) | casa | criar o recebedor no PSP | controladora, contrato | **não persistidos aqui** — vão do formulário direto pro PSP | n/a |
@@ -53,7 +53,7 @@ documentada, em nome próprio. Ver lacuna 4.
 |---|---|---|---|
 | **Supabase — projeto de dados da Racha** (`SUPABASE_URL`, sem literal no código) | tudo da tabela acima, menos o login | é o banco | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
 | **Supabase — projeto de auth do SEATABLE** (`ckforlwdhewexyqljsaf.supabase.co`) | e-mail do dono, hash de senha, identidade OAuth, sessão | login compartilhado entre os dois produtos (`apps/web/src/auth.ts`, `AUTH_SUPABASE_URL`) | AWS |
-| **Vercel** | requisições, logs de função | hospedagem | EUA/edge |
+| **Vercel** | requisições, logs de função — **incluindo o `t` da mesa, que viaja na query string do `/api/check` e é consultado a cada 4s** | hospedagem | EUA/edge |
 | **Pagar.me** (`api.pagar.me`) | CPF do pagador quando informado, `payerLabel` dentro da descrição da cobrança (`Racha <label>`), valor, split | criar a cobrança Pix/cartão e liquidar direto pra casa | Brasil |
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
 | **Google Pay** (`pay.google.com`) | o que a folha da carteira do sistema operacional troca com o Google | botão de carteira — **só em casa que o servidor declarou `acceptsWallet`** | Google |
@@ -167,6 +167,21 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    demo — o mesmo contrato do `acceptsCard`. Censo em
    `apps/web/test/bundle.test.ts`, atravessando cliente e servidor.
 
+8. **Sem Content-Security-Policy.** É o único controle que teria tornado o
+   incidente do `js.stripe.com` IMPOSSÍVEL em vez de visível em retrospecto, e
+   pegaria a Google Fonts do `/ios` e o `pay.js` junto. Não foi escrita ainda de
+   propósito: adivinhar `connect-src` numa superfície de pagamento viva quebra
+   PAGAR, não estilo. O método é o mesmo que este repositório usa pro resto —
+   MEDIR primeiro: subir `Content-Security-Policy-Report-Only`, que por
+   construção não quebra nada, colher uma semana da superfície real e só então
+   impor a partir do que foi medido.
+9. **O `t` da mesa vive nos logs da Vercel.** Ele viaja na query string do
+   `/api/check`, consultado a cada 4 segundos por telefone. As duas pernas em
+   que ele saía pra TERCEIRO foram fechadas (`Referrer-Policy` e o
+   `return_url`); esta é interna, e a Vercel já é operadora nomeada com
+   hospedagem como base. O que falta é prazo: log é mais um lugar onde uma
+   capacidade ao portador mora sem expirar. Anda junto com a lacuna 1.
+
 Nenhuma dessas bloqueia o piloto brasileiro assistido. As lacunas 2 e 4
 bloqueiam o primeiro QR numa mesa de cliente de verdade; as 3, 5 e 6 bloqueiam
 ligar a Espanha (`RACHA_ES_ENABLED`).
@@ -198,15 +213,41 @@ e com três fornecedores de modelo:
 
 | Destinatário | O que sai | Quando |
 |---|---|---|
-| `api.anthropic.com` | a conversa do assistente da mesa, que inclui itens da conta e os nomes que as pessoas digitaram | só se a pessoa colar a PRÓPRIA chave em Ajustes (`settings.anthropicKey`); sem chave, roda o `MockTransport`, sem rede |
+| `api.anthropic.com` | a conversa do assistente da mesa — itens da conta e os nomes que as pessoas digitaram — **e a FOTOGRAFIA DA CONTA**, em base64 (`AgentSession.swift:81`, `.image(mediaType: "image/jpeg")`, dirigida por `AgentTools.parseReceipt`) | só se a pessoa colar a PRÓPRIA chave em Ajustes (`settings.anthropicKey`); sem chave, roda o `MockTransport`, sem rede |
 | `api.openai.com` | o NOME do prato, pra gerar a imagem | idem, `settings.openAIKey` |
-| `generativelanguage.googleapis.com` | idem | idem |
+| `generativelanguage.googleapis.com` | idem | idem, `settings.googleKey` |
 
-Os três são **opt-in por chave do próprio usuário**, não destinatários padrão —
-o app instalado sem chave não fala com nenhum deles. Isso os torna aceitáveis
-hoje e **não** dispensa aviso no dia em que a chave for nossa e o recurso vier
-ligado: aí a conta de um cliente passa a sair do país pra um fornecedor de
-modelo, e isso é decisão de compliance antes de ser de produto.
+**A fotografia é uma classe de divulgação diferente do transcrito**, e a
+primeira versão desta seção descrevia só a parte arrumada — o mesmo erro do
+`psp_payload_masked`. Uma nota brasileira carrega CNPJ, endereço, data e hora,
+a mesa, às vezes um identificador do garçom, às vezes CPF na nota, e o que mais
+estiver no enquadramento.
+
+E **o consentimento vem da pessoa errada.** Quem cola a chave consente por si;
+os titulares são as OUTRAS pessoas da mesa, cujos nomes foram digitados e cujos
+pedidos estão na foto. Consentimento do art. 8º é pessoal e específico, e o dono
+do aparelho não o fornece por elas. A tela de Ajustes informa modo e custo, e
+nada sobre quem recebe o quê.
+
+Então o que torna isto aceitável HOJE não é ser opt-in: é que ninguém fora do
+fundador roda o app com chave. O gatilho pra rever não é "o dia em que a chave
+for nossa" — é **o dia em que o app chegar na mão de terceiro com qualquer
+chave**.
+
+**A linha de cima, "fala com `racha.app`", só passou a ser verdade em
+2026-09-10.** `TableQR.swift` aceitava QUALQUER origem `https` — e `http` —
+impressa no QR, e o `BackendTableSource` buscava `{origemEscaneada}/api/check?t=…`
+e desenhava a resposta como conta do Racha. Um adesivo colado sobre o QR de uma
+mesa apontava o app pro servidor de outra pessoa com a credibilidade do app em
+volta: a fraude de adesivo de QR brasileira de sempre, com o cliente nativo
+retirando a única defesa que o navegador dava (a barra de endereço visível).
+Enquanto isso valeu, esta seção **não conseguia enumerar os destinatários do
+app** — ele falava com quem o adesivo mandasse. Agora há lista de permissão de
+origem (`TableQR.allowedHosts`) e `https` obrigatório. A conveniência que se
+perdeu era real: uma casa white-label imprimia o domínio dela sem release do
+app. Ela volta quando a lista vier da NOSSA API com os domínios efetivamente
+integrados — até lá, white-label passa por release. Achado da revisão de
+segurança de 2026-09-10.
 
 `ios/lab` e `docs/outreach` estão fora do censo de propósito — rascunho de
 design e material de venda, que não sobem no domínio do produto. O

@@ -1,4 +1,7 @@
 import { createClient, type Session } from '@supabase/supabase-js';
+// O MESMO decodificador do `api.ts`: `code` e `vars` têm que atravessar aqui
+// também, ou o painel do dono mostra "HTTP 404". Ver `erroDaResposta`.
+import { erroDaResposta } from './api';
 
 /**
  * Frontend auth — Supabase Auth (GoTrue). The publishable key is browser-safe;
@@ -117,6 +120,6 @@ export async function authedReq<T>(path: string, init: RequestInit = {}): Promis
   });
   const body = await res.json().catch(() => ({}));
   if (res.status === 401) { await signOut(); throw new Error('sessão expirada — entre de novo'); }
-  if (!res.ok || body.success === false) throw new Error(body.error || `HTTP ${res.status}`);
+  if (!res.ok || body.success === false) throw erroDaResposta(res, body);
   return body.data as T;
 }
