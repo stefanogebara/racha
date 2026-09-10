@@ -2,17 +2,31 @@ import Foundation
 
 /// Where this build talks to.
 ///
-/// The QR carries its own origin, so a venue on a white-label domain works
-/// without a client release; this is only the fallback for the "type the code"
-/// path and for deciding whether a build has a backend at all.
+/// O comentário que estava aqui dizia que "o QR carrega a própria origem, então
+/// uma casa white-label funciona sem release" — e ele continuou dizendo isso
+/// depois que o `TableQR` passou a exigir lista de permissão. Dois arquivos
+/// afirmando modelos de segurança opostos, e o desatualizado era o que
+/// PRODUZIA a origem. Reescrito junto com o guarda.
+///
+/// Hoje: a origem é sempre uma da `TableQR.allowedHosts`. É o padrão do "digitar
+/// o código" e o jeito de saber se o build tem backend.
 enum RachaEnvironment {
     /// Overridable at launch (`-RachaOrigin https://staging…`) so QA can point a
-    /// TestFlight build at staging without a rebuild.
+    /// debug build at staging without a rebuild.
+    ///
+    /// SÓ EM DEBUG, e só pra um host da lista. Aceitava qualquer host, e o teste
+    /// de esquema era `hasPrefix("http")` — que é verdade pra `http://` também.
+    /// Como isto alimenta o `defaultOrigin` do `TableQR.parse`, era o caminho de
+    /// volta pro primitivo de desvio de pagamento que a lista de permissão
+    /// tinha acabado de fechar: qualquer host, em texto claro, num build de
+    /// release. Achado pelas duas revisões de 2026-09-10, separadamente.
     static var origin: URL {
+        #if DEBUG
         if let raw = UserDefaults.standard.string(forKey: "RachaOrigin"),
-           let url = URL(string: raw), url.scheme?.hasPrefix("http") == true {
+           let url = URL(string: raw), TableQR.isAllowedOrigin(url) {
             return url
         }
+        #endif
         return URL(string: "https://racha.app")!
     }
 

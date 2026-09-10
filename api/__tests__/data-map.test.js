@@ -127,7 +127,12 @@ describe('o mapa de dados acompanha o código', () => {
     const bloco = mask.slice(mask.indexOf('const KEEP = ['), mask.indexOf('];', mask.indexOf('const KEEP = [')));
     const quantos = (bloco.match(/'[^']+'/g) || []).length;
     expect(quantos).toBeGreaterThan(0);
-    expect(MAPA).toContain(`${quantos} campos`);
+    // Na LINHA do `psp_payload_masked`, não em qualquer lugar do documento: um
+    // "14 campos" solto noutro parágrafo faria o teste passar sobre a frase
+    // errada.
+    const linha = MAPA.split('\n').find((l) => l.includes('psp_payload_masked'));
+    expect(linha).toBeDefined();
+    expect(linha).toContain(`${quantos} campos`);
   });
 
   test('o mapa nomeia as lacunas em vez de deixá-las implícitas', () => {

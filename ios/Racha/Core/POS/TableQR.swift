@@ -14,6 +14,10 @@ import Foundation
 struct TableQR: Equatable, Sendable {
     /// The opaque table token. Credential: keep it out of logs and events.
     let token: String
+    // O inicializador memberwise sintetizado é `internal`, então qualquer
+    // arquivo do módulo montava um `TableQR` com origem arbitrária sem passar
+    // pelo `parse`. Ninguém fazia — e "ninguém faz" é convenção, não estrutura.
+    // Privado, a lista de permissão passa a ser inevitável.
     /// Where the check lives. Taken from the QR's own origin — but only from an
     /// origin we already know. See `allowedHosts`.
     let origin: URL
@@ -33,7 +37,37 @@ struct TableQR: Equatable, Sendable {
     /// holds a printer. The next step is fetching onboarded domains from our own
     /// API and merging them here — until then the list is what ships.
     /// Found by the security review of 2026-09-10.
-    static let allowedHosts: Set<String> = ["racha.app", "www.racha.app", "racha-gray.vercel.app"]
+    ///
+    /// `racha-gray.vercel.app` só existe em DEBUG. Um nome `*.vercel.app` não é
+    /// propriedade nossa — mora no registrador de outra pessoa e volta a ser
+    /// reivindicável se o projeto for renomeado ou apagado. Numa lista que
+    /// decide se o app desenha o JSON de alguém como CONTA, isso é caro demais
+    /// pela conveniência de QA. É o mesmo raciocínio que tirou o padrão
+    /// `racha-*.vercel.app` do censo, uma camada acima.
+    static let allowedHosts: Set<String> = {
+        var hosts: Set<String> = ["racha.app", "www.racha.app"]
+        #if DEBUG
+        hosts.insert("racha-gray.vercel.app")
+        #endif
+        return hosts
+    }()
+
+    /// A origem é aceitável? `https` e um host que a gente já conhece.
+    ///
+    /// Uma FUNÇÃO, e não uma linha repetida em dois lugares, porque foi
+    /// justamente isso que deu errado: o guarda entrou no ramo da URL e não no
+    /// ramo do código digitado, e a frase que eu escrevi no mapa de dados
+    /// ("agora há lista de permissão e https obrigatório") ficou mais estreita
+    /// que o código. As duas revisões acharam o mesmo buraco separadamente.
+    static func isAllowedOrigin(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else { return false }
+        return allowedHosts.contains(host)
+    }
+
+    private init(token: String, origin: URL) {
+        self.token = token
+        self.origin = origin
+    }
 
     /// Parse a scanned string. Accepts the printed URL form; a bare token is
     /// accepted only with an explicit fallback origin, which is what the
@@ -46,20 +80,24 @@ struct TableQR: Equatable, Sendable {
         // bill on the way to the phone.
         if let url = URL(string: trimmed), url.scheme?.lowercased() == "https" {
             guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                  let host = components.host?.lowercased(),
-                  allowedHosts.contains(host),
                   let token = components.queryItems?.first(where: { $0.name == "t" })?.value,
                   isPlausibleToken(token) else { return nil }
             var originComponents = URLComponents()
             originComponents.scheme = components.scheme
             originComponents.host = components.host
             originComponents.port = components.port
-            guard let origin = originComponents.url else { return nil }
+            guard let origin = originComponents.url, isAllowedOrigin(origin) else { return nil }
             return TableQR(token: token, origin: origin)
         }
 
         // Not a URL: the manual-entry path, where the origin is the app's own.
-        guard let defaultOrigin, isPlausibleToken(trimmed) else { return nil }
+        //
+        // O MESMO guarda. Este ramo ficou de fora na primeira versão e o
+        // `defaultOrigin` entrava direto na struct — e quem o fornece é o
+        // `RachaEnvironment.origin`, que aceitava qualquer host de um
+        // `UserDefaults` e `http` junto. O primitivo que o ramo de cima fechou
+        // continuava alcançável pelo "digitar o código".
+        guard let defaultOrigin, isAllowedOrigin(defaultOrigin), isPlausibleToken(trimmed) else { return nil }
         return TableQR(token: trimmed, origin: defaultOrigin)
     }
 

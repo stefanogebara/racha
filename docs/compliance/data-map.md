@@ -243,11 +243,29 @@ volta: a fraude de adesivo de QR brasileira de sempre, com o cliente nativo
 retirando a única defesa que o navegador dava (a barra de endereço visível).
 Enquanto isso valeu, esta seção **não conseguia enumerar os destinatários do
 app** — ele falava com quem o adesivo mandasse. Agora há lista de permissão de
-origem (`TableQR.allowedHosts`) e `https` obrigatório. A conveniência que se
-perdeu era real: uma casa white-label imprimia o domínio dela sem release do
-app. Ela volta quando a lista vier da NOSSA API com os domínios efetivamente
-integrados — até lá, white-label passa por release. Achado da revisão de
-segurança de 2026-09-10.
+origem e `https` obrigatório em TODOS os caminhos: no QR escaneado, no código
+digitado à mão (`defaultOrigin`), no `RachaEnvironment.origin` — cujo override
+de QA passou a ser `#if DEBUG`, porque ele aceitava qualquer host e `http` junto
+num build de release — e outra vez no `BackendTableSource`, imediatamente antes
+de o pacote sair do aparelho.
+
+A primeira versão desta correção guardava **um dos dois ramos** da mesma função,
+e esta frase, escrita a partir do ramo que eu estava olhando, ficou mais estreita
+que o código. As duas revisões acharam isso separadamente. É o terceiro caso
+seguido da mesma forma, e por isso a garantia agora tem teste próprio
+(`RachaTests/TableQRTests`, incluindo `defaultOrigin` hostil): frase e código
+falham juntos, ou a frase não vale.
+
+**Alcance retroativo: zero, e dá pra afirmar.** Enquanto o comportamento antigo
+valeu, não havia telemetria pra dizer se algum adesivo apontou algum build pra
+outro lugar — mas nenhum build público existiu, então não há usuário exposto. Um
+registro do art. 37 tem que distinguir "alcance zero" de "alcance desconhecido",
+e aqui é zero.
+
+A conveniência que se perdeu era real: uma casa white-label imprimia o domínio
+dela sem release do app. Ela volta quando a lista vier da NOSSA API com os
+domínios efetivamente integrados — até lá, white-label passa por release.
+Achado da revisão de segurança de 2026-09-10.
 
 `ios/lab` e `docs/outreach` estão fora do censo de propósito — rascunho de
 design e material de venda, que não sobem no domínio do produto. O

@@ -18,6 +18,14 @@ struct BackendTableSource: TableSource {
     var timeout: TimeInterval = 12
 
     func openCheck(for qr: TableQR) async throws -> OpenCheck {
+        // A ÚLTIMA porta antes do pacote sair do aparelho.
+        //
+        // O `TableQR.parse` já garante isto, e é de propósito que esteja aqui de
+        // novo: a garantia foi escrita uma vez, entrou num ramo da função e não
+        // no outro, e a frase que descrevia o guarda ficou mais larga que o
+        // guarda. Esta camada é a que sobrevive a um `TableQR` construído por um
+        // caminho que ainda não existe.
+        guard TableQR.isAllowedOrigin(qr.origin) else { throw TableSourceError.notATable }
         var components = URLComponents(url: qr.origin.appendingPathComponent("api/check"),
                                        resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "t", value: qr.token)]

@@ -154,7 +154,9 @@ test('nenhuma tela entrega a URL da conta a um SDK de terceiro', () => {
   const SRC = join(import.meta.dirname, '..', 'src');
   const suspeitas = [/window\.location\.href/, /location\.href/, /location\.search/];
   // Os pontos onde a gente ENTREGA string pra um SDK que a persiste.
-  const entregas = /(return_url|returnUrl|redirect_uri|redirectUrl|success_url|cancel_url)\s*:/;
+  // Com `:` e na forma ABREVIADA (`{ return_url }`), porque a abreviada não
+  // tem valor na linha e escapava da regra.
+  const entregas = /(return_url|returnUrl|redirect_uri|redirectUrl|success_url|cancel_url)\s*[:,}]/;
   const achados: string[] = [];
   for (const f of arquivosTsx(SRC)) {
     // `payReturn.ts` é o lugar que TEM que ler a URL — é ele quem a limpa.
@@ -192,9 +194,15 @@ test('o token da mesa não entra na URL de volta', () => {
   const fonte = readFileSync(join(import.meta.dirname, '..', 'src', 'payReturn.ts'), 'utf8');
   const corpo = fonte.slice(fonte.indexOf('export function urlDeVolta'));
   const linhas = corpo.slice(0, corpo.indexOf('\n}')).split('\n').slice(1)
-    .map((l) => l.trim()).filter(Boolean);
+    .map((l) => l.trim())
+    // Comentário dentro do corpo não é mudança de comportamento, e é o jeito
+    // mais provável de alguém derrubar isto sem querer — e daí "consertar"
+    // afrouxando o casamento, que seria o bug de novo.
+    .filter((l) => l && !l.startsWith('//') && !l.startsWith('*'));
   assert.deepEqual(linhas, ['return `${window.location.origin}${window.location.pathname}?${MARCA}=1`;'],
-    'urlDeVolta() mudou de forma — a volta só pode ser origem + caminho + a marca');
+    'urlDeVolta() mudou de forma. Se a mudança é DELIBERADA, re-derive a garantia '
+    + '(o token da mesa não pode ir pro PSP) e atualize o valor esperado. Nunca afrouxe o casamento: '
+    + 'a versão frouxa deste teste passava com `&t=${sessionStorage.getItem(CHAVE)}` na volta.');
 });
 
 /**
@@ -260,14 +268,29 @@ test('todo trilho de terceiro exige bandeira por casa, e o servidor só a emite 
  */
 test('só um lugar no cliente transforma resposta HTTP em erro', () => {
   const SRC = join(import.meta.dirname, '..', 'src');
+  // Censurar os LOCAIS QUE FALAM HTTP, não as frases que eles usam pra
+  // detectar erro. A primeira versão procurava `body.success === false` e
+  // `!res.ok` — duas grafias — e um terceiro decodificador escrito
+  // `if (body.success !== true)` seria invisível. Mesma correção que o censo
+  // da URL de volta acabou de receber: liste o que é permitido, não o que é
+  // proibido. Achado da revisão de segurança de 2026-09-10.
+  const PODEM_FALAR_HTTP = new Set([
+    'api.ts',            // `request` → erroDaResposta
+    'auth.ts',           // `authedReq` → erroDaResposta
+    'App.tsx',           // farol de prospecção e config da casa: best-effort
+    'useVenueAdmin.ts',  // busca o id da conta antes de fechar; trata ausência
+  ]);
+  const novos = arquivosTsx(SRC).filter((f) => /\bfetch\(/.test(readFileSync(join(SRC, f), 'utf8')))
+    .filter((f) => !PODEM_FALAR_HTTP.has(f));
+  assert.deepEqual(novos, [],
+    `\n${novos.join('\n')}\nArquivo novo falando HTTP direto. Passe pelo \`api.ts\`/\`auth.ts\` — `
+    + 'o `code` e os `vars` do servidor só atravessam por `erroDaResposta`.\n');
+
+  // E quem decodifica tem que usar o decodificador — não montar o erro à mão.
   const donos: string[] = [];
-  for (const f of arquivosTsx(SRC)) {
-    const texto = readFileSync(join(SRC, f), 'utf8');
-    // Quem lê `body.success === false` está decodificando resposta de API.
-    if (!/body\.success === false|!res\.ok/.test(texto)) continue;
-    // E quem decodifica tem que usar o decodificador — não montar o erro à mão.
-    for (const [i, linha] of texto.split('\n').entries()) {
-      if (!/body\.success === false|!res\.ok/.test(linha)) continue;
+  for (const f of ['api.ts', 'auth.ts']) {
+    for (const [i, linha] of readFileSync(join(SRC, f), 'utf8').split('\n').entries()) {
+      if (!/body\.success|!res\.ok|res\.status >=/.test(linha)) continue;
       if (!/erroDaResposta/.test(linha)) donos.push(`${f}:${i + 1} ${linha.trim()}`);
     }
   }

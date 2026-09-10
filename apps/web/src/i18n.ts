@@ -277,9 +277,12 @@ export const DICT = {
   // na LANDING depois de ter autorizado o pagamento — nenhuma conta, nenhum
   // comprovante, nenhum "confirmando". A leitura razoável é que falhou, e a
   // ação razoável é pagar de novo. Achado da revisão de segurança de 2026-09-10.
-  'ret.title':        { en: 'Your payment is being confirmed',
-                        pt: 'Seu pagamento está sendo confirmado',
-                        es: 'Tu pago se está confirmando' },
+  // "SE você acabou de pagar": esta tela também aparece pra quem só abriu
+  // `/?r=1` sem ter pago nada, e ela não tem como conferir. Afirmar o
+  // pagamento seria a página dizendo um fato que não checou.
+  'ret.title':        { en: 'If you just paid, it is being confirmed',
+                        pt: 'Se você acabou de pagar, está sendo confirmado',
+                        es: 'Si acabas de pagar, se está confirmando' },
   'ret.body':         { en: 'Scan the table’s QR code again to see the bill — if the payment went through, it is already there. Do not pay twice.',
                         pt: 'Escaneie o QR da mesa de novo para ver a conta — se o pagamento passou, ele já está lá. Não pague duas vezes.',
                         es: 'Escanea otra vez el QR de la mesa para ver la cuenta — si el pago pasó, ya está ahí. No pagues dos veces.' },

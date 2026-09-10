@@ -38,6 +38,19 @@ struct TableQRTests {
         #expect(TableQR.parse("") == nil)
     }
 
+    @Test("o código digitado também passa pela lista de permissão")
+    func typedPathIsGuardedToo() {
+        // O ramo que ficou de fora na primeira versão. `defaultOrigin` entrava
+        // direto na struct, e quem o fornece (`RachaEnvironment.origin`)
+        // aceitava qualquer host de um `UserDefaults`, `http` incluído. As duas
+        // revisões acharam isto separadamente, e a lição é a do próprio commit:
+        // a frase que descreve um guarda é escrita a partir do guarda que se
+        // estava OLHANDO.
+        #expect(TableQR.parse("abc123", defaultOrigin: URL(string: "https://atacante.example")!) == nil)
+        #expect(TableQR.parse("abc123", defaultOrigin: URL(string: "http://racha.app")!) == nil)
+        #expect(TableQR.parse("abc123", defaultOrigin: URL(string: "https://racha.app")!)?.token == "abc123")
+    }
+
     @Test("token só é aceito sem URL quando alguém digitou")
     func bareTokenNeedsAnExplicitOrigin() {
         #expect(TableQR.parse("abc123") == nil)
