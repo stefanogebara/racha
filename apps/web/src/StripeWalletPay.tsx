@@ -16,6 +16,7 @@ import { loadStripe } from '@stripe/stripe-js/pure';
 import type { Stripe } from '@stripe/stripe-js';
 import { Elements, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { api } from './api';
+import { urlDeVolta } from './payReturn';
 import { useT } from './lang';
 import { STRIPE_LOCALE, type CurrencyCode } from './i18n';
 
@@ -72,7 +73,9 @@ function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument,
       const { error } = await stripe.confirmPayment({
         elements,
         clientSecret: intent.clientSecret,
-        confirmParams: { return_url: window.location.href },
+        // NÃO `window.location.href`: ele carrega o `?t=` da mesa, e a
+        // Stripe guarda o `return_url` no PaymentIntent. Ver `payReturn.ts`.
+        confirmParams: { return_url: urlDeVolta() },
         redirect: 'if_required', // carteira confirma sem sair da página
       });
       if (error) { onError(error.message || t('card.incomplete')); setBusy(false); return; }

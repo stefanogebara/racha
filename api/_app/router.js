@@ -432,6 +432,26 @@ async function route(req, res) {
           data = { ...data, venue: { ...data.venue, acceptsCard: true } };
         }
       }
+      // A CARTEIRA (Google Pay) pelo mesmo contrato do cartão: quem declara é
+      // o SERVIDOR, por casa.
+      //
+      // O cliente ligava a carteira só na chave de BUILD
+      // (`VITE_PAGARME_PUBLIC_KEY`), que não é propriedade de casa nenhuma —
+      // então TODA conta brasileira injetava `pay.google.com/gp/p/js/pay.js` e
+      // chamava `isReadyToPay`, uma sondagem de aparelho, antes de a pessoa
+      // escolher qualquer coisa. Duas linhas abaixo, no mesmo arquivo, o
+      // cartão exigia chave de build E bandeira do servidor. A assimetria não
+      // foi decidida: a Stripe ganhou o conserto do incidente de 2026-09-07 e
+      // o Google Pay não. Achado das duas revisões de 2026-09-10.
+      //
+      // A carteira liquida pelo gateway `pagarme`, então a condição é a mesma
+      // que permite cobrar: recebedor de verdade nesta casa.
+      if (token !== DEMO_TABLE_TOKEN) {
+        const v = await store.getVenueForCheck(data.check.id);
+        if (v && /^re_/.test(v.pspRecipientId || '')) {
+          data = { ...data, venue: { ...data.venue, acceptsWallet: true } };
+        }
+      }
       // O estado sai PROJETADO. `/api/check` é público — quem tem o QR da mesa
       // lê, sem login — e devolvia o estado reduzido inteiro: motivo de disputa
       // vindo do esquema, prazo de prova, e a nota de texto livre que o dono

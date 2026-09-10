@@ -84,7 +84,7 @@ interface GPayClient {
 }
 
 export default function WalletButtons({
-  token, amountCents, tipCents, payerLabel, payerDocument, disabled, venueName, simulated = false, onPaid,
+  token, amountCents, tipCents, payerLabel, payerDocument, disabled, venueName, simulated = false, acceptsWallet = false, onPaid,
 }: {
   token: string;
   amountCents: number;
@@ -101,6 +101,15 @@ export default function WalletButtons({
    *  existe — achado CRÍTICO da revisão de compliance. */
   simulated?: boolean;
   /**
+   * A casa tem recebedor de verdade, declarado PELO SERVIDOR.
+   *
+   * Sem isto o portão era só a chave de build, que é do deploy e não da casa:
+   * toda conta brasileira baixava o `pay.google.com/gp/p/js/pay.js` e rodava
+   * `isReadyToPay` — sondagem de aparelho e carteira — antes de a pessoa
+   * tocar em nada. Mesmo contrato do `acceptsCard` do trilho Stripe.
+   */
+  acceptsWallet?: boolean;
+  /**
    * O COMPROVANTE precisa da cobrança, não de um aviso de que houve uma.
    *
    * Isto era `() => void`: a carteira tinha a `ChargeResult` na mão (`settle`)
@@ -111,7 +120,7 @@ export default function WalletButtons({
   onPaid: (charge: ChargeResult) => void;
 }) {
   const { t, brl } = useT();
-  const real = REAL && !simulated;
+  const real = REAL && !simulated && acceptsWallet;
   const [sheet, setSheet] = useState<Wallet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

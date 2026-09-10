@@ -19,7 +19,7 @@ export default function HousePay({
   onPaid: (r: HouseRedeemResult) => void;
   onBack: () => void;
 }) {
-  const { t, brl } = useT();
+  const { t, brl, tErr } = useT();
   const [value, setValue] = useState(
     defaultCents > 0 ? (defaultCents / 100).toFixed(2).replace('.', ',') : '',
   );
@@ -44,7 +44,7 @@ export default function HousePay({
       setResult(r);
       onPaid(r); // entrega o check view fresco pro App (null se a conta fechou no meio)
     } catch (e) {
-      setError((e as Error).message);
+      setError(tErr(e));
     } finally {
       setBusy(false);
     }

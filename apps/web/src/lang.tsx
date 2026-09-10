@@ -7,9 +7,10 @@
  * `./lang` quer React; quem importa `./i18n` quer as strings.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { DICT, LANGS, STORAGE_KEY, asLang, fill, type Key, type Lang, money, LOCALE, type CurrencyCode } from './i18n';
+import { DICT, LANGS, STORAGE_KEY, asLang, fill, tError, type Key, type Lang, money, LOCALE, type CurrencyCode } from './i18n';
 
-export { DICT, LANGS, money, tError } from './i18n';
+export { DICT, LANGS, money } from './i18n';
+export { tError } from './i18n';
 export type { Key, Lang } from './i18n';
 
 /* ── contexto ─────────────────────────────────────────────────────────────── */
@@ -149,7 +150,29 @@ export function useT() {
     (bp: number) => (bp / 100).toLocaleString(LOCALE[lang]),
     [lang],
   );
-  return { t, lang, setLang, adotarPadraoDaCasa, brl, dmy, hm, pct };
+  /**
+   * O erro do servidor virando frase, num lugar só.
+   *
+   * Vinte e uma telas faziam `setError((e as Error).message)` — o texto CRU do
+   * servidor. Funcionava enquanto o servidor mandava frase; ele parou de
+   * mandar (a frase interna nomeava o adquirente da casa e servia de oráculo
+   * de assinatura em webhook), então o cru virou o "HTTP 400" que o `api.ts`
+   * inventa. Pior que uma frase honesta em pé.
+   *
+   * Aqui é o mesmo contrato do `App`: código → tradução, `vars` em centavos →
+   * formatados na moeda de quem lê. Fica no `useT` porque é onde se sabe o
+   * idioma — uma tela não tem como esquecer o que não precisa passar.
+   */
+  const tErr = useCallback((e: unknown, currency: CurrencyCode = 'BRL') => {
+    const err = e as { code?: string; message?: string; vars?: Record<string, string | number> };
+    const vars = err?.vars ? {
+      left: money(Number(err.vars.leftCents ?? 0), lang, currency),
+      min: money(Number(err.vars.minCents ?? 0), lang, currency),
+      max: money(Number(err.vars.maxCents ?? 0), lang, currency),
+    } : undefined;
+    return tError(lang, err?.code, err?.message || '', vars);
+  }, [lang]);
+  return { t, lang, setLang, adotarPadraoDaCasa, brl, dmy, hm, pct, tErr };
 }
 
 /**

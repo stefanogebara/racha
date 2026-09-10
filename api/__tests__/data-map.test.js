@@ -26,19 +26,42 @@ const path = require('node:path');
 const RAIZ = path.join(__dirname, '..', '..');
 const MAPA = fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'data-map.md'), 'utf8');
 
+/**
+ * DEPENDÊNCIAS E DEVDEPENDÊNCIAS.
+ *
+ * Lia só `dependencies`. O Vite empacota um import de devDependency no cliente
+ * exatamente igual — mover o `@stripe/stripe-js` de uma seção pra outra tirava
+ * ele do censo sem mudar um byte do que o cliente baixa. Um censo que se
+ * desliga com uma edição de package.json não é um censo.
+ */
 function deps(pkgRelativo) {
   const pkg = JSON.parse(fs.readFileSync(path.join(RAIZ, pkgRelativo), 'utf8'));
-  return Object.keys(pkg.dependencies || {});
+  return [...Object.keys(pkg.dependencies || {}), ...Object.keys(pkg.devDependencies || {})];
 }
 
-/** Arquivos de CÓDIGO — testes e docs ficam de fora: eles citam hosts de mentira. */
+/**
+ * Onde o censo anda. A primeira versão andava em `api/` e `apps/web/src` e só
+ * abria `.js/.ts/.tsx` — e **por isso não via a Google Fonts que o `/ios` da
+ * produção servia**: marcação HTML, fora das duas pastas. O incidente que este
+ * mapa existe pra registrar foi um terceiro entrando por import; o que o censo
+ * deixou passar foi um terceiro entrando por `<link>`. Mesma forma.
+ *
+ * `ios/lab` fica de fora de propósito: é rascunho de design que não vai pro
+ * deploy (o `embed-ios.mjs` copia de lá só as imagens). O que ANDA é o que
+ * sobe: o servidor, o cliente, a casca do cliente, o protótipo publicado em
+ * `/ios` e o app nativo.
+ */
+const ANDA_EM = ['api', 'apps/web/src', 'ios/Racha'];
+const ARQUIVOS_SOLTOS = ['apps/web/index.html', 'ios/racha-ios.html', 'vercel.json'];
+const EXTENSOES = /\.(js|mjs|ts|tsx|html|css|swift|json)$/;
+
 function fontes(dir, out = []) {
   for (const entrada of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entrada.name);
     if (entrada.isDirectory()) {
-      if (/^(node_modules|dist|__tests__|test|DerivedData)$/.test(entrada.name)) continue;
+      if (/^(node_modules|dist|build|Pods|__tests__|test|DerivedData)$/.test(entrada.name)) continue;
       fontes(p, out);
-    } else if (/\.(js|ts|tsx)$/.test(entrada.name) && !/\.test\./.test(entrada.name)) {
+    } else if (EXTENSOES.test(entrada.name) && !/\.test\./.test(entrada.name)) {
       out.push(p);
     }
   }
@@ -56,16 +79,24 @@ describe('o mapa de dados acompanha o código', () => {
   });
 
   test('todo host literal escrito no código está nomeado no mapa', () => {
-    const arquivos = [...fontes(path.join(RAIZ, 'api')), ...fontes(path.join(RAIZ, 'apps', 'web', 'src'))];
+    const arquivos = [
+      ...ANDA_EM.flatMap((d) => fontes(path.join(RAIZ, ...d.split('/')))),
+      ...ARQUIVOS_SOLTOS.map((f) => path.join(RAIZ, ...f.split('/'))),
+    ];
     const hosts = new Set();
     for (const f of arquivos) {
       const texto = fs.readFileSync(f, 'utf8');
-      for (const m of texto.matchAll(/https:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi)) hosts.add(m[1].toLowerCase());
+      // `http` também: um censo que só vê `https` deixa passar o pior caso.
+      for (const m of texto.matchAll(/https?:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi)) hosts.add(m[1].toLowerCase());
     }
-    // O nosso próprio domínio e os exemplos de documentação não são
-    // destinatários de dado de terceiro.
-    const nossos = [/^racha-[a-z]+\.vercel\.app$/, /\.example$/, /^localhost$/];
-    const externos = [...hosts].filter((h) => !nossos.some((re) => re.test(h))).sort();
+    // LITERAIS, não padrões. Era `/^racha-[a-z]+\.vercel\.app$/`, e nomes de
+    // projeto na Vercel são de quem chegar primeiro: `racha-exfil.vercel.app`
+    // casava e o censo chamava de nosso.
+    const nossos = new Set(['racha.app', 'racha-gray.vercel.app', 'localhost',
+      'openapi.vercel.sh', 'menu.bardoze.com.br']);
+    const externos = [...hosts]
+      .filter((h) => !nossos.has(h) && !/\.example$/.test(h))
+      .sort();
     expect(externos.length).toBeGreaterThan(0);
     const faltando = externos.filter((h) => !MAPA.includes(h));
     expect(faltando).toEqual([]);

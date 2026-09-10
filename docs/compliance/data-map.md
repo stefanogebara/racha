@@ -15,10 +15,23 @@
 
 Papéis, porque mudam tudo o que vem depois:
 
-- **Do cliente na mesa**, a Racha é **operadora**; a controladora é a casa. O
-  que a gente faz com esse dado é o que a casa contratou (fechar a conta).
+- **Do cliente na mesa, pra FECHAR A CONTA**, a Racha é **operadora**; a
+  controladora é a casa. O que a gente faz com esse dado é o que a casa
+  contratou.
 - **Do dono e da casa**, a Racha é **controladora** — cadastro, dados
   bancários, avisos. Base: execução de contrato (art. 7º V).
+- **Do cliente, pros FINS DA PRÓPRIA RACHA**, a Racha é **controladora**
+  também — e a primeira versão desta seção errava isso. Medir adoção
+  (`check_views`, que serve ao portão do `CLAUDE.md`, não ao interesse da casa
+  em fechar a conta), o radar de ativação e o farol de prospecção são
+  finalidades NOSSAS. Interesse legítimo é base de controlador; operador não
+  tem base própria, age por instrução. Quem determina a finalidade de uma
+  operação é controlador dela (LGPD art. 5º VI/VII; GDPR art. 28(10), explícito).
+
+Essa distinção muda o tamanho do conserto, e é por isso que ela está aqui e não
+numa nota: um DPA com a casa **não cobre** tratamento que a Racha faz pra si.
+Isso pede aviso do art. 9º da Racha e avaliação de legítimo interesse
+documentada, em nome próprio. Ver lacuna 4.
 
 ---
 
@@ -27,7 +40,7 @@ Papéis, porque mudam tudo o que vem depois:
 | Dado | De quem | Pra quê | Base legal | Onde mora | Prazo |
 |---|---|---|---|---|---|
 | `payments.payer_label` — nome livre que a pessoa digita ("Ste", "mesa toda") | cliente | dizer no painel e no comprovante quem pagou qual parte | operadora, por conta da casa (art. 7º V da casa) | Supabase `payments` | **sem prazo definido — lacuna 1** |
-| `payments.psp_payload_masked` — subconjunto ESCALAR do webhook | cliente | reconciliar e reproduzir o histórico | operadora | Supabase `payments` | segue a conta |
+| `payments.psp_payload_masked` — subconjunto ESCALAR do webhook (15 campos: txid, valores, status, horários) | cliente | reconciliar e reproduzir o histórico | operadora | Supabase `payments` | segue a conta |
 | `house_accounts.phone` + `.name` | cliente que abre carteira pré-paga | achar a carteira dele na casa e saber de quem é o saldo | operadora | Supabase `house_accounts` | **sem prazo — lacuna 1** |
 | `check_views.session_hash` | ninguém — aleatório do navegador | contar quantas pessoas ABREM a conta (portão de adoção) | interesse legítimo (art. 7º IX), minimização por construção | Supabase `check_views` | segue a conta |
 | `venues.cnpj`, `venues.notify_email`, `venues.notify_whatsapp` | dono | cadastro, KYC do recebedor, aviso de status | controladora, contrato (art. 7º V) | Supabase `venues` | vida do contrato |
@@ -38,20 +51,39 @@ Papéis, porque mudam tudo o que vem depois:
 
 | Destinatário | O que sai | Por quê | Onde processa |
 |---|---|---|---|
-| **Supabase** (`ckforlwdhewexyqljsaf.supabase.co`) | tudo da tabela acima | é o banco | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
+| **Supabase — projeto de dados da Racha** (`SUPABASE_URL`, sem literal no código) | tudo da tabela acima, menos o login | é o banco | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
+| **Supabase — projeto de auth do SEATABLE** (`ckforlwdhewexyqljsaf.supabase.co`) | e-mail do dono, hash de senha, identidade OAuth, sessão | login compartilhado entre os dois produtos (`apps/web/src/auth.ts`, `AUTH_SUPABASE_URL`) | AWS |
 | **Vercel** | requisições, logs de função | hospedagem | EUA/edge |
 | **Pagar.me** (`api.pagar.me`) | CPF do pagador quando informado, `payerLabel` dentro da descrição da cobrança (`Racha <label>`), valor, split | criar a cobrança Pix/cartão e liquidar direto pra casa | Brasil |
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
-| **Google Pay** (`pay.google.com`) | o que a folha da carteira do sistema operacional troca com o Google | botão de carteira | Google |
+| **Google Pay** (`pay.google.com`) | o que a folha da carteira do sistema operacional troca com o Google | botão de carteira — **só em casa que o servidor declarou `acceptsWallet`** | Google |
 | **Saipos** (`order-api.saipos.com`) | id da loja, id da conta, valores | ler a conta do PDV e escrever a baixa | Brasil |
-| **Olímpia / Seatable** (`seatable.one`, `RACHA_NOTIFY_URL`) | `venueName`, `ownerEmail`, `ownerPhone` no aviso de status do recebedor; `{token, event}` no farol da prévia | avisar o dono por WhatsApp/e-mail quando o KYC anda; radar de vendas | Brasil |
+| **Olímpia / Seatable** (`seatable.one`, `RACHA_NOTIFY_URL`) | **cinco caminhos**, ver abaixo | avisos de operação e radar de vendas | Brasil |
 
-**Sobre a última linha:** o não-negociável 10 do `CLAUDE.md` proíbe
-compartilhar dado com o Seatable sem consentimento. O que sai hoje é **dado do
-dono, não do cliente**, e sai pra operar o contrato dele (avisar que o
-recebedor foi aprovado). Nenhum dado de cliente atravessa. Isso mantém a
-separação das holdings, mas **precisa estar no contrato da casa** — hoje não
-está escrito em lugar nenhum. Lacuna 4.
+**Sobre a última linha, com precisão.** A primeira versão desta seção listava
+dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
+(`api/_lib/notify.js`), e a afirmação era falsa:
+
+| função | o que sai |
+|---|---|
+| `notifyOwnerRecipientStatus` | `venueName`, `ownerEmail`, `ownerPhone`, `status`, `previousStatus`, `reason`, `pspRecipientId` |
+| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail` |
+| `notifyFounderReconcile` | o texto do alerta: nomes de casa e desvio por casa |
+| `notifyFounderActivationRadar` | o resumo do radar de ativação |
+| `notifyPreviaBeacon` | `{token, event}` do lead da Olímpia |
+
+`notifyFounderMoneyEvent` sai de `router.js` em três pontos e leva o
+identificador de pagamento de UM cliente específico, o identificador da conta
+dele e o valor. `txid` resolve pro CPF do pagador no painel da adquirente, então
+é identificável por meios razoáveis — não é dado anônimo por não trazer nome.
+
+A posição defensável é que o Seatable é **suboperador de alertas**, e ela
+provavelmente está certa. Mas posição defensável precisa estar escrita e no
+contrato: o não-negociável 10 do `CLAUDE.md` proíbe compartilhamento entre os
+produtos sem consentimento, e o mesmo vale pro login compartilhado da linha de
+cima. Enquanto não estiver no DPA (lacuna 4), o que existe é uma prática sem
+instrumento. A alternativa técnica é mandar alerta de fundador por um canal que
+não seja o outro produto.
 
 ## 3. O que deliberadamente NÃO sai e NÃO fica
 
@@ -65,13 +97,37 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
   descarta de propósito (`void payerDocument`) — é dado do trilho brasileiro.
 - **Payload cru de webhook não entra no banco.** `maskPixPayload`
   (`api/_lib/pay/mask.js`) é lista de permissão de campos **escalares**: todo
-  objeto aninhado morre, então `billing_details.phone` e nome completo não têm
-  como chegar. É por isso que o telefone do pagador do Bizum não é armazenado.
-- **Cliente nunca autentica.** Sem login, sem app, sem cadastro pra pagar.
+  objeto aninhado morre no filtro de TIPO, então `billing_details.phone` e nome
+  completo não têm como chegar. É por isso que o telefone do pagador do Bizum
+  não é armazenado.
+  **Isto passou a ser verdade em 2026-09-10.** Até então havia um ramo que
+  descia em `raw.pagador`/`raw.payer` e guardava `payer_hint` (primeiro nome
+  inteiro + inicial do sobrenome) e `payer_doc_hint` (dois últimos dígitos do
+  CPF) — e ele rodava em produção, porque o `mock-psp` emite `pagador` e a mesa
+  da demo roda em produção. A primeira versão desta seção descrevia a defesa
+  mais forte do que o arquivo. Os dois campos foram **apagados**, não
+  documentados: ninguém os lia, e mascarado continua sendo dado pessoal (art.
+  12). A resposta certa pra "o mapa não lista este campo" é quase sempre parar
+  de guardá-lo.
+- **Cliente nunca autentica PRA PAGAR.** Sem login, sem app, sem cadastro. A
+  carteira da casa é a exceção e está na tabela do §1: quem abre carteira dá
+  nome e telefone e passa a ter um token ao portador como credencial.
 - **`check_views` não tem dado pessoal.** `session_hash` é aleatório do
   próprio navegador — não é IP, não é impressão digital.
-- **A Stripe não é carregada em conta que não usa cartão.** `/pure` + `lazy`;
-  garantido pelo censo em `apps/web/test/bundle.test.ts`.
+- **A Stripe não é carregada em conta que não usa cartão**, e **o Google Pay
+  não é carregado em casa sem recebedor.** `/pure` + `lazy` no primeiro,
+  `venue.acceptsWallet` no segundo — os dois com bandeira POR CASA vinda do
+  servidor, não com chave de build. Censo em `apps/web/test/bundle.test.ts`,
+  que não pula mais quando falta build (pulava, e o mapa citava o pulo como
+  garantia).
+- **O token da mesa não vai pra Stripe.** `confirmParams.return_url` era
+  `window.location.href`, que é `/?t=<qrToken>` — capacidade ao portador que lê
+  a conta e cria cobrança, guardada pela Stripe no PaymentIntent. A volta agora
+  é `/?r=1` e o token vem do `sessionStorage` da aba (`payReturn.ts`). O censo
+  proíbe entregar `location.href` a qualquer SDK que persista a string.
+- **O `/ios` não fala com o Google.** O protótipo publicado no domínio de
+  produção linkava Google Fonts, mandando IP e User-Agent de cada visitante pra
+  os EUA. A Archivo é servida daqui.
 
 ## 4. Lacunas — o que falta, nomeado
 
@@ -87,14 +143,32 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    Supabase fora da UE e acessível do Brasil (LGPD art. 33; GDPR cap. V).
    Fecha com: projeto Supabase em região da UE (correção técnica que dispensa
    a maior parte) ou cláusulas-padrão + avaliação. Ver `docs/markets/README.md`.
-4. **Sem DPA com as casas.** A Racha é operadora do dado do cliente da casa e
-   não há contrato de tratamento (art. 39 LGPD / art. 28 GDPR), nem menção ao
-   repasse pro Seatable. Fecha com: anexo de tratamento no contrato da casa.
+4. **Sem DPA com as casas — e o DPA não é o conserto inteiro.** A Racha é
+   operadora do dado do cliente da casa e não há contrato de tratamento (art. 39
+   LGPD / art. 28 GDPR), nem menção ao login compartilhado com o Seatable nem
+   aos cinco caminhos de alerta do §2. Fecha com **duas** coisas, não uma:
+   anexo de tratamento no contrato da casa, **e** — pro que a Racha trata em
+   nome próprio (adoção, radar, prospecção) — aviso do art. 9º e avaliação de
+   legítimo interesse dela mesma.
 5. **Sem encarregado (DPO) publicado** (art. 41), e sem representante na UE
    (art. 27 GDPR) enquanto a Espanha estiver ligada.
+6. **Armazenamento no dispositivo sem consentimento, pra Espanha.** O
+   `session_hash` do `check_views` é limpo como DADO (aleatório do navegador), e
+   o art. 7º IX cobre o TRATAMENTO. O que ele não cobre é gravar no aparelho de
+   quem visita: LSSI art. 22.2 / ePrivacy art. 5(3) exigem consentimento pro que
+   não é estritamente necessário, e analítica de produto não é. Legítimo
+   interesse não cura isso. Bloqueia a Espanha junto com as lacunas 3 e 5.
+7. ~~**Google Pay carrega em toda conta brasileira.**~~ **Fechada em
+   2026-09-10**, no mesmo dia em que foi aberta. `WalletPay.tsx` injetava
+   `pay.google.com/gp/p/js/pay.js` e chamava `isReadyToPay` — sondagem de
+   aparelho e carteira — antes de a pessoa escolher qualquer coisa, com portão
+   só na chave de BUILD. Agora exige `venue.acceptsWallet`, que o `/api/check`
+   emite apenas pra casa com recebedor `re_` de verdade e nunca pra mesa de
+   demo — o mesmo contrato do `acceptsCard`. Censo em
+   `apps/web/test/bundle.test.ts`, atravessando cliente e servidor.
 
 Nenhuma dessas bloqueia o piloto brasileiro assistido. As lacunas 2 e 4
-bloqueiam o primeiro QR numa mesa de cliente de verdade; as 3 e 5 bloqueiam
+bloqueiam o primeiro QR numa mesa de cliente de verdade; as 3, 5 e 6 bloqueiam
 ligar a Espanha (`RACHA_ES_ENABLED`).
 
 ## 5. Dependências de runtime, classificadas
@@ -110,3 +184,31 @@ que ninguém tinha feito sobre o `@stripe/stripe-js`.
   volta do objeto que o `stripe-js` carregou.
 - `qrcode.react` — **local**: desenha o QR no canvas, offline.
 - `react`, `react-dom` — **local**.
+
+Ferramentas de build e teste, que o censo também exige porque um import de
+`devDependency` chega ao cliente igualzinho: `vite`, `@vitejs/plugin-react`,
+`typescript`, `jest`, `@types/react`, `@types/react-dom`, `@types/node` —
+**nenhuma fala com fora em runtime**; as três últimas somem na compilação.
+
+## 6. O app iOS
+
+Escopo próprio porque os destinatários são outros. O app nativo
+(`ios/Racha`) fala com `racha.app` — a nossa própria API, mesmos fluxos do §1 —
+e com três fornecedores de modelo:
+
+| Destinatário | O que sai | Quando |
+|---|---|---|
+| `api.anthropic.com` | a conversa do assistente da mesa, que inclui itens da conta e os nomes que as pessoas digitaram | só se a pessoa colar a PRÓPRIA chave em Ajustes (`settings.anthropicKey`); sem chave, roda o `MockTransport`, sem rede |
+| `api.openai.com` | o NOME do prato, pra gerar a imagem | idem, `settings.openAIKey` |
+| `generativelanguage.googleapis.com` | idem | idem |
+
+Os três são **opt-in por chave do próprio usuário**, não destinatários padrão —
+o app instalado sem chave não fala com nenhum deles. Isso os torna aceitáveis
+hoje e **não** dispensa aviso no dia em que a chave for nossa e o recurso vier
+ligado: aí a conta de um cliente passa a sair do país pra um fornecedor de
+modelo, e isso é decisão de compliance antes de ser de produto.
+
+`ios/lab` e `docs/outreach` estão fora do censo de propósito — rascunho de
+design e material de venda, que não sobem no domínio do produto. O
+`docs/outreach/racha-apresentacao-dinhos.html` ainda linka Google Fonts; é um
+arquivo aberto à mão, não uma página servida por nós.

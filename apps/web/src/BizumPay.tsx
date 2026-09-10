@@ -19,6 +19,7 @@ import { api, ApiError } from './api';
 import { useT } from './lang';
 import { tError, STRIPE_LOCALE } from './i18n';
 import { bizumOutcome } from './bizumStatus';
+import { urlDeVolta } from './payReturn';
 
 /**
  * Bizum — o trilho principal da Espanha.
@@ -109,7 +110,9 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
       const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
         elements,
         clientSecret: intent.clientSecret,
-        confirmParams: { return_url: window.location.href },
+        // NÃO `window.location.href`: ele carrega o `?t=` da mesa, e a
+        // Stripe guarda o `return_url` no PaymentIntent. Ver `payReturn.ts`.
+        confirmParams: { return_url: urlDeVolta() },
         redirect: 'if_required',
       });
       if (confirmError) { setError(confirmError.message || t('card.incomplete')); setBusy(false); return; }

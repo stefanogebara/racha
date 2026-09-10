@@ -33,6 +33,22 @@ const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: s
  * como prosa se não tiver aspas nem vírgula, que é o que faz uma linha ser
  * código.
  */
+/**
+ * Os arquivos de `src`, DESCENDO. `readdirSync` não desce, e `src` é plana
+ * hoje — mas a primeira pasta `src/components/` tirava metade das telas de
+ * TODOS os quatro censos deste arquivo, em silêncio. O caminho volta relativo
+ * pra mensagem de erro continuar legível.
+ */
+function arquivosDe(fs: typeof import('node:fs'), path: typeof import('node:path'),
+                    raiz: string, sub = '', out: string[] = []): string[] {
+  for (const e of fs.readdirSync(path.join(raiz, sub), { withFileTypes: true })) {
+    const rel = sub ? path.join(sub, e.name) : e.name;
+    if (e.isDirectory()) arquivosDe(fs, path, raiz, rel, out);
+    else out.push(rel);
+  }
+  return out;
+}
+
 function isProseLine(trimmed: string): boolean {
   const code = trimmed.replace(/\/\/.*$/, '').trim();
   if (code.length <= 12) return false;
@@ -82,11 +98,17 @@ test('toda chave tem os três idiomas, não vazios', () => {
 test('os {placeholders} são os MESMOS nos dois idiomas', () => {
   // O modo de falha real: 'share.each' com {amount} em inglês e {valor} em
   // português. O inglês funciona, o português imprime "{valor}" literal.
+  //
+  // Comparava só `en` com `pt`. O espanhol nunca entrava — e o modo de falha
+  // descrito acima acontece igualzinho num `{table}` escrito `{mesa}` do lado
+  // espanhol: chaves literais na tela de pagamento. Os TRÊS lados agora.
   const holes = (s: string) => new Set(s.match(/\{(\w+)\}/g) ?? []);
   for (const [key, pair] of entries) {
-    const en = holes(pair.en), pt = holes(pair.pt);
-    assert.deepEqual([...en].sort(), [...pt].sort(),
-      `${key}: placeholders diferentes — en ${[...en]} vs pt ${[...pt]}`);
+    const en = [...holes(pair.en)].sort();
+    for (const lang of LANGS) {
+      assert.deepEqual([...holes(pair[lang])].sort(), en,
+        `${key}: placeholders diferentes — en ${en} vs ${lang} ${[...holes(pair[lang])]}`);
+    }
   }
 });
 
@@ -272,7 +294,7 @@ test('nenhum componente escreve em português o que o dicionário já traduz', a
     .map(([key, pair]) => [key, pair.pt] as const);
 
   const offenders: string[] = [];
-  for (const file of fs.readdirSync(src)) {
+  for (const file of arquivosDe(fs, path, src)) {
     if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
     for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
       for (const [key, pt] of phrases) {
@@ -355,11 +377,20 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
     'fechar', 'abrir', 'adicionar', 'nenhuma', 'nenhum', 'cliente', 'clientes',
     'criar', 'criando', 'entrar', 'sair', 'confira', 'banco', 'titular',
     'recebedor', 'dígito', 'próximo', 'voltar', 'salvando', 'pronto',
-    'carregando'];
+    'carregando',
+    // 2026-09-10: as três primeiras entraram porque o censo mais largo APONTOU
+    // pras linhas certas — `Girar o QR da…`, `Desativar a…`, `Reembolsar…` — e
+    // deixou passar assim mesmo. A ancoragem estava certa; o que falhava era a
+    // lista. "Onze frases" era resultado do vocabulário, não do código, e é bom
+    // dizer isso em voz alta: este teste é uma lista de negação, e uma lista de
+    // negação só encontra o que alguém já pensou em escrever nela.
+    'girar', 'desativar', 'reembolsar', 'reembolso', 'código', 'impresso',
+    'funcionar', 'disponível', 'carteira', 'bônus', 'informe', 'equipe',
+    'valor', 'valores', 'escanear', 'restaurante', 'idioma', 'enviar'];
   const re = new RegExp(`\\b(${ptOnly.join('|')})\\b`, 'i');
 
   const offenders: string[] = [];
-  for (const file of fs.readdirSync(src)) {
+  for (const file of arquivosDe(fs, path, src)) {
     if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
     for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
       const trimmed = line.trim();
@@ -485,7 +516,7 @@ test('nenhuma tela formata número, data ou dinheiro com o idioma escrito na lin
   const BANNED = /'(pt-BR|en-US|es-ES)'|toLocale(String|DateString|TimeString)\(|style:\s*'currency'/;
 
   const offenders: string[] = [];
-  for (const file of fs.readdirSync(src)) {
+  for (const file of arquivosDe(fs, path, src)) {
     if (!/\.(tsx|ts)$/.test(file) || OWNERS.has(file)) continue;
     for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
       const m = line.match(BANNED);
@@ -520,7 +551,7 @@ test('nenhuma tela nova imprime dinheiro sem dizer a moeda', async () => {
   const src = path.join(import.meta.dirname, '..', 'src');
 
   const offenders: string[] = [];
-  for (const file of fs.readdirSync(src)) {
+  for (const file of arquivosDe(fs, path, src)) {
     if (!file.endsWith('.tsx') || BR_ONLY.has(file)) continue;
     const text = fs.readFileSync(path.join(src, file), 'utf8');
     // A tela amarrou a moeda uma vez? Então os `brl(x)` dela já a carregam.

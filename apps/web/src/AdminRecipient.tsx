@@ -236,7 +236,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
             <label style={{ gridColumn: '1 / -1' }}>
               {t('rcpt.emailLabel')}
-              <input className="namefield" type="email" inputMode="email" placeholder="contato@restaurante.com.br" value={email}
+              <input className="namefield" type="email" inputMode="email" placeholder={t('rcpt.emailPh')} value={email}
                 onBlur={() => touch('email')} style={errStyle('email', valid.email)}
                 onChange={(e) => setEmail(e.target.value)} />
               {fb('email', valid.email, t('rcpt.emailBad'), t('rcpt.emailHint'))}

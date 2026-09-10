@@ -121,7 +121,11 @@ function createChargeService({ store, psp }) {
     if (!venue.pspRecipientId) {
       // Compliance gate: without a settlement recipient the funds would land
       // on the platform account (BACEN Res. 494 custody territory).
-      throw badRequest('venue has no settlement recipient configured');
+      // COM código: sem ele o `errorBody` deixa a frase interna viajar, e ela
+      // descreve o cadastro da casa pra qualquer um com o QR da mesa. O
+      // `http-error.js` cita esta frase como o exemplo do que não pode sair —
+      // e era a própria que saía. Achado da revisão de compliance de 2026-09-10.
+      throw badRequest('venue has no settlement recipient configured', 'venue_no_recipient');
     }
 
     const state = reduce(await store.loadEvents(checkId));

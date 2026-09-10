@@ -31,7 +31,13 @@ const KEEP = [
   'paid_amount', 'canceled_amount', 'payment_method', 'created_at', 'id',
 ];
 
-/** "Maria da Silva Sauro" → "Maria d*****" — enough to eyeball, useless to leak. */
+/**
+ * "Maria da Silva Sauro" → "Maria d*****" — enough to eyeball, useless to leak.
+ *
+ * NÃO É MAIS CHAMADA POR `maskPixPayload`. Fica exportada porque é a
+ * ferramenta certa se um dia alguém PRECISAR mostrar um nome mascarado numa
+ * tela — mas o banco deixou de guardar um. Ver o comentário do `maskPixPayload`.
+ */
 function maskName(name) {
   if (typeof name !== 'string' || name.length === 0) return null;
   const trimmed = name.trim().slice(0, 80);
@@ -62,12 +68,25 @@ function maskPixPayload(raw) {
     else if (typeof v === 'number' || typeof v === 'boolean') out[key] = v;
     // objects/arrays deliberately dropped — flat only
   }
-  // Payer hints, masked (some PSPs put them at pagador.nome / payer.name).
-  const payer = raw.pagador || raw.payer || {};
-  const name = maskName(payer.nome || payer.name);
-  const doc = maskTaxId(payer.cpf || payer.cnpj || payer.document);
-  if (name) out.payer_hint = name;
-  if (doc) out.payer_doc_hint = doc;
+  // AQUI NÃO ENTRA MAIS NADA DO PAGADOR.
+  //
+  // Havia um ramo que descia em `raw.pagador`/`raw.payer` e guardava
+  // `payer_hint` (o primeiro nome INTEIRO, até 12 caracteres, mais a inicial do
+  // sobrenome) e `payer_doc_hint` (os dois últimos dígitos do CPF). Mascarado
+  // continua sendo dado pessoal (LGPD art. 12: pseudonimizado não é anonimizado),
+  // e o ramo rodava em produção — o `mock-psp` emite `pagador`, e a mesa da demo
+  // roda em produção.
+  //
+  // Ninguém lia esses campos. Nenhum adaptador de PSP real do repositório
+  // produz `pagador`/`payer`; nenhuma tela, relatório ou conciliação os
+  // consulta. Eram dado pessoal guardado por precaução, que é exatamente o que
+  // o art. 6º III proíbe. Apagados em vez de documentados: a resposta certa pra
+  // "o mapa de dados não lista este campo" é quase sempre parar de guardá-lo.
+  //
+  // O efeito colateral é que a promessa do `docs/compliance/data-map.md` §3
+  // ("todo objeto aninhado morre") passou a ser verdade — o filtro de tipo do
+  // laço acima é o único caminho pra dentro. Achado da revisão de compliance
+  // de 2026-09-10.
   return out;
 }
 

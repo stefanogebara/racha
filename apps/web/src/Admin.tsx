@@ -29,7 +29,7 @@ export default function Admin() {
 
 // ---------------------------------------------------------------- onboarding
 function Onboarding() {
-  const { t, lang } = useT();
+  const { t, lang, tErr } = useT();
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
   const [cnpj, setCnpj] = useState('');
@@ -56,7 +56,7 @@ function Onboarding() {
       });
       window.location.search = `?v=${v.id}`;
     } catch (e) {
-      setError((e as Error).message); setBusy(false);
+      setError(tErr(e)); setBusy(false);
     }
   }
 

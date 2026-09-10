@@ -27,7 +27,7 @@ const mesaTitle = (label: string, t: (k: 'qrs.tableTitle', v: { label: string })
   /^(mesa|table)\b/i.test(label.trim()) ? label.trim() : t('qrs.tableTitle', { label: label.trim() });
 
 export default function Qrs() {
-  const { t } = useT();
+  const { t, tErr } = useT();
   const venueId = useMemo(() => new URLSearchParams(window.location.search).get('v') ?? '', []);
   const [data, setData] = useState<TablesView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export default function Qrs() {
       setData(await req<TablesView>(`/api/tables?v=${encodeURIComponent(venueId)}`));
       setError(null);
     } catch (e) {
-      setError((e as Error).message);
+      setError(tErr(e));
     }
   }, [venueId]);
 

@@ -32,6 +32,7 @@ const StripeWalletPay = lazy(() => import('./StripeWalletPay'));
 const BizumPay = lazy(() => import('./BizumPay'));
 import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, splitEqualLocal, type SplitMode } from './split';
+import { lembrarToken, tokenDaVolta } from './payReturn';
 
 /**
  * Racha diner flow — one screen, three acts:
@@ -57,10 +58,14 @@ const NOTICE_KEY: Record<string, Key> = {
 
 export default function App() {
   const { t, lang, pct, adotarPadraoDaCasa, dmy, hm } = useT();
-  const token = useMemo(
-    () => new URLSearchParams(window.location.search).get('t') ?? '',
-    [],
-  );
+  // O `?t=` da mesa, ou — na volta de um trilho que redireciona (Bizum) — o
+  // token que a própria aba guardou. A volta não traz o token na URL: ver
+  // `payReturn.ts` pro motivo.
+  const token = useMemo(() => {
+    const daUrl = new URLSearchParams(window.location.search).get('t') ?? '';
+    if (daUrl) { lembrarToken(daUrl); return daUrl; }
+    return tokenDaVolta(window.location.search);
+  }, []);
   // Beacon da prospecção: o link que a Olímpia manda carrega `pl` (token do
   // lead, opaco pra nós). Reporta abertura e pagamento same-origin — o backend
   // repassa pra ela. Best-effort com dedup por sessionStorage: telemetria
@@ -761,6 +766,7 @@ export default function App() {
             disabled={totalToPay === 0}
             venueName={venue.name}
             simulated={venue.demo === true}
+            acceptsWallet={venue.acceptsWallet === true}
             onPaid={async (c) => {
               await refresh();
               // A COBRANÇA, não só o aviso: sem ela o comprovante deste trilho

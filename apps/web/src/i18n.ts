@@ -42,7 +42,7 @@ type Trio = { en: string; pt: string; es: string };
 /** `{name}` é substituído pelos valores passados em `vars`. */
 export function fill(s: string, vars?: Record<string, string | number>): string {
   if (!vars) return s;
-  return s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+  return s.replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m));
 }
 
 export const DICT = {
@@ -296,6 +296,24 @@ export const DICT = {
   'err.market_not_live': { en: 'Payments are not enabled here yet.',
                         pt: 'Os pagamentos ainda não estão liberados aqui.',
                         es: 'Los pagos todavía no están habilitados aquí.' },
+  // Erros do SALDO DA CASA e do cadastro da casa. Existiam como frases em
+  // português sem código nenhum, então viajavam cruas pra qualquer leitor —
+  // e uma delas ("venue has no settlement recipient configured") é a que o
+  // próprio `http-error.js` cita como exemplo do que não pode sair.
+  'err.venue_no_recipient': { en: 'This restaurant cannot take payments yet — please tell the staff.',
+                        pt: 'Este restaurante ainda não consegue receber pagamentos — avise a equipe.',
+                        es: 'Este restaurante todavía no puede cobrar — avisa al personal.' },
+  'err.venue_not_found': { en: 'Restaurant not found.',        pt: 'Restaurante não encontrado.', es: 'Restaurante no encontrado.' },
+  'err.house_off':    { en: 'This restaurant does not offer prepaid balance.',
+                        pt: 'Este restaurante não oferece saldo pré-pago.',
+                        es: 'Este restaurante no ofrece saldo prepago.' },
+  'err.house_wrong_venue': { en: 'This balance is only good at the restaurant that issued it.',
+                        pt: 'Este saldo vale somente no restaurante que o emitiu.',
+                        es: 'Este saldo solo vale en el restaurante que lo emitió.' },
+  // O limite chega em centavos e é formatado aqui, na moeda da casa: o
+  // servidor escrevia `toFixed(2)`, sem moeda e sem idioma.
+  'err.load_below_min': { en: 'The minimum top-up is {min}.',  pt: 'A recarga mínima é {min}.', es: 'La recarga mínima es {min}.' },
+  'err.load_above_max': { en: 'The maximum top-up is {max}.',  pt: 'A recarga máxima é {max}.', es: 'La recarga máxima es {max}.' },
   'err.tip_not_supported': { en: 'This bill does not take a service charge.',
                         pt: 'Esta conta não aceita serviço.',
                         es: 'Esta cuenta no admite cargo por servicio.' },
@@ -780,6 +798,18 @@ export const DICT = {
   // Os dois diálogos do modo manual (`prompt`/`confirm`). O símbolo da moeda é
   // parâmetro: estava `R$` escrito na linha, numa tela que uma casa espanhola
   // também abre.
+  // Os três diálogos IRREVERSÍVEIS do dono. Ficaram em português cru até
+  // 2026-09-10 porque a detecção do censo é uma lista de palavras escrita à
+  // mão, e nem "girar", nem "desativar", nem "reembolsar" estavam nela.
+  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately.',
+                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora.',
+                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante.' },
+  'admin.deactivateAsk': { en: 'Deactivate {table}? Its QR stops working.',
+                        pt: 'Desativar a {table}? O QR dela para de funcionar.',
+                        es: '¿Desactivar {table}? Su QR deja de funcionar.' },
+  'house.refundAsk':  { en: 'Refund {name}\n{label}: {balance}\n\nRefund amount ({symbol}):',
+                        pt: 'Reembolsar {name}\n{label}: {balance}\n\nValor do reembolso ({symbol}):',
+                        es: 'Reembolsar a {name}\n{label}: {balance}\n\nImporte del reembolso ({symbol}):' },
   'admin.openCheckPrompt': { en: 'Open a check on {table}\n\nCheck total ({symbol}):',
                         pt: 'Abrir conta na {table}\n\nTotal da conta ({symbol}):',
                         es: 'Abrir cuenta en {table}\n\nTotal de la cuenta ({symbol}):' },
@@ -966,6 +996,10 @@ export const DICT = {
   'house.saveConfig': { en: 'Save settings',                   pt: 'Salvar configuração', es: 'Guardar configuración' },
   'house.accountsCount': { en: 'Accounts ({n})',                pt: 'Contas ({n})', es: 'Cuentas ({n})' },
   'house.noAccounts': { en: 'no accounts yet.',                pt: 'nenhuma conta ainda.', es: 'todavía no hay cuentas.' },
+  'house.paidTag':    { en: '{amount} paid',                    pt: '{amount} pago', es: '{amount} pagado' },
+  'house.bonusTag':   { en: '{amount} bonus',                   pt: '{amount} bônus', es: '{amount} de bono' },
+  'house.linkCopied': { en: 'link copied ✓',                    pt: 'link copiado ✓', es: 'enlace copiado ✓' },
+  'house.copyLink':   { en: 'copy the wallet link',             pt: 'copiar link da carteira', es: 'copiar el enlace de la cartera' },
   'house.newLink':    { en: 'new link',                        pt: 'novo link', es: 'nuevo enlace' },
   'house.newLinkAsk': { en: 'Generate a new wallet link for {name}? The old link stops working immediately.',
                         pt: 'Gerar novo link de carteira para {name}? O link antigo para de funcionar na hora.',
@@ -1037,6 +1071,9 @@ export const DICT = {
                         es: 'El documento de la empresa o el tuyo como autónomo.' },
   'rcpt.emailLabel':  { en: 'Restaurant e-mail',               pt: 'E-mail do restaurante', es: 'Correo del restaurante' },
   'rcpt.emailBad':    { en: 'Invalid e-mail — check the format.', pt: 'E-mail inválido — confira o formato.', es: 'Correo no válido — revisa el formato.' },
+  // Exemplo, e exemplo é tela: um e-mail `.com.br` numa tela espanhola diz
+  // pra pessoa que o formulário não é pra ela.
+  'rcpt.emailPh':     { en: 'contact@restaurant.com',           pt: 'contato@restaurante.com.br', es: 'contacto@restaurante.es' },
   'rcpt.emailHint':   { en: 'Pagar.me requires it — used to notify you about payouts.',
                         pt: 'O Pagar.me exige — usa pra avisar sobre os repasses.',
                         es: 'El proveedor lo exige — lo usa para avisar de los abonos.' },
