@@ -157,9 +157,39 @@ export const DICT = {
                         pt: '{error} — a conta foi atualizada, confira o valor e tente de novo.',
                         es: '{error} — la cuenta se actualizó, revisa el importe e inténtalo de nuevo.' },
   'pix.title':        { en: 'Pay with Pix',                    pt: 'Pague com Pix', es: 'Paga con Pix' },
-  'pix.includesTip':  { en: 'includes {amount} service charge for the staff',
-                        pt: 'inclui {amount} de serviço para a equipe',
-                        es: 'incluye {amount} de cargo por servicio para el equipo' },
+  /**
+   * "PARA A EQUIPE" prometia 100%, e a lei não entrega 100%.
+   *
+   * A Lei 13.419/2017 inseriu o CLT art. 457 §§3º-11, e o §6º permite ao
+   * empregador RETER parte da gorjeta pros encargos sociais e previdenciários
+   * — até 20% pra empresa no regime de tributação diferenciado, até 33% pras
+   * demais. Então não dá pra afirmar que os {amount} chegam inteiros na equipe,
+   * e por casa a gente nem sabe quanto chega.
+   *
+   * O que É verdade e o que resolve a frase: quem distribui é o restaurante, e
+   * distribuir é obrigação legal dele (STJ Tema 1102 mantém a gorjeta fora da
+   * receita da casa). Nomear o distribuidor mantém o destino visível sem virar
+   * uma promessa de quantidade que o restaurante teria que honrar.
+   * Achado pela revisão de compliance de 2026-09-10.
+   */
+  'pix.includesTip':  { en: 'includes {amount} service charge — the restaurant distributes it to the staff, as the law requires',
+                        pt: 'inclui {amount} de serviço — o restaurante distribui à equipe, como manda a lei',
+                        es: 'incluye {amount} de servicio — el restaurante lo distribuye al equipo, como exige la ley' },
+  // A FOLHA DA CARTEIRA falava só português, no momento da AUTORIZAÇÃO.
+  // `wallet.payWith` também vai no `aria-label` do diálogo.
+  // O aviso do REEMBOLSO da conta-corrente, que o dono lê depois de registrar.
+  // Era português cru dentro de um `setNotice` — e o censo não via, porque a
+  // frase é interrompida por interpolação.
+  'house.refundNotice': { en: 'Refund of {amount} recorded — send the Pix to the diner.',
+                        pt: 'Reembolso de {amount} registrado — envie o Pix ao cliente.',
+                        es: 'Reembolso de {amount} registrado — envía el Bizum al cliente.' },
+  'house.refundBonus': { en: ' This account still has {amount} of active bonus.',
+                        pt: ' Esta conta ainda tem {amount} de bônus ativo.',
+                        es: ' Esta cuenta todavía tiene {amount} de bono activo.' },
+  'wallet.payWith':   { en: 'Pay with {wallet}',                pt: 'Pagar com {wallet}', es: 'Pagar con {wallet}' },
+  'wallet.authorizing': { en: 'authorising…',                   pt: 'autorizando…', es: 'autorizando…' },
+  'wallet.payAmount': { en: 'Pay {amount}',                     pt: 'Pagar {amount}', es: 'Pagar {amount}' },
+  'wallet.cancel':    { en: 'cancel',                           pt: 'cancelar', es: 'cancelar' },
   'pix.copy':         { en: 'Copy Pix code',                   pt: 'Copiar código Pix', es: 'Copiar código Pix' },
   'pix.copied':       { en: 'Code copied ✓',                   pt: 'Código copiado ✓', es: 'Código copiado ✓' },
   'pix.how':          { en: 'Open your bank app, choose Pix copy-and-paste and paste the code.',
@@ -236,9 +266,11 @@ export const DICT = {
                         es: 'Tu cuenta está a salvo — vive en el servidor, no aquí. Recargar retoma donde estaba.' },
   'boundary.retry':   { en: 'Reload',                           pt: 'Recarregar', es: 'Recargar' },
   'paid.youPaid':     { en: 'You paid {amount}',                pt: 'Você pagou {amount}', es: 'Pagaste {amount}' },
-  'paid.ofWhichTip':  { en: 'of which {amount} service charge for the staff',
-                        pt: 'sendo {amount} de serviço para a equipe',
-                        es: 'de los cuales {amount} de servicio para el personal' },
+  // Mesma correção do `pix.includesTip`: nomeia o distribuidor, não promete a
+  // quantidade. CLT art. 457 §6º permite retenção de 20% a 33% pros encargos.
+  'paid.ofWhichTip':  { en: 'of which {amount} service charge — the restaurant distributes it to the staff, as the law requires',
+                        pt: 'sendo {amount} de serviço — o restaurante distribui à equipe, como manda a lei',
+                        es: 'de los cuales {amount} de servicio — el restaurante lo distribuye al equipo, como exige la ley' },
   'paid.at':          { en: 'on {when}',                        pt: 'em {when}', es: 'el {when}' },
   'paid.notInvoice':  { en: 'This is not an invoice. Ask the restaurant for one if you need it.',
                         pt: 'Isto não é uma nota fiscal. Peça a nota ao restaurante se precisar.',
@@ -624,6 +656,14 @@ export const DICT = {
   // ── pagar com saldo ─────────────────────────────────────────────────────
   'housepay.cta':     { en: 'Pay with balance',                pt: 'Pagar com saldo', es: 'Pagar con saldo' },
   'housepay.done':    { en: 'Paid with balance',               pt: 'Pago com saldo', es: 'Pagado con saldo' },
+  'housepay.available': { en: '{amount} available in your wallet',
+                        pt: '{amount} disponível na sua carteira', es: '{amount} disponible en tu cartera' },
+  'housepay.paying':  { en: 'paying…',                          pt: 'pagando…', es: 'pagando…' },
+  'housepay.payAmount': { en: 'Pay {amount} with balance',      pt: 'Pagar {amount} com saldo', es: 'Pagar {amount} con saldo' },
+  // O comprovante do saldo: bônus e principal saem separados porque são
+  // dinheiros diferentes — um foi pago pelo cliente, o outro foi promoção.
+  'housepay.usedBonus': { en: '{amount} from the bonus',        pt: '{amount} do bônus', es: '{amount} del bono' },
+  'housepay.usedPaid': { en: '{amount} from the paid balance',  pt: '{amount} do saldo pago', es: '{amount} del saldo pagado' },
   'housepay.tipApart':{ en: 'The service charge goes separately, by Pix.',
                         pt: 'O serviço da equipe (gorjeta) vai separado, pelo Pix.',
                         es: 'El cargo por servicio va aparte, por Pix.' },
@@ -737,6 +777,15 @@ export const DICT = {
   'admin.footQr':     { en: 'racha · each table’s QR opens the guest’s bill',
                         pt: 'racha · o QR de cada mesa abre a conta do cliente',
                         es: 'racha · el QR de cada mesa abre la cuenta del cliente' },
+  // Os dois diálogos do modo manual (`prompt`/`confirm`). O símbolo da moeda é
+  // parâmetro: estava `R$` escrito na linha, numa tela que uma casa espanhola
+  // também abre.
+  'admin.openCheckPrompt': { en: 'Open a check on {table}\n\nCheck total ({symbol}):',
+                        pt: 'Abrir conta na {table}\n\nTotal da conta ({symbol}):',
+                        es: 'Abrir cuenta en {table}\n\nTotal de la cuenta ({symbol}):' },
+  'admin.closeCheckConfirm': { en: 'Close the check for {table}?',
+                        pt: 'Fechar a conta da {table}?', es: '¿Cerrar la cuenta de {table}?' },
+  'admin.totalInvalid': { en: 'Enter a valid total.',           pt: 'Informe um total válido.', es: 'Introduce un total válido.' },
   'admin.loading':    { en: 'loading…',                        pt: 'carregando…', es: 'cargando…' },
   'wallet.loading':   { en: 'loading your wallet…',           pt: 'carregando sua carteira…', es: 'cargando tu cartera…' },
   // Só aparece quando o ambiente está mal configurado, e por isso ficou em
@@ -817,6 +866,12 @@ export const DICT = {
                         pt: '3 · Primeira mesa real paga com a gente presente. Meta da semana 1: ≥25% das contas pelo QR — acompanhe na seção Ativação do painel da casa.',
                         es: '3 · Primera mesa real pagada con nosotros delante. Objetivo de la semana 1: ≥25% de las cuentas por el QR — sígelo en la sección Activación del panel.' },
   'setup.printLink':  { en: 'Print the table QRs',             pt: 'Imprimir os QRs das mesas', es: 'Imprimir los QR de las mesas' },
+  // O roteiro que a equipe fala na mesa. Vive no dicionário e não em dois
+  // `const` iguais em dois arquivos: era português cru nos dois, e o assistente
+  // de implantação é a primeira tela que um dono novo abre.
+  'wiz.staffLine':    { en: '“Scan the QR on the table to see the bill and pay whenever you like — the tip goes straight to us.”',
+                        pt: '“Pode escanear o QR da mesa pra ver a conta e pagar quando quiser — a gorjeta vai direto pra gente.”',
+                        es: '“Puedes escanear el QR de la mesa para ver la cuenta y pagar cuando quieras — la propina va directa para nosotros.”' },
   'wiz.stepTables':   { en: 'Tables',                          pt: 'Mesas', es: 'Mesas' },
   'wiz.stepPayout':   { en: 'Payouts',                         pt: 'Recebimento', es: 'Cobros' },
   'wiz.stepStaff':    { en: 'Staff',                           pt: 'Equipe', es: 'Equipo' },
@@ -874,6 +929,10 @@ export const DICT = {
   'qrs.help':         { en: 'One card per active table — disabled and training tables are left out. Tip: save as PDF from the print dialog to send to a print shop.',
                         pt: 'Um cartão por mesa ativa — mesas desativadas e de treino ficam de fora. Dica: salve como PDF na caixa de impressão para mandar à gráfica.',
                         es: 'Una tarjeta por mesa activa — las desactivadas y las de prácticas quedan fuera. Consejo: guarda como PDF desde el diálogo de impresión para enviarlo a la imprenta.' },
+  // O cartão sai da IMPRESSORA DO DONO, no idioma em que ele está lendo a
+  // tela. O rótulo da mesa continua sendo palavra da casa: o prefixo só entra
+  // quando a casa não escreveu um.
+  'qrs.tableTitle':   { en: 'Table {label}',                    pt: 'Mesa {label}', es: 'Mesa {label}' },
   'qrs.print':        { en: 'Print',                           pt: 'Imprimir', es: 'Imprimir' },
   'qrs.preparing':    { en: 'preparing the QRs…',              pt: 'preparando os QRs…', es: 'preparando los QR…' },
   'qrs.backTables':   { en: '← tables',                        pt: '← mesas', es: '← mesas' },
@@ -905,6 +964,7 @@ export const DICT = {
   'house.badAmount':  { en: 'Enter a valid amount.',           pt: 'Informe um valor válido.', es: 'Introduce un importe válido.' },
   'house.saving':     { en: 'saving…',                         pt: 'salvando…', es: 'guardando…' },
   'house.saveConfig': { en: 'Save settings',                   pt: 'Salvar configuração', es: 'Guardar configuración' },
+  'house.accountsCount': { en: 'Accounts ({n})',                pt: 'Contas ({n})', es: 'Cuentas ({n})' },
   'house.noAccounts': { en: 'no accounts yet.',                pt: 'nenhuma conta ainda.', es: 'todavía no hay cuentas.' },
   'house.newLink':    { en: 'new link',                        pt: 'novo link', es: 'nuevo enlace' },
   'house.newLinkAsk': { en: 'Generate a new wallet link for {name}? The old link stops working immediately.',
@@ -938,6 +998,18 @@ export const DICT = {
   'rcpt.esVia':       { en: 'Payouts are set up with Stripe: you enter the IBAN and the KYC details on their page, so the bank details never pass through Racha.',
                         pt: 'O recebimento é configurado na Stripe: o IBAN e os dados de KYC você preenche na página deles, então os dados bancários nunca passam pela Racha.',
                         es: 'Los cobros se configuran en Stripe: el IBAN y los datos de KYC los introduces en su página, así que los datos bancarios nunca pasan por Racha.' },
+  'rcpt.marketplaceHint': { en: 'The Pagar.me account is not in marketplace mode yet — sales has to enable it (already requested).',
+                        pt: 'A conta Pagar.me ainda não está em modo marketplace — o comercial precisa habilitar (pedido já feito).',
+                        es: 'La cuenta de Pagar.me todavía no está en modo marketplace — el equipo comercial tiene que habilitarlo (ya solicitado).' },
+  'rcpt.docIncomplete': { en: 'A CPF has 11 digits, a CNPJ has 14 — some are still missing.',
+                        pt: 'CPF tem 11 dígitos, CNPJ tem 14 — ainda faltam números.',
+                        es: 'El CPF tiene 11 dígitos y el CNPJ 14 — todavía faltan números.' },
+  'rcpt.docDvBad':    { en: 'The check digits do not match — check the number.',
+                        pt: 'Os dígitos verificadores não batem — confira o número.',
+                        es: 'Los dígitos de control no coinciden — revisa el número.' },
+  'rcpt.fixFields':   { en: 'Check the fields highlighted in red before continuing.',
+                        pt: 'Confira os campos destacados em vermelho antes de continuar.',
+                        es: 'Revisa los campos marcados en rojo antes de continuar.' },
   'rcpt.section':     { en: 'Payouts',                         pt: 'Recebimento', es: 'Cobros' },
   'rcpt.active':      { en: 'Recipient active · {id}',         pt: 'Recebedor ativo · {id}', es: 'Cuenta de cobro activa · {id}' },
   'rcpt.review':      { en: 'Under review · {id}',             pt: 'Em análise · {id}', es: 'En revisión · {id}' },

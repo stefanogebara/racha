@@ -78,18 +78,21 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
 
   // Modo manual (POS adapter): o dono abre/fecha a conta pelo painel.
   const openManualCheck = useCallback(async (t: VenueTable) => {
-    const raw = prompt(`Abrir conta na ${t.label}\n\nTotal da conta (R$):`);
+    // O símbolo vem do MERCADO da casa, não da linha: esta tela também abre
+    // numa casa espanhola.
+    const raw = prompt(tr('admin.openCheckPrompt',
+      { table: t.label, symbol: venue?.market === 'es' ? '€' : 'R$' }));
     if (raw == null) return;
     const totalCents = parseBrlToCents(raw); // "1.234,56" e "R$ 47,50" resolvem certo
-    if (totalCents == null || totalCents <= 0) { setError('Informe um total válido.'); return; }
+    if (totalCents == null || totalCents <= 0) { setError(tr('admin.totalInvalid')); return; }
     try {
       await req('/api/checks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, totalCents }) });
       await refresh();
     } catch (e) { setError((e as Error).message); }
-  }, [refresh]);
+  }, [refresh, tr, venue?.market]);
 
   const closeManualCheck = useCallback(async (t: VenueTable) => {
-    if (!confirm(`Fechar a conta da ${t.label}?`)) return;
+    if (!confirm(tr('admin.closeCheckConfirm', { table: t.label }))) return;
     try {
       const view = await fetch(`/api/check?t=${encodeURIComponent(t.qrToken)}`).then((r) => r.json());
       const checkId = view?.data?.check?.id;
@@ -102,7 +105,7 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
       await req('/api/checks/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkId }) });
       await refresh();
     } catch (e) { setError((e as Error).message); }
-  }, [refresh]);
+  }, [refresh, tr]);
 
   return { venue, tables, error, setError, refresh, addTable, rotate, toggle, toggleTraining, openManualCheck, closeManualCheck };
 }

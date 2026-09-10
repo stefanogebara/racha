@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#FFFFFF" />
+    <!--
+      O TOKEN DA CONTA NÃO SAI DAQUI NO `Referer`.
+
+      A conta do cliente é `/?t=<token>`, e esse token é uma CAPACIDADE ao
+      portador: com ele se lê a conta (`/api/check`) e se CRIA cobrança
+      (`/api/pay` autoriza só por ele, `router.js`). O navegador manda a URL
+      inteira da página no `Referer` de todo subrecurso de terceiro — e numa
+      casa com cartão isso incluía a Stripe (`m.stripe.com`).
+
+      `strict-origin` manda só a origem, nunca o caminho nem a query. Quem
+      precisa da origem (a Stripe precisa, pra casar o domínio) continua
+      recebendo; o token não. LGPD art. 46. Achado pela revisão de compliance
+      de 2026-09-10.
+
+      O conserto durável é o token sair da query string; isto fecha o vazamento
+      hoje, em uma linha, sem mexer no formato do QR que já está impresso.
+    -->
+    <meta name="referrer" content="strict-origin" />
     <title>Racha — pay at the table</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />

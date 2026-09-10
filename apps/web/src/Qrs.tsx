@@ -16,9 +16,15 @@ import { authedReq as req } from './auth';
 
 const PROD_ORIGIN = 'https://racha-gray.vercel.app';
 
-/** "12" → "Mesa 12"; labels que já vêm como "Mesa 12" não viram "Mesa Mesa 12". */
-const mesaTitle = (label: string) =>
-  /^mesa\b/i.test(label.trim()) ? label.trim() : `Mesa ${label.trim()}`;
+/**
+ * "12" → "Mesa 12"; labels que já vêm como "Mesa 12" não viram "Mesa Mesa 12".
+ *
+ * O prefixo é TEXTO DE TELA (sai no idioma do dono, que é quem imprime); o
+ * rótulo é palavra da CASA e passa inteiro. Por isso o teste de idioma também
+ * dispensa `table`/`mesa`/`mesa` de serem diferentes entre si.
+ */
+const mesaTitle = (label: string, t: (k: 'qrs.tableTitle', v: { label: string }) => string) =>
+  /^(mesa|table)\b/i.test(label.trim()) ? label.trim() : t('qrs.tableTitle', { label: label.trim() });
 
 export default function Qrs() {
   const { t } = useT();
@@ -78,7 +84,7 @@ function QrCard({ venueName, table }: { venueName: string; table: VenueTable }) 
       <div className="qrbox">
         <QRCodeSVG value={`${PROD_ORIGIN}/?t=${table.qrToken}`} size={190} level="M" marginSize={2} />
       </div>
-      <h2 className="qrmesa">{mesaTitle(table.label)}</h2>
+      <h2 className="qrmesa">{mesaTitle(table.label, t)}</h2>
       <p className="qrhint">{t('qr.scanToPay')}</p>
       <p className="qrperks">{t('qr.perks')}</p>
       <span className="qrbrand">racha</span>

@@ -196,7 +196,7 @@ export default function WalletButtons({
           disabled={disabled || busy || cpfDigits.length !== 11}
           onClick={realGooglePay}
         >
-          {busy ? 'autorizando…' : 'G Pay'}
+          {busy ? t('wallet.authorizing') : 'G Pay'}
         </button>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
       </>
@@ -226,24 +226,27 @@ export default function WalletButtons({
       {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
 
       {sheet && (
-        <div className="sheetoverlay" role="dialog" aria-modal="true" aria-label={`Pagar com ${WALLET_LABEL[sheet]}`}>
+        <div className="sheetoverlay" role="dialog" aria-modal="true" aria-label={t('wallet.payWith', { wallet: WALLET_LABEL[sheet] })}>
           <div className="sheet">
             <p className="label">{WALLET_LABEL[sheet]}</p>
             <div className="checkrow">
               <span>Racha · {venueName}</span>
               <span className="mono">{brl(total)}</span>
             </div>
+            {/* A divulgação do SERVIÇO no momento de autorizar — era português
+                cru, e quem não lê português autorizava sem saber que parte do
+                valor é serviço (CDC art. 6º III / art. 31). A chave já existia. */}
             {tipCents > 0 && (
-              <p className="muted small">inclui {brl(tipCents)} de serviço para a equipe</p>
+              <p className="muted small">{t('pix.includesTip', { amount: brl(tipCents) })}</p>
             )}
             <div className="checkrow">
               <span className="muted small">{t('card.word')}</span>
               <span className="mono muted small">{t('card.demoCard')}</span>
             </div>
             <button className="cta" disabled={busy} onClick={() => demoAuthorize(sheet)}>
-              {busy ? 'autorizando…' : `Pagar ${brl(total)}`}
+              {busy ? t('wallet.authorizing') : t('wallet.payAmount', { amount: brl(total) })}
             </button>
-            <button className="linklike" disabled={busy} onClick={() => setSheet(null)}>cancelar</button>
+            <button className="linklike" disabled={busy} onClick={() => setSheet(null)}>{t('wallet.cancel')}</button>
             <p className="muted small center">{t('card.demoNote')}</p>
           </div>
         </div>

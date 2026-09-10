@@ -11,9 +11,6 @@ import { useT } from './lang';
  * pagamento é o passo 3 em tom de alerta, não um aviso solto.
  */
 
-const FRASE_GARCOM =
-  '“Pode escanear o QR da mesa pra ver a conta e pagar quando quiser — a gorjeta vai direto pra gente.”';
-
 interface Step {
   done: boolean;
   title: string;
@@ -105,7 +102,7 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
         </summary>
         <div className="muted small" style={{ paddingTop: 8, display: 'grid', gap: 6 }}>
           <p>{t('setup.script1')}</p>
-          <p>{t('setup.script2', { line: FRASE_GARCOM })}</p>
+          <p>{t('setup.script2', { line: t('wiz.staffLine') })}</p>
           <p>{t('setup.script3')}</p>
           <p>
             🖨 <a href={`/qrs?v=${encodeURIComponent(venue.id)}`}>{t('setup.printLink')}</a>{' '}

@@ -102,7 +102,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   const canSubmit = valid.name && valid.doc && valid.email && valid.bank && valid.agencia && valid.conta && valid.contaDv;
   const knownBank = bankName(bankCode); // nome do banco pelo código, ou null
   const marketplaceHint = submitError && /split|marketplace/i.test(submitError)
-    ? 'A conta Pagar.me ainda não está em modo marketplace — o comercial precisa habilitar (pedido já feito).'
+    ? t('rcpt.marketplaceHint')
     : null;
 
   // Borda vermelha só quando o campo foi tocado e está inválido.
@@ -115,8 +115,8 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
     return <span className="muted small" style={{ display: 'block', marginTop: 4 }}>{hint}</span>;
   };
   const docErr = kind === null
-    ? 'CPF tem 11 dígitos, CNPJ tem 14 — ainda faltam números.'
-    : 'Os dígitos verificadores não batem — confira o número.';
+    ? t('rcpt.docIncomplete')
+    : t('rcpt.docDvBad');
 
   async function copyId() {
     if (!realId) return;
@@ -127,7 +127,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   async function submit() {
     setTriedSubmit(true);
     if (!canSubmit) {
-      setSubmitError('Confira os campos destacados em vermelho antes de continuar.');
+      setSubmitError(t('rcpt.fixFields'));
       return;
     }
     setBusy(true); setSubmitError(null); setCreated(null);

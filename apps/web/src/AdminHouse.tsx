@@ -134,8 +134,8 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
       });
       // Ecoa o valor que o parser entendeu — o dono confere antes de mandar o Pix.
       setNotice(
-        `Reembolso de ${brl(amountCents)} registrado — envie o Pix ao cliente.` +
-        (r.bonusCents > 0 ? ` Esta conta ainda tem ${brl(r.bonusCents)} de bônus ativo.` : ''),
+        t('house.refundNotice', { amount: brl(amountCents) })
+        + (r.bonusCents > 0 ? t('house.refundBonus', { amount: brl(r.bonusCents) }) : ''),
       );
       await refresh();
     } catch (e) {
@@ -203,7 +203,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
         O saldo pago é passivo reembolsável — dinheiro do cliente até ser consumido; só o bônus é promoção sua.
       </p>
 
-      <p className="label">Contas ({accounts.length})</p>
+      <p className="label">{t('house.accountsCount', { n: accounts.length })}</p>
       {accounts.length === 0 && <p className="muted small">{t('house.noAccounts')}</p>}
       {accounts.map((a) => (
         <div key={a.id}>

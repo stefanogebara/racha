@@ -39,6 +39,22 @@ function isProseLine(trimmed: string): boolean {
   return /^[^<>{}()=;:`|&'"[\],]+$/.test(code);
 }
 
+/**
+ * Apaga as interpolações da linha — `{...}` do JSX e `${...}` do template —
+ * pondo `…` no lugar. O `…` não é `<`, `>`, `{` nem `}`, então a âncora
+ * `>texto<` continua valendo com a prosa inteira em um pedaço só. Roda em
+ * ponto fixo pra dar conta de chave dentro de chave.
+ */
+function maskExpr(line: string, re: RegExp = /\{[^{}]*\}/g): string {
+  let out = line;
+  for (let i = 0; i < 8; i += 1) {
+    const next = out.replace(re, '…');
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
 function codeLines(text: string): { line: string; n: number }[] {
   const out: { line: string; n: number }[] = [];
   let inBlock = false;
@@ -98,6 +114,11 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'wiz.stepTables:pt=es', 'wiz.connected:pt=es', 'wiz.marked:pt=es',
     'qrs.backTables:pt=es', 'stripe.connect:pt=es', 'admin.cpfOk:pt=es',
     'house.refund:pt=es', 'rcpt.idCopied:pt=es', 'rcpt.copyId:pt=es',
+    // A folha da carteira: "cancelar", "Pagar {amount}" e "autorizando…" são
+    // cognatos exatos. Cada uma conferida à mão, como manda o comentário acima.
+    'wallet.cancel:pt=es', 'wallet.payAmount:pt=es', 'wallet.authorizing:pt=es',
+    // O saldo da casa: "pagando…" e "Mesa" se escrevem igual nas duas.
+    'housepay.paying:pt=es', 'qrs.tableTitle:pt=es',
     'rcpt.holder:pt=es', 'rcpt.bankLabel:pt=es', 'rcpt.bankCodeKnown:pt=es',
     'rcpt.optionalPh:pt=es', 'rcpt.sending:pt=es', 'rcpt.cancel:pt=es',
     'ledger.load:pt=es', 'ledger.refund:pt=es', 'cat.carne:pt=es',
@@ -342,15 +363,39 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
     if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
     for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
       const trimmed = line.trim();
+      // A linha SEM as interpolações e sem o comentário de fim de linha.
+      //
+      // `>...<` excluía `{` e `}` da classe, então prosa interrompida por
+      // interpolação — `>inclui {brl(tip)} de serviço<` — não casava em pedaço
+      // nenhum: o primeiro fragmento não fecha e o segundo não começa com `>`.
+      // Foi assim que a folha da carteira ficou em português cru NO MOMENTO DA
+      // AUTORIZAÇÃO, e a busca por substring do dicionário também não a via,
+      // porque a fonte escreve `{brl(tipCents)}` onde o dicionário escreve
+      // `{amount}`. Mascarar (em vez de partir a linha em pedaços soltos)
+      // mantém a âncora `>...<`: sem ela o teste passa a ler atributo e código
+      // como se fosse tela. Achado da revisão de 2026-09-10.
+      const semComentario = line.replace(/(^|[^:])\/\/.*$/, '$1');
+      const masked = maskExpr(semComentario);
+      // Para os LITERAIS, só o `${...}` do template é apagado: o mascaramento
+      // em ponto fixo come a chave de JSX inteira — `{busy ? '…' : `…`}` vira
+      // um `…` só — e com ela o literal que se quer ler.
+      const semTpl = maskExpr(semComentario, /\$\{[^{}]*\}/g);
       const candidates = [
-        ...[...line.matchAll(/>([^<>{}]{4,})</g)].map((m) => m[1]),
-        ...[...line.matchAll(/(?:placeholder|title|aria-label)="([^"]{4,})"/g)].map((m) => m[1]),
+        ...[...masked.matchAll(/>([^<>{}]{4,})</g)].map((m) => m[1]),
+        ...[...masked.matchAll(/(?:placeholder|title|aria-label)="([^"]{4,})"/g)].map((m) => m[1]),
         // Prosa de JSX que ocupa VÁRIAS linhas: as linhas do meio não têm `>`
         // nem `<`, então a regra de cima não as vê. Foi assim que o parágrafo
         // do AdminStripe — três linhas em português, mencionando o Pix numa
         // tela espanhola — passou pela primeira versão deste teste. Uma linha
         // que é só texto (sem tag, sem chave, sem código) é prosa de tela.
         ...(isProseLine(trimmed) ? [trimmed] : []),
+        // FRASE dentro de literal de string. `{busy ? 'pagando…' : `Pagar
+        // ${brl(x)} com saldo`}` está em posição de JSX mas some no mascaramento
+        // — e era o botão que o cliente aperta pra gastar o saldo. Só literais
+        // com ESPAÇO entram: `setStep('conta')` é chave de máquina de estados,
+        // não tela, e é essa diferença que a lista de palavras sozinha não faz.
+        ...[...semTpl.matchAll(/'([^']{4,})'|"([^"]{4,})"|`([^`]{4,})`/g)]
+             .map((m) => m[1] ?? m[2] ?? m[3]).filter((x) => /\s/.test(x)),
       ];
       for (const c of candidates) {
         if (re.test(c)) offenders.push(`${file}:${n} texto de tela em português: ${JSON.stringify(c.trim().slice(0, 60))}`);

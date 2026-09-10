@@ -16,9 +16,6 @@ import { useT } from './lang';
 
 /// Chaves, não rótulos: o passo é um dado, o nome dele é texto de tela.
 const STEP_KEYS = ['wiz.stepTables', 'wiz.stepPayout', 'wiz.stepStaff', 'wiz.stepDone'] as const;
-const FRASE_GARCOM =
-  '“Pode escanear o QR da mesa pra ver a conta e pagar quando quiser — a gorjeta vai direto pra gente.”';
-
 function StepHead({ title, sub }: { title: string; sub: string }) {
   return (
     <div style={{ marginTop: 4 }}>
@@ -143,7 +140,7 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
               <summary className="muted small" style={{ cursor: 'pointer' }}>{t('setup.script')}</summary>
               <div className="muted small" style={{ paddingTop: 8, display: 'grid', gap: 6 }}>
                 <p>{t('wiz.script1')}</p>
-                <p>{t('setup.script2', { line: FRASE_GARCOM })}</p>
+                <p>{t('setup.script2', { line: t('wiz.staffLine') })}</p>
                 <p>{t('wiz.script3')}</p>
               </div>
             </details>
