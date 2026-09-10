@@ -332,6 +332,30 @@ Três pontos pro parecer, e os três mudam o que temos que produzir:
 Nada disto muda a análise de **LGPD**: o Bizum não é oferecido no Brasil e o
 telefone nunca entra no banco de São Paulo.
 
+### 3b. O mesmo terceiro, do lado brasileiro — e o achado atrás do achado
+
+O item 3 acima ("não passa pelos nossos servidores" não é defesa de quem
+embute) tem um irmão brasileiro, e ele é pior porque não era uma escolha:
+
+Em 2026-09-07 mediu-se uma conta de **Pix, casa brasileira, sem cartão** e ela
+carregava `js.stripe.com` e `m.stripe.com`. O `@stripe/stripe-js` 9.12.0 tem um
+`loadScript(null)` no corpo do módulo (`dist/index.mjs`): **importar já injeta
+o script** e dispara a impressão digital, mesmo que o componente devolva
+`null`. Ninguém tinha decidido que a Stripe veria aquela mesa — o import
+decidiu.
+
+O conserto técnico foi de uma linha (`@stripe/stripe-js/pure`, que é inerte, e
+o componente atrás de `lazy`), com censo no bundle (`apps/web/test/bundle.test.ts`).
+Sob Fashion ID, o período em que aquilo rodou é coleta por corresponsável sem
+aviso e sem base — exatamente o que o item 3 descreve, só que sem ninguém ter
+embutido de propósito.
+
+O que ficou disso não é a linha: é que **ninguém sabia que a Stripe era
+destinatária porque nada no repositório listava destinatários**. Não havia onde
+olhar. Daí `docs/compliance/data-map.md`, com censo em
+`api/__tests__/data-map.test.js` — dependência nova que fale com fora quebra o
+teste até alguém escrever o que ela vê.
+
 ## O que ainda falta pra Espanha ir ao ar
 
 Anotado aqui pra não parecer pronto:
