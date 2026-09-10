@@ -228,6 +228,13 @@ export const DICT = {
   // O QUE ELE PAGOU, no comprovante. A barra de progresso é da CONTA (consumo);
   // o comprovante tem que dizer o que saiu da conta DELE — e o serviço em
   // separado, porque é a parte que vai pra equipe.
+  // A tela que aparece quando o render cai. Recarregar é seguro: a conta é
+  // derivada do razão no servidor, nada mora só no navegador.
+  'boundary.title':   { en: 'Something broke on this screen',   pt: 'Algo quebrou nesta tela', es: 'Algo se rompió en esta pantalla' },
+  'boundary.body':    { en: 'Your bill is safe — it lives on the server, not here. Reloading picks it up where it was.',
+                        pt: 'Sua conta está segura — ela vive no servidor, não aqui. Recarregar retoma de onde estava.',
+                        es: 'Tu cuenta está a salvo — vive en el servidor, no aquí. Recargar retoma donde estaba.' },
+  'boundary.retry':   { en: 'Reload',                           pt: 'Recarregar', es: 'Recargar' },
   'paid.youPaid':     { en: 'You paid {amount}',                pt: 'Você pagou {amount}', es: 'Pagaste {amount}' },
   'paid.ofWhichTip':  { en: 'of which {amount} service charge for the staff',
                         pt: 'sendo {amount} de serviço para a equipe',

@@ -1,5 +1,19 @@
 import { useMemo, useState } from 'react';
-import { loadStripe, type Stripe } from '@stripe/stripe-js';
+/**
+ * `/pure` — o import NÃO injeta o script.
+ *
+ * O entrypoint normal do `@stripe/stripe-js` tem um `loadScript(null)` no corpo
+ * do módulo (9.12.0, `dist/index.mjs`): IMPORTAR já injeta o `js.stripe.com` e
+ * dispara a impressão digital, mesmo que o componente devolva `null`. Foi o que
+ * fez uma conta de Pix brasileira chamar a Stripe. Pôr o componente atrás de
+ * `lazy` resolveu o caso medido; isto resolve a CLASSE, porque o script passa a
+ * depender de alguém chamar `loadStripe(PK)` — e essa chamada já exige a chave.
+ * Um refactor que mova a renderização não derruba mais a garantia.
+ */
+import { loadStripe } from '@stripe/stripe-js/pure';
+// O TIPO vem do entrypoint normal — `import type` é apagado na compilação, não
+// sobra `require`/`import` nenhum no bundle e portanto não injeta script.
+import type { Stripe } from '@stripe/stripe-js';
 import { Elements, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { api } from './api';
 import { useT } from './lang';
@@ -33,7 +47,8 @@ interface InnerProps {
   tipCents: number;
   payerLabel: string | null;
   payerDocument: string;
-  onPaid: () => void;
+  /** O comprovante precisa do valor cobrado — ver `WalletPay`. */
+  onPaid: (charge: { amountCents: number; tipCents: number }) => void;
   onError: (msg: string) => void;
 }
 
@@ -61,7 +76,9 @@ function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument,
         redirect: 'if_required', // carteira confirma sem sair da página
       });
       if (error) { onError(error.message || t('card.incomplete')); setBusy(false); return; }
-      onPaid(); // sucesso — o webhook confirma no ledger, o poll mostra o ✓
+      // Os centavos vêm do que foi MANDADO pro intent, não recomputados do
+      // elemento: é o valor que a Stripe autorizou.
+      onPaid({ amountCents, tipCents }); // o webhook confirma no ledger, o poll mostra o ✓
     } catch (e) {
       onError((e as Error).message);
       setBusy(false);
@@ -80,7 +97,8 @@ export default function StripeWalletPay({
   payerLabel: string | null;
   payerDocument: string;
   disabled: boolean;
-  onPaid: () => void;
+  /** O comprovante precisa do valor cobrado — ver `WalletPay`. */
+  onPaid: (charge: { amountCents: number; tipCents: number }) => void;
   /** A moeda da CASA, vinda do servidor (`view.venue.currency`). Sem padrão. */
   currency: CurrencyCode;
 }) {

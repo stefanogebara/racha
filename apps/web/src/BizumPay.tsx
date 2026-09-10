@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { loadStripe, type Stripe } from '@stripe/stripe-js';
+/**
+ * `/pure` — o import NÃO injeta o script.
+ *
+ * O entrypoint normal do `@stripe/stripe-js` tem um `loadScript(null)` no corpo
+ * do módulo (9.12.0, `dist/index.mjs`): IMPORTAR já injeta o `js.stripe.com` e
+ * dispara a impressão digital, mesmo que o componente devolva `null`. Foi o que
+ * fez uma conta de Pix brasileira chamar a Stripe. Pôr o componente atrás de
+ * `lazy` resolveu o caso medido; isto resolve a CLASSE, porque o script passa a
+ * depender de alguém chamar `loadStripe(PK)` — e essa chamada já exige a chave.
+ * Um refactor que mova a renderização não derruba mais a garantia.
+ */
+import { loadStripe } from '@stripe/stripe-js/pure';
+// O TIPO vem do entrypoint normal — `import type` é apagado na compilação, não
+// sobra `require`/`import` nenhum no bundle e portanto não injeta script.
+import type { Stripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { api, ApiError } from './api';
 import { useT } from './lang';

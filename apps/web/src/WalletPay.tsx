@@ -1,6 +1,6 @@
 
 import { useT } from './lang';import { useEffect, useState } from 'react';
-import { api, ApiError } from './api';
+import { api, ApiError, type ChargeResult } from './api';
 
 /**
  * Apple Pay / Google Pay — cobrança de CARTÃO tokenizada pelo mesmo portão de
@@ -100,7 +100,15 @@ export default function WalletButtons({
    *  PRODUCTION e tokenizaria um cartão de verdade pra uma conta que não
    *  existe — achado CRÍTICO da revisão de compliance. */
   simulated?: boolean;
-  onPaid: () => void;
+  /**
+   * O COMPROVANTE precisa da cobrança, não de um aviso de que houve uma.
+   *
+   * Isto era `() => void`: a carteira tinha a `ChargeResult` na mão (`settle`)
+   * e a jogava fora, então a tela de pago não sabia o valor e o comprovante
+   * saía sem quantia, sem linha de serviço e sem data — justo no trilho em que
+   * o cliente tem uma FATURA de cartão pra conferir contra.
+   */
+  onPaid: (charge: ChargeResult) => void;
 }) {
   const { t, brl } = useT();
   const real = REAL && !simulated;
@@ -131,7 +139,7 @@ export default function WalletButtons({
       // pelo webhook charge.paid e o polling da conta atualiza o progresso.
       if ((e as ApiError).status !== 404) throw e;
     }
-    onPaid();
+    onPaid(charge);
   }
 
   // --- modo REAL: sheet oficial do Google -----------------------------------

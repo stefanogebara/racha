@@ -426,7 +426,18 @@ export default function App() {
             </p>
           </div>
           {remaining > 0 && (
-            <button className="cta" onClick={() => { setSelectedItems(new Set()); setStep('conta'); refresh(); }}>
+            <button className="cta" onClick={() => {
+              setSelectedItems(new Set());
+              // LIMPA o comprovante anterior. Sem isto: paga a 1ª parte no Pix
+              // (recibo certo), toca aqui, paga a 2ª na carteira — e a tela
+              // mostrava a quantia da PRIMEIRA com a data da SEGUNDA. Valor
+              // afirmativamente errado num comprovante é pior que valor
+              // ausente.
+              setCharge(null);
+              setPaidAt(null);
+              setStep('conta');
+              refresh();
+            }}>
               {t('paid.payMore')}
             </button>
           )}
@@ -708,7 +719,7 @@ export default function App() {
               nenhuma forma de pagar é pior que um botão feio: cai no MESMO
               trilho pelo servidor, que na demo é o MockPsp. Um caminho, dois
               jeitos de chegar nele. */}
-          {primaryRail === 'bizum' ? (
+          {primaryRail === 'bizum' && STRIPE_READY ? (
             <>
               <Suspense fallback={null}>
               <BizumPay
@@ -750,10 +761,24 @@ export default function App() {
             disabled={totalToPay === 0}
             venueName={venue.name}
             simulated={venue.demo === true}
-            onPaid={async () => { await refresh(); setPaidAt(new Date().toISOString()); setStep('pago'); }}
+            onPaid={async (c) => {
+              await refresh();
+              // A COBRANÇA, não só o aviso: sem ela o comprovante deste trilho
+              // sai sem quantia, sem serviço e sem data — e o `setPaidAt`
+              // abaixo fica morto, porque a data só renderiza junto da quantia.
+              setCharge((antes) => ({ ...(antes ?? {} as ChargeResult), ...c }));
+              setPaidAt(new Date().toISOString());
+              setStep('pago');
+            }}
           />
           )}
-          {venue.acceptsCard && (
+          {/* `STRIPE_READY` E `acceptsCard`. O servidor liga `acceptsCard` quando
+              ELE tem Stripe configurada; a chave publicável do BUILD é outra
+              env, e este repositório já se queimou duas vezes com as duas
+              divergindo. Sem a chave o elemento devolve `null` — e antes disto
+              carregava a Stripe assim mesmo: rastreamento de terceiro com zero
+              capacidade de cobrar. */}
+          {STRIPE_READY && venue.acceptsCard && (
             <Suspense fallback={null}>
             <StripeWalletPay
               token={token}
@@ -763,7 +788,15 @@ export default function App() {
               payerDocument={cpfDigits}
               disabled={totalToPay === 0}
               currency={currency}
-              onPaid={async () => { await refresh(); setPaidAt(new Date().toISOString()); setStep('pago'); }}
+              onPaid={async (c) => {
+              await refresh();
+              // A COBRANÇA, não só o aviso: sem ela o comprovante deste trilho
+              // sai sem quantia, sem serviço e sem data — e o `setPaidAt`
+              // abaixo fica morto, porque a data só renderiza junto da quantia.
+              setCharge((antes) => ({ ...(antes ?? {} as ChargeResult), ...c }));
+              setPaidAt(new Date().toISOString());
+              setStep('pago');
+            }}
             />
             </Suspense>
           )}

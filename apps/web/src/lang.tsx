@@ -6,7 +6,7 @@
  * escolhe o `.ts` e some com os componentes sem dizer por quê. Quem importa
  * `./lang` quer React; quem importa `./i18n` quer as strings.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { DICT, LANGS, STORAGE_KEY, asLang, fill, type Key, type Lang, money, LOCALE, type CurrencyCode } from './i18n';
 
 export { DICT, LANGS, money, tError } from './i18n';
@@ -55,10 +55,9 @@ const LangContext = createContext<{
 export function LangProvider({ children }: { children: React.ReactNode }) {
   const inicial = useMemo(readStored, []);
   const [lang, setLangState] = useState<Lang>(inicial.lang);
-  const [escolhido, setEscolhido] = useState<boolean>(inicial.escolhido);
   const setLang = useCallback((l: Lang) => {
     setLangState(l);
-    setEscolhido(true);
+    escolhidoRef.current = true;
     try { localStorage.setItem(STORAGE_KEY, l); } catch { /* segue sem lembrar */ }
   }, []);
   /**
@@ -74,10 +73,28 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
    * produto, e o que ele faz também não vira escolha (não grava no storage),
    * senão a casa seguinte herdaria o idioma desta.
    */
+  /**
+   * `asLang` na TERCEIRA porta, e a escolha lida por REF.
+   *
+   * Duas coisas que a primeira versão errou:
+   *
+   *  - o tipo `Lang` é apagado em runtime e o valor vem do corpo JSON do
+   *    servidor. O teste "nada além de um idioma atendido entra" enumera as
+   *    portas de fora (`?lang=` e localStorage) e esta era uma terceira, sem
+   *    validação. Hoje o servidor só emite `pt`/`es`; no dia em que emitir
+   *    outra coisa, `DICT[key][lang]` vira `undefined` e o `fill` estoura
+   *    DURANTE o render da tela de pagamento.
+   *  - `escolhido` lido do closure: o poll em voo no momento do toque carrega
+   *    `escolhido: false`, e quando ele resolve reverte o idioma que a pessoa
+   *    acabou de escolher. Janela de 1–2s no 4G de um bar. Um `ref` é um
+   *    guarda só, vivo, em vez de um por render.
+   */
+  const escolhidoRef = useRef(inicial.escolhido);
   const adotarPadraoDaCasa = useCallback((l: Lang | null | undefined) => {
-    if (!l || escolhido) return;
-    setLangState((atual) => (atual === l ? atual : l));
-  }, [escolhido]);
+    const escolha = asLang(l);
+    if (!escolha || escolhidoRef.current) return;
+    setLangState((atual) => (atual === escolha ? atual : escolha));
+  }, []);
   // O `lang` do documento e o TÍTULO seguem a escolha juntos, num só efeito:
   // são as duas coisas que vivem fora do React e por isso são as duas que
   // ficam pra trás. O título vinha fixo em inglês do `index.html`.
