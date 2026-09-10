@@ -737,6 +737,30 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      * Limitada por janela e por quantidade porque cada uma custa uma chamada de
      * API: a varredura diária não pode virar mil requisições.
      */
+    /**
+     * Quantas cobranças a casa JÁ confirmou — sem janela.
+     *
+     * `listRecentConfirmedCharges` tem recorte de data porque alimenta a perna
+     * por cobrança, que é I/O externo. O guarda de recebedor inutilizável faz
+     * uma pergunta diferente: "esta casa já recebeu dinheiro alguma vez?" — uma
+     * propriedade PERMANENTE. Perguntá-la pela janela de 24h fazia o achado se
+     * calar no dia seguinte. `head: true` não traz linha nenhuma, só o total.
+     */
+    async contarCobrancasConfirmadas(venueId) {
+      if (!isUuid(venueId)) return 0;
+      const { count, error } = await client
+        .from('payments')
+        .select('txid', { count: 'exact', head: true })
+        .eq('venue_id', venueId)
+        .eq('status', 'confirmado')
+        .not('confirmed_at', 'is', null)
+        // `house_account` não passa por adquirente: não tem recebível, e por
+        // isso não conta como "dinheiro que precisa de destino conferível".
+        .neq('method', 'house_account');
+      throwOn(error, 'contarCobrancasConfirmadas');
+      return count || 0;
+    },
+
     async listRecentConfirmedCharges(venueId, { sinceIso, limit = 50 } = {}) {
       let q = client
         .from('payments')

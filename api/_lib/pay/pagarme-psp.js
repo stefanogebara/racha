@@ -433,7 +433,22 @@ function createPagarmePsp({
      * @returns {Promise<Array<{recipientId, amountCents, feeCents, type, status, chargeId}>>}
      */
     async listChargePayables(chargeId) {
-      if (typeof chargeId !== 'string' || !/^ch_/.test(chargeId)) return [];
+      /**
+       * "NÃO É COBRANÇA DO ADQUIRENTE" ≠ "AINDA NÃO LIQUIDOU".
+       *
+       * Isto devolvia `[]` — a mesma resposta de uma cobrança real cujo
+       * recebível ainda não nasceu. A perna traduzia o `[]` em
+       * `payables_absent`, `info`, "nenhum recebível AINDA", e a string que o
+       * dono lê diz "yet". Pra um txid `mock*` isso é falso na direção que
+       * custa: não há "ainda", porque essa cobrança nunca passou por adquirente
+       * nenhum. Medido em produção em 2026-09-10: 11 dos 15 achados da primeira
+       * varredura real eram esse falso benigno, e o agregado
+       * (`payables_never_verified`) teve que carregar o achado sozinho.
+       *
+       * Devolve um marcador em vez de `[]`, e quem chama decide. Achado pela
+       * revisão de compliance de 2026-09-10 (HIGH-3).
+       */
+      if (typeof chargeId !== 'string' || !/^ch_/.test(chargeId)) return { notFromAcquirer: true };
       const r = await api('GET', `/payables?charge_id=${encodeURIComponent(chargeId)}&size=1000`);
       const linhas = Array.isArray(r) ? r : (r && Array.isArray(r.data) ? r.data : []);
       // `|| 0` era coerção silenciosa: um `amount` ausente virava zero DENTRO

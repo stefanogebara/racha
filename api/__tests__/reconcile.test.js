@@ -266,7 +266,7 @@ describe('reconcileVenue — live money paths reconcile clean', () => {
       psp,
     });
     const charge = createChargeService({ store, psp });
-    const venue = store.seedVenue({ name: 'Recon', servicoBp: 1000, pspRecipientId: 'r' });
+    const venue = store.seedVenue({ name: 'Recon', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     const table = store.seedTable(venue.id, 'M1');
     return { store, psp, handler, charge, venue, table };
   }
@@ -431,7 +431,7 @@ describe('a testemunha AGREGADA: serviço cobrado que nunca chega', () => {
       listChecksForReconcile: async () => [{ checkId: 'c1', events: eventos, payments: linhas }],
       listHouseAccountsForReconcile: async () => [],
     };
-    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' });
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true });
     // Nada crítico: as contas fecham. O que sobra é o agregado.
     expect(r.findings.filter((f) => f.severity === 'critical')).toEqual([]);
     expect(r.findings.some((f) => f.code === 'service_never_collected')).toBe(true);

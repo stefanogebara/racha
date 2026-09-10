@@ -149,7 +149,7 @@ describe('a perna chega ao ALERTA diário, não só ao cálculo', () => {
     listChecksForReconcile: async () => [],
     listHouseAccountsForReconcile: async () => [],
     listRecentConfirmedCharges: async () => cobrancas,
-    listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: CASA }],
+    listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: CASA, isTest: false, recebedorOk: true }],
     listOpenOrphanMoneyEvents: async () => [],
   });
 
@@ -174,7 +174,7 @@ describe('a perna chega ao ALERTA diário, não só ao cálculo', () => {
   test('adquirente fora do ar é `info`, não silêncio nem falso crítico', async () => {
     const store = storeVazio([{ txid: 'ch_1', checkId: 'c1', paidAmountCents: 3390, method: 'pix' }]);
     const psp = { listChargePayables: async () => { throw new Error('502 bad gateway'); } };
-    const achados = await reconcilePayablesLeg(store, psp, { id: 'v1', pspRecipientId: CASA }, {});
+    const achados = await reconcilePayablesLeg(store, psp, { id: 'v1', pspRecipientId: CASA, isTest: false, recebedorOk: true }, {});
     expect(achados).toHaveLength(1);
     expect(achados[0].code).toBe('payables_unchecked');
     expect(achados[0].severity).toBe('info');
@@ -188,7 +188,7 @@ describe('a perna chega ao ALERTA diário, não só ao cálculo', () => {
       listRecentConfirmedCharges: async () => [],   // o store já filtra
     };
     const psp = { listChargePayables: async () => [] };
-    const achados = await reconcilePayablesLeg(store, psp, { id: 'v1', pspRecipientId: CASA }, {});
+    const achados = await reconcilePayablesLeg(store, psp, { id: 'v1', pspRecipientId: CASA, isTest: false, recebedorOk: true }, {});
     expect(achados).toEqual([]);
   });
 
@@ -199,7 +199,7 @@ describe('a perna chega ao ALERTA diário, não só ao cálculo', () => {
       listRecentConfirmedCharges: async (_v, opts) => { chamadas.push(opts); return []; },
     };
     await reconcilePayablesLeg(store, { listChargePayables: async () => [] },
-      { id: 'v1', pspRecipientId: CASA }, { sinceIso: '2026-09-07T00:00:00Z', limit: 25 });
+      { id: 'v1', pspRecipientId: CASA, isTest: false, recebedorOk: true }, { sinceIso: '2026-09-07T00:00:00Z', limit: 25 });
     expect(chamadas[0]).toEqual({ sinceIso: '2026-09-07T00:00:00Z', limit: 25 });
   });
 });
@@ -272,9 +272,34 @@ describe('a perna não pode ser desligada em silêncio', () => {
       secretKey: 'sk_test_x',
       fetchImpl: async (u) => { chamadas.push(u); return { ok: true, status: 200, text: async () => '[]' }; },
     });
-    expect(await psp.listChargePayables('mock123')).toEqual([]);
-    expect(await psp.listChargePayables(null)).toEqual([]);
+    // MARCADOR, não `[]`: `[]` é a resposta de uma cobrança REAL cujo recebível
+    // ainda não nasceu, e confundir as duas fazia um txid `mock*` sair como
+    // "nenhum recebível ainda" — um "ainda" que nunca vai chegar.
+    expect(await psp.listChargePayables('mock123')).toEqual({ notFromAcquirer: true });
+    expect(await psp.listChargePayables(null)).toEqual({ notFromAcquirer: true });
     expect(chamadas).toHaveLength(0);
+  });
+
+  test('e a perna traduz o marcador em achado próprio, não em latência', () => {
+    const { reconcilePayables } = require('../_lib/checks/reconcile-payables');
+    const { findings } = reconcilePayables({
+      chargeId: 'mock123', paidAmountCents: 23710, venueRecipientId: CASA,
+      payables: { notFromAcquirer: true },
+    });
+    const f = findings.find((x) => x.code === 'charge_not_from_acquirer');
+    expect(f).toBeTruthy();
+    expect(f.severity).toBe('high');
+    // E NÃO diz "ainda".
+    expect(findings.some((x) => x.code === 'payables_absent')).toBe(false);
+  });
+
+  test('cobrança REAL sem recebível segue sendo latência (`info`)', () => {
+    const { reconcilePayables } = require('../_lib/checks/reconcile-payables');
+    const { findings } = reconcilePayables({
+      chargeId: 'ch_real', paidAmountCents: 23710, venueRecipientId: CASA, payables: [],
+    });
+    expect(findings.some((x) => x.code === 'payables_absent' && x.severity === 'info')).toBe(true);
+    expect(findings.some((x) => x.code === 'charge_not_from_acquirer')).toBe(false);
   });
 
   test('a resposta do adquirente é NORMALIZADA — snake_case não vaza pro puro', async () => {
@@ -313,7 +338,7 @@ describe('a perna sabe a diferença entre CONFERIDO e não-verificável', () => 
      */
     const achados = await reconcilePayablesLeg(
       storeCom(10), { listChargePayables: async () => [] },
-      { id: 'v1', pspRecipientId: CASA }, {},
+      { id: 'v1', pspRecipientId: CASA, isTest: false, recebedorOk: true }, {},
     );
     const f = achados.find((x) => x.code === 'payables_never_verified');
     expect(f).toBeDefined();
@@ -324,7 +349,7 @@ describe('a perna sabe a diferença entre CONFERIDO e não-verificável', () => 
   test('amostra pequena não acusa — duas cobranças recentes é latência normal', async () => {
     const achados = await reconcilePayablesLeg(
       storeCom(2), { listChargePayables: async () => [] },
-      { id: 'v1', pspRecipientId: CASA }, {},
+      { id: 'v1', pspRecipientId: CASA, isTest: false, recebedorOk: true }, {},
     );
     expect(achados.some((x) => x.code === 'payables_never_verified')).toBe(false);
   });
@@ -334,7 +359,7 @@ describe('a perna sabe a diferença entre CONFERIDO e não-verificável', () => 
     const achados = await reconcilePayablesLeg(
       storeCom(10),
       { listChargePayables: async () => (n++ === 0 ? [cred(CASA, 3390, 0)] : []) },
-      { id: 'v1', pspRecipientId: CASA }, {},
+      { id: 'v1', pspRecipientId: CASA, isTest: false, recebedorOk: true }, {},
     );
     expect(achados.some((x) => x.code === 'payables_never_verified')).toBe(false);
   });
@@ -345,7 +370,7 @@ describe('a perna sabe a diferença entre CONFERIDO e não-verificável', () => 
     const achados = await reconcilePayablesLeg(
       storeCom(10),
       { listChargePayables: async () => { await new Promise((r) => setTimeout(r, 12)); return [cred(CASA, 3390, 0)]; } },
-      { id: 'v1', pspRecipientId: CASA }, { budgetMs: 25 },
+      { id: 'v1', pspRecipientId: CASA, isTest: false, recebedorOk: true }, { budgetMs: 25 },
     );
     const f = achados.find((x) => x.code === 'payables_unchecked' && x.unchecked > 0);
     expect(f).toBeDefined();
@@ -388,7 +413,7 @@ test('DESLIGAR a perna muda o relatório — não é silêncio', async () => {
 
   const achados = await reconcilePayablesLeg(
     { listRecentConfirmedCharges: async () => [] }, null,
-    { id: 'v1', pspRecipientId: CASA }, { legDisabled: true },
+    { id: 'v1', pspRecipientId: CASA, isTest: false, recebedorOk: true }, { legDisabled: true },
   );
   expect(achados).toHaveLength(1);
   expect(achados[0].code).toBe('payables_leg_disabled');
@@ -396,7 +421,7 @@ test('DESLIGAR a perna muda o relatório — não é silêncio', async () => {
 
   // E o relatório inteiro deixa de sair verde.
   const store = {
-    listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: CASA }],
+    listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: CASA, isTest: false, recebedorOk: true }],
     listChecksForReconcile: async () => [],
     listHouseAccountsForReconcile: async () => [],
     listOpenOrphanMoneyEvents: async () => [],
@@ -428,16 +453,25 @@ describe('casa de produção com recebedor inutilizável', () => {
   const { reconcilePayablesLeg } = require('../_lib/checks/reconcile-daily');
 
   const pspQualquer = { listChargePayables: async () => [] };
-  const storeCom = (n) => ({
-    listRecentConfirmedCharges: async () => Array.from({ length: n }, (_, i) => ({
-      txid: `ch_${i}`, paidAmountCents: 1000,
-    })),
+  /**
+   * O duplo espelha o store: `contarCobrancasConfirmadas` SEM janela (é uma
+   * propriedade permanente da casa) e `listRecentConfirmedCharges` COM janela.
+   * A primeira versão deste duplo ignorava as opções por inteiro, então
+   * `sinceIso` era invisível aos cinco casos — e era justamente o parâmetro que
+   * decidia se o guarda voltava a rodar no dia seguinte.
+   */
+  const storeCom = (n, naJanela = n) => ({
+    contarCobrancasConfirmadas: async () => n,
+    listRecentConfirmedCharges: async ({ sinceIso } = {}) =>
+      Array.from({ length: sinceIso ? naJanela : n }, (_, i) => ({
+        txid: `ch_${i}`, paidAmountCents: 1000,
+      })),
   });
 
   test('placeholder + cobrança confirmada = `high`, e a perna PARA aí', async () => {
     const achados = await reconcilePayablesLeg(
       storeCom(3), pspQualquer,
-      { id: 'v1', pspRecipientId: 'rcpt_demo', isTest: false }, {},
+      { id: 'v1', pspRecipientId: 'rcpt_demo', isTest: false, recebedorOk: false }, {},
     );
     expect(achados).toHaveLength(1);
     expect(achados[0].code).toBe('venue_recipient_unusable');
@@ -450,7 +484,7 @@ describe('casa de produção com recebedor inutilizável', () => {
 
   test('SEM recebedor e com cobrança confirmada, idem', async () => {
     const achados = await reconcilePayablesLeg(
-      storeCom(1), pspQualquer, { id: 'v1', pspRecipientId: null, isTest: false }, {},
+      storeCom(1), pspQualquer, { id: 'v1', pspRecipientId: null, isTest: false, recebedorOk: false }, {},
     );
     expect(achados[0].code).toBe('venue_recipient_unusable');
     expect(achados[0].recipientId).toBe(null);
@@ -459,7 +493,7 @@ describe('casa de produção com recebedor inutilizável', () => {
   test('casa de TESTE com placeholder é normal — não acusa', async () => {
     const achados = await reconcilePayablesLeg(
       storeCom(3), pspQualquer,
-      { id: 'v1', pspRecipientId: 'rcpt_demo', isTest: true }, {},
+      { id: 'v1', pspRecipientId: 'rcpt_demo', isTest: true, recebedorOk: false }, {},
     );
     expect(achados.some((f) => f.code === 'venue_recipient_unusable')).toBe(false);
   });
@@ -469,7 +503,7 @@ describe('casa de produção com recebedor inutilizável', () => {
     // aqui faria o canário noturno gritar por todo cadastro incompleto — e é
     // assim que um canário morre.
     const achados = await reconcilePayablesLeg(
-      storeCom(0), pspQualquer, { id: 'v1', pspRecipientId: null, isTest: false }, {},
+      storeCom(0), pspQualquer, { id: 'v1', pspRecipientId: null, isTest: false, recebedorOk: false }, {},
     );
     expect(achados.some((f) => f.code === 'venue_recipient_unusable')).toBe(false);
   });
@@ -477,8 +511,67 @@ describe('casa de produção com recebedor inutilizável', () => {
   test('recebedor de VERDADE segue pro caminho normal', async () => {
     const achados = await reconcilePayablesLeg(
       storeCom(1), pspQualquer,
-      { id: 'v1', pspRecipientId: 're_cmrtc9vppm8xq0l9tae7a4ru6', isTest: false }, {},
+      { id: 'v1', pspRecipientId: 're_cmrtc9vppm8xq0l9tae7a4ru6', isTest: false, recebedorOk: true }, {},
     );
     expect(achados.some((f) => f.code === 'venue_recipient_unusable')).toBe(false);
+  });
+});
+
+/**
+ * CASA DE TESTE COM RECEBEDOR VIVO — a metade que não tinha testemunha nenhuma.
+ *
+ * `is_test` não gateia nada no caminho de pagamento: só a identidade da demo,
+ * quem entra na varredura e quem o radar ignora. Uma casa marcada `is_test` com
+ * recebedor `re_...` aceita Pix e cartão de gente de verdade, e NENHUMA das três
+ * pernas roda nela. O inegociável #8 diz "por restaurante, ao centavo"; pras
+ * duas únicas casas onde o adquirente saberia responder, não estava rodando.
+ *
+ * Medido em produção em 2026-09-10. Achado pela revisão de compliance (HIGH-2).
+ */
+describe('casa de teste com recebedor de verdade é achado de plataforma', () => {
+  const { reconcileAllVenues, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+
+  const storeCom = (venues) => ({
+    listVenueActivation: async () => venues,
+    listChecksForReconcile: async () => [],
+    listHouseAccountsForReconcile: async () => [],
+    listOpenOrphanMoneyEvents: async () => [],
+    listRecentConfirmedCharges: async () => [],
+    contarCobrancasConfirmadas: async () => 0,
+  });
+
+  test('acusa, entra na severidade e SAI NA MENSAGEM', async () => {
+    const rel = await reconcileAllVenues(storeCom([
+      { id: 'a', name: 'Beira Mar', isTest: true, recebedorOk: true, recipientStatus: 'active', pspRecipientId: 're_x' },
+      { id: 'b', name: 'Kitos Food', isTest: true, recebedorOk: true, recipientStatus: 'affiliation', pspRecipientId: 're_y' },
+    ]), {});
+
+    // Nenhuma casa é conferida — elas estão fora por `isTest`.
+    expect(rel.venuesChecked).toBe(0);
+    // Mas a condição não fica invisível por isso.
+    const f = rel.platformFindings.find((x) => x.code === 'test_venue_with_live_recipient');
+    expect(f).toBeTruthy();
+    expect(f.severity).toBe('high');
+    expect(f.venues.map((v) => v.name).sort()).toEqual(['Beira Mar', 'Kitos Food']);
+    // E a noite NÃO sai verde.
+    expect(rel.worstSeverity).toBe('high');
+    const alerta = formatReconcileAlert(rel);
+    expect(alerta).toMatch(/marcadas como TESTE têm recebedor de verdade/);
+    expect(alerta).toMatch(/Beira Mar/);
+  });
+
+  test('casa de teste com recebedor de MENTIRA não acusa — é demo de verdade', async () => {
+    const rel = await reconcileAllVenues(storeCom([
+      { id: 'a', name: 'Bar do Racha — demonstração', isTest: true, recebedorOk: false, pspRecipientId: 'rcpt_demo' },
+    ]), {});
+    expect(rel.platformFindings).toEqual([]);
+    expect(formatReconcileAlert(rel)).toBe(null);
+  });
+
+  test('com `?test=1` não acusa — quem pediu já está olhando pra elas', async () => {
+    const rel = await reconcileAllVenues(storeCom([
+      { id: 'a', name: 'Beira Mar', isTest: true, recebedorOk: true, pspRecipientId: 're_x' },
+    ]), { includeTest: true });
+    expect(rel.platformFindings).toEqual([]);
   });
 });

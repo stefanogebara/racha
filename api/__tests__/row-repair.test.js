@@ -912,7 +912,7 @@ describe('o reparo aparece no relatório e no alerta', () => {
 
   /** Um store cujo `listChecksForReconcile` entrega uma linha ATRÁS do razão. */
   function storeComLinhaAtrasada({ falha = false, quantas = 1 } = {}) {
-    const venue = { id: 'v1', name: 'Boteco', pspRecipientId: 're_x' };
+    const venue = { id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true };
     const reparados = [];
     const inputs = [];
     for (let i = 0; i < quantas; i += 1) {
@@ -1025,7 +1025,7 @@ describe('o reparo aparece no relatório e no alerta', () => {
 
   test('noite parada segue parada — o contador não inventa escrita', async () => {
     const store = {
-      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }],
       listChecksForReconcile: async () => [],
       listHouseAccountsForReconcile: async () => [],
       listOpenOrphanMoneyEvents: async () => [],
@@ -1140,13 +1140,13 @@ describe('censo: nenhuma ROTA pede a escrita do reparo', () => {
     };
 
     // Do jeito que o painel chama.
-    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' }, { repair: false });
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }, { repair: false });
     expect(chamou).toBe(false);
     // E o achado da divergência CONTINUA saindo: ler não é fingir que bate.
     expect(r.severity).toBe('critical');
 
     // Do jeito que a varredura chama — aí sim escreve.
-    await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' }, { repair: true });
+    await reconcileOneVenue(store, { id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }, { repair: true });
     expect(chamou).toBe(true);
   });
 
@@ -1379,7 +1379,7 @@ describe('prazo e teto: só contam o que era candidato', () => {
     const inputs = atrasadas(1);
     let leituras = 0;
     const store = {
-      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }],
       listChecksForReconcile: async () => {
         // Na PRIMEIRA leitura a linha está atrás (é candidata). Da segunda em
         // diante ela já está em dia: é a outra escrita que pegou, que é o que
@@ -1445,7 +1445,7 @@ describe('a escrita sobrevive à leitura que falhou', () => {
     const escritas = [];
     return {
       escritas,
-      listVenueActivation: async () => [{ id: 'v1', name: 'Casa Um', pspRecipientId: 're_x' }],
+      listVenueActivation: async () => [{ id: 'v1', name: 'Casa Um', pspRecipientId: 're_x', isTest: false, recebedorOk: true }],
       listChecksForReconcile: async () => inputs,
       // A perna que estoura — DEPOIS de o reparo já ter escrito.
       listHouseAccountsForReconcile: async () => {
@@ -1469,7 +1469,7 @@ describe('a escrita sobrevive à leitura que falhou', () => {
 
   test('uma perna estoura DEPOIS do reparo: o relatório não diz zero', async () => {
     const store = storeQueRepara({ quebra: true });
-    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Casa Um' }, { repair: true });
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Casa Um', pspRecipientId: 're_x', isTest: false, recebedorOk: true }, { repair: true });
 
     // A escrita ACONTECEU.
     expect(store.escritas).toEqual(['ch_1']);
@@ -1684,7 +1684,7 @@ describe('o sumidouro sobrevive a um estouro de dentro', () => {
       },
     };
 
-    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Casa Um' }, { repair: true });
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Casa Um', pspRecipientId: 're_x', isTest: false, recebedorOk: true }, { repair: true });
 
     expect(escritas).toEqual(['ch_1']);        // escreveu
     expect(r.rowsRepaired).toBe(1);            // e o relatório NÃO diz zero
@@ -1815,7 +1815,7 @@ describe('perna irmã estoura: o achado de agregado fica', () => {
 
   test('`service_never_collected` continua no relatório da casa que estourou', async () => {
     const store = mundoComServicoNaoArrecadado();
-    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' }, { repair: true });
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }, { repair: true });
 
     const codigos = r.findings.map((f) => f.code);
     expect(codigos).toContain('venue_reconcile_threw');
@@ -1837,7 +1837,7 @@ describe('perna irmã estoura: o achado de agregado fica', () => {
      */
     const { reconcileAllVenues, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
     const store = mundoComServicoNaoArrecadado();
-    store.listVenueActivation = async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }];
+    store.listVenueActivation = async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }];
     const rel = await reconcileAllVenues(store, { repair: true });
     const alerta = formatReconcileAlert(rel);
 
@@ -1853,7 +1853,7 @@ describe('perna irmã estoura: o achado de agregado fica', () => {
   test('e sem estouro nenhum ele também está lá — a comparação é justa', async () => {
     const store = mundoComServicoNaoArrecadado();
     store.listHouseAccountsForReconcile = async () => [];
-    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco' }, { repair: true });
+    const r = await reconcileOneVenue(store, { id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }, { repair: true });
     expect(r.findings.map((f) => f.code)).toContain('service_never_collected');
   });
 });
@@ -2051,7 +2051,7 @@ describe('a batida carrega o tier `info`', () => {
     }];
     let leituras = 0;
     const store = {
-      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }],
       listChecksForReconcile: async () => {
         leituras += 1;
         if (leituras === 1) inputs[0].payments[0].refundedAmountCents = 0;
@@ -2081,7 +2081,7 @@ describe('a batida carrega o tier `info`', () => {
 
   test('noite parada mesmo: nada nos dois', async () => {
     const store = {
-      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }],
       listChecksForReconcile: async () => [],
       listHouseAccountsForReconcile: async () => [],
       listOpenOrphanMoneyEvents: async () => [],
@@ -2167,7 +2167,7 @@ describe('o delta da folha atravessa a seleção do alerta', () => {
       }],
     }];
     return {
-      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x' }],
+      listVenueActivation: async () => [{ id: 'v1', name: 'Boteco', pspRecipientId: 're_x', isTest: false, recebedorOk: true }],
       listChecksForReconcile: async () => inputs,
       listHouseAccountsForReconcile: async () => [],
       listOpenOrphanMoneyEvents: async () => [],
@@ -2186,9 +2186,10 @@ describe('o delta da folha atravessa a seleção do alerta', () => {
     // O crítico É a manchete, e isso está certo — ele pede ação primeiro.
     expect(alerta).toMatch(/critical/);
     // Mas os centavos e o MÊS chegam junto, na linha que não passa por seleção.
-    expect(alerta).toMatch(/base da folha: 500¢/);
-    expect(alerta).toMatch(/2026-02/);
-    expect(alerta).toMatch(/o valor do razão é o menor e é o seguro/);
+    // PENDENTE, não "já corrigida": o banco recusou, a linha segue atrás.
+    expect(alerta).toMatch(/base da folha \(AINDA divergente\): 500¢ em 2026-02/);
+    expect(alerta).toMatch(/o valor do razão é o MENOR e é o seguro/);
+    expect(alerta).not.toMatch(/já corrigida/);
   });
 
   test('SEM RESPOSTA com a divergência de pé: idem — o sinal não é mais invertido', async () => {
@@ -2198,8 +2199,7 @@ describe('o delta da folha atravessa a seleção do alerta', () => {
 
     expect(rel.rowsRepairAckLost).toBe(1);
     const alerta = formatReconcileAlert(rel);
-    expect(alerta).toMatch(/base da folha: 500¢/);
-    expect(alerta).toMatch(/2026-02/);
+    expect(alerta).toMatch(/base da folha \(AINDA divergente\): 500¢ em 2026-02/);
   });
 
   test('e o achado `rejected` carrega os campos que o runbook manda usar', async () => {
@@ -2213,5 +2213,83 @@ describe('o delta da folha atravessa a seleção do alerta', () => {
     expect(f.tipDeltaCents).toBe(-500);
     expect(f.periods).toEqual(['2026-02']);
     expect(f.message).toMatch(/500¢ ACIMA do razão em 2026-02/);
+  });
+});
+
+/**
+ * APLICADO e PENDENTE não se somam — o achado fechado, dentro do conserto dele.
+ *
+ * `resumoDoReparo` juntava as três fontes num escalar só, e elas não querem
+ * dizer a mesma coisa: `tip` é um delta JÁ APLICADO (a base exibida mudou),
+ * `rejeitados`/`ackPerdido` são deltas que PERSISTEM.
+ *
+ * Medido pela revisão de segurança de 2026-09-10 (HIGH-1):
+ *  - reparado −500 (fev) + recusado −500 (mar) = "1000¢ de diferença em
+ *    2026-02, 2026-03", e nenhum dos dois períodos tem 1000¢: metade já foi
+ *    corrigida;
+ *  - reparado −500 + recusado +500 = ZERO, e a linha inteira sumia — o delta
+ *    pendente não chegava em ninguém;
+ *  - recusado +500 sozinho imprimia "o valor do razão é o menor e é o seguro",
+ *    que nesse sinal manda distribuir pelo MAIOR — a direção que o CLT art. 462
+ *    não desfaz.
+ *
+ * Os dois últimos são LATENTES hoje: o laço recusa linha à frente em qualquer
+ * perna, então `deltaGorjeta ≤ 0` sempre. Mas era invariante não dita a três
+ * funções de distância de onde é imposta.
+ */
+describe('a folha sai em duas cláusulas', () => {
+  const { resumoDoReparo } = require('../_lib/checks/reconcile');
+  const { formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+
+  const relatorioCom = (pia) => {
+    const r = resumoDoReparo(pia);
+    return {
+      at: '2026-09-10T04:10:00.000Z', venuesChecked: 1, venuesRed: 0, orphanMoneyEvents: 0,
+      rowsRepaired: (pia.repaired || []).length, rowsRepairAckLost: (pia.ackLost || []).length,
+      rowsRepairRejected: (pia.rejected || []).length, rowsRepairRaced: 0,
+      repairTipApplied: r.deltaGorjetaAplicado, repairPeriodsApplied: r.periodosAplicado,
+      repairTipPending: r.deltaGorjetaPendente, repairPeriodsPending: r.periodosPendente,
+      red: [], venues: [], infoCodes: [], totalDriftCents: 0,
+    };
+  };
+
+  test('aplicado e pendente saem SEPARADOS, cada um com o seu mês', () => {
+    const alerta = formatReconcileAlert(relatorioCom({
+      repaired: ['a'],
+      tip: [{ txid: 'a', deltaCents: -500, periodo: '2026-02' }],
+      rejected: [{ txid: 'b', deltaCents: -500, periodo: '2026-03' }],
+    }));
+    expect(alerta).toMatch(/já corrigida\): 500¢ em 2026-02/);
+    expect(alerta).toMatch(/AINDA divergente\): 500¢ em 2026-03/);
+    // E NUNCA a soma dos dois num número que não é de período nenhum.
+    expect(alerta).not.toMatch(/1000¢/);
+  });
+
+  test('sinais opostos não CANCELAM a cláusula pendente', () => {
+    const alerta = formatReconcileAlert(relatorioCom({
+      repaired: ['a'],
+      tip: [{ txid: 'a', deltaCents: -500, periodo: '2026-02' }],
+      rejected: [{ txid: 'b', deltaCents: 500, periodo: '2026-03' }],
+    }));
+    expect(alerta).toMatch(/AINDA divergente\): 500¢ em 2026-03/);
+  });
+
+  test('o lado SEGURO sai do sinal, não de uma frase fixa', () => {
+    const negativo = formatReconcileAlert(relatorioCom({
+      rejected: [{ txid: 'b', deltaCents: -500, periodo: '2026-03' }],
+    }));
+    expect(negativo).toMatch(/o valor do razão é o MENOR e é o seguro/);
+
+    const positivo = formatReconcileAlert(relatorioCom({
+      rejected: [{ txid: 'b', deltaCents: 500, periodo: '2026-03' }],
+    }));
+    // Com este sinal o razão é o MAIOR: dizer "o menor é o seguro" mandaria a
+    // casa distribuir pelo número maior.
+    expect(positivo).toMatch(/o valor do razão é o MAIOR/);
+    expect(positivo).not.toMatch(/MENOR/);
+  });
+
+  test('noite sem folha mexida não imprime cláusula nenhuma', () => {
+    expect(formatReconcileAlert(relatorioCom({}))).toBe(null);
   });
 });

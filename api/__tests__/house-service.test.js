@@ -64,7 +64,7 @@ describe('house service', () => {
 
   test('disabled venue: no open, no load', async () => {
     const { store, house } = setup();
-    const venue = store.seedVenue({ name: 'Fechado', servicoBp: 1000, pspRecipientId: 'r' });
+    const venue = store.seedVenue({ name: 'Fechado', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     const table = store.seedTable(venue.id, 'Mesa 1');
     await expect(house.openAccount({ tableQrToken: table.qrToken, phone: '11987654321', name: 'A' }))
       .rejects.toThrow(/não está ativo/);
@@ -344,7 +344,7 @@ describe('house service', () => {
 
   test('config validation: legal floor on validity, min>max rejected', async () => {
     const { store, house } = setup();
-    const venue = store.seedVenue({ name: 'Cfg', servicoBp: 1000, pspRecipientId: 'r' });
+    const venue = store.seedVenue({ name: 'Cfg', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     await expect(house.updateConfig(venue.id, { validityDays: 29 })).rejects.toThrow(/mínimo legal/);
     await expect(house.updateConfig(venue.id, { bonusBp: 5001 })).rejects.toThrow(/intervalo/);
     await expect(house.updateConfig(venue.id, { minLoadCents: 9000, maxLoadCents: 5000 }))

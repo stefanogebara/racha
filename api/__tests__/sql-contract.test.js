@@ -545,8 +545,19 @@ describe('censo da venue: a varredura recebe o que lê', () => {
       for (const campo of lidos) {
         expect(src).toContain(`${campo}:`);
         if (nome === 'supabase') {
-          // E do lado do Supabase, a coluna correspondente.
-          expect(bloco(sup)).toMatch(new RegExp(`r\\.${camelParaSnake(campo)}\\b`));
+          /**
+           * A coluna correspondente — com as irregularidades DITAS.
+           *
+           * `camelParaSnake` é heurística e há um campo em que ela não vale:
+           * a coluna é `psp_recipient_status` e o campo JS é `recipientStatus`,
+           * sem o prefixo, enquanto o irmão `pspRecipientId` o mantém. Isso é
+           * inconsistência do STORE, não do censo — e ficar aqui, nomeada, é
+           * melhor do que o censo passar por acaso ou eu renomear meio
+           * repositório pra fazer a heurística fechar.
+           */
+          const COLUNA = { recipientStatus: 'psp_recipient_status' };
+          const coluna = COLUNA[campo] || camelParaSnake(campo);
+          expect(bloco(sup)).toMatch(new RegExp(`r\\.${coluna}\\b`));
         }
       }
     }

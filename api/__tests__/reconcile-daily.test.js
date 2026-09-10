@@ -163,7 +163,7 @@ describe('a varredura sobre o store de verdade', () => {
       psp,
     });
     const charge = createChargeService({ store, psp });
-    const venue = store.seedVenue({ name: 'Bar do Zé', servicoBp: 1000, pspRecipientId: 'r' });
+    const venue = store.seedVenue({ name: 'Bar do Zé', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     const table = store.seedTable(venue.id, 'M12');
     return { store, psp, handler, charge, venue, table };
   }

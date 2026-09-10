@@ -491,9 +491,24 @@ export const DICT = {
                         pt: 'o adquirente ainda não tem recebível desta cobrança — destino não conferido',
                         es: 'el adquirente aún no tiene el abono de este cobro — destino sin verificar' },
   // DINHEIRO ANDOU E NÃO DÁ PRA DIZER PRA ONDE. Inegociável #4.
-  'find.venue_recipient_unusable': { en: 'this venue took confirmed payments but its payout account is a test placeholder — the acquirer does not know that destination, so where the money went cannot be verified',
-                        pt: 'esta casa recebeu pagamentos confirmados mas a conta de repasse é um recebedor de teste — o adquirente não conhece esse destino, então não dá pra conferir pra onde o dinheiro foi',
-                        es: 'este local recibió pagos confirmados pero su cuenta de abono es un receptor de prueba — el adquirente no conoce ese destino, así que no se puede verificar adónde fue el dinero' },
+  // DUAS condições, uma string: recebedor inutilizável (de teste, recusado,
+  // suspenso) OU ausente. A primeira versão dizia só "placeholder de teste", e
+  // pra casa SEM recebedor nenhum a única frase que o dono lia era falsa — e
+  // apontava pra "troque o placeholder" quando a ação é "não há conta de
+  // repasse". Mesma forma do MEDIUM-H, uma condição depois.
+  'find.venue_recipient_unusable': { en: 'this venue took confirmed payments but has no usable payout account — the acquirer cannot confirm that destination, so where the money went cannot be verified',
+                        pt: 'esta casa recebeu pagamentos confirmados mas não tem conta de repasse utilizável — o adquirente não confirma esse destino, então não dá pra conferir pra onde o dinheiro foi',
+                        es: 'este local recibió pagos confirmados pero no tiene cuenta de abono utilizable — el adquirente no confirma ese destino, así que no se puede verificar adónde fue el dinero' },
+  'find.test_venue_with_live_recipient': { en: 'venues flagged as test have real payout accounts — they can receive real money and no reconciliation runs on them',
+                        pt: 'casas marcadas como teste têm conta de repasse de verdade — elas podem receber dinheiro real e nenhuma conciliação roda nelas',
+                        es: 'locales marcados como prueba tienen cuentas de abono reales — pueden recibir dinero real y ninguna conciliación se ejecuta sobre ellos' },
+  // NÃO É "AINDA": essa cobrança nunca passou por adquirente nenhum.
+  'find.charge_not_from_acquirer': { en: 'this charge did not go through the acquirer, so there is no settlement record to check — its destination cannot be verified here',
+                        pt: 'esta cobrança não passou pelo adquirente, então não há registro de repasse a conferir — o destino dela não é conferível por aqui',
+                        es: 'este cobro no pasó por el adquirente, así que no hay registro de abono que revisar — su destino no se puede verificar aquí' },
+  'find.payables_venue_shape_unknown': { en: 'the reconciliation was handed an incomplete venue record — nothing can be asserted about where this venue\u2019s money goes',
+                        pt: 'a conciliação recebeu um registro de casa incompleto — não dá pra afirmar nada sobre o destino do dinheiro dela',
+                        es: 'la conciliación recibió un registro de local incompleto — no se puede afirmar nada sobre el destino de su dinero' },
   'find.payables_no_recipient': { en: 'this venue has no known acquirer recipient — the destination cannot be checked',
                         pt: 'esta casa não tem recebedor conhecido no adquirente — não dá pra conferir o destino',
                         es: 'este local no tiene receptor conocido en el adquirente — no se puede verificar el destino' },

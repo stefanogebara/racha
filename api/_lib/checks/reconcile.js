@@ -533,16 +533,39 @@ function resumoDoReparo(pia = {}) {
   const ackPerdido = pia.ackLost || [];
   const rejeitados = pia.rejected || [];
   const gorjeta = pia.tip || [];
-  // O delta e os períodos das TRÊS fontes que mexem na folha: o reparo bem
-  // sucedido, o recusado (a linha segue atrás) e o sem resposta.
-  const daFolha = [...gorjeta, ...rejeitados, ...ackPerdido];
+  /**
+   * APLICADO e PENDENTE são fatos DIFERENTES e não se somam.
+   *
+   * Eu juntava as três fontes num escalar só. Elas não querem dizer a mesma
+   * coisa: `gorjeta` é um delta que JÁ FOI APLICADO (a base exibida já mudou),
+   * enquanto `rejeitados` e `ackPerdido` são deltas que PERSISTEM (a base
+   * exibida segue errada). Medido: reparado −500 em fev mais recusado −500 em
+   * mar saía como "1000¢ de diferença em 2026-02, 2026-03" — e nenhum dos dois
+   * períodos tem 1000¢ de diferença, porque metade já foi corrigida.
+   *
+   * E o escalar único também podia CANCELAR: −500 aplicado com +500 pendente
+   * dava zero, e a linha inteira sumia. Hoje `deltaGorjeta` é sempre ≤ 0 (o
+   * laço recusa linha à frente em qualquer perna), então o cancelamento é
+   * latente e não vivo — mas era uma invariante não dita a três funções de
+   * distância de onde ela é imposta, e é assim que ela deixa de valer.
+   *
+   * Achado pela revisão de segurança de 2026-09-10 (HIGH-1): o achado que eu
+   * tinha fechado, reaparecendo dentro do próprio conserto.
+   */
+  const pendentes = [...rejeitados, ...ackPerdido];
+  const soma = (xs) => xs.reduce((s, g) => s + (g.deltaCents || 0), 0);
+  const meses = (xs) => [...new Set(xs.map((g) => g.periodo).filter(Boolean))].sort();
   return {
     reparadas: reparados.length,
     corridas: corridas.length,
     ackPerdidos: ackPerdido.length,
     rejeitados: rejeitados.length,
-    deltaGorjeta: daFolha.reduce((s, g) => s + (g.deltaCents || 0), 0),
-    periodos: [...new Set(daFolha.map((g) => g.periodo).filter(Boolean))].sort(),
+    /** JÁ APLICADO: a base exibida mudou, e a casa precisa saber que mudou. */
+    deltaGorjetaAplicado: soma(gorjeta),
+    periodosAplicado: meses(gorjeta),
+    /** PENDENTE: a base exibida segue diferente do razão. */
+    deltaGorjetaPendente: soma(pendentes),
+    periodosPendente: meses(pendentes),
     achados: acharReparos(reparados, pia.skipped || 0, gorjeta, corridas, ackPerdido, rejeitados),
     // Os achados de AGREGADO (serviço nunca arrecadado) vivem na pia também,
     // pra que o `catch` monte a lista de UMA fonte. Ver `reconcileVenue`.
@@ -1037,8 +1060,10 @@ async function reconcileVenue(store, venueId, opts = {}) {
      * mensagem e não passa por seleção. Achado pela revisão de segurança de
      * 2026-09-09 (HIGH-1) e, por outro caminho, pela de compliance (HIGH-E).
      */
-    repairTipDeltaCents: reparo.deltaGorjeta,
-    repairPeriods: reparo.periodos,
+    repairTipApplied: reparo.deltaGorjetaAplicado,
+    repairPeriodsApplied: reparo.periodosAplicado,
+    repairTipPending: reparo.deltaGorjetaPendente,
+    repairPeriodsPending: reparo.periodosPendente,
     checksChecked: results.length,
     checksFailed: failed.length,
     totalDriftCents: results.reduce((s, r) => s + Math.abs(r.driftCents), 0),

@@ -79,12 +79,77 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
       message: 'a conferência de destino do dinheiro (recebíveis do adquirente) está DESLIGADA por configuração',
     }];
   }
+  const recebedor = venue.pspRecipientId || null;
+
+  /**
+   * A FORMA DA VENUE tem que ser a do store, não uma montada à mão.
+   *
+   * `router.js` chama `reconcileOneVenue` com `{ id, name }` — sem `isTest` e
+   * sem `pspRecipientId`. Aí `undefined !== true` e `recebedor === null`, e a
+   * condição do guarda vira VERDADEIRA pra toda casa. Hoje é inerte porque essa
+   * rota não passa `psp`; com o `psp` presente ela acusaria todas. E confundir
+   * "campo é null" com "campo nunca foi selecionado" é a regressão que a
+   * migração 0027 documenta ter acontecido uma vez neste repositório.
+   * (MEDIUM-3 da revisão de segurança de 2026-09-10.)
+   */
+  // Só quando o guarda de recebedor pode de fato rodar: sem o contador no store
+  // (duplo de teste, conciliação só de carteira) nada aqui olha a venue, e
+  // exigir a forma dela seria exigir um campo que ninguém vai ler.
+  const podeContar = typeof store.contarCobrancasConfirmadas === 'function';
+  if (podeContar && (!('pspRecipientId' in venue) || !('isTest' in venue))) {
+    return [{
+      severity: 'high',
+      code: 'payables_venue_shape_unknown',
+      message: 'a casa chegou aqui sem os campos de recebedor — quem chamou montou o objeto à mão'
+        + ' em vez de usar a linha do store; não dá pra afirmar nada sobre o destino do dinheiro',
+    }];
+  }
+
+  /**
+   * RECEBEDOR INUTILIZÁVEL NUMA CASA DE PRODUÇÃO — dinheiro sem destino
+   * conferível. ACIMA do `!psp`, e por EXISTÊNCIA, não por janela.
+   *
+   * Duas coisas que a primeira versão errou, as duas achadas em 2026-09-10:
+   *
+   *  - ela ficava DEPOIS do `return []` por falta de adaptador, então um PSP
+   *    mal configurado desligava justamente o achado cuja função é dizer "não
+   *    dá pra conferir pra onde o dinheiro foi". O guarda não precisa de PSP:
+   *    é leitura da linha da casa mais uma contagem.
+   *  - ela contava cobranças na JANELA DE 24H do cron. A condição é uma
+   *    propriedade PERMANENTE da casa; a evidência era uma consulta rolante.
+   *    No dia seguinte as cobranças de julho saem da janela, `quantas` é 0, o
+   *    guarda cala e a noite sai verde com o recebedor ainda de mentira. Ele
+   *    disparou no meu ensaio só porque eu passei `?since=`; o cron nunca
+   *    passa. Um `high` que se cala em 24h é um `info` com redação melhor.
+   *
+   * E o teste é `recebedorOk !== true` — lista de PERMISSÃO que o store já
+   * calcula (`/^r[ep]_/` e status não recusado/suspenso) — no lugar de comparar
+   * com a string `'rcpt_demo'`. A denylist de uma string deixava passar
+   * recebedor recusado, suspenso, e qualquer outro placeholder.
+   */
+  if (podeContar && venue.isTest !== true && venue.recebedorOk !== true) {
+    const quantas = await store.contarCobrancasConfirmadas(venue.id);
+    if (quantas > 0) {
+      return [{
+        severity: 'high',
+        code: 'venue_recipient_unusable',
+        message: recebedor
+          ? `casa de produção com recebedor inutilizável (${recebedor}${venue.recipientStatus ? `, status ${venue.recipientStatus}` : ''})`
+            + ` e ${quantas} cobrança(s) confirmada(s) — não dá pra conferir pra onde o dinheiro foi`
+          : `casa de produção SEM recebedor e ${quantas} cobrança(s) confirmada(s)`
+            + ' — dinheiro andou sem destino conferível',
+        recipientId: recebedor,
+        recipientStatus: venue.recipientStatus || null,
+        charges: quantas,
+      }];
+    }
+  }
+
   // Ausência de PSP por outro motivo — um chamador que não tem adquirente
   // (store de memória, conciliação só de carteira) — é silêncio legítimo: não
   // houve decisão de desligar nada.
   if (!psp || typeof psp.listChargePayables !== 'function') return [];
   if (typeof store.listRecentConfirmedCharges !== 'function') return [];
-  const recebedor = venue.pspRecipientId || null;
 
   /**
    * RECEBEDOR DE MENTIRA NUMA CASA DE PRODUÇÃO — dinheiro sem destino conferível.
@@ -105,26 +170,6 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
    * andou e não há como afirmar pra onde. Casa sem recebedor e sem cobrança é
    * cadastro incompleto — assunto do radar de ativação, não deste canário.
    */
-  const PLACEHOLDER = 'rcpt_demo';
-  if (venue.isTest !== true && (!recebedor || recebedor === PLACEHOLDER)) {
-    const quantas = typeof store.listRecentConfirmedCharges === 'function'
-      ? (await store.listRecentConfirmedCharges(venue.id, { sinceIso, limit }).catch(() => [])).length
-      : 0;
-    if (quantas > 0) {
-      return [{
-        severity: 'high',
-        code: 'venue_recipient_unusable',
-        message: recebedor
-          ? `casa de produção com recebedor de teste (${recebedor}) e ${quantas} cobrança(s) confirmada(s)`
-            + ' — o adquirente não conhece esse destino, não dá pra conferir pra onde o dinheiro foi'
-          : `casa de produção SEM recebedor e ${quantas} cobrança(s) confirmada(s)`
-            + ' — dinheiro andou sem destino conferível',
-        recipientId: recebedor,
-        charges: quantas,
-      }];
-    }
-  }
-
   let cobrancas;
   try {
     cobrancas = await store.listRecentConfirmedCharges(venue.id, { sinceIso, limit });
@@ -240,8 +285,10 @@ async function reconcileOneVenue(store, venue, opts = {}) {
     rowsRepairRaced: 0,
     rowsRepairAckLost: 0,
     rowsRepairRejected: 0,
-    repairTipDeltaCents: 0,
-    repairPeriods: [],
+    repairTipApplied: 0,
+    repairPeriodsApplied: [],
+    repairTipPending: 0,
+    repairPeriodsPending: [],
     infoFindings: [],
   };
   /**
@@ -268,7 +315,8 @@ async function reconcileOneVenue(store, venue, opts = {}) {
   // divergida, no padrão que a pia foi criada pra encerrar.
   const pia = {};
   let reparo = { rowsRepaired: 0, rowsRepairRaced: 0, rowsRepairAckLost: 0, rowsRepairRejected: 0,
-    repairTipDeltaCents: 0, repairPeriods: [], venueFindings: [] };
+    repairTipApplied: 0, repairPeriodsApplied: [], repairTipPending: 0, repairPeriodsPending: [],
+    venueFindings: [] };
   try {
     const checks = await reconcileVenue(store, venue.id, { ...opts, witness: pia });
     reparo = {
@@ -276,8 +324,10 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       rowsRepairRaced: checks.rowsRepairRaced || 0,
       rowsRepairAckLost: checks.rowsRepairAckLost || 0,
       rowsRepairRejected: checks.rowsRepairRejected || 0,
-      repairTipDeltaCents: checks.repairTipDeltaCents || 0,
-      repairPeriods: checks.repairPeriods || [],
+      repairTipApplied: checks.repairTipApplied || 0,
+      repairPeriodsApplied: checks.repairPeriodsApplied || [],
+      repairTipPending: checks.repairTipPending || 0,
+      repairPeriodsPending: checks.repairPeriodsPending || [],
       venueFindings: checks.venueFindings || [],
     };
     const [house, payables] = await Promise.all([
@@ -327,8 +377,10 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       rowsRepairRaced: checks.rowsRepairRaced || 0,
       rowsRepairAckLost: checks.rowsRepairAckLost || 0,
       rowsRepairRejected: checks.rowsRepairRejected || 0,
-      repairTipDeltaCents: checks.repairTipDeltaCents || 0,
-      repairPeriods: checks.repairPeriods || [],
+      repairTipApplied: checks.repairTipApplied || 0,
+      repairPeriodsApplied: checks.repairPeriodsApplied || [],
+      repairTipPending: checks.repairTipPending || 0,
+      repairPeriodsPending: checks.repairPeriodsPending || [],
       // O TIER `info` para de ser só-escrita. `venues[]` descarta `findings` de
       // casa não-vermelha, então uma noite inteira de corridas perdidas — ou a
       // perna de custódia pulada por prazo — saía como um relatório mudo.
@@ -354,8 +406,10 @@ async function reconcileOneVenue(store, venue, opts = {}) {
       rowsRepairRaced: resumo.corridas,
       rowsRepairAckLost: resumo.ackPerdidos,
       rowsRepairRejected: resumo.rejeitados,
-      repairTipDeltaCents: resumo.deltaGorjeta,
-      repairPeriods: resumo.periodos,
+      repairTipApplied: resumo.deltaGorjetaAplicado,
+      repairPeriodsApplied: resumo.periodosAplicado,
+      repairTipPending: resumo.deltaGorjetaPendente,
+      repairPeriodsPending: resumo.periodosPendente,
       // DERIVADO no catch também. Os quatro contadores eram re-derivados da pia
       // aqui e o `infoFindings` — o membro mais novo — herdava o `[]` do `base`.
       // Resultado medido: `rowsRepairRaced: 1` e `infoCodes: []` no MESMO
@@ -391,6 +445,30 @@ async function reconcileAllVenues(store, opts = {}) {
   const all = await store.listVenueActivation();
   const venues = opts.includeTest ? all : all.filter((v) => v.isTest !== true);
 
+  /**
+   * CASA MARCADA COMO TESTE COM RECEBEDOR DE VERDADE — a metade sem testemunha.
+   *
+   * `is_test` não gateia NADA no caminho de pagamento. Conferido campo a campo:
+   * ele só decide a identidade da demo (`demo.js`), quem entra nesta varredura
+   * (a linha acima) e quem o radar de ativação ignora. Uma casa marcada
+   * `is_test` com recebedor `re_...` ATIVO aceita Pix e cartão de gente de
+   * verdade, e nenhuma das TRÊS pernas roda nela — nem contas, nem
+   * conta-corrente, nem custódia. O inegociável #8 diz "por restaurante, ao
+   * centavo"; pras duas únicas casas onde o adquirente saberia responder, ele
+   * não está rodando.
+   *
+   * Medido em 2026-09-10: as duas com recebedor real (`Beira Mar`,
+   * `Kitos Food`) estão marcadas `is_test`; as sete que a varredura conferia
+   * eram semeadas com recebedor de mentira. O controle apontado só pra onde não
+   * podia funcionar, e a metade que importa sem achado nenhum.
+   *
+   * Isto NÃO decide o dado — trocar `is_test` é decisão sobre o piloto de
+   * alguém, e o estado de KYC do recebedor faz parte dela. Isto torna a decisão
+   * VISÍVEL, que é o que faltava. Achado pela revisão de compliance de
+   * 2026-09-10 (HIGH-2).
+   */
+  const foraPorTeste = all.filter((v) => v.isTest === true && v.recebedorOk === true);
+
   const venueReports = [];
   // Um prazo só pra varredura inteira: 90s dos 120s declarados, deixando folga
   // pro relatório e pro alerta saírem.
@@ -417,6 +495,23 @@ async function reconcileAllVenues(store, opts = {}) {
     }));
   }
 
+  /**
+   * As casas de teste com recebedor vivo viram um achado de PLATAFORMA — não
+   * de uma casa, porque nenhuma delas é conferida e portanto nenhuma tem
+   * relatório onde o achado caberia.
+   */
+  const achadosDaPlataforma = [];
+  if (!opts.includeTest && foraPorTeste.length > 0) {
+    achadosDaPlataforma.push({
+      severity: 'high',
+      code: 'test_venue_with_live_recipient',
+      message: `${foraPorTeste.length} casa(s) marcadas como TESTE têm recebedor de verdade no adquirente`
+        + ' — elas podem receber dinheiro real e NENHUMA perna da conciliação roda nelas: '
+        + foraPorTeste.map((v) => v.name).join(', '),
+      venues: foraPorTeste.map((v) => ({ id: v.id, name: v.name, recipientStatus: v.recipientStatus || null })),
+    });
+  }
+
   const red = venueReports.filter((r) => r.severity === 'critical' || r.severity === 'high');
 
   /**
@@ -434,9 +529,14 @@ async function reconcileAllVenues(store, opts = {}) {
     try { orphans = await store.listOpenOrphanMoneyEvents(); }
     catch (e) { process.stderr.write(`[reconcile-daily] órfãos não lidos: ${String(e.message).slice(0, 120)}\n`); }
   }
-  const severidadeGeral = orphans.length > 0
-    ? worse(venueReports.reduce((s, r) => worse(s, r.severity), 'ok'), 'high')
-    : venueReports.reduce((s, r) => worse(s, r.severity), 'ok');
+  // Achado de plataforma entra na severidade geral: se ele não subir o pior,
+  // uma noite em que TODA casa com recebedor vivo está fora da conferência sai
+  // verde — que é exatamente a condição que ele existe pra contar.
+  const severidadeGeral = [
+    ...venueReports.map((r) => r.severity),
+    ...(orphans.length > 0 ? ['high'] : []),
+    ...achadosDaPlataforma.map((f) => f.severity),
+  ].reduce((s, sev) => worse(s, sev), 'ok');
 
   return {
     at: new Date().toISOString(),
@@ -445,6 +545,8 @@ async function reconcileAllVenues(store, opts = {}) {
     orphanMoneyEvents: orphans.length,
     orphans: orphans.slice(0, 10),
     worstSeverity: severidadeGeral,
+    /** Achados que não são de uma casa — ver `test_venue_with_live_recipient`. */
+    platformFindings: achadosDaPlataforma,
     totalDriftCents: venueReports.reduce((s, r) => s + r.driftCents, 0),
     // QUANTAS LINHAS A VARREDURA ESCREVEU. Ela repara `payments` em toda casa,
     // toda noite, sem ninguém olhando — e sem estes dois números o relatório de
@@ -455,8 +557,10 @@ async function reconcileAllVenues(store, opts = {}) {
     rowsRepairRaced: venueReports.reduce((s, r) => s + (r.rowsRepairRaced || 0), 0),
     rowsRepairAckLost: venueReports.reduce((s, r) => s + (r.rowsRepairAckLost || 0), 0),
     rowsRepairRejected: venueReports.reduce((s, r) => s + (r.rowsRepairRejected || 0), 0),
-    repairTipDeltaCents: venueReports.reduce((s, r) => s + (r.repairTipDeltaCents || 0), 0),
-    repairPeriods: [...new Set(venueReports.flatMap((r) => r.repairPeriods || []))].sort(),
+    repairTipApplied: venueReports.reduce((s, r) => s + (r.repairTipApplied || 0), 0),
+    repairPeriodsApplied: [...new Set(venueReports.flatMap((r) => r.repairPeriodsApplied || []))].sort(),
+    repairTipPending: venueReports.reduce((s, r) => s + (r.repairTipPending || 0), 0),
+    repairPeriodsPending: [...new Set(venueReports.flatMap((r) => r.repairPeriodsPending || []))].sort(),
     // O TIER `info` DO SWEEP INTEIRO. Ele atravessava uma fronteira e parava na
     // seguinte: `infoFindings` existia por casa e nada o lia. `payables_unchecked`
     // é `info`, então a perna de custódia podia apagar a varredura inteira e o
@@ -504,6 +608,14 @@ function formatReconcileHeartbeat(report) {
 function formatReconcileAlert(report) {
   // ÓRFÃO ABERTO acorda o alerta mesmo com todo restaurante verde: é dinheiro
   // que se moveu e não achou conta, e ele não sai de lá sozinho.
+  /**
+   * Achado de PLATAFORMA sai na mensagem, não só no JSON. Foi assim que o
+   * HIGH-1 desta série foi fechado, e é o mesmo argumento aqui.
+   */
+  const daPlataforma = report.platformFindings || [];
+  const linhaPlataforma = daPlataforma.length > 0
+    ? `\n\n${daPlataforma.map((f) => `[${f.severity}] ${f.message}`).join('\n')}`
+    : '';
   const orfaos = report.orphanMoneyEvents || 0;
   /**
    * ESCRITA em linha de dinheiro SEMPRE fala — a contagem é o eixo errado.
@@ -525,21 +637,33 @@ function formatReconcileAlert(report) {
   // atravessa o relatório pra que o tier `info` deixe de ser só-escrita.
   const escreveu = (report.rowsRepaired || 0) > 0 || (report.rowsRepairAckLost || 0) > 0
     || (report.rowsRepairRejected || 0) > 0;
-  if (report.venuesRed === 0 && orfaos === 0 && !escreveu) return null;
+  if (report.venuesRed === 0 && orfaos === 0 && !escreveu && daPlataforma.length === 0) return null;
   // O que a varredura ESCREVEU sai na mensagem, não só no JSON: quem lê o
   // alerta às 4 da manhã precisa saber que a conciliação mexeu em linha de
   // dinheiro antes de julgar o resto do texto.
   const reparos = report.rowsRepaired || 0;
   const semResposta = report.rowsRepairAckLost || 0;
   const recusados = report.rowsRepairRejected || 0;
-  // O DELTA DA FOLHA vive AQUI, não num achado que a seleção pode descartar.
-  const deltaFolha = report.repairTipDeltaCents || 0;
-  const periodosFolha = report.repairPeriods || [];
-  const linhaFolha = deltaFolha !== 0
-    ? `\n  base da folha: ${-deltaFolha}¢ de diferença em ${periodosFolha.join(', ') || 'período não datado'}`
-      + ' — confira antes de fechar (o valor do razão é o menor e é o seguro)'
-    : '';
-  const linhaReparos = (reparos > 0 || semResposta > 0 || recusados > 0)
+  /**
+   * O DELTA DA FOLHA vive AQUI, não num achado que a seleção pode descartar —
+   * e sai em DUAS cláusulas, porque aplicado e pendente são fatos diferentes.
+   *
+   * E o "qual lado é o seguro" sai do SINAL, não de uma frase fixa: com delta
+   * negativo o razão é o menor (distribuir por ele é a direção segura); com
+   * positivo seria o contrário, e afirmar a mesma coisa nos dois casos mandaria
+   * a casa distribuir pelo número maior — o que o CLT art. 462 não desfaz.
+   */
+  const clausulaFolha = (delta, periodos, rotulo) => {
+    if (!delta) return '';
+    const mes = periodos.join(', ') || 'período não datado';
+    const seguro = delta < 0
+      ? 'o valor do razão é o MENOR e é o seguro para distribuir'
+      : 'o valor do razão é o MAIOR — confira antes de distribuir';
+    return `\n  base da folha (${rotulo}): ${Math.abs(delta)}¢ em ${mes} — ${seguro}`;
+  };
+  const linhaFolha = clausulaFolha(report.repairTipApplied || 0, report.repairPeriodsApplied || [], 'já corrigida')
+    + clausulaFolha(report.repairTipPending || 0, report.repairPeriodsPending || [], 'AINDA divergente');
+  const linhaReparos = (reparos > 0 || semResposta > 0 || recusados > 0 || linhaFolha)
     ? `\n\na varredura reprojetou ${reparos} linha(s) de pagamento do razão`
       + (recusados > 0 ? `, teve ${recusados} RECUSADA(S) pelo banco (nada escrito)` : '')
       + (semResposta > 0 ? ` e ficou SEM RESPOSTA em ${semResposta} (pode ter escrito)` : '')
@@ -551,7 +675,7 @@ function formatReconcileAlert(report) {
         .map((o) => `${o.kind}${o.txid ? ` ${o.txid}` : ''}`).join(', ')
     : '';
   if (report.venuesRed === 0) {
-    return `Conciliação ${report.at.slice(0, 10)}: restaurantes ok.${linhaOrfaos}${linhaReparos}`;
+    return `Conciliação ${report.at.slice(0, 10)}: restaurantes ok.${linhaOrfaos}${linhaReparos}${linhaPlataforma}`;
   }
   const linhas = report.red.slice(0, 10).map((v) => {
     /**
@@ -586,7 +710,7 @@ function formatReconcileAlert(report) {
     return `• ${v.name} [${v.severity}]${drift} — ${pior ? pior.message : 'sem detalhe'}${contexto}`;
   });
   const resto = report.red.length > 10 ? `\n(+${report.red.length - 10} restaurantes)` : '';
-  return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesRed} de ${report.venuesChecked} restaurantes com divergência.\n\n${linhas.join('\n')}${resto}${linhaOrfaos}${linhaReparos}`;
+  return `Conciliação ${report.at.slice(0, 10)}: ${report.venuesRed} de ${report.venuesChecked} restaurantes com divergência.\n\n${linhas.join('\n')}${resto}${linhaOrfaos}${linhaReparos}${linhaPlataforma}`;
 }
 
 module.exports = {

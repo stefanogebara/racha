@@ -343,6 +343,16 @@ function createMemoryStore() {
     /** Reconciliation inputs: each check's event log + its payment rows. */
     /** Ver o store do Supabase: cobranças confirmadas recentes, pra terceira
      *  perna da conciliação. */
+    /**
+     * Quantas cobranças a casa JÁ confirmou — sem janela. Ver o irmão no store
+     * do Supabase: o guarda de recebedor pergunta uma propriedade PERMANENTE, e
+     * perguntá-la pela janela de 24h fazia o achado se calar no dia seguinte.
+     */
+    async contarCobrancasConfirmadas(venueId) {
+      return [...payments.values()].filter((p) => p.venueId === venueId
+        && p.status === 'confirmado' && p.confirmedAt && p.method !== 'house_account').length;
+    },
+
     async listRecentConfirmedCharges(venueId, { sinceIso, limit = 50 } = {}) {
       const corte = sinceIso ? Date.parse(sinceIso) : -Infinity;
       return [...payments.values()]
