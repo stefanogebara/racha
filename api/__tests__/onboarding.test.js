@@ -67,7 +67,7 @@ describe.each(impls)('onboarding + QR mgmt [$name]', ({ make }) => {
   });
 
   test('SECURITY: rotating the QR kills the old token, keeps the live check on the new one', async () => {
-    const v = await store.createVenue({ name: 'RotaTest', servicoBp: 1000, pspRecipientId: 'r' });
+    const v = await store.createVenue({ name: 'RotaTest', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     const t = await store.createTable(v.id, `Mesa ${crypto.randomInt(10000, 99999)}`);
     await store.openCheck(t.qrToken, [{ id: 'a', name: 'A', priceCents: 5000 }]);
 
@@ -93,7 +93,7 @@ describe.each(impls)('onboarding + QR mgmt [$name]', ({ make }) => {
   });
 
   test('SECURITY: a deactivated table stops resolving its QR', async () => {
-    const v = await store.createVenue({ name: 'DeacTest', servicoBp: 1000, pspRecipientId: 'r' });
+    const v = await store.createVenue({ name: 'DeacTest', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     const t = await store.createTable(v.id, `Mesa ${crypto.randomInt(10000, 99999)}`);
     // deactivation is refused while a check is open, so close it first (append CLOSED)
     const check = await store.openCheck(t.qrToken, [{ id: 'a', name: 'A', priceCents: 1000 }]);
@@ -116,7 +116,7 @@ describe.each(impls)('onboarding + QR mgmt [$name]', ({ make }) => {
   });
 
   test('a CLOSED check is not returned by QR, and the badge clears (derived, not cache)', async () => {
-    const v = await store.createVenue({ name: 'ClosedTest', servicoBp: 1000, pspRecipientId: 'r' });
+    const v = await store.createVenue({ name: 'ClosedTest', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     const t = await store.createTable(v.id, `Mesa ${crypto.randomInt(10000, 99999)}`);
     const check = await store.openCheck(t.qrToken, [{ id: 'a', name: 'A', priceCents: 5000 }]);
     await store.appendEvent(check.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 5000, tipCents: 0, method: 'pix' });
@@ -129,7 +129,7 @@ describe.each(impls)('onboarding + QR mgmt [$name]', ({ make }) => {
   });
 
   test('duplicate label blocked even for a DEACTIVATED table (matches DB constraint)', async () => {
-    const v = await store.createVenue({ name: 'DupTest', servicoBp: 1000, pspRecipientId: 'r' });
+    const v = await store.createVenue({ name: 'DupTest', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     const label = `Mesa ${crypto.randomInt(10000, 99999)}`;
     const t = await store.createTable(v.id, label);
     await store.setTableActive(t.id, false); // no open check → allowed
@@ -137,7 +137,7 @@ describe.each(impls)('onboarding + QR mgmt [$name]', ({ make }) => {
   });
 
   test('deactivating a table WITH an open check is refused (no stranded diner)', async () => {
-    const v = await store.createVenue({ name: 'StrandTest', servicoBp: 1000, pspRecipientId: 'r' });
+    const v = await store.createVenue({ name: 'StrandTest', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     const t = await store.createTable(v.id, `Mesa ${crypto.randomInt(10000, 99999)}`);
     await store.openCheck(t.qrToken, [{ id: 'a', name: 'A', priceCents: 1000 }]);
     await expect(store.setTableActive(t.id, false)).rejects.toThrow(/open check/);

@@ -18,6 +18,10 @@ const root = resolve(here, '../../..');
 const jobs = [
   [resolve(root, 'ios/racha-ios.html'), resolve(here, '../public/ios.html')],
   [resolve(root, 'ios/lab/img/carved'), resolve(here, '../public/img/carved')],
+  // A Archivo vai junto: o protótipo deixou de puxá-la da CDN do Google (o
+  // domínio de produção não manda IP de visitante pra terceiro nenhum sem que
+  // isso esteja no mapa de dados). Ver o comentário no topo do racha-ios.html.
+  [resolve(root, 'ios/fonts'), resolve(here, '../public/ios-fonts')],
 ];
 
 for (const [from, to] of jobs) {

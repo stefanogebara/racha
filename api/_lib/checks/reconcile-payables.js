@@ -53,6 +53,18 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
     return { chargeId, ok: false, findings };
   }
 
+  /**
+   * O adaptador diz que o id não é de cobrança do adquirente. Isso não é
+   * latência de liquidação: é uma cobrança que nunca passou por adquirente
+   * nenhum, e chamá-la de "nenhum recebível ainda" é afirmar um estado em que o
+   * sistema não está. (HIGH-3 da revisão de compliance de 2026-09-10.)
+   */
+  if (payables && payables.notFromAcquirer === true) {
+    add('high', 'charge_not_from_acquirer',
+      `cobrança ${chargeId}: não é uma cobrança do adquirente — não existe recebível a conferir,`
+      + ' e o destino deste dinheiro não é conferível por aqui');
+    return { chargeId, ok: false, findings };
+  }
   if (linhas.length === 0) {
     /**
      * Cobrança paga e nenhum recebível. Pode ser latência (o recebível nasce

@@ -139,7 +139,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const hit = await store.getVenueByTableToken(tableQrToken || '');
     if (!hit) throw httpError(404, 'Mesa não encontrada');
     const cfg = venueHouseConfig(hit.venue);
-    if (!cfg.enabled) throw badRequest('Saldo da casa não está ativo neste restaurante');
+    if (!cfg.enabled) throw badRequest('house balance is off for this venue', 'house_off');
     const digits = normalizePhone(phone);
     if (!digits) throw badRequest('Telefone inválido');
     if (typeof name !== 'string' || !name.trim() || name.trim().length > 60) {
@@ -203,16 +203,20 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const account = await store.getHouseAccountByToken(accountToken || '');
     if (!account) throw httpError(404, 'Conta não encontrada');
     const venue = await store.getVenue(account.venueId);
-    if (!venue) throw httpError(404, 'Restaurante não encontrado');
+    if (!venue) throw httpError(404, 'venue not found', 'venue_not_found');
     const cfg = venueHouseConfig(venue);
-    if (!cfg.enabled) throw badRequest('Saldo da casa não está ativo neste restaurante');
+    if (!cfg.enabled) throw badRequest('house balance is off for this venue', 'house_off');
     if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw badRequest('Valor inválido');
-    if (amountCents < cfg.minLoadCents) throw badRequest(`Recarga mínima: ${(cfg.minLoadCents / 100).toFixed(2)}`);
-    if (amountCents > cfg.maxLoadCents) throw badRequest(`Recarga máxima: ${(cfg.maxLoadCents / 100).toFixed(2)}`);
+    // CÓDIGO + CENTAVOS CRUS, não a frase pronta. Estas duas formatavam
+    // dinheiro no servidor (`toFixed(2)`, sem moeda e sem idioma) e mandavam
+    // português pra quem quer que estivesse lendo. É a regra do CLAUDE.md, e o
+    // `httpError` daqui já tinha o parâmetro `vars` esperando por isto.
+    if (amountCents < cfg.minLoadCents) throw badRequest('load below minimum', 'load_below_min', { minCents: cfg.minLoadCents });
+    if (amountCents > cfg.maxLoadCents) throw badRequest('load above maximum', 'load_above_max', { maxCents: cfg.maxLoadCents });
     if (!venue.pspRecipientId) {
       // Same custody gate as check charges: without a venue recipient the
       // funds would land on the platform account (BACEN Res. 494 territory).
-      throw badRequest('Restaurante sem recebedor configurado');
+      throw badRequest('venue has no settlement recipient configured', 'venue_no_recipient');
     }
     // O PORTÃO DE MERCADO, no caminho do dinheiro.
     //
@@ -284,12 +288,12 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const view = await store.getCheckByQrToken(tableQrToken || '');
     if (!view) throw httpError(404, 'Mesa sem conta aberta');
     const venue = await store.getVenueForCheck(view.check.id);
-    if (!venue) throw httpError(404, 'Restaurante não encontrado');
+    if (!venue) throw httpError(404, 'venue not found', 'venue_not_found');
     const cfg = venueHouseConfig(venue);
-    if (!cfg.enabled) throw badRequest('Saldo da casa não está ativo neste restaurante');
+    if (!cfg.enabled) throw badRequest('house balance is off for this venue', 'house_off');
     if (account.venueId !== venue.id) {
       // Single-venue rule (âmbito limitado): credit NEVER crosses venues.
-      throw httpError(409, 'Este saldo é válido somente no restaurante que o emitiu');
+      throw httpError(409, 'house balance belongs to another venue', 'house_wrong_venue');
     }
     // GASTAR também é um portão de mercado, não só CARREGAR.
     //
@@ -372,7 +376,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
   // --- owner surface --------------------------------------------------------
   async function adminView(venueId) {
     const venue = await store.getVenue(venueId);
-    if (!venue) throw httpError(404, 'Restaurante não encontrado');
+    if (!venue) throw httpError(404, 'venue not found', 'venue_not_found');
     const rows = await store.listHouseAccounts(venueId);
     const nowIso = now();
     let principalCents = 0;
@@ -404,7 +408,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     if (Object.keys(clean).length === 0) throw badRequest('nada para atualizar');
     if ('minLoadCents' in clean || 'maxLoadCents' in clean) {
       const venue = await store.getVenue(venueId);
-      if (!venue) throw httpError(404, 'Restaurante não encontrado');
+      if (!venue) throw httpError(404, 'venue not found', 'venue_not_found');
       const cfg = venueHouseConfig(venue);
       const min = clean.minLoadCents ?? cfg.minLoadCents;
       const max = clean.maxLoadCents ?? cfg.maxLoadCents;

@@ -7,17 +7,26 @@ struct TableQRTests {
 
     @Test("lê a URL que o painel imprime")
     func printedURL() {
-        let qr = TableQR.parse("https://racha.app/?t=abc123XYZ")
+        let qr = TableQR.parse("https://racha-gray.vercel.app/?t=abc123XYZ")
         #expect(qr?.token == "abc123XYZ")
-        #expect(qr?.origin.absoluteString == "https://racha.app")
+        #expect(qr?.origin.absoluteString == "https://racha-gray.vercel.app")
     }
 
-    @Test("a origem vem do próprio QR, não do build")
-    func originFollowsTheSticker() {
-        // A white-label venue prints its own domain; the app has to follow it
-        // without a release.
-        let qr = TableQR.parse("https://menu.bardoze.com.br/?t=tok_9")
-        #expect(qr?.origin.absoluteString == "https://menu.bardoze.com.br")
+    @Test("a origem vem do QR, mas só se for uma origem que a gente já conhece")
+    func originMustBeKnown() {
+        // Isto ACEITAVA qualquer domínio, pra uma casa white-label poder
+        // imprimir o dela sem release do app. A conveniência é um primitivo de
+        // desvio de pagamento: um adesivo colado sobre o QR da mesa, com
+        // `https://atacante.example/?t=qualquer`, aponta o app pro servidor de
+        // outra pessoa e o app desenha a resposta como conta do Racha. É a
+        // fraude de adesivo de QR de sempre, com o app tirando a única defesa
+        // que o navegador dava: a barra de endereço.
+        #expect(TableQR.parse("https://racha-gray.vercel.app/?t=tok_9")?.origin.absoluteString == "https://racha-gray.vercel.app")
+        #expect(TableQR.parse("https://menu.bardoze.com.br/?t=tok_9") == nil)
+        #expect(TableQR.parse("https://racha-gray.vercel.app.atacante.example/?t=tok_9") == nil)
+        // Sem texto claro: na wifi do bar qualquer um reescreve a conta no meio
+        // do caminho.
+        #expect(TableQR.parse("http://racha-gray.vercel.app/?t=tok_9") == nil)
     }
 
     @Test("QR que não é do Racha não vira mesa")
@@ -29,16 +38,47 @@ struct TableQRTests {
         #expect(TableQR.parse("") == nil)
     }
 
+    @Test("a lista de release conhece o host que o QR realmente imprime")
+    func allowlistCoversWhatWePrint() {
+        // O `Qrs.tsx` imprime `PROD_ORIGIN` no cartão da mesa, e por uma rodada
+        // esta lista não tinha esse host em release — um build publicado
+        // recusaria toda mesa de verdade. Falha fechada, então não era buraco:
+        // era o produto quebrado. O par (o que imprime, o que aceita) atravessa
+        // dois idiomas e nada os obrigava a concordar; o censo do
+        // `data-map.test.js` amarra os dois lados, e isto amarra o lado daqui.
+        #expect(TableQR.allowedHosts.contains("racha-gray.vercel.app"))
+        // E o que NÃO pode estar: `racha.app` tem DNS na GoDaddy e o `www` num
+        // site do Wix — é de terceiro, e esteve aqui. Um app de pagamento
+        // confiando no host de outra pessoa é o primitivo que as rodadas 3 e 4
+        // fecharam, voltando pela porta dos fundos.
+        #expect(!TableQR.allowedHosts.contains("racha.app"))
+        #expect(TableQR.parse("https://racha.app/?t=tok_9") == nil)
+        #expect(TableQR.parse("https://racha-gray.vercel.app/?t=tok_9")?.token == "tok_9")
+    }
+
+    @Test("o código digitado também passa pela lista de permissão")
+    func typedPathIsGuardedToo() {
+        // O ramo que ficou de fora na primeira versão. `defaultOrigin` entrava
+        // direto na struct, e quem o fornece (`RachaEnvironment.origin`)
+        // aceitava qualquer host de um `UserDefaults`, `http` incluído. As duas
+        // revisões acharam isto separadamente, e a lição é a do próprio commit:
+        // a frase que descreve um guarda é escrita a partir do guarda que se
+        // estava OLHANDO.
+        #expect(TableQR.parse("abc123", defaultOrigin: URL(string: "https://atacante.example")!) == nil)
+        #expect(TableQR.parse("abc123", defaultOrigin: URL(string: "http://racha-gray.vercel.app")!) == nil)
+        #expect(TableQR.parse("abc123", defaultOrigin: URL(string: "https://racha-gray.vercel.app")!)?.token == "abc123")
+    }
+
     @Test("token só é aceito sem URL quando alguém digitou")
     func bareTokenNeedsAnExplicitOrigin() {
         #expect(TableQR.parse("abc123") == nil)
-        let typed = TableQR.parse("abc123", defaultOrigin: URL(string: "https://racha.app")!)
+        let typed = TableQR.parse("abc123", defaultOrigin: URL(string: "https://racha-gray.vercel.app")!)
         #expect(typed?.token == "abc123")
     }
 
     @Test("recusa token com formato implausível antes de gastar rede")
     func shapeCheck() {
-        let origin = URL(string: "https://racha.app")!
+        let origin = URL(string: "https://racha-gray.vercel.app")!
         #expect(TableQR.parse("ab", defaultOrigin: origin) == nil)              // curto demais
         #expect(TableQR.parse("tok com espaço", defaultOrigin: origin) == nil)
         #expect(TableQR.parse(String(repeating: "a", count: 200), defaultOrigin: origin) == nil)

@@ -1,6 +1,6 @@
 
 import { useT } from './lang';import { useEffect, useState } from 'react';
-import { api, ApiError } from './api';
+import { api, ApiError, type ChargeResult } from './api';
 
 /**
  * Apple Pay / Google Pay — cobrança de CARTÃO tokenizada pelo mesmo portão de
@@ -84,7 +84,7 @@ interface GPayClient {
 }
 
 export default function WalletButtons({
-  token, amountCents, tipCents, payerLabel, payerDocument, disabled, venueName, simulated = false, onPaid,
+  token, amountCents, tipCents, payerLabel, payerDocument, disabled, venueName, simulated = false, acceptsWallet = false, onPaid,
 }: {
   token: string;
   amountCents: number;
@@ -100,10 +100,27 @@ export default function WalletButtons({
    *  PRODUCTION e tokenizaria um cartão de verdade pra uma conta que não
    *  existe — achado CRÍTICO da revisão de compliance. */
   simulated?: boolean;
-  onPaid: () => void;
+  /**
+   * A casa tem recebedor de verdade, declarado PELO SERVIDOR.
+   *
+   * Sem isto o portão era só a chave de build, que é do deploy e não da casa:
+   * toda conta brasileira baixava o `pay.google.com/gp/p/js/pay.js` e rodava
+   * `isReadyToPay` — sondagem de aparelho e carteira — antes de a pessoa
+   * tocar em nada. Mesmo contrato do `acceptsCard` do trilho Stripe.
+   */
+  acceptsWallet?: boolean;
+  /**
+   * O COMPROVANTE precisa da cobrança, não de um aviso de que houve uma.
+   *
+   * Isto era `() => void`: a carteira tinha a `ChargeResult` na mão (`settle`)
+   * e a jogava fora, então a tela de pago não sabia o valor e o comprovante
+   * saía sem quantia, sem linha de serviço e sem data — justo no trilho em que
+   * o cliente tem uma FATURA de cartão pra conferir contra.
+   */
+  onPaid: (charge: ChargeResult) => void;
 }) {
   const { t, brl } = useT();
-  const real = REAL && !simulated;
+  const real = REAL && !simulated && acceptsWallet;
   const [sheet, setSheet] = useState<Wallet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +148,7 @@ export default function WalletButtons({
       // pelo webhook charge.paid e o polling da conta atualiza o progresso.
       if ((e as ApiError).status !== 404) throw e;
     }
-    onPaid();
+    onPaid(charge);
   }
 
   // --- modo REAL: sheet oficial do Google -----------------------------------
@@ -188,7 +205,7 @@ export default function WalletButtons({
           disabled={disabled || busy || cpfDigits.length !== 11}
           onClick={realGooglePay}
         >
-          {busy ? 'autorizando…' : 'G Pay'}
+          {busy ? t('wallet.authorizing') : 'G Pay'}
         </button>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
       </>
@@ -218,24 +235,27 @@ export default function WalletButtons({
       {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
 
       {sheet && (
-        <div className="sheetoverlay" role="dialog" aria-modal="true" aria-label={`Pagar com ${WALLET_LABEL[sheet]}`}>
+        <div className="sheetoverlay" role="dialog" aria-modal="true" aria-label={t('wallet.payWith', { wallet: WALLET_LABEL[sheet] })}>
           <div className="sheet">
             <p className="label">{WALLET_LABEL[sheet]}</p>
             <div className="checkrow">
               <span>Racha · {venueName}</span>
               <span className="mono">{brl(total)}</span>
             </div>
+            {/* A divulgação do SERVIÇO no momento de autorizar — era português
+                cru, e quem não lê português autorizava sem saber que parte do
+                valor é serviço (CDC art. 6º III / art. 31). A chave já existia. */}
             {tipCents > 0 && (
-              <p className="muted small">inclui {brl(tipCents)} de serviço para a equipe</p>
+              <p className="muted small">{t('pix.includesTip', { amount: brl(tipCents) })}</p>
             )}
             <div className="checkrow">
               <span className="muted small">{t('card.word')}</span>
               <span className="mono muted small">{t('card.demoCard')}</span>
             </div>
             <button className="cta" disabled={busy} onClick={() => demoAuthorize(sheet)}>
-              {busy ? 'autorizando…' : `Pagar ${brl(total)}`}
+              {busy ? t('wallet.authorizing') : t('wallet.payAmount', { amount: brl(total) })}
             </button>
-            <button className="linklike" disabled={busy} onClick={() => setSheet(null)}>cancelar</button>
+            <button className="linklike" disabled={busy} onClick={() => setSheet(null)}>{t('wallet.cancel')}</button>
             <p className="muted small center">{t('card.demoNote')}</p>
           </div>
         </div>

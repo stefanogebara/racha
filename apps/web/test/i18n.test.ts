@@ -33,10 +33,42 @@ const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: s
  * como prosa se não tiver aspas nem vírgula, que é o que faz uma linha ser
  * código.
  */
+/**
+ * Os arquivos de `src`, DESCENDO. `readdirSync` não desce, e `src` é plana
+ * hoje — mas a primeira pasta `src/components/` tirava metade das telas de
+ * TODOS os quatro censos deste arquivo, em silêncio. O caminho volta relativo
+ * pra mensagem de erro continuar legível.
+ */
+function arquivosDe(fs: typeof import('node:fs'), path: typeof import('node:path'),
+                    raiz: string, sub = '', out: string[] = []): string[] {
+  for (const e of fs.readdirSync(path.join(raiz, sub), { withFileTypes: true })) {
+    const rel = sub ? path.join(sub, e.name) : e.name;
+    if (e.isDirectory()) arquivosDe(fs, path, raiz, rel, out);
+    else out.push(rel);
+  }
+  return out;
+}
+
 function isProseLine(trimmed: string): boolean {
   const code = trimmed.replace(/\/\/.*$/, '').trim();
   if (code.length <= 12) return false;
   return /^[^<>{}()=;:`|&'"[\],]+$/.test(code);
+}
+
+/**
+ * Apaga as interpolações da linha — `{...}` do JSX e `${...}` do template —
+ * pondo `…` no lugar. O `…` não é `<`, `>`, `{` nem `}`, então a âncora
+ * `>texto<` continua valendo com a prosa inteira em um pedaço só. Roda em
+ * ponto fixo pra dar conta de chave dentro de chave.
+ */
+function maskExpr(line: string, re: RegExp = /\{[^{}]*\}/g): string {
+  let out = line;
+  for (let i = 0; i < 8; i += 1) {
+    const next = out.replace(re, '…');
+    if (next === out) break;
+    out = next;
+  }
+  return out;
 }
 
 function codeLines(text: string): { line: string; n: number }[] {
@@ -66,11 +98,17 @@ test('toda chave tem os três idiomas, não vazios', () => {
 test('os {placeholders} são os MESMOS nos dois idiomas', () => {
   // O modo de falha real: 'share.each' com {amount} em inglês e {valor} em
   // português. O inglês funciona, o português imprime "{valor}" literal.
+  //
+  // Comparava só `en` com `pt`. O espanhol nunca entrava — e o modo de falha
+  // descrito acima acontece igualzinho num `{table}` escrito `{mesa}` do lado
+  // espanhol: chaves literais na tela de pagamento. Os TRÊS lados agora.
   const holes = (s: string) => new Set(s.match(/\{(\w+)\}/g) ?? []);
   for (const [key, pair] of entries) {
-    const en = holes(pair.en), pt = holes(pair.pt);
-    assert.deepEqual([...en].sort(), [...pt].sort(),
-      `${key}: placeholders diferentes — en ${[...en]} vs pt ${[...pt]}`);
+    const en = [...holes(pair.en)].sort();
+    for (const lang of LANGS) {
+      assert.deepEqual([...holes(pair[lang])].sort(), en,
+        `${key}: placeholders diferentes — en ${en} vs ${lang} ${[...holes(pair[lang])]}`);
+    }
   }
 });
 
@@ -98,6 +136,13 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'wiz.stepTables:pt=es', 'wiz.connected:pt=es', 'wiz.marked:pt=es',
     'qrs.backTables:pt=es', 'stripe.connect:pt=es', 'admin.cpfOk:pt=es',
     'house.refund:pt=es', 'rcpt.idCopied:pt=es', 'rcpt.copyId:pt=es',
+    // A folha da carteira: "cancelar", "Pagar {amount}" e "autorizando…" são
+    // cognatos exatos. Cada uma conferida à mão, como manda o comentário acima.
+    'wallet.cancel:pt=es', 'wallet.payAmount:pt=es', 'wallet.authorizing:pt=es',
+    // O saldo da casa: "pagando…" e "Mesa" se escrevem igual nas duas.
+    'housepay.paying:pt=es', 'qrs.tableTitle:pt=es',
+    // "Recarga mínima/máxima" se escreve igual nas duas.
+    'house.cfgMinLoad:pt=es', 'house.cfgMaxLoad:pt=es',
     'rcpt.holder:pt=es', 'rcpt.bankLabel:pt=es', 'rcpt.bankCodeKnown:pt=es',
     'rcpt.optionalPh:pt=es', 'rcpt.sending:pt=es', 'rcpt.cancel:pt=es',
     'ledger.load:pt=es', 'ledger.refund:pt=es', 'cat.carne:pt=es',
@@ -251,7 +296,7 @@ test('nenhum componente escreve em português o que o dicionário já traduz', a
     .map(([key, pair]) => [key, pair.pt] as const);
 
   const offenders: string[] = [];
-  for (const file of fs.readdirSync(src)) {
+  for (const file of arquivosDe(fs, path, src)) {
     if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
     for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
       for (const [key, pt] of phrases) {
@@ -334,23 +379,60 @@ test('nenhum componente escreve texto de tela em português sem chave', async ()
     'fechar', 'abrir', 'adicionar', 'nenhuma', 'nenhum', 'cliente', 'clientes',
     'criar', 'criando', 'entrar', 'sair', 'confira', 'banco', 'titular',
     'recebedor', 'dígito', 'próximo', 'voltar', 'salvando', 'pronto',
-    'carregando'];
+    'carregando',
+    // 2026-09-10: as três primeiras entraram porque o censo mais largo APONTOU
+    // pras linhas certas — `Girar o QR da…`, `Desativar a…`, `Reembolsar…` — e
+    // deixou passar assim mesmo. A ancoragem estava certa; o que falhava era a
+    // lista. "Onze frases" era resultado do vocabulário, não do código, e é bom
+    // dizer isso em voz alta: este teste é uma lista de negação, e uma lista de
+    // negação só encontra o que alguém já pensou em escrever nela.
+    'girar', 'desativar', 'reembolsar', 'reembolso', 'código', 'impresso',
+    'funcionar', 'disponível', 'carteira', 'bônus', 'informe', 'equipe',
+    'valor', 'valores', 'escanear', 'restaurante', 'idioma', 'enviar',
+    // Segunda rodada, mesma lição: quatro rótulos do formulário do saldo
+    // sobreviveram porque *validade*, *recarga*, *mínima* e *máxima* não
+    // estavam aqui. O mecanismo vai continuar produzindo esses um lote por vez.
+    'validade', 'recarga', 'mínima', 'máxima', 'mínimo', 'máximo'];
   const re = new RegExp(`\\b(${ptOnly.join('|')})\\b`, 'i');
 
   const offenders: string[] = [];
-  for (const file of fs.readdirSync(src)) {
+  for (const file of arquivosDe(fs, path, src)) {
     if (!/\.(tsx|ts)$/.test(file) || file === 'i18n.ts') continue;
     for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
       const trimmed = line.trim();
+      // A linha SEM as interpolações e sem o comentário de fim de linha.
+      //
+      // `>...<` excluía `{` e `}` da classe, então prosa interrompida por
+      // interpolação — `>inclui {brl(tip)} de serviço<` — não casava em pedaço
+      // nenhum: o primeiro fragmento não fecha e o segundo não começa com `>`.
+      // Foi assim que a folha da carteira ficou em português cru NO MOMENTO DA
+      // AUTORIZAÇÃO, e a busca por substring do dicionário também não a via,
+      // porque a fonte escreve `{brl(tipCents)}` onde o dicionário escreve
+      // `{amount}`. Mascarar (em vez de partir a linha em pedaços soltos)
+      // mantém a âncora `>...<`: sem ela o teste passa a ler atributo e código
+      // como se fosse tela. Achado da revisão de 2026-09-10.
+      const semComentario = line.replace(/(^|[^:])\/\/.*$/, '$1');
+      const masked = maskExpr(semComentario);
+      // Para os LITERAIS, só o `${...}` do template é apagado: o mascaramento
+      // em ponto fixo come a chave de JSX inteira — `{busy ? '…' : `…`}` vira
+      // um `…` só — e com ela o literal que se quer ler.
+      const semTpl = maskExpr(semComentario, /\$\{[^{}]*\}/g);
       const candidates = [
-        ...[...line.matchAll(/>([^<>{}]{4,})</g)].map((m) => m[1]),
-        ...[...line.matchAll(/(?:placeholder|title|aria-label)="([^"]{4,})"/g)].map((m) => m[1]),
+        ...[...masked.matchAll(/>([^<>{}]{4,})</g)].map((m) => m[1]),
+        ...[...masked.matchAll(/(?:placeholder|title|aria-label)="([^"]{4,})"/g)].map((m) => m[1]),
         // Prosa de JSX que ocupa VÁRIAS linhas: as linhas do meio não têm `>`
         // nem `<`, então a regra de cima não as vê. Foi assim que o parágrafo
         // do AdminStripe — três linhas em português, mencionando o Pix numa
         // tela espanhola — passou pela primeira versão deste teste. Uma linha
         // que é só texto (sem tag, sem chave, sem código) é prosa de tela.
         ...(isProseLine(trimmed) ? [trimmed] : []),
+        // FRASE dentro de literal de string. `{busy ? 'pagando…' : `Pagar
+        // ${brl(x)} com saldo`}` está em posição de JSX mas some no mascaramento
+        // — e era o botão que o cliente aperta pra gastar o saldo. Só literais
+        // com ESPAÇO entram: `setStep('conta')` é chave de máquina de estados,
+        // não tela, e é essa diferença que a lista de palavras sozinha não faz.
+        ...[...semTpl.matchAll(/'([^']{4,})'|"([^"]{4,})"|`([^`]{4,})`/g)]
+             .map((m) => m[1] ?? m[2] ?? m[3]).filter((x) => /\s/.test(x)),
       ];
       for (const c of candidates) {
         if (re.test(c)) offenders.push(`${file}:${n} texto de tela em português: ${JSON.stringify(c.trim().slice(0, 60))}`);
@@ -440,7 +522,7 @@ test('nenhuma tela formata número, data ou dinheiro com o idioma escrito na lin
   const BANNED = /'(pt-BR|en-US|es-ES)'|toLocale(String|DateString|TimeString)\(|style:\s*'currency'/;
 
   const offenders: string[] = [];
-  for (const file of fs.readdirSync(src)) {
+  for (const file of arquivosDe(fs, path, src)) {
     if (!/\.(tsx|ts)$/.test(file) || OWNERS.has(file)) continue;
     for (const { line, n } of codeLines(fs.readFileSync(path.join(src, file), 'utf8'))) {
       const m = line.match(BANNED);
@@ -475,7 +557,7 @@ test('nenhuma tela nova imprime dinheiro sem dizer a moeda', async () => {
   const src = path.join(import.meta.dirname, '..', 'src');
 
   const offenders: string[] = [];
-  for (const file of fs.readdirSync(src)) {
+  for (const file of arquivosDe(fs, path, src)) {
     if (!file.endsWith('.tsx') || BR_ONLY.has(file)) continue;
     const text = fs.readFileSync(path.join(src, file), 'utf8');
     // A tela amarrou a moeda uma vez? Então os `brl(x)` dela já a carregam.
@@ -540,6 +622,11 @@ test('todo código de erro que a API manda tem tradução', async () => {
         const src = fs.readFileSync(full, 'utf8');
         for (const m of src.matchAll(/code: '([a-z_]+)'/g)) codes.add(m[1]);
         for (const m of src.matchAll(/badRequest\([^;]*?'([a-z_]+)'\s*[,)]/g)) codes.add(m[1]);
+        // `httpError(404, 'venue not found', 'venue_not_found')` — a terceira
+        // forma. Dois dos seis códigos novos do saldo da casa estavam fora do
+        // guarda e passaram só porque eu escrevi as traduções à mão. O
+        // próximo `httpError(…, 'novo')` sairia verde mostrando `err.generic`.
+        for (const m of src.matchAll(/httpError\([^;]*?'([a-z_]+)'\s*[,)]/g)) codes.add(m[1]);
         // A forma POSICIONAL da conciliação: `add('critical', 'ledger_drift', …)`.
         //
         // O censo só via `code: '…'`, e é assim que TODO achado de conciliação

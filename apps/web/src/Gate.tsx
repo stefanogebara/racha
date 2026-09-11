@@ -24,7 +24,7 @@ export default function Gate({ children }: { children: ReactNode }) {
 }
 
 function Login({ onDone }: { onDone: () => void }) {
-  const { t } = useT();
+  const { t, tErr } = useT();
   const [mode, setMode] = useState<'in' | 'up'>('in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -49,13 +49,13 @@ function Login({ onDone }: { onDone: () => void }) {
         await signIn(email.trim(), password);
       }
       onDone();
-    } catch (e) { setError((e as Error).message); setBusy(false); }
+    } catch (e) { setError(tErr(e)); setBusy(false); }
   }
 
   async function google() {
     setBusy(true); setError(null); setNotice(null);
     try { await signInWithGoogle(); /* redireciona a página */ }
-    catch (e) { setError((e as Error).message); setBusy(false); }
+    catch (e) { setError(tErr(e)); setBusy(false); }
   }
 
   async function forgot() {
@@ -64,7 +64,7 @@ function Login({ onDone }: { onDone: () => void }) {
     try {
       await resetPassword(email.trim());
       setNotice(t('gate.resetSent'));
-    } catch (e) { setError((e as Error).message); }
+    } catch (e) { setError(tErr(e)); }
     finally { setBusy(false); }
   }
 

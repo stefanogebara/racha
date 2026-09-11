@@ -64,10 +64,13 @@ describe('house service', () => {
 
   test('disabled venue: no open, no load', async () => {
     const { store, house } = setup();
-    const venue = store.seedVenue({ name: 'Fechado', servicoBp: 1000, pspRecipientId: 'r' });
+    const venue = store.seedVenue({ name: 'Fechado', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     const table = store.seedTable(venue.id, 'Mesa 1');
+    // Pelo CÓDIGO, não pela frase: a frase é interna e o cliente traduz o
+    // código. Amarrar o teste ao português é o que fazia a mudança certa
+    // (`house_off` + centavos crus) parecer uma regressão.
     await expect(house.openAccount({ tableQrToken: table.qrToken, phone: '11987654321', name: 'A' }))
-      .rejects.toThrow(/não está ativo/);
+      .rejects.toMatchObject({ code: 'house_off', statusCode: 400 });
     const cfg = await house.publicConfig(table.qrToken);
     expect(cfg.enabled).toBe(false);
   });
@@ -178,8 +181,13 @@ describe('house service', () => {
     const { table } = await seedVenueWithHouse(store, house); // 15%
     const { accountToken } = await house.openAccount({ tableQrToken: table.qrToken, phone: '11955556666', name: 'D' });
 
-    await expect(house.createLoad({ accountToken, amountCents: 1999 })).rejects.toThrow(/mínima/);
-    await expect(house.createLoad({ accountToken, amountCents: 50001 })).rejects.toThrow(/máxima/);
+    // O limite viaja em CENTAVOS nos `vars` — quem escreve "R$ 20,00" é o
+    // cliente, que sabe a moeda e o idioma. O servidor formatava com
+    // `toFixed(2)`, sem moeda, em português, pra qualquer leitor.
+    await expect(house.createLoad({ accountToken, amountCents: 1999 }))
+      .rejects.toMatchObject({ code: 'load_below_min', vars: { minCents: 2000 } });
+    await expect(house.createLoad({ accountToken, amountCents: 50001 }))
+      .rejects.toMatchObject({ code: 'load_above_max', vars: { maxCents: 50000 } });
 
     const l = await house.createLoad({ accountToken, amountCents: 10000 }); // quoted at 15%
     const venueId = (await store.getHouseAccountByToken(accountToken)).venueId;
@@ -344,7 +352,7 @@ describe('house service', () => {
 
   test('config validation: legal floor on validity, min>max rejected', async () => {
     const { store, house } = setup();
-    const venue = store.seedVenue({ name: 'Cfg', servicoBp: 1000, pspRecipientId: 'r' });
+    const venue = store.seedVenue({ name: 'Cfg', servicoBp: 1000, pspRecipientId: 're_teste0000000000000000000' });
     await expect(house.updateConfig(venue.id, { validityDays: 29 })).rejects.toThrow(/mínimo legal/);
     await expect(house.updateConfig(venue.id, { bonusBp: 5001 })).rejects.toThrow(/intervalo/);
     await expect(house.updateConfig(venue.id, { minLoadCents: 9000, maxLoadCents: 5000 }))

@@ -68,7 +68,7 @@ const STATUS_KEY = {
 } as const;
 
 export default function Panel() {
-  const { t, brl: fmtMoney } = useT();
+  const { t, brl: fmtMoney, tErr } = useT();
   const venueId = useMemo(
     () => new URLSearchParams(window.location.search).get('v') ?? '',
     [],
@@ -81,7 +81,7 @@ export default function Panel() {
       setData(await authedReq<PanelData>(`/api/panel?v=${encodeURIComponent(venueId)}`));
       setError(null);
     } catch (e) {
-      setError((e as Error).message);
+      setError(tErr(e));
     }
   }, [venueId]);
 

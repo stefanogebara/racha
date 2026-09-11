@@ -6,15 +6,23 @@
  * escolhe o `.ts` e some com os componentes sem dizer por quê. Quem importa
  * `./lang` quer React; quem importa `./i18n` quer as strings.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { DICT, LANGS, STORAGE_KEY, asLang, fill, type Key, type Lang, money, LOCALE, type CurrencyCode } from './i18n';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { DICT, LANGS, STORAGE_KEY, asLang, fill, tError, type Key, type Lang, money, LOCALE, type CurrencyCode } from './i18n';
 
-export { DICT, LANGS, money, tError } from './i18n';
+export { DICT, LANGS, money } from './i18n';
+export { tError } from './i18n';
 export type { Key, Lang } from './i18n';
 
 /* ── contexto ─────────────────────────────────────────────────────────────── */
 
-function readStored(): Lang {
+/**
+ * O idioma inicial, e se ele foi ESCOLHIDO por alguém.
+ *
+ * A distinção importa: só um idioma que ninguém escolheu pode ser trocado pelo
+ * padrão da CASA quando a conta chega. Escolha de gente sempre ganha — um
+ * turista que pôs EN em Barcelona não quer PT porque jantou em São Paulo.
+ */
+function readStored(): { lang: Lang; escolhido: boolean } {
   // `?lang=` wins over the stored choice. It exists for one real case: the
   // landing embeds the product in an iframe, and an iframe is its own document
   // — it reads storage once at mount and never hears the parent's toggle. The
@@ -24,28 +32,69 @@ function readStored(): Lang {
   // still stores and reads the person's own choice.
   try {
     const url = asLang(new URLSearchParams(window.location.search).get('lang'));
-    if (url) return url;
+    if (url) return { lang: url, escolhido: true };
   } catch { /* sem window (teste) → segue pro armazenado */ }
   try {
     const stored = asLang(localStorage.getItem(STORAGE_KEY));
-    if (stored) return stored;
+    if (stored) return { lang: stored, escolhido: true };
   } catch { /* storage bloqueado → fica no padrão */ }
-  return 'en';   // padrão do produto
+  return { lang: 'en', escolhido: false };   // padrão do produto, não escolha
 }
 
 /** O atributo `lang` do documento e dos botões, pro leitor de tela pronunciar
  *  certo. Declarado antes de quem o usa. */
 const HTML_LANG: Record<Lang, string> = { en: 'en', pt: 'pt-BR', es: 'es-ES' };
 
-const LangContext = createContext<{ lang: Lang; setLang: (l: Lang) => void }>({
-  lang: 'en', setLang: () => {},
+const LangContext = createContext<{
+  lang: Lang;
+  setLang: (l: Lang) => void;
+  adotarPadraoDaCasa: (l: Lang | null | undefined) => void;
+}>({
+  lang: 'en', setLang: () => {}, adotarPadraoDaCasa: () => {},
 });
 
 export function LangProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(readStored);
+  const inicial = useMemo(readStored, []);
+  const [lang, setLangState] = useState<Lang>(inicial.lang);
   const setLang = useCallback((l: Lang) => {
     setLangState(l);
+    escolhidoRef.current = true;
     try { localStorage.setItem(STORAGE_KEY, l); } catch { /* segue sem lembrar */ }
+  }, []);
+  /**
+   * O PADRÃO DA CASA, quando ninguém escolheu nada.
+   *
+   * O servidor manda `venue.defaultLang` em toda conta — e o cliente declarava
+   * o TIPO do campo e nunca o lia. Efeito medido em 2026-09-10: um cliente
+   * brasileiro, num restaurante brasileiro, no primeiro QR da vida, recebia a
+   * conta em INGLÊS, com `R$213.10` de ponto decimal, enquanto a casa dizia
+   * `pt`. Campo calculado, enviado e morto — a mesma forma do `offRail`.
+   *
+   * NÃO sobrescreve escolha: só age quando o idioma atual é o padrão do
+   * produto, e o que ele faz também não vira escolha (não grava no storage),
+   * senão a casa seguinte herdaria o idioma desta.
+   */
+  /**
+   * `asLang` na TERCEIRA porta, e a escolha lida por REF.
+   *
+   * Duas coisas que a primeira versão errou:
+   *
+   *  - o tipo `Lang` é apagado em runtime e o valor vem do corpo JSON do
+   *    servidor. O teste "nada além de um idioma atendido entra" enumera as
+   *    portas de fora (`?lang=` e localStorage) e esta era uma terceira, sem
+   *    validação. Hoje o servidor só emite `pt`/`es`; no dia em que emitir
+   *    outra coisa, `DICT[key][lang]` vira `undefined` e o `fill` estoura
+   *    DURANTE o render da tela de pagamento.
+   *  - `escolhido` lido do closure: o poll em voo no momento do toque carrega
+   *    `escolhido: false`, e quando ele resolve reverte o idioma que a pessoa
+   *    acabou de escolher. Janela de 1–2s no 4G de um bar. Um `ref` é um
+   *    guarda só, vivo, em vez de um por render.
+   */
+  const escolhidoRef = useRef(inicial.escolhido);
+  const adotarPadraoDaCasa = useCallback((l: Lang | null | undefined) => {
+    const escolha = asLang(l);
+    if (!escolha || escolhidoRef.current) return;
+    setLangState((atual) => (atual === escolha ? atual : escolha));
   }, []);
   // O `lang` do documento e o TÍTULO seguem a escolha juntos, num só efeito:
   // são as duas coisas que vivem fora do React e por isso são as duas que
@@ -54,14 +103,14 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.lang = HTML_LANG[lang];
     document.title = DICT['doc.title'][lang];
   }, [lang]);
-  const value = useMemo(() => ({ lang, setLang }), [lang, setLang]);
+  const value = useMemo(() => ({ lang, setLang, adotarPadraoDaCasa }), [lang, setLang, adotarPadraoDaCasa]);
   return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
 }
 
 export function useLang() { return useContext(LangContext); }
 
 export function useT() {
-  const { lang, setLang } = useLang();
+  const { lang, setLang, adotarPadraoDaCasa } = useLang();
   const t = useCallback(
     (key: Key, vars?: Record<string, string | number>) => fill(DICT[key][lang], vars),
     [lang],
@@ -101,7 +150,29 @@ export function useT() {
     (bp: number) => (bp / 100).toLocaleString(LOCALE[lang]),
     [lang],
   );
-  return { t, lang, setLang, brl, dmy, hm, pct };
+  /**
+   * O erro do servidor virando frase, num lugar só.
+   *
+   * Vinte e uma telas faziam `setError((e as Error).message)` — o texto CRU do
+   * servidor. Funcionava enquanto o servidor mandava frase; ele parou de
+   * mandar (a frase interna nomeava o adquirente da casa e servia de oráculo
+   * de assinatura em webhook), então o cru virou o "HTTP 400" que o `api.ts`
+   * inventa. Pior que uma frase honesta em pé.
+   *
+   * Aqui é o mesmo contrato do `App`: código → tradução, `vars` em centavos →
+   * formatados na moeda de quem lê. Fica no `useT` porque é onde se sabe o
+   * idioma — uma tela não tem como esquecer o que não precisa passar.
+   */
+  const tErr = useCallback((e: unknown, currency: CurrencyCode = 'BRL') => {
+    const err = e as { code?: string; message?: string; vars?: Record<string, string | number> };
+    const vars = err?.vars ? {
+      left: money(Number(err.vars.leftCents ?? 0), lang, currency),
+      min: money(Number(err.vars.minCents ?? 0), lang, currency),
+      max: money(Number(err.vars.maxCents ?? 0), lang, currency),
+    } : undefined;
+    return tError(lang, err?.code, err?.message || '', vars);
+  }, [lang]);
+  return { t, lang, setLang, adotarPadraoDaCasa, brl, dmy, hm, pct, tErr };
 }
 
 /**

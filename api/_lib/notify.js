@@ -33,6 +33,14 @@ async function notifyOwnerRecipientStatus({ venue, status, previousStatus = null
   };
   try {
     const res = await fetch(`${NOTIFY_URL}/api/racha-notify`, {
+      // PRAZO. Sem ele, uma ponte que aceita a conexão e pendura consome o
+      // resto do `maxDuration`, a plataforma mata a função, e o `catch` que
+      // escreve `RECONCILE ALERT` no stderr TAMBÉM não roda. O alerta se perde
+      // e a rede de segurança que existe pra que um alerta de dinheiro não
+      // possa sumir se perde junto — inegociável #8 alcançado por omissão, não
+      // por um desvio. O `notifyPreviaBeacon` já tinha o seu.
+      // Achado pela revisão de segurança de 2026-09-09 (MEDIUM-2).
+      signal: AbortSignal.timeout(8000),
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
       body: JSON.stringify(body),
@@ -65,6 +73,14 @@ async function notifyFounderActivationRadar({ mensagem, alertas = 0, total = 0, 
   }
   try {
     const res = await fetch(`${NOTIFY_URL}/api/racha-notify`, {
+      // PRAZO. Sem ele, uma ponte que aceita a conexão e pendura consome o
+      // resto do `maxDuration`, a plataforma mata a função, e o `catch` que
+      // escreve `RECONCILE ALERT` no stderr TAMBÉM não roda. O alerta se perde
+      // e a rede de segurança que existe pra que um alerta de dinheiro não
+      // possa sumir se perde junto — inegociável #8 alcançado por omissão, não
+      // por um desvio. O `notifyPreviaBeacon` já tinha o seu.
+      // Achado pela revisão de segurança de 2026-09-09 (MEDIUM-2).
+      signal: AbortSignal.timeout(8000),
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
       body: JSON.stringify({ event: 'activation_radar', mensagem, alertas, total, ativos }),
@@ -118,7 +134,9 @@ async function notifyPreviaBeacon({ pl, event }) {
  */
 async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked = 0,
                                         driftCents = 0, worstSeverity = 'ok', heartbeat = false,
-                                        rowsRepaired = 0, rowsRepairFailed = 0 }) {
+                                        rowsRepaired = 0, rowsRepairAckLost = 0,
+                                        rowsRepairRaced = 0, rowsRepairRejected = 0,
+                                        infoCodes = [] }) {
   const secret = process.env.RACHA_NOTIFY_SECRET;
   if (!secret) {
     // Batimento sem ponte não merece um bloco de stderr por noite; alerta sim.
@@ -127,6 +145,14 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
   }
   try {
     const res = await fetch(`${NOTIFY_URL}/api/racha-notify`, {
+      // PRAZO. Sem ele, uma ponte que aceita a conexão e pendura consome o
+      // resto do `maxDuration`, a plataforma mata a função, e o `catch` que
+      // escreve `RECONCILE ALERT` no stderr TAMBÉM não roda. O alerta se perde
+      // e a rede de segurança que existe pra que um alerta de dinheiro não
+      // possa sumir se perde junto — inegociável #8 alcançado por omissão, não
+      // por um desvio. O `notifyPreviaBeacon` já tinha o seu.
+      // Achado pela revisão de segurança de 2026-09-09 (MEDIUM-2).
+      signal: AbortSignal.timeout(8000),
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
       body: JSON.stringify({
@@ -139,7 +165,13 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
         // reprojetou quatro linhas de `payments` é indistinguível de uma noite
         // em que nada foi tocado — e o batimento é justamente o que se olha
         // quando nada está vermelho (HIGH-3, revisão de 2026-09-09).
-        rowsRepaired, rowsRepairFailed,
+        rowsRepaired, rowsRepairAckLost, rowsRepairRaced, rowsRepairRejected,
+        // O TIER `info` CHEGA NA BATIDA. É o que se olha quando nada está
+        // vermelho — e sem ele um mundo em que TODO reparo vira corrida perdida
+        // (uma migração muda o retorno da RPC e `data === true` deixa de valer)
+        // manda batimento verde enquanto o conserto parou de funcionar por
+        // inteiro. Achado pela revisão de segurança de 2026-09-09.
+        infoCodes,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -177,6 +209,14 @@ async function notifyFounderMoneyEvent({ kind, txid, checkId = null, amountCents
   }
   try {
     const res = await fetch(`${NOTIFY_URL}/api/racha-notify`, {
+      // PRAZO. Sem ele, uma ponte que aceita a conexão e pendura consome o
+      // resto do `maxDuration`, a plataforma mata a função, e o `catch` que
+      // escreve `RECONCILE ALERT` no stderr TAMBÉM não roda. O alerta se perde
+      // e a rede de segurança que existe pra que um alerta de dinheiro não
+      // possa sumir se perde junto — inegociável #8 alcançado por omissão, não
+      // por um desvio. O `notifyPreviaBeacon` já tinha o seu.
+      // Achado pela revisão de segurança de 2026-09-09 (MEDIUM-2).
+      signal: AbortSignal.timeout(8000),
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
       body: JSON.stringify({ event: kind, mensagem: linha, txid, checkId, amountCents, detail }),

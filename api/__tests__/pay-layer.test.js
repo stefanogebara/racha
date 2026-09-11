@@ -47,9 +47,15 @@ describe('maskPixPayload — allowlist, never raw', () => {
     });
     expect(masked.txid).toBe('abc123');
     expect(masked.amount).toBe(5000);
-    expect(masked.payer_hint).toBe('Maria d*****');
-    expect(masked.payer_doc_hint).toBe('***09');
-    expect(JSON.stringify(masked)).not.toMatch(/Silva|123\.456|agencia|conta|infoAdicional/);
+    // NADA do pagador entra. Nem mascarado: `payer_hint` guardava o primeiro
+    // nome inteiro e `payer_doc_hint` os dois últimos dígitos do CPF, e
+    // pseudonimizado continua sendo dado pessoal (art. 12). Ninguém lia os dois.
+    expect(masked.payer_hint).toBeUndefined();
+    expect(masked.payer_doc_hint).toBeUndefined();
+    // A asserção que importa é a NEGATIVA e ela é sobre o objeto INTEIRO: um
+    // campo novo de pagador, com qualquer nome, cai aqui.
+    expect(Object.keys(masked).sort()).toEqual(['amount', 'status', 'txid']);
+    expect(JSON.stringify(masked)).not.toMatch(/Maria|Silva|456\.789|agencia|conta|infoAdicional/);
   });
 
   test('weird shapes never throw and never leak nested objects', () => {

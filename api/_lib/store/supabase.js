@@ -32,8 +32,49 @@ function required(name) {
   return v;
 }
 
+/**
+ * O CÓDIGO DO POSTGRES SOBREVIVE AO `throw`.
+ *
+ * O erro do postgrest-js carrega um discriminador que estava sendo jogado fora:
+ * uma falha de TRANSPORTE vira `{ code: '' | 'UND_ERR_*' }`, enquanto um erro
+ * do SERVIDOR carrega um SQLSTATE. E SQLSTATE quer dizer que o servidor
+ * produziu uma resposta completa — ou seja, a transação deu ROLLBACK e nada foi
+ * escrito. Provável de esperar: `42883` (assinatura mudou — a 0030 acabou de
+ * fazer um `create or replace`), `42703` (o código do incidente do Seatable),
+ * `42501` (grant revogado), `23514`.
+ *
+ * Sem isso, o reparo tratava todo lance como "pode ter escrito" e reportava um
+ * movimento na base da folha que provadamente não aconteceu — com valor em
+ * centavos e mês, até 200 linhas por casa por noite, sob uma causa sistemática.
+ * Achado pela revisão de segurança de 2026-09-09 (MEDIUM-1).
+ */
+/** SQLSTATE tem exatamente cinco caracteres; o PostgREST usa `PGRSTnnn`. */
+const SQLSTATE_RE = /^[0-9A-Z]{5}$/;
+const PGRST_RE = /^PGRST\d+$/;
+
 function throwOn(error, op) {
-  if (error) throw new Error(`supabase store ${op}: ${error.message}`);
+  if (!error) return;
+  const e = new Error(`supabase store ${op}: ${error.message}`);
+  /**
+   * SÓ FORMA DE CÓDIGO — quem decide o que ele PROVA é quem lê.
+   *
+   * Medido no `@supabase/postgrest-js` 2.110.7 (o que está no lock): na rejeição
+   * de fetch o `code` nasce `''` e nunca é atribuído — os ramos de `AbortError`
+   * e `UND_ERR_HEADERS_OVERFLOW` até o reatribuem pra `''` de propósito. Então
+   * o teste `/^UND_ERR/` que eu tinha escrito era CÓDIGO MORTO, e pior: a
+   * condição real era "qualquer `code` verdadeiro", o que deixava passar um
+   * corpo JSON de gateway com `code: 504` — número, que vira `'504'` na
+   * coerção do regex e escapa. Um 504 de gateway é justamente o caso em que a
+   * escrita PODE ter acontecido.
+   *
+   * Aqui só se afirma a FORMA. Quem decide se aquilo prova rollback é
+   * `reconcile.js`, com lista de permissão — porque a resposta depende da
+   * CLASSE do SQLSTATE, e classe é assunto de quem está julgando dinheiro.
+   */
+  if (typeof error.code === 'string' && (SQLSTATE_RE.test(error.code) || PGRST_RE.test(error.code))) {
+    e.pgCode = error.code;
+  }
+  throw e;
 }
 
 // Postgres errors on a non-uuid string in a uuid column; a malformed id from
@@ -696,6 +737,30 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      * Limitada por janela e por quantidade porque cada uma custa uma chamada de
      * API: a varredura diária não pode virar mil requisições.
      */
+    /**
+     * Quantas cobranças a casa JÁ confirmou — sem janela.
+     *
+     * `listRecentConfirmedCharges` tem recorte de data porque alimenta a perna
+     * por cobrança, que é I/O externo. O guarda de recebedor inutilizável faz
+     * uma pergunta diferente: "esta casa já recebeu dinheiro alguma vez?" — uma
+     * propriedade PERMANENTE. Perguntá-la pela janela de 24h fazia o achado se
+     * calar no dia seguinte. `head: true` não traz linha nenhuma, só o total.
+     */
+    async contarCobrancasConfirmadas(venueId) {
+      if (!isUuid(venueId)) return 0;
+      const { count, error } = await client
+        .from('payments')
+        .select('txid', { count: 'exact', head: true })
+        .eq('venue_id', venueId)
+        .eq('status', 'confirmado')
+        .not('confirmed_at', 'is', null)
+        // `house_account` não passa por adquirente: não tem recebível, e por
+        // isso não conta como "dinheiro que precisa de destino conferível".
+        .neq('method', 'house_account');
+      throwOn(error, 'contarCobrancasConfirmadas');
+      return count || 0;
+    },
+
     async listRecentConfirmedCharges(venueId, { sinceIso, limit = 50 } = {}) {
       let q = client
         .from('payments')

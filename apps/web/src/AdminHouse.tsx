@@ -34,7 +34,7 @@ interface HouseAdminData {
 }
 
 export default function AdminHouse({ venueId }: { venueId: string }) {
-  const { t, brl, dmy } = useT();
+  const { t, brl, dmy, tErr } = useT();
   const [data, setData] = useState<HouseAdminData | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Campos como string: digitação parcial ("1,5") não pode virar NaN no estado.
@@ -63,7 +63,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
       setMinLoad((d.config.minLoadCents / 100).toFixed(2).replace('.', ','));
       setMaxLoad((d.config.maxLoadCents / 100).toFixed(2).replace('.', ','));
     } catch (e) {
-      setError((e as Error).message);
+      setError(tErr(e));
     }
   }, [venueId]);
 
@@ -94,7 +94,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
       setTimeout(() => setSaved(false), 2500);
       await refresh();
     } catch (e) {
-      setError((e as Error).message);
+      setError(tErr(e));
     } finally {
       setSaving(false);
     }
@@ -111,7 +111,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
       setFreshLink({ accountId: a.id, url: `${window.location.origin}/carteira?t=${r.accountToken}` });
       setLinkCopied(false);
     } catch (e) {
-      setError((e as Error).message);
+      setError(tErr(e));
     }
   }
 
@@ -122,7 +122,13 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
   }
 
   async function refund(a: HouseAdminAccount) {
-    const raw = prompt(`Reembolsar ${a.name}\n${t('wallet.paidBal')}: ${brl(a.principalCents)}\n\nValor do reembolso (R$):`);
+    const raw = prompt(t('house.refundAsk', {
+      name: a.name, label: t('wallet.paidBal'), balance: brl(a.principalCents),
+      // A carteira da casa é fechada fora do Brasil (o `house-service` barra
+      // carga e resgate por mercado), então o símbolo é real — mas escrito como
+      // parâmetro, não como literal, pra não voltar a ser mentira em silêncio.
+      symbol: 'R$',
+    }));
     if (raw == null) return;
     const amountCents = parseBrlToCents(raw); // "1.000" = mil reais, nunca R$ 10
     if (amountCents == null || amountCents <= 0) { setError(t('house.badAmount')); return; }
@@ -134,12 +140,12 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
       });
       // Ecoa o valor que o parser entendeu — o dono confere antes de mandar o Pix.
       setNotice(
-        `Reembolso de ${brl(amountCents)} registrado — envie o Pix ao cliente.` +
-        (r.bonusCents > 0 ? ` Esta conta ainda tem ${brl(r.bonusCents)} de bônus ativo.` : ''),
+        t('house.refundNotice', { amount: brl(amountCents) })
+        + (r.bonusCents > 0 ? t('house.refundBonus', { amount: brl(r.bonusCents) }) : ''),
       );
       await refresh();
     } catch (e) {
-      setError((e as Error).message);
+      setError(tErr(e));
     }
   }
 
@@ -165,22 +171,22 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
 
       <div className="cfggrid">
         <label>
-          Bônus por recarga (%)
+          {t('house.cfgBonus')}
           <input className="namefield" inputMode="decimal" value={bonusPct}
             onChange={(e) => setBonusPct(e.target.value)} />
         </label>
         <label>
-          Validade do bônus (dias) — mínimo legal 30 dias
+          {t('house.cfgValidity')}
           <input className="namefield" inputMode="numeric" value={validity}
             onChange={(e) => setValidity(e.target.value)} />
         </label>
         <label>
-          Recarga mínima (R$)
+          {t('house.cfgMinLoad', { symbol: 'R$' })}
           <input className="namefield" inputMode="decimal" value={minLoad}
             onChange={(e) => setMinLoad(e.target.value)} />
         </label>
         <label>
-          Recarga máxima (R$)
+          {t('house.cfgMaxLoad', { symbol: 'R$' })}
           <input className="namefield" inputMode="decimal" value={maxLoad}
             onChange={(e) => setMaxLoad(e.target.value)} />
         </label>
@@ -203,7 +209,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
         O saldo pago é passivo reembolsável — dinheiro do cliente até ser consumido; só o bônus é promoção sua.
       </p>
 
-      <p className="label">Contas ({accounts.length})</p>
+      <p className="label">{t('house.accountsCount', { n: accounts.length })}</p>
       {accounts.length === 0 && <p className="muted small">{t('house.noAccounts')}</p>}
       {accounts.map((a) => (
         <div key={a.id}>
@@ -213,8 +219,8 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
               <span className="muted small">{a.phoneMasked} · desde {dmy(a.createdAt)}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right' }}>
-              <span className="mono">{brl(a.principalCents)} pago</span>
-              <span className="mono muted small">{brl(a.bonusCents)} bônus</span>
+              <span className="mono">{t('house.paidTag', { amount: brl(a.principalCents) })}</span>
+              <span className="mono muted small">{t('house.bonusTag', { amount: brl(a.bonusCents) })}</span>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button className="ghost" onClick={() => rotate(a)}>{t('house.newLink')}</button>
@@ -225,7 +231,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 4px 12px' }}>
               <div className="codebox">{freshLink.url}</div>
               <button className="ghost" onClick={copyLink}>
-                {linkCopied ? 'link copiado ✓' : 'copiar link da carteira'}
+                {linkCopied ? t('house.linkCopied') : t('house.copyLink')}
               </button>
             </div>
           )}

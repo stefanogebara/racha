@@ -19,7 +19,7 @@ export default function HousePay({
   onPaid: (r: HouseRedeemResult) => void;
   onBack: () => void;
 }) {
-  const { t, brl } = useT();
+  const { t, brl, tErr } = useT();
   const [value, setValue] = useState(
     defaultCents > 0 ? (defaultCents / 100).toFixed(2).replace('.', ',') : '',
   );
@@ -44,7 +44,7 @@ export default function HousePay({
       setResult(r);
       onPaid(r); // entrega o check view fresco pro App (null se a conta fechou no meio)
     } catch (e) {
-      setError((e as Error).message);
+      setError(tErr(e));
     } finally {
       setBusy(false);
     }
@@ -52,8 +52,8 @@ export default function HousePay({
 
   if (result) {
     const parts = [
-      result.bonusUsedCents > 0 ? `${brl(result.bonusUsedCents)} do bônus` : null,
-      result.principalUsedCents > 0 ? `${brl(result.principalUsedCents)} do saldo pago` : null,
+      result.bonusUsedCents > 0 ? t('housepay.usedBonus', { amount: brl(result.bonusUsedCents) }) : null,
+      result.principalUsedCents > 0 ? t('housepay.usedPaid', { amount: brl(result.principalUsedCents) }) : null,
     ].filter(Boolean);
     return (
       <section className="paid">
@@ -68,7 +68,7 @@ export default function HousePay({
   return (
     <section className="card">
       <p className="label">{t('housepay.cta')}</p>
-      <p className="muted small">{brl(availableCents)} disponível na sua carteira</p>
+      <p className="muted small">{t('housepay.available', { amount: brl(availableCents) })}</p>
       <div className="customrow">
         <label htmlFor="saldo-valor">R$</label>
         <input
@@ -86,7 +86,7 @@ export default function HousePay({
         disabled={busy || amountCents == null || amountCents === 0 || amountCents > availableCents}
         onClick={onPay}
       >
-        {busy ? 'pagando…' : `Pagar ${brl(amountCents ?? 0)} com saldo`}
+        {busy ? t('housepay.paying') : t('housepay.payAmount', { amount: brl(amountCents ?? 0) })}
       </button>
       <p className="muted small">{t('housepay.tipApart')}</p>
       <button className="linklike" onClick={onBack}>{t('common.back')}</button>

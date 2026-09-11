@@ -252,6 +252,49 @@ describe('redefinir uma função não pode APAGAR o que outra migração acresce
         /excede o que falta pagar/,  // da 0006
       ],
     },
+    {
+      /**
+       * `repair_payment_row` estava FORA desta lista — e é justamente ela que
+       * sofreu a regressão que esta lista existe pra impedir.
+       *
+       * A 0029, escrita pra FORTALECER o registro, reconstruiu o
+       * `jsonb_build_object` com cinco campos em vez de seis e perdeu o
+       * `confirmed_at` do `before_row`. Uma regressão em duas reescritas,
+       * pega por gente, não pelo censo. A 0030 consertou a instância.
+       *
+       * E agora o log virou PROCEDIMENTO: o runbook
+       * `linha-de-pagamento-atrasada.md` diz "existe linha no log se e somente
+       * se a escrita foi commitada", e manda o operador resolver por ali um
+       * `high` sobre a base da folha. Se um `create or replace` futuro derrubar
+       * o `insert`, "sem linha" deixa de significar "não escreveu" e passa a
+       * significar "não sei" — e o operador distribui pelo número antigo, que é
+       * o maior. CLT art. 462 não deixa descontar isso depois. LGPD art. 37 e
+       * CLT art. 11 (cinco anos) pro registro em si.
+       *
+       * Achado pela revisão de compliance de 2026-09-09 (HIGH-E).
+       */
+      funcao: 'repair_payment_row',
+      precisa: [
+        /**
+         * CONTENÇÃO, não proximidade.
+         *
+         * A primeira versão eram dois regexes soltos, que não provavam que o
+         * `insert` está DENTRO do condicional. A segunda foi uma janela de 200
+         * chars — e uma sonda que fecha o `if` e põe o `insert` 30 caracteres
+         * depois passava verde. Essa é a forma NATURAL da edição futura:
+         * alguém acrescenta um ramo dentro do condicional e tira o log de lá.
+         *
+         * Agora: nenhum `end if` entre os dois. O "se e somente se" do runbook
+         * — o árbitro de todo o balde `ack_lost`, que este commit AUMENTOU —
+         * depende disso.
+         */
+        /if v_id is not null then(?:(?!end if)[\s\S])*?insert into payment_repair_log/i,
+        /'confirmed_at', confirmed_at/,      // before_row inteiro (a regressão da 0029)
+        /when 'reconciler_sweep'/,           // a procedência da 0029
+        // a lista branca: nunca a linha toda (LGPD art. 6º III)
+        /'refunded_tip_cents', refunded_tip_cents/,
+      ],
+    },
   ];
 
   test('a ÚLTIMA definição de cada função guarda tudo que ela já teve', () => {
@@ -502,8 +545,19 @@ describe('censo da venue: a varredura recebe o que lê', () => {
       for (const campo of lidos) {
         expect(src).toContain(`${campo}:`);
         if (nome === 'supabase') {
-          // E do lado do Supabase, a coluna correspondente.
-          expect(bloco(sup)).toMatch(new RegExp(`r\\.${camelParaSnake(campo)}\\b`));
+          /**
+           * A coluna correspondente — com as irregularidades DITAS.
+           *
+           * `camelParaSnake` é heurística e há um campo em que ela não vale:
+           * a coluna é `psp_recipient_status` e o campo JS é `recipientStatus`,
+           * sem o prefixo, enquanto o irmão `pspRecipientId` o mantém. Isso é
+           * inconsistência do STORE, não do censo — e ficar aqui, nomeada, é
+           * melhor do que o censo passar por acaso ou eu renomear meio
+           * repositório pra fazer a heurística fechar.
+           */
+          const COLUNA = { recipientStatus: 'psp_recipient_status' };
+          const coluna = COLUNA[campo] || camelParaSnake(campo);
+          expect(bloco(sup)).toMatch(new RegExp(`r\\.${coluna}\\b`));
         }
       }
     }
@@ -589,16 +643,213 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
   const path = require('node:path');
   const raiz = path.join(__dirname, '..');
 
-  const casos = [
-    ['_lib/pay/webhook-handler.js', /appendEvent|appendValidated|append\(/],
-    ['_app/router.js', /appendValidated/],
-  ];
-  for (const [rel, apend] of casos) {
-    const fonte = fs.readFileSync(path.join(raiz, rel), 'utf8');
+  /**
+   * SEM COMENTÁRIO, e no BLOCO certo — a versão anterior era vazia.
+   *
+   * Ela procurava o append em QUALQUER lugar do arquivo antes da projeção. No
+   * `webhook-handler.js` isso casava com uma linha de JSDoc do topo (`The store
+   * is injected ({ loadEvents, appendEvent, recordPayment })`), então a
+   * afirmação passava mesmo apagando TODO append do arquivo. No `router.js`
+   * casava com um `appendValidated` de outra rota, milhares de linhas antes.
+   *
+   * E a regra não é a mesma nos dois. No `router.js` a rota apenda e projeta no
+   * mesmo trecho. No `webhook-handler.js` quem projeta é `repairRowFromLedger`,
+   * que NÃO apenda — ela deriva do razão (`loadEvents`) e escreve só a linha. A
+   * ordenação ali é da CADEIA: cada chamador apenda e só depois chama. Então
+   * são duas afirmações diferentes, e a antiga não fazia nenhuma das duas.
+   * (LOW-2 da revisão de segurança de 2026-09-09.)
+   */
+  const semComentario = (t) => t
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  // --- a ROTA: apenda e projeta no mesmo trecho ---------------------------
+  {
+    const fonte = semComentario(fs.readFileSync(path.join(raiz, '_app', 'router.js'), 'utf8'));
     const iProj = fonte.indexOf('repairPaymentRow({');
     expect(iProj).toBeGreaterThan(0);
-    // Existe um append ANTES da projeção, no mesmo arquivo.
     const antes = fonte.slice(0, iProj);
-    expect(apend.test(antes)).toBe(true);
+    let inicio = 0;
+    for (const m of antes.matchAll(/url\.pathname ===/g)) inicio = m.index;
+    expect(inicio).toBeGreaterThan(0);
+    expect(/appendValidated/.test(antes.slice(inicio))).toBe(true);
   }
+
+  // --- o WEBHOOK: a projeção não apenda, e todo chamador apenda antes ------
+  {
+    const fonte = semComentario(fs.readFileSync(path.join(raiz, '_lib', 'pay', 'webhook-handler.js'), 'utf8'));
+
+    // 1. `repairRowFromLedger` é PROJEÇÃO: lê o razão e não escreve nele.
+    const corpo = fonte.match(/async function repairRowFromLedger[\s\S]*?\n\}/);
+    expect(corpo).not.toBeNull();
+    expect(/loadEvents\(/.test(corpo[0])).toBe(true);
+    expect(/appendEvent\(|appendValidated\(/.test(corpo[0])).toBe(false);
+
+    /**
+     * 2. Ela só é chamada em caminho de REENTREGA — CHEIRO, não prova.
+     *
+     * Dito na cara: esta segunda metade procura o NOME do teste de reentrega
+     * perto da chamada, não o fluxo de controle. Medido: trocando
+     * `if (jaEncerrada)` por `if (true)`, ela continua verde, porque a palavra
+     * segue no texto acima. Provar de verdade pediria analisar controle de
+     * fluxo, e um teste que promete mais do que entrega é o pino com cabeçalho
+     * de censo outra vez — então fica dito o que ele é.
+     *
+     * A afirmação FORTE é a (1): `repairRowFromLedger` nunca apenda. Essa é
+     * mutation-provada (pôr um `appendEvent` no corpo derruba o teste), e é ela
+     * que sustenta "a linha nunca lidera o razão".
+     *
+     * A revisão sugeriu afirmar "o append precede a chamada na mesma função".
+     * Medindo, não é assim que o handler funciona: as oito chamadas estão todas
+     * em caminho de DUPLICATA — `seenPspEvent`, `seq < 0` (seq negativo é
+     * duplicata), `delta <= 0`, `existing.*Cents === parsed.*Cents`. O append
+     * aconteceu numa entrega ANTERIOR, que é a premissa inteira de
+     * `repairRowFromLedger`: o razão já tem o evento e só a linha ficou atrás.
+     *
+     * Então a ordenação não é intra-função, é entre entregas — e o que a
+     * sustenta é (1) acima mais o fato de que todo chamador está atrás de um
+     * teste de duplicata. É isso que dá pra afirmar, e é isso que se afirma.
+     */
+    // `check.id` e não `checkId`: exclui a própria DEFINIÇÃO da função.
+    const chamadas = [...fonte.matchAll(/repairRowFromLedger\(check\.id/g)].map((m) => m.index);
+    // `toBe`, não `>=`: um censo com folga na direção da DELEÇÃO não é censo.
+    expect(chamadas.length).toBe(7);
+    /**
+     * Os testes de reentrega que guardam cada chamada. `jaEncerrada` é uma
+     * disputa já fechada — reentrega também, só que dita por outro nome.
+     */
+    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada/;
+    const semGuarda = [];
+    for (const idx of chamadas) {
+      // O trecho antes da chamada, até o `if` que a guarda.
+      const contexto = fonte.slice(Math.max(0, idx - 800), idx);
+      if (!DUPLICATA.test(contexto)) semGuarda.push(fonte.slice(idx - 60, idx + 40).replace(/\s+/g, ' '));
+    }
+    expect(semGuarda).toEqual([]);
+  }
+});
+
+
+/**
+ * A IMAGEM ANTERIOR não pode encolher em silêncio.
+ *
+ * A 0026 gravava seis campos. A 0029 — a migração de PROCEDÊNCIA, escrita pra
+ * FORTALECER esse registro — reconstruiu o `jsonb_build_object` com cinco e
+ * perdeu `confirmed_at`, no mesmo arquivo, sem uma linha dizendo por quê.
+ * Conserto pela metade: melhorou o "quem pediu" e piorou o "o que era antes".
+ *
+ * A imagem anterior é o único registro durável do estado pré-reparo — LGPD art.
+ * 37, e CLT art. 11 (cinco anos) numa discussão sobre a gorjeta de um período.
+ * Ela pode ganhar campos; encolher exige mexer aqui.
+ *
+ * Achado pela revisão de segurança de 2026-09-09 (LOW-4).
+ */
+test('a imagem ANTERIOR do reparo nunca perde um campo', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = path.join(__dirname, '..', '..', 'supabase', 'migrations');
+  const arquivos = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+
+  // Todo arquivo que redefine a função, na ordem: o conjunto de campos da
+  // imagem anterior só pode crescer.
+  const versoes = [];
+  for (const f of arquivos) {
+    const sql = fs.readFileSync(path.join(dir, f), 'utf8');
+    if (!sql.includes('function public.repair_payment_row(')) continue;
+    const antes = sql.match(/into\s+v_antes/);
+    if (!antes) continue;
+    // O `jsonb_build_object` que alimenta `v_antes`.
+    const bloco = sql.slice(0, antes.index);
+    const ultimo = bloco.lastIndexOf('jsonb_build_object');
+    const campos = [...bloco.slice(ultimo).matchAll(/'(\w+)',/g)].map((m) => m[1]);
+    versoes.push({ arquivo: f, campos: new Set(campos) });
+  }
+  expect(versoes.length).toBeGreaterThanOrEqual(2);
+
+  /**
+   * A regra é sobre o ESTADO ATUAL, não sobre a história.
+   *
+   * Migração é append-only: a 0029 de fato encolheu, e a 0030 devolveu. Fixar
+   * "nenhuma versão jamais encolheu" faria este teste falhar pra sempre por um
+   * fato já corrigido — e um teste que não dá pra deixar verde é um teste que
+   * alguém apaga. A invariante que importa é que nada que já foi registrado
+   * esteja PERMANENTEMENTE fora: a união de tudo que qualquer versão gravou tem
+   * que caber na versão vigente.
+   */
+  const jaGravados = new Set(versoes.flatMap((v) => [...v.campos]));
+  const atual = versoes[versoes.length - 1].campos;
+  const perdidosDeVez = [...jaGravados].filter((c) => !atual.has(c)).sort();
+  expect(perdidosDeVez).toEqual([]);
+
+  // E a versão vigente guarda as colunas de dinheiro MAIS a data.
+  const vigente = versoes[versoes.length - 1].campos;
+  for (const c of ['status', 'confirmed_amount_cents', 'confirmed_tip_cents',
+    'refunded_amount_cents', 'refunded_tip_cents', 'confirmed_at']) {
+    expect([...vigente]).toContain(c);
+  }
+  // E NUNCA o que o cliente digitou: a tabela é permanente (LGPD art. 6º III).
+  expect([...vigente]).not.toContain('payer_label');
+  expect([...vigente]).not.toContain('payer_document');
+});
+
+/**
+ * QUEM PODE LER `pgCode` — um só, e dentro do `recusaProvada`.
+ *
+ * O `throwOn` agora anexa `pgCode` nos 26 call sites do store, e o nome LÊ como
+ * "o código de erro do Postgres" — mas ele pode ser `PGRST116`, que não é
+ * SQLSTATE e viaja numa resposta 2xx, depois de um commit bem sucedido. Um
+ * `if (err.pgCode) return 'o banco recusou'` em qualquer lugar novo estaria
+ * errado, e errado na direção que custa dinheiro que não volta.
+ *
+ * Então o campo tem UM leitor, e ele é a função cujo trabalho é decidir o que o
+ * código prova. Achado pela revisão de segurança de 2026-09-09 (LOW-4).
+ */
+test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const raiz = path.join(__dirname, '..');
+
+  const arquivos = [];
+  (function varrer(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === '__tests__') continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) varrer(p);
+      else if (e.name.endsWith('.js')) arquivos.push(p);
+    }
+  })(raiz);
+
+  /**
+   * A regra é sobre DECISÃO, não sobre menção.
+   *
+   * Ler o código pra escrever no stderr é diagnóstico e é bom — quem for
+   * investigar quer o código na linha. O que não pode é DECIDIR a partir dele
+   * fora do classificador: é aí que `PGRST116` (que viaja num 2xx, depois de um
+   * commit) viraria "o banco recusou".
+   */
+  const decisoes = [];
+  for (const p of arquivos) {
+    const fonte = fs.readFileSync(p, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    // `\bpgCode\b`, não `\.pgCode`: um decisor escrito como
+    // `const { pgCode } = e; if (pgCode) ...` não tem acesso pontuado e passava
+    // verde. A minha mutação usou a forma pontuada, que é por isso que ela
+    // falhou como esperado. (LOW-3 da revisão de segurança de 2026-09-09.)
+    for (const m of fonte.matchAll(/\bpgCode\b/g)) {
+      const antes = fonte.slice(Math.max(0, m.index - 60), m.index);
+      const linha = fonte.slice(Math.max(0, m.index - 120), m.index + 60).replace(/\s+/g, ' ').trim();
+      // ESCRITA (`e.pgCode = ...`) não é leitura. Casa a partir do nome, porque
+      // o match agora é a palavra e não o acesso pontuado.
+      if (/^pgCode\s*=[^=]/.test(fonte.slice(m.index, m.index + 14))) continue;
+      // Dentro de uma interpolação (`${e.pgCode}`) é texto, não decisão.
+      if (/\$\{[^}]*$/.test(antes)) continue;
+      decisoes.push({ arquivo: path.relative(raiz, p), linha });
+    }
+  }
+
+  // Toda DECISÃO passa pelo classificador, e só há uma.
+  expect(decisoes.length).toBe(1);
+  expect(decisoes[0].arquivo).toBe('_lib/checks/reconcile.js');
+  expect(decisoes[0].linha).toMatch(/recusaProvada\(/);
 });

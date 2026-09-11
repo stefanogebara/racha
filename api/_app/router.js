@@ -63,7 +63,8 @@ const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
 const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
-const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
+  formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
@@ -425,11 +426,37 @@ async function route(req, res) {
       if (token === DEMO_TABLE_TOKEN) {
         data = { ...data, venue: { ...data.venue, demo: true } };
       }
-      if (stripePsp && token !== DEMO_TABLE_TOKEN) {
-        const v = await store.getVenueForCheck(data.check.id);
-        if (v && v.stripeAccountId && /^acct_/.test(v.stripeAccountId)) {
-          data = { ...data, venue: { ...data.venue, acceptsCard: true } };
-        }
+      // UMA consulta pras duas bandeiras. Eram duas idênticas na mesma
+      // requisição — e `/api/check` é público, sem limite de taxa, consultado a
+      // cada 4 segundos por cada telefone da mesa. Amplificação constante de
+      // trabalho já sem teto, no caminho crítico de quem está pagando.
+      const casa = token !== DEMO_TABLE_TOKEN ? await store.getVenueForCheck(data.check.id) : null;
+      if (stripePsp && casa && casa.stripeAccountId && /^acct_/.test(casa.stripeAccountId)) {
+        data = { ...data, venue: { ...data.venue, acceptsCard: true } };
+      }
+      // A CARTEIRA (Google Pay) pelo mesmo contrato do cartão: quem declara é
+      // o SERVIDOR, por casa.
+      //
+      // O cliente ligava a carteira só na chave de BUILD
+      // (`VITE_PAGARME_PUBLIC_KEY`), que não é propriedade de casa nenhuma —
+      // então TODA conta brasileira injetava `pay.google.com/gp/p/js/pay.js` e
+      // chamava `isReadyToPay`, uma sondagem de aparelho, antes de a pessoa
+      // escolher qualquer coisa. Duas linhas abaixo, no mesmo arquivo, o
+      // cartão exigia chave de build E bandeira do servidor. A assimetria não
+      // foi decidida: a Stripe ganhou o conserto do incidente de 2026-09-07 e
+      // o Google Pay não. Achado das duas revisões de 2026-09-10.
+      //
+      // A carteira liquida pelo gateway `pagarme`, então a condição é a mesma
+      // que permite cobrar: recebedor de verdade nesta casa.
+      //
+      // `r[ep]_`, não `re_`: é a MESMA forma que o `pagarme-psp.js` aceita pra
+      // cobrar e que o `setupComplete` usa pra dizer que a casa está pronta.
+      // A primeira versão desta linha divergiu pra `re_`, o que deixava uma
+      // casa legada `rp_` cobrando normalmente e sem carteira — falha fechada,
+      // então não era buraco, mas é a forma "cópia divergente" que aparece
+      // depois como "o Google Pay parou de funcionar num restaurante só".
+      if (casa && /^r[ep]_/.test(casa.pspRecipientId || '')) {
+        data = { ...data, venue: { ...data.venue, acceptsWallet: true } };
       }
       // O estado sai PROJETADO. `/api/check` é público — quem tem o QR da mesa
       // lê, sem login — e devolvia o estado reduzido inteiro: motivo de disputa
@@ -1765,16 +1792,22 @@ async function route(req, res) {
           driftCents: report.totalDriftCents,
           worstSeverity: report.worstSeverity,
           rowsRepaired: report.rowsRepaired,
-          rowsRepairFailed: report.rowsRepairFailed,
+          rowsRepairAckLost: report.rowsRepairAckLost,
+          rowsRepairRaced: report.rowsRepairRaced,
+          rowsRepairRejected: report.rowsRepairRejected,
+          infoCodes: report.infoCodes,
         });
       } else if (!mensagem && url.searchParams.get('dry') !== '1') {
         // Batimento: verde também fala. Do lado da Olímpia, a AUSÊNCIA da batida
         // noturna é o alarme — que é o único jeito de detectar cron desligado.
         envio = await notifyFounderReconcile({
-          mensagem: null, heartbeat: true,
+          // A batida LEVA TEXTO: o campo estruturado sozinho não é leitura.
+          mensagem: formatReconcileHeartbeat(report), heartbeat: true,
           venuesRed: 0, venuesChecked: report.venuesChecked,
           driftCents: report.totalDriftCents, worstSeverity: report.worstSeverity,
-          rowsRepaired: report.rowsRepaired, rowsRepairFailed: report.rowsRepairFailed,
+          rowsRepaired: report.rowsRepaired, rowsRepairAckLost: report.rowsRepairAckLost,
+          rowsRepairRaced: report.rowsRepairRaced, rowsRepairRejected: report.rowsRepairRejected,
+          infoCodes: report.infoCodes,
         });
       }
       // Verde também sai no log: um canário que só fala quando está ruim é
@@ -1782,7 +1815,9 @@ async function route(req, res) {
       process.stderr.write(
         `[reconcile-cron] casas=${report.venuesChecked} vermelhas=${report.venuesRed} `
         + `pior=${report.worstSeverity} drift=${report.totalDriftCents}¢ `
-        + `reparadas=${report.rowsRepaired || 0} reparo_falhou=${report.rowsRepairFailed || 0}\n`);
+        + `reparadas=${report.rowsRepaired || 0} sem_resposta=${report.rowsRepairAckLost || 0} `
+        + `corridas=${report.rowsRepairRaced || 0} recusadas=${report.rowsRepairRejected || 0} `
+        + `info=${(report.infoCodes || []).join(',') || '-'}\n`);
       return json(res, 200, { success: true, data: { ...report, mensagem, envio } });
     }
 

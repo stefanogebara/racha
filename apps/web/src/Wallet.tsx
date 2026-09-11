@@ -34,7 +34,7 @@ export default function Wallet() {
 
 // ------------------------------------------------------------------ carteira
 function WalletView({ accountToken }: { accountToken: string }) {
-  const { t, brl, dmy } = useT();
+  const { t, brl, dmy, tErr } = useT();
   const [view, setView] = useState<HouseAccountView | null>(null);
   const [dead, setDead] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -75,7 +75,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
       setCharge(c);
       setCopied(false);
     } catch (e) {
-      setError((e as Error).message);
+      setError(tErr(e));
     }
   }
 
@@ -96,7 +96,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
     } catch (e) {
       // Fora do modo demo /api/dev/confirm não existe (404) — some o botão.
       if ((e as ApiError).status === 404) setDemoGone(true);
-      else setError((e as Error).message);
+      else setError(tErr(e));
     } finally {
       setConfirming(false);
     }
@@ -257,7 +257,7 @@ function LedgerRow({ entry }: { entry: HouseLedgerEntry }) {
 
 // ------------------------------------------------------------ abrir carteira
 function OpenWallet({ tableToken }: { tableToken: string }) {
-  const { t, pct } = useT();
+  const { t, pct, tErr } = useT();
   const [config, setConfig] = useState<HouseConfig | null>(null);
   const [dead, setDead] = useState(false);
   const [name, setName] = useState('');
@@ -277,7 +277,7 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
       window.location.href = `/carteira?t=${encodeURIComponent(r.accountToken)}`;
     } catch (e) {
       // 409 "Conta já existe — peça seu link no balcão" chega aqui, verbatim.
-      setError((e as Error).message);
+      setError(tErr(e));
       setBusy(false);
     }
   }

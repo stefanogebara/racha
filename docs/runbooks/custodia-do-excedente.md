@@ -60,8 +60,18 @@ diferença é arredondamento; uma sobra inteira é crítica.
 
 Módulo: `api/_lib/checks/reconcile-payables.js` (puro e total). Perna:
 `reconcilePayablesLeg` no `reconcile-daily`, ligada pela rota do cron diário com
-janela de 24h e teto de 25 cobranças por casa — cada uma é uma chamada de API, e
-a varredura roda no escuro.
+teto de 25 cobranças por casa — cada uma é uma chamada de API, e a varredura roda
+no escuro.
+
+A janela é de 24h por padrão e dá pra apontar pra trás: `?since=AAAA-MM-DD`, com
+teto de 90 dias, na mesma rota (fechada por `CRON_SECRET`). Existe porque sem
+isso a perna de custódia nunca teria sido medida contra dado real — as cobranças
+reais são de julho e a janela padrão não as alcança, então ela rodaria contra
+NADA e reportaria ok até a primeira mesa de verdade.
+
+**Sempre com `?dry=1` numa inspeção.** Seco quer dizer seco: `dry=1` desliga a
+escrita do reparo de linha e o envio do alerta. Sem ele a "olhada" roda a
+varredura de reparo inteira.
 
 Por que isso é melhor que a medição em sandbox: uma medição responde uma vez,
 para as condições daquele dia. Esta responde **toda noite, em produção, para
