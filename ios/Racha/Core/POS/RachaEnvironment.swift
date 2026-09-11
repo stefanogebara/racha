@@ -27,11 +27,11 @@ enum RachaEnvironment {
             return url
         }
         #endif
-        // O host que de fato responde. `racha.app` é o nome que a gente quer e
-        // ele NÃO RESOLVE — não está registrado — enquanto `Qrs.tsx` imprime
-        // `racha-gray.vercel.app` no QR e o `CLIENT_URL` cai nele. O padrão de
-        // um cliente nativo não pode ser um domínio morto; vira `racha.app` no
-        // dia em que `racha.app` servir o produto, junto com o `PROD_ORIGIN`.
+        // O host que a gente controla E que serve o produto. O padrão era
+        // `racha.app`, que não é nosso: nameservers da GoDaddy e `www` num site
+        // do Wix. Como este valor alimenta o `defaultOrigin` do "digitar o
+        // código", o padrão de um cliente de pagamento apontava pro servidor de
+        // outra pessoa. Ver a nota do `TableQR.allowedHosts`.
         return URL(string: "https://racha-gray.vercel.app")!
     }
 

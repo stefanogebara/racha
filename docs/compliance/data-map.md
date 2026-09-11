@@ -208,7 +208,8 @@ Ferramentas de build e teste, que o censo também exige porque um import de
 ## 6. O app iOS
 
 Escopo próprio porque os destinatários são outros. O app nativo
-(`ios/Racha`) fala com `racha.app` — a nossa própria API, mesmos fluxos do §1 —
+(`ios/Racha`) fala com `racha-gray.vercel.app` — a nossa própria API, mesmos
+fluxos do §1 (e **não** com `racha.app`, que é de terceiro: ver `docs/domains.md`) —
 e com três fornecedores de modelo:
 
 | Destinatário | O que sai | Quando |
@@ -234,8 +235,8 @@ fundador roda o app com chave. O gatilho pra rever não é "o dia em que a chave
 for nossa" — é **o dia em que o app chegar na mão de terceiro com qualquer
 chave**.
 
-**A linha de cima, "fala com `racha.app`", só passou a ser verdade em
-2026-09-10.** `TableQR.swift` aceitava QUALQUER origem `https` — e `http` —
+**A linha de cima só passou a ser verdade em 2026-09-10, e só ficou correta em
+2026-09-11.** `TableQR.swift` aceitava QUALQUER origem `https` — e `http` —
 impressa no QR, e o `BackendTableSource` buscava `{origemEscaneada}/api/check?t=…`
 e desenhava a resposta como conta do Racha. Um adesivo colado sobre o QR de uma
 mesa apontava o app pro servidor de outra pessoa com a credibilidade do app em

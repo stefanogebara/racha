@@ -46,9 +46,26 @@ struct TableQR: Equatable, Sendable {
     /// alguém como CONTA isso é caro. O raciocínio está certo e o remédio
     /// estava errado, pelo motivo mais simples possível: é o host que o
     /// `Qrs.tsx` IMPRIME no QR (`PROD_ORIGIN`), é o padrão do `CLIENT_URL`, e
-    /// `racha.app` não resolve — não está registrado. Um build de release com a
-    /// lista curta recusaria TODA mesa de verdade, e adesivo colado em mesa não
-    /// se chama de volta.
+    /// `racha.app` NÃO É NOSSO. Eu escrevi aqui que ele "não resolve — não está
+    /// registrado", e isso era falso: o `curl` estourava no CONNECT, não na
+    /// resolução, e as duas coisas são idênticas num terminal e muito
+    /// diferentes como fato. `dig` diz: A para 13.222.106.247, nameservers da
+    /// GoDaddy (`domaincontrol.com`), e `www.racha.app` é um CNAME pra
+    /// `pointing.wixdns.net` — um site no Wix. A Racha roda na Vercel.
+    ///
+    /// Então `racha.app` e `www.racha.app` SAÍRAM desta lista. Enquanto
+    /// estiveram aqui, o app de pagamento tinha na lista de origens confiáveis
+    /// dois hosts de terceiro, e o `RachaEnvironment.origin` ainda cai no
+    /// caminho de "digitar o código": bastaria quem controla o domínio subir um
+    /// listener TLS pra receber o token ao portador da mesa e ter o JSON dele
+    /// desenhado como conta. O primitivo que as rodadas 3 e 4 fecharam,
+    /// reintroduzido pela porta dos fundos — por uma frase minha que afirmava
+    /// mais do que a observação sustentava. É o próprio assunto do
+    /// `docs/decisions/2026-09-10-frase-escrita-do-guarda-que-eu-olhava.md`.
+    ///
+    /// Sobra o host que a gente de fato controla e que de fato serve o produto.
+    /// Um build de release com uma lista que não o contenha recusaria TODA mesa
+    /// de verdade, e adesivo colado em mesa não se chama de volta.
     ///
     /// A mitigação do risco de registrador não é tirar da lista: é CONTINUAR
     /// DONO do projeto na Vercel. A saída é migrar `PROD_ORIGIN` pra um domínio
@@ -60,7 +77,9 @@ struct TableQR: Equatable, Sendable {
     /// revisão de segurança de 2026-09-10, contra uma correção que eu tinha
     /// acabado de fazer por causa da revisão de compliance. Quando os dois
     /// portões discordam, quem decide é o que o produto FAZ.
-    static let allowedHosts: Set<String> = ["racha.app", "www.racha.app", "racha-gray.vercel.app"]
+    /// Todo host daqui está em `docs/domains.md` com dono e vencimento — é lá
+    /// que "este host é nosso" deixa de ser hábito e vira coisa conferível.
+    static let allowedHosts: Set<String> = ["racha-gray.vercel.app"]
 
     /// A origem é aceitável? `https` e um host que a gente já conhece.
     ///

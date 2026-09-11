@@ -97,7 +97,13 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
       // `api.getCheck`, não um `fetch` à mão: é a MESMA requisição, e aberta
       // aqui ela pulava o decodificador — o que tirava este arquivo do censo
       // que existe pra impedir erro montado à mão. Menos uma dispensa.
-      const view = await api.getCheck(t.qrToken).catch(() => null);
+      // SEM `.catch(() => null)`: engolir a falha aqui fazia o dono ler
+      // "conta não encontrada" numa mesa com conta aberta, sempre que a rede
+      // piscasse no balcão. Um 404 de verdade já chega com `code:
+      // 'check_not_found'` e é traduzido pelo `trErr` lá embaixo; falha de rede
+      // sobe com a mensagem dela. O `setError('check_not_found')` escrito à mão
+      // fica só pro caso em que ele é VERDADE: respondeu 200 e não há conta.
+      const view = await api.getCheck(t.qrToken);
       const checkId = view?.check?.id;
       // A code, not a sentence. This hook has no language: it runs above the
       // React tree that knows which one the reader picked. `tError` at the

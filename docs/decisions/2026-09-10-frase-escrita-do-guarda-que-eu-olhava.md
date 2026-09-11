@@ -26,8 +26,18 @@ escrever, não contra código antigo:
 E uma quarta, de outra natureza e mesma raiz: pra fechar um achado de compliance
 sobre `*.vercel.app` num cliente de pagamento, a lista de release perdeu
 `racha-gray.vercel.app` — que é o host que o `Qrs.tsx` IMPRIME no QR e o único
-que responde (`racha.app` não está registrado). Um build publicado recusaria toda
-mesa de verdade. Falhava fechado, então não era buraco: era o produto quebrado.
+que responde. Um build publicado recusaria toda mesa de verdade. Falhava
+fechado, então não era buraco: era o produto quebrado.
+
+**E a própria correção trouxe o quinto caso, do mesmo feitio.** Pra justificar a
+escolha eu escrevi no código que `racha.app` "não resolve — não está
+registrado". O `curl` estourava no CONNECT, não na resolução, e as duas coisas
+são idênticas num terminal e muito diferentes como fato. `dig` diz: A para
+13.222.106.247, nameservers da GoDaddy, `www` num CNAME pro Wix. É de terceiro —
+e esteve na lista de origens confiáveis de um app de pagamento, com o padrão do
+"digitar o código" apontando pra ele. A observação era "o curl não completa"; a
+frase afirmou "não está registrado"; a decisão de confiança foi tomada sobre a
+frase. Fechado em `docs/domains.md`, que é a tabela que faltava, com teste.
 
 ## Por que isso não é desatenção
 

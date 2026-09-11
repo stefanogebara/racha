@@ -103,7 +103,9 @@ describe('o mapa de dados acompanha o código', () => {
     // LITERAIS, não padrões. Era `/^racha-[a-z]+\.vercel\.app$/`, e nomes de
     // projeto na Vercel são de quem chegar primeiro: `racha-exfil.vercel.app`
     // casava e o censo chamava de nosso.
-    const nossos = new Set(['racha.app', 'racha-gray.vercel.app', 'localhost']);
+    // `racha.app` SAIU: tem DNS na GoDaddy e o `www` num site do Wix — não é
+    // nosso, e estava aqui declarado como se fosse. Ver `docs/domains.md`.
+    const nossos = new Set(['racha-gray.vercel.app', 'localhost']);
     // NÃO são nossos — só não são destinatários de dado em runtime. Separado de
     // `nossos` de propósito: a primeira versão pôs o domínio de um CLIENTE
     // (`menu.bardoze.com.br`, de uma fixture) na lista de "nossos", que é
@@ -150,6 +152,35 @@ describe('o mapa de dados acompanha o código', () => {
 
     const faltando = [...impressos].filter((h) => !aceitos.has(h)).sort();
     expect(faltando).toEqual([]);
+  });
+
+  test('todo host que o app confia está registrado como nosso em docs/domains.md', () => {
+    // A última afirmação do repositório da forma "isto é nosso" sem nada que a
+    // conferisse — e ela estava ERRADA: `racha.app` tem DNS na GoDaddy e o
+    // `www` num site do Wix, e esteve na lista de origens confiáveis de um
+    // cliente de pagamento. Hábito virou tabela, e tabela virou teste.
+    const swift = fs.readFileSync(path.join(RAIZ, 'ios', 'Racha', 'Core', 'POS', 'TableQR.swift'), 'utf8');
+    const decl = swift.match(/static let allowedHosts: Set<String> = \[([^\]]+)\]/);
+    expect(decl).toBeTruthy();
+    const hosts = (decl[1].match(/"([^"]+)"/g) || []).map((x) => x.replace(/"/g, '').toLowerCase());
+    expect(hosts.length).toBeGreaterThan(0);
+
+    const domains = fs.readFileSync(path.join(RAIZ, 'docs', 'domains.md'), 'utf8');
+    // A linha do host tem que existir E dizer que é nosso — um host listado
+    // como de TERCEIRO não passa a valer por estar no arquivo.
+    const semDono = hosts.filter((h) => {
+      const linha = domains.split('\n').find((l) => l.includes(`\`${h}\``));
+      return !linha || !/\bnós\b/.test(linha);
+    });
+    expect(semDono).toEqual([]);
+
+    // E o padrão do cliente nativo é um dos hosts confiados — ele alimenta o
+    // `defaultOrigin` do "digitar o código", que foi por onde o host de
+    // terceiro entrou.
+    const env = fs.readFileSync(path.join(RAIZ, 'ios', 'Racha', 'Core', 'POS', 'RachaEnvironment.swift'), 'utf8');
+    const padrao = env.match(/return URL\(string: "https:\/\/([^"/]+)"\)!/);
+    expect(padrao).toBeTruthy();
+    expect(hosts).toContain(padrao[1].toLowerCase());
   });
 
   test('o número de campos guardados do webhook é o do código', () => {
