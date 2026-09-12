@@ -68,9 +68,13 @@ export const DICT = {
   'wallet.bonusTerms': { en: 'The promotional bonus is valid for {days} days. Good only at {venue}.',
                         pt: 'O bônus promocional vale por {days} dias. Válido somente no {venue}.',
                         es: 'El bono promocional vale {days} días. Válido solo en {venue}.' },
-  'priv.teaser':      { en: '{venue} keeps the name you type for 90 days; Racha runs the payment.',
-                        pt: '{venue} guarda o nome que você digita por 90 dias; a Racha opera o pagamento.',
-                        es: '{venue} guarda el nombre que escribes 90 días; Racha ejecuta el pago.' },
+  // O número vem de FORA (`{days}`), não escrito na frase: havia nove "90" no
+  // bloco `priv.*` e o teste que amarra promessa↔job só via os três do
+  // `priv.what1`. A camada 1 — a única linha que todo cliente lê — era uma das
+  // não amarradas. "até 90 dias DEPOIS DE A CONTA FECHAR", que é a regra.
+  'priv.teaser':      { en: '{venue} keeps the name you type for up to {days} days after the bill closes; Racha runs the payment.',
+                        pt: '{venue} guarda o nome que você digita por até {days} dias depois de a conta fechar; a Racha opera o pagamento.',
+                        es: '{venue} guarda el nombre que escribes hasta {days} días después de cerrar la cuenta; Racha ejecuta el pago.' },
   'priv.title':       { en: 'What happens to your data',       pt: 'O que acontece com seus dados', es: 'Qué pasa con tus datos' },
   // Nomeia o controlador (art. 9º III) e diz o que a Racha trata EM NOME
   // PRÓPRIO — a primeira versão dizia que "o restaurante decide tudo", e o
@@ -84,9 +88,9 @@ export const DICT = {
   // "apagado DA RACHA": o nome vai junto na descrição da cobrança, então o
   // provedor de pagamento guarda o registro dele sob as regras dele. Prometer
   // "apagado" sem essa metade era prometer o que a gente não controla.
-  'priv.what1':       { en: 'The name you type, so the table can see who paid which part. It is erased from Racha 90 days after the bill closes — the amount stays, the name does not. The payment provider keeps its own record of the charge under its own terms.',
-                        pt: 'O nome que você digita, pra mesa ver quem pagou qual parte. Ele é apagado da Racha 90 dias depois de a conta fechar — o valor fica, o nome não. O provedor de pagamento guarda o registro da cobrança dele sob as regras dele.',
-                        es: 'El nombre que escribes, para que la mesa vea quién pagó qué parte. Se borra de Racha 90 días después de cerrar la cuenta — el importe queda, el nombre no. El proveedor de pago guarda su propio registro del cobro bajo sus condiciones.' },
+  'priv.what1':       { en: 'The name you type, so the table can see who paid which part. It is erased from Racha {days} days after the bill closes — the amount stays, the name does not. The payment provider keeps its own record of the charge under its own terms.',
+                        pt: 'O nome que você digita, pra mesa ver quem pagou qual parte. Ele é apagado da Racha {days} dias depois de a conta fechar — o valor fica, o nome não. O provedor de pagamento guarda o registro da cobrança dele sob as regras dele.',
+                        es: 'El nombre que escribes, para que la mesa vea quién pagó qué parte. Se borra de Racha {days} días después de cerrar la cuenta — el importe queda, el nombre no. El proveedor de pago guarda su propio registro del cobro bajo sus condiciones.' },
   'priv.what2':       { en: 'The amount, the method and the time of the payment, kept as an accounting record.',
                         pt: 'O valor, o meio e a hora do pagamento, guardados como registro contábil.',
                         es: 'El importe, el método y la hora del pago, guardados como registro contable.' },
@@ -103,20 +107,43 @@ export const DICT = {
   // A carteira pré-paga. O telefone é o dado mais identificável que este
   // produto recebe, e a primeira versão do aviso não o mencionava — a tela que
   // o COLETA também não tinha aviso nenhum.
-  'priv.what3':       { en: 'If you open a prepaid wallet at the restaurant, the name and phone you give, for as long as the wallet exists — and for 90 days after it is empty and unused.',
-                        pt: 'Se você abrir uma carteira pré-paga no restaurante, o nome e o telefone que você informa, enquanto a carteira existir — e por 90 dias depois de ela ficar vazia e sem uso.',
-                        es: 'Si abres una cartera prepago en el restaurante, el nombre y el teléfono que das, mientras la cartera exista — y 90 días después de quedar vacía y sin uso.' },
+  'priv.what3':       { en: 'If you open a prepaid wallet at the restaurant, the name and phone you give, for as long as the wallet exists — and for {days} days after it is empty and unused.',
+                        pt: 'Se você abrir uma carteira pré-paga no restaurante, o nome e o telefone que você informa, enquanto a carteira existir — e por {days} dias depois de ela ficar vazia e sem uso.',
+                        es: 'Si abres una cartera prepago en el restaurante, el nombre y el teléfono que das, mientras la cartera exista — y {days} días después de quedar vacía y sin uso.' },
   'priv.whoElseTitle': { en: 'Who else sees it',               pt: 'Quem mais vê', es: 'Quién más lo ve' },
-  'priv.whoElse':     { en: 'The payment provider that issues the charge and settles the money to the restaurant, and the companies that host the app and the database. Nobody else, and never for advertising.',
-                        pt: 'O provedor de pagamento que emite a cobrança e liquida o dinheiro pro restaurante, e as empresas que hospedam o app e o banco de dados. Mais ninguém, e nunca pra publicidade.',
-                        es: 'El proveedor de pago que emite el cobro y liquida el dinero al restaurante, y las empresas que alojan la app y la base de datos. Nadie más, y nunca para publicidad.' },
+  // "Mais ninguém" era falso. Existe uma ponte de OPERAÇÃO que leva o
+  // identificador da cobrança e o valor pra quem cuida do sistema — e o mapa de
+  // dados diz, com todas as letras, que esse identificador resolve pro cadastro
+  // do pagador no painel do adquirente. Omitir isso e escrever "mais ninguém"
+  // era o aviso afirmando menos do que o código faz, que é o defeito que este
+  // aviso existe pra corrigir.
+  'priv.whoElse':     { en: 'The payment provider that issues the charge and settles the money to the restaurant; the companies that host the app and the database; and an operations channel that receives the charge reference and the amount so faults can be found. Never for advertising, and never sold.',
+                        pt: 'O provedor de pagamento que emite a cobrança e liquida o dinheiro pro restaurante; as empresas que hospedam o app e o banco de dados; e um canal de operação que recebe a referência da cobrança e o valor, pra que falhas sejam encontradas. Nunca pra publicidade, e nunca vendido.',
+                        es: 'El proveedor de pago que emite el cobro y liquida el dinero al restaurante; las empresas que alojan la app y la base de datos; y un canal de operación que recibe la referencia del cobro y el importe, para poder encontrar fallos. Nunca para publicidad, y nunca vendido.' },
   // Inclui o direito de OPOR-SE, que é o que acompanha legítimo interesse
   // (art. 18 §2), e um canal DIRETO — "fale com o restaurante" como única via
   // lê como desvio, e o consumidor pode vir direto de qualquer jeito (CDC art.
   // 7º § único).
+  // DUAS versões, e a diferença é se existe caixa de correio DE VERDADE.
+  //
+  // A primeira versão publicou `privacidade@racha.com.br` — um endereço que eu
+  // inventei. O `dig` diz `MX 0 .`: MX nulo (RFC 7505), o domínio declara
+  // explicitamente que NÃO recebe e-mail. Um cliente que escrevesse pra lá
+  // levava bounce, e o canal que o `retencao.md` tinha acabado de chamar de "a
+  // condição que faltava" faltava de novo. É o mesmo erro do `racha.app`, uma
+  // camada pior: lá a frase falsa CONCEDIA confiança, aqui ela promete um
+  // direito a um consumidor na hora de pagar.
+  //
+  // Então o endereço vem de fora (`VITE_PRIVACY_CONTACT`) e, sem ele, a frase
+  // do canal direto simplesmente não existe. Publicar caixa que não existe é
+  // pior do que mandar a pessoa ao restaurante, que é o controlador de verdade
+  // do dado do pagamento.
   'priv.rights':      { en: 'You can ask what is kept about you, have it corrected or erased, and object to the counting described above. Ask {venue}, or write to {email} and we will act with them.',
                         pt: 'Você pode pedir o que está guardado sobre você, pedir correção ou exclusão, e se opor à contagem descrita acima. Peça a {venue}, ou escreva para {email} e a gente resolve junto com ele.',
                         es: 'Puedes pedir qué se guarda sobre ti, pedir corrección o supresión, y oponerte al recuento descrito arriba. Pídeselo a {venue}, o escribe a {email} y lo resolvemos con él.' },
+  'priv.rightsNoEmail': { en: 'You can ask what is kept about you, have it corrected or erased, and object to the counting described above. Ask {venue} and they will reach us.',
+                        pt: 'Você pode pedir o que está guardado sobre você, pedir correção ou exclusão, e se opor à contagem descrita acima. Peça a {venue} e ele chega até a gente.',
+                        es: 'Puedes pedir qué se guarda sobre ti, pedir corrección o supresión, y oponerte al recuento descrito arriba. Pídeselo a {venue} y llegará hasta nosotros.' },
   'priv.close':       { en: 'Close',                           pt: 'Fechar', es: 'Cerrar' },
   'app.tagline':      { en: 'racha · no app, no sign-up',      pt: 'racha · sem app, sem cadastro', es: 'racha · sin app, sin registro' },
   'lang.label':       { en: 'Language',                        pt: 'Idioma', es: 'Idioma' },

@@ -54,16 +54,31 @@ describe('o /api/check não denuncia nada pra quem sonda', () => {
     expect(rota).not.toMatch(/rateLimitBucket\(req, 'check'/);
   });
 
-  test('o cliente PARA o relógio no 404 — senão o erro legítimo vira enxurrada', () => {
-    // A causa da queima de cota, e o conserto que importa: 404 é estado
-    // ESTÁVEL (a conta fechou, ou ainda não abriu) e relógio não muda estado
-    // estável. Sem isto, cada telefone deixado na tela mandava 15 erros por
-    // minuto, pra sempre.
+  test('o cliente DESACELERA no 404, e nunca para', () => {
+    // A primeira versão deste teste exigia `setPolling(false)` — e amarrava o
+    // bug. "404 é estado estável" vale pra conta que acabou de fechar e NÃO
+    // vale pra quem escaneia antes de o garçom abrir a conta, que é o fluxo
+    // principal do produto: o telefone parava pra sempre, numa tela sem botão,
+    // e a conta abria depois sem ele saber.
+    //
+    // As duas condições são indistinguíveis na resposta, então o cliente não
+    // pode decidir entre elas. Recuo resolve as duas.
     const fs = require('node:fs');
     const path = require('node:path');
     const app = fs.readFileSync(
       path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'App.tsx'), 'utf8');
-    expect(app).toMatch(/if \(err\.code === 'check_not_found'\) setPolling\(false\);/);
+
+    // Desacelera no 404…
+    expect(app).toMatch(/if \(err\.code === 'check_not_found'\) \{[\s\S]{0,120}setEsperaMs/);
+    // …com teto, senão vira "nunca mais"…
+    expect(app).toMatch(/Math\.min\(ms \* 2, 60_000\)/);
+    // …volta ao normal em qualquer leitura boa…
+    expect(app).toMatch(/setEsperaMs\(POLL_BASE_MS\);/);
+    // …e o relógio usa o intervalo que recua, não um literal.
+    expect(app).toMatch(/setInterval\(refresh, esperaMs\)/);
+    // E NÃO para: um telefone parado numa tela sem botão não se recupera.
+    const trecho = app.slice(app.indexOf("err.code === 'check_not_found'"));
+    expect(trecho.slice(0, 300)).not.toMatch(/setPolling\(false\)/);
   });
 
   test('o IP vem do último hop, não do primeiro — o primeiro é escrito pelo cliente', () => {

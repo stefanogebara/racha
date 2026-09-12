@@ -42,6 +42,40 @@ apontava pra um deles.
    projeto na Vercel não se renomeia e não se apaga.** É o que mantém o nome
    fora do alcance de quem chegar depois.
 
+## E-mail
+
+O aviso de privacidade oferece um canal direto ao cliente, então o domínio de
+e-mail é a mesma classe de afirmação que a lista de origens — e errou do mesmo
+jeito. A primeira versão publicou `privacidade@racha.com.br` escrito no código.
+
+```
+dig +short NS racha.com.br  → a.auto.dns.br. b.auto.dns.br.   (registro.br, DNS padrão)
+dig +short MX racha.com.br  → 0 .                              (MX NULO, RFC 7505)
+```
+
+`MX 0 .` é o domínio declarando que **não recebe e-mail**. Quem escrevesse
+levava bounce — e o canal que o `retencao.md` tinha acabado de chamar de "a
+condição que faltava" faltava de novo.
+
+Hoje o endereço vem de `VITE_PRIVACY_CONTACT` e, sem ele, a frase do canal
+direto não aparece. Publicar caixa que não existe é pior do que mandar a pessoa
+ao restaurante, que é o controlador do dado do pagamento e uma rota de verdade.
+
+Um endereço só pode aparecer numa tela depois que a linha dele aqui disser
+**entrega confirmada** — e há teste (`api/__tests__/data-map.test.js`) que
+recusa qualquer `@` escrito no código do cliente sem essa marca. Estar CITADO
+neste arquivo não basta: o endereço abaixo está citado justamente como o que
+não pode voltar.
+
+| Endereço | Entrega? | Onde aparece |
+|---|---|---|
+| `VITE_PRIVACY_CONTACT` (não configurado) | pendente — marcar `entrega confirmada` aqui depois do teste de recebimento | aviso de privacidade, só quando setado |
+| `privacidade@racha.com.br` | **NÃO** — `MX 0 .`, o domínio recusa e-mail | em lugar nenhum, e não pode voltar |
+
+**Antes de setar `VITE_PRIVACY_CONTACT`:** mandar uma mensagem de teste e
+confirmar que chegou numa caixa que alguém lê. Um endereço no aviso é um
+compromisso com um consumidor, não uma configuração.
+
 ## Pendente
 
 Comprar um domínio nosso pra ser o `PROD_ORIGIN` — o app, o QR e o `CLIENT_URL`

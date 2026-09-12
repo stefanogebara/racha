@@ -38,8 +38,16 @@ async function main() {
   const store = require('../api/_lib/store/supabase').createSupabaseStore();
 
   const n = await store.erasePaymentLabel(txid);
-  // O `txid` vai pro log de propósito: é o comprovante de que o pedido foi
-  // executado, e ele não é dado pessoal — é o identificador da cobrança.
+  // O `txid` vai pro log de propósito: é o registro de que o pedido foi
+  // executado, e o art. 18 §4 exige poder responder por ele.
+  //
+  // Mas ele NÃO é dado anônimo. A primeira versão deste comentário dizia "não é
+  // dado pessoal — é o identificador da cobrança", que é literalmente a frase
+  // que o `docs/compliance/retencao.md` foi corrigido pra recusar, no mesmo
+  // commit: o `txid` resolve pro cadastro do pagador no painel do adquirente, e
+  // reidentificação por meios razoáveis é o critério do art. 12 §1. É dado
+  // pessoal PSEUDONIMIZADO. Trate esta linha como tal — ela não vai pra
+  // planilha, nem pra chat, nem pra ticket aberto.
   process.stdout.write(`[art18] txid=${txid} linhas=${n} em ${new Date().toISOString()}\n`);
   if (n === 0) {
     process.stderr.write('nenhuma linha tocada: txid não encontrado, ou o nome já tinha saído\n');

@@ -1633,8 +1633,9 @@ async function route(req, res) {
     // --- cron diário: detecta a virada do KYC do recebedor e avisa o dono -----
     // Varre recebedores em 'registration', refetcha o status vivo e, na virada
     // (active/refused/suspended), persiste + dispara o aviso via Olímpia. Uma vez
-    // por transição — o status persistido é a idempotência. Guarda por CRON_SECRET
-    // quando setado; senão rate-limit (o processo é idempotente de todo jeito).
+    // por transição — o status persistido é a idempotência. EXIGE CRON_SECRET:
+    // ver a nota dentro da rota (esta linha dizia "senão rate-limit", que era a
+    // forma aberta que o censo de crons pegou).
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/recipient-status') {
       // ESCREVE (`setVenueRecipientStatus`) e chama o PSP uma vez por casa
       // pendente. Degradava aberta: sem `CRON_SECRET`, um `curl` anônimo fazia
@@ -1698,15 +1699,28 @@ async function route(req, res) {
     // confirm-on-read já cura a mesa que o diner está olhando; este cron pega
     // as contas que ninguém está vendo (app fechado) e escreve de volta no POS.
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/reconcile-pending') {
-      if (process.env.CRON_SECRET) {
-        // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
-        // e vaza o prefixo do segredo pro relógio de quem chama. Havia três
-        // call sites e só um usava `segredoConfere`.
-        if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
-          return json(res, 401, { success: false, error: 'unauthorized' });
-        }
-      } else if (!rateLimitCron(req)) {
-        return json(res, 429, { success: false, error: 'calma lá' });
+      // O CRON QUE MAIS ESCREVE DESTE ARQUIVO, e era o mais aberto.
+      //
+      // Ele varre até 200 cobranças pendentes de TODAS as casas, chama o
+      // adquirente uma vez por cobrança, acrescenta `PAYMENT_CONFIRMED` ao
+      // razão e escreve a baixa no PDV do restaurante — e devolvia
+      // `result.details` com `txid` e `checkId` de cada uma. Sem `CRON_SECRET`
+      // isso era `curl` anônimo: divulgação cross-tenant, amplificação contra o
+      // adquirente, e escrita no razão. O `public-state.js` já registra por que
+      // id de cobrança não pode chegar a quem não está autenticado.
+      //
+      // Não foi achado por revisão nenhuma: foi o censo de crons que eu escrevi
+      // pra pegar OUTRA rota — e ele classificou esta como leitura, porque ela
+      // escreve através de `reconciler.reconcile(...)` e não de `store.*`. Ver
+      // `cron-fail-closed.test.js`, que agora presume ESCRITA por padrão.
+      if (!process.env.CRON_SECRET) {
+        process.stderr.write('[reconcile-pending] BLOQUEADO: CRON_SECRET não configurado\n');
+        return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
+      }
+      // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
+      // e vaza o prefixo do segredo pro relógio de quem chama.
+      if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
+        return json(res, 401, { success: false, error: 'unauthorized' });
       }
       // ?hours= amplia a janela pra uma varredura profunda manual (curar um
       // straggler antigo); sem ele, usa a janela padrão do reconciliador.

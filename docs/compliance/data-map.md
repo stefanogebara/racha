@@ -67,7 +67,7 @@ dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
 | função | o que sai |
 |---|---|
 | `notifyOwnerRecipientStatus` | `venueName`, `ownerEmail`, `ownerPhone`, `status`, `previousStatus`, `reason`, `pspRecipientId` |
-| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail` |
+| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail` — e desde 2026-09-12 também `retention_ok` / `retention_blocked`, que levam só CONTAGENS (sem txid, sem casa) |
 | `notifyFounderReconcile` | o texto do alerta: nomes de casa e desvio por casa |
 | `notifyFounderActivationRadar` | o resumo do radar de ativação |
 | `notifyPreviaBeacon` | `{token, event}` do lead da Olímpia |
@@ -142,14 +142,25 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    **O que falta:** rota de autoatendimento do art. 18. Hoje o pedido passa pelo
    restaurante e a exclusão é manual — aceitável num piloto assistido com poucas
    casas, inaceitável no dia em que o produto for self-serve.
-2. ~~**Sem aviso de privacidade voltado pro cliente.**~~ **Fechada em
-   2026-09-12.** `PrivacyNotice.tsx`, no rodapé da tela da conta, nos três
+2. **Aviso de privacidade: o texto existe, o CANAL PRÓPRIO não.** Parcialmente
+   fechada em 2026-09-12, e é importante não marcar como fechada. `PrivacyNotice.tsx`, no rodapé da tela da conta, nos três
    idiomas: quem é controlador (a casa, com a Racha como operadora), o que fica
    guardado e por quanto tempo, o que NUNCA chega aqui (cartão, CPF, cadastro),
    quem mais vê, e os direitos do art. 18. Fica na própria tela e não numa
    página à parte — o art. 9º pede informação acessível ANTES da decisão, e um
    link que tira a pessoa da tela de pagar é um link que ninguém toca no meio de
    um jantar. Cada frase aponta pra uma defesa que existe no código.
+   **O que falta:** um endereço que receba mensagem. A primeira versão publicou
+   `privacidade@racha.com.br`, que eu inventei — o `dig` devolve `MX 0 .`, o MX
+   nulo da RFC 7505, quer dizer que o domínio declara que NÃO recebe e-mail.
+   Cliente que escrevesse levava bounce, e é o mesmo erro do `racha.app` uma
+   camada pior: lá a frase falsa concedia confiança, aqui prometia um direito a
+   um consumidor na hora de pagar. Agora o endereço vem de
+   `VITE_PRIVACY_CONTACT` e, sem ele, a frase do canal direto não é renderizada —
+   o restaurante, que é o controlador do dado do pagamento, continua sendo rota
+   de verdade. Mas pro que a Racha trata EM NOME PRÓPRIO (a contagem de
+   aberturas) o contato tem que ser nosso, e isso exige uma caixa que exista.
+   **Antes do primeiro QR numa mesa de cliente de verdade.**
 3. **Transferência internacional sem papelada.** Dado de titular europeu no
    Supabase fora da UE e acessível do Brasil (LGPD art. 33; GDPR cap. V).
    Fecha com: projeto Supabase em região da UE (correção técnica que dispensa
@@ -193,9 +204,10 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    hospedagem como base. O que falta é prazo: log é mais um lugar onde uma
    capacidade ao portador mora sem expirar. Anda junto com a lacuna 1.
 
-Nenhuma dessas bloqueia o piloto brasileiro assistido. A **lacuna 4** é a que
-sobra antes do primeiro QR numa mesa de cliente de verdade — a 2 fechou; as 3, 5
-e 6 bloqueiam ligar a Espanha (`RACHA_ES_ENABLED`).
+Nenhuma dessas bloqueia o piloto brasileiro assistido. Antes do primeiro QR numa
+mesa de cliente de verdade ficam a **4** (DPA) e a metade que sobra da **2** (uma
+caixa de correio que exista); as 3, 5 e 6 bloqueiam ligar a Espanha
+(`RACHA_ES_ENABLED`).
 
 ## 5. Dependências de runtime, classificadas
 

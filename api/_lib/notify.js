@@ -201,7 +201,16 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
  * de falha #7.
  */
 async function notifyFounderMoneyEvent({ kind, txid, checkId = null, amountCents = 0, detail = null }) {
-  const linha = `${kind} txid=${txid} check=${checkId || '?'} valor=${amountCents} ${detail || ''}`.trim();
+  // Campos ausentes SOMEM em vez de virar "txid=undefined". Alertas que não são
+  // de uma cobrança (batida da retenção, por exemplo) passam por aqui, e uma
+  // linha com `undefined` treina quem lê a ignorar.
+  const linha = [
+    kind,
+    txid ? `txid=${txid}` : null,
+    checkId ? `check=${checkId}` : null,
+    amountCents ? `valor=${amountCents}` : null,
+    detail || null,
+  ].filter(Boolean).join(' ');
   const secret = process.env.RACHA_NOTIFY_SECRET;
   if (!secret) {
     process.stderr.write(`MONEY EVENT ALERT (sem RACHA_NOTIFY_SECRET):\n${linha}\n`);

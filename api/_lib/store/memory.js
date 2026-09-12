@@ -884,6 +884,18 @@ function createMemoryStore() {
       }
       for (const a of houseAccounts.values()) {
         if (!a.phone || a.principalCents !== 0) continue;
+        // Bônus VIVO é dinheiro que a pessoa ainda pode gastar. A primeira
+        // versão deste laço não tinha esta cláusula e o SQL tinha: as duas
+        // implementações da MESMA regra já divergiam, e a maioria dos testes
+        // roda contra esta — então um teste escrito aqui afirmaria a regra
+        // errada. Achado da revisão de segurança.
+        // Os lotes vivem no LOG, não numa coleção — o estado da carteira é
+        // reduzido dos eventos, como o resto do produto.
+        const lotes = (houseState.reduce(houseEvents.get(a.id) || []) || { lots: [] }).lots || [];
+        const bonusVivo = lotes.some(
+          (l) => (l.remainingCents || 0) > 0 && Date.parse(l.expiresAt || 0) > Date.now(),
+        );
+        if (bonusVivo) continue;
         const eventos = houseEvents.get(a.id) || [];
         const recente = eventos.some((e) => Date.parse(e.createdAt || 0) >= limite(walletDays));
         if (recente) continue;
@@ -894,9 +906,15 @@ function createMemoryStore() {
     },
 
     async erasePaymentLabel(txid) {
+      // Conta a LINHA TOCADA, não a linha mudada — é o que `get diagnostics
+      // row_count` devolve no SQL. As duas divergiam (aqui zero pra um rótulo
+      // já nulo, lá um), e o `scripts/erase-payment-label.js` ramifica
+      // exatamente nesse número pra dizer "txid não encontrado".
       let n = 0;
       for (const p of payments.values()) {
-        if (p.txid === txid && p.payerLabel) { p.payerLabel = null; n += 1; }
+        if (p.txid !== txid) continue;
+        p.payerLabel = null;
+        n += 1;
       }
       return n;
     },

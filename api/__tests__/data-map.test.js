@@ -183,6 +183,45 @@ describe('o mapa de dados acompanha o código', () => {
     expect(hosts).toContain(padrao[1].toLowerCase());
   });
 
+  test('nenhum endereço de e-mail é PROMETIDO ao cliente sem estar registrado', () => {
+    // O censo de hosts não pegou `privacidade@racha.com.br` porque um domínio
+    // de e-mail não é um host literal — a ideia estava certa e a superfície,
+    // errada. E o endereço era inventado: `MX 0 .`, o MX nulo da RFC 7505,
+    // quer dizer que o domínio declara que não recebe e-mail. Publicado em três
+    // idiomas como a rota pra exercer direitos, na tela de pagar.
+    //
+    // A regra: o cliente não vê endereço que não esteja no `docs/domains.md`
+    // com entrega confirmada. Configuração (`VITE_PRIVACY_CONTACT`) passa —
+    // quem a seta assume o compromisso, e o arquivo diz o que conferir antes.
+    const web = path.join(RAIZ, 'apps', 'web', 'src');
+    const domains = fs.readFileSync(path.join(RAIZ, 'docs', 'domains.md'), 'utf8');
+    const achados = [];
+    (function walk(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) { walk(full); continue; }
+        if (!/\.(ts|tsx)$/.test(e.name)) continue;
+        const texto = fs.readFileSync(full, 'utf8');
+        for (const [, linha] of texto.split('\n').entries()) {
+          if (linha.trim().startsWith('//') || linha.trim().startsWith('*')) continue;
+          for (const m of linha.matchAll(/['"`]([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})['"`]/g)) {
+            // Exemplo de placeholder já é conferido pelo censo de idioma.
+            if (/@(restaurante|restaurant)\./.test(m[1])) continue;
+            // Não basta estar CITADO: `privacidade@racha.com.br` está no
+            // arquivo — como exemplo do que não pode voltar. A linha tem que
+            // dizer `entrega confirmada`. Mencionar não é o mesmo que entregar,
+            // e foi exatamente esse o erro do censo de hosts com o `racha.app`.
+            const linhaDoDominio = domains.split('\n').find((l) => l.includes(m[1]));
+            if (!linhaDoDominio || !/entrega confirmada/.test(linhaDoDominio)) {
+              achados.push(`${e.name}: ${m[1]}`);
+            }
+          }
+        }
+      }
+    }(web));
+    expect(achados).toEqual([]);
+  });
+
   test('o número de campos guardados do webhook é o do código', () => {
     // O mapa dizia "15 campos"; o `KEEP` tem 14, e nada conferia. Um número
     // pequeno e não testado dentro de um registro do art. 37 é a mesma coisa

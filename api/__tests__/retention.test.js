@@ -24,23 +24,49 @@ const I18N = fs.readFileSync(path.join(RAIZ, 'apps', 'web', 'src', 'i18n.ts'), '
 const DOC = fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'retencao.md'), 'utf8');
 
 describe('retenção: o prazo prometido é o prazo executado', () => {
-  test('o padrão da função SQL é o número que o aviso diz ao cliente', () => {
-    const padrao = SQL.match(/p_label_days integer default (\d+)/);
-    expect(padrao).toBeTruthy();
-    const dias = Number(padrao[1]);
-    expect(dias).toBeGreaterThan(0);
+  test('o prazo que o aviso promete vem do padrão da função SQL', () => {
+    // A primeira versão deste teste recortava de `'priv.what1'` até
+    // `'priv.what2'` e conferia os três números de lá. Havia NOVE "90" no bloco
+    // `priv.*`: os três do `priv.what1` (amarrados), os três do `priv.teaser` e
+    // os três do `priv.what3` (soltos). O `priv.teaser` é a camada 1 — a única
+    // linha que TODO cliente lê, adicionada justamente porque quem não abre não
+    // recebe informação — e era uma das não amarradas. Mudar o padrão do SQL pra
+    // 120 quebrava o teste e deixava a frase visível dizendo 90.
+    //
+    // Agora o número não é escrito em frase nenhuma: entra por `{days}` a
+    // partir de uma constante, e o que se confere é a constante contra o SQL.
+    // Não há como uma tradução divergir das outras duas.
+    const padraoRotulo = SQL.match(/p_label_days integer default (\d+)/);
+    const padraoCarteira = SQL.match(/p_wallet_days integer default (\d+)/);
+    expect(padraoRotulo).toBeTruthy();
+    expect(padraoCarteira).toBeTruthy();
 
-    // As três traduções da frase do nome livre. Todas têm que citar o mesmo
-    // número — um aviso que promete 90 em inglês e 30 em espanhol é duas
-    // promessas diferentes pra mesma pessoa dependendo do idioma do telefone.
-    const bloco = I18N.slice(I18N.indexOf("'priv.what1':"), I18N.indexOf("'priv.what2':"));
+    const NOTICE = fs.readFileSync(
+      path.join(RAIZ, 'apps', 'web', 'src', 'PrivacyNotice.tsx'), 'utf8');
+    const constante = NOTICE.match(/RETENCAO_DIAS = \{ rotulo: (\d+), carteira: (\d+) \}/);
+    expect(constante).toBeTruthy();
+    expect(Number(constante[1])).toBe(Number(padraoRotulo[1]));
+    expect(Number(constante[2])).toBe(Number(padraoCarteira[1]));
+
+    // E o doc escrito bate com os dois.
+    expect(DOC).toContain(`**${padraoRotulo[1]} dias**`);
+
+    // NENHUM número de prazo escrito à mão volta pro bloco do aviso — é assim
+    // que a promessa se desamarra de novo sem ninguém notar.
+    const bloco = I18N.slice(I18N.indexOf("'priv.link':"), I18N.indexOf("'app.tagline':"));
     expect(bloco.length).toBeGreaterThan(0);
-    const citados = [...bloco.matchAll(/(\d+)\s*(?:days|dias|días)/gi)].map((m) => Number(m[1]));
-    expect(citados.length).toBe(3);
-    for (const n of citados) expect(n).toBe(dias);
+    // Sem as linhas de comentário: elas EXPLICAM o prazo, e um censo que falha
+    // na explicação é um censo que alguém afrouxa. Mesma mitigação dos outros.
+    const semComentario = bloco.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+    const soltos = [...semComentario.matchAll(/(\d+)\s*(?:days|dias|días)/gi)].map((m) => m[0]);
+    expect(soltos).toEqual([]);
 
-    // E a política escrita bate com os dois.
-    expect(DOC).toContain(`**${dias} dias**`);
+    // As três traduções das frases com prazo usam o buraco, não um número.
+    for (const chave of ['priv.teaser', 'priv.what1', 'priv.what3']) {
+      const trecho = bloco.slice(bloco.indexOf(`'${chave}':`));
+      const corpo = trecho.slice(0, trecho.indexOf('},') + 1);
+      expect((corpo.match(/\{days\}/g) || []).length).toBe(3);
+    }
   });
 
   test('a purga ANONIMIZA e não apaga pagamento — o razão é imutável', () => {

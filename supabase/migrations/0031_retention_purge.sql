@@ -107,8 +107,10 @@ begin
   -- depende de feature nao implementada e uma frase, nao um guarda.
   --
   -- Agora a chave e INATIVIDADE OBSERVAVEL: sem saldo, sem bonus vivo, e sem
-  -- evento nenhum na carteira ha N dias. `active = false` continua valendo como
-  -- gatilho ADICIONAL pro dia em que alguem construir o desligamento.
+  -- evento nenhum na carteira ha N dias. `active` NAO entra no predicado — nem
+  -- como gatilho adicional, porque nada a escreve; se um dia alguem construir o
+  -- desligamento, ela vira mais um `or`, e ai o censo de colunas vai exigir que
+  -- exista chamador.
   update public.house_accounts a
      set phone = null, name = '—', updated_at = now()
    where a.phone is not null

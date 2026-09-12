@@ -36,10 +36,27 @@ function rotasDeCron() {
   }));
 }
 
-/** Escreve = chama algo do store que muda estado, ou dispara aviso. */
-function escreve(corpo) {
-  return /store\.(purge|repair|expire|register|append|set[A-Z]|update|insert|delete)/.test(corpo)
-    || /reconcileAllVenues|reconcilePending|ensureDemoCheck/.test(corpo);
+/**
+ * ESCREVE por padrão. A lista é de LEITORES, e é nominal.
+ *
+ * A primeira versão perguntava "esta rota chama algum `store.<verbo>`?" — uma
+ * lista de negação sobre uma convenção de chamada. E o cron que mais escreve do
+ * arquivo escreve através de `reconciler.reconcile(...)` e de `writeBackToPos`,
+ * nenhum dos dois casando: o censo escrito pra pegar rota aberta classificou a
+ * mais aberta como leitura. Censo que afirma cobertura que não tem é pior que
+ * censo nenhum, e isso já está escrito no registro de decisões deste repo.
+ *
+ * Então a pergunta inverteu: rota de cron ESCREVE, a menos que alguém a tenha
+ * declarado leitora aqui, por nome, com o motivo. Uma rota nova reprova o teste
+ * até ser classificada — que é o único jeito de falhar fechado contra um padrão
+ * de chamada que ninguém previu.
+ */
+const SO_LEEM = new Map([
+  ['/api/cron/activation-radar', 'monta o radar a partir de `listVenueActivation` e responde; não grava'],
+]);
+
+function escreve(nome) {
+  return !SO_LEEM.has(nome);
 }
 
 describe('cron: quem escreve não degrada aberta', () => {
@@ -49,10 +66,31 @@ describe('cron: quem escreve não degrada aberta', () => {
     expect(rotas.length).toBeGreaterThanOrEqual(4);
   });
 
+  test('todo cron AGENDADO é classificado — a enumeração vem do vercel.json', () => {
+    // A enumeração era por prefixo `/api/cron/`, e `/api/demo/reset` está
+    // agendado como cron, escreve (fecha e abre conta na mesa de demo) e não
+    // segue a convenção de nome — então era invisível pro censo. Ser público é
+    // decisão tomada; ser INCLASSIFICÁVEL não é.
+    const vercel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'vercel.json'), 'utf8'));
+    const agendados = (vercel.crons || []).map((c) => c.path);
+    expect(agendados.length).toBeGreaterThan(0);
+
+    // Exceção NOMEADA, com o motivo — não um buraco na regex.
+    const EXCECOES = new Map([
+      ['/api/demo/reset', 'mesa pública de demonstração: dinheiro do MockPsp, '
+        + 'protegida por rateLimitDemo e por resolveDemoTable; nunca toca casa real'],
+    ]);
+
+    const semClassificacao = agendados.filter(
+      (p) => !EXCECOES.has(p) && !rotas.some((r) => r.nome === p),
+    );
+    expect(semClassificacao).toEqual([]);
+  });
+
   test('toda rota de cron que escreve exige CRON_SECRET e devolve 503 sem ele', () => {
     const frouxas = [];
     for (const r of rotas) {
-      if (!escreve(r.corpo)) continue;
+      if (!escreve(r.nome)) continue;
       // A forma que importa: a AUSÊNCIA do segredo é tratada explicitamente e
       // fecha. `if (process.env.CRON_SECRET) { … }` sem `else` que feche não
       // conta — era exatamente essa a forma frouxa.
@@ -68,7 +106,7 @@ describe('cron: quem escreve não degrada aberta', () => {
   test('nenhuma rota de cron que escreve cai num limite de taxa como alternativa', () => {
     // `else if (!rateLimitCron(req))` era o caminho que deixava a rota pública.
     const comEscape = rotas
-      .filter((r) => escreve(r.corpo))
+      .filter((r) => escreve(r.nome))
       .filter((r) => /else if \(!rateLimitCron\(req\)\)/.test(r.corpo))
       .map((r) => r.nome);
     expect(comEscape).toEqual([]);

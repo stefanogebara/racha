@@ -20,14 +20,41 @@ import { useT } from './lang';
  * 90 dias (`purge_expired_personal_data`, migração 0031). É por isso que o
  * texto foi escrito DEPOIS do `docs/compliance/retencao.md`.
  */
-/** O e-mail do canal direto. Único lugar, pra não divergir entre telas. */
-const CONTATO = 'privacidade@racha.com.br';
+/**
+ * O canal direto, vindo de FORA — e ausente quando não existe.
+ *
+ * A primeira versão trazia `privacidade@racha.com.br` escrito na linha. Eu
+ * inventei esse endereço: o `dig` devolve `MX 0 .`, o MX nulo da RFC 7505, que
+ * é o domínio declarando que NÃO recebe e-mail. Um cliente que escrevesse pra
+ * lá levava bounce — e o canal que o `retencao.md` tinha acabado de chamar de
+ * "a condição que faltava" faltava outra vez.
+ *
+ * Caixa que não existe é pior do que não prometer caixa nenhuma: o restaurante
+ * é o controlador do dado do pagamento e é uma rota de verdade. Então sem
+ * `VITE_PRIVACY_CONTACT` a frase do canal direto some, em vez de mentir.
+ */
+const CONTATO = (import.meta.env.VITE_PRIVACY_CONTACT as string | undefined)?.trim() || '';
+
+/**
+ * Os prazos que o aviso promete, num lugar só.
+ *
+ * Havia nove "90" escritos à mão no bloco `priv.*`, e o teste que amarra
+ * promessa↔job só via os três do `priv.what1` — inclusive a camada 1, que é a
+ * única linha que TODO cliente lê, ficava de fora. Agora o número entra por
+ * interpolação e o censo confere este arquivo contra o padrão da função SQL.
+ */
+export const RETENCAO_DIAS = { rotulo: 90, carteira: 90 };
 
 export default function PrivacyNotice({ venue, taxId }: { venue: string; taxId?: string | null }) {
   const { t } = useT();
   const [aberto, setAberto] = useState(false);
   // Sem documento da casa a frase não pode ficar com um parêntese vazio.
-  const quem = taxId ? t('priv.who', { venue, taxId }) : t('priv.who', { venue, taxId: '—' });
+  // Sem documento da casa, a frase sai SEM o parêntese — `Casa (—)` parece bug,
+  // e um aviso que parece quebrado não informa ninguém.
+  const quem = taxId
+    ? t('priv.who', { venue, taxId })
+    // Sem `taxId` o `fill` deixa `{taxId}` literal; o parêntese sai inteiro.
+    : t('priv.who', { venue }).replace(/\s*\(\{taxId\}\)/, '');
 
   return (
     <>
@@ -35,7 +62,7 @@ export default function PrivacyNotice({ venue, taxId }: { venue: string; taxId?:
           rótulo: quem não abrir não recebe informação nenhuma, e o art. 9º pede
           informação ANTES da decisão. Esta linha responde quem, o quê e por
           quanto tempo sem exigir um toque. */}
-      <span className="muted small">{t('priv.teaser', { venue })}</span>
+      <span className="muted small">{t('priv.teaser', { venue, days: RETENCAO_DIAS.rotulo })}</span>
       <button
         type="button"
         className="linklike small"
@@ -51,9 +78,9 @@ export default function PrivacyNotice({ venue, taxId }: { venue: string; taxId?:
 
           <p className="label small" style={{ marginTop: 10 }}>{t('priv.whatTitle')}</p>
           <ul className="muted small" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-            <li>{t('priv.what1')}</li>
+            <li>{t('priv.what1', { days: RETENCAO_DIAS.rotulo })}</li>
             <li>{t('priv.what2')}</li>
-            <li>{t('priv.what3')}</li>
+            <li>{t('priv.what3', { days: RETENCAO_DIAS.carteira })}</li>
           </ul>
 
           <p className="label small" style={{ marginTop: 10 }}>{t('priv.noTitle')}</p>
@@ -66,7 +93,9 @@ export default function PrivacyNotice({ venue, taxId }: { venue: string; taxId?:
           <p className="label small" style={{ marginTop: 10 }}>{t('priv.whoElseTitle')}</p>
           <p className="muted small">{t('priv.whoElse')}</p>
           <p className="muted small" style={{ marginTop: 10 }}>
-            {t('priv.rights', { venue, email: CONTATO })}
+            {CONTATO
+              ? t('priv.rights', { venue, email: CONTATO })
+              : t('priv.rightsNoEmail', { venue })}
           </p>
 
           <button type="button" className="linklike small" onClick={() => setAberto(false)}>

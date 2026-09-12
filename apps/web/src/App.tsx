@@ -57,6 +57,12 @@ const NOTICE_KEY: Record<string, Key> = {
   refund_reversed: 'notice.refund_reversed',
 };
 
+/**
+ * O ritmo do poll da conta. Cresce até um minuto quando a conta não existe
+ * (mesa ainda não aberta, ou já fechada) e volta aqui em qualquer leitura boa.
+ */
+const POLL_BASE_MS = 4000;
+
 export default function App() {
   const { t, lang, pct, adotarPadraoDaCasa, dmy, hm } = useT();
   // O `?t=` da mesa, ou — na volta de um trilho que redireciona (Bizum) — o
@@ -188,6 +194,8 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   // Para de fazer polling quando a conta some no meio do redeem (fechou/girou).
   const [polling, setPolling] = useState(true);
+  // O intervalo do poll, que cresce no 404 e volta ao normal no acerto.
+  const [esperaMs, setEsperaMs] = useState(POLL_BASE_MS);
 
   // Saldo da casa: carteira pré-paga do restaurante (docs/house-accounts).
   const [house, setHouse] = useState<{ token: string; balanceCents: number } | null>(null);
@@ -204,6 +212,7 @@ export default function App() {
       adotarPadraoDaCasa(fresco.venue.defaultLang);
       setError(null);
       setStale(false);
+      setEsperaMs(POLL_BASE_MS);   // acertou: volta pro ritmo normal
     } catch (e) {
       // Um blip de sinal NÃO pode apagar a tela. O caso real: o diner copia o
       // código Pix, troca pro app do banco, o 4G do bar oscila, ele volta — e o
@@ -212,25 +221,27 @@ export default function App() {
       // só a PRIMEIRA carga pode falhar em tela cheia, porque aí não há tela.
       setStale(true);
       const err = e as ApiError;
-      // CONTA QUE NÃO EXISTE PARA O RELÓGIO.
+      // CONTA QUE NÃO EXISTE DESACELERA O RELÓGIO. Não o para.
       //
       // O poll de 4s não parava nunca: depois que a mesa terminava de pagar, a
       // conta some da leitura (`status <> 'fechada'`) e TODO poll seguinte
-      // virava um 404 — 15 por minuto, por telefone, para sempre, de cada
-      // aparelho ainda com a tela aberta. O mesmo valia pra quem escaneia antes
-      // de o garçom abrir a conta.
+      // virava 404 — 15 por minuto, por telefone, de cada aparelho ainda com a
+      // tela aberta.
       //
-      // Isso não era só desperdício: com o balde de erro do `/api/check`, um
-      // telefone esquecido numa mesa queimava a cota inteira em dois minutos, e
-      // atrás do NAT do restaurante (ou do CGNAT da operadora) o vizinho que
-      // escaneasse depois lia "muitas tentativas" no lugar de "conta não
-      // encontrada". A defesa que eu escrevi contra fechar a conta na cara de
-      // alguém fechava a conta na cara de alguém — pelo outro ramo. Achado da
-      // revisão de segurança de 2026-09-12.
+      // A primeira correção foi PARAR no 404, e estava errada — terceira volta
+      // da mesma forma no mesmo controle. "404 é estado estável" é verdade do
+      // ramo que eu estava olhando (a conta acabou de fechar) e falsa do outro:
+      // quem escaneia o QR ANTES de o garçom abrir a conta também recebe 404, e
+      // esse é o fluxo principal do produto. O telefone parava pra sempre, numa
+      // tela sem botão nenhum, e a conta abria noventa segundos depois sem que
+      // ele jamais soubesse. As duas situações são indistinguíveis na resposta.
       //
-      // Some da tela ≠ falha de rede: 404 é um estado ESTÁVEL, e relógio não
-      // muda estado estável. Um toque do usuário re-arma.
-      if (err.code === 'check_not_found') setPolling(false);
+      // Recuo exponencial resolve as duas: o desperdício some (de 15/min pra
+      // 1/min) e a mesa que ainda vai abrir continua viva. Qualquer 200 volta
+      // pros 4 segundos. Achado da revisão de segurança de 2026-09-12.
+      if (err.code === 'check_not_found') {
+        setEsperaMs((ms) => Math.min(ms * 2, 60_000));
+      }
       setError(tError(lang, err.code, err.message));
     }
   }, [token, lang, adotarPadraoDaCasa]);
@@ -238,9 +249,9 @@ export default function App() {
   useEffect(() => {
     if (!polling) return;
     void refresh();
-    const id = setInterval(refresh, 4000);
+    const id = setInterval(refresh, esperaMs);
     return () => clearInterval(id);
-  }, [refresh, polling]);
+  }, [refresh, polling, esperaMs]);
 
   // Detecta a carteira do cliente uma vez, depois que a conta carrega.
   // V1 pragmático: as respostas públicas não expõem venueId, então o vínculo
