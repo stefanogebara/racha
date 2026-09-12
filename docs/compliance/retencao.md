@@ -54,6 +54,35 @@ resultado. Zero por muitos dias seguidos é sinal de que ela parou de funcionar,
 não de que não havia o que apagar — o mesmo raciocínio do canário vermelho que
 nunca dispara.
 
+## O registro de que rodou (art. 37)
+
+O expurgo funcionava e a metade que DETECTA não existia. O único rastro de uma
+execução era stderr e uma mensagem numa ponte que vira no-op silencioso sem
+`RACHA_NOTIFY_SECRET` — e "a ausência da batida é o alarme" só vale se alguma
+coisa alertar sobre a ausência. Nada alertava, e em regime a batida diz zero
+todo dia, que é a mensagem mais fácil de parar de ler que existe.
+
+`retention_runs` (migração 0032) é uma linha por execução: data, as quatro
+contagens, e — no pedido de titular — o `txid` atendido. A gravação acontece
+**dentro** da função, na mesma transação: registro que pode divergir do que
+aconteceu não é registro.
+
+Quem vigia é o cron da **conciliação**, que já roda todo dia e já pagina: se o
+último expurgo tem mais de 48 horas, ou nunca houve nenhum, a linha entra no
+alerta e força o envio. Dois dias de folga porque a purga é diária — um dia
+perdido é um deploy demorado, dois é defeito. A checagem é embrulhada em
+`try`: higiene não pode calar o alerta de dinheiro.
+
+Isto é também o que o art. 37 pede — registro das operações de tratamento. E é
+onde uma resposta do art. 18 §4 finalmente tem onde apontar: até aqui o
+"comprovante" de uma exclusão a pedido era uma linha no terminal de quem
+executou. O pedido de titular grava **mesmo quando não acha linha**, porque
+"pediram e não havia" é a resposta que alguém contestaria depois.
+
+A própria tabela tem prazo: 5 anos, o mesmo do registro contábil, porque é
+registro de conformidade e não dado operacional. Dito pra ela não virar a
+próxima tabela que cresce pra sempre.
+
 ## Pedido do titular (art. 18)
 
 **O prazo de 90 dias é o PADRÃO, não a resposta a um titular.** Quem pede

@@ -47,6 +47,9 @@ function createMemoryStore() {
   const houseByToken = new Map();  // accountToken → accountId
   const houseEvents = new Map();   // accountId → [{seq, type, payload}]
   const houseLoads = new Map();    // txid → { txid, accountId, amountCents, bonusCents, validityDays, status }
+  // O registro de execução da retenção (migração 0032). Aqui é lista; no
+  // Postgres é tabela com prazo próprio de 5 anos.
+  const retentionRuns = [];
 
   function _houseAppend(accountId, type, payload) {
     const log = houseEvents.get(accountId);
@@ -902,7 +905,15 @@ function createMemoryStore() {
         if (a.updatedAt && Date.parse(a.updatedAt) >= limite(walletDays)) continue;
         a.phone = null; a.name = '—'; houseAccountsN += 1;
       }
-      return { payerLabels, payerHints, houseAccounts: houseAccountsN, checkViews };
+      const resumo = { payerLabels, payerHints, houseAccounts: houseAccountsN, checkViews };
+      // Mesma transação, no espírito: o registro nasce junto com o expurgo.
+      retentionRuns.push({ at: new Date().toISOString(), kind: 'purge', ...resumo });
+      return resumo;
+    },
+
+    async lastRetentionRun() {
+      const purgas = retentionRuns.filter((r) => r.kind === 'purge');
+      return purgas.length ? { ...purgas[purgas.length - 1] } : null;
     },
 
     async erasePaymentLabel(txid) {
@@ -916,6 +927,9 @@ function createMemoryStore() {
         p.payerLabel = null;
         n += 1;
       }
+      // Registra SEMPRE, inclusive no zero: "pediram e não havia" também é uma
+      // resposta do art. 18 §4.
+      retentionRuns.push({ at: new Date().toISOString(), kind: 'erasure_request', payerLabels: n, txid });
       return n;
     },
 

@@ -1852,7 +1852,47 @@ async function route(req, res) {
         });
         return json(res, 500, { success: false, error: 'reconcile falhou', code: 'reconcile_threw' });
       }
-      const mensagem = formatReconcileAlert(report);
+      /**
+       * A RETENÇÃO NÃO RODA HÁ QUANTO TEMPO.
+       *
+       * Pendurada aqui porque este cron já pagina, já roda todo dia e já é o
+       * lugar onde um silêncio vira alarme. A retenção tem o problema inverso:
+       * ela FALA todo dia, e em regime o que ela diz é zero — a coisa mais
+       * ignorável que existe numa caixa de entrada. Então quem detecta que ela
+       * parou não pode ser um humano lendo a ausência de uma mensagem chata;
+       * tem que ser outro cron olhando uma linha no banco.
+       *
+       * Dois dias de folga porque a purga é diária: um dia perdido é um deploy
+       * demorado, dois é defeito. E a falha aqui NÃO derruba a conciliação —
+       * uma checagem de higiene não pode calar o alerta de dinheiro.
+       */
+      let retencao = null;
+      try {
+        if (typeof store.lastRetentionRun === 'function') {
+          const ultima = await store.lastRetentionRun();
+          const horas = ultima
+            ? Math.floor((Date.now() - Date.parse(ultima.at)) / 3_600_000)
+            : null;
+          retencao = { ultima: ultima ? ultima.at : null, horas };
+        }
+      } catch (e) {
+        retencao = { erro: String(e.message).slice(0, 120) };
+      }
+      // Nunca rodou, ou faz mais de 48h: entra no alerta e força o envio. A
+      // tela da conta promete ao cliente que o nome dele sai em 90 dias; o job
+      // parado transforma essa frase em declaração falsa a um consumidor.
+      const retencaoAtrasada = retencao
+        && (retencao.erro !== undefined || retencao.horas === null || retencao.horas >= 48);
+      const linhaRetencao = !retencaoAtrasada ? '' : (
+        retencao.erro
+          ? `\n⚠ RETENÇÃO: não foi possível ler o registro de execução (${retencao.erro}).`
+          : retencao.horas === null
+            ? '\n⚠ RETENÇÃO: nunca rodou. O aviso de privacidade promete exclusão em 90 dias.'
+            : `\n⚠ RETENÇÃO: última execução há ${retencao.horas}h (limite 48h).`
+      );
+
+      const mensagem = (formatReconcileAlert(report) || (linhaRetencao ? 'Conciliação sem achados.' : ''))
+        + linhaRetencao;
       let envio = null;
       if (mensagem && url.searchParams.get('dry') !== '1') {
         envio = await notifyFounderReconcile({
@@ -1872,7 +1912,7 @@ async function route(req, res) {
         // noturna é o alarme — que é o único jeito de detectar cron desligado.
         envio = await notifyFounderReconcile({
           // A batida LEVA TEXTO: o campo estruturado sozinho não é leitura.
-          mensagem: formatReconcileHeartbeat(report), heartbeat: true,
+          mensagem: `${formatReconcileHeartbeat(report)}${linhaRetencao}`, heartbeat: true,
           venuesRed: 0, venuesChecked: report.venuesChecked,
           driftCents: report.totalDriftCents, worstSeverity: report.worstSeverity,
           rowsRepaired: report.rowsRepaired, rowsRepairAckLost: report.rowsRepairAckLost,
