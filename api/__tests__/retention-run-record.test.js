@@ -25,6 +25,7 @@ const SQL = fs.readFileSync(
 const ROUTER = fs.readFileSync(path.join(RAIZ, 'api', '_app', 'router.js'), 'utf8');
 
 const { createMemoryStore } = require('../_lib/store/memory');
+const { avaliarRetencao } = require('../_lib/checks/retention-watch');
 
 describe('o expurgo deixa registro, e o registro é vigiado', () => {
   test('a gravação acontece DENTRO da função, na mesma transação', () => {
@@ -55,25 +56,64 @@ describe('o expurgo deixa registro, e o registro é vigiado', () => {
     expect(SQL).toMatch(/revoke all on public\.retention_runs from anon, authenticated/);
   });
 
-  test('o cron que já pagina confere a idade do último expurgo', () => {
+  test('só expurgo confirmado e recente conta como saudável — todo o resto é atraso', () => {
+    // A VERSÃO ANTERIOR DESTE TESTE NÃO TINHA DENTE NENHUM. A decisão morava
+    // dentro da rota, o `router` não exporta a rota, e o teste só sabia
+    // procurar substring no arquivo. A revisão de segurança rodou cinco
+    // mutações e todas passaram verdes — incluindo `const retencaoAtrasada =
+    // false && retencao`, que é o guarda desligado. E `toMatch(/48/)` casava o
+    // `48` da própria mensagem, então dava pra tirar o limite da condição sem
+    // quebrar nada.
+    //
+    // Agora a decisão é pura e exercida por tabela. A regra está escrita na
+    // direção que falha FECHADA: saudável exige prova de expurgo recente.
+    const agoraMs = Date.parse('2026-09-12T12:00:00Z');
+    const h = (n) => ({ at: new Date(agoraMs - n * 3_600_000).toISOString() });
+
+    const casos = [
+      ['acabou de rodar',            avaliarRetencao(h(1), { agoraMs }),                 false],
+      ['ontem',                      avaliarRetencao(h(23), { agoraMs }),                false],
+      ['quase no limite',            avaliarRetencao(h(47), { agoraMs }),                false],
+      ['no limite',                  avaliarRetencao(h(48), { agoraMs }),                true],
+      ['dois dias e meio',           avaliarRetencao(h(60), { agoraMs }),                true],
+      ['nunca rodou',                avaliarRetencao(null, { agoraMs }),                 true],
+      ['registro sem data',          avaliarRetencao({}, { agoraMs }),                   true],
+      ['data ilegível',              avaliarRetencao({ at: 'ontem' }, { agoraMs }),      true],
+      ['data no futuro',             avaliarRetencao(h(-10), { agoraMs }),               true],
+      ['erro ao ler o registro',     avaliarRetencao(null, { agoraMs, erro: 'read_failed' }), true],
+    ];
+    for (const [nome, r, esperado] of casos) {
+      expect([nome, r.atrasada]).toEqual([nome, esperado]);
+      // Atrasada SEMPRE produz texto; saudável nunca produz.
+      expect([nome, r.linha !== '']).toEqual([nome, esperado]);
+    }
+
+    // E os três motivos de atraso se DISTINGUEM na frase. "Não consegui ler o
+    // registro" e "nunca rodou" levam a ações diferentes de quem for consertar,
+    // e sem isto o ramo do erro é redundante: ele cai no mesmo `atrasada: true`
+    // do caminho nulo, e uma mutação que o apaga passa verde.
+    expect(avaliarRetencao(null, { agoraMs, erro: 'read_failed' }).linha).toMatch(/não foi possível ler/);
+    expect(avaliarRetencao(null, { agoraMs }).linha).toMatch(/nunca rodou/);
+    expect(avaliarRetencao(h(60), { agoraMs }).linha).toMatch(/há 60h/);
+  });
+
+  test('a rota usa a decisão e manda o atraso como aviso PRÓPRIO', () => {
     const rota = ROUTER.slice(
-      ROUTER.indexOf("url.pathname === '/api/cron/reconcile'"),
+      ROUTER.indexOf("url.pathname === '/api/cron/reconcile')"),
       ROUTER.indexOf("url.pathname === '/api/cron/activation-radar'"),
     );
-    expect(rota).toMatch(/lastRetentionRun/);
-    expect(rota).toMatch(/48/);
-    // Nunca rodou conta como atrasado — senão um banco novo fica verde pra
-    // sempre, que é o modo de falha que o canário vermelho evita.
-    //
-    // Ancorado na CONDIÇÃO, não no arquivo: a primeira versão procurava
-    // `horas === null` em qualquer lugar da rota, e a frase também aparece no
-    // ternário da mensagem — tirar o termo do `if` passava verde. Mesma forma
-    // que já apareceu em três censos desta série.
-    const condicao = rota.slice(rota.indexOf('const retencaoAtrasada'));
-    expect(condicao.slice(0, condicao.indexOf(';'))).toMatch(/horas === null/);
-    // E a checagem NÃO pode derrubar a conciliação: higiene não cala dinheiro.
-    const trecho = rota.slice(rota.indexOf('lastRetentionRun') - 400, rota.indexOf('lastRetentionRun') + 400);
-    expect(trecho).toMatch(/try \{/);
+    expect(rota.length).toBeGreaterThan(0);
+    expect(rota).toMatch(/avaliarRetencao\(await store\.lastRetentionRun\(\)\)/);
+    // Sem `typeof`: store publicado sem o método é defeito, e defeito estoura
+    // pro `catch`, que conta como atraso. Silêncio seria a falha.
+    expect(rota).not.toMatch(/typeof store\.lastRetentionRun/);
+    // O erro de leitura vira ATRASO, não vazio.
+    expect(rota).toMatch(/erro: 'read_failed'/);
+    // E NÃO entra no `mensagem` da conciliação: retenção atrasada apagava a
+    // batida noturna, e do outro lado a ausência da batida quer dizer "a
+    // conciliação morreu" — higiene fabricando alarme de dinheiro.
+    expect(rota).toMatch(/const mensagem = formatReconcileAlert\(report\);/);
+    expect(rota).toMatch(/kind: 'retention_late'/);
   });
 
   test('o store grava a execução e sabe ler a última', async () => {

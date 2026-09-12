@@ -913,7 +913,12 @@ function createMemoryStore() {
 
     async lastRetentionRun() {
       const purgas = retentionRuns.filter((r) => r.kind === 'purge');
-      return purgas.length ? { ...purgas[purgas.length - 1] } : null;
+      if (!purgas.length) return null;
+      // A MESMA FORMA do store do Postgres, sem `kind`: os dois já divergiram
+      // uma vez nesta função (bônus vivo), e a maioria dos testes roda contra
+      // este — então uma divergência aqui vira teste afirmando a regra errada.
+      const { at, payerLabels, payerHints, houseAccounts, checkViews } = purgas[purgas.length - 1];
+      return { at, payerLabels, payerHints, houseAccounts, checkViews };
     },
 
     async erasePaymentLabel(txid) {

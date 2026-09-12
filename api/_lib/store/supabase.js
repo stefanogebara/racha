@@ -946,7 +946,10 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     async lastRetentionRun() {
       const { data, error } = await client
         .from('retention_runs')
-        .select('at, kind, payer_labels, payer_hints, house_accounts, check_views')
+        // Sem `kind` no select: o filtro já o fixa em 'purge' e nada lê de
+        // volta — selecionar campo que ninguém usa é o que fez os dois stores
+        // divergirem em forma sem ninguém notar.
+        .select('at, payer_labels, payer_hints, house_accounts, check_views')
         .eq('kind', 'purge')
         .order('at', { ascending: false })
         .limit(1);

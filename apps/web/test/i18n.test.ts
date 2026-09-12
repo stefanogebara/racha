@@ -598,6 +598,7 @@ test('todo código de erro que a API manda tem tradução', async () => {
     'internal',                             // 500 mapeado, o cliente mostra o genérico
     'cron_secret_missing',                  // configuração do deploy
     'retention_unavailable',                // store sem o método: defeito de deploy, não tela
+    'retention_no_dry_run',                 // inspeção manual do cron; nenhum cliente vê
     'reconcile_threw', 'venue_reconcile_threw',
     'house_redeem_missing_payment_row', 'house_redeem_missing_payment_row_paid',
     'house_payment_row_without_redeem',

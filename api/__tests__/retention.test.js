@@ -18,12 +18,56 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const RAIZ = path.join(__dirname, '..', '..');
-const SQL = fs.readFileSync(
-  path.join(RAIZ, 'supabase', 'migrations', '0031_retention_purge.sql'), 'utf8');
+/**
+ * A DEFINIÇÃO EM VIGOR, não o arquivo onde ela nasceu.
+ *
+ * Isto lia `0031_retention_purge.sql` fixo. A migração 0032 re-declara as duas
+ * funções por inteiro — então, no instante em que ela é aplicada, o que o
+ * Postgres roda é a cópia da 0032 e TODA garantia deste arquivo passa a ser
+ * afirmada sobre texto morto: o padrão de 90 dias que o aviso ao cliente cita,
+ * "anonimiza e nunca apaga", "só toca conta fechada", o guarda de prazo curto, e
+ * o censo de colunas que pegou o predicado `active` que nunca rodava.
+ *
+ * As duas revisões acharam isto separadamente, e a segunda provou: mutando a
+ * cópia da 0032 pra apagar nome em conta ABERTA depois de 7 dias — enquanto a
+ * tela promete 90 dias depois de fechar, em três idiomas — a suíte seguiu
+ * verde, 672 testes.
+ *
+ * É o mesmo defeito do commit `acc8128` ("o conserto tinha pousado na
+ * configuração que eu medi, não na que produção roda"), um diretório adiante.
+ * `create or replace` quer dizer que a ÚLTIMA migração vence; então é a última
+ * que se lê.
+ */
+function definicaoEmVigor(nomeDaFuncao) {
+  const dir = path.join(RAIZ, 'supabase', 'migrations');
+  const arquivos = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+  let achado = null;
+  for (const f of arquivos) {
+    const texto = fs.readFileSync(path.join(dir, f), 'utf8');
+    const i = texto.indexOf(`create or replace function public.${nomeDaFuncao}`);
+    if (i >= 0) achado = { arquivo: f, texto };
+  }
+  return achado;
+}
+
+const EM_VIGOR = definicaoEmVigor('purge_expired_personal_data');
+const SQL = EM_VIGOR.texto;
 const I18N = fs.readFileSync(path.join(RAIZ, 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
 const DOC = fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'retencao.md'), 'utf8');
 
 describe('retenção: o prazo prometido é o prazo executado', () => {
+  test('os testes leem a migração que está EM VIGOR, não a que a inventou', () => {
+    // Se alguém acrescentar uma 0033 que re-declare a função, é ela que passa a
+    // valer — e é ela que este arquivo tem que ler. Sem esta asserção o resto do
+    // arquivo vira decoração no dia em que isso acontecer.
+    const dir = path.join(RAIZ, 'supabase', 'migrations');
+    const todas = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+    const comDefinicao = todas.filter((f) => fs.readFileSync(path.join(dir, f), 'utf8')
+      .includes('create or replace function public.purge_expired_personal_data'));
+    expect(comDefinicao.length).toBeGreaterThan(0);
+    expect(EM_VIGOR.arquivo).toBe(comDefinicao[comDefinicao.length - 1]);
+  });
+
   test('o prazo que o aviso promete vem do padrão da função SQL', () => {
     // A primeira versão deste teste recortava de `'priv.what1'` até
     // `'priv.what2'` e conferia os três números de lá. Havia NOVE "90" no bloco

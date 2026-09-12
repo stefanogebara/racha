@@ -175,8 +175,19 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok && !heartbeat) {
-      process.stderr.write(`RECONCILE ALERT (ponte ${res.status}):\n${mensagem}\n`);
+    // A BATIDA REJEITADA TAMBÉM GRITA.
+    //
+    // Era `!res.ok && !heartbeat`, então uma batida recusada não escrevia nada
+    // — e a batida é justamente o sinal cujo contrato é "a ausência é o
+    // alarme". Uma ponte que recusa 100% das batidas satisfaz esse contrato de
+    // forma vazia: a ausência nunca foi lida como alarme porque a batida nunca
+    // chegou uma vez sequer. Achado da revisão de segurança de 2026-09-12, que
+    // leu o RECEPTOR — as revisões anteriores endureceram o transporte deste
+    // lado e nenhuma conferiu se o outro lado aceita o corpo.
+    if (!res.ok) {
+      process.stderr.write(
+        `${heartbeat ? 'RECONCILE HEARTBEAT' : 'RECONCILE ALERT'} (ponte ${res.status}):\n${mensagem}\n`,
+      );
     }
     return { ok: res.ok, status: res.status, data };
   } catch (e) {

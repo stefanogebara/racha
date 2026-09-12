@@ -7,10 +7,13 @@
 -- e nada alertava. Pior: em regime a batida diz zero todo dia, que e a coisa
 -- mais ignoravel que existe numa caixa de entrada.
 --
--- Isto tambem e o que a LGPD art. 37 pede: registro das operacoes de
--- tratamento. "Apagamos N nomes no dia D" e "executamos a exclusao do titular
--- no txid X" sao exatamente isso, e ate aqui o "comprovante" de uma resposta do
--- art. 18 §4 era uma linha no terminal de quem executou.
+-- Isto e PROVA DE EXECUCAO — art. 6 X, responsabilizacao e prestacao de contas
+-- — mais o registro de resposta do art. 18 §4. NAO e o art. 37: aquele pede o
+-- registro das OPERACOES de tratamento, e esse registro e o
+-- docs/compliance/data-map.md. Chamar esta tabela de "o art. 37" faria alguem
+-- concluir depois que a obrigacao esta cumprida por um log de execucao enquanto
+-- a ROPA de verdade envelhece. Ate aqui o "comprovante" de uma resposta do art.
+-- 18 §4 era uma linha no terminal de quem executou.
 --
 -- A gravacao acontece DENTRO das funcoes, na mesma transacao do expurgo: um
 -- registro que pode divergir do que aconteceu nao e registro.
@@ -31,21 +34,41 @@ create table if not exists public.retention_runs (
   -- o art. 18 §4 exige poder responder pelo que foi feito. Nao acrescenta
   -- exposicao: o mesmo txid ja vive na linha de `payments` que a execucao
   -- tocou. O que se apaga e o NOME; o registro de que se apagou fica.
-  txid           text
+  txid           text,
+  -- DISJUNCAO ESTRUTURAL, nao convencional. `payer_labels` significa coisas
+  -- diferentes conforme o `kind` (linhas varridas pela purga diaria vs. linhas
+  -- tocadas por um txid), e nada no esquema dizia isso: qualquer agregado
+  -- futuro sem filtro de kind sairia errado em silencio. Agora um registro de
+  -- purga nao pode carregar txid, e um pedido de titular nao pode vir sem.
+  constraint retention_runs_kind_txid check ((kind = 'erasure_request') = (txid is not null)),
+  -- Contagens de purga so existem na purga.
+  constraint retention_runs_purge_counts check (
+    kind = 'purge' or (payer_hints = 0 and house_accounts = 0 and check_views = 0)
+  )
 );
 
 create index if not exists retention_runs_at_idx on public.retention_runs (at desc);
 
 alter table public.retention_runs enable row level security;
 revoke all on public.retention_runs from anon, authenticated;
+-- A SEQUENCIA tambem. O `alter default privileges` do Supabase concede em
+-- TABELAS e em SEQUENCIAS, e RLS nao cobre sequencia — grant e o unico controle
+-- naquele objeto. A migracao 0025 existe so por causa disso, e a 0028 (que
+-- tambem cria `bigserial`) faz as duas linhas. Esta fazia tres de quatro.
+revoke all on sequence public.retention_runs_id_seq from anon, authenticated;
 
 comment on table public.retention_runs is
   'Registro de execucao da retencao (LGPD art. 37) e das respostas do art. 18 §4. Ver docs/compliance/retencao.md.';
 
 -- A propria tabela tem prazo: 5 anos, o mesmo do registro contabil, porque e
--- registro de conformidade e nao dado operacional. Dito aqui pra ela nao virar
--- a proxima tabela que cresce pra sempre — que foi o problema que a 0031
--- existiu pra resolver.
+-- registro de conformidade e nao dado operacional. E o prazo e EXECUTADO pela
+-- propria purga, la embaixo — nao dito num comentario.
+--
+-- O portao de compliance decidiu contra mim aqui, e a razao e boa: esta e a
+-- tabela que registra as pessoas que pediram explicitamente pra serem
+-- esquecidas, e era a unica com prazo escrito e nao cumprido. Em qualquer outro
+-- lugar "dito e nao feito" e risco de processo; aqui aponta pros titulares com
+-- a pretensao mais forte.
 
 create or replace function public.purge_expired_personal_data(
   p_label_days integer default 90,
@@ -112,6 +135,12 @@ begin
   delete from public.check_views
    where at < now() - make_interval(days => p_views_days);
   get diagnostics v_views = row_count;
+
+  -- O PROPRIO REGISTRO tem prazo, e ele e cumprido aqui. Nao entra em contagem
+  -- nenhuma: e higiene da tabela de conformidade, nao dado de cliente expurgado,
+  -- e somar os dois faria o numero do art. 18 mentir.
+  delete from public.retention_runs
+   where at < now() - interval '5 years';
 
   -- A LINHA DO REGISTRO, na mesma transacao. Se o expurgo reverter, o registro
   -- reverte junto — e e por isso que ela mora aqui e nao no chamador.

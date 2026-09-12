@@ -54,7 +54,7 @@ resultado. Zero por muitos dias seguidos é sinal de que ela parou de funcionar,
 não de que não havia o que apagar — o mesmo raciocínio do canário vermelho que
 nunca dispara.
 
-## O registro de que rodou (art. 37)
+## O registro de que rodou (art. 6º X, não art. 37)
 
 O expurgo funcionava e a metade que DETECTA não existia. O único rastro de uma
 execução era stderr e uma mensagem numa ponte que vira no-op silencioso sem
@@ -67,14 +67,28 @@ contagens, e — no pedido de titular — o `txid` atendido. A gravação aconte
 **dentro** da função, na mesma transação: registro que pode divergir do que
 aconteceu não é registro.
 
-Quem vigia é o cron da **conciliação**, que já roda todo dia e já pagina: se o
+Quem vigia é o cron da **conciliação**, que já roda todo dia e agora de fato
+pagina — até 2026-09-12 não paginava, e essa frase era falsa em três
+documentos. A ponte de avisos (`restaurant-ai-mcp/api/racha-notify.js`) roteava
+só o radar de ativação e exigia um campo `status` que a Racha não manda em
+evento de fundador nenhum, então **todo** alerta voltava 400 e virava linha de
+stderr. A batida noturna, cujo contrato é "a ausência dela é o alarme", nunca
+chegou uma vez — o contrato estava satisfeito de forma vazia. Corrigido nos dois
+lados, com censo em cada um. Detalhe: se o
 último expurgo tem mais de 48 horas, ou nunca houve nenhum, a linha entra no
 alerta e força o envio. Dois dias de folga porque a purga é diária — um dia
 perdido é um deploy demorado, dois é defeito. A checagem é embrulhada em
 `try`: higiene não pode calar o alerta de dinheiro.
 
-Isto é também o que o art. 37 pede — registro das operações de tratamento. E é
-onde uma resposta do art. 18 §4 finalmente tem onde apontar: até aqui o
+Uma correção de rótulo que importa: **isto NÃO é o art. 37.** O art. 37 pede o
+registro das *operações de tratamento*, e esse registro é o
+`docs/compliance/data-map.md`. Esta tabela é PROVA DE EXECUÇÃO — art. 6º X
+(responsabilização e prestação de contas) — mais o registro de resposta do art.
+18 §4. A distinção não é acadêmica: chamar a tabela de "o art. 37" faz alguém
+concluir depois que a obrigação está cumprida por um log de execução enquanto a
+ROPA de verdade envelhece sem ninguém olhar.
+
+E é onde uma resposta do art. 18 §4 finalmente tem onde apontar: até aqui o
 "comprovante" de uma exclusão a pedido era uma linha no terminal de quem
 executou. O pedido de titular grava **mesmo quando não acha linha**, porque
 "pediram e não havia" é a resposta que alguém contestaria depois.

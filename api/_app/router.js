@@ -65,6 +65,7 @@ const { createHouseService } = require('../_lib/house/house-service');
 const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
 const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
   formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
+const { avaliarRetencao } = require('../_lib/checks/retention-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
@@ -1855,44 +1856,44 @@ async function route(req, res) {
       /**
        * A RETENÇÃO NÃO RODA HÁ QUANTO TEMPO.
        *
-       * Pendurada aqui porque este cron já pagina, já roda todo dia e já é o
-       * lugar onde um silêncio vira alarme. A retenção tem o problema inverso:
-       * ela FALA todo dia, e em regime o que ela diz é zero — a coisa mais
-       * ignorável que existe numa caixa de entrada. Então quem detecta que ela
-       * parou não pode ser um humano lendo a ausência de uma mensagem chata;
-       * tem que ser outro cron olhando uma linha no banco.
+       * Pendurada aqui porque este cron já roda todo dia e já é o lugar onde um
+       * silêncio vira alarme. A retenção tem o problema inverso: ela FALA todo
+       * dia, e em regime o que ela diz é zero — a coisa mais ignorável que
+       * existe numa caixa de entrada. Quem detecta que ela parou não pode ser
+       * um humano lendo a ausência de uma mensagem chata.
        *
-       * Dois dias de folga porque a purga é diária: um dia perdido é um deploy
-       * demorado, dois é defeito. E a falha aqui NÃO derruba a conciliação —
-       * uma checagem de higiene não pode calar o alerta de dinheiro.
+       * A DECISÃO mora em `_lib/checks/retention-watch.js`, pura e testada por
+       * tabela de casos. Ela morava aqui, e cinco mutações contra ela passaram
+       * verdes porque a rota não é exportável e o teste só sabia procurar
+       * substring. Aqui ficou o I/O — que é o que uma rota deve ter.
+       *
+       * O `catch` existe pra que higiene não cale o alerta de dinheiro; o
+       * `erro` que ele produz conta como ATRASO, não como silêncio.
        */
-      let retencao = null;
+      let retencao;
       try {
-        if (typeof store.lastRetentionRun === 'function') {
-          const ultima = await store.lastRetentionRun();
-          const horas = ultima
-            ? Math.floor((Date.now() - Date.parse(ultima.at)) / 3_600_000)
-            : null;
-          retencao = { ultima: ultima ? ultima.at : null, horas };
-        }
+        // Sem `typeof`: store publicado sem o método é DEFEITO, não
+        // configuração — a mesma postura que a rota da retenção toma 100 linhas
+        // abaixo. Um método ausente estoura e vira alarme, em vez de sumir.
+        retencao = avaliarRetencao(await store.lastRetentionRun());
       } catch (e) {
-        retencao = { erro: String(e.message).slice(0, 120) };
+        process.stderr.write(`[reconcile-cron] retenção ilegível: ${String((e && e.message) || e).slice(0, 200)}\n`);
+        // Só um token estável viaja: a mensagem vai pra ponte de outra empresa,
+        // e texto cru de driver é o único campo que poderia levar algo não
+        // previsto.
+        retencao = avaliarRetencao(null, { erro: 'read_failed' });
       }
-      // Nunca rodou, ou faz mais de 48h: entra no alerta e força o envio. A
-      // tela da conta promete ao cliente que o nome dele sai em 90 dias; o job
-      // parado transforma essa frase em declaração falsa a um consumidor.
-      const retencaoAtrasada = retencao
-        && (retencao.erro !== undefined || retencao.horas === null || retencao.horas >= 48);
-      const linhaRetencao = !retencaoAtrasada ? '' : (
-        retencao.erro
-          ? `\n⚠ RETENÇÃO: não foi possível ler o registro de execução (${retencao.erro}).`
-          : retencao.horas === null
-            ? '\n⚠ RETENÇÃO: nunca rodou. O aviso de privacidade promete exclusão em 90 dias.'
-            : `\n⚠ RETENÇÃO: última execução há ${retencao.horas}h (limite 48h).`
-      );
+      const linhaRetencao = retencao.linha;
 
-      const mensagem = (formatReconcileAlert(report) || (linhaRetencao ? 'Conciliação sem achados.' : ''))
-        + linhaRetencao;
+      // A retenção atrasada NÃO pode apagar a batida noturna.
+      //
+      // A primeira versão somava a linha ao `mensagem`, e como `mensagem`
+      // não-vazio manda pro ramo de alerta, uma noite verde com retenção
+      // atrasada deixava de mandar `reconcile_heartbeat`. Do outro lado a
+      // ausência da batida significa "a conciliação morreu" — então um problema
+      // de higiene fabricava um alarme de dinheiro. São dois sinais e viajam
+      // separados. Achado da revisão de segurança.
+      const mensagem = formatReconcileAlert(report);
       let envio = null;
       if (mensagem && url.searchParams.get('dry') !== '1') {
         envio = await notifyFounderReconcile({
@@ -1918,6 +1919,16 @@ async function route(req, res) {
           rowsRepaired: report.rowsRepaired, rowsRepairAckLost: report.rowsRepairAckLost,
           rowsRepairRaced: report.rowsRepairRaced, rowsRepairRejected: report.rowsRepairRejected,
           infoCodes: report.infoCodes,
+        });
+      }
+      // A RETENÇÃO ATRASADA É UM AVISO PRÓPRIO, no canal de eventos de dinheiro
+      // e não no da conciliação. Assim a batida noturna continua saindo (a
+      // ausência dela segue significando "a conciliação morreu") e o atraso de
+      // higiene não se disfarça de desvio de dinheiro.
+      if (retencao.atrasada && url.searchParams.get('dry') !== '1') {
+        await notifyFounderMoneyEvent({
+          kind: 'retention_late',
+          detail: retencao.linha.replace(/^\n/, ''),
         });
       }
       // Verde também sai no log: um canário que só fala quando está ruim é
@@ -1977,6 +1988,16 @@ async function route(req, res) {
       if (typeof store.purgeExpiredPersonalData !== 'function') {
         process.stderr.write('[retencao] store sem purgeExpiredPersonalData — a retenção NÃO está rodando\n');
         return json(res, 501, { success: false, code: 'retention_unavailable' });
+      }
+      // `?dry=1` AQUI NÃO É SECO, e isso agora engana o relógio.
+      //
+      // Na rota da conciliação `dry` só cala o aviso; aqui a purga executa de
+      // qualquer jeito E grava uma linha de `purge`, que zera o contador de 48h
+      // do vigia. Uma inspeção manual passa a ser indistinguível de uma noite
+      // saudável. Como não há expurgo "a seco" (a função escreve), a resposta
+      // honesta é recusar: quem quer olhar consulta o registro.
+      if (url.searchParams.get('dry') === '1') {
+        return json(res, 400, { success: false, code: 'retention_no_dry_run' });
       }
       const purga = await store.purgeExpiredPersonalData();
       process.stderr.write(
