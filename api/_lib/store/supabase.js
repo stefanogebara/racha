@@ -938,6 +938,34 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
 
     /**
+     * A ÚLTIMA execução da retenção — e é isto que torna "a ausência é o
+     * alarme" verdadeiro. Sem este registro, cron parado e cron sem nada pra
+     * apagar reportam a mesma coisa (zero), e a diferença só existia na cabeça
+     * de quem lembrasse de conferir. Ver migração 0032.
+     */
+    async lastRetentionRun() {
+      const { data, error } = await client
+        .from('retention_runs')
+        // Sem `kind` no select: o filtro já o fixa em 'purge' e nada lê de
+        // volta — selecionar campo que ninguém usa é o que fez os dois stores
+        // divergirem em forma sem ninguém notar.
+        .select('at, payer_labels, payer_hints, house_accounts, check_views')
+        .eq('kind', 'purge')
+        .order('at', { ascending: false })
+        .limit(1);
+      throwOn(error, 'lastRetentionRun');
+      const r = (data || [])[0];
+      if (!r) return null;
+      return {
+        at: r.at,
+        payerLabels: Number(r.payer_labels ?? 0),
+        payerHints: Number(r.payer_hints ?? 0),
+        houseAccounts: Number(r.house_accounts ?? 0),
+        checkViews: Number(r.check_views ?? 0),
+      };
+    },
+
+    /**
      * Pedido do titular (art. 18 IV): o nome livre de UM pagamento sai AGORA,
      * não no dia 90. Instrumento limitado no lugar de SQL ad-hoc com a service
      * role — ver migração 0031.

@@ -65,6 +65,7 @@ const { createHouseService } = require('../_lib/house/house-service');
 const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
 const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
   formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
+const { vigiarRetencao } = require('../_lib/checks/retention-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
@@ -119,7 +120,20 @@ const houseSvc = createHouseService({ store, psp });
 // Evento de dinheiro que não vira lançamento (cancelamento parcial, disputa,
 // estorno falho): anomalia durável no razão + aviso. Ver `_lib/pay/non-ledger`.
 const handleNonLedgerMoneyEvent = createNonLedgerHandler({
-  store, notify: notifyFounderMoneyEvent,
+  // O QUARTO caminho até o avisador, e o único que não era uma chamada — é uma
+  // LIGAÇÃO, então nenhum censo que olha expressão de chamada o vê.
+  //
+  // Os três sites de webhook ganharam o embrulho; este ficou no remetente cru,
+  // e ele serve o trilho PIX. Hoje está seguro pelo motivo certo: o conjunto
+  // que chega aqui é `NON_LEDGER_KINDS \ SEM_ALARDE`, e a invariante nova
+  // garante que ele é subconjunto do que o avisador aceita. Mas isso é uma
+  // defesa só, e o que a sustenta é que os três chamadores de
+  // `handleNonLedgerMoneyEvent` são todos guardados por `NON_LEDGER_KINDS.has`
+  // — forma "chamador esquecido": um quarto chamador sem guarda traz de volta o
+  // 5xx eterno que derruba o endpoint. Embrulhar aqui dá o mesmo piso aos
+  // quatro caminhos e rebaixa a invariante de defesa única pra defesa em
+  // profundidade. Achado da revisão de segurança de 2026-09-12.
+  store, notify: avisarEventoDeDinheiro,
 });
 
 const handleWebhook = createWebhookHandler({
@@ -421,6 +435,31 @@ async function writeBackToPos(checkId) {
     await adapter.writeBackPayment({ venue, checkId });
   } catch (err) {
     process.stderr.write(`writeBackToPos(${checkId}) failed (non-fatal): ${err.message}\n`);
+  }
+}
+
+/**
+ * Avisa, e NUNCA derruba o webhook por contrato quebrado.
+ *
+ * `notifyFounderMoneyEvent` estoura num `kind` fora da lista — disciplina certa
+ * pros call sites literais, onde um teste pega antes do deploy. Nos três sites
+ * de WEBHOOK o `kind` vem do adaptador, então um evento novo estouraria em
+ * produção: o registro durável já foi gravado, a requisição devolveria 500, o
+ * adquirente reentregaria por dias e acabaria DESLIGANDO o endpoint — o que
+ * para `payment_confirmed` de todas as mesas, não só o alerta perdido.
+ *
+ * Então só o erro MARCADO é engolido, e alto. Falha de entrega continua subindo
+ * como antes: o silêncio que duas rodadas removeram não volta por aqui.
+ */
+async function avisarEventoDeDinheiro(evento) {
+  try {
+    return await notifyFounderMoneyEvent(evento);
+  } catch (e) {
+    if (e && e.code === 'kind_desconhecido') {
+      process.stderr.write(`MONEY EVENT ALERT (kind desconhecido '${sanitizeForLog(evento.kind)}'): ${sanitizeForLog(evento.txid)}\n`);
+      return { ok: false, skipped: 'kind_desconhecido' };
+    }
+    throw e;
   }
 }
 
@@ -852,9 +891,8 @@ async function route(req, res) {
             }, { alert: false, psp: 'stripe' }); // o aviso sai abaixo, com a conta conectada
             persistido = marcaNaoLancavel.persisted;
           }
-          let avisado = true;
           if (parsed.kind !== 'refund_progress') {
-            const r = await notifyFounderMoneyEvent({
+            await avisarEventoDeDinheiro({
               kind: parsed.kind, txid: parsed.txid, checkId: found ? found.id : null,
               amountCents: parsed.amountCents,
               // O TIPO do evento vai no detalhe: `account_alert` cobre repasse
@@ -868,7 +906,6 @@ async function route(req, res) {
                 parsed.accountId ? `acct=${parsed.accountId}` : null]
                 .filter(Boolean).join(' '),
             });
-            avisado = Boolean(r && r.ok);
           }
           /**
            * Evento de dinheiro que não foi gravado NEM avisado é 503.
@@ -936,7 +973,7 @@ async function route(req, res) {
               });
             }
           }
-          await notifyFounderMoneyEvent({
+          await avisarEventoDeDinheiro({
             kind: parsed.kind, txid: parsed.txid, checkId: result.checkId || null,
             amountCents: parsed.amountCents, detail: parsed.reason || null,
           });
@@ -969,7 +1006,7 @@ async function route(req, res) {
         // há cliente com reembolso a receber por outro caminho.
         if (parsed.kind === 'refund_failed') {
           result = await applyConfirmedPayment(parsed, confirmDeps);
-          await notifyFounderMoneyEvent({
+          await avisarEventoDeDinheiro({
             kind: parsed.kind, txid: parsed.txid,
             checkId: result.checkId || null,
             amountCents: parsed.amountCents, detail: parsed.status || null,
@@ -1852,6 +1889,32 @@ async function route(req, res) {
         });
         return json(res, 500, { success: false, error: 'reconcile falhou', code: 'reconcile_threw' });
       }
+      /**
+       * A RETENÇÃO NÃO RODA HÁ QUANTO TEMPO.
+       *
+       * Pendurada neste cron porque ele já roda todo dia. A retenção tem o
+       * problema inverso do dinheiro: ela FALA todo dia, e em regime diz zero —
+       * então quem detecta que ela parou não pode ser um humano lendo a
+       * ausência de uma mensagem chata.
+       *
+       * Ler, decidir E AVISAR moram juntos em `_lib/checks/retention-watch.js`.
+       * Tinham ficado separados: a decisão saiu pra lá e a linha que age sobre
+       * ela ficou aqui, coberta só por `toMatch(/kind: 'retention_late'/)` — e
+       * `if (false && retencao.atrasada)` passava com 677 verdes. O guarda
+       * mudou de lugar e o buraco andou uma linha.
+       */
+      const retencao = await vigiarRetencao(store, notifyFounderMoneyEvent, {
+        seco: url.searchParams.get('dry') === '1',
+      });
+
+      // A retenção atrasada NÃO pode apagar a batida noturna.
+      //
+      // A primeira versão somava a linha ao `mensagem`, e como `mensagem`
+      // não-vazio manda pro ramo de alerta, uma noite verde com retenção
+      // atrasada deixava de mandar `reconcile_heartbeat`. Do outro lado a
+      // ausência da batida significa "a conciliação morreu" — então um problema
+      // de higiene fabricava um alarme de dinheiro. São dois sinais e viajam
+      // separados. Achado da revisão de segurança.
       const mensagem = formatReconcileAlert(report);
       let envio = null;
       if (mensagem && url.searchParams.get('dry') !== '1') {
@@ -1872,6 +1935,12 @@ async function route(req, res) {
         // noturna é o alarme — que é o único jeito de detectar cron desligado.
         envio = await notifyFounderReconcile({
           // A batida LEVA TEXTO: o campo estruturado sozinho não é leitura.
+          // SEM a linha da retenção: ela viaja como `retention_late`, evento
+          // próprio. Eu tinha reportado esta interpolação como morta e ela não
+          // era — numa noite verde `mensagem` é null, o ramo da batida roda, e
+          // a linha ia junto. O aviso saía em dois canais enquanto o comentário
+          // acima dizia que os sinais viajam separados. Linha viva acreditada
+          // morta é como o próximo leitor raciocina errado.
           mensagem: formatReconcileHeartbeat(report), heartbeat: true,
           venuesRed: 0, venuesChecked: report.venuesChecked,
           driftCents: report.totalDriftCents, worstSeverity: report.worstSeverity,
@@ -1937,6 +2006,16 @@ async function route(req, res) {
       if (typeof store.purgeExpiredPersonalData !== 'function') {
         process.stderr.write('[retencao] store sem purgeExpiredPersonalData — a retenção NÃO está rodando\n');
         return json(res, 501, { success: false, code: 'retention_unavailable' });
+      }
+      // `?dry=1` AQUI NÃO É SECO, e isso agora engana o relógio.
+      //
+      // Na rota da conciliação `dry` só cala o aviso; aqui a purga executa de
+      // qualquer jeito E grava uma linha de `purge`, que zera o contador de 48h
+      // do vigia. Uma inspeção manual passa a ser indistinguível de uma noite
+      // saudável. Como não há expurgo "a seco" (a função escreve), a resposta
+      // honesta é recusar: quem quer olhar consulta o registro.
+      if (url.searchParams.get('dry') === '1') {
+        return json(res, 400, { success: false, code: 'retention_no_dry_run' });
       }
       const purga = await store.purgeExpiredPersonalData();
       process.stderr.write(

@@ -43,6 +43,7 @@ documentada, em nome próprio. Ver lacuna 4.
 | `payments.psp_payload_masked` — subconjunto ESCALAR do webhook (14 campos: txid, valores, status, horários) | cliente | reconciliar e reproduzir o histórico | operadora | Supabase `payments` | segue a conta |
 | `house_accounts.phone` + `.name` | cliente que abre carteira pré-paga | achar a carteira dele na casa e saber de quem é o saldo | operadora | Supabase `house_accounts` | enquanto a carteira viver, **+ 90 dias** depois de zerada e inativa |
 | `check_views.session_hash` | ninguém — aleatório do navegador | contar quantas pessoas ABREM a conta (portão de adoção) | interesse legítimo (art. 7º IX) — **e a lacuna 2 é PRÉ-CONDIÇÃO dela**, não item vizinho: o art. 7º IX é a única base que chega com dever de transparência (art. 10 §2) e direito de oposição (art. 18 §2). Sem o aviso, a base é alegada, não constituída | Supabase `check_views` | **90 dias** (migração 0031) — o portão de adoção olha 8 semanas, então guardar linha crua além disso era guardar por guardar. Agregar por casa/semana e apagar até a linha tiraria o `check_views` do perímetro quase inteiro, o que continua sendo melhor do que ganhar o teste de balanceamento |
+| `retention_runs.txid` + as contagens | cliente cujo pedido de exclusão foi atendido | comprovar a execução da retenção e a resposta do art. 18 §4 | **controladora, em nome próprio** — art. 7º II c/c art. 16 I (obrigação legal) e art. 6º X (responsabilização). É o segundo fluxo em que a Racha trata pra si, junto com o `check_views`, e um DPA com a casa não cobre nenhum dos dois | Supabase `retention_runs` | 5 anos, executados pela própria purga |
 | `venues.cnpj`, `venues.notify_email`, `venues.notify_whatsapp` | dono | cadastro, KYC do recebedor, aviso de status | controladora, contrato (art. 7º V) | Supabase `venues` | vida do contrato |
 | e-mail e senha do dono | dono | login do painel | controladora, contrato | Supabase Auth (GoTrue), `auth.users` | vida do contrato |
 | dados bancários da casa (banco, agência, conta, titular) | casa | criar o recebedor no PSP | controladora, contrato | **não persistidos aqui** — vão do formulário direto pro PSP | n/a |
@@ -58,7 +59,9 @@ documentada, em nome próprio. Ver lacuna 4.
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
 | **Google Pay** (`pay.google.com`) | o que a folha da carteira do sistema operacional troca com o Google | botão de carteira — **só em casa que o servidor declarou `acceptsWallet`** | Google |
 | **Saipos** (`order-api.saipos.com`) | id da loja, id da conta, valores | ler a conta do PDV e escrever a baixa | Brasil |
-| **Olímpia / Seatable** (`seatable.one`, `RACHA_NOTIFY_URL`) | **cinco caminhos**, ver abaixo | avisos de operação e radar de vendas | Brasil |
+| **Olímpia / Seatable** (`seatable.one`, `RACHA_NOTIFY_URL`) | **cinco caminhos**, ver abaixo | avisos de operação e radar de vendas | Brasil — **e daí pra fora, ver as duas linhas seguintes** |
+| **Resend** (suboperador da Olímpia) | o TEXTO do alerta de fundador: `txid`, `checkId`, valor, e nomes de casa em achado de conciliação | entregar o alerta por e-mail | EUA |
+| **Meta — WhatsApp Cloud API** (suboperador da Olímpia) | o mesmo texto, exceto rotina (batida e `retention_ok`, que vão só por e-mail) | entregar o alerta por WhatsApp | EUA |
 
 **Sobre a última linha, com precisão.** A primeira versão desta seção listava
 dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
@@ -67,12 +70,25 @@ dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
 | função | o que sai |
 |---|---|
 | `notifyOwnerRecipientStatus` | `venueName`, `ownerEmail`, `ownerPhone`, `status`, `previousStatus`, `reason`, `pspRecipientId` |
-| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail` — e desde 2026-09-12 também `retention_ok` / `retention_blocked`, que levam só CONTAGENS (sem txid, sem casa) |
+| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail`. Os `kind` são disputa e estorno (`dispute_opened`, `dispute_updated`, `dispute_funds`, `dispute_lost`, `account_alert`, `unusable_money_event`, `refund_failed`) mais os três da retenção (`retention_ok`, `retention_blocked`, `retention_late`), que levam só CONTAGENS — sem txid, sem casa |
 | `notifyFounderReconcile` | o texto do alerta: nomes de casa e desvio por casa |
 | `notifyFounderActivationRadar` | o resumo do radar de ativação |
 | `notifyPreviaBeacon` | `{token, event}` do lead da Olímpia |
 
-`notifyFounderMoneyEvent` sai de `router.js` em cinco pontos e leva o
+**Até 2026-09-12 esta transferência era TEÓRICA.** A ponte recusava todo evento
+de fundador com 400, então nada era entregue — o mapa descrevia um canal que na
+prática não transmitia nada. Consertar a ponte tornou a transferência real, e a
+cadeia de suboperadores ficou duas pontas mais longa do que este mapa dizia:
+identificador de pagamento pseudonimizado e detalhe financeiro por casa passaram
+a sair pra dois processadores nos EUA, sob contrato da OUTRA empresa. É item do
+art. 39 (a casa-controladora tem que poder conhecer a cadeia) e do art. 33
+(transferência internacional), e reforça a lacuna 4.
+
+Se a preferência for encolher o perímetro em vez de documentá-lo, a alavanca é
+barata: nada num alerta de WhatsApp exige o `txid`. `kind` + "abra o painel" é
+acionável, e o identificador fica só no e-mail.
+
+`notifyFounderMoneyEvent` sai de `router.js` em SEIS pontos e leva o
 identificador de pagamento de UM cliente específico, o identificador da conta
 dele e o valor. `txid` resolve pro CPF do pagador no painel da adquirente, então
 é identificável por meios razoáveis — não é dado anônimo por não trazer nome.
@@ -131,28 +147,26 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
 
 ## 4. Lacunas — o que falta, nomeado
 
-1. ~~**Sem prazo de retenção e sem caminho de exclusão.**~~ **Prazo e job
-   fechados em 2026-09-12**; o pedido do titular continua aberto.
-   `docs/compliance/retencao.md` tem a tabela por fluxo, a migração 0031 tem a
+1. ~~**Sem prazo de retenção e sem caminho de exclusão.**~~ **Prazo, job e
+   registro fechados em 2026-09-12**; a rota de autoatendimento continua aberta.
+   `docs/compliance/retencao.md` tem a tabela por fluxo; a migração 0031 tem a
    função `purge_expired_personal_data()` — que ANONIMIZA em vez de apagar,
    porque o razão é event-sourced e destruir um pagamento destruiria a
    contabilidade da casa — e `/api/cron/retention` a chama uma vez por dia. O
    prazo que a função cumpre e o prazo que o aviso ao cliente promete estão
    amarrados por teste (`api/__tests__/retention.test.js`).
-   **O que falta, e são duas coisas.** (a) Rota de autoatendimento do art. 18:
-   hoje o pedido passa pelo restaurante e a execução é manual com o
-   `erase-payment-label.js` — aceitável num piloto assistido com poucas casas,
-   inaceitável quando o produto for self-serve. (b) **O REGISTRO DE QUE A PURGA
-   RODOU.** O expurgo existe e é verificado; a metade que DETECTA não existe. A
-   batida diária sai, mas absence-is-the-alarm só vale se algo alertar sobre a
-   ausência — hoje depende de um humano notar que parou de chegar uma mensagem
-   que, em regime, diz zero todo dia; e ela viaja por um canal que vira no-op
-   silencioso sem `RACHA_NOTIFY_SECRET`. O conserto é uma linha por execução no
-   próprio Postgres (data + as quatro contagens) e uma checagem de `max(at) <
-   now() - 48h` no cron da conciliação, que já pagina. Isso é também o registro
-   das operações de tratamento do art. 37, e dá ao `erase-payment-label.js` um
-   lugar durável pra escrever — hoje o "comprovante" de uma resposta do art. 18
-   §4 é uma linha no terminal de quem executou.
+   E a migração 0032 fecha a metade que DETECTA: `retention_runs` grava uma
+   linha por execução, **dentro da mesma transação do expurgo**, e o cron da
+   conciliação — que já roda todo dia e já pagina — alerta se o último expurgo
+   passar de 48h ou se nunca tiver havido nenhum. Sem isso, cron parado e cron
+   sem nada pra apagar reportavam a mesma coisa (zero), e a diferença só existia
+   na cabeça de quem lembrasse de conferir. É também o registro das operações de
+   tratamento do art. 37, e o lugar durável pro comprovante de uma resposta do
+   art. 18 §4 — que até aqui era uma linha no terminal de quem executou.
+   **O que falta:** rota de autoatendimento do art. 18. Hoje o pedido passa pelo
+   restaurante e a execução é manual com o `erase-payment-label.js` — aceitável
+   num piloto assistido com poucas casas, inaceitável quando o produto for
+   self-serve.
 2. **Aviso de privacidade: o texto existe, o CANAL PRÓPRIO não.** Parcialmente
    fechada em 2026-09-12, e é importante não marcar como fechada. `PrivacyNotice.tsx`, no rodapé da tela da conta, nos três
    idiomas: quem é controlador (a casa, com a Racha como operadora), o que fica

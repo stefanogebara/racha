@@ -15,6 +15,18 @@
 
 const NOTIFY_URL = process.env.RACHA_NOTIFY_URL || 'https://seatable.one';
 
+/**
+ * Entrega o aviso e diz se ALGUM canal entregou.
+ *
+ * Compartilhado pelos três remetentes porque o erro era o mesmo nos três: a
+ * ponte captura toda falha de canal numa string e devolve 200, então `res.ok`
+ * sozinho quer dizer "a ponte recebeu", não "alguém foi avisado".
+ */
+function entregouAlgumCanal(data) {
+  const d = data && data.data;
+  return Boolean(d && (d.email === 'sent' || d.whatsapp === 'sent'));
+}
+
 async function notifyOwnerRecipientStatus({ venue, status, previousStatus = null, reason = null }) {
   const secret = process.env.RACHA_NOTIFY_SECRET;
   if (!secret) {
@@ -46,8 +58,24 @@ async function notifyOwnerRecipientStatus({ venue, status, previousStatus = null
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) process.stderr.write(`[notify] racha-notify ${res.status}: ${JSON.stringify(data).slice(0, 160)}\n`);
-    return { ok: res.ok, status: res.status, data };
+    // AQUI O `ok` É O MAIS CARREGADO DOS TRÊS.
+    //
+    // O chamador (`/api/cron/recipient-status`) só grava
+    // `setVenueRecipientStatus` SE este `ok` for verdadeiro — a transição é
+    // persistida PORQUE o aviso "deu certo". Com o Resend fora, a ponte devolve
+    // 200 com os dois canais pulados, a Racha grava a transição, a aresta
+    // `de → para` deixa de existir, e o próximo tick não retenta: o dono nunca
+    // fica sabendo que o recebedor dele foi recusado, e não há segunda chance.
+    // Era o mesmo sucesso silencioso dos outros dois, no único lugar onde o
+    // `.ok` de fato decide alguma coisa. Achado da revisão de segurança.
+    const entregue = entregouAlgumCanal(data);
+    if (!res.ok || !entregue) {
+      process.stderr.write(
+        `[notify] racha-notify ${res.status}${entregue ? '' : ' (nada entregue)'}: `
+        + `${JSON.stringify(data).slice(0, 160)}\n`,
+      );
+    }
+    return { ok: res.ok && entregue, status: res.status, data };
   } catch (e) {
     process.stderr.write(`[notify] racha-notify falhou: ${String(e.message).slice(0, 160)}\n`);
     return { ok: false, error: e.message };
@@ -175,10 +203,26 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok && !heartbeat) {
-      process.stderr.write(`RECONCILE ALERT (ponte ${res.status}):\n${mensagem}\n`);
+    // A BATIDA REJEITADA TAMBÉM GRITA.
+    //
+    // Era `!res.ok && !heartbeat`, então uma batida recusada não escrevia nada
+    // — e a batida é justamente o sinal cujo contrato é "a ausência é o
+    // alarme". Uma ponte que recusa 100% das batidas satisfaz esse contrato de
+    // forma vazia: a ausência nunca foi lida como alarme porque a batida nunca
+    // chegou uma vez sequer. Achado da revisão de segurança de 2026-09-12, que
+    // leu o RECEPTOR — as revisões anteriores endureceram o transporte deste
+    // lado e nenhuma conferiu se o outro lado aceita o corpo.
+    // Mesmo raciocínio do evento de dinheiro: 200 com nada entregue é pior que
+    // 400. A batida é rotina e vai só por e-mail, então pra ela `entregue`
+    // também se satisfaz com e-mail.
+    const entregue = entregouAlgumCanal(data);
+    if (!res.ok || !entregue) {
+      process.stderr.write(
+        `${heartbeat ? 'RECONCILE HEARTBEAT' : 'RECONCILE ALERT'} `
+        + `(ponte ${res.status}${entregue ? '' : ', nada entregue'}):\n${mensagem}\n`,
+      );
     }
-    return { ok: res.ok, status: res.status, data };
+    return { ok: res.ok && entregue, status: res.status, data };
   } catch (e) {
     if (!heartbeat) {
       process.stderr.write(`RECONCILE ALERT (ponte falhou: ${String(e.message).slice(0, 120)}):\n${mensagem}\n`);
@@ -200,7 +244,55 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
  * relatório inteiro vai pro stderr. Trocar um alerta por um silêncio é o modo
  * de falha #7.
  */
+/**
+ * OS EVENTOS DE FUNDADOR — a lista é daqui, e é ela que a ponte espelha.
+ *
+ * A primeira versão desta lista vivia só do outro lado e foi preenchida a olho,
+ * a partir do que o censo achava no `router.js`. O censo procurava
+ * `notifyFounderMoneyEvent({ kind: '<literal>'` — primeira chave, literal — e
+ * três dos seis call sites passam `kind: parsed.kind`, o evento normalizado
+ * pelo adaptador do PSP. Então a lista ganhou cinco nomes que NÃO são eventos
+ * (`overpaid_pending_restitution`, `money_event_unrecorded`,
+ * `dispute_close_unrecorded`, `dispute_evidence_due`, `dispute_evidence_overdue`
+ * são códigos de achado da conciliação e de erro HTTP, que só PARECEM nomes de
+ * evento) e perdeu os SETE que a produção realmente emite — todos de disputa e
+ * de estorno.
+ *
+ * Resultado: um `charge.dispute.created` da Stripe continuava voltando 400 e
+ * virando linha de log, com o relógio de 40 dias de prova correndo em silêncio.
+ * Dois censos, um mesmo ponto cego, concordando um com o outro.
+ *
+ * Por isso a lista mudou de lado. Aqui ela é a FONTE: `notifyFounderMoneyEvent`
+ * ESTOURA num `kind` que não esteja nela, então um adaptador que invente um
+ * evento novo falha no remetente, alto, em vez de sumir num 400. E o censo
+ * virou comparação de conjuntos, que regex nenhuma dribla.
+ *
+ * Achado da revisão de segurança de 2026-09-12.
+ */
+const KINDS_DE_FUNDADOR = Object.freeze(new Set([
+  // Disputa e estorno — normalizados pelos adaptadores, passados como
+  // `parsed.kind`. São exatamente os que estavam faltando.
+  'dispute_opened', 'dispute_updated', 'dispute_funds', 'dispute_lost',
+  'account_alert', 'unusable_money_event', 'refund_failed',
+  // Retenção — literais, do cron.
+  'retention_ok', 'retention_blocked', 'retention_late',
+]));
+
 async function notifyFounderMoneyEvent({ kind, txid, checkId = null, amountCents = 0, detail = null }) {
+  // ESTOURA em vez de mandar o que a ponte recusa. Um evento novo tem que
+  // passar por uma decisão humana sobre como é entregue — e falhar aqui é
+  // barulhento, enquanto falhar na ponte era um 400 dentro de um log.
+  if (!KINDS_DE_FUNDADOR.has(kind)) {
+    // ERRO MARCADO, não genérico. Nos três call sites de webhook o chamador
+    // pega SÓ este código e perde o alerta com barulho; qualquer outra falha
+    // continua subindo. Sem a marca, um `catch` no webhook devolveria o
+    // silêncio que duas rodadas foram gastas removendo — e sem o `catch`, um
+    // kind novo derrubaria o endpoint do adquirente, que é pior que perder um
+    // alerta. Achado da revisão de segurança de 2026-09-12.
+    const err = new Error(`notifyFounderMoneyEvent: kind desconhecido '${kind}' — acrescente em KINDS_DE_FUNDADOR e na ponte`);
+    err.code = 'kind_desconhecido';
+    throw err;
+  }
   // Campos ausentes SOMEM em vez de virar "txid=undefined". Alertas que não são
   // de uma cobrança (batida da retenção, por exemplo) passam por aqui, e uma
   // linha com `undefined` treina quem lê a ignorar.
@@ -230,12 +322,27 @@ async function notifyFounderMoneyEvent({ kind, txid, checkId = null, amountCents
       headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
       body: JSON.stringify({ event: kind, mensagem: linha, txid, checkId, amountCents, detail }),
     });
-    if (!res.ok) process.stderr.write(`MONEY EVENT ALERT (ponte ${res.status}):\n${linha}\n`);
-    return { ok: res.ok, status: res.status };
+    const data = await res.json().catch(() => ({}));
+    // 200 NÃO QUER DIZER ENTREGUE.
+    //
+    // A ponte captura toda falha de canal num campo de string e devolve 200 de
+    // qualquer jeito: sem `RESEND_API_KEY`, com o Resend recusando, sem número
+    // do fundador — tudo vira `{email:'skipped', whatsapp:'skipped:...'}` com
+    // status 200. Ler só `res.ok` trocava "400 toda noite, pelo menos alto no
+    // log" por "200 toda noite, calado", que é estritamente o pior dos dois
+    // pela ordem do próprio CLAUDE.md: sucesso silencioso é o inimigo.
+    const entregue = entregouAlgumCanal(data);
+    if (!res.ok || !entregue) {
+      process.stderr.write(
+        `MONEY EVENT ALERT (ponte ${res.status}${entregue ? '' : ', nada entregue'}):\n${linha}\n`,
+      );
+    }
+    return { ok: res.ok && entregue, status: res.status, entregue };
   } catch (e) {
     process.stderr.write(`MONEY EVENT ALERT (ponte falhou: ${String(e.message).slice(0, 120)}):\n${linha}\n`);
     return { ok: false, error: e.message };
   }
 }
 
-module.exports = { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon, notifyFounderReconcile, notifyFounderMoneyEvent };
+module.exports = { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
+  notifyFounderReconcile, notifyFounderMoneyEvent, KINDS_DE_FUNDADOR };
