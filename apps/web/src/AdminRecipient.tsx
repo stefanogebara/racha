@@ -70,7 +70,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
     }
   }, [venueId]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   if (!info) {
     return (

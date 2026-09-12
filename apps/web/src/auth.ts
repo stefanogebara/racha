@@ -56,9 +56,13 @@ export function onSession(cb: (s: Session | null) => void): () => void {
   if (!supabase) { cb(null); return () => {}; }
   // Recupera a sessão do hash ANTES de perguntar getSession — assim o primeiro
   // render já sabe que está logado (sem piscar o login e voltar).
-  recoverOAuthSession()
-    .then(() => supabase!.auth.getSession())
-    .then(({ data }) => cb(data.session));
+  // Com `.catch`: sem ele, uma rejeição aqui deixava `cb` sem ser chamado
+  // NUNCA — a tela de login ficava carregando pra sempre em vez de mostrar o
+  // login. A promessa solta escondia a falha em vez de degradar pra "deslogado".
+  void recoverOAuthSession()
+    .then(() => supabase.auth.getSession())
+    .then(({ data }) => cb(data.session))
+    .catch(() => cb(null));
   const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => cb(s));
   return () => sub.subscription.unsubscribe();
 }

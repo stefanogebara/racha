@@ -4,10 +4,11 @@ import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
 import Home from './Home';
 import HousePay from './HousePay';
+import PrivacyNotice from './PrivacyNotice';
 import WalletButtons from './WalletPay';
 
 /** Sem chave publicável não há elemento da Stripe pra montar. */
-const STRIPE_READY = !!(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined);
+const STRIPE_READY = !!(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 /**
  * OS TRILHOS DA STRIPE CARREGAM SOB DEMANDA — e não em toda conta de Pix.
@@ -55,6 +56,12 @@ const NOTICE_KEY: Record<string, Key> = {
   overpaid_pending_restitution: 'notice.overpaid_pending_restitution',
   refund_reversed: 'notice.refund_reversed',
 };
+
+/**
+ * O ritmo do poll da conta. Cresce até um minuto quando a conta não existe
+ * (mesa ainda não aberta, ou já fechada) e volta aqui em qualquer leitura boa.
+ */
+const POLL_BASE_MS = 4000;
 
 export default function App() {
   const { t, lang, pct, adotarPadraoDaCasa, dmy, hm } = useT();
@@ -187,6 +194,8 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   // Para de fazer polling quando a conta some no meio do redeem (fechou/girou).
   const [polling, setPolling] = useState(true);
+  // O intervalo do poll, que cresce no 404 e volta ao normal no acerto.
+  const [esperaMs, setEsperaMs] = useState(POLL_BASE_MS);
 
   // Saldo da casa: carteira pré-paga do restaurante (docs/house-accounts).
   const [house, setHouse] = useState<{ token: string; balanceCents: number } | null>(null);
@@ -203,6 +212,7 @@ export default function App() {
       adotarPadraoDaCasa(fresco.venue.defaultLang);
       setError(null);
       setStale(false);
+      setEsperaMs(POLL_BASE_MS);   // acertou: volta pro ritmo normal
     } catch (e) {
       // Um blip de sinal NÃO pode apagar a tela. O caso real: o diner copia o
       // código Pix, troca pro app do banco, o 4G do bar oscila, ele volta — e o
@@ -211,16 +221,58 @@ export default function App() {
       // só a PRIMEIRA carga pode falhar em tela cheia, porque aí não há tela.
       setStale(true);
       const err = e as ApiError;
+      // CONTA QUE NÃO EXISTE DESACELERA O RELÓGIO. Não o para.
+      //
+      // O poll de 4s não parava nunca: depois que a mesa terminava de pagar, a
+      // conta some da leitura (`status <> 'fechada'`) e TODO poll seguinte
+      // virava 404 — 15 por minuto, por telefone, de cada aparelho ainda com a
+      // tela aberta.
+      //
+      // A primeira correção foi PARAR no 404, e estava errada — terceira volta
+      // da mesma forma no mesmo controle. "404 é estado estável" é verdade do
+      // ramo que eu estava olhando (a conta acabou de fechar) e falsa do outro:
+      // quem escaneia o QR ANTES de o garçom abrir a conta também recebe 404, e
+      // esse é o fluxo principal do produto. O telefone parava pra sempre, numa
+      // tela sem botão nenhum, e a conta abria noventa segundos depois sem que
+      // ele jamais soubesse. As duas situações são indistinguíveis na resposta.
+      //
+      // Recuo exponencial resolve as duas: o desperdício some (de 15/min pra
+      // 1/min) e a mesa que ainda vai abrir continua viva. Qualquer 200 volta
+      // pros 4 segundos. Achado da revisão de segurança de 2026-09-12.
+      if (err.code === 'check_not_found') {
+        setEsperaMs((ms) => Math.min(ms * 2, 60_000));
+      }
       setError(tError(lang, err.code, err.message));
     }
-  }, [token, lang]);
+  }, [token, lang, adotarPadraoDaCasa]);
+
+  // A PRIMEIRA leitura, uma vez só. Ela morava no efeito do intervalo, que
+  // depende de `esperaMs` — então cada dobra do recuo re-rodava o efeito e
+  // disparava uma leitura imediata junto: cinco requisições em rajada antes de
+  // assentar. Convergia certo e parecia bug em qualquer log.
+  useEffect(() => {
+    if (polling) void refresh();
+  }, [refresh, polling]);
 
   useEffect(() => {
     if (!polling) return;
-    refresh();
-    const id = setInterval(refresh, 4000);
+    const id = setInterval(refresh, esperaMs);
     return () => clearInterval(id);
-  }, [refresh, polling]);
+  }, [refresh, polling, esperaMs]);
+
+  // VOLTAR PRA TELA acelera de novo.
+  //
+  // Um teto só serve duas pessoas com necessidades opostas: o telefone
+  // esquecido na mesa não tem pressa, e quem está olhando a tela esperando o
+  // garçom abrir a conta tem. `visibilitychange` separa os dois exatamente —
+  // o esquecido está com a tela apagada ou a aba no fundo, quem espera não.
+  useEffect(() => {
+    const aoVoltar = () => {
+      if (document.visibilityState === 'visible') setEsperaMs(POLL_BASE_MS);
+    };
+    document.addEventListener('visibilitychange', aoVoltar);
+    return () => document.removeEventListener('visibilitychange', aoVoltar);
+  }, []);
 
   // Detecta a carteira do cliente uma vez, depois que a conta carrega.
   // V1 pragmático: as respostas públicas não expõem venueId, então o vínculo
@@ -279,7 +331,14 @@ export default function App() {
     );
   }
   if (!token) return <Home />;
-  if (error && !view) return <Shell><p className="muted center">{error}</p></Shell>;
+  if (error && !view) {
+    return (
+      <Shell>
+        <p className="muted center">{error}</p>
+        {polling && <p className="muted center small">{t('check.stillChecking')}</p>}
+      </Shell>
+    );
+  }
   if (!view) return <Shell><p className="muted center">{t('common.loading')}</p></Shell>;
 
   const { venue, table, state } = view;
@@ -351,7 +410,7 @@ export default function App() {
           min: brl(Number(err.vars.minCents ?? 0)),
           max: brl(Number(err.vars.maxCents ?? 0)),
         } : undefined));
-      refresh();
+      void refresh();
     }
   }
 
@@ -458,7 +517,7 @@ export default function App() {
               setCharge(null);
               setPaidAt(null);
               setStep('conta');
-              refresh();
+              void refresh();
             }}>
               {t('paid.payMore')}
             </button>
@@ -843,6 +902,10 @@ export default function App() {
 
       <footer className="foot">
         <span>{t('app.tagline')}</span>
+        {/* O aviso do art. 9º vive AQUI, na tela da conta — ver PrivacyNotice.
+            Leva o nome e o documento da CASA porque é ela a controladora, e um
+            aviso que não identifica o controlador não cumpre o art. 9º III. */}
+        <PrivacyNotice venue={venue.name} taxId={venue.taxId} />
         <LangToggle compact />
       </footer>
     </Shell>

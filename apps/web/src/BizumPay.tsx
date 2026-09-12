@@ -42,7 +42,7 @@ import { urlDeVolta } from './payReturn';
  * e numa mesa, isso é o garçom liberando a mesa por causa de uma tela.
  */
 
-const PK = (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined) || '';
+const PK = (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY) || '';
 
 /**
  * Quando a tela para de prometer "alguns segundos".

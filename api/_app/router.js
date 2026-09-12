@@ -312,6 +312,52 @@ function rateLimitDemo(req) {
 }
 // A auto-cura da demo ESCREVE (venue/mesa/conta) numa rota sem auth. Em estado
 // saudável é no-op; o limite existe pro estado degradado (achado MÉDIO).
+/**
+ * O `/api/check` NÃO tem limite de taxa. Tem TELEMETRIA de erro. A diferença é
+ * o ponto inteiro, e a primeira versão disto errou nos dois lados.
+ *
+ * A rota é pública, sem autenticação, e o telefone na mesa a consulta a cada 4
+ * segundos. A sugestão da revisão foi `('check', 240)`: 240 por 10 min por IP.
+ * Faça a conta antes de aceitar. Um telefone a cada 4s são 15/min, 150 por
+ * janela. **Dois telefones na mesma mesa estouram 240** — e um salão inteiro é
+ * UM ip atrás do NAT do restaurante. Esse limite não protegeria nada que a
+ * infra já não protege; ele fecharia a conta na cara do segundo cliente da
+ * primeira mesa. É a mesma falha-fechada que quase mandou uma lista de origens
+ * recusar toda mesa impressa, e por isso a aritmética fica escrita aqui: quem
+ * for "endurecer" isto depois lê o número antes de mudar.
+ *
+ * A segunda versão contava ERRO em vez de requisição e devolvia 429 no 404
+ * seguinte. Melhor, e ainda errado por três motivos que a revisão de segurança
+ * mediu executando a rota:
+ *
+ *  1. **Não parava varredura nenhuma.** Trocar 404 por 429 é trocar um oráculo
+ *     por outro: `200` continua significando "achei" e o atacante continua
+ *     lendo a resposta. "A varredura para em 30" era uma frase sem teste.
+ *  2. **Não poupava trabalho.** O `getCheckByQrToken` roda ANTES do balde, então
+ *     a consulta acontecia de todo jeito. Nunca foi defesa de carga.
+ *  3. **Era queimado por tráfego legítimo.** O app continuava consultando de 4
+ *     em 4 segundos depois de a conta fechar, e todo poll virava MISS: um
+ *     telefone esquecido na mesa gastava a cota em dois minutos, e atrás do
+ *     CGNAT da operadora o próximo cliente lia "muitas tentativas" em vez de
+ *     "conta não encontrada". A mesma falha-fechada que o balde existia pra
+ *     evitar, pelo ramo do erro. (O app agora para o relógio no 404 — ver
+ *     `App.tsx` —, mas isso conserta a causa, não o desenho.)
+ *
+ * E o motivo de fundo: `qr_token` é um uuid sem hífens, 122 bits de entropia
+ * (migração 0001). Enumerar isso não é caro, é impossível. O controle defendia
+ * de um ataque que não existe e cobrava o preço numa mesa de verdade.
+ *
+ * O que sobra é o que sempre foi útil: SABER. A resposta é idêntica — sempre
+ * 404, sempre o mesmo corpo, nenhum sinal novo pra quem sonda — e o excesso
+ * vira uma linha de log pra alertar. Medir não fecha porta nenhuma na cara de
+ * ninguém.
+ */
+function registraMissDeCheck(req) {
+  if (rateLimitBucket(req, 'checkmiss', 30)) return;
+  // Passou de 30 erros em 10 min vindos do mesmo hop. Não muda a resposta.
+  process.stderr.write(`[check-miss] ${sanitizeForLog(clientIp(req))} acima do esperado\n`);
+}
+
 function rateLimitDemoHeal(req) {
   return rateLimitBucket(req, 'demoheal', 6); // 6 auto-curas / 10 min / IP
 }
@@ -331,6 +377,7 @@ function podeEnviarAviso() {
 
 // Throttle do aviso "CRON_SECRET não configurado" (1×/h por instância).
 let avisoCronSecretAte = 0;
+let avisoRetencaoAte = 0;
 
 /** Compara `Authorization: Bearer <x>` com o segredo sem vazar tempo. */
 function segredoConfere(header, secret) {
@@ -394,7 +441,11 @@ async function route(req, res) {
           process.stderr.write(`[demo-ensure] ${String(e.message).slice(0, 120)}\n`);
         }
       }
-      if (!data) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (!data) {
+        // Só o acerto sai daqui diferente. Ver `registraMissDeCheck`.
+        registraMissDeCheck(req);
+        return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      }
       // Confirm-on-read: heal a missed webhook. If money is still owed, re-ask
       // the PSP about this check's pending charges (throttled per check,
       // best-effort — a slow/absent gateway must NEVER break the read). The
@@ -1582,18 +1633,24 @@ async function route(req, res) {
     // --- cron diário: detecta a virada do KYC do recebedor e avisa o dono -----
     // Varre recebedores em 'registration', refetcha o status vivo e, na virada
     // (active/refused/suspended), persiste + dispara o aviso via Olímpia. Uma vez
-    // por transição — o status persistido é a idempotência. Guarda por CRON_SECRET
-    // quando setado; senão rate-limit (o processo é idempotente de todo jeito).
+    // por transição — o status persistido é a idempotência. EXIGE CRON_SECRET:
+    // ver a nota dentro da rota (esta linha dizia "senão rate-limit", que era a
+    // forma aberta que o censo de crons pegou).
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/recipient-status') {
-      if (process.env.CRON_SECRET) {
-        // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
-        // e vaza o prefixo do segredo pro relógio de quem chama. Havia três
-        // call sites e só um usava `segredoConfere`.
-        if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
-          return json(res, 401, { success: false, error: 'unauthorized' });
-        }
-      } else if (!rateLimitCron(req)) {
-        return json(res, 429, { success: false, error: 'calma lá' });
+      // ESCREVE (`setVenueRecipientStatus`) e chama o PSP uma vez por casa
+      // pendente. Degradava aberta: sem `CRON_SECRET`, um `curl` anônimo fazia
+      // a plataforma inteira bater no adquirente e recebia de volta os ids das
+      // casas com KYC pendente. Mesma forma que a rota da retenção nasceu com,
+      // e que o `reconcile` já tinha corrigido — achado pelo censo de crons
+      // escrito depois da revisão de 2026-09-12.
+      if (!process.env.CRON_SECRET) {
+        process.stderr.write('[recipient-status] BLOQUEADO: CRON_SECRET não configurado\n');
+        return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
+      }
+      // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
+      // e vaza o prefixo do segredo pro relógio de quem chama.
+      if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
+        return json(res, 401, { success: false, error: 'unauthorized' });
       }
       if (!psp.getRecipient) return json(res, 200, { success: true, data: { checked: 0, transitions: 0, note: 'PSP sem getRecipient' } });
       const pending = await store.listVenuesPendingRecipient();
@@ -1642,15 +1699,28 @@ async function route(req, res) {
     // confirm-on-read já cura a mesa que o diner está olhando; este cron pega
     // as contas que ninguém está vendo (app fechado) e escreve de volta no POS.
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/reconcile-pending') {
-      if (process.env.CRON_SECRET) {
-        // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
-        // e vaza o prefixo do segredo pro relógio de quem chama. Havia três
-        // call sites e só um usava `segredoConfere`.
-        if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
-          return json(res, 401, { success: false, error: 'unauthorized' });
-        }
-      } else if (!rateLimitCron(req)) {
-        return json(res, 429, { success: false, error: 'calma lá' });
+      // O CRON QUE MAIS ESCREVE DESTE ARQUIVO, e era o mais aberto.
+      //
+      // Ele varre até 200 cobranças pendentes de TODAS as casas, chama o
+      // adquirente uma vez por cobrança, acrescenta `PAYMENT_CONFIRMED` ao
+      // razão e escreve a baixa no PDV do restaurante — e devolvia
+      // `result.details` com `txid` e `checkId` de cada uma. Sem `CRON_SECRET`
+      // isso era `curl` anônimo: divulgação cross-tenant, amplificação contra o
+      // adquirente, e escrita no razão. O `public-state.js` já registra por que
+      // id de cobrança não pode chegar a quem não está autenticado.
+      //
+      // Não foi achado por revisão nenhuma: foi o censo de crons que eu escrevi
+      // pra pegar OUTRA rota — e ele classificou esta como leitura, porque ela
+      // escreve através de `reconciler.reconcile(...)` e não de `store.*`. Ver
+      // `cron-fail-closed.test.js`, que agora presume ESCRITA por padrão.
+      if (!process.env.CRON_SECRET) {
+        process.stderr.write('[reconcile-pending] BLOQUEADO: CRON_SECRET não configurado\n');
+        return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
+      }
+      // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
+      // e vaza o prefixo do segredo pro relógio de quem chama.
+      if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
+        return json(res, 401, { success: false, error: 'unauthorized' });
       }
       // ?hours= amplia a janela pra uma varredura profunda manual (curar um
       // straggler antigo); sem ele, usa a janela padrão do reconciliador.
@@ -1828,6 +1898,75 @@ async function route(req, res) {
     // dia e manda SÓ quem precisa de ação, com a ação junto.
     //
     // ?dry=1 devolve o radar sem enviar (inspeção sem incomodar ninguém).
+    /**
+     * A retenção, uma vez por dia.
+     *
+     * Fecha a lacuna 1 do mapa de dados: até 2026-09-12 nada expirava e nada
+     * apagava. Anonimiza em vez de apagar — o razão é event-sourced e imutável,
+     * e destruir um pagamento destruiria a contabilidade da casa. Sai o dado
+     * pessoal, fica o fato de que houve pagamento. Prazos e o porquê de cada um
+     * em `docs/compliance/retencao.md`.
+     */
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/retention') {
+      // A forma do `reconcile`, NÃO a do `activation-radar`.
+      //
+      // Eu tinha copiado a do radar: sem `CRON_SECRET`, cai pro `rateLimitCron`
+      // e roda. O radar só LÊ; esta rota ESCREVE — e o commit `4930caa` já tinha
+      // reescrito o `reconcile` exatamente pra parar de degradar aberta. Sem
+      // segredo, isto virava `curl` anônimo disparando um UPDATE de tabela
+      // inteira sem índice, e devolvendo a contagem de sessões de cliente da
+      // plataforma toda pra quem chamasse. Achado da revisão de segurança.
+      if (!process.env.CRON_SECRET) {
+        process.stderr.write('[retencao] BLOQUEADO: CRON_SECRET não configurado — a retenção NÃO está rodando\n');
+        if (Date.now() > avisoRetencaoAte) {
+          avisoRetencaoAte = Date.now() + 60 * 60 * 1000;
+          await notifyFounderMoneyEvent({
+            kind: 'retention_blocked',
+            detail: 'Retenção BLOQUEADA: CRON_SECRET não está configurado. O aviso de privacidade promete '
+              + 'apagar o nome do cliente em 90 dias e o job que cumpre isso não roda.',
+          });
+        }
+        return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
+      }
+      if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
+        return json(res, 401, { success: false, error: 'unauthorized' });
+      }
+      // 501, não `200 {skipped}`. Um store sem o método num ambiente publicado é
+      // DEFEITO, não configuração — e cron verde num store que não sabe
+      // expurgar é sucesso silencioso enquanto a tela promete exclusão.
+      if (typeof store.purgeExpiredPersonalData !== 'function') {
+        process.stderr.write('[retencao] store sem purgeExpiredPersonalData — a retenção NÃO está rodando\n');
+        return json(res, 501, { success: false, code: 'retention_unavailable' });
+      }
+      const purga = await store.purgeExpiredPersonalData();
+      process.stderr.write(
+        `[retencao] payer_labels=${purga.payerLabels} hints=${purga.payerHints} `
+        + `carteiras=${purga.houseAccounts} aberturas=${purga.checkViews}\n`,
+      );
+      // BATIDA DIÁRIA, sempre — inclusive com tudo zero.
+      //
+      // Guardar "último sucesso" numa variável de módulo seria mentira: as
+      // instâncias são efêmeras e a leitura viria de outra que nunca rodou. O
+      // padrão que este repositório já usa é o oposto e é o certo: a batida sai
+      // todo dia e a AUSÊNCIA dela é o alarme, do lado de quem recebe.
+      //
+      // Isto importa mais aqui do que na conciliação: enquanto a tela da conta
+      // promete ao cliente que o nome dele sai em 90 dias, o cron parar não é
+      // incidente de operação — é uma frase falsa dita a um consumidor no
+      // momento de pagar (CDC art. 6º III). Zero muitos dias seguidos é sinal de
+      // que parou, não de que não havia o que apagar.
+      const dry = url.searchParams.get('dry') === '1';
+      if (!dry) {
+        await notifyFounderMoneyEvent({
+          kind: 'retention_ok',
+          detail: `Retenção ${new Date().toISOString().slice(0, 10)}: nomes ${purga.payerLabels}`
+            + ` · rastros ${purga.payerHints} · carteiras ${purga.houseAccounts}`
+            + ` · aberturas ${purga.checkViews}`,
+        });
+      }
+      return json(res, 200, { success: true, data: purga });
+    }
+
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/activation-radar') {
       if (process.env.CRON_SECRET) {
         // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
@@ -1924,4 +2063,7 @@ async function route(req, res) {
   }
 }
 
-module.exports = { route, store, authClient, useSupabase, DEMO_MODE };
+// `registraMissDeCheck` e `clientIp` saem pro teste: a garantia que importa —
+// a resposta do 404 é SEMPRE a mesma, e o primeiro hop do XFF não é confiável —
+// é de COMPORTAMENTO, e censo de fonte não prova comportamento.
+module.exports = { route, store, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp };

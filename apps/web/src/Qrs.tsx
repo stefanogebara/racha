@@ -39,9 +39,9 @@ export default function Qrs() {
     } catch (e) {
       setError(tErr(e));
     }
-  }, [venueId]);
+  }, [venueId, tErr]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   if (error) return <main className="shell"><p className="muted center">{error}</p></main>;
   if (!data) return <main className="shell"><p className="muted center">{t('qrs.preparing')}</p></main>;

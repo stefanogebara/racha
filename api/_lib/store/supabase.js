@@ -917,6 +917,37 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      * borda, porque o classificador (activation/radar.js) é puro e só fala
      * número: quem converte formato é o store, não a regra.
      */
+    /**
+     * Retenção (migração 0031). Anonimiza o que passou do prazo e devolve a
+     * CONTAGEM por categoria — zero muitos dias seguidos é sinal de que parou
+     * de rodar, não de que não havia o que apagar. Ver docs/compliance/retencao.md.
+     */
+    async purgeExpiredPersonalData(prazos = {}) {
+      const { data, error } = await client.rpc('purge_expired_personal_data', {
+        p_label_days: prazos.labelDays ?? 90,
+        p_wallet_days: prazos.walletDays ?? 90,
+        p_views_days: prazos.viewsDays ?? 90,
+      });
+      throwOn(error, 'purgeExpiredPersonalData');
+      return {
+        payerLabels: Number(data?.payer_labels ?? 0),
+        payerHints: Number(data?.payer_hints ?? 0),
+        houseAccounts: Number(data?.house_accounts ?? 0),
+        checkViews: Number(data?.check_views ?? 0),
+      };
+    },
+
+    /**
+     * Pedido do titular (art. 18 IV): o nome livre de UM pagamento sai AGORA,
+     * não no dia 90. Instrumento limitado no lugar de SQL ad-hoc com a service
+     * role — ver migração 0031.
+     */
+    async erasePaymentLabel(txid) {
+      const { data, error } = await client.rpc('erase_payment_label', { p_txid: txid });
+      throwOn(error, 'erasePaymentLabel');
+      return Number(data ?? 0);
+    },
+
     async listVenueActivation() {
       const { data, error } = await client.rpc('venue_activation_stats');
       throwOn(error, 'listVenueActivation');

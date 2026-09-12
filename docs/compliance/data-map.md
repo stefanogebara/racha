@@ -39,10 +39,10 @@ documentada, em nome próprio. Ver lacuna 4.
 
 | Dado | De quem | Pra quê | Base legal | Onde mora | Prazo |
 |---|---|---|---|---|---|
-| `payments.payer_label` — nome livre que a pessoa digita ("Ste", "mesa toda") | cliente | dizer no painel e no comprovante quem pagou qual parte | operadora, por conta da casa (art. 7º V da casa) | Supabase `payments` | **sem prazo definido — lacuna 1** |
+| `payments.payer_label` — nome livre que a pessoa digita ("Ste", "mesa toda") | cliente | dizer no painel e no comprovante quem pagou qual parte | operadora, por conta da casa (art. 7º V da casa) | Supabase `payments` | **90 dias depois de a conta fechar** — anonimizado pela 0031 |
 | `payments.psp_payload_masked` — subconjunto ESCALAR do webhook (14 campos: txid, valores, status, horários) | cliente | reconciliar e reproduzir o histórico | operadora | Supabase `payments` | segue a conta |
-| `house_accounts.phone` + `.name` | cliente que abre carteira pré-paga | achar a carteira dele na casa e saber de quem é o saldo | operadora | Supabase `house_accounts` | **sem prazo — lacuna 1** |
-| `check_views.session_hash` | ninguém — aleatório do navegador | contar quantas pessoas ABREM a conta (portão de adoção) | interesse legítimo (art. 7º IX) — **e a lacuna 2 é PRÉ-CONDIÇÃO dela**, não item vizinho: o art. 7º IX é a única base que chega com dever de transparência (art. 10 §2) e direito de oposição (art. 18 §2). Sem o aviso, a base é alegada, não constituída | Supabase `check_views` | segue a conta — **e a conta não expira (lacuna 1), então isto é sobre-retenção pra um CONTADOR. Agregar por casa/semana e apagar a linha crua tira o `check_views` do perímetro quase inteiro, que é melhor do que ganhar o teste de balanceamento** |
+| `house_accounts.phone` + `.name` | cliente que abre carteira pré-paga | achar a carteira dele na casa e saber de quem é o saldo | operadora | Supabase `house_accounts` | enquanto a carteira viver, **+ 90 dias** depois de zerada e inativa |
+| `check_views.session_hash` | ninguém — aleatório do navegador | contar quantas pessoas ABREM a conta (portão de adoção) | interesse legítimo (art. 7º IX) — **e a lacuna 2 é PRÉ-CONDIÇÃO dela**, não item vizinho: o art. 7º IX é a única base que chega com dever de transparência (art. 10 §2) e direito de oposição (art. 18 §2). Sem o aviso, a base é alegada, não constituída | Supabase `check_views` | **90 dias** (migração 0031) — o portão de adoção olha 8 semanas, então guardar linha crua além disso era guardar por guardar. Agregar por casa/semana e apagar até a linha tiraria o `check_views` do perímetro quase inteiro, o que continua sendo melhor do que ganhar o teste de balanceamento |
 | `venues.cnpj`, `venues.notify_email`, `venues.notify_whatsapp` | dono | cadastro, KYC do recebedor, aviso de status | controladora, contrato (art. 7º V) | Supabase `venues` | vida do contrato |
 | e-mail e senha do dono | dono | login do painel | controladora, contrato | Supabase Auth (GoTrue), `auth.users` | vida do contrato |
 | dados bancários da casa (banco, agência, conta, titular) | casa | criar o recebedor no PSP | controladora, contrato | **não persistidos aqui** — vão do formulário direto pro PSP | n/a |
@@ -67,12 +67,12 @@ dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
 | função | o que sai |
 |---|---|
 | `notifyOwnerRecipientStatus` | `venueName`, `ownerEmail`, `ownerPhone`, `status`, `previousStatus`, `reason`, `pspRecipientId` |
-| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail` |
+| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail` — e desde 2026-09-12 também `retention_ok` / `retention_blocked`, que levam só CONTAGENS (sem txid, sem casa) |
 | `notifyFounderReconcile` | o texto do alerta: nomes de casa e desvio por casa |
 | `notifyFounderActivationRadar` | o resumo do radar de ativação |
 | `notifyPreviaBeacon` | `{token, event}` do lead da Olímpia |
 
-`notifyFounderMoneyEvent` sai de `router.js` em três pontos e leva o
+`notifyFounderMoneyEvent` sai de `router.js` em cinco pontos e leva o
 identificador de pagamento de UM cliente específico, o identificador da conta
 dele e o valor. `txid` resolve pro CPF do pagador no painel da adquirente, então
 é identificável por meios razoáveis — não é dado anônimo por não trazer nome.
@@ -131,14 +131,47 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
 
 ## 4. Lacunas — o que falta, nomeado
 
-1. **Sem prazo de retenção e sem caminho de exclusão.** `payer_label`,
-   `house_accounts.phone`/`name`: nada expira, nada apaga. Um nome preso a um
-   pagamento guardado pra sempre falha o art. 6º I/III e, na Espanha, o art.
-   5(1)(e) do GDPR. Fecha com: prazo por fluxo + job de expurgo + rota de
-   pedido do titular (art. 18).
-2. **Sem aviso de privacidade voltado pro cliente.** A tela da conta não diz
-   quem trata, pra quê, e pra quem vai (art. 9º). Fecha com: um link "seus
-   dados" na tela da conta, no idioma do leitor.
+1. ~~**Sem prazo de retenção e sem caminho de exclusão.**~~ **Prazo e job
+   fechados em 2026-09-12**; o pedido do titular continua aberto.
+   `docs/compliance/retencao.md` tem a tabela por fluxo, a migração 0031 tem a
+   função `purge_expired_personal_data()` — que ANONIMIZA em vez de apagar,
+   porque o razão é event-sourced e destruir um pagamento destruiria a
+   contabilidade da casa — e `/api/cron/retention` a chama uma vez por dia. O
+   prazo que a função cumpre e o prazo que o aviso ao cliente promete estão
+   amarrados por teste (`api/__tests__/retention.test.js`).
+   **O que falta, e são duas coisas.** (a) Rota de autoatendimento do art. 18:
+   hoje o pedido passa pelo restaurante e a execução é manual com o
+   `erase-payment-label.js` — aceitável num piloto assistido com poucas casas,
+   inaceitável quando o produto for self-serve. (b) **O REGISTRO DE QUE A PURGA
+   RODOU.** O expurgo existe e é verificado; a metade que DETECTA não existe. A
+   batida diária sai, mas absence-is-the-alarm só vale se algo alertar sobre a
+   ausência — hoje depende de um humano notar que parou de chegar uma mensagem
+   que, em regime, diz zero todo dia; e ela viaja por um canal que vira no-op
+   silencioso sem `RACHA_NOTIFY_SECRET`. O conserto é uma linha por execução no
+   próprio Postgres (data + as quatro contagens) e uma checagem de `max(at) <
+   now() - 48h` no cron da conciliação, que já pagina. Isso é também o registro
+   das operações de tratamento do art. 37, e dá ao `erase-payment-label.js` um
+   lugar durável pra escrever — hoje o "comprovante" de uma resposta do art. 18
+   §4 é uma linha no terminal de quem executou.
+2. **Aviso de privacidade: o texto existe, o CANAL PRÓPRIO não.** Parcialmente
+   fechada em 2026-09-12, e é importante não marcar como fechada. `PrivacyNotice.tsx`, no rodapé da tela da conta, nos três
+   idiomas: quem é controlador (a casa, com a Racha como operadora), o que fica
+   guardado e por quanto tempo, o que NUNCA chega aqui (cartão, CPF, cadastro),
+   quem mais vê, e os direitos do art. 18. Fica na própria tela e não numa
+   página à parte — o art. 9º pede informação acessível ANTES da decisão, e um
+   link que tira a pessoa da tela de pagar é um link que ninguém toca no meio de
+   um jantar. Cada frase aponta pra uma defesa que existe no código.
+   **O que falta:** um endereço que receba mensagem. A primeira versão publicou
+   `privacidade@racha.com.br`, que eu inventei — o `dig` devolve `MX 0 .`, o MX
+   nulo da RFC 7505, quer dizer que o domínio declara que NÃO recebe e-mail.
+   Cliente que escrevesse levava bounce, e é o mesmo erro do `racha.app` uma
+   camada pior: lá a frase falsa concedia confiança, aqui prometia um direito a
+   um consumidor na hora de pagar. Agora o endereço vem de
+   `VITE_PRIVACY_CONTACT` e, sem ele, a frase do canal direto não é renderizada —
+   o restaurante, que é o controlador do dado do pagamento, continua sendo rota
+   de verdade. Mas pro que a Racha trata EM NOME PRÓPRIO (a contagem de
+   aberturas) o contato tem que ser nosso, e isso exige uma caixa que exista.
+   **Antes do primeiro QR numa mesa de cliente de verdade.**
 3. **Transferência internacional sem papelada.** Dado de titular europeu no
    Supabase fora da UE e acessível do Brasil (LGPD art. 33; GDPR cap. V).
    Fecha com: projeto Supabase em região da UE (correção técnica que dispensa
@@ -182,9 +215,10 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    hospedagem como base. O que falta é prazo: log é mais um lugar onde uma
    capacidade ao portador mora sem expirar. Anda junto com a lacuna 1.
 
-Nenhuma dessas bloqueia o piloto brasileiro assistido. As lacunas 2 e 4
-bloqueiam o primeiro QR numa mesa de cliente de verdade; as 3, 5 e 6 bloqueiam
-ligar a Espanha (`RACHA_ES_ENABLED`).
+Nenhuma dessas bloqueia o piloto brasileiro assistido. Antes do primeiro QR numa
+mesa de cliente de verdade ficam a **4** (DPA) e a metade que sobra da **2** (uma
+caixa de correio que exista); as 3, 5 e 6 bloqueiam ligar a Espanha
+(`RACHA_ES_ENABLED`).
 
 ## 5. Dependências de runtime, classificadas
 
@@ -202,8 +236,10 @@ que ninguém tinha feito sobre o `@stripe/stripe-js`.
 
 Ferramentas de build e teste, que o censo também exige porque um import de
 `devDependency` chega ao cliente igualzinho: `vite`, `@vitejs/plugin-react`,
-`typescript`, `jest`, `@types/react`, `@types/react-dom`, `@types/node` —
-**nenhuma fala com fora em runtime**; as três últimas somem na compilação.
+`typescript`, `jest`, `@types/react`, `@types/react-dom`, `@types/node`,
+`eslint`, `@eslint/js`, `eslint-plugin-react-hooks`, `typescript-eslint` —
+**nenhuma fala com fora em runtime**; os tipos somem na compilação e o lint nem
+chega a ser empacotado.
 
 ## 6. O app iOS
 

@@ -1,5 +1,6 @@
 
 import { LangToggle, useT } from './lang';
+import PrivacyNotice from './PrivacyNotice';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, parseBrlToCents, HouseAccountView, HouseConfig, HouseLedgerEntry, HouseLoadResult } from './api';
 import { storeWallet } from './house';
@@ -62,7 +63,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
     }
   }, [accountToken]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   // null = entrada inválida no campo livre → CTA desarmado.
   const amountCents = chip ?? parseBrlToCents(custom);
@@ -150,7 +151,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
           )}
           {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
           <p className="muted small">{t('wallet.onlyAt', { venue: venue.name })}</p>
-          <button className="linklike" onClick={() => { setCharge(null); refresh(); }}>{t('common.backWallet')}</button>
+          <button className="linklike" onClick={() => { setCharge(null); void refresh(); }}>{t('common.backWallet')}</button>
         </section>
       </Shell>
     );
@@ -226,7 +227,11 @@ function WalletView({ accountToken }: { accountToken: string }) {
           .map((e, i) => <LedgerRow key={i} entry={e} />)}
       </section>
 
-      <footer className="foot"><span>{t('wallet.brand')}</span><LangToggle compact /></footer>
+      <footer className="foot">
+        <span>{t('wallet.brand')}</span>
+        <PrivacyNotice venue={venue.name} />
+        <LangToggle compact />
+      </footer>
     </Shell>
   );
 }
@@ -318,11 +323,18 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
           {busy ? t('wallet.creating') : t('wallet.create')}
         </button>
         <p className="muted small">
-          {t('wallet.refundable')} O bônus promocional vale por{' '}
-          {config.validityDays} dias. Válido somente no {config.venueName}.
+          {t('wallet.refundable')}{' '}
+          {t('wallet.bonusTerms', { days: config.validityDays, venue: config.venueName })}
         </p>
       </section>
-      <footer className="foot"><span>{t('wallet.brand')}</span><LangToggle compact /></footer>
+      <footer className="foot">
+        <span>{t('wallet.brand')}</span>
+        {/* Esta é a tela que pede NOME e TELEFONE — o dado mais identificável
+            que o produto recebe, e preso a um saldo. O aviso do art. 9º foi
+            primeiro pra tela da conta; o caso mais forte sempre foi aqui. */}
+        <PrivacyNotice venue={config.venueName} />
+        <LangToggle compact />
+      </footer>
     </Shell>
   );
 }

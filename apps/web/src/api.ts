@@ -85,7 +85,11 @@ export interface HouseLot { remainingCents: number; expiresAt: string }
 
 export interface HouseLedgerEntry {
   at: string | null;
-  type: 'load' | 'redeem' | 'refund' | string;
+  // `| string` porque o servidor pode nomear um tipo novo antes do cliente
+  // saber dele — mas escrito assim a união inteira colapsava em `string` e os
+  // três literais não checavam nada. `(string & {})` mantém a autocompletar e
+  // a checagem dos conhecidos sem fechar a porta pro desconhecido.
+  type: 'load' | 'redeem' | 'refund' | (string & {});
   label: string;
   amountCents: number;
   bonusCents?: number;
@@ -192,8 +196,16 @@ export class ApiError extends Error {
  *
  * Uma função só, e um censo em `bundle.test.ts` que proíbe a segunda.
  */
-export function erroDaResposta(res: Response, body: any): ApiError {
-  return new ApiError(body?.error || `HTTP ${res.status}`, res.status, body?.code, body?.vars);
+export function erroDaResposta(res: Response, body: unknown): ApiError {
+  // `unknown` e não `any`: o corpo vem da rede. Uma leitura estreita aqui é o
+  // que garante que `code` e `vars` sejam o que dizem ser.
+  const b = (body ?? {}) as { error?: unknown; code?: unknown; vars?: unknown };
+  return new ApiError(
+    typeof b.error === 'string' ? b.error : `HTTP ${res.status}`,
+    res.status,
+    typeof b.code === 'string' ? b.code : undefined,
+    b.vars && typeof b.vars === 'object' ? (b.vars as Record<string, string | number>) : undefined,
+  );
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

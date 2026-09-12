@@ -35,7 +35,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   componentDidCatch(erro: unknown) {
     // Sem telemetria de terceiro: o console basta, e mandar o erro pra fora
     // seria acrescentar um destinatário na tela de pagamento (inegociável #10).
-    // eslint-disable-next-line no-console
+     
     console.error('[racha] render caiu', erro);
   }
 

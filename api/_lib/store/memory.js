@@ -855,6 +855,70 @@ function createMemoryStore() {
       for (const a of houseAccounts.values()) if (a.venueId === venueId) n += 1;
       return n;
     },
+    /**
+     * Retenção (migração 0031), em memória. Existe porque a divergência entre
+     * os dois stores é invisível: a rota do cron respondia `200 {skipped}` num
+     * store sem o método, e cron verde num store que não sabe expurgar é
+     * sucesso silencioso. Há censo de paridade de MÉTODOS agora.
+     */
+    async purgeExpiredPersonalData(prazos = {}) {
+      const labelDays = prazos.labelDays ?? 90;
+      const walletDays = prazos.walletDays ?? 90;
+      const viewsDays = prazos.viewsDays ?? 90;
+      const limite = (d) => Date.now() - d * 24 * 60 * 60 * 1000;
+      let payerLabels = 0; let payerHints = 0; let houseAccountsN = 0; let checkViews = 0;
+
+      for (const p of payments.values()) {
+        if (!p.payerLabel) continue;
+        const c = checks.get(p.checkId);
+        const fechada = c && c.status === 'fechada' && c.closedAt
+          && Date.parse(c.closedAt) < limite(labelDays);
+        const velha = p.createdAt && Date.parse(p.createdAt) < limite(labelDays * 2);
+        if (fechada || velha) { p.payerLabel = null; payerLabels += 1; }
+      }
+      for (const p of payments.values()) {
+        const m = p.pspPayloadMasked;
+        if (m && (('payer_hint' in m) || ('payer_doc_hint' in m))) {
+          delete m.payer_hint; delete m.payer_doc_hint; payerHints += 1;
+        }
+      }
+      for (const a of houseAccounts.values()) {
+        if (!a.phone || a.principalCents !== 0) continue;
+        // Bônus VIVO é dinheiro que a pessoa ainda pode gastar. A primeira
+        // versão deste laço não tinha esta cláusula e o SQL tinha: as duas
+        // implementações da MESMA regra já divergiam, e a maioria dos testes
+        // roda contra esta — então um teste escrito aqui afirmaria a regra
+        // errada. Achado da revisão de segurança.
+        // Os lotes vivem no LOG, não numa coleção — o estado da carteira é
+        // reduzido dos eventos, como o resto do produto.
+        const lotes = (houseState.reduce(houseEvents.get(a.id) || []) || { lots: [] }).lots || [];
+        const bonusVivo = lotes.some(
+          (l) => (l.remainingCents || 0) > 0 && Date.parse(l.expiresAt || 0) > Date.now(),
+        );
+        if (bonusVivo) continue;
+        const eventos = houseEvents.get(a.id) || [];
+        const recente = eventos.some((e) => Date.parse(e.createdAt || 0) >= limite(walletDays));
+        if (recente) continue;
+        if (a.updatedAt && Date.parse(a.updatedAt) >= limite(walletDays)) continue;
+        a.phone = null; a.name = '—'; houseAccountsN += 1;
+      }
+      return { payerLabels, payerHints, houseAccounts: houseAccountsN, checkViews };
+    },
+
+    async erasePaymentLabel(txid) {
+      // Conta a LINHA TOCADA, não a linha mudada — é o que `get diagnostics
+      // row_count` devolve no SQL. As duas divergiam (aqui zero pra um rótulo
+      // já nulo, lá um), e o `scripts/erase-payment-label.js` ramifica
+      // exatamente nesse número pra dizer "txid não encontrado".
+      let n = 0;
+      for (const p of payments.values()) {
+        if (p.txid !== txid) continue;
+        p.payerLabel = null;
+        n += 1;
+      }
+      return n;
+    },
+
     async setHouseAccountActive(accountId, active) {
       const a = houseAccounts.get(accountId);
       if (!a) { const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e; }

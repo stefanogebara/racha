@@ -65,9 +65,9 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
     } catch (e) {
       setError(tErr(e));
     }
-  }, [venueId]);
+  }, [venueId, tErr]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   async function save() {
     // parseBrlToCents também serve para % com 2 casas: "1,5"% → 150bp,
