@@ -120,7 +120,20 @@ const houseSvc = createHouseService({ store, psp });
 // Evento de dinheiro que não vira lançamento (cancelamento parcial, disputa,
 // estorno falho): anomalia durável no razão + aviso. Ver `_lib/pay/non-ledger`.
 const handleNonLedgerMoneyEvent = createNonLedgerHandler({
-  store, notify: notifyFounderMoneyEvent,
+  // O QUARTO caminho até o avisador, e o único que não era uma chamada — é uma
+  // LIGAÇÃO, então nenhum censo que olha expressão de chamada o vê.
+  //
+  // Os três sites de webhook ganharam o embrulho; este ficou no remetente cru,
+  // e ele serve o trilho PIX. Hoje está seguro pelo motivo certo: o conjunto
+  // que chega aqui é `NON_LEDGER_KINDS \ SEM_ALARDE`, e a invariante nova
+  // garante que ele é subconjunto do que o avisador aceita. Mas isso é uma
+  // defesa só, e o que a sustenta é que os três chamadores de
+  // `handleNonLedgerMoneyEvent` são todos guardados por `NON_LEDGER_KINDS.has`
+  // — forma "chamador esquecido": um quarto chamador sem guarda traz de volta o
+  // 5xx eterno que derruba o endpoint. Embrulhar aqui dá o mesmo piso aos
+  // quatro caminhos e rebaixa a invariante de defesa única pra defesa em
+  // profundidade. Achado da revisão de segurança de 2026-09-12.
+  store, notify: avisarEventoDeDinheiro,
 });
 
 const handleWebhook = createWebhookHandler({

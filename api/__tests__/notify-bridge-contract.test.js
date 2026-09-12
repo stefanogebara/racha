@@ -200,10 +200,23 @@ describe('a ponte de avisos aceita o que a Racha manda', () => {
     expect(NOTIFY).toMatch(/err\.code = 'kind_desconhecido'/);
     expect(ROUTER).toMatch(/async function avisarEventoDeDinheiro/);
     expect(ROUTER).toMatch(/e\.code === 'kind_desconhecido'/);
-    // E os três sites de webhook usam o wrapper, não o remetente direto.
-    const webhook = ROUTER.slice(ROUTER.indexOf("url.pathname === '/api/webhooks/stripe'"),
+    // OS DOIS webhooks — o recorte começava no da Stripe, e o do Pix ficava de
+    // fora do bloco que o teste chama de "o bloco dos webhooks".
+    const webhook = ROUTER.slice(ROUTER.indexOf("url.pathname === '/api/webhooks/psp'"),
       ROUTER.indexOf("url.pathname === '/api/cron/"));
+    // CONTAGEM POSITIVA antes da negativa: se alguém mover um cron pra cima dos
+    // webhooks, ou renomear a âncora, o recorte vira vazio e o `not.toMatch`
+    // passa calado. É a guarda que o `sql-contract.test.js` já tem e esta não
+    // tinha — "um regex quebrado passaria calado".
+    expect(webhook.length).toBeGreaterThan(1000);
+    expect((webhook.match(/avisarEventoDeDinheiro\(\{/g) || []).length).toBe(3);
     expect(webhook).not.toMatch(/await notifyFounderMoneyEvent\(/);
+
+    // E a LIGAÇÃO do handler não-lançável também passa pelo embrulho: é o
+    // quarto caminho, e não é expressão de chamada, então nenhum censo de
+    // chamada o veria.
+    expect(ROUTER).toMatch(/store, notify: avisarEventoDeDinheiro,/);
+    expect(ROUTER).not.toMatch(/store, notify: notifyFounderMoneyEvent,/);
   });
 
   test('um kind fora da lista ESTOURA no remetente', async () => {
