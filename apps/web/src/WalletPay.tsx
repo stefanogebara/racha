@@ -21,12 +21,12 @@ import { api, ApiError, type ChargeResult } from './api';
 type Wallet = 'apple_pay' | 'google_pay';
 const WALLET_LABEL: Record<Wallet, string> = { apple_pay: 'Apple Pay', google_pay: 'Google Pay' };
 
-const PK = (import.meta.env.VITE_PAGARME_PUBLIC_KEY as string | undefined) || '';
-const ACC = (import.meta.env.VITE_PAGARME_ACCOUNT_ID as string | undefined) || '';
+const PK = (import.meta.env.VITE_PAGARME_PUBLIC_KEY) || '';
+const ACC = (import.meta.env.VITE_PAGARME_ACCOUNT_ID) || '';
 const REAL = Boolean(PK && ACC);
 // merchantId do Google (BCR2DN...) — exigido pelo Google Pay em PRODUCTION,
 // dispensável em TEST. Diferente do acc_ do Pagar.me (gatewayMerchantId).
-const GPAY_MERCHANT_ID = (import.meta.env.VITE_GOOGLE_PAY_MERCHANT_ID as string | undefined) || '';
+const GPAY_MERCHANT_ID = (import.meta.env.VITE_GOOGLE_PAY_MERCHANT_ID) || '';
 
 /// An error thrown from module scope carries a dictionary key; anything else
 /// is already a sentence from the wallet SDK and is shown as it came. The two

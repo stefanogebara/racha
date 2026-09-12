@@ -83,10 +83,10 @@ export default function Panel() {
     } catch (e) {
       setError(tErr(e));
     }
-  }, [venueId]);
+  }, [venueId, tErr]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
     const id = setInterval(refresh, 4000);
     return () => clearInterval(id);
   }, [refresh]);

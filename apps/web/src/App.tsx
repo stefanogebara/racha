@@ -7,7 +7,7 @@ import HousePay from './HousePay';
 import WalletButtons from './WalletPay';
 
 /** Sem chave publicável não há elemento da Stripe pra montar. */
-const STRIPE_READY = !!(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined);
+const STRIPE_READY = !!(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 /**
  * OS TRILHOS DA STRIPE CARREGAM SOB DEMANDA — e não em toda conta de Pix.
@@ -213,11 +213,11 @@ export default function App() {
       const err = e as ApiError;
       setError(tError(lang, err.code, err.message));
     }
-  }, [token, lang]);
+  }, [token, lang, adotarPadraoDaCasa]);
 
   useEffect(() => {
     if (!polling) return;
-    refresh();
+    void refresh();
     const id = setInterval(refresh, 4000);
     return () => clearInterval(id);
   }, [refresh, polling]);
@@ -351,7 +351,7 @@ export default function App() {
           min: brl(Number(err.vars.minCents ?? 0)),
           max: brl(Number(err.vars.maxCents ?? 0)),
         } : undefined));
-      refresh();
+      void refresh();
     }
   }
 
@@ -458,7 +458,7 @@ export default function App() {
               setCharge(null);
               setPaidAt(null);
               setStep('conta');
-              refresh();
+              void refresh();
             }}>
               {t('paid.payMore')}
             </button>

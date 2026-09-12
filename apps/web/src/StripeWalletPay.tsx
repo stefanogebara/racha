@@ -33,7 +33,7 @@ import { STRIPE_LOCALE, type CurrencyCode } from './i18n';
  * (App) pega e avança pro ✓ — mesmo caminho do Pix.
  */
 
-const PK = (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined) || '';
+const PK = (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY) || '';
 
 // loadStripe é singleton — carrega uma vez por página.
 let stripePromise: Promise<Stripe | null> | null = null;

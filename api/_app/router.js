@@ -312,6 +312,34 @@ function rateLimitDemo(req) {
 }
 // A auto-cura da demo ESCREVE (venue/mesa/conta) numa rota sem auth. Em estado
 // saudável é no-op; o limite existe pro estado degradado (achado MÉDIO).
+/**
+ * O balde do `/api/check` conta ERRO, não requisição — e a diferença é o
+ * restaurante inteiro.
+ *
+ * A rota é pública, sem autenticação, e o telefone na mesa a consulta a cada 4
+ * segundos. A sugestão da revisão foi `('check', 240)`: 240 por 10 min por IP.
+ * Faça a conta antes de aceitar. Um telefone a cada 4s são 15/min, 150 por
+ * janela. **Dois telefones na mesma mesa estouram 240** — e um salão inteiro é
+ * UM ip atrás do NAT do restaurante. Esse limite não protegeria nada que a
+ * infra já não protege; ele fecharia a conta na cara do segundo cliente da
+ * primeira mesa. É a mesma falha-fechada que quase mandou uma lista de origens
+ * recusar toda mesa impressa, e por isso a aritmética fica escrita aqui: quem
+ * for "endurecer" isto depois lê o número antes de mudar.
+ *
+ * O que dá pra limitar sem machucar ninguém é o ERRO. Enumerar token produz
+ * MISS; ler a própria conta produz HIT. Um cliente de verdade erra uma vez
+ * (QR girado) e nunca mais; quem varre o espaço de tokens só erra. Então o
+ * balde conta 404 — a varredura para em 30 e a mesa cheia não percebe que ele
+ * existe.
+ *
+ * O que este balde NÃO cobre, dito na cara: uma enxurrada de tokens VÁLIDOS de
+ * um ip só é indistinguível de um sábado cheio, e o limite disso é da
+ * plataforma, não desta função.
+ */
+function rateLimitCheckMiss(req) {
+  return rateLimitBucket(req, 'checkmiss', 30); // 30 tokens errados / 10 min / IP
+}
+
 function rateLimitDemoHeal(req) {
   return rateLimitBucket(req, 'demoheal', 6); // 6 auto-curas / 10 min / IP
 }
@@ -394,7 +422,15 @@ async function route(req, res) {
           process.stderr.write(`[demo-ensure] ${String(e.message).slice(0, 120)}\n`);
         }
       }
-      if (!data) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (!data) {
+        // Erro conta pro balde; acerto, não. Ver `rateLimitCheckMiss`.
+        if (!rateLimitCheckMiss(req)) {
+          // `rate_limited`, o código que a rota de login já usa — um código novo
+          // pra mesma condição seria uma tradução a mais pra esquecer.
+          return json(res, 429, { success: false, code: 'rate_limited' });
+        }
+        return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      }
       // Confirm-on-read: heal a missed webhook. If money is still owed, re-ask
       // the PSP about this check's pending charges (throttled per check,
       // best-effort — a slow/absent gateway must NEVER break the read). The
@@ -1924,4 +1960,7 @@ async function route(req, res) {
   }
 }
 
-module.exports = { route, store, authClient, useSupabase, DEMO_MODE };
+// `rateLimitCheckMiss` e `clientIp` saem pro teste: a garantia que importa
+// aqui — acerto não gasta balde, e o primeiro hop do XFF não é confiável —
+// é de COMPORTAMENTO, e censo de fonte não prova comportamento.
+module.exports = { route, store, authClient, useSupabase, DEMO_MODE, rateLimitCheckMiss, clientIp };

@@ -40,9 +40,9 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
       const data = await req<TablesView>(`/api/tables?v=${encodeURIComponent(venueId)}`);
       setVenue(data.venue); setTables(data.tables); setError(null);
     } catch (e) { setError(trErr(e)); }
-  }, [venueId]);
+  }, [venueId, trErr]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   const addTable = useCallback(async (label: string): Promise<boolean> => {
     const clean = label.trim();
@@ -55,26 +55,26 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
       await refresh();
       return true;
     } catch (e) { setError(trErr(e)); return false; }
-  }, [venueId, refresh]);
+  }, [venueId, refresh, trErr]);
 
   const rotate = useCallback(async (t: VenueTable) => {
     if (!confirm(tr('admin.rotateAsk', { table: t.label }))) return;
     try { await req('/api/tables/rotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id }) }); await refresh(); }
     catch (e) { setError(trErr(e)); }
-  }, [refresh, tr]);
+  }, [refresh, tr, trErr]);
 
   const toggle = useCallback(async (t: VenueTable) => {
     if (t.active && t.hasOpenCheck) { setError(tr('admin.hasOpenBill', { table: t.label })); return; }
     if (t.active && !confirm(tr('admin.deactivateAsk', { table: t.label }))) return;
     try { await req('/api/tables/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, active: !t.active }) }); await refresh(); }
     catch (e) { setError(trErr(e)); }
-  }, [refresh, tr]);
+  }, [refresh, tr, trErr]);
 
   // Mesa de treino: a equipe pratica o fluxo nela; fica fora da folha /qrs.
   const toggleTraining = useCallback(async (t: VenueTable) => {
     try { await req<{ id: string; training: boolean }>('/api/tables/training', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, training: !t.training }) }); await refresh(); }
     catch (e) { setError(trErr(e)); }
-  }, [refresh]);
+  }, [refresh, trErr]);
 
   // Modo manual (POS adapter): o dono abre/fecha a conta pelo painel.
   const openManualCheck = useCallback(async (t: VenueTable) => {
@@ -89,7 +89,7 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
       await req('/api/checks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, totalCents }) });
       await refresh();
     } catch (e) { setError(trErr(e)); }
-  }, [refresh, tr, venue?.market]);
+  }, [refresh, tr, venue?.market, trErr]);
 
   const closeManualCheck = useCallback(async (t: VenueTable) => {
     if (!confirm(tr('admin.closeCheckConfirm', { table: t.label }))) return;
@@ -114,7 +114,7 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
       await req('/api/checks/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkId }) });
       await refresh();
     } catch (e) { setError(trErr(e)); }
-  }, [refresh, tr]);
+  }, [refresh, tr, trErr]);
 
   return { venue, tables, error, setError, refresh, addTable, rotate, toggle, toggleTraining, openManualCheck, closeManualCheck };
 }

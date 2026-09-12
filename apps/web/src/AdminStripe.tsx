@@ -40,7 +40,7 @@ export default function AdminStripe({ venueId }: { venueId: string }) {
     }
   }, [venueId]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   async function connect() {
     setBusy(true); setErr(null);

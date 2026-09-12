@@ -7,9 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "npm run build && node --test test/*.test.ts",
+    "test": "npm run lint && npm run build && node --test test/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "prebuild": "node scripts/embed-ios.mjs"
+    "prebuild": "node scripts/embed-ios.mjs",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.8.0",
@@ -20,11 +21,15 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.10.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "typescript": "^5.6.3",
-    "vite": "^6.0.3",
-    "@types/node": "^22.10.2"
+    "typescript-eslint": "^8.70.0",
+    "vite": "^6.0.3"
   }
 }

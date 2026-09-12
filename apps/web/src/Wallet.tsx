@@ -62,7 +62,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
     }
   }, [accountToken]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   // null = entrada inválida no campo livre → CTA desarmado.
   const amountCents = chip ?? parseBrlToCents(custom);
@@ -150,7 +150,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
           )}
           {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
           <p className="muted small">{t('wallet.onlyAt', { venue: venue.name })}</p>
-          <button className="linklike" onClick={() => { setCharge(null); refresh(); }}>{t('common.backWallet')}</button>
+          <button className="linklike" onClick={() => { setCharge(null); void refresh(); }}>{t('common.backWallet')}</button>
         </section>
       </Shell>
     );

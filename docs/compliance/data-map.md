@@ -202,8 +202,10 @@ que ninguém tinha feito sobre o `@stripe/stripe-js`.
 
 Ferramentas de build e teste, que o censo também exige porque um import de
 `devDependency` chega ao cliente igualzinho: `vite`, `@vitejs/plugin-react`,
-`typescript`, `jest`, `@types/react`, `@types/react-dom`, `@types/node` —
-**nenhuma fala com fora em runtime**; as três últimas somem na compilação.
+`typescript`, `jest`, `@types/react`, `@types/react-dom`, `@types/node`,
+`eslint`, `@eslint/js`, `eslint-plugin-react-hooks`, `typescript-eslint` —
+**nenhuma fala com fora em runtime**; os tipos somem na compilação e o lint nem
+chega a ser empacotado.
 
 ## 6. O app iOS
 
