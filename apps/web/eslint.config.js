@@ -52,7 +52,15 @@ export default tseslint.config(
       // Ligar isso obrigaria a envolver cada handler num wrapper `void`, o que
       // é ruído mecânico sem ganho de segurança, e ruído é o que faz alguém
       // desligar o lint inteiro.
-      '@typescript-eslint/no-misused-promises': 'off',
+      // Metade DESLIGADA, metade LIGADA — e a metade ligada é o não-negociável
+      // #7 em forma de lint. `checksVoidReturn` é a que reclama de
+      // `onClick={async () => …}` (47 vezes, todas com try/catch): ruído
+      // mecânico, e ruído é o que faz alguém desligar o lint inteiro.
+      // `checksConditionals` é outra coisa: pega `if (guardaAssincrona())`, um
+      // guarda SEMPRE verdadeiro que portanto nunca dispara. Guarda que se cala
+      // é exatamente a forma de falha que custou doze dias no Seatable.
+      // Zero ocorrências hoje, então ligar custa nada.
+      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',

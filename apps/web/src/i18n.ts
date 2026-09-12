@@ -58,14 +58,35 @@ export const DICT = {
   // que dizer prazo, e prazo escrito sem job que o cumpra é promessa falsa.
   // Cada linha daqui aponta pra uma defesa que existe no código.
   'priv.link':        { en: 'Your data',                       pt: 'Seus dados', es: 'Tus datos' },
+  // A CAMADA 1. Um controle que só diz "seus dados" é um rótulo, não um aviso:
+  // quem não abrir não recebe informação nenhuma, e o art. 9º pede informação
+  // antes da decisão. Esta linha fica SEMPRE visível e responde as três
+  // perguntas — quem, o quê, por quanto tempo — em uma frase.
+  // A expiração e a restrição de DINHEIRO PRÉ-PAGO, que estavam em português
+  // cru numa tela servida em três idiomas. É informação do art. 6º III / art.
+  // 31 do CDC sobre o que a pessoa está comprando.
+  'wallet.bonusTerms': { en: 'The promotional bonus is valid for {days} days. Good only at {venue}.',
+                        pt: 'O bônus promocional vale por {days} dias. Válido somente no {venue}.',
+                        es: 'El bono promocional vale {days} días. Válido solo en {venue}.' },
+  'priv.teaser':      { en: '{venue} keeps the name you type for 90 days; Racha runs the payment.',
+                        pt: '{venue} guarda o nome que você digita por 90 dias; a Racha opera o pagamento.',
+                        es: '{venue} guarda el nombre que escribes 90 días; Racha ejecuta el pago.' },
   'priv.title':       { en: 'What happens to your data',       pt: 'O que acontece com seus dados', es: 'Qué pasa con tus datos' },
-  'priv.who':         { en: 'The restaurant decides what is collected here and why; Racha only runs the payment for them. For anything about your data, talk to the restaurant first.',
-                        pt: 'O restaurante é quem decide o que se coleta aqui e pra quê; a Racha só opera o pagamento por ele. Para qualquer coisa sobre seus dados, fale primeiro com o restaurante.',
-                        es: 'El restaurante decide qué se recoge aquí y para qué; Racha solo ejecuta el pago por él. Para cualquier cosa sobre tus datos, habla primero con el restaurante.' },
+  // Nomeia o controlador (art. 9º III) e diz o que a Racha trata EM NOME
+  // PRÓPRIO — a primeira versão dizia que "o restaurante decide tudo", e o
+  // próprio mapa de dados estabelece que a medição de adoção é finalidade
+  // nossa, sob legítimo interesse. Negar isso ao cliente era fechar metade da
+  // lacuna e chamar de fechada.
+  'priv.who':         { en: '{venue} ({taxId}) decides what is collected to close your bill and why; Racha runs the payment for them. Separately, and in its own name, Racha counts how many people open a bill — a random per-tab number, no name attached — to know whether the product is being used.',
+                        pt: '{venue} ({taxId}) é quem decide o que se coleta pra fechar sua conta e pra quê; a Racha opera o pagamento por ele. À parte, e em nome próprio, a Racha conta quantas pessoas abrem uma conta — um número aleatório por aba, sem nome nenhum junto — pra saber se o produto está sendo usado.',
+                        es: '{venue} ({taxId}) decide qué se recoge para cerrar tu cuenta y para qué; Racha ejecuta el pago por él. Aparte, y en nombre propio, Racha cuenta cuántas personas abren una cuenta — un número aleatorio por pestaña, sin nombre — para saber si el producto se usa.' },
   'priv.whatTitle':   { en: 'What we keep',                    pt: 'O que fica guardado', es: 'Qué se guarda' },
-  'priv.what1':       { en: 'The name you type, so the table can see who paid which part. It is erased 90 days after the bill closes — the amount stays, the name does not.',
-                        pt: 'O nome que você digita, pra mesa ver quem pagou qual parte. Ele é apagado 90 dias depois de a conta fechar — o valor fica, o nome não.',
-                        es: 'El nombre que escribes, para que la mesa vea quién pagó qué parte. Se borra 90 días después de cerrar la cuenta — el importe queda, el nombre no.' },
+  // "apagado DA RACHA": o nome vai junto na descrição da cobrança, então o
+  // provedor de pagamento guarda o registro dele sob as regras dele. Prometer
+  // "apagado" sem essa metade era prometer o que a gente não controla.
+  'priv.what1':       { en: 'The name you type, so the table can see who paid which part. It is erased from Racha 90 days after the bill closes — the amount stays, the name does not. The payment provider keeps its own record of the charge under its own terms.',
+                        pt: 'O nome que você digita, pra mesa ver quem pagou qual parte. Ele é apagado da Racha 90 dias depois de a conta fechar — o valor fica, o nome não. O provedor de pagamento guarda o registro da cobrança dele sob as regras dele.',
+                        es: 'El nombre que escribes, para que la mesa vea quién pagó qué parte. Se borra de Racha 90 días después de cerrar la cuenta — el importe queda, el nombre no. El proveedor de pago guarda su propio registro del cobro bajo sus condiciones.' },
   'priv.what2':       { en: 'The amount, the method and the time of the payment, kept as an accounting record.',
                         pt: 'O valor, o meio e a hora do pagamento, guardados como registro contábil.',
                         es: 'El importe, el método y la hora del pago, guardados como registro contable.' },
@@ -79,13 +100,23 @@ export const DICT = {
   'priv.no3':         { en: 'A login. You never create an account to pay a bill.',
                         pt: 'Um cadastro. Você nunca cria conta pra pagar uma conta.',
                         es: 'Un registro. Nunca creas una cuenta para pagar una cuenta.' },
+  // A carteira pré-paga. O telefone é o dado mais identificável que este
+  // produto recebe, e a primeira versão do aviso não o mencionava — a tela que
+  // o COLETA também não tinha aviso nenhum.
+  'priv.what3':       { en: 'If you open a prepaid wallet at the restaurant, the name and phone you give, for as long as the wallet exists — and for 90 days after it is empty and unused.',
+                        pt: 'Se você abrir uma carteira pré-paga no restaurante, o nome e o telefone que você informa, enquanto a carteira existir — e por 90 dias depois de ela ficar vazia e sem uso.',
+                        es: 'Si abres una cartera prepago en el restaurante, el nombre y el teléfono que das, mientras la cartera exista — y 90 días después de quedar vacía y sin uso.' },
   'priv.whoElseTitle': { en: 'Who else sees it',               pt: 'Quem mais vê', es: 'Quién más lo ve' },
   'priv.whoElse':     { en: 'The payment provider that issues the charge and settles the money to the restaurant, and the companies that host the app and the database. Nobody else, and never for advertising.',
                         pt: 'O provedor de pagamento que emite a cobrança e liquida o dinheiro pro restaurante, e as empresas que hospedam o app e o banco de dados. Mais ninguém, e nunca pra publicidade.',
                         es: 'El proveedor de pago que emite el cobro y liquida el dinero al restaurante, y las empresas que alojan la app y la base de datos. Nadie más, y nunca para publicidad.' },
-  'priv.rights':      { en: 'You can ask what is kept about you, ask for it to be corrected, or ask for it to be erased. Ask the restaurant and they will reach us.',
-                        pt: 'Você pode pedir o que está guardado sobre você, pedir correção, ou pedir exclusão. Peça ao restaurante e ele chega até a gente.',
-                        es: 'Puedes pedir qué se guarda sobre ti, pedir corrección o pedir que se borre. Pídeselo al restaurante y llegará hasta nosotros.' },
+  // Inclui o direito de OPOR-SE, que é o que acompanha legítimo interesse
+  // (art. 18 §2), e um canal DIRETO — "fale com o restaurante" como única via
+  // lê como desvio, e o consumidor pode vir direto de qualquer jeito (CDC art.
+  // 7º § único).
+  'priv.rights':      { en: 'You can ask what is kept about you, have it corrected or erased, and object to the counting described above. Ask {venue}, or write to {email} and we will act with them.',
+                        pt: 'Você pode pedir o que está guardado sobre você, pedir correção ou exclusão, e se opor à contagem descrita acima. Peça a {venue}, ou escreva para {email} e a gente resolve junto com ele.',
+                        es: 'Puedes pedir qué se guarda sobre ti, pedir corrección o supresión, y oponerte al recuento descrito arriba. Pídeselo a {venue}, o escribe a {email} y lo resolvemos con él.' },
   'priv.close':       { en: 'Close',                           pt: 'Fechar', es: 'Cerrar' },
   'app.tagline':      { en: 'racha · no app, no sign-up',      pt: 'racha · sem app, sem cadastro', es: 'racha · sin app, sin registro' },
   'lang.label':       { en: 'Language',                        pt: 'Idioma', es: 'Idioma' },

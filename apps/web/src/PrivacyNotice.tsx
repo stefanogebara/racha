@@ -20,12 +20,22 @@ import { useT } from './lang';
  * 90 dias (`purge_expired_personal_data`, migração 0031). É por isso que o
  * texto foi escrito DEPOIS do `docs/compliance/retencao.md`.
  */
-export default function PrivacyNotice() {
+/** O e-mail do canal direto. Único lugar, pra não divergir entre telas. */
+const CONTATO = 'privacidade@racha.com.br';
+
+export default function PrivacyNotice({ venue, taxId }: { venue: string; taxId?: string | null }) {
   const { t } = useT();
   const [aberto, setAberto] = useState(false);
+  // Sem documento da casa a frase não pode ficar com um parêntese vazio.
+  const quem = taxId ? t('priv.who', { venue, taxId }) : t('priv.who', { venue, taxId: '—' });
 
   return (
     <>
+      {/* CAMADA 1, sempre visível. Um controle que só diz "seus dados" é um
+          rótulo: quem não abrir não recebe informação nenhuma, e o art. 9º pede
+          informação ANTES da decisão. Esta linha responde quem, o quê e por
+          quanto tempo sem exigir um toque. */}
+      <span className="muted small">{t('priv.teaser', { venue })}</span>
       <button
         type="button"
         className="linklike small"
@@ -37,12 +47,13 @@ export default function PrivacyNotice() {
       {aberto && (
         <section className="card privacy" style={{ textAlign: 'left', marginTop: 8 }}>
           <p className="label">{t('priv.title')}</p>
-          <p className="muted small">{t('priv.who')}</p>
+          <p className="muted small">{quem}</p>
 
           <p className="label small" style={{ marginTop: 10 }}>{t('priv.whatTitle')}</p>
           <ul className="muted small" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
             <li>{t('priv.what1')}</li>
             <li>{t('priv.what2')}</li>
+            <li>{t('priv.what3')}</li>
           </ul>
 
           <p className="label small" style={{ marginTop: 10 }}>{t('priv.noTitle')}</p>
@@ -54,7 +65,9 @@ export default function PrivacyNotice() {
 
           <p className="label small" style={{ marginTop: 10 }}>{t('priv.whoElseTitle')}</p>
           <p className="muted small">{t('priv.whoElse')}</p>
-          <p className="muted small" style={{ marginTop: 10 }}>{t('priv.rights')}</p>
+          <p className="muted small" style={{ marginTop: 10 }}>
+            {t('priv.rights', { venue, email: CONTATO })}
+          </p>
 
           <button type="button" className="linklike small" onClick={() => setAberto(false)}>
             {t('priv.close')}

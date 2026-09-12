@@ -212,6 +212,25 @@ export default function App() {
       // só a PRIMEIRA carga pode falhar em tela cheia, porque aí não há tela.
       setStale(true);
       const err = e as ApiError;
+      // CONTA QUE NÃO EXISTE PARA O RELÓGIO.
+      //
+      // O poll de 4s não parava nunca: depois que a mesa terminava de pagar, a
+      // conta some da leitura (`status <> 'fechada'`) e TODO poll seguinte
+      // virava um 404 — 15 por minuto, por telefone, para sempre, de cada
+      // aparelho ainda com a tela aberta. O mesmo valia pra quem escaneia antes
+      // de o garçom abrir a conta.
+      //
+      // Isso não era só desperdício: com o balde de erro do `/api/check`, um
+      // telefone esquecido numa mesa queimava a cota inteira em dois minutos, e
+      // atrás do NAT do restaurante (ou do CGNAT da operadora) o vizinho que
+      // escaneasse depois lia "muitas tentativas" no lugar de "conta não
+      // encontrada". A defesa que eu escrevi contra fechar a conta na cara de
+      // alguém fechava a conta na cara de alguém — pelo outro ramo. Achado da
+      // revisão de segurança de 2026-09-12.
+      //
+      // Some da tela ≠ falha de rede: 404 é um estado ESTÁVEL, e relógio não
+      // muda estado estável. Um toque do usuário re-arma.
+      if (err.code === 'check_not_found') setPolling(false);
       setError(tError(lang, err.code, err.message));
     }
   }, [token, lang, adotarPadraoDaCasa]);
@@ -844,8 +863,10 @@ export default function App() {
 
       <footer className="foot">
         <span>{t('app.tagline')}</span>
-        {/* O aviso do art. 9º vive AQUI, na tela da conta — ver PrivacyNotice. */}
-        <PrivacyNotice />
+        {/* O aviso do art. 9º vive AQUI, na tela da conta — ver PrivacyNotice.
+            Leva o nome e o documento da CASA porque é ela a controladora, e um
+            aviso que não identifica o controlador não cumpre o art. 9º III. */}
+        <PrivacyNotice venue={venue.name} taxId={venue.taxId} />
         <LangToggle compact />
       </footer>
     </Shell>

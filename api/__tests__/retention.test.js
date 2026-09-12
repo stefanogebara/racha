@@ -62,6 +62,91 @@ describe('retenção: o prazo prometido é o prazo executado', () => {
     expect(SQL).toMatch(/raise exception 'purge_expired_personal_data: prazo curto demais/);
   });
 
+  test('toda coluna que o predicado LÊ tem um escritor ALCANÇÁVEL', () => {
+    // O censo que teria pego o buraco — e a primeira versão DELE também estava
+    // errada, o que é apropriado. Ela perguntava "esta palavra aparece em
+    // algum lugar do `api/`?", e `active` aparece: em status de recebedor, em
+    // mesa de demo, no próprio store. Passava verde com o predicado morto.
+    //
+    // A pergunta certa é mais estreita: o método do STORE que escreve esta
+    // coluna é chamado por alguém que não seja teste? `setHouseAccountActive`
+    // existe nos dois stores e tem exatamente um chamador no repositório
+    // inteiro — um teste. A coluna nasce `true` e nada a vira, então o telefone
+    // do cliente ficaria pra sempre (a falha que a migração diz fechar) e a
+    // contagem reportaria zero, que é o que o doc manda ler como "o job parou".
+    //
+    // Um predicado cuja satisfatibilidade depende de feature não implementada é
+    // uma frase, não um guarda.
+    const corpo = SQL.slice(SQL.indexOf('purge_expired_personal_data('), SQL.indexOf('$$;'));
+    const colunas = new Set();
+    for (const m of corpo.matchAll(/\b(?:a|p|c|l|e)\.(\w+)\s*(?:=|<|>|is )/g)) colunas.add(m[1]);
+
+    // O banco mantém estas sozinho: nascem preenchidas e mudam por si.
+    const MANTIDAS_PELO_BANCO = new Set(['created_at', 'updated_at', 'closed_at', 'expires_at',
+      'at', 'check_id', 'account_id', 'id', 'status', 'remaining_cents', 'principal_cents']);
+    const alvos = [...colunas].filter((c) => !MANTIDAS_PELO_BANCO.has(c));
+    expect(alvos.length).toBeGreaterThan(0);
+
+    const memoria = fs.readFileSync(path.join(RAIZ, 'api', '_lib', 'store', 'memory.js'), 'utf8');
+    const linhas = memoria.split('\n');
+
+    /**
+     * TODOS os métodos do store que atribuem esta coluna — não o primeiro.
+     *
+     * Pegar o primeiro foi o erro da versão anterior deste censo: `active` é
+     * escrita por `setTableActive` (mesa, alcançável por rota) e por
+     * `setHouseAccountActive` (carteira, sem chamador nenhum). O primeiro match
+     * era o alcançável, e o censo passava verde sobre o predicado morto — o
+     * mesmo erro que ele existe pra pegar, dentro dele. Se um método que
+     * escreve a coluna não tem chamador, a coluna não serve de chave: ou é
+     * outra entidade, ou é código morto, e nos dois casos o predicado depende
+     * de algo que ninguém produz.
+     */
+    function metodosQueEscrevem(col) {
+      const camel = col.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+      const achados = new Set();
+      for (let i = 0; i < linhas.length; i += 1) {
+        if (!new RegExp(`\\.(?:${col}|${camel})\\s*=[^=]`).test(linhas[i])) continue;
+        for (let j = i; j >= 0; j -= 1) {
+          const m = linhas[j].match(/^\s*async (\w+)\s*\(/);
+          if (m) { achados.add(m[1]); break; }
+        }
+      }
+      return [...achados];
+    }
+
+    // Todo `api/` menos os stores e os testes, MAIS `scripts/`: um instrumento
+    // de operação é um chamador de verdade tanto quanto uma rota. Foi assim que
+    // este censo pegou o `erasePaymentLabel`, que existia no store e no SQL e
+    // não tinha como ser invocado por ninguém — art. 18 com instrumento
+    // inalcançável é o mesmo que sem instrumento.
+    const chamadores = [];
+    (function walk(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) { if (!/^(node_modules|__tests__|store)$/.test(e.name)) walk(full); }
+        else if (e.name.endsWith('.js') || e.name.endsWith('.mjs')) chamadores.push(fs.readFileSync(full, 'utf8'));
+      }
+    }(path.join(RAIZ, 'api')));
+    (function walkScripts(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) walkScripts(full);
+        else if (/\.(js|mjs)$/.test(e.name)) chamadores.push(fs.readFileSync(full, 'utf8'));
+      }
+    }(path.join(RAIZ, 'scripts')));
+    const codigo = chamadores.join('\n');
+
+    const mortas = alvos.filter((col) => {
+      const metodos = metodosQueEscrevem(col);
+      // Sem método que escreva: ou é derivada, ou o predicado lê algo que nada
+      // produz. Nos dois casos não serve de chave.
+      if (metodos.length === 0) return true;
+      return metodos.some((m) => !new RegExp(`\\b${m}\\b`).test(codigo));
+    });
+    expect(mortas).toEqual([]);
+  });
+
   test('a rota do cron existe, é protegida, e devolve a contagem', () => {
     const router = fs.readFileSync(path.join(RAIZ, 'api', '_app', 'router.js'), 'utf8');
     const rota = router.slice(

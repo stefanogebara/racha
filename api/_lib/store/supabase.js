@@ -931,9 +931,21 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(error, 'purgeExpiredPersonalData');
       return {
         payerLabels: Number(data?.payer_labels ?? 0),
+        payerHints: Number(data?.payer_hints ?? 0),
         houseAccounts: Number(data?.house_accounts ?? 0),
         checkViews: Number(data?.check_views ?? 0),
       };
+    },
+
+    /**
+     * Pedido do titular (art. 18 IV): o nome livre de UM pagamento sai AGORA,
+     * não no dia 90. Instrumento limitado no lugar de SQL ad-hoc com a service
+     * role — ver migração 0031.
+     */
+    async erasePaymentLabel(txid) {
+      const { data, error } = await client.rpc('erase_payment_label', { p_txid: txid });
+      throwOn(error, 'erasePaymentLabel');
+      return Number(data ?? 0);
     },
 
     async listVenueActivation() {
