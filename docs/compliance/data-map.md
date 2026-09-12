@@ -39,9 +39,9 @@ documentada, em nome próprio. Ver lacuna 4.
 
 | Dado | De quem | Pra quê | Base legal | Onde mora | Prazo |
 |---|---|---|---|---|---|
-| `payments.payer_label` — nome livre que a pessoa digita ("Ste", "mesa toda") | cliente | dizer no painel e no comprovante quem pagou qual parte | operadora, por conta da casa (art. 7º V da casa) | Supabase `payments` | **sem prazo definido — lacuna 1** |
+| `payments.payer_label` — nome livre que a pessoa digita ("Ste", "mesa toda") | cliente | dizer no painel e no comprovante quem pagou qual parte | operadora, por conta da casa (art. 7º V da casa) | Supabase `payments` | **90 dias depois de a conta fechar** — anonimizado pela 0031 |
 | `payments.psp_payload_masked` — subconjunto ESCALAR do webhook (14 campos: txid, valores, status, horários) | cliente | reconciliar e reproduzir o histórico | operadora | Supabase `payments` | segue a conta |
-| `house_accounts.phone` + `.name` | cliente que abre carteira pré-paga | achar a carteira dele na casa e saber de quem é o saldo | operadora | Supabase `house_accounts` | **sem prazo — lacuna 1** |
+| `house_accounts.phone` + `.name` | cliente que abre carteira pré-paga | achar a carteira dele na casa e saber de quem é o saldo | operadora | Supabase `house_accounts` | enquanto a carteira viver, **+ 90 dias** depois de zerada e inativa |
 | `check_views.session_hash` | ninguém — aleatório do navegador | contar quantas pessoas ABREM a conta (portão de adoção) | interesse legítimo (art. 7º IX) — **e a lacuna 2 é PRÉ-CONDIÇÃO dela**, não item vizinho: o art. 7º IX é a única base que chega com dever de transparência (art. 10 §2) e direito de oposição (art. 18 §2). Sem o aviso, a base é alegada, não constituída | Supabase `check_views` | segue a conta — **e a conta não expira (lacuna 1), então isto é sobre-retenção pra um CONTADOR. Agregar por casa/semana e apagar a linha crua tira o `check_views` do perímetro quase inteiro, que é melhor do que ganhar o teste de balanceamento** |
 | `venues.cnpj`, `venues.notify_email`, `venues.notify_whatsapp` | dono | cadastro, KYC do recebedor, aviso de status | controladora, contrato (art. 7º V) | Supabase `venues` | vida do contrato |
 | e-mail e senha do dono | dono | login do painel | controladora, contrato | Supabase Auth (GoTrue), `auth.users` | vida do contrato |
@@ -131,14 +131,25 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
 
 ## 4. Lacunas — o que falta, nomeado
 
-1. **Sem prazo de retenção e sem caminho de exclusão.** `payer_label`,
-   `house_accounts.phone`/`name`: nada expira, nada apaga. Um nome preso a um
-   pagamento guardado pra sempre falha o art. 6º I/III e, na Espanha, o art.
-   5(1)(e) do GDPR. Fecha com: prazo por fluxo + job de expurgo + rota de
-   pedido do titular (art. 18).
-2. **Sem aviso de privacidade voltado pro cliente.** A tela da conta não diz
-   quem trata, pra quê, e pra quem vai (art. 9º). Fecha com: um link "seus
-   dados" na tela da conta, no idioma do leitor.
+1. ~~**Sem prazo de retenção e sem caminho de exclusão.**~~ **Prazo e job
+   fechados em 2026-09-12**; o pedido do titular continua aberto.
+   `docs/compliance/retencao.md` tem a tabela por fluxo, a migração 0031 tem a
+   função `purge_expired_personal_data()` — que ANONIMIZA em vez de apagar,
+   porque o razão é event-sourced e destruir um pagamento destruiria a
+   contabilidade da casa — e `/api/cron/retention` a chama uma vez por dia. O
+   prazo que a função cumpre e o prazo que o aviso ao cliente promete estão
+   amarrados por teste (`api/__tests__/retention.test.js`).
+   **O que falta:** rota de autoatendimento do art. 18. Hoje o pedido passa pelo
+   restaurante e a exclusão é manual — aceitável num piloto assistido com poucas
+   casas, inaceitável no dia em que o produto for self-serve.
+2. ~~**Sem aviso de privacidade voltado pro cliente.**~~ **Fechada em
+   2026-09-12.** `PrivacyNotice.tsx`, no rodapé da tela da conta, nos três
+   idiomas: quem é controlador (a casa, com a Racha como operadora), o que fica
+   guardado e por quanto tempo, o que NUNCA chega aqui (cartão, CPF, cadastro),
+   quem mais vê, e os direitos do art. 18. Fica na própria tela e não numa
+   página à parte — o art. 9º pede informação acessível ANTES da decisão, e um
+   link que tira a pessoa da tela de pagar é um link que ninguém toca no meio de
+   um jantar. Cada frase aponta pra uma defesa que existe no código.
 3. **Transferência internacional sem papelada.** Dado de titular europeu no
    Supabase fora da UE e acessível do Brasil (LGPD art. 33; GDPR cap. V).
    Fecha com: projeto Supabase em região da UE (correção técnica que dispensa
@@ -182,9 +193,9 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    hospedagem como base. O que falta é prazo: log é mais um lugar onde uma
    capacidade ao portador mora sem expirar. Anda junto com a lacuna 1.
 
-Nenhuma dessas bloqueia o piloto brasileiro assistido. As lacunas 2 e 4
-bloqueiam o primeiro QR numa mesa de cliente de verdade; as 3, 5 e 6 bloqueiam
-ligar a Espanha (`RACHA_ES_ENABLED`).
+Nenhuma dessas bloqueia o piloto brasileiro assistido. A **lacuna 4** é a que
+sobra antes do primeiro QR numa mesa de cliente de verdade — a 2 fechou; as 3, 5
+e 6 bloqueiam ligar a Espanha (`RACHA_ES_ENABLED`).
 
 ## 5. Dependências de runtime, classificadas
 

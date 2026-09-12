@@ -4,6 +4,7 @@ import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
 import Home from './Home';
 import HousePay from './HousePay';
+import PrivacyNotice from './PrivacyNotice';
 import WalletButtons from './WalletPay';
 
 /** Sem chave publicável não há elemento da Stripe pra montar. */
@@ -843,6 +844,8 @@ export default function App() {
 
       <footer className="foot">
         <span>{t('app.tagline')}</span>
+        {/* O aviso do art. 9º vive AQUI, na tela da conta — ver PrivacyNotice. */}
+        <PrivacyNotice />
         <LangToggle compact />
       </footer>
     </Shell>

@@ -47,6 +47,46 @@ export function fill(s: string, vars?: Record<string, string | number>): string 
 
 export const DICT = {
   // ── cabeçalho / geral ───────────────────────────────────────────────────
+  // ── O AVISO DE PRIVACIDADE DO CLIENTE (art. 9º) ──────────────────────────
+  //
+  // Lacuna 2 do `docs/compliance/data-map.md`, e a que bloqueia o primeiro QR
+  // numa mesa de cliente de verdade: a tela da conta não dizia quem trata, pra
+  // quê, pra quem vai, nem por quanto tempo. O art. 9º não pede um contrato —
+  // pede que a informação esteja CLARA e ACESSÍVEL antes de a pessoa decidir.
+  //
+  // Escrito depois do `docs/compliance/retencao.md` de propósito: um aviso tem
+  // que dizer prazo, e prazo escrito sem job que o cumpra é promessa falsa.
+  // Cada linha daqui aponta pra uma defesa que existe no código.
+  'priv.link':        { en: 'Your data',                       pt: 'Seus dados', es: 'Tus datos' },
+  'priv.title':       { en: 'What happens to your data',       pt: 'O que acontece com seus dados', es: 'Qué pasa con tus datos' },
+  'priv.who':         { en: 'The restaurant decides what is collected here and why; Racha only runs the payment for them. For anything about your data, talk to the restaurant first.',
+                        pt: 'O restaurante é quem decide o que se coleta aqui e pra quê; a Racha só opera o pagamento por ele. Para qualquer coisa sobre seus dados, fale primeiro com o restaurante.',
+                        es: 'El restaurante decide qué se recoge aquí y para qué; Racha solo ejecuta el pago por él. Para cualquier cosa sobre tus datos, habla primero con el restaurante.' },
+  'priv.whatTitle':   { en: 'What we keep',                    pt: 'O que fica guardado', es: 'Qué se guarda' },
+  'priv.what1':       { en: 'The name you type, so the table can see who paid which part. It is erased 90 days after the bill closes — the amount stays, the name does not.',
+                        pt: 'O nome que você digita, pra mesa ver quem pagou qual parte. Ele é apagado 90 dias depois de a conta fechar — o valor fica, o nome não.',
+                        es: 'El nombre que escribes, para que la mesa vea quién pagó qué parte. Se borra 90 días después de cerrar la cuenta — el importe queda, el nombre no.' },
+  'priv.what2':       { en: 'The amount, the method and the time of the payment, kept as an accounting record.',
+                        pt: 'O valor, o meio e a hora do pagamento, guardados como registro contábil.',
+                        es: 'El importe, el método y la hora del pago, guardados como registro contable.' },
+  'priv.noTitle':     { en: 'What never gets here',            pt: 'O que nunca chega aqui', es: 'Lo que nunca llega aquí' },
+  'priv.no1':         { en: 'Your card number. The card fields belong to the payment provider and the data goes straight to them.',
+                        pt: 'O número do seu cartão. Os campos de cartão são do provedor de pagamento e os dados vão direto pra ele.',
+                        es: 'El número de tu tarjeta. Los campos de tarjeta son del proveedor de pago y los datos van directos a él.' },
+  'priv.no2':         { en: 'Your tax ID, if you type one. It is passed to the payment provider to issue the charge and is not stored here.',
+                        pt: 'Seu CPF, se você digitar um. Ele é repassado ao provedor de pagamento pra emitir a cobrança e não fica guardado aqui.',
+                        es: 'Tu documento fiscal, si escribes uno. Se pasa al proveedor de pago para emitir el cobro y no se guarda aquí.' },
+  'priv.no3':         { en: 'A login. You never create an account to pay a bill.',
+                        pt: 'Um cadastro. Você nunca cria conta pra pagar uma conta.',
+                        es: 'Un registro. Nunca creas una cuenta para pagar una cuenta.' },
+  'priv.whoElseTitle': { en: 'Who else sees it',               pt: 'Quem mais vê', es: 'Quién más lo ve' },
+  'priv.whoElse':     { en: 'The payment provider that issues the charge and settles the money to the restaurant, and the companies that host the app and the database. Nobody else, and never for advertising.',
+                        pt: 'O provedor de pagamento que emite a cobrança e liquida o dinheiro pro restaurante, e as empresas que hospedam o app e o banco de dados. Mais ninguém, e nunca pra publicidade.',
+                        es: 'El proveedor de pago que emite el cobro y liquida el dinero al restaurante, y las empresas que alojan la app y la base de datos. Nadie más, y nunca para publicidad.' },
+  'priv.rights':      { en: 'You can ask what is kept about you, ask for it to be corrected, or ask for it to be erased. Ask the restaurant and they will reach us.',
+                        pt: 'Você pode pedir o que está guardado sobre você, pedir correção, ou pedir exclusão. Peça ao restaurante e ele chega até a gente.',
+                        es: 'Puedes pedir qué se guarda sobre ti, pedir corrección o pedir que se borre. Pídeselo al restaurante y llegará hasta nosotros.' },
+  'priv.close':       { en: 'Close',                           pt: 'Fechar', es: 'Cerrar' },
   'app.tagline':      { en: 'racha · no app, no sign-up',      pt: 'racha · sem app, sem cadastro', es: 'racha · sin app, sin registro' },
   'lang.label':       { en: 'Language',                        pt: 'Idioma', es: 'Idioma' },
   // O título do documento: é a aba do navegador e o nome que aparece quando

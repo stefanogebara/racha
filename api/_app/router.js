@@ -1864,6 +1864,36 @@ async function route(req, res) {
     // dia e manda SÓ quem precisa de ação, com a ação junto.
     //
     // ?dry=1 devolve o radar sem enviar (inspeção sem incomodar ninguém).
+    /**
+     * A retenção, uma vez por dia.
+     *
+     * Fecha a lacuna 1 do mapa de dados: até 2026-09-12 nada expirava e nada
+     * apagava. Anonimiza em vez de apagar — o razão é event-sourced e imutável,
+     * e destruir um pagamento destruiria a contabilidade da casa. Sai o dado
+     * pessoal, fica o fato de que houve pagamento. Prazos e o porquê de cada um
+     * em `docs/compliance/retencao.md`.
+     */
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/retention') {
+      if (process.env.CRON_SECRET) {
+        if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
+          return json(res, 401, { success: false, error: 'unauthorized' });
+        }
+      } else if (!rateLimitCron(req)) {
+        return json(res, 429, { success: false, error: 'calma lá' });
+      }
+      if (typeof store.purgeExpiredPersonalData !== 'function') {
+        return json(res, 200, { success: true, data: { skipped: 'store sem purgeExpiredPersonalData' } });
+      }
+      // Uma falha aqui NÃO pode ser silenciosa: o cron que não roda é
+      // indistinguível do cron que não achou nada pra apagar, e os dois
+      // reportariam zero. Por isso o erro sobe como 500 e vai pro log.
+      const purga = await store.purgeExpiredPersonalData();
+      process.stderr.write(
+        `[retencao] payer_labels=${purga.payerLabels} carteiras=${purga.houseAccounts} aberturas=${purga.checkViews}\n`,
+      );
+      return json(res, 200, { success: true, data: purga });
+    }
+
     if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/cron/activation-radar') {
       if (process.env.CRON_SECRET) {
         // Comparação em tempo CONSTANTE: `!==` sai no primeiro byte diferente
