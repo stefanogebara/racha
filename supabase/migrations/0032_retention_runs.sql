@@ -49,6 +49,28 @@ create table if not exists public.retention_runs (
 
 create index if not exists retention_runs_at_idx on public.retention_runs (at desc);
 
+-- AS CONSTRAINTS FORA DO `create table`.
+--
+-- Este arquivo foi editado depois de ter sido commitado uma vez, e ganhou as
+-- duas `check` no meio do `create table if not exists`. Em qualquer ambiente
+-- onde a versao anterior ja tivesse rodado, o `create table` e pulado inteiro e
+-- as constraints somem em silencio — enquanto o `revoke` e os `create or
+-- replace` aplicam normalmente, entao PARECE aplicado. Aqui elas entram por
+-- `alter table`, idempotente, que roda nos dois casos.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'retention_runs_kind_txid') then
+    alter table public.retention_runs
+      add constraint retention_runs_kind_txid check ((kind = 'erasure_request') = (txid is not null));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'retention_runs_purge_counts') then
+    alter table public.retention_runs
+      add constraint retention_runs_purge_counts check (
+        kind = 'purge' or (payer_hints = 0 and house_accounts = 0 and check_views = 0)
+      );
+  end if;
+end $$;
+
 alter table public.retention_runs enable row level security;
 revoke all on public.retention_runs from anon, authenticated;
 -- A SEQUENCIA tambem. O `alter default privileges` do Supabase concede em
@@ -57,8 +79,13 @@ revoke all on public.retention_runs from anon, authenticated;
 -- tambem cria `bigserial`) faz as duas linhas. Esta fazia tres de quatro.
 revoke all on sequence public.retention_runs_id_seq from anon, authenticated;
 
+-- O COMMENT e a copia que chega no Postgres: e ela que aparece no `\\d+`, no
+-- navegador de tabelas do Supabase e num dump de esquema pra auditoria. Dizia
+-- "art. 37" enquanto o cabecalho deste mesmo arquivo argumenta que chamar isto
+-- de art. 37 e o erro que deixa a ROPA de verdade envelhecer. A unica versao
+-- que alguem de fora le era a errada.
 comment on table public.retention_runs is
-  'Registro de execucao da retencao (LGPD art. 37) e das respostas do art. 18 §4. Ver docs/compliance/retencao.md.';
+  'Prova de execucao da retencao (LGPD art. 6 X) e registro das respostas do art. 18 §4. NAO e o art. 37 — a ROPA e docs/compliance/data-map.md. Ver docs/compliance/retencao.md.';
 
 -- A propria tabela tem prazo: 5 anos, o mesmo do registro contabil, porque e
 -- registro de conformidade e nao dado operacional. E o prazo e EXECUTADO pela

@@ -59,7 +59,9 @@ documentada, em nome próprio. Ver lacuna 4.
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
 | **Google Pay** (`pay.google.com`) | o que a folha da carteira do sistema operacional troca com o Google | botão de carteira — **só em casa que o servidor declarou `acceptsWallet`** | Google |
 | **Saipos** (`order-api.saipos.com`) | id da loja, id da conta, valores | ler a conta do PDV e escrever a baixa | Brasil |
-| **Olímpia / Seatable** (`seatable.one`, `RACHA_NOTIFY_URL`) | **cinco caminhos**, ver abaixo | avisos de operação e radar de vendas | Brasil |
+| **Olímpia / Seatable** (`seatable.one`, `RACHA_NOTIFY_URL`) | **cinco caminhos**, ver abaixo | avisos de operação e radar de vendas | Brasil — **e daí pra fora, ver as duas linhas seguintes** |
+| **Resend** (suboperador da Olímpia) | o TEXTO do alerta de fundador: `txid`, `checkId`, valor, e nomes de casa em achado de conciliação | entregar o alerta por e-mail | EUA |
+| **Meta — WhatsApp Cloud API** (suboperador da Olímpia) | o mesmo texto, exceto rotina (batida e `retention_ok`, que vão só por e-mail) | entregar o alerta por WhatsApp | EUA |
 
 **Sobre a última linha, com precisão.** A primeira versão desta seção listava
 dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
@@ -68,12 +70,25 @@ dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
 | função | o que sai |
 |---|---|
 | `notifyOwnerRecipientStatus` | `venueName`, `ownerEmail`, `ownerPhone`, `status`, `previousStatus`, `reason`, `pspRecipientId` |
-| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail` — e desde 2026-09-12 também `retention_ok` / `retention_blocked`, que levam só CONTAGENS (sem txid, sem casa) |
+| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail`. Os `kind` são disputa e estorno (`dispute_opened`, `dispute_updated`, `dispute_funds`, `dispute_lost`, `account_alert`, `unusable_money_event`, `refund_failed`) mais os três da retenção (`retention_ok`, `retention_blocked`, `retention_late`), que levam só CONTAGENS — sem txid, sem casa |
 | `notifyFounderReconcile` | o texto do alerta: nomes de casa e desvio por casa |
 | `notifyFounderActivationRadar` | o resumo do radar de ativação |
 | `notifyPreviaBeacon` | `{token, event}` do lead da Olímpia |
 
-`notifyFounderMoneyEvent` sai de `router.js` em cinco pontos e leva o
+**Até 2026-09-12 esta transferência era TEÓRICA.** A ponte recusava todo evento
+de fundador com 400, então nada era entregue — o mapa descrevia um canal que na
+prática não transmitia nada. Consertar a ponte tornou a transferência real, e a
+cadeia de suboperadores ficou duas pontas mais longa do que este mapa dizia:
+identificador de pagamento pseudonimizado e detalhe financeiro por casa passaram
+a sair pra dois processadores nos EUA, sob contrato da OUTRA empresa. É item do
+art. 39 (a casa-controladora tem que poder conhecer a cadeia) e do art. 33
+(transferência internacional), e reforça a lacuna 4.
+
+Se a preferência for encolher o perímetro em vez de documentá-lo, a alavanca é
+barata: nada num alerta de WhatsApp exige o `txid`. `kind` + "abra o painel" é
+acionável, e o identificador fica só no e-mail.
+
+`notifyFounderMoneyEvent` sai de `router.js` em SEIS pontos e leva o
 identificador de pagamento de UM cliente específico, o identificador da conta
 dele e o valor. `txid` resolve pro CPF do pagador no painel da adquirente, então
 é identificável por meios razoáveis — não é dado anônimo por não trazer nome.

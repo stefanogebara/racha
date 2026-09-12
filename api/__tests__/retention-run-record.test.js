@@ -20,19 +20,54 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const RAIZ = path.join(__dirname, '..', '..');
-const SQL = fs.readFileSync(
-  path.join(RAIZ, 'supabase', 'migrations', '0032_retention_runs.sql'), 'utf8');
+/**
+ * A MIGRAÇÃO EM VIGOR, não a que inventou a tabela.
+ *
+ * Isto fixava `0032_retention_runs.sql` pelo nome — o mesmo defeito que a
+ * rodada anterior consertou no `retention.test.js` e que eu deixei passar aqui.
+ * Uma 0033 que re-declare `erase_payment_label`, que tire o `insert`, ou que dê
+ * `disable row level security` deixaria tudo isto verde sobre texto morto — e
+ * entre "isto" está o instrumento do art. 18 §4.
+ *
+ * Ressalva honesta: DDL é cumulativo, não substitutivo. "Último arquivo que
+ * menciona a tabela" pega um `disable row level security` posterior, e não pega
+ * um `grant` emitido fora do diretório de migrações. É o limite do que um censo
+ * de fonte pode afirmar.
+ */
+function ultimaQueMenciona(agulha) {
+  const dir = path.join(RAIZ, 'supabase', 'migrations');
+  const arquivos = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+  let achado = null;
+  for (const f of arquivos) {
+    const texto = fs.readFileSync(path.join(dir, f), 'utf8');
+    if (texto.includes(agulha)) achado = { arquivo: f, texto };
+  }
+  return achado;
+}
+
+/** O corpo de uma função, do `create or replace` até o `$$;` que o fecha. */
+function corpoDaFuncao(sql, nome) {
+  const i = sql.indexOf(`create or replace function public.${nome}`);
+  if (i < 0) return '';
+  const fim = sql.indexOf('$$;', i);
+  return fim < 0 ? sql.slice(i) : sql.slice(i, fim);
+}
+
+const PURGE = ultimaQueMenciona('create or replace function public.purge_expired_personal_data');
+const ERASE = ultimaQueMenciona('create or replace function public.erase_payment_label');
+const TABELA = ultimaQueMenciona('public.retention_runs');
+const SQL = PURGE.texto;
 const ROUTER = fs.readFileSync(path.join(RAIZ, 'api', '_app', 'router.js'), 'utf8');
 
 const { createMemoryStore } = require('../_lib/store/memory');
-const { avaliarRetencao } = require('../_lib/checks/retention-watch');
+const { avaliarRetencao, vigiarRetencao } = require('../_lib/checks/retention-watch');
 
 describe('o expurgo deixa registro, e o registro é vigiado', () => {
   test('a gravação acontece DENTRO da função, na mesma transação', () => {
     // Registro que pode divergir do que aconteceu não é registro. Se o expurgo
     // reverter, a linha reverte junto — e é por isso que o insert mora no SQL
     // e não no chamador, que poderia falhar no meio.
-    const corpo = SQL.slice(SQL.indexOf('purge_expired_personal_data('), SQL.indexOf('$$;'));
+    const corpo = corpoDaFuncao(PURGE.texto, 'purge_expired_personal_data');
     expect(corpo).toMatch(/insert into public\.retention_runs/);
     // E o insert vem DEPOIS dos updates: ele grava o que foi contado.
     expect(corpo.indexOf('insert into public.retention_runs'))
@@ -43,17 +78,33 @@ describe('o expurgo deixa registro, e o registro é vigiado', () => {
     // "Pediram e não havia" é uma resposta do art. 18 §4 tanto quanto
     // "pediram e apagamos" — e é a que mais precisa de registro, porque é a
     // que alguém contestaria depois.
-    const corpo = SQL.slice(SQL.indexOf('erase_payment_label(p_txid text)'));
-    const fim = corpo.indexOf('$$;');
-    const fn = corpo.slice(0, fim);
+    const fn = corpoDaFuncao(ERASE.texto, 'erase_payment_label');
+    expect(fn.length).toBeGreaterThan(0);
     expect(fn).toMatch(/insert into public\.retention_runs[\s\S]*'erasure_request'/);
     // Sem `if (v_n > 0)` em volta: grava sempre.
     expect(fn).not.toMatch(/if v_n > 0/);
   });
 
-  test('a tabela é fechada pra anon e authenticated', () => {
-    expect(SQL).toMatch(/alter table public\.retention_runs enable row level security/);
-    expect(SQL).toMatch(/revoke all on public\.retention_runs from anon, authenticated/);
+  test('a tabela é fechada pra anon e authenticated — na migração EM VIGOR', () => {
+    expect(TABELA.texto).toMatch(/alter table public\.retention_runs enable row level security/);
+    expect(TABELA.texto).toMatch(/revoke all on public\.retention_runs from anon, authenticated/);
+    // A SEQUÊNCIA também: RLS não cobre sequência, grant é o único controle.
+    expect(TABELA.texto).toMatch(/revoke all on sequence public\.retention_runs_id_seq/);
+    // E nada de uma migração posterior reabrir.
+    expect(TABELA.texto).not.toMatch(/disable row level security/);
+  });
+
+  test('as migrações em vigor são mesmo as últimas', () => {
+    const dir = path.join(RAIZ, 'supabase', 'migrations');
+    const todas = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+    for (const [nome, achado, agulha] of [
+      ['purge', PURGE, 'create or replace function public.purge_expired_personal_data'],
+      ['erase', ERASE, 'create or replace function public.erase_payment_label'],
+      ['tabela', TABELA, 'public.retention_runs'],
+    ]) {
+      const candidatas = todas.filter((f) => fs.readFileSync(path.join(dir, f), 'utf8').includes(agulha));
+      expect([nome, achado.arquivo]).toEqual([nome, candidatas[candidatas.length - 1]]);
+    }
   });
 
   test('só expurgo confirmado e recente conta como saudável — todo o resto é atraso', () => {
@@ -103,17 +154,55 @@ describe('o expurgo deixa registro, e o registro é vigiado', () => {
       ROUTER.indexOf("url.pathname === '/api/cron/activation-radar'"),
     );
     expect(rota.length).toBeGreaterThan(0);
-    expect(rota).toMatch(/avaliarRetencao\(await store\.lastRetentionRun\(\)\)/);
-    // Sem `typeof`: store publicado sem o método é defeito, e defeito estoura
-    // pro `catch`, que conta como atraso. Silêncio seria a falha.
+    // Ler, decidir e AVISAR vêm juntos do módulo: a rota não tem mais uma linha
+    // própria pra desligar. `if (false && ...)` passava com 677 verdes.
+    expect(rota).toMatch(/vigiarRetencao\(store, notifyFounderMoneyEvent/);
     expect(rota).not.toMatch(/typeof store\.lastRetentionRun/);
-    // O erro de leitura vira ATRASO, não vazio.
-    expect(rota).toMatch(/erro: 'read_failed'/);
     // E NÃO entra no `mensagem` da conciliação: retenção atrasada apagava a
     // batida noturna, e do outro lado a ausência da batida quer dizer "a
     // conciliação morreu" — higiene fabricando alarme de dinheiro.
     expect(rota).toMatch(/const mensagem = formatReconcileAlert\(report\);/);
-    expect(rota).toMatch(/kind: 'retention_late'/);
+    expect(rota).not.toMatch(/linhaRetencao/);
+  });
+
+  test('vigiar AVISA quando está atrasada, e cala quando está fresca', async () => {
+    // A cobertura que faltava: a decisão estava exaustivamente testada e a linha
+    // que AGE sobre ela não. `if (false && retencao.atrasada)` passava com 677
+    // verdes — o guarda saiu da rota e o buraco andou uma linha.
+    const chamadas = [];
+    const notificar = async (e) => { chamadas.push(e); };
+
+    const storeFresco = { lastRetentionRun: async () => ({ at: new Date().toISOString() }) };
+    const r1 = await vigiarRetencao(storeFresco, notificar);
+    expect(r1.atrasada).toBe(false);
+    expect(chamadas).toEqual([]);
+
+    const storeVelho = {
+      lastRetentionRun: async () => ({ at: new Date(Date.now() - 72 * 3_600_000).toISOString() }),
+    };
+    const r2 = await vigiarRetencao(storeVelho, notificar);
+    expect(r2.atrasada).toBe(true);
+    expect(chamadas).toHaveLength(1);
+    expect(chamadas[0].kind).toBe('retention_late');
+    expect(chamadas[0].detail).toMatch(/72h/);
+
+    // Store que estoura conta como ATRASO — e só o token estável atravessa.
+    const storeQuebrado = { lastRetentionRun: async () => { throw new Error('PGRST205 tabela sumiu'); } };
+    const r3 = await vigiarRetencao(storeQuebrado, notificar);
+    expect(r3.atrasada).toBe(true);
+    expect(chamadas).toHaveLength(2);
+    expect(chamadas[1].detail).not.toMatch(/PGRST205/);
+
+    // Store SEM o método: defeito de deploy, não configuração. Estoura pro
+    // catch e vira atraso, em vez de sumir.
+    const r4 = await vigiarRetencao({}, notificar);
+    expect(r4.atrasada).toBe(true);
+    expect(chamadas).toHaveLength(3);
+
+    // `?dry=1` não avisa — mas também não mente sobre o estado.
+    const r5 = await vigiarRetencao(storeVelho, notificar, { seco: true });
+    expect(r5.atrasada).toBe(true);
+    expect(chamadas).toHaveLength(3);
   });
 
   test('o store grava a execução e sabe ler a última', async () => {

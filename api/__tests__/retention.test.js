@@ -52,6 +52,21 @@ function definicaoEmVigor(nomeDaFuncao) {
 
 const EM_VIGOR = definicaoEmVigor('purge_expired_personal_data');
 const SQL = EM_VIGOR.texto;
+
+/**
+ * O CORPO de uma função, do `create or replace` até o `$$;` que o fecha.
+ *
+ * `SQL.indexOf('$$;')` a partir do zero parecia inofensivo até a 0032 ganhar um
+ * bloco `do $$ … end $$;` ANTES da função: o recorte passou a terminar antes do
+ * corpo começar, e três testes viraram asserção sobre string vazia — verdes se
+ * a asserção fosse negativa. Busca a partir do início da função.
+ */
+function corpoDaFuncao(sql, nome) {
+  const i = sql.indexOf(`create or replace function public.${nome}`);
+  if (i < 0) return '';
+  const fim = sql.indexOf('$$;', i);
+  return fim < 0 ? sql.slice(i) : sql.slice(i, fim);
+}
 const I18N = fs.readFileSync(path.join(RAIZ, 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
 const DOC = fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'retencao.md'), 'utf8');
 
@@ -147,7 +162,7 @@ describe('retenção: o prazo prometido é o prazo executado', () => {
     //
     // Um predicado cuja satisfatibilidade depende de feature não implementada é
     // uma frase, não um guarda.
-    const corpo = SQL.slice(SQL.indexOf('purge_expired_personal_data('), SQL.indexOf('$$;'));
+    const corpo = corpoDaFuncao(SQL, 'purge_expired_personal_data');
     const colunas = new Set();
     for (const m of corpo.matchAll(/\b(?:a|p|c|l|e)\.(\w+)\s*(?:=|<|>|is )/g)) colunas.add(m[1]);
 

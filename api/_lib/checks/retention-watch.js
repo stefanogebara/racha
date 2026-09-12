@@ -52,4 +52,29 @@ function avaliarRetencao(ultima, ctx = {}) {
     linha: `\n⚠ RETENÇÃO: última execução há ${horas}h (limite ${LIMITE_HORAS}h).` };
 }
 
-module.exports = { avaliarRetencao, LIMITE_HORAS };
+/**
+ * Lê o registro, decide, e AVISA — os três juntos, porque separar os dois
+ * primeiros do terceiro foi o que deixou a decisão exaustivamente testada e a
+ * linha que age sobre ela sem cobertura nenhuma: `if (false && retencao...)`
+ * passava com 677 verdes. O guarda tinha saído da rota e a decisão de agir
+ * ficou pra trás.
+ *
+ * @param {{lastRetentionRun: Function}} store
+ * @param {(evento: {kind: string, detail: string}) => Promise<any>} notificar
+ */
+async function vigiarRetencao(store, notificar, ctx = {}) {
+  let retencao;
+  try {
+    retencao = avaliarRetencao(await store.lastRetentionRun(), ctx);
+  } catch (e) {
+    // Só um token estável atravessa: a mensagem vai pra ponte de outra empresa,
+    // e texto cru de driver é o único campo que poderia levar algo não previsto.
+    retencao = avaliarRetencao(null, { ...ctx, erro: 'read_failed', mensagemInterna: String((e && e.message) || e).slice(0, 200) });
+  }
+  if (retencao.atrasada && !ctx.seco) {
+    await notificar({ kind: 'retention_late', detail: retencao.linha.replace(/^\n/, '') });
+  }
+  return retencao;
+}
+
+module.exports = { avaliarRetencao, vigiarRetencao, LIMITE_HORAS };

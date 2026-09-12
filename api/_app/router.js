@@ -65,7 +65,7 @@ const { createHouseService } = require('../_lib/house/house-service');
 const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
 const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
   formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
-const { avaliarRetencao } = require('../_lib/checks/retention-watch');
+const { vigiarRetencao } = require('../_lib/checks/retention-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
@@ -1856,34 +1856,20 @@ async function route(req, res) {
       /**
        * A RETENÇÃO NÃO RODA HÁ QUANTO TEMPO.
        *
-       * Pendurada aqui porque este cron já roda todo dia e já é o lugar onde um
-       * silêncio vira alarme. A retenção tem o problema inverso: ela FALA todo
-       * dia, e em regime o que ela diz é zero — a coisa mais ignorável que
-       * existe numa caixa de entrada. Quem detecta que ela parou não pode ser
-       * um humano lendo a ausência de uma mensagem chata.
+       * Pendurada neste cron porque ele já roda todo dia. A retenção tem o
+       * problema inverso do dinheiro: ela FALA todo dia, e em regime diz zero —
+       * então quem detecta que ela parou não pode ser um humano lendo a
+       * ausência de uma mensagem chata.
        *
-       * A DECISÃO mora em `_lib/checks/retention-watch.js`, pura e testada por
-       * tabela de casos. Ela morava aqui, e cinco mutações contra ela passaram
-       * verdes porque a rota não é exportável e o teste só sabia procurar
-       * substring. Aqui ficou o I/O — que é o que uma rota deve ter.
-       *
-       * O `catch` existe pra que higiene não cale o alerta de dinheiro; o
-       * `erro` que ele produz conta como ATRASO, não como silêncio.
+       * Ler, decidir E AVISAR moram juntos em `_lib/checks/retention-watch.js`.
+       * Tinham ficado separados: a decisão saiu pra lá e a linha que age sobre
+       * ela ficou aqui, coberta só por `toMatch(/kind: 'retention_late'/)` — e
+       * `if (false && retencao.atrasada)` passava com 677 verdes. O guarda
+       * mudou de lugar e o buraco andou uma linha.
        */
-      let retencao;
-      try {
-        // Sem `typeof`: store publicado sem o método é DEFEITO, não
-        // configuração — a mesma postura que a rota da retenção toma 100 linhas
-        // abaixo. Um método ausente estoura e vira alarme, em vez de sumir.
-        retencao = avaliarRetencao(await store.lastRetentionRun());
-      } catch (e) {
-        process.stderr.write(`[reconcile-cron] retenção ilegível: ${String((e && e.message) || e).slice(0, 200)}\n`);
-        // Só um token estável viaja: a mensagem vai pra ponte de outra empresa,
-        // e texto cru de driver é o único campo que poderia levar algo não
-        // previsto.
-        retencao = avaliarRetencao(null, { erro: 'read_failed' });
-      }
-      const linhaRetencao = retencao.linha;
+      const retencao = await vigiarRetencao(store, notifyFounderMoneyEvent, {
+        seco: url.searchParams.get('dry') === '1',
+      });
 
       // A retenção atrasada NÃO pode apagar a batida noturna.
       //
@@ -1913,22 +1899,18 @@ async function route(req, res) {
         // noturna é o alarme — que é o único jeito de detectar cron desligado.
         envio = await notifyFounderReconcile({
           // A batida LEVA TEXTO: o campo estruturado sozinho não é leitura.
-          mensagem: `${formatReconcileHeartbeat(report)}${linhaRetencao}`, heartbeat: true,
+          // SEM a linha da retenção: ela viaja como `retention_late`, evento
+          // próprio. Eu tinha reportado esta interpolação como morta e ela não
+          // era — numa noite verde `mensagem` é null, o ramo da batida roda, e
+          // a linha ia junto. O aviso saía em dois canais enquanto o comentário
+          // acima dizia que os sinais viajam separados. Linha viva acreditada
+          // morta é como o próximo leitor raciocina errado.
+          mensagem: formatReconcileHeartbeat(report), heartbeat: true,
           venuesRed: 0, venuesChecked: report.venuesChecked,
           driftCents: report.totalDriftCents, worstSeverity: report.worstSeverity,
           rowsRepaired: report.rowsRepaired, rowsRepairAckLost: report.rowsRepairAckLost,
           rowsRepairRaced: report.rowsRepairRaced, rowsRepairRejected: report.rowsRepairRejected,
           infoCodes: report.infoCodes,
-        });
-      }
-      // A RETENÇÃO ATRASADA É UM AVISO PRÓPRIO, no canal de eventos de dinheiro
-      // e não no da conciliação. Assim a batida noturna continua saindo (a
-      // ausência dela segue significando "a conciliação morreu") e o atraso de
-      // higiene não se disfarça de desvio de dinheiro.
-      if (retencao.atrasada && url.searchParams.get('dry') !== '1') {
-        await notifyFounderMoneyEvent({
-          kind: 'retention_late',
-          detail: retencao.linha.replace(/^\n/, ''),
         });
       }
       // Verde também sai no log: um canário que só fala quando está ruim é

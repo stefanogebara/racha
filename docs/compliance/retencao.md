@@ -93,9 +93,18 @@ E é onde uma resposta do art. 18 §4 finalmente tem onde apontar: até aqui o
 executou. O pedido de titular grava **mesmo quando não acha linha**, porque
 "pediram e não havia" é a resposta que alguém contestaria depois.
 
-A própria tabela tem prazo: 5 anos, o mesmo do registro contábil, porque é
-registro de conformidade e não dado operacional. Dito pra ela não virar a
-próxima tabela que cresce pra sempre.
+**E o titular tem direito de saber disto se perguntar.** Executar uma exclusão
+deixa uma linha em `retention_runs` com o `txid` e a contagem, por 5 anos, com
+base no art. 7º II c/c art. 16 I — é justamente o comprovante que o art. 18 §4
+lhe assegura. Não está no aviso da tela de propósito: o aviso já é longo e cada
+cláusula a mais custa leitura das que carregam as promessas. Está aqui, que é
+onde quem for responder ao pedido lê. No dia em que existir rota de
+autoatendimento, a cláusula vai junto pra tela.
+
+A própria tabela tem prazo de 5 anos — o mesmo do registro contábil, porque é
+registro de conformidade e não dado operacional — e o prazo é **executado pela
+própria purga**, não escrito num comentário. Num documento cuja tese inteira é
+dito-versus-feito, essa distinção tinha que estar na frase.
 
 ## Pedido do titular (art. 18)
 
