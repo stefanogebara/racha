@@ -246,12 +246,33 @@ export default function App() {
     }
   }, [token, lang, adotarPadraoDaCasa]);
 
+  // A PRIMEIRA leitura, uma vez só. Ela morava no efeito do intervalo, que
+  // depende de `esperaMs` — então cada dobra do recuo re-rodava o efeito e
+  // disparava uma leitura imediata junto: cinco requisições em rajada antes de
+  // assentar. Convergia certo e parecia bug em qualquer log.
+  useEffect(() => {
+    if (polling) void refresh();
+  }, [refresh, polling]);
+
   useEffect(() => {
     if (!polling) return;
-    void refresh();
     const id = setInterval(refresh, esperaMs);
     return () => clearInterval(id);
   }, [refresh, polling, esperaMs]);
+
+  // VOLTAR PRA TELA acelera de novo.
+  //
+  // Um teto só serve duas pessoas com necessidades opostas: o telefone
+  // esquecido na mesa não tem pressa, e quem está olhando a tela esperando o
+  // garçom abrir a conta tem. `visibilitychange` separa os dois exatamente —
+  // o esquecido está com a tela apagada ou a aba no fundo, quem espera não.
+  useEffect(() => {
+    const aoVoltar = () => {
+      if (document.visibilityState === 'visible') setEsperaMs(POLL_BASE_MS);
+    };
+    document.addEventListener('visibilitychange', aoVoltar);
+    return () => document.removeEventListener('visibilitychange', aoVoltar);
+  }, []);
 
   // Detecta a carteira do cliente uma vez, depois que a conta carrega.
   // V1 pragmático: as respostas públicas não expõem venueId, então o vínculo
@@ -310,7 +331,14 @@ export default function App() {
     );
   }
   if (!token) return <Home />;
-  if (error && !view) return <Shell><p className="muted center">{error}</p></Shell>;
+  if (error && !view) {
+    return (
+      <Shell>
+        <p className="muted center">{error}</p>
+        {polling && <p className="muted center small">{t('check.stillChecking')}</p>}
+      </Shell>
+    );
+  }
   if (!view) return <Shell><p className="muted center">{t('common.loading')}</p></Shell>;
 
   const { venue, table, state } = view;

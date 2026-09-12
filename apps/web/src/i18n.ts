@@ -57,6 +57,12 @@ export const DICT = {
   // Escrito depois do `docs/compliance/retencao.md` de propósito: um aviso tem
   // que dizer prazo, e prazo escrito sem job que o cumpra é promessa falsa.
   // Cada linha daqui aponta pra uma defesa que existe no código.
+  // A conta pode ainda não ter sido aberta pelo garçom — e nesse caso a tela
+  // fica só com "conta não encontrada", sem sinal nenhum de que o app continua
+  // tentando. Sessenta segundos de nada parecem um app quebrado.
+  'check.stillChecking': { en: 'Still checking — the bill appears as soon as the staff opens it.',
+                        pt: 'Continuamos verificando — a conta aparece assim que a equipe abrir.',
+                        es: 'Seguimos comprobando — la cuenta aparece en cuanto el personal la abra.' },
   'priv.link':        { en: 'Your data',                       pt: 'Seus dados', es: 'Tus datos' },
   // A CAMADA 1. Um controle que só diz "seus dados" é um rótulo, não um aviso:
   // quem não abrir não recebe informação nenhuma, e o art. 9º pede informação

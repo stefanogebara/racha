@@ -72,7 +72,7 @@ dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
 | `notifyFounderActivationRadar` | o resumo do radar de ativação |
 | `notifyPreviaBeacon` | `{token, event}` do lead da Olímpia |
 
-`notifyFounderMoneyEvent` sai de `router.js` em três pontos e leva o
+`notifyFounderMoneyEvent` sai de `router.js` em cinco pontos e leva o
 identificador de pagamento de UM cliente específico, o identificador da conta
 dele e o valor. `txid` resolve pro CPF do pagador no painel da adquirente, então
 é identificável por meios razoáveis — não é dado anônimo por não trazer nome.
@@ -139,9 +139,20 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    contabilidade da casa — e `/api/cron/retention` a chama uma vez por dia. O
    prazo que a função cumpre e o prazo que o aviso ao cliente promete estão
    amarrados por teste (`api/__tests__/retention.test.js`).
-   **O que falta:** rota de autoatendimento do art. 18. Hoje o pedido passa pelo
-   restaurante e a exclusão é manual — aceitável num piloto assistido com poucas
-   casas, inaceitável no dia em que o produto for self-serve.
+   **O que falta, e são duas coisas.** (a) Rota de autoatendimento do art. 18:
+   hoje o pedido passa pelo restaurante e a execução é manual com o
+   `erase-payment-label.js` — aceitável num piloto assistido com poucas casas,
+   inaceitável quando o produto for self-serve. (b) **O REGISTRO DE QUE A PURGA
+   RODOU.** O expurgo existe e é verificado; a metade que DETECTA não existe. A
+   batida diária sai, mas absence-is-the-alarm só vale se algo alertar sobre a
+   ausência — hoje depende de um humano notar que parou de chegar uma mensagem
+   que, em regime, diz zero todo dia; e ela viaja por um canal que vira no-op
+   silencioso sem `RACHA_NOTIFY_SECRET`. O conserto é uma linha por execução no
+   próprio Postgres (data + as quatro contagens) e uma checagem de `max(at) <
+   now() - 48h` no cron da conciliação, que já pagina. Isso é também o registro
+   das operações de tratamento do art. 37, e dá ao `erase-payment-label.js` um
+   lugar durável pra escrever — hoje o "comprovante" de uma resposta do art. 18
+   §4 é uma linha no terminal de quem executou.
 2. **Aviso de privacidade: o texto existe, o CANAL PRÓPRIO não.** Parcialmente
    fechada em 2026-09-12, e é importante não marcar como fechada. `PrivacyNotice.tsx`, no rodapé da tela da conta, nos três
    idiomas: quem é controlador (a casa, com a Racha como operadora), o que fica
