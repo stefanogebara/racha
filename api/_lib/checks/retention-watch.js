@@ -67,9 +67,19 @@ async function vigiarRetencao(store, notificar, ctx = {}) {
   try {
     retencao = avaliarRetencao(await store.lastRetentionRun(), ctx);
   } catch (e) {
-    // Só um token estável atravessa: a mensagem vai pra ponte de outra empresa,
-    // e texto cru de driver é o único campo que poderia levar algo não previsto.
-    retencao = avaliarRetencao(null, { ...ctx, erro: 'read_failed', mensagemInterna: String((e && e.message) || e).slice(0, 200) });
+    // O DETALHE VAI PRO LOG, e só o token estável atravessa a ponte.
+    //
+    // A primeira versão passava a mensagem do driver como `mensagemInterna` num
+    // ctx que ninguém lia — parâmetro acrescentado e nunca consumido — e o
+    // `stderr.write` que existia antes do refactor tinha sumido junto. Efeito:
+    // na noite mais provável (código no ar antes da migração), o operador lia
+    // "não foi possível ler o registro" e ZERO diagnóstico, enquanto a frase
+    // que dizia exatamente o que fazer — `Could not find the table
+    // 'public.retention_runs'` — era descartada. Achado da revisão de segurança.
+    process.stderr.write(
+      `[retencao] leitura do registro falhou: ${String((e && e.message) || e).slice(0, 200)}\n`,
+    );
+    retencao = avaliarRetencao(null, { ...ctx, erro: 'read_failed' });
   }
   if (retencao.atrasada && !ctx.seco) {
     await notificar({ kind: 'retention_late', detail: retencao.linha.replace(/^\n/, '') });

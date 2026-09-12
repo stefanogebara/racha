@@ -59,11 +59,18 @@ create index if not exists retention_runs_at_idx on public.retention_runs (at de
 -- `alter table`, idempotente, que roda nos dois casos.
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'retention_runs_kind_txid') then
+  -- `conrelid` junto: `conname` e unico POR RELACAO, nao no banco. Sem ele, uma
+  -- constraint de mesmo nome em qualquer outra tabela faz este bloco pular — o
+  -- mesmo pulo silencioso que ele existe pra consertar, uma camada acima.
+  if not exists (select 1 from pg_constraint
+                  where conname = 'retention_runs_kind_txid'
+                    and conrelid = 'public.retention_runs'::regclass) then
     alter table public.retention_runs
       add constraint retention_runs_kind_txid check ((kind = 'erasure_request') = (txid is not null));
   end if;
-  if not exists (select 1 from pg_constraint where conname = 'retention_runs_purge_counts') then
+  if not exists (select 1 from pg_constraint
+                  where conname = 'retention_runs_purge_counts'
+                    and conrelid = 'public.retention_runs'::regclass) then
     alter table public.retention_runs
       add constraint retention_runs_purge_counts check (
         kind = 'purge' or (payer_hints = 0 and house_accounts = 0 and check_views = 0)

@@ -425,6 +425,31 @@ async function writeBackToPos(checkId) {
   }
 }
 
+/**
+ * Avisa, e NUNCA derruba o webhook por contrato quebrado.
+ *
+ * `notifyFounderMoneyEvent` estoura num `kind` fora da lista — disciplina certa
+ * pros call sites literais, onde um teste pega antes do deploy. Nos três sites
+ * de WEBHOOK o `kind` vem do adaptador, então um evento novo estouraria em
+ * produção: o registro durável já foi gravado, a requisição devolveria 500, o
+ * adquirente reentregaria por dias e acabaria DESLIGANDO o endpoint — o que
+ * para `payment_confirmed` de todas as mesas, não só o alerta perdido.
+ *
+ * Então só o erro MARCADO é engolido, e alto. Falha de entrega continua subindo
+ * como antes: o silêncio que duas rodadas removeram não volta por aqui.
+ */
+async function avisarEventoDeDinheiro(evento) {
+  try {
+    return await notifyFounderMoneyEvent(evento);
+  } catch (e) {
+    if (e && e.code === 'kind_desconhecido') {
+      process.stderr.write(`MONEY EVENT ALERT (kind desconhecido '${sanitizeForLog(evento.kind)}'): ${sanitizeForLog(evento.txid)}\n`);
+      return { ok: false, skipped: 'kind_desconhecido' };
+    }
+    throw e;
+  }
+}
+
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   try {
@@ -853,9 +878,8 @@ async function route(req, res) {
             }, { alert: false, psp: 'stripe' }); // o aviso sai abaixo, com a conta conectada
             persistido = marcaNaoLancavel.persisted;
           }
-          let avisado = true;
           if (parsed.kind !== 'refund_progress') {
-            const r = await notifyFounderMoneyEvent({
+            await avisarEventoDeDinheiro({
               kind: parsed.kind, txid: parsed.txid, checkId: found ? found.id : null,
               amountCents: parsed.amountCents,
               // O TIPO do evento vai no detalhe: `account_alert` cobre repasse
@@ -869,7 +893,6 @@ async function route(req, res) {
                 parsed.accountId ? `acct=${parsed.accountId}` : null]
                 .filter(Boolean).join(' '),
             });
-            avisado = Boolean(r && r.ok);
           }
           /**
            * Evento de dinheiro que não foi gravado NEM avisado é 503.
@@ -937,7 +960,7 @@ async function route(req, res) {
               });
             }
           }
-          await notifyFounderMoneyEvent({
+          await avisarEventoDeDinheiro({
             kind: parsed.kind, txid: parsed.txid, checkId: result.checkId || null,
             amountCents: parsed.amountCents, detail: parsed.reason || null,
           });
@@ -970,7 +993,7 @@ async function route(req, res) {
         // há cliente com reembolso a receber por outro caminho.
         if (parsed.kind === 'refund_failed') {
           result = await applyConfirmedPayment(parsed, confirmDeps);
-          await notifyFounderMoneyEvent({
+          await avisarEventoDeDinheiro({
             kind: parsed.kind, txid: parsed.txid,
             checkId: result.checkId || null,
             amountCents: parsed.amountCents, detail: parsed.status || null,

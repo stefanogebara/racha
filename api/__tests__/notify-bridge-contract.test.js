@@ -113,7 +113,7 @@ describe('a ponte de avisos aceita o que a Racha manda', () => {
     // (`kind: parsed.kind`) falha alto em vez de sumir. Aqui se garante que o
     // caminho literal também não escapa: todo literal escrito no router tem que
     // estar na lista.
-    const literais = [...ROUTER.matchAll(/notifyFounderMoneyEvent\(\{[\s\S]{0,120}?kind: '([a-z_]+)'/g)]
+    const literais = [...ROUTER.matchAll(/(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{[\s\S]{0,120}?kind: '([a-z_]+)'/g)]
       .map((m) => m[1]);
     expect(literais.length).toBeGreaterThan(0);
     const forasDaLista = [...new Set(literais)].filter((k) => !KINDS_DE_FUNDADOR.has(k)).sort();
@@ -121,7 +121,7 @@ describe('a ponte de avisos aceita o que a Racha manda', () => {
 
     // E TODO call site foi contabilizado: se um deles passar o kind por
     // variável sem que o remetente valide, isto denuncia a diferença.
-    const chamadas = (ROUTER.match(/notifyFounderMoneyEvent\(/g) || []).length;
+    const chamadas = (ROUTER.match(/(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{/g) || []).length;
     const dinamicos = (ROUTER.match(/kind: parsed\.kind/g) || []).length;
     expect(literais.length + dinamicos).toBe(chamadas);
   });
@@ -139,8 +139,71 @@ describe('a ponte de avisos aceita o que a Racha manda', () => {
     // toda falha de canal numa string e devolve 200 — então `res.ok` sozinho
     // trocava "400 alto no log" por "200 calado", que é o pior dos dois.
     expect(NOTIFY).not.toMatch(/if \(!res\.ok && !heartbeat\)/);
-    expect((NOTIFY.match(/const entregue = Boolean\(data && data\.data/g) || []).length).toBe(2);
-    expect((NOTIFY.match(/if \(!res\.ok \|\| !entregue\)/g) || []).length).toBe(2);
+    // OS TRÊS remetentes, não dois. O do dono ficou pra trás na primeira
+    // passada — e é onde o `.ok` mais pesa: ele PORTÃO da gravação da transição
+    // de status do recebedor, então um 200 sem entrega persiste a transição, a
+    // aresta some, e o dono nunca fica sabendo que o recebedor foi recusado.
+    expect((NOTIFY.match(/const entregue = entregouAlgumCanal\(data\)/g) || []).length).toBe(3);
+    expect((NOTIFY.match(/if \(!res\.ok \|\| !entregue\)/g) || []).length).toBe(3);
+    // E o `ok` DEVOLVIDO leva a entrega junto — sem isto, reverter a linha do
+    // retorno deixa tudo verde e o campo volta a significar "a ponte recebeu".
+    expect((NOTIFY.match(/ok: res\.ok && entregue/g) || []).length).toBe(3);
+  });
+
+  test('todo conjunto que DESPACHA pro avisador é subconjunto do que ele aceita', () => {
+    // A invariante que torna o `throw` seguro, e que faltava.
+    //
+    // `NON_LEDGER_KINDS` é despachado pro `handleNonLedgerMoneyEvent`, que
+    // chama o avisador quando o kind não está em `SEM_ALARDE`. `payment_failed`
+    // estava nos três lugares errados: no despacho, fora da lista do avisador,
+    // e fora do silêncio. Com o `throw`, isso deixou de ser "um alerta espúrio"
+    // e virou "o endpoint do adquirente desligado" — o registro durável já foi
+    // gravado, o webhook devolve 5xx, e a reentrega eterna derruba TODA
+    // confirmação de Pix.
+    //
+    // A armadilha já estava documentada no `router.js`; este commit mudou o
+    // preço dela. Achado pelas duas revisões de 2026-09-12.
+    const { NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
+    const { SEM_ALARDE } = require('../_lib/pay/non-ledger');
+    expect(NON_LEDGER_KINDS.size).toBeGreaterThan(0);
+    const desprotegidos = [...NON_LEDGER_KINDS]
+      .filter((k) => !KINDS_DE_FUNDADOR.has(k) && !SEM_ALARDE.has(k))
+      .sort();
+    expect(desprotegidos).toEqual([]);
+  });
+
+  test('todo kind que os GUARDAS do webhook deixam passar é aceito pelo avisador', () => {
+    // O outro caminho de despacho, e o que a mutação do revisor abriu: pôr
+    // `|| parsed.kind === 'dispute_won'` na condição do `:789` passava com 683
+    // verdes, porque `dispute_won` está em `NAO_AVISAM` — o mapa certifica "este
+    // não avisa" e nada conferia se o ROTEADOR concorda.
+    const guarda = ROUTER.slice(ROUTER.indexOf("if (parsed.kind === 'dispute_opened'"));
+    const condicao = guarda.slice(0, guarda.indexOf(') {'));
+    const noGuarda = [...condicao.matchAll(/parsed\.kind === '([a-z_]+)'/g)].map((m) => m[1]);
+    expect(noGuarda.length).toBeGreaterThan(3);
+
+    // `refund_progress` é excluído explicitamente antes do aviso.
+    const chegamAoAvisador = noGuarda.filter((k) => k !== 'refund_progress');
+    const recusados = chegamAoAvisador.filter((k) => !KINDS_DE_FUNDADOR.has(k)).sort();
+    expect(recusados).toEqual([]);
+
+    // Os dois ramos de kind único que também chamam o avisador.
+    for (const k of ['dispute_lost', 'refund_failed']) {
+      expect(ROUTER).toMatch(new RegExp(`parsed\\.kind === '${k}'`));
+      expect(KINDS_DE_FUNDADOR.has(k)).toBe(true);
+    }
+  });
+
+  test('contrato quebrado perde o alerta, nunca o endpoint', () => {
+    // `throw` puro nos sites de webhook derrubaria a requisição inteira. Só o
+    // erro MARCADO é engolido, e alto; falha de entrega continua subindo.
+    expect(NOTIFY).toMatch(/err\.code = 'kind_desconhecido'/);
+    expect(ROUTER).toMatch(/async function avisarEventoDeDinheiro/);
+    expect(ROUTER).toMatch(/e\.code === 'kind_desconhecido'/);
+    // E os três sites de webhook usam o wrapper, não o remetente direto.
+    const webhook = ROUTER.slice(ROUTER.indexOf("url.pathname === '/api/webhooks/stripe'"),
+      ROUTER.indexOf("url.pathname === '/api/cron/"));
+    expect(webhook).not.toMatch(/await notifyFounderMoneyEvent\(/);
   });
 
   test('um kind fora da lista ESTOURA no remetente', async () => {

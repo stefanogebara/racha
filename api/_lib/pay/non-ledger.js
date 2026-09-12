@@ -38,7 +38,18 @@ const { maskPixPayload } = require('./mask');
  * tratamento próprio. Marcar aqui deixaria a conta vermelha por um estorno que
  * deu certo.
  */
-const SEM_ALARDE = new Set(['refund_progress']);
+// `payment_failed` ENTRA AQUI, e não é remendo: uma recusa no app do banco é
+// rotina, e alertar em cada uma treina quem recebe a ignorar o canal — o mesmo
+// raciocínio que tirou a batida diária do WhatsApp.
+//
+// Também é o que impede um acidente pior. Desde que `notifyFounderMoneyEvent`
+// ESTOURA num kind desconhecido, um `payment_failed` chegando aqui derrubaria a
+// requisição inteira: o registro durável já foi gravado, o webhook devolveria
+// 5xx, a Pagar.me reentregaria pra sempre e o endpoint acabaria desligado — "o
+// que derruba toda confirmação de Pix", como diz o comentário abaixo. A
+// armadilha já estava documentada no `router.js`; o que mudou foi o preço dela.
+// Achado pelas duas revisões de 2026-09-12.
+const SEM_ALARDE = new Set(['refund_progress', 'payment_failed']);
 
 function createNonLedgerHandler({ store, notify, append = appendValidated }) {
   if (!store || typeof notify !== 'function') {

@@ -15,6 +15,18 @@
 
 const NOTIFY_URL = process.env.RACHA_NOTIFY_URL || 'https://seatable.one';
 
+/**
+ * Entrega o aviso e diz se ALGUM canal entregou.
+ *
+ * Compartilhado pelos três remetentes porque o erro era o mesmo nos três: a
+ * ponte captura toda falha de canal numa string e devolve 200, então `res.ok`
+ * sozinho quer dizer "a ponte recebeu", não "alguém foi avisado".
+ */
+function entregouAlgumCanal(data) {
+  const d = data && data.data;
+  return Boolean(d && (d.email === 'sent' || d.whatsapp === 'sent'));
+}
+
 async function notifyOwnerRecipientStatus({ venue, status, previousStatus = null, reason = null }) {
   const secret = process.env.RACHA_NOTIFY_SECRET;
   if (!secret) {
@@ -46,8 +58,24 @@ async function notifyOwnerRecipientStatus({ venue, status, previousStatus = null
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) process.stderr.write(`[notify] racha-notify ${res.status}: ${JSON.stringify(data).slice(0, 160)}\n`);
-    return { ok: res.ok, status: res.status, data };
+    // AQUI O `ok` É O MAIS CARREGADO DOS TRÊS.
+    //
+    // O chamador (`/api/cron/recipient-status`) só grava
+    // `setVenueRecipientStatus` SE este `ok` for verdadeiro — a transição é
+    // persistida PORQUE o aviso "deu certo". Com o Resend fora, a ponte devolve
+    // 200 com os dois canais pulados, a Racha grava a transição, a aresta
+    // `de → para` deixa de existir, e o próximo tick não retenta: o dono nunca
+    // fica sabendo que o recebedor dele foi recusado, e não há segunda chance.
+    // Era o mesmo sucesso silencioso dos outros dois, no único lugar onde o
+    // `.ok` de fato decide alguma coisa. Achado da revisão de segurança.
+    const entregue = entregouAlgumCanal(data);
+    if (!res.ok || !entregue) {
+      process.stderr.write(
+        `[notify] racha-notify ${res.status}${entregue ? '' : ' (nada entregue)'}: `
+        + `${JSON.stringify(data).slice(0, 160)}\n`,
+      );
+    }
+    return { ok: res.ok && entregue, status: res.status, data };
   } catch (e) {
     process.stderr.write(`[notify] racha-notify falhou: ${String(e.message).slice(0, 160)}\n`);
     return { ok: false, error: e.message };
@@ -187,8 +215,7 @@ async function notifyFounderReconcile({ mensagem, venuesRed = 0, venuesChecked =
     // Mesmo raciocínio do evento de dinheiro: 200 com nada entregue é pior que
     // 400. A batida é rotina e vai só por e-mail, então pra ela `entregue`
     // também se satisfaz com e-mail.
-    const entregue = Boolean(data && data.data
-      && (data.data.email === 'sent' || data.data.whatsapp === 'sent'));
+    const entregue = entregouAlgumCanal(data);
     if (!res.ok || !entregue) {
       process.stderr.write(
         `${heartbeat ? 'RECONCILE HEARTBEAT' : 'RECONCILE ALERT'} `
@@ -256,7 +283,15 @@ async function notifyFounderMoneyEvent({ kind, txid, checkId = null, amountCents
   // passar por uma decisão humana sobre como é entregue — e falhar aqui é
   // barulhento, enquanto falhar na ponte era um 400 dentro de um log.
   if (!KINDS_DE_FUNDADOR.has(kind)) {
-    throw new Error(`notifyFounderMoneyEvent: kind desconhecido '${kind}' — acrescente em KINDS_DE_FUNDADOR e na ponte`);
+    // ERRO MARCADO, não genérico. Nos três call sites de webhook o chamador
+    // pega SÓ este código e perde o alerta com barulho; qualquer outra falha
+    // continua subindo. Sem a marca, um `catch` no webhook devolveria o
+    // silêncio que duas rodadas foram gastas removendo — e sem o `catch`, um
+    // kind novo derrubaria o endpoint do adquirente, que é pior que perder um
+    // alerta. Achado da revisão de segurança de 2026-09-12.
+    const err = new Error(`notifyFounderMoneyEvent: kind desconhecido '${kind}' — acrescente em KINDS_DE_FUNDADOR e na ponte`);
+    err.code = 'kind_desconhecido';
+    throw err;
   }
   // Campos ausentes SOMEM em vez de virar "txid=undefined". Alertas que não são
   // de uma cobrança (batida da retenção, por exemplo) passam por aqui, e uma
@@ -296,8 +331,7 @@ async function notifyFounderMoneyEvent({ kind, txid, checkId = null, amountCents
     // status 200. Ler só `res.ok` trocava "400 toda noite, pelo menos alto no
     // log" por "200 toda noite, calado", que é estritamente o pior dos dois
     // pela ordem do próprio CLAUDE.md: sucesso silencioso é o inimigo.
-    const entregue = Boolean(data && data.data
-      && (data.data.email === 'sent' || data.data.whatsapp === 'sent'));
+    const entregue = entregouAlgumCanal(data);
     if (!res.ok || !entregue) {
       process.stderr.write(
         `MONEY EVENT ALERT (ponte ${res.status}${entregue ? '' : ', nada entregue'}):\n${linha}\n`,

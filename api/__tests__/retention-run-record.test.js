@@ -94,6 +94,27 @@ describe('o expurgo deixa registro, e o registro é vigiado', () => {
     expect(TABELA.texto).not.toMatch(/disable row level security/);
   });
 
+  test('os três consertos de compliance da migração têm teste', () => {
+    // Cada um custou uma rodada de revisão e nenhum estava amarrado: as três
+    // mutações abaixo deixavam 683 verdes. São afirmações de conformidade que
+    // este repositório aprendeu, uma a uma, que não se sustentam sozinhas.
+    //
+    // 1) O prazo da própria tabela é EXECUTADO, não dito num comentário — e
+    //    esta é a tabela que registra quem pediu pra ser esquecido.
+    expect(TABELA.texto).toMatch(/delete from public\.retention_runs\s+where at < now\(\) - interval '5 years'/);
+    // 2) As duas CHECK entram por `alter table` idempotente, senão o
+    //    `create table if not exists` as pula onde a versão anterior rodou.
+    expect(TABELA.texto).toMatch(/add constraint retention_runs_kind_txid/);
+    expect(TABELA.texto).toMatch(/add constraint retention_runs_purge_counts/);
+    //    …e a checagem de existência é por TABELA, não só por nome.
+    expect(TABELA.texto).toMatch(/conrelid = 'public\.retention_runs'::regclass/);
+    // 3) O COMMENT é a única cópia que alguém de fora lê.
+    const comentario = TABELA.texto.slice(TABELA.texto.indexOf('comment on table public.retention_runs'));
+    const frase = comentario.slice(0, comentario.indexOf(';'));
+    expect(frase).toMatch(/art\. 6 X/);
+    expect(frase).toMatch(/NAO e o art\. 37/);
+  });
+
   test('as migrações em vigor são mesmo as últimas', () => {
     const dir = path.join(RAIZ, 'supabase', 'migrations');
     const todas = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
