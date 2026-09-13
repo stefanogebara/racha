@@ -42,15 +42,83 @@ struct RevisaoDeAfirmacoesTests {
         }
     }
 
-    @Test("a oração errada é trocada e o resto da resposta fica de pé")
-    func trocaSoAOracao() {
-        let bruto = "A sua parte deu R$ 43,00. A gorjeta vai direto pro garçom. Quer pagar por Pix?"
-        let saida = RevisaoDeAfirmacoes.corrigir(bruto)
-        #expect(saida.contains("R$ 43,00"))
-        #expect(saida.contains("Quer pagar por Pix?"))
-        #expect(saida.contains(RevisaoDeAfirmacoes.sancionada))
-        #expect(!saida.contains("direto pro garçom"))
-        #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(saida))
+    @Test("toda frase aposentada é pega quando chega por STREAM, e em lista")
+    func pegaEmFormatoDeVerdade() {
+        // A v1 só passava as frases pelo `afirmaDestinoSemDistribuidor`, nunca
+        // pelo `corrigir`, e nunca em formato de resposta de modelo. A detecção
+        // era por ORAÇÃO, então bastava a afirmação atravessar um `.` ou uma
+        // quebra de linha pra passar inteira: lista em Markdown, `R$ 1.250,00`,
+        // um `etc.`. É como um modelo responde "pra onde vai o serviço?" na
+        // maior parte das vezes. Achado pela revisão de segurança de 2026-09-13.
+        for f in claims()["frases_aposentadas"] as! [[String: String]] {
+            let linha = f["linha"]!
+            for (forma, texto) in [("direto", linha),
+                                   ("em lista", "Como funciona:\n- \(linha)\nAlgo mais?"),
+                                   ("com milhar", linha + " São R$ 1.250,00 no total.")] {
+                let saida = RevisaoDeAfirmacoes.corrigir(texto)
+                #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(saida),
+                        "sobrou afirmação (\(forma)): \(saida)")
+            }
+        }
+    }
+
+    @Test("nada do que o modelo disse é APAGADO — nem valor, nem confirmação")
+    func naoApaga() {
+        // Substituir a oração inteira fabricava afirmação num falso positivo e
+        // apagava a verdade num verdadeiro: "Pronto, removi os 10% de serviço —
+        // pode avisar a equipe." virava a frase da distribuição. O cliente pede
+        // pra tirar o serviço (inegociável #3), o app tira, e o guarda apagava a
+        // confirmação. Agora suprime só forma DIRECIONAL e ACRESCENTA o resto.
+        let casos: [(String, [String])] = [
+            ("Pronto, removi os 10% de serviço — pode avisar a equipe.", ["removi os 10% de serviço"]),
+            ("O serviço de 10% dá R$ 24,00 e a equipe agradece.", ["R$ 24,00"]),
+            ("A sua parte deu R$ 43,00. A gorjeta vai direto pro garçom. Quer pagar por Pix?",
+             ["R$ 43,00", "Quer pagar por Pix?"]),
+        ]
+        for (entrada, precisaSobrar) in casos {
+            let saida = RevisaoDeAfirmacoes.corrigir(entrada)
+            for t in precisaSobrar {
+                #expect(saida.contains(t), "apagou \(t) de: \(entrada) → \(saida)")
+            }
+        }
+    }
+
+    @Test("a frase sancionada sai sem artigo dobrado")
+    func semArtigoDobrado() {
+        // `"O " + sancionada` produzia "O o restaurante distribui…" — invisível
+        // pros testes porque todos afirmavam `contains(sancionada)`, que um
+        // prefixo dobrado satisfaz. É a única frase que o produto pode dizer
+        // sobre gorjeta e saía com erro de digitação.
+        let saida = RevisaoDeAfirmacoes.corrigir("A gorjeta vai direto pro garçom.")
+        #expect(!saida.lowercased().contains("o o restaurante"), "\(saida)")
+        #expect(saida.contains("O restaurante distribui à equipe, como manda a lei."), "\(saida)")
+    }
+
+    @Test("durante o stream a afirmação NUNCA fica legível, e o correto não é mutilado")
+    func streamSeguro() {
+        // Dois defeitos na mesma linha antes: o `AgentSession` realimentava o
+        // corrigido no acumulador, e a oração EM CURSO era corrigida. Frase
+        // correta cuja cláusula do distribuidor chega por último era cortada ao
+        // meio e emendada na substituição. Agora o cru fica cru e a oração em
+        // curso é SEGURADA — some por um instante em vez de aparecer errada.
+        let textos = [
+            "A gorjeta fica com a equipe — o restaurante distribui em folha, como manda a lei. Quer pagar por Pix?",
+            "Como funciona:\n- 10% de serviço\n- vai direto pro garçom\nAlgo mais?",
+            "A sua parte deu R$ 43,00. A gorjeta vai direto pro garçom. Pode pagar por Pix.",
+        ]
+        for texto in textos {
+            var cru = ""
+            for ch in texto {
+                cru.append(ch)   // o acumulador NUNCA recebe o corrigido de volta
+                let naTela = RevisaoDeAfirmacoes.corrigir(cru, parcial: true)
+                #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(naTela),
+                        "vazou durante o stream: \(naTela)")
+            }
+            let fim = RevisaoDeAfirmacoes.corrigir(cru)
+            #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(fim), "\(fim)")
+            #expect(fim.contains("Quer pagar por Pix?") || fim.contains("Algo mais?")
+                    || fim.contains("Pode pagar por Pix."), "perdeu o resto da resposta: \(fim)")
+        }
     }
 
     @Test("texto sem afirmação nenhuma volta idêntico")
@@ -60,26 +128,5 @@ struct RevisaoDeAfirmacoesTests {
                    "Inclui R$ 12,00 de serviço. O restaurante distribui à equipe, como manda a lei."] {
             #expect(RevisaoDeAfirmacoes.corrigir(ok) == ok, "mexeu no que estava certo: \(ok)")
         }
-    }
-
-    @Test("a correção acontece durante o STREAM, não só no fim")
-    func corrigeOracaoAOracao() {
-        // O texto chega por pedaços. Enquanto a oração não fecha, não há o que
-        // corrigir; assim que fecha, a afirmação errada nunca fica legível.
-        let completo = "Claro. A gorjeta fica com a equipe. Algo mais?"
-        var acumulado = ""
-        var vistos: [String] = []
-        for ch in completo {
-            acumulado.append(ch)
-            acumulado = RevisaoDeAfirmacoes.corrigir(acumulado)
-            vistos.append(acumulado)
-        }
-        // Em nenhum instante do stream a afirmação errada esteve inteira na tela.
-        for v in vistos {
-            #expect(!v.contains("fica com a equipe."),
-                    "a afirmação errada apareceu inteira durante o stream: \(v)")
-        }
-        #expect(vistos.last!.contains(RevisaoDeAfirmacoes.sancionada))
-        #expect(vistos.last!.contains("Algo mais?"))
     }
 }

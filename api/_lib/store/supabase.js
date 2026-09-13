@@ -870,6 +870,9 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       if (opts.status !== undefined) patch.psp_recipient_status = opts.status;
       if (opts.notifyEmail !== undefined) patch.notify_email = opts.notifyEmail;
       if (opts.notifyWhatsapp !== undefined) patch.notify_whatsapp = opts.notifyWhatsapp;
+      // O documento da casa, quando ela ainda não tinha: ver o comentário na
+      // rota. Comprovante e liquidação passam a ser o mesmo documento.
+      if (opts.cnpj !== undefined) patch.cnpj = opts.cnpj;
       const { data, error } = await client
         .from('venues')
         .update(patch)

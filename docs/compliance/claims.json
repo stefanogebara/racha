@@ -9,13 +9,13 @@
   "gorjeta_destino": {
     "guarda": "Toda janela de texto publicado que fale em gorjeta/serviço E nomeie um destinatário tem que nomear o RESTAURANTE como quem distribui — ou estar dispensada abaixo, com a razão escrita.",
     "porque": "O serviço de 10% é remuneração do empregado (Lei 13.419/2017; CLT art. 457 §§3º-11) e passa pela folha, com INSS/IRRF/FGTS (STJ Tema 1102). A CLT art. 457 §6º ainda permite à casa reter parte para encargos. Então há DOIS erros, não um: prometer a QUANTIDADE ('100%', 'integralmente') e prometer o CAMINHO ('direto pro garçom', 'fica com a equipe') — e é o caminho que a lei proíbe. Dito por um funcionário na mesa é ainda oferta vinculante (CDC art. 30) que a casa não tem como honrar, e a exposição cai no cliente. Nomear o distribuidor mantém o destino visível sem prometer nenhum dos dois.",
-    "janela_linhas": 2,
-    "_porque_janela": "O v2 largou o substantivo de gorjeta porque uma etiqueta dizia só 'vai pra equipe', com o substantivo no elemento vizinho — e largá-lo foi o que obrigou a enumerar verbos. A resposta certa era alargar o ESCOPO, não deixar de exigir o substantivo. Duas linhas, não cinco: cinco cobriam blocos inteiros de dicionário e transformavam prosa vizinha em achado, e um censo que grita por vizinhança ensina a acrescentar dispensa sem ler. Duas linhas pegam o que importa — frase quebrada no meio e o par en/pt de uma entrada do dicionário.",
-    "substantivo_gorjeta": "gorjeta|gorjetas|servi(ç|c|ci)o|servi(ç|c|ci)os|service charge|\\btips?\\b|propina|couvert art",
-    "substantivo_destinatario": "equipe|equipo|\\bstaff\\b|\\bteam\\b|\\btime\\b|gar[çc]o[nm]s?|gar[çc]onete|atendente|pessoal\\b|sal[ãa]o|funcion[áa]ri|colaborador|mozo|barman|cozinha|camarero|waiter|server\\b|\\bmoço|pra gente|pro pessoal|para n[óo]s|\\bto us\\b|para nosotros",
-    "_porque_esta_lista": "`gar[çc]on` — sem o `m` — foi a fuga que a revisão de compliance achou, e é a forma que um brasileiro escreve. A lista é longa de propósito: substantivo se enumera, conectivo não. Faltando algum, acrescente aqui; é a única metade do gatilho que precisa crescer.",
-    "distribuidor_com_sujeito": "(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento)[^.;]{0,50}(distribu|reparte|repassa|liquida)|(distribu|reparte|repassa|liquida)[^.;]{0,60}(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento|CNPJ)|CNPJ (do|da) (restaurante|casa|estabelecimento|pr[óo]prio)|folha de pagamento|passa pela folha|sai por folha|payroll|n[óo]mina",
-    "_porque_com_sujeito": "No v2 a dispensa era o radical `distribui` solto na linha. Duas consequências, as duas provadas pela revisão: 'a gorjeta vai direto pra gente, e a gente distribui depois' passava — a frase aposentada mais quatro palavras; e 'nós distribuímos à equipe' passava, que é PIOR que o que se queria proibir, porque afirma que a Racha retém e repassa a gorjeta (contraria o inegociável #4 e descreve errado o fluxo de fundos perante a Res. BACEN 494/2025). O sujeito é a parte que carrega o sentido; o verbo sozinho não. A alternativa com `liquida`/`CNPJ` entrou porque a afirmação legalmente correta nem sempre usa o verbo distribuir: 'o serviço liquida no CNPJ do restaurante' e 'a gorjeta é remuneração que passa pela folha' dizem a coisa certa. O que a dispensa exige é o SUJEITO CERTO, não um verbo específico.",
+    "janela_linhas": 3,
+    "_porque_janela": "A janela é de TRÊS linhas porque as entradas do dicionário são TRIOS en/pt/es, não pares. A v3 dizia 'o par en/pt de uma entrada' e estava factualmente errada sobre este próprio repositório: com janela de 2, a linha espanhola nunca caía na mesma janela da inglesa, e uma afirmação com o substantivo de gorjeta no `en` e o destinatário no `es` era invisível — no arquivo onde o roteiro aposentado morava, e na língua onde já houve um defeito nesta mesma rodada. Também cobre prosa em Markdown quebrada em ~72 colunas, que já straddleia duas linhas no roteiro de implantação. Achado pela revisão de compliance de 2026-09-13.",
+    "substantivo_gorjeta": "gorjeta|gorjetas|caixinha|gratifica[çc][ãa]o|servi(ç|c|ci)o|servi(ç|c|ci)os|service charge|service fee|\\btips?\\b|gratuity|propina|os 10\\s*%|os dez por cento",
+    "substantivo_destinatario": "equipe|equipo|\\bstaff\\b|\\bteam\\b|\\btime\\b|gar[çc]o[nm]s?|gar[çc]onete|atendente|pessoal\\b|el personal|sal[ãa]o|funcion[áa]ri|colaborador|mozo|moza|barman|bartender|cozinha|copa|camarer[oa]s?|meser[oa]s?|ma[îi]tre|sommelier|cumim|waiters?|servers?|\\bmo[çc]o|\\bmo[çc]a|quem (te )?(serve|serviu|atende|atendeu)|pra gente|pro pessoal|para n[óo]s|\\bto us\\b|para nosotros|\\bdeles\\b|\\bdelas\\b|com voc[êe]|\\beles\\b|\\bellos\\b",
+    "_porque_esta_lista": "`gar[çc]on` sem o `m` foi a fuga de uma letra da rodada anterior; `server\\b` sem o `s` foi a MESMA fuga, no mesmo commit que consertou a primeira, e é por isso que quase tudo aqui agora termina em `s?`. A lista inclui descrição definida (`quem serve a mesa` — as palavras do PRÓPRIO SystemPrompt, que ensinava ao modelo um destinatário que nenhum guarda enxergava) e pronome de terceira pessoa. O que ela NÃO alcança, e está escrito aqui pra ninguém ler o guarda como completo: NOME PRÓPRIO (`a gorjeta vai pro Léo`) não é classe lexical e nunca será pega por esta forma de regra.",
+    "distribuidor_com_sujeito": "(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento)[^.;]{0,50}(distribu|reparte|repassa|liquida)|(distribu|reparte|repassa|liquida)[^.;]{0,60}(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento|CNPJ)|CNPJ (do|da) (restaurante|casa|estabelecimento|pr[óo]prio)|(passa|sai|entra|vai|é pag[oa]|s[ãa]o pag[oa]s)[^.;]{0,25}(pela |por |na |em )?(folha|payroll|n[óo]mina)",
+    "_porque_com_sujeito": "A dispensa exige SUJEITO — 'a gorjeta vai direto pra gente, e a gente distribui depois' passava no v2 porque bastava o radical. Mas o v3 abriu o mesmo buraco outra vez, do outro lado: eu acrescentei `folha de pagamento`, `payroll` e `n[óo]mina` como SUBSTANTIVOS NUS pra aceitar a frase legalmente correta, e substantivo nu não tem sujeito nem verbo. Resultado: 'a gorjeta vai direto pro garçom, SEM passar pela folha de pagamento' ficava dispensada — e 'você não precisa esperar a folha' é justamente como se vende o arranjo ilegal. Agora toda alternativa carrega verbo ligando à casa, e `revoga_dispensa` derruba a dispensa quando há negação logo antes dela. Achado pela revisão de compliance de 2026-09-13.",
     "_escrevendo_proibicoes": "O censo lê AFIRMAÇÃO, não intenção: ele não distingue 'o serviço vai pra equipe' de 'nunca diga que o serviço vai pra equipe'. É de propósito — dispensa por negação (`nunca|never|não diga`) seria um interruptor que qualquer um poderia pôr na linha pra desligar a regra. PROIBIÇÃO SE ESCREVE SEM CITAR A FRASE PROIBIDA: diga o que dizer, não o que não dizer. Num prompt isso é melhor de qualquer jeito — modelo que lê 'NUNCA diga X' às vezes diz X.",
     "frases_aposentadas": [
       {
@@ -105,6 +105,42 @@
       {
         "linha": "Text(\"nós distribuímos a gorjeta à equipe\")",
         "onde": "PIOR que a proibida: afirma que a Racha retém e repassa. Contraria o inegociável #4"
+      },
+      {
+        "linha": "Text(\"a gorjeta vai direto pro garçom, sem passar pela folha de pagamento\")",
+        "onde": "compliance H1: 'folha de pagamento' como substantivo NU era dispensa — e 'você não precisa esperar a folha' é como se vende o arranjo ilegal"
+      },
+      {
+        "linha": "Text(\"A gorjeta vai direto pro garçom, o restaurante não distribui nada.\")",
+        "onde": "negação DENTRO da cláusula dispensada; a primeira versão do revoga_dispensa só olhava antes do casamento"
+      },
+      {
+        "linha": "Text(\"the tip goes straight to your waiter — no payroll, no waiting\")",
+        "onde": "idem em inglês"
+      },
+      {
+        "linha": "Text(\"the tip goes to your servers\")",
+        "onde": "compliance H2: `server\\\\b` sem o `s` — a MESMA fuga de uma letra do garçom, no commit que consertou o garçom"
+      },
+      {
+        "linha": "Text(\"a caixinha fica com a equipe\")",
+        "onde": "compliance H2: `caixinha` é A palavra que um garçom brasileiro usa, e não estava na lista de substantivos de gorjeta — que eu tinha declarado a metade que NÃO precisava crescer"
+      },
+      {
+        "linha": "Text(\"o serviço fica com quem serve a mesa\")",
+        "onde": "descrição definida — e são as palavras do PRÓPRIO SystemPrompt regra 9, que ensinava ao modelo um destinatário que nenhum guarda enxergava"
+      },
+      {
+        "linha": "Text(\"a gorjeta é deles\")",
+        "onde": "pronome de terceira pessoa no lugar do substantivo"
+      },
+      {
+        "linha": "Text(\"o serviço fica com o maître\")",
+        "onde": "cargo ausente da lista"
+      },
+      {
+        "linha": "Text(\"the gratuity is kept by the staff\")",
+        "onde": "`gratuity` é o termo padrão em inglês e não estava entre os substantivos de gorjeta"
       }
     ],
     "frases_aprovadas": [
@@ -118,73 +154,73 @@
     "dispensas": [
       {
         "arquivo": "apps/web/src/i18n.ts",
-        "ancora": "servico.label",
-        "porque": "GENITIVO: 'Serviço da equipe ({pct}% da sua parte) — opcional' diz de quem é o serviço e que é removível. Nenhuma afirmação de destino."
+        "ancora": "Serviço da equipe ({pct}%",
+        "porque": "GENITIVO: diz de quem é o serviço e que é opcional (CDC). Nenhuma afirmação de destino."
       },
       {
         "arquivo": "apps/web/src/i18n.ts",
-        "ancora": "housepay.tipApart",
-        "porque": "GENITIVO + meio de pagamento: 'O serviço da equipe (gorjeta) vai separado, pelo Pix' diz por qual trilho o serviço corre, não pra quem ele vai. Lei 13.419 proíbe gorjeta sair de crédito pré-pago, que é o que esta frase existe pra explicar."
+        "ancora": "serviço da equipe (folha)",
+        "porque": "GENITIVO no rótulo do painel do dono, e a palavra vizinha é justamente 'folha' — o caminho legal. É a etiqueta da coluna do relatório, não uma promessa ao cliente."
       },
       {
         "arquivo": "apps/web/src/i18n.ts",
-        "ancora": "home.legal",
-        "porque": "GENITIVO + rastreio: 'Serviço da equipe (gorjeta) rastreado separado, do jeito que a lei pede' promete separação contábil, que é verdade e é o que a lei exige. Não promete destino."
+        "ancora": "O serviço da equipe (gorjeta) vai separado, pelo Pix",
+        "porque": "GENITIVO + TRILHO: diz por qual meio o serviço corre, não pra quem vai. Existe porque a Lei 13.419 proíbe gorjeta sair de crédito pré-pago, que é o que esta frase explica ao cliente."
+      },
+      {
+        "arquivo": "apps/web/src/i18n.ts",
+        "ancora": "Serviço da equipe (gorjeta) rastreado separado",
+        "porque": "GENITIVO + RASTREIO: promete separação contábil, que é verdade e é o que a lei exige. Não promete destino."
+      },
+      {
+        "arquivo": "docs/onboarding/README.md",
+        "ancora": "Quem fecha a conta hoje",
+        "porque": "PERGUNTA OPERACIONAL do levantamento D0: quem fecha a conta hoje, garçom na mesa ou caixa. Colher o fato do salão não é afirmar nada sobre dinheiro."
+      },
+      {
+        "arquivo": "docs/onboarding/README.md",
+        "ancora": "stats viram argumento pros garçons",
+        "porque": "MÉTRICA de relatório mandada ao dono (gorjetas por garçom). Mede o que cada atendente arrecadou; não diz pra onde o dinheiro vai."
+      },
+      {
+        "arquivo": "docs/onboarding/README.md",
+        "ancora": "Métricas de ativação no painel",
+        "porque": "linha de tabela do roteiro de produto: 'gorjeta por garçom' é a MÉTRICA do painel. Esta linha estava sendo perdoada por uma âncora escrita pra linha de cima — é o achado H4 da revisão de compliance, e agora ela tem dispensa própria, lida."
+      },
+      {
+        "arquivo": "docs/outreach/README.md",
+        "ancora": "Nunca ofereça repasse direto pro garçom",
+        "porque": "PROIBIÇÃO INTERNA no roteiro de vendas: instrui a escalar pra humano em vez de prometer repasse direto. Nomear o que não se pode prometer é o conteúdo da regra."
       },
       {
         "arquivo": "ios/Racha/Agent/AgentTool.swift",
         "ancora": "remuneração da equipe",
-        "porque": "GENITIVO, numa descrição de campo de ferramenta lida pelo modelo: o serviço É remuneração da equipe (Lei 13.419/2017). É a afirmação verdadeira que a lei faz, e o modelo precisa dela pra marcar o extra certo."
+        "porque": "GENITIVO, em descrição de campo de ferramenta lida pelo MODELO: o serviço É remuneração da equipe (Lei 13.419/2017). É a afirmação verdadeira que a lei faz, e o modelo precisa dela pra marcar o extra certo."
       },
       {
         "arquivo": "ios/Racha/Agent/MockTransport.swift",
         "ancora": "quanto o pessoal ainda me deve",
-        "porque": "'pessoal' aqui é a MESA — os amigos que devem — não a equipe do restaurante; e a vizinhança com 'tira o serviço' é uma lista de exemplos do modo demonstração. Substantivo certo, sentido outro."
-      },
-      {
-        "arquivo": "docs/markets/README.md",
-        "ancora": "no bolso direto de um garçom",
-        "porque": "ANÁLISE da razão de ser do inegociável #2 — a frase descreve o arranjo proibido para explicar por que ele é proibido, num documento de estratégia de mercado."
+        "porque": "'pessoal' aqui é A MESA — os amigos que devem — e não a equipe da casa; a vizinhança com 'tira o serviço' é uma lista de exemplos do modo demonstração. Substantivo certo, sentido outro."
       },
       {
         "arquivo": "docs/onboarding/README.md",
         "ancora": "Como distribui pra equipe?",
-        "porque": "PERGUNTA OPERACIONAL ao dono sobre como ELE distribui hoje, no levantamento do D0. Colher o fato não é prometer nada."
+        "porque": "PERGUNTA OPERACIONAL ao dono, no levantamento D0: como ELE distribui hoje. Colher o fato não é prometer nada."
       },
       {
         "arquivo": "docs/onboarding/README.md",
         "ancora": "A versão anterior deste item mandava",
-        "porque": "NOTA DE CORREÇÃO: cita a frase aposentada para registrar que ela saiu e por quê. É o mesmo caso do comentário de código, num arquivo onde comentário não existe."
-      },
-      {
-        "arquivo": "docs/onboarding/README.md",
-        "ancora": "gorjetas por",
-        "porque": "MÉTRICA de relatório ('% de contas via Racha + gorjetas por garçom'), enviada ao dono. Mede o que foi arrecadado por atendente; não afirma pra onde o dinheiro vai."
+        "porque": "NOTA DE CORREÇÃO: cita a frase aposentada pra registrar que ela saiu e por quê. Mesmo caso do comentário de código, num arquivo onde comentário não existe."
       },
       {
         "arquivo": "docs/onboarding/README.md",
         "ancora": "Wizard 4 passos",
-        "porque": "linha de tabela do roteiro de produto, onde 'equipe' nomeia um PASSO do assistente e 'serviço' aparece na linha vizinha. Vizinhança, não afirmação."
-      },
-      {
-        "arquivo": "docs/outreach/README.md",
-        "ancora": "NUNCA prometer gorjeta pro garçom",
-        "porque": "PROIBIÇÃO INTERNA no manual de vendas: dizer ao vendedor o que ele não pode prometer exige nomear o que não pode ser prometido. Lido por gente, não por modelo — não há risco de completação. É a regra que existe para impedir exatamente a afirmação que este censo caça."
-      },
-      {
-        "arquivo": "docs/outreach/README.md",
-        "ancora": "exposição trabalhista/tributária",
-        "porque": "a EXPLICAÇÃO da regra acima, no mesmo bloco: diz que liquidação direta pro garçom é exposição do cliente. Nomear o risco é o conteúdo."
-      },
-      {
-        "arquivo": "docs/outreach/racha-apresentacao-dinhos.html",
-        "ancora": "O que a gente não faz, de propósito",
-        "porque": "NEGAÇÃO PÚBLICA, na apresentação ao cliente: 'gorjeta caindo direto no Pix pessoal do garçom' é o que a Racha declara NÃO fazer. É a afirmação correta ao contrário, e é argumento de venda."
+        "porque": "linha de tabela do roteiro de produto: 'equipe' nomeia um PASSO do assistente. Dispensa PRÓPRIA — antes ela também engolia a linha 111, que é violação por si só; ver _sobre_dispensas."
       },
       {
         "arquivo": "docs/runbooks/devolver-dinheiro-a-mais.md",
         "ancora": "A gorjeta arrecadada é remuneração do time",
-        "porque": "RUNBOOK de restituição: diz que a gorjeta arrecadada é remuneração do time e por isso NÃO é fonte de devolução. A afirmação é sobre de onde o dinheiro não sai."
+        "porque": "RUNBOOK de restituição: diz que a gorjeta arrecadada é remuneração do time (Lei 13.419/2017) e por isso NÃO é fonte de devolução. A afirmação é sobre de onde o dinheiro não sai."
       }
     ],
     "onde_o_censo_anda": {
@@ -205,6 +241,13 @@
       ],
       "_porque_docs_fora": "Estes dois diretórios são a ANÁLISE da proibição, e analisar exige citar. É a mesma regra que já vale pro comentário de código, e está escrita aqui em vez de escondida numa lista de caminhos — para que a próxima pessoa possa discordar dela. Tudo o mais em docs/ ANDA: estratégia, mercado, onboarding, outreach. O que é entregue a alguém é superfície."
     },
-    "_sobre_dispensas": "Cada dispensa é uma AFIRMAÇÃO DE QUE ALGUÉM LEU a linha e concluiu que ela não promete destino. As três famílias legítimas: (a) GENITIVO — 'Serviço da equipe' diz de quem o serviço é, não pra onde vai; (b) PERGUNTA OPERACIONAL — perguntar ao dono como ELE distribui hoje não é prometer nada; (c) PROIBIÇÃO INTERNA E NEGAÇÃO PÚBLICA — uma regra de venda que diz ao vendedor o que não prometer precisa nomear o que não prometer, e uma frase que diz ao cliente 'isto a gente NÃO faz' é a afirmação correta ao contrário. A regra do `_escrevendo_proibicoes` (não cite a frase proibida) vale pro PROMPT do modelo, onde citar tem custo de completação; num texto lido por gente não tem. Dispensa sem razão escrita não é aceita pelo teste."
+    "_sobre_dispensas": "Cada dispensa afirma QUE ALGUÉM LEU AQUELA LINHA. A âncora casa a LINHA do achado — a que nomeia o destinatário — e não a vizinhança dela: antes era testada contra a janela e o laço pulava linhas depois de dispensar, o que somado dava um silenciador de uso geral (bastava pôr a linha ofensora ao lado de uma ancorada). Havia instância viva: docs/onboarding/README.md:111 é violação por si só e estava sendo perdoada por uma âncora escrita pra linha 110, cuja razão descrevia uma palavra vizinha que não existia. O teste agora exige que cada dispensa seja usada EXATAMENTE uma vez.\n\nAs famílias legítimas: (a) GENITIVO — 'Serviço da equipe' diz de quem o serviço é, não pra onde vai; (b) PERGUNTA OPERACIONAL ou MÉTRICA — perguntar ao dono como ele distribui, ou medir quanto cada atendente arrecadou, não promete nada; (c) PROIBIÇÃO INTERNA e NEGAÇÃO PÚBLICA — uma regra de venda que diz o que não prometer precisa nomear o que não prometer, e 'isto a gente NÃO faz' é a afirmação correta ao contrário.",
+    "_porque_lista_gorjeta": "O gatilho é uma CONJUNÇÃO, e por isso vale o mais fraco dos dois lados. A v3 declarou que a lista de destinatários era 'a única metade que precisa crescer' e nunca examinou esta — que não tinha `caixinha`, a palavra que um garçom brasileiro de fato usa, nem `gratuity`, que é o termo padrão em inglês. Cada buraco aqui silencia um destinatário perfeitamente casado do outro lado.",
+    "revoga_dispensa": "\\b(sem|n[ãa]o|nunca|nem|without|sin)\\b|\\bno\\s+(payroll|folha|n[óo]mina)",
+    "_porque_revoga": "A dispensa cai quando há negação NA CLÁUSULA ou logo antes dela (30 caracteres). Dois casos reais: 'a gorjeta vai direto pro garçom, SEM passar pela folha de pagamento' — negação antes — e 'A gorjeta vai direto pro garçom, o restaurante NÃO distribui nada' — negação DENTRO da cláusula casada, que a primeira versão deste campo não via porque só olhava o que vinha antes do início do casamento. Uma dispensa que a negação não derruba é um interruptor: basta citar a lei ao contrário pra desligar o guarda. O `no` inglês entrou ANCORADO no substantivo que ele nega (`no payroll`): solto, ele casava com o `no` português de 'liquida NO CNPJ do restaurante' e transformava a frase mais correta da lista num falso positivo. Duas línguas dividindo duas letras.",
+    "frase_sancionada": "o restaurante distribui à equipe, como manda a lei",
+    "_sobre_frase_sancionada": "A frase única, consumida pelo guarda de runtime (via scripts/gen-claim-patterns.js) e repetida literalmente nas quatro superfícies.",
+    "gatilho_direcional_para_suprimir": "(vai|v[ãa]o|segue|seguem|fica|ficam|cai|caem|entra|entram)\\s+(direto\\s+|integralmente\\s+|direta\\s+|na hora\\s+)?(pra|para|pro|pros|pras|com|ao?s?|[àá]s?)\\s+(a\\s+|o\\s+|os\\s+|as\\s+)?(equipe|equipo|gar[çc]o[nm]s?|gente|n[óo]s|time|pessoal|sal[ãa]o|mo[çc][oa]|maitre|cozinha)|goes?\\s+(straight\\s+|directly\\s+)?to\\s+(the\\s+|your\\s+|our\\s+)?(staff|team|waiters?|servers?|us)\\b|(keeps?|kept by)\\s+(the\\s+|your\\s+)?(staff|team|waiters?|servers?)|va[n]?\\s+(directa?\\s+)?(al|a\\s+l[oa]s?|para\\s+(el\\s+|los\\s+)?)\\s*(equipo|camarer[oa]s?|nosotros)|se\\s+queda\\s+con\\s+(el\\s+|la\\s+)?(equipo|camarer[oa])|(é|s[ãa]o)\\s+(d[oae]s?\\s+)?(gar[çc]o[nm]s?|equipe|pessoal|deles|delas)|100\\s*%\\s*(d[oae]s?\\s+)?(gorjeta|servi[çc]o)",
+    "_porque_dois_limiares": "DOIS gatilhos, com custos diferentes, porque as duas ações têm custos diferentes.\n\nO par de substantivos (alta cobertura, baixa precisão) decide ACRESCENTAR a frase sancionada. Acrescentar nunca apaga nada e nunca inventa afirmação no lugar de outra: num falso positivo, sobra uma frase verdadeira a mais.\n\nA construção direcional (alta precisão, baixa cobertura — é o gatilho da v2, que falhou como DETECTOR justamente por não cobrir a classe) decide SUPRIMIR a oração. Suprimir é destrutivo, então só age onde há certeza de forma.\n\nO que forçou a separação: com um limiar só, 'Pronto, removi os 10% de serviço — pode avisar a equipe.' era apagada da tela. O cliente pede pra tirar o serviço (inegociável #3), o app tira, e o guarda deletava a confirmação — a pessoa lia o contrário do que aconteceu, por causa do componente cujo trabalho é a verdade. 'O serviço de 10% dá R$ 24,00 e a equipe agradece' perdia o valor junto. Sem modelar o conectivo é impossível distinguir 'avisar a equipe' de 'vai pra equipe' — e num CENSO um falso positivo custa uma dispensa escrita, mas em RUNTIME custa uma verdade apagada da tela de alguém. Achado pelas duas revisões de 2026-09-13."
   }
 }

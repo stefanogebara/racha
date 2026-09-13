@@ -149,11 +149,15 @@ final class AgentSession {
             case .textDelta(let chunk):
                 if streamPhase != .writing { streamPhase = .writing }
                 text += chunk
-                // A cada pedaço, e não só no fim: a correção é por ORAÇÃO
-                // FECHADA, então uma afirmação errada nunca chega a ficar
-                // legível na tela. Ver `RevisaoDeAfirmacoes`.
-                text = RevisaoDeAfirmacoes.corrigir(text)
-                messages[bubbleIndex].text = text
+                // O ACUMULADOR FICA CRU; a exibição é DERIVADA dele.
+                //
+                // Antes era `text = corrigir(text)` — realimentar o corrigido
+                // no acumulador tornava qualquer correção prematura
+                // irreversível: uma oração correta cuja cláusula do
+                // distribuidor ainda não tinha chegado era cortada, e o resto
+                // da frase era emendado no corte. Derivando, o cru continua
+                // inteiro e a próxima passada vê a frase completa.
+                messages[bubbleIndex].text = RevisaoDeAfirmacoes.corrigir(text, parcial: true)
 
             case .thinkingDelta:
                 streamPhase = .thinking
@@ -175,9 +179,10 @@ final class AgentSession {
             }
         }
 
-        // O texto CORRIGIDO é o que vai pro histórico do modelo, não o cru.
-        // Mandar o cru de volta ensinaria o modelo que aquilo passou, e ele
-        // repetiria a afirmação na próxima volta com mais convicção.
+        // Fechado o stream, a última oração deixa de ser parcial: agora ela
+        // pode ser julgada. O texto CORRIGIDO é o que vai pro histórico do
+        // modelo — mandar o cru de volta ensinaria que aquilo passou, e ele
+        // repetiria a afirmação na volta seguinte com mais convicção.
         text = RevisaoDeAfirmacoes.corrigir(text)
         messages[bubbleIndex].text = text
         if !text.isEmpty { assistantBlocks.append(.text(text)) }

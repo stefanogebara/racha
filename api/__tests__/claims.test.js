@@ -39,6 +39,7 @@ const G = JSON.parse(
 const reGorjeta = new RegExp(G.substantivo_gorjeta, 'i');
 const reDestinatario = new RegExp(G.substantivo_destinatario, 'i');
 const reDistribuidor = new RegExp(G.distribuidor_com_sujeito, 'i');
+const reRevoga = new RegExp(G.revoga_dispensa, 'i');
 const JANELA = G.janela_linhas;
 
 /**
@@ -46,23 +47,33 @@ const JANELA = G.janela_linhas;
  * PRECISA ignorá-lo, porque o comentário que explica um conserto quase sempre
  * CITA a frase consertada.
  *
- * O `//` só conta como comentário quando não vem depois de `:` — senão
- * `https://` decapita a linha. Em Markdown, `>` de citação NÃO é comentário:
- * o leitor lê. Foi num arquivo Markdown que a frase sobreviveu mais tempo.
+ * Em Markdown, `>` de citação NÃO é comentário: o leitor lê. Foi num arquivo
+ * Markdown que a frase sobreviveu mais tempo.
  */
 function semComentario(texto, ext) {
-  if (ext === '.md') return texto;            // em documento, tudo é lido
+  if (ext === '.md') return texto;
   return texto
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ''))
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ''))
     .split('\n')
     .map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1'))
     .join('\n');
 }
 
-/** A regra, numa função. Os dois testes abaixo exercitam ESTA — não cópias dela. */
+/**
+ * A regra, numa função. Os testes abaixo exercitam ESTA — não cópias dela.
+ *
+ * A dispensa do distribuidor é REVOGADA por negação na cláusula ou logo antes:
+ * `folha de pagamento` como substantivo nu fazia de "sem passar pela folha de
+ * pagamento" uma dispensa — e "você não precisa esperar a folha" é exatamente
+ * como se vende o arranjo ilegal.
+ */
 function acusa(janela) {
-  return reGorjeta.test(janela) && reDestinatario.test(janela) && !reDistribuidor.test(janela);
+  if (!reGorjeta.test(janela) || !reDestinatario.test(janela)) return false;
+  const m = reDistribuidor.exec(janela);
+  if (!m) return true;
+  const arredor = janela.slice(Math.max(0, m.index - 30), m.index + m[0].length);
+  return reRevoga.test(arredor);
 }
 
 const EXT = /\.(ts|tsx|swift|html|md)$/;
@@ -89,23 +100,49 @@ function superficies() {
   ];
 }
 
-/** Devolve `{ achados, dispensasUsadas }` — a segunda metade é o que mantém o JSON honesto. */
+/**
+ * Devolve `{ achados, usos }`. A segunda metade é o que mantém o JSON honesto.
+ *
+ * DUAS CORREÇÕES estruturais sobre a v3, as duas do mesmo defeito:
+ *
+ *  · a âncora da dispensa era testada contra a JANELA, não contra a linha, e
+ *    depois de dispensar o laço pulava `JANELA-1` linhas. Somadas, davam um
+ *    silenciador de uso geral: bastava pôr a linha ofensora ao lado de uma
+ *    linha ancorada, no mesmo arquivo, e ela nunca começava janela própria.
+ *    Havia uma instância viva — `docs/onboarding/README.md:111` é violação por
+ *    si só e estava sendo perdoada por uma âncora escrita pra linha 110.
+ *  · o achado era reportado no INÍCIO da janela, que muitas vezes não é a
+ *    linha que afirma nada. Agora se reporta na última das linhas que
+ *    carregam o gatilho, e é ELA que a âncora tem que casar.
+ *
+ * Achado pela revisão de compliance de 2026-09-13.
+ */
 function varrer() {
   const achados = [];
-  const dispensasUsadas = new Set();
+  const usos = new Map();
   for (const f of superficies()) {
     const rel = path.relative(RAIZ, f).split(path.sep).join('/');
     const linhas = semComentario(fs.readFileSync(f, 'utf8'), path.extname(f)).split('\n');
     for (let i = 0; i < linhas.length; i++) {
-      const janela = linhas.slice(i, i + JANELA).join('\n');
-      if (!acusa(janela)) continue;
-      const d = G.dispensas.find((x) => x.arquivo === rel && janela.includes(x.ancora));
-      if (d) { dispensasUsadas.add(`${d.arquivo}|${d.ancora}`); i += JANELA - 1; continue; }
+      // O SÍTIO é a linha que NOMEIA O DESTINATÁRIO: é ali que a afirmação
+      // aterrissa, e é ela que uma dispensa tem que nomear. Reportar no início
+      // da janela dava até três achados pra uma entrada do dicionário (en/pt/es)
+      // e fazia a dispensa apontar pra linha da chave, que não afirma nada.
+      if (!reDestinatario.test(linhas[i])) continue;
+      // A janela olha pros dois lados: o substantivo de gorjeta pode estar na
+      // linha anterior (a chave do dicionário, ou a oração que quebrou).
+      const fatia = linhas.slice(Math.max(0, i - JANELA + 1), i + JANELA).join('\n');
+      if (!acusa(fatia)) continue;
+      const d = G.dispensas.find((x) => x.arquivo === rel && linhas[i].includes(x.ancora));
+      if (d) {
+        const k = `${d.arquivo}|${d.ancora}`;
+        usos.set(k, (usos.get(k) || 0) + 1);
+        continue;
+      }
       achados.push(`${rel}:${i + 1}  ${linhas[i].trim().slice(0, 110)}`);
-      i += JANELA - 1;   // uma janela, um achado
     }
   }
-  return { achados, dispensasUsadas };
+  return { achados, usos };
 }
 
 describe('a afirmação sobre o destino do serviço', () => {
@@ -141,13 +178,14 @@ describe('a afirmação sobre o destino do serviço', () => {
     expect(varrer().achados).toEqual([]);
   });
 
-  test('toda dispensa escrita é usada — dispensa ociosa é buraco esquecido', () => {
-    const { dispensasUsadas } = varrer();
-    const ociosas = G.dispensas
-      .map((d) => `${d.arquivo}|${d.ancora}`)
-      .filter((k) => !dispensasUsadas.has(k));
+  test('toda dispensa é usada, e em UM sítio só', () => {
+    const { usos } = varrer();
+    const ociosas = G.dispensas.map((d) => `${d.arquivo}|${d.ancora}`).filter((k) => !usos.has(k));
     expect(ociosas).toEqual([]);
-    // E toda dispensa tem razão escrita, não só uma âncora.
+    // EXATAMENTE uma. Uma dispensa que passa a cobrir dois sítios cobriu um
+    // que ninguém leu — e "alguém leu esta linha" é o que a dispensa afirma.
+    const espalhadas = [...usos.entries()].filter(([, n]) => n > 1).map(([k, n]) => `${k} ×${n}`);
+    expect(espalhadas).toEqual([]);
     expect(G.dispensas.filter((d) => !d.porque || d.porque.length < 30)).toEqual([]);
   });
 });
@@ -193,5 +231,35 @@ describe('o artefato publicado vem da fonte', () => {
     expect(erro).not.toBeNull();
     // E não deixou o arquivo envenenado pra trás.
     expect(fs.existsSync(saida)).toBe(false);
+  });
+});
+
+describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
+  /**
+   * A v3 escreveu os padrões duas vezes à mão — uma em JS, uma em Swift — e
+   * eles já tinham divergido em quatro tokens no commit cujo teste dizia
+   * impedir isso. A divergência não é simétrica: uma frase pega no build e não
+   * no runtime chega ao cliente; uma exempta no build e acusada no runtime faz
+   * o guarda REESCREVER texto correto.
+   *
+   * Comparar COMPORTAMENTO não fecharia (NSRegularExpression e RegExp divergem
+   * em construções), então o Swift deixou de ter cópia: é gerado. Mesma forma
+   * da reprodutibilidade do `racha-ios.html` — o artefato tem que ser o que a
+   * fonte produz.
+   */
+  test('ClaimPatterns.swift é exatamente o que o gerador produz', () => {
+    const { gerar, ALVO } = require('../../scripts/gen-claim-patterns.js');
+    expect(fs.readFileSync(ALVO, 'utf8')).toBe(gerar());
+  });
+
+  test('o gerador emite todos os padrões que a regra usa', () => {
+    const { gerar } = require('../../scripts/gen-claim-patterns.js');
+    const swift = gerar();
+    // Se um campo novo entrar no JSON e não no gerador, o runtime fica com uma
+    // regra mais frouxa que o build e ninguém percebe.
+    for (const campo of ['substantivo_gorjeta', 'substantivo_destinatario',
+      'distribuidor_com_sujeito', 'revoga_dispensa', 'gatilho_direcional_para_suprimir']) {
+      expect(swift).toContain(G[campo].replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
+    }
   });
 });

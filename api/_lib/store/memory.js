@@ -762,6 +762,7 @@ function createMemoryStore() {
       if (opts.status !== undefined) venue.pspRecipientStatus = opts.status;
       if (opts.notifyEmail !== undefined) venue.notifyEmail = opts.notifyEmail;
       if (opts.notifyWhatsapp !== undefined) venue.notifyWhatsapp = opts.notifyWhatsapp;
+      if (opts.cnpj !== undefined) venue.cnpj = opts.cnpj;
       return { id: venue.id, pspRecipientId: recipientId };
     },
     async setVenueStripeAccount(venueId, accountId) {

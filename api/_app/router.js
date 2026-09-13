@@ -1109,42 +1109,54 @@ async function route(req, res) {
       try { await auth.requireVenueOwner(user, b.venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       if (!psp.createRecipient) return json(res, 501, { success: false, error: 'PSP atual não cria recebedor' });
-      // ── O DOCUMENTO QUE DECIDE PRA ONDE O DINHEIRO VAI ────────────────────
+      // ── O DOCUMENTO QUE DECIDE PRA ONDE O DINHEIRO VAI ───────────────────
       //
       // Ia pro PSP direto do corpo: sem tipo, sem tamanho, sem dígito
       // verificador — enquanto o `AdminRecipient.tsx` já travava o botão com
-      // `isValidCpfCnpj`. O par clássico outra vez, e desta vez no campo que
-      // importa: o `POST /api/venues` (o documento IMPRESSO no recibo) foi
-      // endurecido em 2026-09-13 e este, o que determina quem RECEBE o split,
-      // ficou como estava. Achado pelas duas revisões.
+      // `isValidCpfCnpj`. O par clássico, no campo que importa.
       //
-      // Aceita CPF: pessoa física pode ser recebedora, e recusar aqui
-      // quebraria a casa que ainda não tem CNPJ.
-      const docRecebedor = String(b.document ?? '').trim();
-      if (!docRecebedor || docRecebedor.length > 32 || !/^[\d.\-/\s]+$/.test(docRecebedor)
-          || !isValidCpfCnpj(docRecebedor)) {
-        return json(res, 400, { success: false, code: 'tax_id_invalid' });
-      }
-      // E O RECIBO TEM QUE DIZER A VERDADE SOBRE O SPLIT.
+      // E TEM QUE SER O DOCUMENTO DA CASA, não "um documento válido". A
+      // primeira correção exigiu só que BATESSE com `venue.cnpj` — guardada
+      // atrás de `venue.cnpj &&`, e `venue.cnpj` é legitimamente nulo (o
+      // documento é pedido no passo do recebedor, não no de abrir a casa) e
+      // não há rota que o escreva depois. Então bastava omitir o CNPJ ao criar
+      // a casa pra desarmar o portão pra sempre e cadastrar um CPF — o de um
+      // garçom, o de um gerente — como recebedor do split.
       //
-      // `venues.cnpj` é o que o cliente lê no comprovante; este documento é
-      // onde o dinheiro liquida. Nada ligava os dois, então o estado "recibo
-      // mostra o CNPJ X, split liquida no documento Y" era alcançável e
-      // silencioso — com o material de venda prometendo ao dono exatamente o
-      // contrário ("o valor liquida no CNPJ do restaurante"). Divergir também
-      // rompe a cadeia da folha que a Lei 13.419/2017 exige pra perna do
-      // serviço, que é o inegociável #2 dito na transação e não na cópia.
+      // O que isso produz não é uma divergência cosmética: `servicoBp` nasce
+      // 1000 e o `pix.includesTip` aparece com `tipCents > 0`, sem olhar
+      // documento nenhum. O cliente leria "o restaurante distribui à equipe,
+      // como manda a lei" exatamente na configuração em que não existe pessoa
+      // jurídica pra distribuir, e os 10% cairiam no CPF de uma pessoa física,
+      // que não tem folha — logo não tem INSS/IRRF/FGTS. É o inegociável #2
+      // dito na transação em vez de na cópia, e é oferta vinculante do CDC
+      // art. 30 feita por nós, na nossa tela, falsa por construção.
+      // Achado pela revisão de compliance de 2026-09-13.
+      //
+      // Então o mesmo portão dos dois lados: `normalizarDocumentoDaCasa`, com
+      // o mercado da casa. No Brasil isso é CNPJ e só.
       const venueDoRecebedor = await store.getVenue(b.venueId);
-      if (venueDoRecebedor?.cnpj && onlyDigits(docRecebedor) !== onlyDigits(venueDoRecebedor.cnpj)) {
+      if (!venueDoRecebedor) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
+      const docRec = normalizarDocumentoDaCasa(b.document, venueDoRecebedor.market || DEFAULT_MARKET);
+      if (!docRec.ok || !docRec.valor) return json(res, 400, { success: false, code: 'tax_id_invalid' });
+      // Se a casa JÁ tem documento, tem que ser o mesmo: um é o que o cliente
+      // lê no comprovante, o outro é onde o dinheiro liquida.
+      if (venueDoRecebedor.cnpj && docRec.valor !== onlyDigits(venueDoRecebedor.cnpj)) {
         return json(res, 400, { success: false, code: 'recipient_doc_mismatch' });
       }
       const r = await psp.createRecipient({
-        name: b.name, email: b.email ?? null, document: onlyDigits(docRecebedor), bank: b.bank,
+        name: b.name, email: b.email ?? null, document: docRec.valor, bank: b.bank,
       });
       // Persiste o status inicial (registration) + os contatos do dono pro aviso
       // de KYC: o mesmo e-mail do form + o WhatsApp opcional (a Olímpia entrega).
       await store.setVenueRecipient(b.venueId, r.recipientId, {
         status: r.status || 'registration',
+        // E A CASA PASSA A TER O DOCUMENTO, se ainda não tinha. É o que
+        // impede o estado "portão desarmado pra sempre": sem isto, a casa sem
+        // CNPJ nunca ganhava um, e a conferência de cima nunca tinha com o
+        // que comparar. Agora o documento do comprovante e o do split são o
+        // mesmo por CONSTRUÇÃO, não por alguém ter preenchido os dois iguais.
+        cnpj: venueDoRecebedor.cnpj ? undefined : docRec.valor,
         notifyEmail: b.email ?? undefined,
         notifyWhatsapp: b.notifyWhatsapp ? String(b.notifyWhatsapp).replace(/[^\d+]/g, '') : undefined,
       });
