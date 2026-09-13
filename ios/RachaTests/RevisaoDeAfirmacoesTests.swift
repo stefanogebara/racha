@@ -140,7 +140,7 @@ struct RevisaoDeAfirmacoesTests {
             "Como funciona:\n- 10% de serviço\n- vai direto pro garçom\nAlgo mais?",
         ]
         let direcional = try! NSRegularExpression(
-            pattern: ClaimPatterns.direcionalParaSuprimir, options: [.caseInsensitive])
+            pattern: ClaimPatterns.formaDirecional, options: [.caseInsensitive])
         for texto in textos {
             for quadro in simularVolta(texto).quadros {
                 let r = direcional.rangeOfFirstMatch(

@@ -45,8 +45,8 @@ enum ClaimPatterns {
     static let destinatarioRuntime = ${lit(G.substantivo_destinatario_runtime)}
     static let distribuidorComSujeito = ${lit(G.distribuidor_com_sujeito)}
     static let revogaDispensa = ${lit(G.revoga_dispensa)}
-    /// Alta precisão, baixa cobertura: só ele autoriza SUPRIMIR uma oração.
-    static let direcionalParaSuprimir = ${lit(G.gatilho_direcional_para_suprimir)}
+    /// Alta precisão, baixa cobertura. Oráculo de teste: ver claims.json.
+    static let formaDirecional = ${lit(G.gatilho_forma_direcional)}
     /// A frase que o produto diz. Não é uma variação.
     static let sancionada = ${lit(G.frase_sancionada)}
 }

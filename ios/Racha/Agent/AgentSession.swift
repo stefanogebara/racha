@@ -40,6 +40,9 @@ final class AgentSession {
     private let toolbox: AgentToolbox
     private var wire: [WireMessage] = []
     private var task: Task<Void, Never>?
+    /// Chegou algum caractere do modelo nesta volta? Do acumulador CRU, não da
+    /// tela — ver `cancel()`.
+    private var recebeuAlgo = false
 
     init(rachaID: UUID, repository: RachaRepository, client: AnthropicClient,
          transcripts: TranscriptStore, history: @escaping @MainActor () -> HistoryIndex) {
@@ -62,7 +65,18 @@ final class AgentSession {
         streamPhase = .idle
         if let last = messages.indices.last, messages[last].isStreaming {
             messages[last].isStreaming = false
-            if messages[last].text.isEmpty && messages[last].edits.isEmpty {
+            // NÃO apaga a bolha por ela estar VAZIA NA TELA. `text` aqui é a
+            // EXIBIÇÃO, e desde que o guarda congela o que mostra enquanto
+            // julga, uma resposta longa e inteiramente legítima fica com a
+            // tela vazia por segundos. Parar nesse instante removia a bolha, e
+            // aí `bubbleIndex` apontava pro fim do array: a escrita seguinte
+            // estourava o índice e derrubava o app, perdendo a volta. O
+            // acumulador cru é quem sabe se veio alguma coisa.
+            //
+            // O chamador esquecido da separação acumulador/exibição — o
+            // `cancel()` ficou de fora quando o resto foi convertido. Achado
+            // pela revisão de segurança de 2026-09-13.
+            if !recebeuAlgo && messages[last].edits.isEmpty {
                 messages.removeLast()
             }
         }
@@ -167,10 +181,13 @@ final class AgentSession {
                 // a volta inteira não passa, julgada quando fecha. Era um
                 // conserto cirúrgico e apagava valores da tela — ver o
                 // cabeçalho de `RevisaoDeAfirmacoes`.
+                recebeuAlgo = true
                 if !guardaArmado { guardaArmado = RevisaoDeAfirmacoes.chegouPertoDoAssunto(chunk + fimAnterior) }
                 if !guardaArmado {
                     exibido = RevisaoDeAfirmacoes.parcialExibivel(text)
-                    messages[bubbleIndex].text = exibido
+                    // Idem: `cancel()` pode ter removido a bolha entre um
+                    // pedaço e o próximo.
+                    if messages.indices.contains(bubbleIndex) { messages[bubbleIndex].text = exibido }
                 }
                 // Só os últimos caracteres entram na próxima checagem: o
                 // substantivo pode ficar a cavalo de dois pedaços, e reler o
@@ -206,12 +223,13 @@ final class AgentSession {
             recusas += 1
             text = RevisaoDeAfirmacoes.respostaSegura
         }
-        messages[bubbleIndex].text = text
+        // A bolha pode ter sido removida por um `cancel()` no meio do stream.
+        if messages.indices.contains(bubbleIndex) { messages[bubbleIndex].text = text }
         if !text.isEmpty { assistantBlocks.append(.text(text)) }
         for call in pendingTools {
             assistantBlocks.append(.toolUse(id: call.id, name: call.name, input: call.input))
         }
-        messages[bubbleIndex].isStreaming = false
+        if messages.indices.contains(bubbleIndex) { messages[bubbleIndex].isStreaming = false }
 
         if let failure {
             // Keep an empty bubble out of the thread; the failure is attached to the

@@ -57,7 +57,12 @@ export function semComentarios(texto: string): string {
     // linhas que não existem. O `Home.tsx:21` que ele acusava era a linha 33.
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ''))
     .split('\n')
-    .map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1'))
+    // Comentário de linha só depois de espaço, `;` ou começo de linha. Com
+    // `[^:]` — escrito pensando em `https://` — uma URL RELATIVA AO PROTOCOLO
+    // não tem dois-pontos, então `<a href="//racha.app">…</a> {venue.taxId}`
+    // era decapitada antes de qualquer regra rodar. Mesmo construto que o
+    // `ios/lab/build.js` passou este commit aprendendo, na outra direção.
+    .map((l) => l.replace(/(^|[\s;])\/\/[^\n]*$/, '$1'))
     .join('\n');
 }
 
@@ -84,7 +89,15 @@ function naoEImpressao(trecho: string, antes: string): boolean {
   // Sem espaço entre o identificador e o delimitador: `foo(` é chamada,
   // `Racha (` é texto. Com `\s*` no meio, `<p>Racha ({venue.taxId})</p>`
   // ainda escapava.
-  if (/(?:\w|\)|\])[(,]\s*$|[:=]\s*$/.test(antes)) return true;
+  // E o `:`/`=` também tem que ser CÓDIGO. Testado contra o prefixo cru, um
+  // rótulo de JSX o satisfazia: `<p>CNPJ: {venue.taxId}</p>` — a forma mais
+  // natural de escrever um documento num rodapé — passava verde, e injetá-la
+  // no `PrivacyNotice.tsx` deixava o censo inteiro em zero ofensores. A metade
+  // do parêntese tinha sido endurecida na rodada anterior e esta ficou.
+  // Regra: se há uma tag JSX aberta depois do último `}` ou `;`, estamos em
+  // posição de TEXTO, e nenhuma dispensa de código vale.
+  const emJSX = /<\w[^>]*>[^<>{}]*$/.test(antes);
+  if (!emJSX && /(?:\w|\)|\])[(,]\s*$|[:=]\s*$/.test(antes)) return true;
   return false;
 }
 

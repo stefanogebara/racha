@@ -100,6 +100,32 @@ test('o censo reconhece os desvios que as revisões provaram por mutação', () 
   }
 });
 
+test('o produto cartesiano: todo PREFIXO × toda forma de IMPRIMIR é pego', () => {
+  // NOVE fugas já foram consertadas uma a uma neste arquivo, e a décima e a
+  // décima-primeira estavam a uma vírgula e um dois-pontos da nona. Corrigir
+  // a string exata do último escape nunca fecha a classe; enumerar o produto
+  // cartesiano fecha. É a diferença entre remendar o lexema demonstrado e
+  // cobrir a construção que o permite.
+  const prefixos = [
+    '', 'CNPJ: ', 'CNPJ:', 'Documento: ', 'Racha, ', 'Racha (', 'Racha(',
+    '© Racha, ', 'CNPJ = ', '<b>Racha</b> · ', '{venue.name}, ',
+    '<a href="//racha.app">site</a> · ',
+  ];
+  const impressoes = [
+    '{venue.taxId}', '{taxId}', '{venue?.taxId}', '{venue.taxId ?? \'\'}',
+    '{`${venue.taxId}`}', '{String(venue.taxId)}',
+  ];
+  const escaparam: string[] = [];
+  for (const p of prefixos) {
+    for (const imp of impressoes) {
+      const linha = `      <p className="legal">${p}${imp}</p>`;
+      if (!ofensoresEm('Rodape.tsx', linha).length) escaparam.push(linha.trim());
+    }
+  }
+  assert.deepEqual(escaparam, [],
+    `\n${escaparam.length} de ${prefixos.length * impressoes.length} combinações escaparam:\n${escaparam.join('\n')}\n`);
+});
+
 test('o censo absolve o que é legítimo — dispensa não é buraco', () => {
   const legitimos = [
     ['prop passada adiante', '      <PrivacyNotice taxId={venue.taxId} market={venue.market} />'],

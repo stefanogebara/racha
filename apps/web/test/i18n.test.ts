@@ -853,15 +853,40 @@ test('nenhuma tela põe o texto CRU do erro no estado — o servidor manda códi
     }
     return out;
   }
-  // Passar a mensagem crua como RESERVA do `tError` é legítimo: é o contrato
-  // (código primeiro, texto do servidor se o código for desconhecido).
-  const RESERVA = /tError\s*\(/;
+  // ALLOWLIST, não denylist. A versão anterior casava UMA grafia
+  // (`set…((e as Error).message)`) e deixava passar `catch (error)`, o cast
+  // pra `ApiError` — a classe DESTE repositório —, o apelido em duas linhas,
+  // o `instanceof`, o objeto de estado e o sink com outro nome. O último
+  // estava VIVO: `StripeWalletPay` mandava `error.message` do SDK da Stripe,
+  // em inglês, pra tela de pagamento de quem janta no Brasil.
+  //
+  // Agora: nenhuma leitura de `.message` no `src/`, em forma nenhuma, fora dos
+  // tradutores. Uma regra, todas as grafias.
+  const TRADUTOR = /\b(tErr|tError)\s*\(/;
+  /**
+   * As dispensas, com razão escrita — dispensa é a afirmação de que alguém
+   * leu. Duas famílias, e nenhuma delas é "exibir texto de terceiro":
+   *
+   *  · `asMessage` (WalletPay) LÊ a mensagem pra reconhecer uma CHAVE do
+   *    nosso dicionário que o SDK carregou como texto de erro, e traduz. É o
+   *    contrário de exibir cru.
+   *  · `auth.ts` re-LANÇA o erro do Supabase; quem exibe é a tela, e lá o
+   *    `tErr` entra. Apagar a mensagem aqui apagaria o diagnóstico do
+   *    desenvolvedor sem melhorar nada pro leitor.
+   */
+  const DISPENSAS = [
+    { arquivo: 'WalletPay.tsx', trecho: "const raw = (e as Error).message || '';" },
+    { arquivo: 'auth.ts', trecho: 'throw new Error(error.message);' },
+  ];
   const ofensores: string[] = [];
   for (const f of anda(src)) {
     readFileSync(join(src, f), 'utf8').split('\n').forEach((linha, i) => {
-      const sem = linha.replace(/(^|[^:])\/\/.*$/, '$1');
-      if (!/set\w*\(\s*\(e(rr)? as Error\)\.message/.test(sem)) return;
-      if (RESERVA.test(sem)) return;
+      const sem = linha.replace(/(^|[\s;])\/\/[^\n]*$/, '$1');
+      if (!/\.message\b/.test(sem)) return;
+      if (TRADUTOR.test(sem)) return;              // a reserva do tradutor é o contrato
+      if (/^\s*\*/.test(sem)) return;              // linha de comentário de bloco
+      if (/^\s*(\/\*|\{\/\*)/.test(sem) || /^\s{6,}\w[^;(){}]*$/.test(sem)) return;  // prosa dentro de comentário JSX
+      if (DISPENSAS.some((d) => f.endsWith(d.arquivo) && sem.includes(d.trecho))) return;
       ofensores.push(`${f}:${i + 1} ${sem.trim().slice(0, 80)}`);
     });
   }

@@ -14,8 +14,8 @@
     "substantivo_gorjeta": "gorjeta|gorjetas|caixinha|gratifica[çc][ãa]o|servi(ç|c|ci)o|servi(ç|c|ci)os|service charge|service fee|\\btips?\\b|gratuity|propina|os 10\\s*%|os dez por cento",
     "substantivo_destinatario": "equipe|equipo|\\bstaff\\b|\\bteam\\b|\\btime\\b|gar[çc]o[nm]s?|gar[çc]onete|atendente|pessoal\\b|el personal|sal[ãa]o|funcion[áa]ri|colaborador|mozo|moza|barman|bartender|cozinha|copa|camarer[oa]s?|meser[oa]s?|ma[îi]tre|sommelier|cumim|waiters?|servers?|\\bmo[çc]o|\\bmo[çc]a|quem (te )?(serve|serviu|atende|atendeu)|pra gente|pro pessoal|para n[óo]s|\\bto us\\b|para nosotros|\\bdeles\\b|\\bdelas\\b|com voc[êe]|\\beles\\b|\\bellos\\b",
     "_porque_esta_lista": "`gar[çc]on` sem o `m` foi a fuga de uma letra da rodada anterior; `server\\b` sem o `s` foi a MESMA fuga, no mesmo commit que consertou a primeira, e é por isso que quase tudo aqui agora termina em `s?`. A lista inclui descrição definida (`quem serve a mesa` — as palavras do PRÓPRIO SystemPrompt, que ensinava ao modelo um destinatário que nenhum guarda enxergava) e pronome de terceira pessoa. O que ela NÃO alcança, e está escrito aqui pra ninguém ler o guarda como completo: NOME PRÓPRIO (`a gorjeta vai pro Léo`) não é classe lexical e nunca será pega por esta forma de regra.",
-    "distribuidor_com_sujeito": "(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento)[^.;]{0,50}(distribu|reparte|repassa|liquida)|(distribu|reparte|repassa|liquida)[^.;]{0,60}(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento|CNPJ)|CNPJ (do|da) (restaurante|casa|estabelecimento|pr[óo]prio)|(passa|sai|entra|vai|é pag[oa]|s[ãa]o pag[oa]s)[^.;]{0,25}(pela |por |na |em )?(folha|payroll|n[óo]mina)",
-    "_porque_com_sujeito": "A dispensa exige SUJEITO — 'a gorjeta vai direto pra gente, e a gente distribui depois' passava no v2 porque bastava o radical. Mas o v3 abriu o mesmo buraco outra vez, do outro lado: eu acrescentei `folha de pagamento`, `payroll` e `n[óo]mina` como SUBSTANTIVOS NUS pra aceitar a frase legalmente correta, e substantivo nu não tem sujeito nem verbo. Resultado: 'a gorjeta vai direto pro garçom, SEM passar pela folha de pagamento' ficava dispensada — e 'você não precisa esperar a folha' é justamente como se vende o arranjo ilegal. Agora toda alternativa carrega verbo ligando à casa, e `revoga_dispensa` derruba a dispensa quando há negação logo antes dela. Achado pela revisão de compliance de 2026-09-13.",
+    "distribuidor_com_sujeito": "(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento)[^.;]{0,50}(distribu|reparte|repassa|liquida)|(distribu|reparte|repassa|liquida)[^.;]{0,60}(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento|CNPJ)|CNPJ (do|da) (restaurante|casa|estabelecimento|pr[óo]prio)|(restaurante|restaurant|\\bcasa\\b|house|estabelecimento|CNPJ)[^.;]{0,40}(folha|payroll|n[óo]mina)|(folha|payroll|n[óo]mina)[^.;]{0,40}(restaurante|restaurant|\\bcasa\\b|house|estabelecimento|CNPJ)",
+    "_porque_com_sujeito": "A dispensa exige SUJEITO — 'a gorjeta vai direto pra gente, e a gente distribui depois' passava no v2 porque bastava o radical. Mas o v3 abriu o mesmo buraco outra vez, do outro lado: eu acrescentei `folha de pagamento`, `payroll` e `n[óo]mina` como SUBSTANTIVOS NUS pra aceitar a frase legalmente correta, e substantivo nu não tem sujeito nem verbo. Resultado: 'a gorjeta vai direto pro garçom, SEM passar pela folha de pagamento' ficava dispensada — e 'você não precisa esperar a folha' é justamente como se vende o arranjo ilegal. Agora toda alternativa carrega verbo ligando à casa, e `revoga_dispensa` derruba a dispensa quando há negação logo antes dela. Achado pela revisão de compliance de 2026-09-13.\n\nE A QUARTA ALTERNATIVA AINDA NÃO TINHA SUJEITO. O conserto da rodada anterior tirou o substantivo nu e amarrou um verbo — à FOLHA, não à casa. Então 'a gorjeta vai pro garçom, POR FORA da folha' continuava dispensada, e 'por fora' é O idioma brasileiro pra pagamento à margem: sinal mais forte do arranjo ilegal que a frase que eu tinha acabado de consertar. Eu remendei o lexema demonstrado em vez da construção que o permite — a crítica exata da rodada anterior, repetida. Agora as duas alternativas da folha exigem o sujeito CASA, como as três primeiras, e `revoga_dispensa` conhece a evasão preposicional (`fora`, `por fora`, `antes`, `à parte`, `em espécie`, `direto`) além do negador lexical. Achado pela revisão de compliance de 2026-09-13.",
     "_escrevendo_proibicoes": "O censo lê AFIRMAÇÃO, não intenção: ele não distingue 'o serviço vai pra equipe' de 'nunca diga que o serviço vai pra equipe'. É de propósito — dispensa por negação (`nunca|never|não diga`) seria um interruptor que qualquer um poderia pôr na linha pra desligar a regra. PROIBIÇÃO SE ESCREVE SEM CITAR A FRASE PROIBIDA: diga o que dizer, não o que não dizer. Num prompt isso é melhor de qualquer jeito — modelo que lê 'NUNCA diga X' às vezes diz X. E a dispensa por 'é lido por gente' tem que ser verificada, não suposta: o manual de vendas declara no cabeçalho que alimenta o registro de templates de um AGENTE. Onde o texto vira prompt, vale a regra do prompt — proibição sem citar a frase proibida.",
     "frases_aposentadas": [
       {
@@ -141,6 +141,22 @@
       {
         "linha": "Text(\"the gratuity is kept by the staff\")",
         "onde": "`gratuity` é o termo padrão em inglês e não estava entre os substantivos de gorjeta"
+      },
+      {
+        "linha": "Text(\"a gorjeta vai pro garçom, por fora da folha\")",
+        "onde": "compliance H1 reaberto: a 4ª alternativa amarrava o verbo à FOLHA e não à casa; 'por fora' é o idioma brasileiro pra pagamento à margem"
+      },
+      {
+        "linha": "Text(\"a gorjeta vai pro garçom fora da folha\")",
+        "onde": "idem, sem a preposição"
+      },
+      {
+        "linha": "Text(\"o serviço vai pro garçom antes da folha\")",
+        "onde": "idem, evasão temporal"
+      },
+      {
+        "linha": "Text(\"a gorjeta vai pro garçom em espécie, à parte da folha\")",
+        "onde": "idem"
       }
     ],
     "frases_aprovadas": [
@@ -226,6 +242,26 @@
         "arquivo": "ios/Racha/Agent/ClaimPatterns.swift",
         "ancora": "static let substantivoDestinatario",
         "porque": "É O PADRÃO, não uma afirmação — arquivo GERADO por scripts/gen-claim-patterns.js a partir deste JSON. Ele carrega as duas listas de substantivos por definição; um censo que o acusasse estaria acusando a própria regra de existir. Dispensa e não exclusão de caminho: o resto do arquivo continua sendo varrido, e se alguém escrever copy dentro dele o censo vê."
+      },
+      {
+        "arquivo": "docs/markets/README.md",
+        "ancora": "no bolso direto de um garçom",
+        "porque": "ANÁLISE da razão de ser do inegociável #2, num documento de estratégia de mercado: descreve o arranjo proibido pra explicar por que é proibido, e compara Brasil e Espanha."
+      },
+      {
+        "arquivo": "docs/onboarding/README.md",
+        "ancora": "Isso afirma acerto direto com a equipe",
+        "porque": "NOTA DE CORREÇÃO — a primeira metade: registra que a frase saiu do roteiro e qual arranjo ela afirmava. Mesmo caso do comentário de código, num arquivo onde comentário não existe."
+      },
+      {
+        "arquivo": "docs/onboarding/README.md",
+        "ancora": "permite à casa reter parte pros encargos",
+        "porque": "NOTA DE CORREÇÃO — a segunda metade, citando a CLT 457 §6º e o CDC art. 30. A janela de três linhas separa o bloco em dois sítios; os dois são lidos."
+      },
+      {
+        "arquivo": "docs/outreach/racha-apresentacao-dinhos.html",
+        "ancora": "O que a gente não faz, de propósito",
+        "porque": "NEGAÇÃO PÚBLICA na apresentação ao cliente: declara que a Racha NÃO faz gorjeta caindo no Pix pessoal do garçom. É a afirmação correta ao contrário, e é argumento de venda — a palavra 'direto' aqui é parte do que se nega."
       }
     ],
     "onde_o_censo_anda": {
@@ -248,13 +284,26 @@
     },
     "_sobre_dispensas": "Cada dispensa afirma QUE ALGUÉM LEU AQUELA LINHA. A âncora casa a LINHA do achado — a que nomeia o destinatário — e não a vizinhança dela: antes era testada contra a janela e o laço pulava linhas depois de dispensar, o que somado dava um silenciador de uso geral (bastava pôr a linha ofensora ao lado de uma ancorada). Havia instância viva: docs/onboarding/README.md:111 é violação por si só e estava sendo perdoada por uma âncora escrita pra linha 110, cuja razão descrevia uma palavra vizinha que não existia. O teste agora exige que cada dispensa seja usada EXATAMENTE uma vez.\n\nAs famílias legítimas: (a) GENITIVO — 'Serviço da equipe' diz de quem o serviço é, não pra onde vai; (b) PERGUNTA OPERACIONAL ou MÉTRICA — perguntar ao dono como ele distribui, ou medir quanto cada atendente arrecadou, não promete nada; (c) PROIBIÇÃO INTERNA e NEGAÇÃO PÚBLICA — uma regra de venda que diz o que não prometer precisa nomear o que não prometer, e 'isto a gente NÃO faz' é a afirmação correta ao contrário.",
     "_porque_lista_gorjeta": "O gatilho é uma CONJUNÇÃO, e por isso vale o mais fraco dos dois lados. A v3 declarou que a lista de destinatários era 'a única metade que precisa crescer' e nunca examinou esta — que não tinha `caixinha`, a palavra que um garçom brasileiro de fato usa, nem `gratuity`, que é o termo padrão em inglês. Cada buraco aqui silencia um destinatário perfeitamente casado do outro lado.",
-    "revoga_dispensa": "\\b(sem|n[ãa]o|nunca|nem|without|sin)\\b|\\bno\\s+(payroll|folha|n[óo]mina)",
+    "revoga_dispensa": "\\b(sem|n[ãa]o|nunca|nem|without|sin)\\b|\\bno\\s+(payroll|folha|n[óo]mina)|\\b(fora|por fora|antes|[àa] parte|em esp[ée]cie|direto)\\b",
     "_porque_revoga": "A dispensa cai quando há negação NA CLÁUSULA ou logo antes dela (30 caracteres). Dois casos reais: 'a gorjeta vai direto pro garçom, SEM passar pela folha de pagamento' — negação antes — e 'A gorjeta vai direto pro garçom, o restaurante NÃO distribui nada' — negação DENTRO da cláusula casada, que a primeira versão deste campo não via porque só olhava o que vinha antes do início do casamento. Uma dispensa que a negação não derruba é um interruptor: basta citar a lei ao contrário pra desligar o guarda. O `no` inglês entrou ANCORADO no substantivo que ele nega (`no payroll`): solto, ele casava com o `no` português de 'liquida NO CNPJ do restaurante' e transformava a frase mais correta da lista num falso positivo. Duas línguas dividindo duas letras.",
     "frase_sancionada": "o restaurante distribui à equipe, como manda a lei",
     "_sobre_frase_sancionada": "A frase única, consumida pelo guarda de runtime (via scripts/gen-claim-patterns.js) e repetida literalmente nas quatro superfícies.",
-    "gatilho_direcional_para_suprimir": "(vai|v[ãa]o|segue|seguem|fica|ficam|cai|caem|entra|entram)\\s+(direto\\s+|integralmente\\s+|direta\\s+|na hora\\s+)?(pra|para|pro|pros|pras|com|ao?s?|[àá]s?)\\s+(a\\s+|o\\s+|os\\s+|as\\s+)?(equipe|equipo|gar[çc]o[nm]s?|gente|n[óo]s|time|pessoal|sal[ãa]o|mo[çc][oa]|maitre|cozinha)|goes?\\s+(straight\\s+|directly\\s+)?to\\s+(the\\s+|your\\s+|our\\s+)?(staff|team|waiters?|servers?|us)\\b|(keeps?|kept by)\\s+(the\\s+|your\\s+)?(staff|team|waiters?|servers?)|va[n]?\\s+(directa?\\s+)?(al|a\\s+l[oa]s?|para\\s+(el\\s+|los\\s+)?)\\s*(equipo|camarer[oa]s?|nosotros)|se\\s+queda\\s+con\\s+(el\\s+|la\\s+)?(equipo|camarer[oa])|(é|s[ãa]o)\\s+(d[oae]s?\\s+)?(gar[çc]o[nm]s?|equipe|pessoal|deles|delas)|100\\s*%\\s*(d[oae]s?\\s+)?(gorjeta|servi[çc]o)",
-    "_porque_dois_limiares": "DOIS gatilhos, com custos diferentes, porque as duas ações têm custos diferentes.\n\nO par de substantivos (alta cobertura, baixa precisão) decide ACRESCENTAR a frase sancionada. Acrescentar nunca apaga nada e nunca inventa afirmação no lugar de outra: num falso positivo, sobra uma frase verdadeira a mais.\n\nA construção direcional (alta precisão, baixa cobertura — é o gatilho da v2, que falhou como DETECTOR justamente por não cobrir a classe) decide SUPRIMIR a oração. Suprimir é destrutivo, então só age onde há certeza de forma.\n\nO que forçou a separação: com um limiar só, 'Pronto, removi os 10% de serviço — pode avisar a equipe.' era apagada da tela. O cliente pede pra tirar o serviço (inegociável #3), o app tira, e o guarda deletava a confirmação — a pessoa lia o contrário do que aconteceu, por causa do componente cujo trabalho é a verdade. 'O serviço de 10% dá R$ 24,00 e a equipe agradece' perdia o valor junto. Sem modelar o conectivo é impossível distinguir 'avisar a equipe' de 'vai pra equipe' — e num CENSO um falso positivo custa uma dispensa escrita, mas em RUNTIME custa uma verdade apagada da tela de alguém. Achado pelas duas revisões de 2026-09-13.",
     "substantivo_destinatario_runtime": "equipe|equipo|\\bstaff\\b|\\bteam\\b|gar[çc]o[nm]s?|gar[çc]onete|atendente|el personal|sal[ãa]o|funcion[áa]ri|colaborador|mozo|moza|barman|bartender|copa|camarer[oa]s?|meser[oa]s?|ma[îi]tre|sommelier|cumim|waiters?|servers?|[oad]o?s? time\\b|quem (te )?(serve|serviu|atende|atendeu)",
-    "_porque_lista_runtime": "O MESMO substantivo quer dizer coisas diferentes conforme QUEM FALA, e por isso o guarda de runtime usa uma lista mais curta.\n\nNa cópia do produto, 'a gorjeta vai direto pra gente' é um GARÇOM falando na mesa: 'a gente' é a equipe, e é a afirmação proibida. Na conversa do assistente com quem está jantando, 'a sobremesa fica com a gente' é a ATRIBUIÇÃO DA DIVISÃO — 'a gente' são as pessoas da mesa — num app cujo propósito inteiro é dizer de quem é cada item. Igualmente 'com você', 'deles', 'pessoal'.\n\nEnquanto o guarda só ACRESCENTAVA uma frase, esse falso positivo era feio e barato. Desde que a recusa é da VOLTA INTEIRA, ele passou a custar uma resposta legítima sobre quem deve quanto — o teste pegou duas na primeira execução. Então os pronomes de mesa saem do runtime e ficam no censo de build, onde o falante é a cópia do produto. `pessoal` também sai: 'quanto o pessoal ainda me deve?' está no roteiro da demonstração.\n\nO que isso custa em cobertura está escrito: um assistente que dissesse 'a gorjeta vai pra gente' não é recusado. É um preço pago de olho aberto — apagar da tela a resposta certa sobre dinheiro é pior que deixar passar uma frase que o prompt já proíbe e que o censo de build impede de existir em cópia nossa. `time` entra só nas formas com ARTIGO português (`ao time`, `do time`, `o time`): solto, ele casaria 'at any time' e 'real time' num texto em inglês, e no runtime um falso positivo custa a volta inteira."
+    "_porque_lista_runtime": "O MESMO substantivo quer dizer coisas diferentes conforme QUEM FALA, e por isso o guarda de runtime usa uma lista mais curta.\n\nNa cópia do produto, 'a gorjeta vai direto pra gente' é um GARÇOM falando na mesa: 'a gente' é a equipe, e é a afirmação proibida. Na conversa do assistente com quem está jantando, 'a sobremesa fica com a gente' é a ATRIBUIÇÃO DA DIVISÃO — 'a gente' são as pessoas da mesa — num app cujo propósito inteiro é dizer de quem é cada item. Igualmente 'com você', 'deles', 'pessoal'.\n\nEnquanto o guarda só ACRESCENTAVA uma frase, esse falso positivo era feio e barato. Desde que a recusa é da VOLTA INTEIRA, ele passou a custar uma resposta legítima sobre quem deve quanto — o teste pegou duas na primeira execução. Então os pronomes de mesa saem do runtime e ficam no censo de build, onde o falante é a cópia do produto. `pessoal` também sai: 'quanto o pessoal ainda me deve?' está no roteiro da demonstração.\n\nO que isso custa em cobertura está escrito: um assistente que dissesse 'a gorjeta vai pra gente' não é recusado. É um preço pago de olho aberto — apagar da tela a resposta certa sobre dinheiro é pior que deixar passar uma frase que o prompt já proíbe e que o censo de build impede de existir em cópia nossa. `time` entra só nas formas com ARTIGO português (`ao time`, `do time`, `o time`): solto, ele casaria 'at any time' e 'real time' num texto em inglês, e no runtime um falso positivo custa a volta inteira.",
+    "destinatarios_so_deteccao": [
+      "pra gente",
+      "para n",
+      "to us",
+      "para nosotros",
+      "deles",
+      "delas",
+      "com voc",
+      "eles",
+      "ellos",
+      "pessoal"
+    ],
+    "_porque_so_deteccao": "Estes destinatários são DETECTADOS pelo censo de build e não entram no guarda de runtime nem na lista de supressão: na boca de um garçom 'pra gente' é a equipe, e na conversa do assistente com quem janta é a MESA. Enquanto o guarda de runtime só acrescentava uma frase, o falso positivo era barato; desde que ele recusa a volta inteira, custaria a resposta certa sobre quem deve quanto. A lista é curta de propósito e o teste exige que todo destinatário novo do censo entre numa das duas pontas — ou é suprimível, ou está declarado aqui com razão. As duas listas divergiram em quinze tokens num commit só, sem nada testando a relação entre elas.",
+    "gatilho_forma_direcional": "(vai|v[ãa]o|segue|seguem|fica|ficam|cai|caem|entra|entram)\\s+(direto\\s+|integralmente\\s+|direta\\s+|na hora\\s+)?(pra|para|pro|pros|pras|com|ao?s?|[àá]s?)\\s+(a\\s+|o\\s+|os\\s+|as\\s+)?(equipe|equipo|gar[çc]o[nm]s?|gente|n[óo]s|time|pessoal|sal[ãa]o|mo[çc][oa]|maitre|cozinha)|goes?\\s+(straight\\s+|directly\\s+)?to\\s+(the\\s+|your\\s+|our\\s+)?(staff|team|waiters?|servers?|us)\\b|(keeps?|kept by)\\s+(the\\s+|your\\s+)?(staff|team|waiters?|servers?)|va[n]?\\s+(directa?\\s+)?(al|a\\s+l[oa]s?|para\\s+(el\\s+|los\\s+)?)\\s*(equipo|camarer[oa]s?|nosotros)|se\\s+queda\\s+con\\s+(el\\s+|la\\s+)?(equipo|camarer[oa])|(é|s[ãa]o)\\s+(d[oae]s?\\s+)?(gar[çc]o[nm]s?|equipe|pessoal|deles|delas)|100\\s*%\\s*(d[oae]s?\\s+)?(gorjeta|servi[çc]o)",
+    "_porque_forma_direcional": "Alta precisão, baixa cobertura. Nasceu como DETECTOR na v2 e falhou — não cobria a classe. Virou depois o gatilho que autorizava SUPRIMIR uma oração, quando o guarda de runtime ainda editava texto. Hoje o guarda não edita mais nada (recusa a volta inteira), então ele não decide comportamento nenhum: serve de ORÁCULO DE TESTE — é com ele que `RevisaoDeAfirmacoesTests.streamNaoVaza` afirma que nenhum quadro do stream ficou legível com a afirmação. Fica com o nome que descreve o que é, uma FORMA, e não o que já foi."
   }
 }

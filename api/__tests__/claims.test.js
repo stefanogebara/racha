@@ -235,6 +235,13 @@ describe('o artefato publicado vem da fonte', () => {
     ['userinfo antes do host', '<link rel="stylesheet" href="https://x@fonts.googleapis.com/css2">'],
     ['barras escapadas (JSON embutido)', '<script>var u = "https:\\/\\/fonts.googleapis.com/css2";</script>'],
     ['IPv6 entre colchetes', '<img src="http://[2606:4700::1]/pixel.gif">'],
+    // Estas três passaram a vazar no commit que consertou o falso positivo do
+    // `//TODO`: o removedor de comentário lia `=` e `(` como se fossem código
+    // JS. Valor de atributo SEM ASPAS e `url()` de CSS são os dois válidos em
+    // HTML, e os dois carregam o mesmo terceiro.
+    ['atributo sem aspas', '<script src=//cdn.exemplo.test/x.js></script>'],
+    ['@import de CSS', '<style>@import url(//fonts.googleapis.com/css2);</style>'],
+    ['url() em style inline', '<div style=background:url(//exemplo.test/p.png)>x</div>'],
   ])('o build recusa embutir terceiro no alvo publicado: %s', (_nome, injecao) => {
     const sujo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'racha-')), 'lab');
     fs.cpSync(path.join(RAIZ, 'ios', 'lab'), sujo, { recursive: true });
@@ -275,8 +282,49 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
     // Se um campo novo entrar no JSON e não no gerador, o runtime fica com uma
     // regra mais frouxa que o build e ninguém percebe.
     for (const campo of ['substantivo_gorjeta', 'substantivo_destinatario',
-      'distribuidor_com_sujeito', 'revoga_dispensa', 'gatilho_direcional_para_suprimir']) {
+      'distribuidor_com_sujeito', 'revoga_dispensa', 'gatilho_forma_direcional',
+      'substantivo_destinatario_runtime']) {
       expect(swift).toContain(G[campo].replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
     }
+  });
+});
+
+describe('as duas listas de destinatário não podem crescer em separado', () => {
+  /**
+   * Numa rodada só, `substantivo_destinatario` ganhou quinze tokens e
+   * `gatilho_direcional_para_suprimir` não ganhou nenhum. O efeito não é
+   * silencioso, é PIOR que silencioso: a afirmação passa a ser DETECTADA e não
+   * SUPRIMÍVEL, e a versão do guarda que acrescentava a frase sancionada
+   * publicava a promessa proibida com selo legal nosso embaixo.
+   *
+   * O guarda de runtime não acrescenta mais nada — recusa a volta inteira —
+   * então hoje o custo é só de cobertura. O teste fica porque a relação entre
+   * as duas listas era, até aqui, não escrita e não testada, que é como elas
+   * divergiram num commit.
+   */
+  const reRuntime = new RegExp(G.substantivo_destinatario_runtime, 'i');
+  const reSuprime = new RegExp(G.gatilho_direcional_para_suprimir, 'i');
+
+  test('toda frase aposentada ou é suprimível no runtime, ou é da classe declarada', () => {
+    // Sobre dados de VERDADE, não sobre as alternativas dos padrões: tentar
+    // fatiar a regex em tokens produz lixo (`\btime\b` vira `btimeb`) e um
+    // teste que mede o próprio artefato em vez do comportamento.
+    const soDeteccao = new RegExp(G.destinatarios_so_deteccao.join('|'), 'i');
+    const orfas = G.frases_aposentadas
+      .map((f) => f.linha)
+      .filter((l) => !reRuntime.test(l) && !soDeteccao.test(l));
+    expect(orfas).toEqual([]);
+    // A classe declarada é a exceção, não a regra.
+    const declaradas = G.frases_aposentadas.filter((f) => !reRuntime.test(f.linha));
+    expect(declaradas.length).toBeLessThanOrEqual(8);
+    expect(G._porque_so_deteccao || '').toMatch(/.{120,}/);
+  });
+
+  test('a FORMA direcional continua reconhecendo as frases que ela é oráculo de vigiar', () => {
+    // Ela não decide mais comportamento — o guarda recusa a volta inteira —
+    // mas é com ela que o teste Swift afirma que nenhum quadro do stream ficou
+    // legível. Um oráculo que parou de casar avalia coisa nenhuma.
+    const casadas = G.frases_aposentadas.filter((f) => reSuprime.test(f.linha));
+    expect(casadas.length).toBeGreaterThanOrEqual(18);
   });
 });

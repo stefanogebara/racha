@@ -9,6 +9,7 @@
  */
 
 const doc = require('../_lib/br/documento.js');
+const { decidirDocumentoDoRecebedor: decidir } = doc;
 const F = require('../_lib/br/documentos.fixture.json');
 
 describe('CPF/CNPJ com dígito verificador', () => {
@@ -170,7 +171,7 @@ describe('toda rota que lê documento do corpo o confere', () => {
    * `require` calham de estar. Uma leitura sem validação passava ali de graça.
    * Achado pela revisão de segurança de 2026-09-13.
    */
-  const CONFEREM = /normalizarDocumentoDaCasa|isValidCpfCnpj|isValidCNPJ|isValidCPF|createCharge|demoCharge|\bcharge\)\(/;
+  const CONFEREM = /normalizarDocumentoDaCasa|decidirDocumentoDoRecebedor|isValidCpfCnpj|isValidCNPJ|isValidCPF|createCharge|demoCharge|\bcharge\)\(/;
 
   /**
    * A ÚNICA leitura dispensada, com a razão escrita — mesma disciplina das
@@ -207,26 +208,37 @@ describe('toda rota que lê documento do corpo o confere', () => {
     }
   });
 
-  test('o portão do recebedor não é opcional — nem depende de campo que pode faltar', () => {
-    // A primeira correção guardava a amarra atrás de `venue.cnpj &&`, e
-    // `venue.cnpj` é legitimamente nulo: bastava omitir o CNPJ ao criar a casa
-    // pra desarmar o portão pra sempre. É a forma "guarda opcional" — a mesma
-    // do `active = false` da migração 0031, que nunca podia rodar.
-    //
-    // Isto é uma asserção de FORMA, não de comportamento, e está dito assim
-    // porque grep apresentado como invariante foi achado desta rodada: o teste
-    // anterior só exigia que a string `recipient_doc_mismatch` existisse, e
-    // trocar `!==` por `===` o deixava verde.
-    // O POST, não o GET: existe uma rota GET pro mesmo caminho, e fatiar pelo
-    // pathname sozinho pegava ela.
-    const rota = ROUTER.slice(ROUTER.indexOf("req.method === 'POST' && url.pathname === '/api/psp/recipient'"));
-    const corpo = rota.slice(0, rota.indexOf('return json(res, 200'));
-    // O documento passa pelo MESMO portão do documento da casa.
-    expect(corpo).toMatch(/normalizarDocumentoDaCasa\(\s*b\.document/);
-    // E, quando a casa não tem documento, ela PASSA A TER o do recebedor —
-    // é o que impede o estado "portão desarmado pra sempre".
-    expect(corpo).toMatch(/cnpj:.*docRec\.valor/);
-    expect(corpo).toMatch(/recipient_doc_mismatch/);
+  test('o portão do recebedor é COMPORTAMENTO, não grep', () => {
+    // A versão anterior afirmava que a string `recipient_doc_mismatch` existia
+    // no arquivo, e trocar `!==` por `===` a deixava verde — com o comentário
+    // dela dizendo, três linhas acima, que grep apresentado como invariante
+    // tinha sido o achado da rodada anterior. A regra saiu da rota e virou
+    // `decidirDocumentoDoRecebedor`, que dá pra EXECUTAR.
+    const BR = { market: 'br' };
+    // 1. CPF não serve: documento de casa é documento de empresa.
+    expect(decidir({ enviado: '52998224725', venue: { ...BR, cnpj: null } }))
+      .toMatchObject({ ok: false, code: 'tax_id_invalid' });
+    // 2. Casa SEM documento herda o do recebedor — é o que impede o portão de
+    //    nascer desarmado pra sempre (não há rota que escreva `cnpj` depois).
+    expect(decidir({ enviado: '11444777000161', venue: { ...BR, cnpj: null } }))
+      .toEqual({ ok: true, valor: '11444777000161', herdar: true });
+    // 3. Casa COM documento: tem que ser o mesmo.
+    expect(decidir({ enviado: '65087663000130', venue: { ...BR, cnpj: '11444777000161' } }))
+      .toMatchObject({ ok: false, code: 'recipient_doc_mismatch' });
+    expect(decidir({ enviado: '11444777000161', venue: { ...BR, cnpj: '11.444.777/0001-61' } }))
+      .toEqual({ ok: true, valor: '11444777000161', herdar: false });
+    // 4. Espanha: compara NORMALIZADO dos dois lados. Com `onlyDigits` de um
+    //    lado só, `B1234567H` nunca batia com ele mesmo e a casa espanhola
+    //    ficava trancada pra sempre depois do primeiro cadastro.
+    const ES = { market: 'es' };
+    expect(decidir({ enviado: 'B1234567H', venue: { ...ES, cnpj: 'B1234567H' } }))
+      .toEqual({ ok: true, valor: 'B1234567H', herdar: false });
+    expect(decidir({ enviado: 'b-1234567h', venue: { ...ES, cnpj: 'B1234567H' } }))
+      .toEqual({ ok: true, valor: 'B1234567H', herdar: false });
+    // 5. DNI é pessoa física — recusado pelo mesmo motivo que o CPF.
+    expect(decidir({ enviado: '12345678Z', venue: { ...ES, cnpj: null } }))
+      .toMatchObject({ ok: false, code: 'tax_id_invalid' });
+    // E o código continua traduzido.
     const i18n = fs.readFileSync(
       path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
     expect(i18n).toContain("'err.recipient_doc_mismatch'");

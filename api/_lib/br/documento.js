@@ -116,7 +116,19 @@ function normalizarDocumentoDaCasa(bruto, market = 'br') {
     // P,Q,R,S,N,W) são formas legítimas que a primeira versão recusava — e
     // NIE é comuníssimo entre donos de bar em Espanha. "Confere a FORMA" foi
     // afirmado com mais confiança do que a regex merecia.
-    if (!/^[A-Z]\d{7}[A-Z0-9]$|^\d{8}[A-Z]$/.test(nif)) return { ok: false, code: 'tax_id_invalid' };
+    // `^\d{8}[A-Z]$` É O DNI DE UMA PESSOA FÍSICA, e documento de casa é
+    // documento de empresa — a regra que o lado brasileiro deste mesmo
+    // arquivo existe pra impor ("No Brasil isso é CNPJ e só"). Aceitá-lo aqui
+    // seria deixar o split liquidar no documento pessoal de alguém, que é o
+    // achado que este módulo inteiro nasceu pra fechar, com outra bandeira.
+    //
+    // Sobra CIF (letra de tipo + 7 dígitos + controle) e NIE (X/Y/Z + 7 +
+    // letra). O NIE é de pessoa física residente, mas é o que um autónomo
+    // usa pra operar — e é o `showsVenueTaxId('es')` que decide publicar ou
+    // não, que continua false justamente por isso.
+    if (!/^[ABCDEFGHJNPQRSUVW]\d{7}[A-Z0-9]$|^[XYZ]\d{7}[A-Z]$/.test(nif)) {
+      return { ok: false, code: 'tax_id_invalid' };
+    }
     return { ok: true, valor: nif };
   }
 
@@ -169,7 +181,36 @@ function documentoPublicavelDaCasa(marketCode, valor, mostraNesteMercado) {
   return isValidCNPJ(digitos) ? digitos : null;
 }
 
+/**
+ * A DECISÃO do `POST /api/psp/recipient`, como função pura.
+ *
+ * Morava inline na rota, e por isso só dava pra "testar" com grep — o teste
+ * afirmava que a string `recipient_doc_mismatch` existia no arquivo, e trocar
+ * `!==` por `===` o deixava verde. O comentário do próprio teste dizia que
+ * grep apresentado como invariante tinha sido o achado da rodada anterior.
+ * Aqui a regra é executável, e o teste roda a regra.
+ *
+ * Três saídas, e a do meio é a que impede o portão de nascer desarmado:
+ *   · documento inválido pro mercado da casa → recusa;
+ *   · casa SEM documento → aceita e manda HERDAR, pra que o comprovante e a
+ *     liquidação passem a ser o mesmo documento por construção;
+ *   · casa COM documento → tem que ser o mesmo, comparado NORMALIZADO dos dois
+ *     lados (no mercado espanhol o valor carrega letra, e `onlyDigits` de um
+ *     lado só dava divergência eterna).
+ */
+function decidirDocumentoDoRecebedor({ enviado, venue }) {
+  const market = (venue && venue.market) || 'br';
+  const doc = normalizarDocumentoDaCasa(enviado, market);
+  if (!doc.ok || !doc.valor) return { ok: false, code: 'tax_id_invalid' };
+  if (!venue || !venue.cnpj) return { ok: true, valor: doc.valor, herdar: true };
+  const guardado = normalizarDocumentoDaCasa(venue.cnpj, market);
+  if (guardado.ok && guardado.valor && doc.valor !== guardado.valor) {
+    return { ok: false, code: 'recipient_doc_mismatch' };
+  }
+  return { ok: true, valor: doc.valor, herdar: false };
+}
+
 module.exports = {
   onlyDigits, isValidCPF, isValidCNPJ, docKind, isValidCpfCnpj,
-  normalizarDocumentoDaCasa, documentoPublicavelDaCasa,
+  normalizarDocumentoDaCasa, documentoPublicavelDaCasa, decidirDocumentoDoRecebedor,
 };

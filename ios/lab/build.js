@@ -40,7 +40,14 @@ const HOSTS_PROIBIDOS =
   /(?:https?:)?\\?\/\\?\/(?!localhost\b)(?:[^\s"'<>/@]*@)?(?=[a-z0-9[])(?:\[[0-9a-f:]+\]|[a-z0-9._~-]*(?:\.[a-z]{2,}|(?:\.\d{1,3}){3}))(?::\d+)?/gi;
 const forasteiros = [...new Set(
   out.replace(/<!--[\s\S]*?-->/g, '')              // comentário não baixa nada
-     .replace(/(^|[^:"'])\/\/.*$/gm, '$1')           // nem comentário de linha em JS
+     // Comentário de linha só quando vem depois de ESPAÇO, `;` ou começo de
+     // linha. A versão anterior era `[^:"']`, e com isso um valor de atributo
+     // SEM ASPAS e um `url()` de CSS — os dois válidos em HTML — eram lidos
+     // como comentário e a linha inteira sumia antes da checagem:
+     // `<script src=//cdn.evil.test/x.js>` e `@import url(//fonts.googleapis.com/…)`
+     // passavam. Conserto de falso positivo que abriu três falsos negativos,
+     // no commit anterior. Achado pela revisão de segurança de 2026-09-13.
+     .replace(/(^|[\s;])\/\/[^\n]*$/gm, '$1')
      .match(HOSTS_PROIBIDOS) || [])];
 if (forasteiros.length) {
   console.error('build: o alvo publicado embutiria terceiros:\n  ' + forasteiros.join('\n  '));

@@ -167,9 +167,8 @@
       {
         "entrada": "12345678Z",
         "market": "es",
-        "ok": true,
-        "valor": "12345678Z",
-        "nota": "NIF de pessoa física — aceito no armazenamento, e é justamente por existir que showsVenueTaxId('es') é false"
+        "ok": false,
+        "nota": "DNI — documento de PESSOA FÍSICA. Recusado pelo mesmo motivo que o CPF é recusado no Brasil: documento de casa é documento de empresa, e o split liquidaria no documento pessoal de alguém. Achado pela revisão de segurança de 2026-09-13."
       },
       {
         "entrada": "65087663000130",
@@ -196,6 +195,26 @@
         "ok": true,
         "valor": "Q2826000H",
         "nota": "CIF cujo caractere de controle é LETRA (tipos P,Q,R,S,N,W)"
+      },
+      {
+        "entrada": "B1234567H",
+        "market": "es",
+        "ok": true,
+        "valor": "B1234567H",
+        "nota": "CIF de sociedade limitada"
+      },
+      {
+        "entrada": "X1234567L",
+        "market": "es",
+        "ok": true,
+        "valor": "X1234567L",
+        "nota": "NIE — o que um autónomo usa pra operar"
+      },
+      {
+        "entrada": "12345678Z",
+        "market": "es",
+        "ok": false,
+        "nota": "DNI outra vez, explícito: pessoa física não é documento de casa"
       }
     ]
   },
