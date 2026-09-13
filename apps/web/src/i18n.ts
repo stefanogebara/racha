@@ -1018,9 +1018,17 @@ export const DICT = {
   // O roteiro que a equipe fala na mesa. Vive no dicionário e não em dois
   // `const` iguais em dois arquivos: era português cru nos dois, e o assistente
   // de implantação é a primeira tela que um dono novo abre.
-  'wiz.staffLine':    { en: '“Scan the QR on the table to see the bill and pay whenever you like — the tip goes straight to us.”',
-                        pt: '“Pode escanear o QR da mesa pra ver a conta e pagar quando quiser — a gorjeta vai direto pra gente.”',
-                        es: '“Puedes escanear el QR de la mesa para ver la cuenta y pagar cuando quieras — la propina va directa para nosotros.”' },
+  //
+  // A versão anterior terminava em "a gorjeta vai direto pra gente" — e esta é
+  // a única frase do produto que um GARÇOM diz, em voz alta, na mesa. Na boca
+  // dele "pra gente" é acerto direto com a equipe: exatamente o arranjo que a
+  // Lei 13.419/2017 e o STJ Tema 1102 põem fora da lei, porque o serviço é
+  // remuneração e passa pela folha. Escrita como roteiro, ela instruía o cliente
+  // a fazer a afirmação errada. O destino sai da frase; o que fica é o que o
+  // CDC exige que ele diga — que dá pra tirar.
+  'wiz.staffLine':    { en: '“Scan the QR on the table to see the bill and pay whenever you like — the service charge is on it, and it is optional.”',
+                        pt: '“Pode escanear o QR da mesa pra ver a conta e pagar quando quiser — o serviço vem junto e é opcional.”',
+                        es: '“Puedes escanear el QR de la mesa para ver la cuenta y pagar cuando quieras — el servicio va incluido y es opcional.”' },
   'wiz.stepTables':   { en: 'Tables',                          pt: 'Mesas', es: 'Mesas' },
   'wiz.stepPayout':   { en: 'Payouts',                         pt: 'Recebimento', es: 'Cobros' },
   'wiz.stepStaff':    { en: 'Staff',                           pt: 'Equipe', es: 'Equipo' },

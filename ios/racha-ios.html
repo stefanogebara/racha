@@ -2381,7 +2381,7 @@ function renderLedger(){
       ${r.extras.map(e=>`<div class="rw">
         <span class="ck ${e.on?'on':''}" data-t="${e.id}" role="checkbox" aria-checked="${e.on}" tabindex="0">✓</span>
         <span class="g"><span class="n" style="color:${e.on?'var(--ink)':'var(--ink-3)'}">${esc(e.label)}</span>
-        ${e.tip?`<span style="font-size:11.5px;color:var(--ink-3)">vai pra equipe · ${
+        ${e.tip?`<span style="font-size:11.5px;color:var(--ink-3)">o restaurante distribui à equipe · ${
           e.on?'toque pra tirar':'toque pra pôr'}</span>`:''}</span>
         <span class="fig" style="font-size:13px;color:${e.on?'var(--ink)':'var(--ink-3)'}">
           ${e.kind==='pct'?(e.bp/100)+'%':e.kind==='head'?money(e.cents,r.cur)+' <span class="lbl">/ pessoa</span>':money(e.cents,r.cur)}</span></div>`).join('')}
@@ -2410,7 +2410,7 @@ function renderSettle(){
     <div class="sec" style="gap:6px">
       <span class="lbl">Sua parte · ${esc(r.title)} · Mesa ${r.table}</span>
       <span class="ser" style="font-size:34px;line-height:1">${money(due,r.cur)}</span>
-      ${tip?`<span class="nt">Inclui ${brl(tipAmt,r.cur)} de serviço, que vai pra equipe da casa. É opcional:
+      ${tip?`<span class="nt">Inclui ${brl(tipAmt,r.cur)} de serviço. O restaurante distribui à equipe, como manda a lei. É opcional:
         <button class="tb" data-t="${tip.id}">tirar</button></span>`:''}
     </div>
     <div class="sec" style="gap:10px">

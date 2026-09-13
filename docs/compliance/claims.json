@@ -1,0 +1,30 @@
+{
+  "_leia": "As AFIRMAÇÕES que o produto não pode fazer, em todas as línguas e em todo cliente. Uma promessa errada é a mesma promessa errada em Swift, em TSX ou em HTML — então o censo é da FRASE, não do arquivo. Ver api/__tests__/claims.test.js e docs/decisions/2026-09-10-frase-escrita-do-guarda-que-eu-olhava.md.",
+  "gorjeta_destino": {
+    "guarda": "Nenhuma superfície publicada diz para onde vai o serviço sem nomear o restaurante como quem distribui.",
+    "porque": "O serviço de 10% é remuneração do empregado (Lei 13.419/2017, STJ Tema 1102) e passa pela folha, com INSS/IRRF/FGTS. A CLT art. 457 §6º ainda permite à casa reter parte para encargos. Então 'vai pra equipe' e 'vai direto pra gente' são as duas formas do mesmo erro: a primeira promete a QUANTIDADE (100%), a segunda promete o CAMINHO (acerto direto com o garçom) — e é o caminho que a lei proíbe. Nomear o distribuidor mantém o destino visível sem prometer nenhum dos dois. O gatilho é a CONSTRUÇÃO DIRECIONAL, não o substantivo: 'Serviço da equipe' é genitivo (de quem é o serviço) e é legítimo; 'o serviço vai pra equipe' é direcional (pra onde ele vai) e é a afirmação proibida. A primeira versão deste censo exigia o substantivo 'gorjeta/serviço' na MESMA LINHA e por isso deixava passar a etiqueta 'vai pra equipe · toque pra tirar', onde o substantivo está no elemento vizinho — e deixava passar o espanhol inteiro, porque 'servicio' não casa com 'servi[cç]o'. Uma linha que diz para onde o dinheiro vai precisa nomear quem distribui, tenha ou não o substantivo do lado.",
+    "gatilho_direcional": "(vai|v[ãa]o|segue|seguem|fica|ficam|distribu\\w*)\\s+(direto\\s+|integralmente\\s+|direta\\s+)?(pra|para|pro|pros|pras|ao?s?|[àá]s?)\\s+(a\\s+|o\\s+|os\\s+|as\\s+)?(equipe|gar[çc]on|gente|n[óo]s|time|casa\\b)|goes?\\s+(straight\\s+|directly\\s+)?to\\s+(the\\s+)?(staff|team|waiter|server|us)\\b|distribut\\w*\\s+(it\\s+)?to\\s+(the\\s+)?(staff|team)|va[n]?\\s+(directa?\\s+|[ií]ntegra\\w*\\s+)?(al|a\\s+l[oa]s?|para\\s+(el\\s+|los\\s+)?)\\s*(equipo|camarero|nosotros)|distribuye\\s+al\\s+(equipo|camarero)",
+    "gatilho_quantidade": "(gorjeta|servi(ç|c|ci)o|service charge|\\btips?\\b|propina)[^.]{0,60}(100\\s*%|integralmente|na\\s+íntegra|in\\s+full|íntegramente)",
+    "exige_distribuidor": "distribui|distribuí|distribut|distribuye|reparte|folha de pagamento|payroll|n[óo]mina",
+    "frases_aposentadas": [
+      "Inclui R$ 12,00 de serviço, que vai pra equipe da casa. É opcional:",
+      "vai pra equipe · toque pra tirar",
+      "a gorjeta vai direto pra gente",
+      "the tip goes straight to us",
+      "la propina va directa para nosotros",
+      "100% da gorjeta vai pra equipe",
+      "o serviço vai integralmente para os garçons",
+      "the service charge goes to the staff",
+      "el servicio va al equipo",
+      "100% do serviço vai pra equipe",
+      "a propina va íntegra al equipo"
+    ],
+    "frases_aprovadas": [
+      "Inclui R$ 12,00 de serviço. O restaurante distribui à equipe, como manda a lei. É opcional.",
+      "o restaurante distribui à equipe",
+      "inclui R$ 12,00 de serviço — o restaurante distribui à equipe, como manda a lei",
+      "includes R$ 12.00 service charge — the restaurant distributes it to the staff, as the law requires",
+      "incluye 12,00 € de servicio — el restaurante lo distribuye al equipo, como exige la ley"
+    ]
+  }
+}
