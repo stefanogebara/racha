@@ -361,7 +361,12 @@ export const DICT = {
   'rcpt.taxIdNif':    { en: 'Tax ID (NIF)',                    pt: 'NIF', es: 'NIF' },
   // O QUE ELE PAGOU, no comprovante. A barra de progresso é da CONTA (consumo);
   // o comprovante tem que dizer o que saiu da conta DELE — e o serviço em
-  // separado, porque é a parte que vai pra equipe.
+  // separado, porque é a parte que a casa distribui à equipe por obrigação
+  // legal (Lei 13.419/2017), e que por isso tem que ser rastreável em linha
+  // própria. Dizia "a parte que vai pra equipe" — a mesma afirmação que o
+  // produto passou a semana tirando das telas, sobrevivendo no comentário
+  // que explica por que a linha existe. Comentário é onde a próxima pessoa
+  // aprende a lei.
   // A tela que aparece quando o render cai. Recarregar é seguro: a conta é
   // derivada do razão no servidor, nada mora só no navegador.
   'boundary.title':   { en: 'Something broke on this screen',   pt: 'Algo quebrou nesta tela', es: 'Algo se rompió en esta pantalla' },
@@ -412,6 +417,12 @@ export const DICT = {
                             pt: 'Valor acima do que falta ({left}).',
                         es: 'El importe supera lo que falta ({left}).' },
   'err.tax_id_invalid': { en: 'Check the document number.', pt: 'Confira o número do documento.', es: 'Revisa el número del documento.' },
+  // O documento do recebedor tem que ser o MESMO que o recibo mostra: um é
+  // onde o dinheiro liquida, o outro é o que o cliente lê. Divergir é o
+  // comprovante dizer uma coisa e o split fazer outra.
+  'err.recipient_doc_mismatch': { en: 'This document is different from the one registered for the venue. They have to match — the receipt shows one and the money settles on the other.',
+                        pt: 'Este documento é diferente do que está cadastrado no restaurante. Os dois têm que bater — o comprovante mostra um e o dinheiro liquida no outro.',
+                        es: 'Este documento no coincide con el del restaurante. Tienen que ser el mismo — el recibo muestra uno y el dinero liquida en el otro.' },
   'err.market_not_live': { en: 'Payments are not enabled here yet.',
                         pt: 'Os pagamentos ainda não estão liberados aqui.',
                         es: 'Los pagos todavía no están habilitados aquí.' },

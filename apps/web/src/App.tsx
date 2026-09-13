@@ -529,7 +529,9 @@ export default function App() {
               R$ 117,21 e lia R$ 106,55, sem nenhuma menção ao serviço. Um
               comprovante cujo valor não bate com o extrato do cartão não serve
               de comprovante. O serviço sai em linha própria porque é a parte
-              que vai pra equipe (Lei 13.419/2017), e a hora entra porque
+              que a casa distribui à equipe por obrigação legal (Lei
+              13.419/2017, e a CLT 457 §6º ainda deixa reter encargos), e a
+              hora entra porque
               recibo sem data é prova fraca. Medido no e2e de 2026-09-10. */}
           {charge && (
             <>

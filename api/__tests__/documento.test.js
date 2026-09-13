@@ -127,3 +127,69 @@ describe('o portão de escrita do POST /api/venues', () => {
     expect(linha).not.toMatch(/error:\s*'/);
   });
 });
+
+/**
+ * O CENSO DAS ROTAS.
+ *
+ * `POST /api/venues` foi endurecido em 2026-09-13 e `POST /api/psp/recipient`
+ * ficou como estava — o mesmo defeito, no campo que decide pra ONDE O DINHEIRO
+ * VAI, enquanto o que foi consertado é o que aparece impresso no recibo. As
+ * duas revisões acharam, separadamente, e o módulo que eu tinha acabado de
+ * escrever diagnosticava a doença no próprio cabeçalho ("cliente validando,
+ * servidor não — o par clássico") ao mesmo tempo que a deixava viva uma rota
+ * adiante.
+ *
+ * Então o guarda não é sobre uma rota: toda leitura de documento vinda do
+ * CORPO da requisição passa por uma conferência, e quem acrescentar a próxima
+ * descobre aqui, não numa revisão.
+ */
+describe('toda rota que lê documento do corpo o confere', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+
+  /** Campos de documento que chegam pelo corpo. Nome novo? Entra aqui. */
+  const CAMPOS = [/\bb\.cnpj\b/g, /\bb\.document\b/g, /\bb\.payerDocument\b/g, /\bbody\.payerDocument\b/g];
+  /**
+   * Quem confere. As três primeiras são conferência NA ROTA; `charge` e
+   * `demoCharge` são o portão de dinheiro, e a conferência do CPF do pagador
+   * mora dentro dele (`api/_lib/pay/create-charge.js`: onze dígitos, e string
+   * vazia conta como ausente). Aceitar o nome da função é aceitar que a
+   * conferência está uma camada abaixo — o que é verdade, e é por isso que
+   * está escrito aqui em vez de a janela ter sido alargada até o padrão casar
+   * por acidente.
+   */
+  const CONFEREM = /normalizarDocumentoDaCasa|isValidCpfCnpj|isValidCNPJ|isValidCPF|\bcharge\b|demoCharge/;
+
+  test('cada leitura está a poucas linhas de uma conferência', () => {
+    const linhas = ROUTER.split('\n');
+    const semGuarda = [];
+    let leituras = 0;
+    linhas.forEach((linha, i) => {
+      // Comentário não lê nada — e os comentários daqui CITAM os campos.
+      const codigo = linha.replace(/(^|[^:])\/\/.*$/, '$1');
+      if (!CAMPOS.some((re) => { re.lastIndex = 0; return re.test(codigo); })) return;
+      leituras++;
+      // A janela olha pra trás e pra frente: a conferência pode preceder a
+      // leitura (`const doc = normalizar…(b.cnpj)`) ou vir logo depois.
+      const janela = linhas.slice(Math.max(0, i - 16), i + 8).join('\n');
+      if (!CONFEREM.test(janela)) {
+        semGuarda.push(`router.js:${i + 1}  ${linha.trim().slice(0, 100)}`);
+      }
+    });
+    // Um censo que anda em zero leituras passa calado.
+    expect(leituras).toBeGreaterThanOrEqual(3);
+    expect(semGuarda).toEqual([]);
+  });
+
+  test('o documento do recebedor tem que bater com o do recibo', () => {
+    // `venues.cnpj` é o que o cliente lê no comprovante; `b.document` é onde o
+    // split liquida. Nada ligava os dois, então "recibo mostra X, dinheiro vai
+    // pra Y" era alcançável e silencioso — com o material de venda prometendo
+    // ao dono o contrário. Ver `docs/outreach/`.
+    expect(ROUTER).toMatch(/recipient_doc_mismatch/);
+    const i18n = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
+    expect(i18n).toContain("'err.recipient_doc_mismatch'");
+  });
+});

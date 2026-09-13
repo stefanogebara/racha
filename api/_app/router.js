@@ -25,7 +25,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const { createMemoryStore } = require('../_lib/store/memory');
-const { normalizarDocumentoDaCasa } = require('../_lib/br/documento.js');
+const { normalizarDocumentoDaCasa, isValidCpfCnpj, onlyDigits } = require('../_lib/br/documento.js');
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
@@ -1109,8 +1109,37 @@ async function route(req, res) {
       try { await auth.requireVenueOwner(user, b.venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       if (!psp.createRecipient) return json(res, 501, { success: false, error: 'PSP atual não cria recebedor' });
+      // ── O DOCUMENTO QUE DECIDE PRA ONDE O DINHEIRO VAI ────────────────────
+      //
+      // Ia pro PSP direto do corpo: sem tipo, sem tamanho, sem dígito
+      // verificador — enquanto o `AdminRecipient.tsx` já travava o botão com
+      // `isValidCpfCnpj`. O par clássico outra vez, e desta vez no campo que
+      // importa: o `POST /api/venues` (o documento IMPRESSO no recibo) foi
+      // endurecido em 2026-09-13 e este, o que determina quem RECEBE o split,
+      // ficou como estava. Achado pelas duas revisões.
+      //
+      // Aceita CPF: pessoa física pode ser recebedora, e recusar aqui
+      // quebraria a casa que ainda não tem CNPJ.
+      const docRecebedor = String(b.document ?? '').trim();
+      if (!docRecebedor || docRecebedor.length > 32 || !/^[\d.\-/\s]+$/.test(docRecebedor)
+          || !isValidCpfCnpj(docRecebedor)) {
+        return json(res, 400, { success: false, code: 'tax_id_invalid' });
+      }
+      // E O RECIBO TEM QUE DIZER A VERDADE SOBRE O SPLIT.
+      //
+      // `venues.cnpj` é o que o cliente lê no comprovante; este documento é
+      // onde o dinheiro liquida. Nada ligava os dois, então o estado "recibo
+      // mostra o CNPJ X, split liquida no documento Y" era alcançável e
+      // silencioso — com o material de venda prometendo ao dono exatamente o
+      // contrário ("o valor liquida no CNPJ do restaurante"). Divergir também
+      // rompe a cadeia da folha que a Lei 13.419/2017 exige pra perna do
+      // serviço, que é o inegociável #2 dito na transação e não na cópia.
+      const venueDoRecebedor = await store.getVenue(b.venueId);
+      if (venueDoRecebedor?.cnpj && onlyDigits(docRecebedor) !== onlyDigits(venueDoRecebedor.cnpj)) {
+        return json(res, 400, { success: false, code: 'recipient_doc_mismatch' });
+      }
       const r = await psp.createRecipient({
-        name: b.name, email: b.email ?? null, document: b.document, bank: b.bank,
+        name: b.name, email: b.email ?? null, document: onlyDigits(docRecebedor), bank: b.bank,
       });
       // Persiste o status inicial (registration) + os contatos do dono pro aviso
       // de KYC: o mesmo e-mail do form + o WhatsApp opcional (a Olímpia entrega).

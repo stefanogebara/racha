@@ -519,9 +519,22 @@ test('o `lang` estático é o padrão do produto — não um idioma qualquer', (
   const html = readFileSync(join(import.meta.dirname, '..', 'index.html'), 'utf8')
     .replace(/<!--[\s\S]*?-->/g, '');
   const lang = html.match(/<html[^>]*\slang="([^"]*)"/)?.[1] ?? '';
-  // `en` é o padrão do `lang.tsx` quando não há `?lang=` nem escolha guardada.
-  assert.equal(lang, 'en',
-    'o `lang` do index.html tem que casar com o padrão de lang.tsx');
+
+  // O ACOPLAMENTO, não o literal. A primeira versão afirmava `lang === 'en'`
+  // com a mensagem "tem que casar com o padrão de lang.tsx" e nunca abria o
+  // `lang.tsx`: trocar o padrão de lá pra 'pt' deixava este teste verde com o
+  // `index.html` errado de novo. Uma asserção que descreve um acoplamento sem
+  // ler as duas pontas é uma frase, não um guarda — é literalmente o achado
+  // que o `docs/decisions/2026-09-10-frase-escrita-do-guarda-que-eu-olhava.md`
+  // registra. Achado pela revisão de segurança de 2026-09-13.
+  const langTsx = readFileSync(join(import.meta.dirname, '..', 'src', 'lang.tsx'), 'utf8');
+  const padrao = langTsx.match(/return \{ lang: '(\w+)', escolhido: false \}/)?.[1];
+  assert.ok(padrao, 'não achei o padrão do produto em lang.tsx — o acoplamento deixou de ser legível');
+  const mapa = langTsx.match(/const HTML_LANG[^=]*=\s*\{([^}]*)\}/)?.[1] ?? '';
+  const esperado = mapa.match(new RegExp(`\\b${padrao}:\\s*'([^']+)'`))?.[1];
+  assert.ok(esperado, `HTML_LANG não tem entrada pra '${padrao}'`);
+  assert.equal(lang, esperado,
+    `o \`lang\` do index.html (${lang}) tem que ser o padrão do lang.tsx mapeado por HTML_LANG (${esperado})`);
 });
 
 test('o manifesto do PWA fala a língua padrão, e o censo sabe que ele existe', () => {

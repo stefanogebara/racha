@@ -149,6 +149,10 @@ final class AgentSession {
             case .textDelta(let chunk):
                 if streamPhase != .writing { streamPhase = .writing }
                 text += chunk
+                // A cada pedaço, e não só no fim: a correção é por ORAÇÃO
+                // FECHADA, então uma afirmação errada nunca chega a ficar
+                // legível na tela. Ver `RevisaoDeAfirmacoes`.
+                text = RevisaoDeAfirmacoes.corrigir(text)
                 messages[bubbleIndex].text = text
 
             case .thinkingDelta:
@@ -171,6 +175,11 @@ final class AgentSession {
             }
         }
 
+        // O texto CORRIGIDO é o que vai pro histórico do modelo, não o cru.
+        // Mandar o cru de volta ensinaria o modelo que aquilo passou, e ele
+        // repetiria a afirmação na próxima volta com mais convicção.
+        text = RevisaoDeAfirmacoes.corrigir(text)
+        messages[bubbleIndex].text = text
         if !text.isEmpty { assistantBlocks.append(.text(text)) }
         for call in pendingTools {
             assistantBlocks.append(.toolUse(id: call.id, name: call.name, input: call.input))
