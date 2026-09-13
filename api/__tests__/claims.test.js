@@ -70,10 +70,17 @@ function semComentario(texto, ext) {
  */
 function acusa(janela) {
   if (!reGorjeta.test(janela) || !reDestinatario.test(janela)) return false;
-  const m = reDistribuidor.exec(janela);
-  if (!m) return true;
-  const arredor = janela.slice(Math.max(0, m.index - 30), m.index + m[0].length);
-  return reRevoga.test(arredor);
+  // TODAS as ocorrências, não a primeira. Com `exec` sozinho, uma cláusula
+  // inocente no começo ("o restaurante distribui, mas não é bem assim: …")
+  // dispensava tudo que viesse depois dela. E a janela de revogação olhava
+  // só pra trás; a negação que desfaz a cláusula pode vir depois dela.
+  const todas = [...janela.matchAll(new RegExp(reDistribuidor.source, 'gi'))];
+  if (!todas.length) return true;
+  // Basta UMA cláusula de distribuidor não revogada pra dispensar a janela.
+  return !todas.some((m) => {
+    const ini = Math.max(0, m.index - 30);
+    return !reRevoga.test(janela.slice(ini, m.index + m[0].length + 30));
+  });
 }
 
 const EXT = /\.(ts|tsx|swift|html|md)$/;
@@ -146,6 +153,20 @@ function varrer() {
 }
 
 describe('a afirmação sobre o destino do serviço', () => {
+  test('nenhum padrão lido deste arquivo é undefined', () => {
+    // `new RegExp(undefined, 'i')` compila pra /(?:)/ — casa TUDO. Renomear
+    // uma chave no JSON e esquecer uma linha do teste transformou um oráculo
+    // em tautologia verde pra sempre, no commit que consertava exatamente
+    // essa classe do lado Swift. A checagem fecha a classe inteira.
+    for (const [nome, re] of Object.entries({
+      substantivo_gorjeta: reGorjeta, substantivo_destinatario: reDestinatario,
+      distribuidor_com_sujeito: reDistribuidor, revoga_dispensa: reRevoga,
+    })) {
+      expect(G[nome]).toBeDefined();
+      expect(re.source).not.toBe('(?:)');
+    }
+  });
+
   test('o censo reconhece TODA frase aposentada', () => {
     // A v2 passava aqui e falhava na vida porque o corpo era feito de
     // fragmentos que eu mesmo tinha recortado. Estas são linhas de verdade.
@@ -281,10 +302,13 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
     const swift = gerar();
     // Se um campo novo entrar no JSON e não no gerador, o runtime fica com uma
     // regra mais frouxa que o build e ninguém percebe.
+    const { expandirDest } = require('../../scripts/gen-claim-patterns.js');
     for (const campo of ['substantivo_gorjeta', 'substantivo_destinatario',
       'distribuidor_com_sujeito', 'revoga_dispensa', 'gatilho_forma_direcional',
       'substantivo_destinatario_runtime']) {
-      expect(swift).toContain(G[campo].replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
+      // `gatilho_forma_direcional` carrega `{DEST}`, que o gerador expande.
+      const valor = expandirDest(G[campo], G.substantivo_destinatario_runtime);
+      expect(swift).toContain(valor.replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
     }
   });
 });
@@ -303,7 +327,12 @@ describe('as duas listas de destinatário não podem crescer em separado', () =>
    * divergiram num commit.
    */
   const reRuntime = new RegExp(G.substantivo_destinatario_runtime, 'i');
-  const reSuprime = new RegExp(G.gatilho_direcional_para_suprimir, 'i');
+  // `{DEST}` é expandido pelo gerador a partir da lista de runtime — as duas
+  // listas eram escritas à mão e divergiram três vezes, a última por um
+  // acento. O teste tem que expandir igual, senão mede outro padrão.
+  const { expandirDest } = require('../../scripts/gen-claim-patterns.js');
+  const reSuprime = new RegExp(
+    expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime), 'i');
 
   test('toda frase aposentada ou é suprimível no runtime, ou é da classe declarada', () => {
     // Sobre dados de VERDADE, não sobre as alternativas dos padrões: tentar

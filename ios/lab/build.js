@@ -47,7 +47,17 @@ const forasteiros = [...new Set(
      // `<script src=//cdn.evil.test/x.js>` e `@import url(//fonts.googleapis.com/…)`
      // passavam. Conserto de falso positivo que abriu três falsos negativos,
      // no commit anterior. Achado pela revisão de segurança de 2026-09-13.
-     .replace(/(^|[\s;])\/\/[^\n]*$/gm, '$1')
+     // Comentário de linha: depois de espaço, `;` ou começo de linha — E NÃO
+     // dentro de `url(`, de um valor de atributo ou de aspas. Exigir só o
+     // espaço reabriu as três formas que o commit anterior fechou, porque
+     // espaço é legal em todas: `src= //cdn`, `url( //fonts…`, `src=" //cdn"`.
+     // Um caractere de distância. Então a checagem de host roda ANTES da
+     // remoção de comentário nos trechos que podem carregar URL.
+     .replace(/(^|[\s;])\/\/[^\n]*$/gm, (m, p1, off, str) => {
+       const linha = str.slice(str.lastIndexOf('\n', off) + 1, off + m.length);
+       return /url\s*\(|=\s*["']?\s*$|["'][^"']*$/.test(linha.slice(0, off - str.lastIndexOf('\n', off) - 1 + p1.length))
+         ? m : p1;
+     })
      .match(HOSTS_PROIBIDOS) || [])];
 if (forasteiros.length) {
   console.error('build: o alvo publicado embutiria terceiros:\n  ' + forasteiros.join('\n  '));

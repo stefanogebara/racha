@@ -96,7 +96,14 @@ function naoEImpressao(trecho: string, antes: string): boolean {
   // do parêntese tinha sido endurecida na rodada anterior e esta ficou.
   // Regra: se há uma tag JSX aberta depois do último `}` ou `;`, estamos em
   // posição de TEXTO, e nenhuma dispensa de código vale.
-  const emJSX = /<\w[^>]*>[^<>{}]*$/.test(antes);
+  // Os VÃOS balanceados saem antes do teste de tag: `emJSX` exigia zero chaves
+  // entre a tag e o achado, então qualquer interpolação IRMÃ o desligava e a
+  // dispensa de código voltava a valer — `<p>{venue.name}: {venue.taxId}</p>`,
+  // que é o rodapé mais natural do app (nome da casa, dois-pontos, CNPJ).
+  // E `</span>` conta como tag: fechar um elemento não sai de posição de texto.
+  let semVaos = antes;
+  for (let n = 0; n < 8; n += 1) semVaos = semVaos.replace(/\{[^{}]*\}/g, ' ');
+  const emJSX = /<\/?\w[^<>]*>[^<>]*$/.test(semVaos);
   if (!emJSX && /(?:\w|\)|\])[(,]\s*$|[:=]\s*$/.test(antes)) return true;
   return false;
 }

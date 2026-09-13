@@ -653,7 +653,7 @@ async function route(req, res) {
       // provava o "falha fechado" só exercitava o `create-charge`, então o
       // buraco era invisível pro `npx jest`. Inegociável #7, na letra: a
       // guarda que nunca dispara no caminho que importa.
-      const gate = marketGate(venue.market, { rail, amountCents, tipCents });
+      const gate = marketGate(venue.market, { rail, amountCents, tipCents, venue });
       if (gate) {
         return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
       }

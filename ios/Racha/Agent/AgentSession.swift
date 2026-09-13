@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Observation
 
 /// One racha's conversation.
@@ -41,8 +42,21 @@ final class AgentSession {
     private var wire: [WireMessage] = []
     private var task: Task<Void, Never>?
     /// Chegou algum caractere do modelo nesta volta? Do acumulador CRU, não da
-    /// tela — ver `cancel()`.
+    /// tela — ver `cancel()`. Zerado no começo de cada volta.
     private var recebeuAlgo = false
+
+    /// `.public` só no NÚMERO: o texto recusado não vai pro log. Ele é o que
+    /// o modelo escreveu sobre a conta de alguém.
+    private let logger = Logger(subsystem: "app.racha", category: "agente")
+
+    /// Quantas voltas foram RECUSADAS nesta sessão.
+    ///
+    /// Era um `var` local de `streamOneTurn`, incrementado e lido por ninguém
+    /// — morria com a volta, sob um comentário que invocava o inegociável #8
+    /// ("sucesso silencioso é o inimigo") e contava coisa nenhuma. Um modelo
+    /// que insiste na afirmação proibida — prompt que regrediu, modelo
+    /// trocado, alguém empurrando — era indistinguível de uma sessão sadia.
+    private(set) var recusas = 0
 
     init(rachaID: UUID, repository: RachaRepository, client: AnthropicClient,
          transcripts: TranscriptStore, history: @escaping @MainActor () -> HistoryIndex) {
@@ -150,11 +164,11 @@ final class AgentSession {
         messages.append(ChatMessage(role: .agent, text: "", isStreaming: true))
 
         var assistantBlocks: [WireMessage.Block] = []
-        /// Quantas voltas foram recusadas nesta sessão. CONTADO, não só
-        /// tratado: um modelo que insiste na afirmação proibida é sinal — de
-        /// prompt que regrediu, de modelo trocado, de alguém empurrando. O
-        /// inegociável #8 vale aqui: sucesso silencioso é o inimigo.
-        var recusas = 0
+        // POR VOLTA, não por sessão. Sendo instância e nunca zerado, a partir
+        // da segunda volta ele ficava permanentemente `true` e o `cancel()`
+        // voltava a nunca remover bolha vazia — o conserto valia só pra volta
+        // 1, que é justamente a que estourava o índice.
+        recebeuAlgo = false
         /// Texto já mostrado, e os últimos caracteres do pedaço anterior — o
         /// substantivo pode ficar a cavalo de dois deltas.
         var exibido = ""
@@ -182,7 +196,7 @@ final class AgentSession {
                 // conserto cirúrgico e apagava valores da tela — ver o
                 // cabeçalho de `RevisaoDeAfirmacoes`.
                 recebeuAlgo = true
-                if !guardaArmado { guardaArmado = RevisaoDeAfirmacoes.chegouPertoDoAssunto(chunk + fimAnterior) }
+                if !guardaArmado { guardaArmado = RevisaoDeAfirmacoes.chegouPertoDoAssunto(fimAnterior + chunk) }
                 if !guardaArmado {
                     exibido = RevisaoDeAfirmacoes.parcialExibivel(text)
                     // Idem: `cancel()` pode ter removido a bolha entre um
@@ -192,6 +206,13 @@ final class AgentSession {
                 // Só os últimos caracteres entram na próxima checagem: o
                 // substantivo pode ficar a cavalo de dois pedaços, e reler o
                 // acumulado a cada delta era o O(n²) na thread principal.
+                //
+                // A ORDEM IMPORTA e estava invertida: `chunk + fimAnterior`
+                // junta o FIM do pedaço novo com o COMEÇO do rastro velho — a
+                // fronteira ao contrário, onde nenhuma palavra partida existe.
+                // O comentário descrevia um caso que o código não tratava, e o
+                // teste, streamando caractere a caractere, era o único tamanho
+                // de pedaço em que a inversão é invisível.
                 fimAnterior = String(text.suffix(40))
 
             case .thinkingDelta:
@@ -221,6 +242,7 @@ final class AgentSession {
         // passou, e ele repetiria com mais convicção na volta seguinte.
         if RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(text) {
             recusas += 1
+            logger.warning("volta do agente recusada — \(self.recusas, privacy: .public) nesta sessão")
             text = RevisaoDeAfirmacoes.respostaSegura
         }
         // A bolha pode ter sido removida por um `cancel()` no meio do stream.
@@ -234,7 +256,10 @@ final class AgentSession {
         if let failure {
             // Keep an empty bubble out of the thread; the failure is attached to the
             // last real message so the person sees it in context.
-            if text.isEmpty && pendingTools.isEmpty { messages.remove(at: bubbleIndex) }
+            // Guardado como as ESCRITAS: `cancel()` pode ter tirado a bolha.
+        if text.isEmpty && pendingTools.isEmpty && messages.indices.contains(bubbleIndex) {
+            messages.remove(at: bubbleIndex)
+        }
             return .failed(failure)
         }
 

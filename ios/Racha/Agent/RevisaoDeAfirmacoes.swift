@@ -58,6 +58,9 @@ enum RevisaoDeAfirmacoes {
     private static let destinatario = regex(ClaimPatterns.destinatarioRuntime)
     private static let distribuidor = regex(ClaimPatterns.distribuidorComSujeito)
     private static let revoga = regex(ClaimPatterns.revogaDispensa)
+    /// Alta precisão: uma oração com esta FORMA está afirmando destino,
+    /// tenha ou não os dois substantivos dentro dela.
+    private static let direcional = regex(ClaimPatterns.formaDirecional)
 
     private static func regex(_ p: String) -> NSRegularExpression {
         // `try!` é deliberado: o padrão é constante e gerado. Se não compilar,
@@ -74,18 +77,93 @@ enum RevisaoDeAfirmacoes {
 
     private static func casa(_ re: NSRegularExpression, _ s: String) -> Bool { acha(re, s) != nil }
 
-    /// Este TEXTO afirma um destino sem dizer quem distribui?
+    /// Orações, separadas por `. ; ! ? \n`. A unidade do julgamento.
+    private static func oracoes(_ texto: String) -> [String] {
+        var fora: [String] = [], atual = ""
+        for ch in texto {
+            //  e travessão também separam oração: "o restaurante distribui, mas
+            // não é bem assim: a gorjeta vai pro garçom" é uma promessa com uma
+            // cláusula inocente na frente.
+            if ".;!?:\n—".contains(ch) { if !atual.isEmpty { fora.append(atual) }; atual = "" }
+            else { atual.append(ch) }
+        }
+        if !atual.isEmpty { fora.append(atual) }
+        return fora
+    }
+
+    /// A oração NEGA o destino, em vez de afirmá-lo?
     ///
-    /// Do texto todo, não de uma oração: os dois substantivos se separam com
-    /// toda naturalidade — lista em Markdown, `R$ 1.250,00`, um `etc.`.
+    /// O negador tem que vir ANTES do destinatário: "a gorjeta NÃO fica com o
+    /// garçom" é a resposta certa; "vai pro garçom, SEM passar pela folha" é a
+    /// promessa proibida com uma ressalva depois. A versão anterior olhava
+    /// qualquer negador numa janela de 30 caracteres em volta do distribuidor,
+    /// e por isso RECUSAVA a negação correta — a resposta mais direta que
+    /// existe pra "a gorjeta vai pro garçom?" — enquanto deixava passar a
+    /// afirmação proibida. Polaridade invertida nos dois sentidos.
+    private static func nega(_ oracao: String) -> Bool {
+        guard let d = acha(destinatario, oracao) else { return false }
+        let ns = oracao as NSString
+        return casa(revoga, ns.substring(to: d.location))
+    }
+
+    /// A oração carrega, ELA MESMA, a cláusula do distribuidor?
+    private static func temDistribuidor(_ oracao: String) -> Bool {
+        guard let d = acha(distribuidor, oracao) else { return false }
+        let ns = oracao as NSString
+        let ini = max(0, d.location - 30)
+        // Negação DENTRO da cláusula do distribuidor derruba a dispensa: "sem
+        // passar pela folha" não é a cláusula legal, é o contrário dela.
+        return !casa(revoga, ns.substring(with: NSRange(location: ini, length: d.location - ini + d.length)))
+    }
+
+    /// Este texto afirma um destino sem dizer quem distribui?
+    ///
+    /// POR ORAÇÃO, e não pelo texto todo — e essa é a diferença que importa.
+    /// Com o julgamento text-wide, a frase sancionada COLADA NO FIM desarmava
+    /// o guarda inteiro: "A gorjeta fica com a equipe do salão. O restaurante
+    /// distribui à equipe, como manda a lei." passava. E a regra 9 do
+    /// `SystemPrompt` MANDA o modelo dizer exatamente essa frase — então a
+    /// coisa com maior probabilidade de aparecer ao lado de qualquer resposta
+    /// sobre gorjeta era a string que desligava a checagem. É a tautologia do
+    /// oráculo de teste, mudada de lugar: antes o GUARDA acrescentava a frase
+    /// e o teste se dava por satisfeito; depois o MODELO acrescenta a frase e
+    /// o guarda se dá por satisfeito. Nomear quem distribui não desdiz o
+    /// caminho já prometido, e pelo CDC art. 30 a primeira metade é que
+    /// vincula. Achado pela revisão de segurança de 2026-09-13.
+    ///
+    /// Mas a detecção NÃO pode ser só por oração: a afirmação atravessa
+    /// oração com toda naturalidade ("- 10% de serviço\n- vai pro garçom"),
+    /// e foi por isso que ela virou text-wide na rodada anterior. Então as
+    /// duas coisas, cada uma no seu lugar — a DETECÇÃO alcança o texto todo,
+    /// a DISPENSA vale só na oração que a carrega.
     static func afirmaDestinoSemDistribuidor(_ texto: String) -> Bool {
         guard casa(gorjeta, texto), casa(destinatario, texto) else { return false }
-        guard let d = acha(distribuidor, texto) else { return true }
-        // A dispensa cai se houver negação na cláusula ou logo antes: "sem
-        // passar pela folha" não é a cláusula legal, é o contrário dela.
-        let ns = texto as NSString
-        let ini = max(0, d.location - 30)
-        return casa(revoga, ns.substring(with: NSRange(location: ini, length: d.location - ini + d.length)))
+        let partes = oracoes(texto)
+        // 1. Uma oração que junta os dois substantivos tem que trazer o
+        //    distribuidor ELA MESMA — ou estar negando.
+        for o in partes where casa(gorjeta, o) && casa(destinatario, o) {
+            if !nega(o) && !temDistribuidor(o) { return true }
+        }
+        // 1b. E a FORMA DIRECIONAL numa oração não é resgatável por cláusula
+        //     de distribuidor nenhuma, nem na mesma oração: "a gorjeta vai pro
+        //     garçom, o restaurante distribui à equipe" é a promessa proibida
+        //     seguida de uma qualificação, e pelo CDC art. 30 é a primeira
+        //     metade que vincula. Nomear quem distribui não desdiz o caminho
+        //     já prometido — e a frase sancionada, que a regra 9 manda o modelo
+        //     dizer, é justamente o que apareceria colado ali.
+        // 2. Uma oração com FORMA DIRECIONAL afirma destino mesmo sem carregar
+        //    os dois substantivos — e nenhuma cláusula de distribuidor NOUTRA
+        //    oração a desfaz. Sem isto, a frase sancionada colada no fim
+        //    lavava toda afirmação repartida entre orações, que é a mesma
+        //    lavagem da regra 1 entrando pela porta da regra 3.
+        for o in partes where casa(direcional, o) {
+            if !nega(o) { return true }
+        }
+        // 3. Afirmação repartida entre orações: nenhuma junta os dois, mas o
+        //    texto junta. Aí basta que ALGUMA oração nomeie o distribuidor.
+        if partes.contains(where: { casa(gorjeta, $0) && casa(destinatario, $0) }) { return false }
+        if partes.contains(where: nega) { return false }
+        return !partes.contains(where: temDistribuidor)
     }
 
     /// Chegou perto do assunto? Então PARA DE MOSTRAR até dar pra julgar.

@@ -245,6 +245,20 @@ describe('toda rota que lê documento do corpo o confere', () => {
     // 5. DNI é pessoa física — recusado pelo mesmo motivo que o CPF.
     expect(decidir({ enviado: '12345678Z', venue: { ...ES, cnpj: null } }))
       .toMatchObject({ ok: false, code: 'tax_id_invalid' });
+    // 6. O PRODUTO sobre o que pode estar GUARDADO. Todos os casos abaixo
+    //    devolviam `ok:true, herdar:false` — o controle desligado justamente
+    //    nas linhas escritas antes do portão existir, e o lixo preservado, de
+    //    modo que a casa nunca saía do estado. Cada um é uma linha que o
+    //    cabeçalho do módulo diz existir.
+    for (const lixo of ['52998224725', 'CNPJ em analise 11222333000181',
+                        '11222333000199', '   ', 'MEI 12345678000195']) {
+      const r = decidir({ enviado: '11444777000161', venue: { ...BR, cnpj: lixo } });
+      expect(r).toEqual({ ok: true, valor: '11444777000161', herdar: true });
+    }
+    // E com documento guardado LIMPO e diferente, continua sendo divergência.
+    expect(decidir({ enviado: '11444777000161', venue: { ...BR, cnpj: '11222333000181' } }))
+      .toMatchObject({ ok: false, code: 'recipient_doc_mismatch' });
+
     // E o código continua traduzido.
     const i18n = fs.readFileSync(
       path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');

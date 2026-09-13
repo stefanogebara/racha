@@ -2,6 +2,10 @@
 /**
  * Gera `ios/Racha/Agent/ClaimPatterns.swift` a partir do `claims.json`.
  *
+ * `{DEST}` no `gatilho_forma_direcional` é expandido com
+ * `substantivo_destinatario_runtime`: as duas listas eram escritas à mão e
+ * divergiram três vezes, a última por um acento (`ma[îi]tre` × `maitre`).
+ *
  * Os dois guardas da mesma política — o censo de build (Node) e a revisão de
  * runtime (Swift) — precisam dos MESMOS padrões, e a v3 os tinha escrito duas
  * vezes à mão. Já tinham divergido em quatro tokens no commit cujo teste dizia
@@ -19,6 +23,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const RAIZ = path.join(__dirname, '..');
+const expandirDest = (re, dest) => re.split('{DEST}').join(dest);
 const G = JSON.parse(fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'claims.json'), 'utf8')).gorjeta_destino;
 
 /** Literal de string Swift, com as barras e aspas escapadas. */
@@ -46,7 +51,7 @@ enum ClaimPatterns {
     static let distribuidorComSujeito = ${lit(G.distribuidor_com_sujeito)}
     static let revogaDispensa = ${lit(G.revoga_dispensa)}
     /// Alta precisão, baixa cobertura. Oráculo de teste: ver claims.json.
-    static let formaDirecional = ${lit(G.gatilho_forma_direcional)}
+    static let formaDirecional = ${lit(expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime))}
     /// A frase que o produto diz. Não é uma variação.
     static let sancionada = ${lit(G.frase_sancionada)}
 }
@@ -54,7 +59,7 @@ enum ClaimPatterns {
 }
 
 const ALVO = path.join(RAIZ, 'ios', 'Racha', 'Agent', 'ClaimPatterns.swift');
-module.exports = { gerar, ALVO };
+module.exports = { gerar, ALVO, expandirDest };
 if (require.main === module) {
   fs.writeFileSync(ALVO, gerar());
   console.log('gerado', path.relative(RAIZ, ALVO));

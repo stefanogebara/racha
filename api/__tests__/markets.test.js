@@ -530,6 +530,7 @@ describe('gorjeta exige documento de empresa provado', () => {
   const { createChargeService } = require('../_lib/pay/create-charge');
   const { createMemoryStore } = require('../_lib/store/memory');
   const { MockPsp } = require('../_lib/pay/mock-psp');
+  const { marketGate: gate } = require('../_lib/markets');
 
   async function cobrar({ cnpj, tipCents }) {
     const store = createMemoryStore();
@@ -557,6 +558,44 @@ describe('gorjeta exige documento de empresa provado', () => {
   test('CNPJ que não passa no dígito verificador também não serve', async () => {
     await expect(cobrar({ cnpj: '99999999999999', tipCents: 500 }))
       .rejects.toMatchObject({ code: 'venue_no_tip_document' });
+  });
+
+  test('a regra vale no marketGate, que é por onde TODO trilho passa', () => {
+    // Ela nasceu dentro do `create-charge` — que não é o funil, é UM dos
+    // funis. O `POST /api/pay/stripe-intent` monta a cobrança sozinho, então
+    // a gorjeta era recusada no Pix e aceita no cartão, na mesma casa. É o
+    // incidente de 2026-09-07 que esta função já documenta, com a quinta
+    // regra repetindo o erro das quatro primeiras.
+    const semDoc = { market: 'br', cnpj: null };
+    const comDoc = { market: 'br', cnpj: '11444777000161' };
+    const comCPF = { market: 'br', cnpj: '52998224725' };
+    for (const rail of ['pix', 'card']) {
+      expect(gate('br', { rail, amountCents: 5000, tipCents: 500, venue: semDoc }))
+        .toMatchObject({ code: 'venue_no_tip_document' });
+      expect(gate('br', { rail, amountCents: 5000, tipCents: 500, venue: comCPF }))
+        .toMatchObject({ code: 'venue_no_tip_document' });
+      expect(gate('br', { rail, amountCents: 5000, tipCents: 500, venue: comDoc })).toBeNull();
+      // Consumo passa sempre.
+      expect(gate('br', { rail, amountCents: 5000, tipCents: 0, venue: semDoc })).toBeNull();
+    }
+  });
+
+  test('nenhuma rota que cria cobrança chama o adaptador sem passar pelo marketGate com a venue', () => {
+    // O censo que já existia olhava `/marketGate\s*\(/` e por isso não podia
+    // ver uma regra que morasse FORA do marketGate. Agora a regra mora dentro,
+    // e o que se exige é que a venue chegue lá — sem ela o portão da gorjeta
+    // não tem o que conferir e devolve null em silêncio.
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const RAIZ = path.join(__dirname, '..', '..');
+    const semVenue = [];
+    for (const rel of ['api/_app/router.js', 'api/_lib/pay/create-charge.js']) {
+      const texto = fs.readFileSync(path.join(RAIZ, rel), 'utf8');
+      for (const m of texto.matchAll(/marketGate\s*\(([^)]*)\)/g)) {
+        if (!/venue/.test(m[1])) semVenue.push(`${rel}: ${m[0].slice(0, 80)}`);
+      }
+    }
+    expect(semVenue).toEqual([]);
   });
 
   test('o CONSUMO passa sem documento — ninguém deixa de pagar o que comeu', async () => {

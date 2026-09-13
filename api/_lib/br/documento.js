@@ -204,9 +204,26 @@ function decidirDocumentoDoRecebedor({ enviado, venue }) {
   if (!doc.ok || !doc.valor) return { ok: false, code: 'tax_id_invalid' };
   if (!venue || !venue.cnpj) return { ok: true, valor: doc.valor, herdar: true };
   const guardado = normalizarDocumentoDaCasa(venue.cnpj, market);
-  if (guardado.ok && guardado.valor && doc.valor !== guardado.valor) {
-    return { ok: false, code: 'recipient_doc_mismatch' };
-  }
+  // O QUE ESTÁ GUARDADO PODE NÃO NORMALIZAR — e as linhas assim são
+  // exatamente a população que este módulo diz existir: escritas antes do
+  // portão de escrita, quando a rota guardava o que viesse. CPF, ressalva,
+  // dígito trocado, espaço em branco.
+  //
+  // A versão anterior era `if (guardado.ok && guardado.valor && …)`: a forma
+  // `if (thing && !ok)`. Com lixo na coluna a comparação não rodava e a
+  // função devolvia `ok: true, herdar: false` — o controle que existe pra
+  // impedir "o CPF de um garçom, o de um gerente" virar o alvo da liquidação
+  // ficava DESLIGADO justamente nas linhas pra que foi escrito, e `herdar:
+  // false` deixava o lixo lá, então a casa nunca saía desse estado. Regressão
+  // que o conserto do mercado espanhol abriu no brasileiro. Achado pela
+  // revisão de segurança de 2026-09-13.
+  //
+  // Agora HERDA por cima: o que estava guardado não era documento, então não
+  // há com o que comparar, e o documento conferido do recebedor passa a ser o
+  // da casa. Fecha o estado em vez de recusar pra sempre uma casa que não tem
+  // como se consertar sozinha.
+  if (!guardado.ok || !guardado.valor) return { ok: true, valor: doc.valor, herdar: true };
+  if (doc.valor !== guardado.valor) return { ok: false, code: 'recipient_doc_mismatch' };
   return { ok: true, valor: doc.valor, herdar: false };
 }
 

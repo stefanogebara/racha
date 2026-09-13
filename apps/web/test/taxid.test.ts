@@ -106,24 +106,29 @@ test('o produto cartesiano: todo PREFIXO × toda forma de IMPRIMIR é pego', () 
   // a string exata do último escape nunca fecha a classe; enumerar o produto
   // cartesiano fecha. É a diferença entre remendar o lexema demonstrado e
   // cobrir a construção que o permite.
-  const prefixos = [
-    '', 'CNPJ: ', 'CNPJ:', 'Documento: ', 'Racha, ', 'Racha (', 'Racha(',
-    '© Racha, ', 'CNPJ = ', '<b>Racha</b> · ', '{venue.name}, ',
-    '<a href="//racha.app">site</a> · ',
-  ];
+  // FATORADO em dois eixos independentes. A versão anterior misturava os dois
+  // no mesmo `prefixos` — `'CNPJ: '` carregava o separador, `'{venue.name}, '`
+  // carregava a interpolação irmã — e por isso o produto nunca os cruzava.
+  // A décima-segunda fuga estava exatamente no cruzamento: uma interpolação
+  // irmã desarmava o antídoto de JSX e o separador então dispensava a linha.
+  // Misturar eixos num produto cartesiano é ter um produto de mentira.
+  const irmaos = ['', '{venue.name}', "t('rcpt.docLabel')", '<b>{venue.name}</b>', '{fmt(venue.name)}'];
+  const separadores = [' ', ': ', ':', ', ', ' = ', ') · ', ' · ', ' — '];
   const impressoes = [
-    '{venue.taxId}', '{taxId}', '{venue?.taxId}', '{venue.taxId ?? \'\'}',
+    '{venue.taxId}', '{taxId}', '{venue?.taxId}', "{venue.taxId ?? ''}",
     '{`${venue.taxId}`}', '{String(venue.taxId)}',
   ];
   const escaparam: string[] = [];
-  for (const p of prefixos) {
-    for (const imp of impressoes) {
-      const linha = `      <p className="legal">${p}${imp}</p>`;
-      if (!ofensoresEm('Rodape.tsx', linha).length) escaparam.push(linha.trim());
+  for (const irmao of irmaos) {
+    for (const sep of separadores) {
+      for (const imp of impressoes) {
+        const linha = `      <p className="legal">${irmao}${sep}${imp}</p>`;
+        if (!ofensoresEm('Rodape.tsx', linha).length) escaparam.push(linha.trim());
+      }
     }
   }
   assert.deepEqual(escaparam, [],
-    `\n${escaparam.length} de ${prefixos.length * impressoes.length} combinações escaparam:\n${escaparam.join('\n')}\n`);
+    `\n${escaparam.length} de ${irmaos.length * separadores.length * impressoes.length} combinações escaparam:\n${escaparam.join('\n')}\n`);
 });
 
 test('o censo absolve o que é legítimo — dispensa não é buraco', () => {

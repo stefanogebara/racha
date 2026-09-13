@@ -1,5 +1,7 @@
 'use strict';
 
+const { documentoPublicavelDaCasa } = require('./br/documento.js');
+
 /**
  * Os mercados: Brasil e Espanha.
  *
@@ -239,7 +241,7 @@ function showsVenueTaxId(code) {
  * A ordem importa: o interruptor do mercado vem PRIMEIRO. Um mercado que não
  * está no ar não deve nem explicar que o trilho está errado.
  */
-function marketGate(code, { rail, amountCents, tipCents = 0 } = {}) {
+function marketGate(code, { rail, amountCents, tipCents = 0, venue = null } = {}) {
   const live = chargingAllowed(code);
   if (live) return live;
   if (!supportsRail(code, rail)) return { code: 'rail_unsupported' };
@@ -248,6 +250,21 @@ function marketGate(code, { rail, amountCents, tipCents = 0 } = {}) {
   // gorjeta também é renda tributável do empregado, e não há folha nossa).
   if (market(code).serviceCharge.mode === 'none' && tipCents > 0) {
     return { code: 'tip_not_supported' };
+  }
+  // ── SERVIÇO SÓ ONDE HÁ PESSOA JURÍDICA PRA DISTRIBUIR ────────────────────
+  //
+  // Mora AQUI, e não no `create-charge`, porque `create-charge` não é o funil
+  // — é UM dos funis. O `POST /api/pay/stripe-intent` monta a cobrança sozinho
+  // e chama o adaptador direto, então a regra posta lá valia no Pix e na
+  // carteira Pagar.me e não valia no cartão: a mesma casa, a mesma gorjeta,
+  // duas respostas, com o trilho escolhido por quem se cansou do QR.
+  //
+  // O comentário desta função já contava essa história de 2026-09-07 — quatro
+  // regras copiadas em dois lugares e uma ficou pra trás — e a quinta regra
+  // nasceu solta do mesmo jeito. Aqui passa todo mundo.
+  if (tipCents > 0 && venue
+      && !documentoPublicavelDaCasa(venue.market || code, venue.cnpj, true)) {
+    return { code: 'venue_no_tip_document' };
   }
   return checkChargeLimits(code, amountCents + tipCents);
 }

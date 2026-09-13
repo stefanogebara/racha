@@ -26,18 +26,43 @@ struct RevisaoDeAfirmacoesTests {
 
     /// Como o `AgentSession` monta a tela: acumulador CRU, exibição derivada,
     /// congelada assim que chega perto do assunto, julgada quando fecha.
-    private func simularVolta(_ texto: String) -> (quadros: [String], final: String, recusada: Bool) {
+    ///
+    /// RECEBE PEDAÇOS, não caracteres. A versão anterior streamava caractere a
+    /// caractere — e um pedaço de um caractere é o único tamanho em que a
+    /// ordem de `fimAnterior + chunk` é invisível, porque o casamento só pode
+    /// cair dentro do rastro. O teste simulava o bug em vez da especificação,
+    /// e por isso não via a afirmação inteira aparecer na tela quando o
+    /// substantivo ficava a cavalo de dois deltas. Achado pela revisão de
+    /// segurança de 2026-09-13.
+    private func simularVolta(_ deltas: [String]) -> (quadros: [String], final: String, recusada: Bool) {
         var cru = "", exibido = "", fimAnterior = "", quadros: [String] = []
         var armado = false
-        for ch in texto {
-            cru.append(ch)
-            if !armado { armado = RevisaoDeAfirmacoes.chegouPertoDoAssunto(String(ch) + fimAnterior) }
+        for chunk in deltas {
+            cru += chunk
+            if !armado { armado = RevisaoDeAfirmacoes.chegouPertoDoAssunto(fimAnterior + chunk) }
             if !armado { exibido = RevisaoDeAfirmacoes.parcialExibivel(cru) }
             fimAnterior = String(cru.suffix(40))
             quadros.append(exibido)
         }
         let recusada = RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(cru)
         return (quadros, recusada ? RevisaoDeAfirmacoes.respostaSegura : cru, recusada)
+    }
+
+    /// Caractere a caractere — a granularidade mais fina, mantida como SEGUNDA
+    /// parametrização e não como a única.
+    private func simularVolta(_ texto: String) -> (quadros: [String], final: String, recusada: Bool) {
+        simularVolta(texto.map(String.init))
+    }
+
+    /// Pedaços do tamanho que o transporte entrega de verdade.
+    private func emPedacos(_ texto: String, _ n: Int = 7) -> [String] {
+        var fora: [String] = [], atual = ""
+        for ch in texto {
+            atual.append(ch)
+            if atual.count == n { fora.append(atual); atual = "" }
+        }
+        if !atual.isEmpty { fora.append(atual) }
+        return fora
     }
 
     @Test("toda frase aposentada com destinatário de EQUIPE é recusada — e o texto do modelo some")
@@ -128,26 +153,70 @@ struct RevisaoDeAfirmacoesTests {
         }
     }
 
-    @Test("durante o stream, nenhum quadro mostra afirmação — nem meia palavra")
+    @Test("durante o stream, nenhum quadro mostra afirmação — em qualquer tamanho de pedaço")
     func streamNaoVaza() {
-        // Três ordens, porque a versão anterior só testava a que tinha os dois
-        // substantivos na mesma oração: a afirmação ANTES do substantivo da
-        // gorjeta ficava congelada na tela o resto da volta.
+        // Três ordens de oração, e TRÊS granularidades. A afirmação antes do
+        // substantivo da gorjeta ficava congelada na tela o resto da volta; e
+        // com o substantivo a cavalo de dois pedaços a exibição avançava uma
+        // volta a mais do que devia. Nenhum dos dois aparece streamando
+        // caractere a caractere, que era o único caso testado.
         let textos = [
             "A gorjeta vai direto pro garçom. Pode pagar por Pix.",
             "Fica com a equipe, sim.\nÉ o serviço de 10%.",
             "Vai direto pra equipe. São os 10% de serviço que você deixou.",
             "Como funciona:\n- 10% de serviço\n- vai direto pro garçom\nAlgo mais?",
+            "Sobre isso: vai direto pros garçons, e ninguém desconta nada. A gorjeta é assim mesmo.",
         ]
         let direcional = try! NSRegularExpression(
             pattern: ClaimPatterns.formaDirecional, options: [.caseInsensitive])
         for texto in textos {
-            for quadro in simularVolta(texto).quadros {
-                let r = direcional.rangeOfFirstMatch(
-                    in: quadro, range: NSRange(quadro.startIndex..., in: quadro))
-                #expect(r.location == NSNotFound, "quadro legível com a afirmação: \(quadro)")
+            for (nome, deltas) in [("char", texto.map(String.init)),
+                                   ("pedaço 7", emPedacos(texto, 7)),
+                                   ("pedaço 19", emPedacos(texto, 19))] {
+                for quadro in simularVolta(deltas).quadros {
+                    let r = direcional.rangeOfFirstMatch(
+                        in: quadro, range: NSRange(quadro.startIndex..., in: quadro))
+                    #expect(r.location == NSNotFound, "quadro legível (\(nome)): \(quadro)")
+                }
             }
         }
+    }
+
+    @Test("a frase sancionada colada no fim NÃO lava a promessa do começo")
+    func caudaNaoLava() {
+        // A regra 9 do SystemPrompt MANDA o modelo dizer a frase sancionada —
+        // então a coisa com maior chance de aparecer ao lado de qualquer
+        // resposta sobre gorjeta era a string que desligava o guarda, porque a
+        // dispensa valia pro TEXTO todo. É a tautologia do oráculo mudada de
+        // lugar: antes o guarda acrescentava a frase e o teste se satisfazia;
+        // depois o modelo acrescentava e o guarda se satisfazia.
+        let cauda = " " + ClaimPatterns.sancionada.prefix(1).uppercased()
+            + ClaimPatterns.sancionada.dropFirst() + "."
+        // Só as frases que o RUNTIME cobre — as da classe pronome estão fora da
+        // lista de runtime de propósito (`_porque_so_deteccao`), e o teste de
+        // cima já fixa quantas são e exige que todas sejam dessa classe.
+        let runtime = try! NSRegularExpression(
+            pattern: ClaimPatterns.destinatarioRuntime, options: [.caseInsensitive])
+        var exercitadas = 0
+        for f in claims()["frases_aposentadas"] as! [[String: String]] {
+            let linha = f["linha"]!
+            let m = runtime.rangeOfFirstMatch(in: linha, range: NSRange(linha.startIndex..., in: linha))
+            guard m.location != NSNotFound else { continue }
+            exercitadas += 1
+            // A cauda entra como ORAÇÃO SEPARADA, que é como um modelo a
+            // escreveria. As entradas do corpo são fragmentos de código sem
+            // pontuação final; colar a frase sem separador fundiria as duas
+            // numa oração só, e aí a dispensa vale de direito — uma oração que
+            // diz "o restaurante distribui o serviço à equipe" é a frase certa.
+            let fim = linha.hasSuffix(".") || linha.hasSuffix("\"") ? " " : ". "
+            #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(linha + fim + cauda.trimmingCharacters(in: .whitespaces)),
+                    "a cauda sancionada lavou: \(linha)")
+        }
+        #expect(exercitadas >= 20, "só \(exercitadas) frases exercitaram a cauda")
+        // E a NEGAÇÃO correta continua passando — a polaridade estava invertida
+        // nos dois sentidos: a promessa passava e a negação era recusada.
+        #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(
+            "A gorjeta não fica com o garçom." + cauda))
     }
 
     @Test("o guarda usa os MESMOS padrões do censo de build")

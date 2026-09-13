@@ -1,7 +1,6 @@
 'use strict';
 
 const { marketGate, pspCurrency } = require('../markets');
-const { documentoPublicavelDaCasa } = require('../br/documento.js');
 
 /**
  * Create a Pix charge for a share of a check — the money-out gate.
@@ -86,7 +85,7 @@ function createChargeService({ store, psp }) {
     // já divergiram: esta função tinha três e a rota do Stripe tinha duas
     // outras. Uma função é uma linha de esquecer; quatro regras são quatro.
     const rail = wallet ? 'card' : requestedRail;
-    const gate = marketGate(venue.market, { rail, amountCents, tipCents });
+    const gate = marketGate(venue.market, { rail, amountCents, tipCents, venue });
     if (gate) throw badRequest(`market ${venue.market}: ${gate.code}`, gate.code, gate.vars);
 
     // O PSP injetado atende ESTE mercado e ESTE trilho?
@@ -129,28 +128,11 @@ function createChargeService({ store, psp }) {
       throw badRequest('venue has no settlement recipient configured', 'venue_no_recipient');
     }
 
-    // ── O SERVIÇO SÓ CORRE ONDE EXISTE PESSOA JURÍDICA PRA DISTRIBUIR ──────
-    //
-    // O portão do `POST /api/psp/recipient` confere o documento de quem RECEBE
-    // e faz a casa herdá-lo. Isso fecha o caminho de ESCRITA — e não alcança
-    // quem já existe. O `docs/onboarding/README.md` diz que hoje o recebedor
-    // é criado À MÃO no painel do Pagar.me (o formulário in-app é item 2 do
-    // roteiro, não construído): a população atual tem `pspRecipientId` posto
-    // fora do portão e `cnpj` nulo, que é legítimo.
-    //
-    // E nada no caminho do dinheiro olhava documento nenhum: aqui se exigia
-    // recebedor e mais nada, e o `pix.includesTip` aparece só com
-    // `tipCents > 0`. Então o estado inteiro do achado continuava vivo pra
-    // essas linhas — os 10% liquidando no CPF de uma pessoa física, que não
-    // tem folha, enquanto o cliente lê "o restaurante distribui à equipe, como
-    // manda a lei". Oferta vinculante do CDC art. 30, falsa por construção.
-    //
-    // Fecha AQUI porque aqui é o funil: sem documento de empresa provado, a
-    // casa não cobra serviço. O consumo continua passando — ninguém deixa de
-    // pagar o que comeu. Achado pela revisão de compliance de 2026-09-13.
-    if (tipCents > 0 && !documentoPublicavelDaCasa(venue.market, venue.cnpj, true)) {
-      throw badRequest('venue has no company document for tip settlement', 'venue_no_tip_document');
-    }
+    // A gorjeta sem documento de empresa é recusada pelo `marketGate`, logo
+    // acima (código `venue_no_tip_document`). Estava AQUI e só aqui, e por
+    // isso não valia no `POST /api/pay/stripe-intent`, que monta a cobrança
+    // sozinho — mesma casa, mesma gorjeta, duas respostas conforme o trilho.
+    // Uma regra, um lugar: ver `api/_lib/markets.js`.
 
     const state = reduce(await store.loadEvents(checkId));
     if (!state) throw badRequest('check has no events', 'check_not_found');
