@@ -125,12 +125,23 @@ function createMemoryStore() {
     // --- onboarding / venue -------------------------------------------------
     async createVenue(args) { return _mkVenue(args); },
     // Demo/test alias (SYNC — existing helpers call it without await).
-    seedVenue({ name, cnpj = null, servicoBp = 1000, pspRecipientId = 'rcpt_demo', isTest = false, market = DEFAULT_MARKET }) {
+    seedVenue({ name, cnpj, servicoBp = 1000, pspRecipientId = 'rcpt_demo', isTest = false, market = DEFAULT_MARKET }) {
       // `cnpj` estava faltando aqui, então a semente passava o documento e ele
       // se perdia entre a chamada e a venue — a `_mkVenue` sempre aceitou.
       // Uma lista de campos escrita à mão, de novo: o mesmo jeito que o
       // localStorage esqueceu o espanhol.
-      return _mkVenue({ name, cnpj, servicoBp, pspRecipientId, isTest, market });
+      //
+      // E o PADRÃO deixou de ser `null`. Uma casa semeada é uma casa
+      // CONFIGURADA — é o que a semente existe pra representar — e desde que o
+      // serviço só corre onde há documento de empresa provado
+      // (`create-charge.js`, portão `venue_no_tip_document`), semear sem
+      // documento é semear uma casa que não pode cobrar serviço. Oito suítes
+      // ficaram vermelhas quando o portão entrou, e estavam certas: elas
+      // cobravam 10% de casas sem CNPJ, que é exatamente o estado que o
+      // portão passou a recusar. Quem quiser esse estado pede por ele,
+      // passando `cnpj: null` — e há teste que faz isso.
+      const padrao = market === 'es' ? 'B12345678' : '11444777000161';
+      return _mkVenue({ name, cnpj: cnpj === undefined ? padrao : cnpj, servicoBp, pspRecipientId, isTest, market });
     },
     async getVenue(venueId) {
       return venues.get(venueId) || null;

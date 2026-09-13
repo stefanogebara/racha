@@ -40,6 +40,9 @@ import Foundation
 enum ClaimPatterns {
     static let substantivoGorjeta = ${lit(G.substantivo_gorjeta)}
     static let substantivoDestinatario = ${lit(G.substantivo_destinatario)}
+    /// Mais curta: sem os pronomes que, na mesa, querem dizer os CLIENTES.
+    /// Ver \`_porque_lista_runtime\` no claims.json.
+    static let destinatarioRuntime = ${lit(G.substantivo_destinatario_runtime)}
     static let distribuidorComSujeito = ${lit(G.distribuidor_com_sujeito)}
     static let revogaDispensa = ${lit(G.revoga_dispensa)}
     /// Alta precisão, baixa cobertura: só ele autoriza SUPRIMIR uma oração.

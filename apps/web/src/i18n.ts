@@ -420,6 +420,11 @@ export const DICT = {
   // O documento do recebedor tem que ser o MESMO que o recibo mostra: um é
   // onde o dinheiro liquida, o outro é o que o cliente lê. Divergir é o
   // comprovante dizer uma coisa e o split fazer outra.
+  // O serviço só corre onde há CNPJ provado: sem pessoa jurídica não há folha,
+  // e sem folha a frase "o restaurante distribui à equipe" seria falsa.
+  'err.venue_no_tip_document': { en: 'This restaurant cannot take a service charge yet — its company document is not registered. You can still pay for what you ordered.',
+                        pt: 'Este restaurante ainda não pode cobrar serviço — o CNPJ dele não está cadastrado. O consumo você pode pagar normalmente.',
+                        es: 'Este restaurante todavía no puede cobrar servicio — su documento de empresa no está registrado. El consumo sí puedes pagarlo.' },
   'err.recipient_doc_mismatch': { en: 'This document is different from the one registered for the venue. They have to match — the receipt shows one and the money settles on the other.',
                         pt: 'Este documento é diferente do que está cadastrado no restaurante. Os dois têm que bater — o comprovante mostra um e o dinheiro liquida no outro.',
                         es: 'Este documento no coincide con el del restaurante. Tienen que ser el mismo — el recibo muestra uno y el dinero liquida en el otro.' },

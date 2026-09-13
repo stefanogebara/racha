@@ -508,3 +508,72 @@ test('todo lugar que cria cobrança está no censo — e o censo passa pelo port
   }).sort();
   expect(semPortao).toEqual([]);
 });
+
+/**
+ * O SERVIÇO SÓ CORRE ONDE HÁ PESSOA JURÍDICA PRA DISTRIBUIR.
+ *
+ * O portão do `/api/psp/recipient` confere o documento de quem recebe e faz a
+ * casa herdá-lo — mas isso fecha o caminho de ESCRITA e não alcança quem já
+ * existe. O `docs/onboarding/README.md` diz que hoje o recebedor é criado À MÃO
+ * no painel do Pagar.me (o formulário in-app é item 2 do roteiro, não
+ * construído): a população atual tem recebedor posto fora do portão e `cnpj`
+ * nulo, que é legítimo.
+ *
+ * E nada no caminho do dinheiro olhava documento: o `create-charge` exigia
+ * recebedor e mais nada, e o `pix.includesTip` aparece só com `tipCents > 0`.
+ * Sem este portão, os 10% liquidariam no CPF de uma pessoa física — sem folha,
+ * logo sem INSS/IRRF/FGTS — enquanto o cliente lê "o restaurante distribui à
+ * equipe, como manda a lei". Oferta vinculante do CDC art. 30, falsa por
+ * construção. Achado pela revisão de compliance de 2026-09-13.
+ */
+describe('gorjeta exige documento de empresa provado', () => {
+  const { createChargeService } = require('../_lib/pay/create-charge');
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { MockPsp } = require('../_lib/pay/mock-psp');
+
+  async function cobrar({ cnpj, tipCents }) {
+    const store = createMemoryStore();
+    const venue = store.seedVenue({ name: 'Boteco', servicoBp: 1000, cnpj });
+    const table = store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [
+      { id: 'i1', name: 'Picanha', priceCents: 10000 },
+    ]);
+    const charge = createChargeService({ store, psp: new MockPsp({ webhookSecret: 'x'.repeat(24) }) });
+    return charge({ checkId: check.id, amountCents: 5000, tipCents, rail: 'pix' });
+  }
+
+  test('sem documento da casa, a gorjeta é recusada com código próprio', async () => {
+    await expect(cobrar({ cnpj: null, tipCents: 500 }))
+      .rejects.toMatchObject({ code: 'venue_no_tip_document' });
+  });
+
+  test('um CPF na coluna NÃO é documento de empresa', async () => {
+    // `documentoPublicavelDaCasa` confere o VALOR, não só o mercado: linhas
+    // antigas foram escritas antes do portão de escrita existir.
+    await expect(cobrar({ cnpj: '52998224725', tipCents: 500 }))
+      .rejects.toMatchObject({ code: 'venue_no_tip_document' });
+  });
+
+  test('CNPJ que não passa no dígito verificador também não serve', async () => {
+    await expect(cobrar({ cnpj: '99999999999999', tipCents: 500 }))
+      .rejects.toMatchObject({ code: 'venue_no_tip_document' });
+  });
+
+  test('o CONSUMO passa sem documento — ninguém deixa de pagar o que comeu', async () => {
+    const r = await cobrar({ cnpj: null, tipCents: 0 });
+    expect(r.txid).toBeTruthy();
+  });
+
+  test('com CNPJ válido, a gorjeta corre', async () => {
+    const r = await cobrar({ cnpj: '11444777000161', tipCents: 500 });
+    expect(r.txid).toBeTruthy();
+  });
+
+  test('o código tem tradução nas três línguas', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const dict = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
+    expect(dict).toContain("'err.venue_no_tip_document'");
+  });
+});

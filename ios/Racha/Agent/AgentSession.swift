@@ -136,7 +136,16 @@ final class AgentSession {
         messages.append(ChatMessage(role: .agent, text: "", isStreaming: true))
 
         var assistantBlocks: [WireMessage.Block] = []
-        /// Ver o uso lá embaixo: uma vez relevante, sempre relevante.
+        /// Quantas voltas foram recusadas nesta sessão. CONTADO, não só
+        /// tratado: um modelo que insiste na afirmação proibida é sinal — de
+        /// prompt que regrediu, de modelo trocado, de alguém empurrando. O
+        /// inegociável #8 vale aqui: sucesso silencioso é o inimigo.
+        var recusas = 0
+        /// Texto já mostrado, e os últimos caracteres do pedaço anterior — o
+        /// substantivo pode ficar a cavalo de dois deltas.
+        var exibido = ""
+        var fimAnterior = ""
+        /// Ver o uso lá embaixo: uma vez perto do assunto, sempre perto.
         var guardaArmado = false
         var pendingTools: [(id: String, name: String, input: JSONValue)] = []
         var text = ""
@@ -151,24 +160,22 @@ final class AgentSession {
             case .textDelta(let chunk):
                 if streamPhase != .writing { streamPhase = .writing }
                 text += chunk
-                // O ACUMULADOR FICA CRU; a exibição é DERIVADA dele.
+                // O ACUMULADOR FICA CRU; a exibição é DERIVADA dele, e
+                // CONGELA assim que o texto chega perto do assunto.
                 //
-                // Antes era `text = corrigir(text)` — realimentar o corrigido
-                // no acumulador tornava qualquer correção prematura
-                // irreversível: uma oração correta cuja cláusula do
-                // distribuidor ainda não tinha chegado era cortada, e o resto
-                // da frase era emendado no corte. Derivando, o cru continua
-                // inteiro e a próxima passada vê a frase completa.
-                // O guarda só ARMA quando o texto fica relevante, e daí não
-                // desarma: o texto só cresce. Sem isso, `corrigir` varria o
-                // acumulado inteiro a cada delta — O(n²) na thread principal,
-                // 1,9 s de CPU pra uma resposta de 8 KB (e um iPhone é mais
-                // devagar que o Mac onde isso foi medido). Achado pela revisão
-                // de segurança de 2026-09-13.
-                if !guardaArmado { guardaArmado = RevisaoDeAfirmacoes.podeSerRelevante(text) }
-                messages[bubbleIndex].text = guardaArmado
-                    ? RevisaoDeAfirmacoes.corrigir(text, parcial: true)
-                    : text
+                // Nada é recortado nem acrescentado: a volta inteira passa ou
+                // a volta inteira não passa, julgada quando fecha. Era um
+                // conserto cirúrgico e apagava valores da tela — ver o
+                // cabeçalho de `RevisaoDeAfirmacoes`.
+                if !guardaArmado { guardaArmado = RevisaoDeAfirmacoes.chegouPertoDoAssunto(chunk + fimAnterior) }
+                if !guardaArmado {
+                    exibido = RevisaoDeAfirmacoes.parcialExibivel(text)
+                    messages[bubbleIndex].text = exibido
+                }
+                // Só os últimos caracteres entram na próxima checagem: o
+                // substantivo pode ficar a cavalo de dois pedaços, e reler o
+                // acumulado a cada delta era o O(n²) na thread principal.
+                fimAnterior = String(text.suffix(40))
 
             case .thinkingDelta:
                 streamPhase = .thinking
@@ -190,11 +197,15 @@ final class AgentSession {
             }
         }
 
-        // Fechado o stream, a última oração deixa de ser parcial: agora ela
-        // pode ser julgada. O texto CORRIGIDO é o que vai pro histórico do
-        // modelo — mandar o cru de volta ensinaria que aquilo passou, e ele
-        // repetiria a afirmação na volta seguinte com mais convicção.
-        text = RevisaoDeAfirmacoes.corrigir(text)
+        // Fechada a volta, dá pra julgar. Recusa é da VOLTA INTEIRA: o texto
+        // do modelo não é editado nem carimbado — some, e entra no lugar dele
+        // uma frase que é nossa e diz isso. E é o texto RECUSADO que vai pro
+        // histórico, não o cru: devolver o cru ensinaria o modelo que aquilo
+        // passou, e ele repetiria com mais convicção na volta seguinte.
+        if RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(text) {
+            recusas += 1
+            text = RevisaoDeAfirmacoes.respostaSegura
+        }
         messages[bubbleIndex].text = text
         if !text.isEmpty { assistantBlocks.append(.text(text)) }
         for call in pendingTools {

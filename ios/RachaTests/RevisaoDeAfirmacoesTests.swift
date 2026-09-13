@@ -4,129 +4,166 @@ import Foundation
 
 /// O guarda de RUNTIME, e o acoplamento dele com `docs/compliance/claims.json`.
 ///
-/// Duas coisas separadas aqui, e a segunda é a que costuma faltar: que a regra
-/// funciona, e que ela é a MESMA regra que o censo de build usa. Duas cópias
-/// da mesma política em linguagens diferentes divergem sozinhas — foi o que a
-/// revisão chamou de "cópia declarada, não cópia esquecida" no
-/// `documentos.fixture.json`, e vale igual aqui.
+/// O ORÁCULO É A PARTE QUE ERROU ANTES. A versão anterior afirmava
+/// `!afirmaDestinoSemDistribuidor(saida)` — e como a saída SEMPRE terminava
+/// com a frase sancionada, a própria cauda acrescentada satisfazia o
+/// predicado. Apagar a metade destrutiva inteira do guarda deixava 28 das 31
+/// frases do corpo verdes. Um teste que não pode falhar é o inegociável #7
+/// mudado de lugar.
+///
+/// Agora as asserções são sobre o que a pessoa LÊ: ou a volta do modelo saiu
+/// inteira e idêntica, ou ela não saiu nenhum pedaço. Não há terceiro estado,
+/// e é isso que dá pra afirmar sem ambiguidade.
 @Suite("Revisão de afirmações em tempo de execução")
 struct RevisaoDeAfirmacoesTests {
 
     private func claims() -> [String: Any] {
         let raiz = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // RachaTests
-            .deletingLastPathComponent()   // ios
-            .deletingLastPathComponent()   // raiz
-        let url = raiz.appending(path: "docs/compliance/claims.json")
-        let dados = try! Data(contentsOf: url)
-        let raiz2 = try! JSONSerialization.jsonObject(with: dados) as! [String: Any]
-        return raiz2["gorjeta_destino"] as! [String: Any]
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let dados = try! Data(contentsOf: raiz.appending(path: "docs/compliance/claims.json"))
+        return (try! JSONSerialization.jsonObject(with: dados) as! [String: Any])["gorjeta_destino"] as! [String: Any]
     }
 
-    @Test("toda frase aposentada do claims.json é pega aqui também")
-    func mesmaRegraDoCenso() {
-        let g = claims()
-        let aposentadas = g["frases_aposentadas"] as! [[String: String]]
-        #expect(aposentadas.count >= 20, "o corpo encolheu — ou o caminho até o JSON quebrou")
-        for f in aposentadas {
-            let linha = f["linha"]!
-            #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(linha),
-                    "escapou do guarda de runtime, mas o censo de build pega: \(linha)")
+    /// Como o `AgentSession` monta a tela: acumulador CRU, exibição derivada,
+    /// congelada assim que chega perto do assunto, julgada quando fecha.
+    private func simularVolta(_ texto: String) -> (quadros: [String], final: String, recusada: Bool) {
+        var cru = "", exibido = "", fimAnterior = "", quadros: [String] = []
+        var armado = false
+        for ch in texto {
+            cru.append(ch)
+            if !armado { armado = RevisaoDeAfirmacoes.chegouPertoDoAssunto(String(ch) + fimAnterior) }
+            if !armado { exibido = RevisaoDeAfirmacoes.parcialExibivel(cru) }
+            fimAnterior = String(cru.suffix(40))
+            quadros.append(exibido)
         }
+        let recusada = RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(cru)
+        return (quadros, recusada ? RevisaoDeAfirmacoes.respostaSegura : cru, recusada)
     }
 
-    @Test("nenhuma frase aprovada é acusada")
-    func naoAcusaOCerto() {
-        for f in claims()["frases_aprovadas"] as! [String] {
-            #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(f), "falso positivo: \(f)")
-        }
-    }
-
-    @Test("toda frase aposentada é pega quando chega por STREAM, e em lista")
-    func pegaEmFormatoDeVerdade() {
-        // A v1 só passava as frases pelo `afirmaDestinoSemDistribuidor`, nunca
-        // pelo `corrigir`, e nunca em formato de resposta de modelo. A detecção
-        // era por ORAÇÃO, então bastava a afirmação atravessar um `.` ou uma
-        // quebra de linha pra passar inteira: lista em Markdown, `R$ 1.250,00`,
-        // um `etc.`. É como um modelo responde "pra onde vai o serviço?" na
-        // maior parte das vezes. Achado pela revisão de segurança de 2026-09-13.
+    @Test("toda frase aposentada com destinatário de EQUIPE é recusada — e o texto do modelo some")
+    func recusaTodaAposentada() {
+        // O oráculo: o trecho ofensor tem que estar AUSENTE da saída. Antes se
+        // afirmava que a saída "parecia limpa", e a cauda acrescentada
+        // garantia isso sozinha, qualquer que fosse a entrada.
+        let runtime = try! NSRegularExpression(
+            pattern: ClaimPatterns.destinatarioRuntime, options: [.caseInsensitive])
+        var cobertas = 0, foraDoRuntime: [String] = []
         for f in claims()["frases_aposentadas"] as! [[String: String]] {
             let linha = f["linha"]!
+            let r0 = runtime.rangeOfFirstMatch(in: linha, range: NSRange(linha.startIndex..., in: linha))
+            guard r0.location != NSNotFound else { foraDoRuntime.append(linha); continue }
+            cobertas += 1
             for (forma, texto) in [("direto", linha),
                                    ("em lista", "Como funciona:\n- \(linha)\nAlgo mais?"),
                                    ("com milhar", linha + " São R$ 1.250,00 no total.")] {
-                let saida = RevisaoDeAfirmacoes.corrigir(texto)
-                #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(saida),
-                        "sobrou afirmação (\(forma)): \(saida)")
+                let r = simularVolta(texto)
+                #expect(r.recusada, "não recusou (\(forma)): \(linha)")
+                #expect(r.final == RevisaoDeAfirmacoes.respostaSegura,
+                        "saída não é a resposta segura (\(forma)): \(r.final)")
+                #expect(!r.final.contains(linha), "o texto do modelo vazou (\(forma))")
             }
         }
+        #expect(cobertas >= 20, "o corpo encolheu — só \(cobertas) frases exercitam o runtime")
+
+        // A LACUNA, PINADA. As frases que sobram apontam pra um DINER pronoun
+        // ("pra gente", "com você", "deles") — palavras que, na boca do
+        // assistente, querem dizer as pessoas da mesa, e que por isso saíram
+        // da lista de runtime. Não é descuido: está escrito em
+        // `_porque_lista_runtime`, e o censo de BUILD continua pegando todas.
+        // Fica afirmado aqui pra que a lacuna não possa crescer em silêncio.
+        let pronome = try! NSRegularExpression(
+            pattern: "pra gente|para n[óo]s|\\bto us\\b|para nosotros|\\bdeles\\b|\\bdelas\\b|com voc[êe]|\\beles\\b|pessoal",
+            options: [.caseInsensitive])
+        for linha in foraDoRuntime {
+            let r = pronome.rangeOfFirstMatch(in: linha, range: NSRange(linha.startIndex..., in: linha))
+            #expect(r.location != NSNotFound,
+                    "frase fora do runtime sem ser da classe pronome — a lacuna cresceu: \(linha)")
+        }
+        // Seis hoje, todas da classe pronome. O número é afirmado pra que
+        // acrescentar uma sétima seja uma decisão, não um efeito colateral.
+        #expect(foraDoRuntime.count <= 6, "a lacuna do runtime cresceu pra \(foraDoRuntime.count)")
     }
 
-    @Test("nada do que o modelo disse é APAGADO — nem valor, nem confirmação")
-    func naoApaga() {
-        // Substituir a oração inteira fabricava afirmação num falso positivo e
-        // apagava a verdade num verdadeiro: "Pronto, removi os 10% de serviço —
-        // pode avisar a equipe." virava a frase da distribuição. O cliente pede
-        // pra tirar o serviço (inegociável #3), o app tira, e o guarda apagava a
-        // confirmação. Agora suprime só forma DIRECIONAL e ACRESCENTA o resto.
-        let casos: [(String, [String])] = [
-            ("Pronto, removi os 10% de serviço — pode avisar a equipe.", ["removi os 10% de serviço"]),
-            ("O serviço de 10% dá R$ 24,00 e a equipe agradece.", ["R$ 24,00"]),
-            ("A sua parte deu R$ 43,00. A gorjeta vai direto pro garçom. Quer pagar por Pix?",
-             ["R$ 43,00", "Quer pagar por Pix?"]),
+    @Test("texto legítimo sai IDÊNTICO — byte a byte, nada recortado")
+    func legitimoSaiIntacto() {
+        // Inclui os casos em que a versão anterior apagava valores: oração
+        // unida por vírgula, e `fica com a gente` como ATRIBUIÇÃO DA DIVISÃO
+        // num app cujo propósito é dizer de quem é cada item.
+        let legitimos = [
+            "A picanha ficou R$ 92,00 e dá R$ 30,67 pra cada.",
+            "Tirei o serviço. Sua parte agora é R$ 39,10.",
+            "Inclui R$ 12,00 de serviço. O restaurante distribui à equipe, como manda a lei.",
+            "Já tirei o serviço. A sobremesa de R$ 32,00 fica com a gente e o resto, R$ 118,40, com você.",
+            "A gorjeta arrecadada é remuneração do time e passa pela folha de pagamento da casa.",
+            "O serviço de 10% está incluído. A sobremesa fica com você, e o café fica com a gente.",
         ]
-        for (entrada, precisaSobrar) in casos {
-            let saida = RevisaoDeAfirmacoes.corrigir(entrada)
-            for t in precisaSobrar {
-                #expect(saida.contains(t), "apagou \(t) de: \(entrada) → \(saida)")
+        for texto in legitimos {
+            let r = simularVolta(texto)
+            #expect(!r.recusada, "recusou o que estava certo: \(texto)")
+            #expect(r.final == texto, "mexeu no texto: \(r.final)")
+        }
+    }
+
+    @Test("se a volta mudou, nenhum valor foi reescrito — ou sai inteiro, ou não sai")
+    func nuncaReescreveValor() {
+        // A propriedade que faltava. A versão anterior tinha três casos
+        // escolhidos a dedo, todos com o valor numa oração DIFERENTE da do
+        // gatilho, e por isso não via o caso da vírgula.
+        let comValores = [
+            "Beleza! O serviço de R$ 24,00 é do pessoal, e o Gui te deve R$ 51,20.",
+            "A gorjeta de R$ 40,00 vai direto pro garçom. Sua parte é R$ 210,00.",
+            "Já tirei o serviço. A sobremesa de R$ 32,00 fica com a gente.",
+        ]
+        for texto in comValores {
+            let r = simularVolta(texto)
+            let valores = texto.split(separator: " ").filter { $0.contains(",") && $0.first!.isNumber }
+            if r.final == texto { continue }            // saiu inteiro: nada a conferir
+            // Mudou ⇒ a volta foi RECUSADA por inteiro, e a resposta segura não
+            // finge carregar número nenhum do modelo.
+            #expect(r.recusada, "mudou o texto sem recusar a volta: \(r.final)")
+            for v in valores {
+                #expect(!r.final.contains(v),
+                        "a saída carrega um valor do modelo num texto recusado: \(v)")
             }
         }
     }
 
-    @Test("a frase sancionada sai sem artigo dobrado")
-    func semArtigoDobrado() {
-        // `"O " + sancionada` produzia "O o restaurante distribui…" — invisível
-        // pros testes porque todos afirmavam `contains(sancionada)`, que um
-        // prefixo dobrado satisfaz. É a única frase que o produto pode dizer
-        // sobre gorjeta e saía com erro de digitação.
-        let saida = RevisaoDeAfirmacoes.corrigir("A gorjeta vai direto pro garçom.")
-        #expect(!saida.lowercased().contains("o o restaurante"), "\(saida)")
-        #expect(saida.contains("O restaurante distribui à equipe, como manda a lei."), "\(saida)")
-    }
-
-    @Test("durante o stream a afirmação NUNCA fica legível, e o correto não é mutilado")
-    func streamSeguro() {
-        // Dois defeitos na mesma linha antes: o `AgentSession` realimentava o
-        // corrigido no acumulador, e a oração EM CURSO era corrigida. Frase
-        // correta cuja cláusula do distribuidor chega por último era cortada ao
-        // meio e emendada na substituição. Agora o cru fica cru e a oração em
-        // curso é SEGURADA — some por um instante em vez de aparecer errada.
+    @Test("durante o stream, nenhum quadro mostra afirmação — nem meia palavra")
+    func streamNaoVaza() {
+        // Três ordens, porque a versão anterior só testava a que tinha os dois
+        // substantivos na mesma oração: a afirmação ANTES do substantivo da
+        // gorjeta ficava congelada na tela o resto da volta.
         let textos = [
-            "A gorjeta fica com a equipe — o restaurante distribui em folha, como manda a lei. Quer pagar por Pix?",
+            "A gorjeta vai direto pro garçom. Pode pagar por Pix.",
+            "Fica com a equipe, sim.\nÉ o serviço de 10%.",
+            "Vai direto pra equipe. São os 10% de serviço que você deixou.",
             "Como funciona:\n- 10% de serviço\n- vai direto pro garçom\nAlgo mais?",
-            "A sua parte deu R$ 43,00. A gorjeta vai direto pro garçom. Pode pagar por Pix.",
         ]
+        let direcional = try! NSRegularExpression(
+            pattern: ClaimPatterns.direcionalParaSuprimir, options: [.caseInsensitive])
         for texto in textos {
-            var cru = ""
-            for ch in texto {
-                cru.append(ch)   // o acumulador NUNCA recebe o corrigido de volta
-                let naTela = RevisaoDeAfirmacoes.corrigir(cru, parcial: true)
-                #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(naTela),
-                        "vazou durante o stream: \(naTela)")
+            for quadro in simularVolta(texto).quadros {
+                let r = direcional.rangeOfFirstMatch(
+                    in: quadro, range: NSRange(quadro.startIndex..., in: quadro))
+                #expect(r.location == NSNotFound, "quadro legível com a afirmação: \(quadro)")
             }
-            let fim = RevisaoDeAfirmacoes.corrigir(cru)
-            #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(fim), "\(fim)")
-            #expect(fim.contains("Quer pagar por Pix?") || fim.contains("Algo mais?")
-                    || fim.contains("Pode pagar por Pix."), "perdeu o resto da resposta: \(fim)")
         }
     }
 
-    @Test("texto sem afirmação nenhuma volta idêntico")
-    func naoMexeNoQueEstaCerto() {
-        for ok in ["A picanha ficou R$ 92,00 e dá R$ 30,67 pra cada.",
-                   "Tirei o serviço. Sua parte agora é R$ 39,10.",
-                   "Inclui R$ 12,00 de serviço. O restaurante distribui à equipe, como manda a lei."] {
-            #expect(RevisaoDeAfirmacoes.corrigir(ok) == ok, "mexeu no que estava certo: \(ok)")
+    @Test("o guarda usa os MESMOS padrões do censo de build")
+    func mesmaRegraDoCenso() {
+        let g = claims()
+        #expect(g["substantivo_gorjeta"] as! String == ClaimPatterns.substantivoGorjeta)
+        #expect(g["substantivo_destinatario"] as! String == ClaimPatterns.substantivoDestinatario)
+        #expect(g["substantivo_destinatario_runtime"] as! String == ClaimPatterns.destinatarioRuntime)
+        #expect(g["distribuidor_com_sujeito"] as! String == ClaimPatterns.distribuidorComSujeito)
+        #expect((g["frases_aposentadas"] as! [[String: String]]).count >= 30)
+    }
+
+    @Test("nenhuma frase aprovada é recusada")
+    func naoRecusaOCerto() {
+        for f in claims()["frases_aprovadas"] as! [String] {
+            #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(f), "falso positivo: \(f)")
         }
     }
 }

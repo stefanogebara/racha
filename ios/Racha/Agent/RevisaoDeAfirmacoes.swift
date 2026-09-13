@@ -2,51 +2,53 @@ import Foundation
 
 /// O ÚNICO LUGAR ONDE A AFIRMAÇÃO NASCE DEPOIS DO BUILD.
 ///
-/// Todo censo deste repositório é de tempo de build. Nenhum deles pode ver o
-/// que o assistente da mesa ESCREVE — esse texto não existe em artefato nenhum
-/// até o cliente perguntar, e "pra onde vai o serviço?" é uma pergunta de mesa,
-/// feita a quem está ali pra responder. A regra 9 do `SystemPrompt` inclina o
-/// modelo; não impede.
+/// Todo censo deste repositório é de tempo de build. O que o assistente da mesa
+/// ESCREVE não existe em artefato nenhum até o cliente perguntar — e "pra onde
+/// vai o serviço?" é uma pergunta de mesa, feita a quem está ali pra responder.
+/// A regra 9 do `SystemPrompt` inclina o modelo; não impede.
 ///
-/// Os padrões vêm do `ClaimPatterns.swift`, GERADO do `docs/compliance/claims.json`.
-/// Eles já foram escritos duas vezes à mão e já divergiram em quatro tokens.
+/// ── ESTE GUARDA NÃO EDITA TEXTO, E É A TERCEIRA VERSÃO ────────────────────
 ///
-/// ── TRÊS ERROS DA PRIMEIRA VERSÃO, todos achados pelas revisões ────────────
+/// As duas primeiras tentaram consertar a frase do modelo cirurgicamente, e as
+/// duas foram barradas por defeitos diferentes. A conta final de três rodadas
+/// de revisão sobre a ideia de reescrever:
 ///
-/// 1. DETECÇÃO POR ORAÇÃO. A relevância era medida no texto inteiro mas a
-///    decisão era tomada por fragmento entre `.`/`\n` — então toda afirmação
-///    cujos dois substantivos caíam em fragmentos diferentes passava intacta.
-///    Uma lista em Markdown ("- 10% de serviço\n- vai direto pro garçom"),
-///    um valor com separador de milhar (`R$ 1.250,00`) ou um `etc.` bastavam.
-///    Modelo responde "pra onde vai o serviço?" em lista o tempo todo. Agora a
-///    DECISÃO é do texto todo; a oração só escolhe o que suprimir.
+///  · APAGAVA DINHEIRO. A oração ia até o próximo `.`, então uma oração unida
+///    por vírgula morria inteira: "O serviço de R$ 24,00 é do pessoal, e o Gui
+///    te deve R$ 51,20." virava a frase sancionada, sem os dois valores e sem
+///    a resposta à pergunta feita.
+///  · APAGAVA A VERDADE. "Já tirei o serviço. A sobremesa de R$ 32,00 fica com
+///    a gente" — `fica com a gente` é a ATRIBUIÇÃO DA DIVISÃO, num app cujo
+///    propósito inteiro é dizer de quem é cada item. Falso positivo que apaga
+///    um valor e o troca por uma frase sobre um serviço que acabou de sair.
+///  · CARIMBAVA O PROIBIDO. Acrescentar a frase sancionada a um texto cuja
+///    oração ofensora não pôde ser suprimida produz a promessa proibida COM
+///    selo legal nosso embaixo — pior que não ter guarda nenhum.
+///  · E O TESTE NÃO PODIA FALHAR: como o texto de saída sempre terminava com
+///    "o restaurante distribui...", o oráculo `!afirmaDestinoSemDistribuidor`
+///    era satisfeito pela própria cauda acrescentada. Apagar a metade
+///    destrutiva inteira deixava 28 das 31 frases do corpo verdes. Isso é o
+///    inegociável #7 mudado de lugar: guarda que não dispara não é guarda.
 ///
-/// 2. SUBSTITUIÇÃO. Trocar a oração inteira pela frase sancionada fabrica uma
-///    afirmação que o modelo não fez (num falso positivo) e apaga o que a
-///    oração dizia de verdade (num verdadeiro). Medido: "Pronto, removi os 10%
-///    de serviço — pode avisar a equipe." virava a frase da distribuição. O
-///    cliente pede pra tirar o serviço (inegociável #3), o app tira, e o
-///    guarda apagava a confirmação. Valores sumiam junto. Agora SUPRIME a
-///    oração e ACRESCENTA a frase sancionada no fim: nada é fabricado no lugar
-///    de nada, e nenhum número é reescrito.
-///
-/// 3. ORAÇÃO INCOMPLETA. Corrigir o fragmento que ainda está chegando destrói
-///    frase correta cuja cláusula do distribuidor ainda não chegou — "A
-///    gorjeta fica com a equipe — o restaurante distribui em folha" dispara em
-///    "fica com a equipe". E o `AgentSession` realimentava o resultado no
-///    acumulador, tornando a mutilação irreversível. Agora o acumulador fica
-///    CRU, a exibição é derivada dele, e a oração em curso é SEGURADA enquanto
-///    estiver afirmando destino: some por um instante em vez de aparecer
-///    errada.
+/// Então a edição saiu. O que resta tem modo de falha FINITO: a volta inteira
+/// passa, ou a volta inteira não passa. Nada é recortado, nada é acrescentado,
+/// nenhum número é reescrito e nenhuma frase nossa é pendurada na frase do
+/// modelo. Uma recusa custa uma volta de conversa — e os valores vivem na
+/// conta, não só no balão.
 enum RevisaoDeAfirmacoes {
 
-    static let sancionada = ClaimPatterns.sancionada
+    /// O que se mostra no lugar da volta recusada. Não corrige o modelo: diz o
+    /// que o produto tem a dizer e devolve a palavra pra pessoa.
+    static var respostaSegura: String {
+        "Sobre o serviço: \(ClaimPatterns.sancionada). Pode perguntar de novo que eu respondo."
+    }
 
     private static let gorjeta = regex(ClaimPatterns.substantivoGorjeta)
-    private static let destinatario = regex(ClaimPatterns.substantivoDestinatario)
+    // A lista de RUNTIME, mais curta: `a gente`, `você` e `pessoal` são as
+    // pessoas da MESA quando quem fala é o assistente. Ver claims.json.
+    private static let destinatario = regex(ClaimPatterns.destinatarioRuntime)
     private static let distribuidor = regex(ClaimPatterns.distribuidorComSujeito)
     private static let revoga = regex(ClaimPatterns.revogaDispensa)
-    private static let direcional = regex(ClaimPatterns.direcionalParaSuprimir)
 
     private static func regex(_ p: String) -> NSRegularExpression {
         // `try!` é deliberado: o padrão é constante e gerado. Se não compilar,
@@ -63,84 +65,40 @@ enum RevisaoDeAfirmacoes {
 
     private static func casa(_ re: NSRegularExpression, _ s: String) -> Bool { acha(re, s) != nil }
 
-    /// O texto é SEQUER relevante? Duas varreduras, sem alocar nada.
-    ///
-    /// Existe pro `AgentSession` poder perguntar barato a cada pedaço: o
-    /// `corrigir` roda sobre o acumulado inteiro, e chamado a cada delta isso é
-    /// O(n²) na thread principal — 1,9 s de CPU pra uma resposta de 8 KB, num
-    /// Mac, medido pela revisão de segurança. Como o texto só CRESCE, uma vez
-    /// que os dois substantivos apareceram eles não desaparecem: o chamador
-    /// memoriza e para de perguntar. Antes disso, a pergunta custa duas
-    /// varreduras lineares sem construir string nenhuma — e a resposta é
-    /// quase sempre "não", que é o caso comum de uma conversa sobre a conta.
-    static func podeSerRelevante(_ texto: String) -> Bool {
-        casa(gorjeta, texto) && casa(destinatario, texto)
-    }
-
     /// Este TEXTO afirma um destino sem dizer quem distribui?
     ///
-    /// Do texto todo, não de uma oração: o substantivo da gorjeta e o do
-    /// destinatário se separam em linhas diferentes com toda naturalidade.
+    /// Do texto todo, não de uma oração: os dois substantivos se separam com
+    /// toda naturalidade — lista em Markdown, `R$ 1.250,00`, um `etc.`.
     static func afirmaDestinoSemDistribuidor(_ texto: String) -> Bool {
         guard casa(gorjeta, texto), casa(destinatario, texto) else { return false }
         guard let d = acha(distribuidor, texto) else { return true }
         // A dispensa cai se houver negação na cláusula ou logo antes: "sem
-        // passar pela folha de pagamento" não é a cláusula legal, é o contrário.
+        // passar pela folha" não é a cláusula legal, é o contrário dela.
         let ns = texto as NSString
         let ini = max(0, d.location - 30)
         return casa(revoga, ns.substring(with: NSRange(location: ini, length: d.location - ini + d.length)))
     }
 
-    /// A oração afirma destino COM FORMA DIRECIONAL? Só isto autoriza suprimir.
+    /// Chegou perto do assunto? Então PARA DE MOSTRAR até dar pra julgar.
     ///
-    /// Alta precisão, baixa cobertura — é o gatilho que falhou como DETECTOR
-    /// na v2, e que aqui está no lugar certo: a ação destrutiva só age onde há
-    /// certeza de forma. Ver `_porque_dois_limiares` no claims.json.
-    /// Usada SÓ depois de `corrigir` ter julgado o texto inteiro — por isso
-    /// aqui basta a forma. Exigir também os dois substantivos NESTA oração
-    /// deixava passar exatamente o caso que motivou o conserto: numa lista
-    /// ("- 10% de serviço" / "- vai direto pro garçom"), a oração que carrega
-    /// a promessa não carrega o substantivo, que ficou na linha de cima.
-    static func podeSuprimir(_ oracao: String) -> Bool { casa(direcional, oracao) }
+    /// Dispara com UM dos dois substantivos, não com os dois. Com os dois, a
+    /// promessa "nunca fica legível" era falsa de dois jeitos: se a afirmação
+    /// vinha numa oração ANTERIOR à do substantivo da gorjeta, ela ficava
+    /// congelada na tela o resto da volta ("Fica com a equipe, sim." é a
+    /// resposta mais provável a "a gorjeta fica com a equipe?"); e o segundo
+    /// substantivo costuma ser a última palavra da frase, então a tela sempre
+    /// chegava a um caractere do fim.
+    static func chegouPertoDoAssunto(_ texto: String) -> Bool {
+        casa(gorjeta, texto) || casa(destinatario, texto)
+    }
 
-    /// O que se mostra ao cliente.
+    /// O que mostrar ENQUANTO chega, dado o acumulado cru.
     ///
-    /// `parcial` = o texto ainda está chegando.
-    static func corrigir(_ texto: String, parcial: Bool = false) -> String {
-        guard afirmaDestinoSemDistribuidor(texto) else { return texto }
-
-        var oracoes: [String] = []
-        var atual = ""
-        for ch in texto {
-            atual.append(ch)
-            if ch == "." || ch == "!" || ch == "?" || ch == "\n" { oracoes.append(atual); atual = "" }
-        }
-        if !atual.isEmpty { oracoes.append(atual) }
-
-        // ENQUANTO CHEGA: segura tudo a partir da oração onde a afirmação se
-        // completa. Uma afirmação que atravessa orações ("- 10% de serviço\n-
-        // vai pro garçom") não é pega por nenhuma oração isolada, então
-        // suprimir por oração deixaria o texto inteiro legível até o fim do
-        // stream. Segurar some com o trecho por um instante; é o único jeito
-        // de a promessa "nunca fica legível" ser verdade em vez de aproximada.
-        if parcial {
-            var prefixo: [String] = []
-            for o in oracoes {
-                let tentativa = (prefixo + [o]).joined()
-                if afirmaDestinoSemDistribuidor(tentativa) { break }
-                prefixo.append(o)
-            }
-            return prefixo.joined()
-        }
-
-        // FECHADO: suprime só o que tem FORMA DIRECIONAL — nunca uma oração
-        // que apenas menciona a equipe — e ACRESCENTA a frase sancionada.
-        // Acrescentar em vez de substituir é o que impede fabricar uma
-        // afirmação no lugar de outra e apagar valores junto.
-        let mantidas = oracoes.filter { !podeSuprimir($0) }
-        var saida = mantidas.joined().trimmingCharacters(in: .whitespacesAndNewlines)
-        let separador = saida.isEmpty ? "" : " "
-        saida += separador + sancionada.prefix(1).uppercased() + sancionada.dropFirst() + "."
-        return saida
+    /// Antes de chegar perto do assunto, o texto inteiro — menos a última
+    /// palavra incompleta, pra não exibir meia palavra que o julgamento ainda
+    /// não alcançou. Depois, nada de novo: congela onde estava.
+    static func parcialExibivel(_ texto: String) -> String {
+        guard let corte = texto.lastIndex(where: { $0 == " " || $0 == "\n" }) else { return "" }
+        return String(texto[..<texto.index(after: corte)])
     }
 }

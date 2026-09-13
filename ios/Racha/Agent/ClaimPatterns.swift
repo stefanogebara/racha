@@ -13,6 +13,9 @@ import Foundation
 enum ClaimPatterns {
     static let substantivoGorjeta = "gorjeta|gorjetas|caixinha|gratifica[çc][ãa]o|servi(ç|c|ci)o|servi(ç|c|ci)os|service charge|service fee|\\btips?\\b|gratuity|propina|os 10\\s*%|os dez por cento"
     static let substantivoDestinatario = "equipe|equipo|\\bstaff\\b|\\bteam\\b|\\btime\\b|gar[çc]o[nm]s?|gar[çc]onete|atendente|pessoal\\b|el personal|sal[ãa]o|funcion[áa]ri|colaborador|mozo|moza|barman|bartender|cozinha|copa|camarer[oa]s?|meser[oa]s?|ma[îi]tre|sommelier|cumim|waiters?|servers?|\\bmo[çc]o|\\bmo[çc]a|quem (te )?(serve|serviu|atende|atendeu)|pra gente|pro pessoal|para n[óo]s|\\bto us\\b|para nosotros|\\bdeles\\b|\\bdelas\\b|com voc[êe]|\\beles\\b|\\bellos\\b"
+    /// Mais curta: sem os pronomes que, na mesa, querem dizer os CLIENTES.
+    /// Ver `_porque_lista_runtime` no claims.json.
+    static let destinatarioRuntime = "equipe|equipo|\\bstaff\\b|\\bteam\\b|gar[çc]o[nm]s?|gar[çc]onete|atendente|el personal|sal[ãa]o|funcion[áa]ri|colaborador|mozo|moza|barman|bartender|copa|camarer[oa]s?|meser[oa]s?|ma[îi]tre|sommelier|cumim|waiters?|servers?|[oad]o?s? time\\b|quem (te )?(serve|serviu|atende|atendeu)"
     static let distribuidorComSujeito = "(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento)[^.;]{0,50}(distribu|reparte|repassa|liquida)|(distribu|reparte|repassa|liquida)[^.;]{0,60}(restaurante|restaurant|\\bcasa\\b|house|venue|estabelecimento|CNPJ)|CNPJ (do|da) (restaurante|casa|estabelecimento|pr[óo]prio)|(passa|sai|entra|vai|é pag[oa]|s[ãa]o pag[oa]s)[^.;]{0,25}(pela |por |na |em )?(folha|payroll|n[óo]mina)"
     static let revogaDispensa = "\\b(sem|n[ãa]o|nunca|nem|without|sin)\\b|\\bno\\s+(payroll|folha|n[óo]mina)"
     /// Alta precisão, baixa cobertura: só ele autoriza SUPRIMIR uma oração.
