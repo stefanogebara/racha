@@ -50,6 +50,8 @@ enum ClaimPatterns {
     static let destinatarioRuntime = ${lit(G.substantivo_destinatario_runtime)}
     static let distribuidorComSujeito = ${lit(G.distribuidor_com_sujeito)}
     static let revogaDispensa = ${lit(G.revoga_dispensa)}
+    /// Só os negadores de verdade — a evasão preposicional fica na dispensa.
+    static let negadores = ${lit(G.negadores)}
     /// Alta precisão, baixa cobertura. Oráculo de teste: ver claims.json.
     static let formaDirecional = ${lit(expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime))}
     /// Destinatários que o censo de build DETECTA e o runtime não — os que,

@@ -25,7 +25,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const { createMemoryStore } = require('../_lib/store/memory');
-const { normalizarDocumentoDaCasa, decidirDocumentoDoRecebedor } = require('../_lib/br/documento.js');
+const { normalizarDocumentoDaCasa, decidirDocumentoDoRecebedor, documentoPublicavelDaCasa } = require('../_lib/br/documento.js');
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
@@ -1590,7 +1590,17 @@ async function route(req, res) {
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const venue = await store.getVenue(venueId);
       if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
-      return json(res, 200, { success: true, data: { venue, tables: await store.listTables(venue.id) } });
+      // O MESMO PREDICADO DO PORTÃO, calculado aqui e não adivinhado na tela.
+      // O painel perguntava `!venue.cnpj`, e o portão pergunta
+      // `documentoPublicavelDaCasa` — então uma casa com CPF, com dígito
+      // trocado ou com um typo de treze dígitos não via aviso nenhum e
+      // continuava sem arrecadar. Exatamente a população pra que o aviso
+      // existe. Dois predicados pra uma pergunta divergem; um só, não.
+      const podeCobrarServico = !!documentoPublicavelDaCasa(venue.market, venue.cnpj, true);
+      return json(res, 200, {
+        success: true,
+        data: { venue: { ...venue, podeCobrarServico }, tables: await store.listTables(venue.id) },
+      });
     }
     if (req.method === 'POST' && url.pathname === '/api/tables') {
       const user = await guardUser(req, res); if (!user) return;

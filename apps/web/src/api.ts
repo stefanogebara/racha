@@ -138,6 +138,13 @@ export interface Venue {
    * desliga a cobrança do serviço, então o painel avisa.
    */
   cnpj?: string | null;
+  /**
+   * A casa pode cobrar serviço? Vem CALCULADO pelo servidor, com o mesmo
+   * predicado do portão do dinheiro (`documentoPublicavelDaCasa`). O painel
+   * perguntava `!venue.cnpj` e o portão perguntava outra coisa: casa com CPF
+   * ou com dígito trocado não via aviso e seguia sem arrecadar.
+   */
+  podeCobrarServico?: boolean;
   /** br | es — decide o trilho, a moeda e QUAL tela de recebimento aparece. */
   market?: 'br' | 'es';
 }

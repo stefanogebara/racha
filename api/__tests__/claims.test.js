@@ -40,6 +40,8 @@ const reGorjeta = new RegExp(G.substantivo_gorjeta, 'i');
 const reDestinatario = new RegExp(G.substantivo_destinatario, 'i');
 const reDistribuidor = new RegExp(G.distribuidor_com_sujeito, 'i');
 const reRevoga = new RegExp(G.revoga_dispensa, 'i');
+/** Só os negadores; a evasão preposicional pertence à dispensa. */
+const reNegador = new RegExp(G.negadores, 'i');
 const { expandirDest: _exp } = require('../../scripts/gen-claim-patterns.js');
 const reSuprimeGlobal = new RegExp(
   _exp(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime), 'i');
@@ -75,11 +77,23 @@ function semComentario(texto, ext) {
 /** Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação. */
 const reSeparador = /,|\b(mas|por[ée]m|e sim|sim)\b/gi;
 /** Frase de destino em QUALQUER lugar da oração. */
+/**
+ * UMA LISTA SÓ DENTRO DA DECISÃO. O censo localizava a oração com a lista
+ * COMPLETA e julgava com a de RUNTIME: uma oração anterior casando um
+ * substantivo só-do-build (`com você`, `pra gente`, `cozinha`) capturava o
+ * índice, falhava o teste de destino, e o censo liberava — enquanto o guarda,
+ * que usa uma lista só, recusava. Censo mais frouxo que o runtime, na direção
+ * que o gerador existe pra impedir, no controle que governa o roteiro
+ * IMPRESSO. A divisão de listas continua certa pro GATILHO; dentro de uma
+ * decisão, não. Aqui é a completa — o censo é o lado estrito.
+ * Achado pela revisão de segurança de 2026-09-13.
+ */
 const reDestinoQualquer = new RegExp(
   '(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+'
-  + '(o\\s+|a\\s+|os\\s+|as\\s+)?(' + G.substantivo_destinatario_runtime + ')', 'i');
-const reFraseDeDestino = new RegExp('^' + reDestinoQualquer.source, 'i');
-const reMarcador = /^\s*([-*•]|\d+[.)])\s+/;
+  + '(o\\s+|a\\s+|os\\s+|as\\s+)?(' + G.substantivo_destinatario + ')', 'i');
+const reMarcador = /^\s*[-*•]\s*/;
+/** Ver `quantidade` no RevisaoDeAfirmacoes.swift. */
+const reQuantidade = /\d+\s*%|\btud[oa]\b|\btod[oa]s?\b|\binteir[oa]s?\b|\bdireto\b|\bintegralmente\b|\bmetade\b/i;
 /**
  * O CENSO DE BUILD USA A LISTA COMPLETA, e é assim que tem que ser: "a gorjeta
  * vai direto pra gente" na boca de um GARÇOM é a afirmação proibida, e é a
@@ -115,11 +129,20 @@ function nega(oracao) {
   let anterior = 0;
   for (const d of dests) {
     let ini = anterior;
-    for (const g of gorjetas) if (g.index + g[0].length <= d.index) ini = Math.max(ini, g.index + g[0].length);
-    for (const dir of direcionais) if (dir.index <= d.index) ini = Math.max(ini, dir.index - 10);
-    for (const sp of seps) if (sp.index + sp[0].length <= d.index) ini = Math.max(ini, sp.index + sp[0].length);
-    ini = Math.max(0, Math.min(ini, d.index));
-    if (ini >= d.index || !reRevoga.test(oracao.slice(ini, d.index))) return false;
+    let achou = anterior > 0;
+    for (const g of gorjetas) if (g.index + g[0].length <= d.index) { ini = Math.max(ini, g.index + g[0].length); achou = true; }
+    for (const dir of direcionais) if (dir.index <= d.index) { ini = Math.max(ini, dir.index - 10); achou = true; }
+    for (const sp of seps) if (sp.index + sp[0].length <= d.index) { ini = Math.max(ini, sp.index + sp[0].length); achou = true; }
+    // FALHA FECHADA: sem âncora, a janela é VAZIA, não o prefixo inteiro.
+    ini = achou ? Math.max(0, Math.min(ini, d.index)) : d.index;
+    const antes = ini < d.index && reNegador.test(oracao.slice(ini, d.index));
+    // E o negador pode vir DEPOIS do destinatário, colado no verbo — "o garçom
+    // NÃO fica com a gorjeta" é a resposta certa. Limite: o próximo separador.
+    const fim = seps.find((sp) => sp.index >= d.index + d[0].length);
+    const ateOnde = fim ? fim.index : oracao.length;
+    const depois = ateOnde > d.index + d[0].length
+      && reNegador.test(oracao.slice(d.index + d[0].length, ateOnde));
+    if (!antes && !depois) return false;
     anterior = d.index + d[0].length;
   }
   return true;
@@ -152,13 +175,17 @@ function acusa(janela) {
   }
   if (partes.some((o) => reGorjeta.test(o) && reDestRuntime.test(o))) return false;
   if (partes.some(nega)) return false;
-  const iDest = partes.findIndex((o) => reDestRuntime.test(o));
-  const iDist = partes.findIndex(temDistribuidor);
-  if (iDist >= 0 && iDest >= 0 && iDist <= iDest) return false;
-  if (iDest < 0) return false;
-  const bruta = partes[iDest];
-  const alvo = bruta.replace(/^[\s\t\-*•>]+/, '');
-  return (reMarcador.test(bruta) || reFraseDeDestino.test(alvo)) && reDestinoQualquer.test(alvo);
+  // TODAS as orações com destinatário, não a primeira: uma frase inocente na
+  // frente ("A equipe da mesa 7 já fechou.") capturava o índice e desarmava a
+  // classe inteira. Mesma forma "só o primeiro" que o `nega` já tinha tido.
+  for (let i = 0; i < partes.length; i += 1) {
+    const o = partes[i];
+    if (!reDestRuntime.test(o) || !reDestinoQualquer.test(o) || nega(o)) continue;
+    if (!reMarcador.test(o) && !reQuantidade.test(o)) continue;
+    if (partes.slice(0, i + 1).some(temDistribuidor)) continue;
+    return true;
+  }
+  return false;
 }
 
 const EXT = /\.(ts|tsx|swift|html|md)$/;

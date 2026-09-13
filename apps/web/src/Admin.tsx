@@ -176,7 +176,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
           — o `documento.js` diz isso — então elas param de arrecadar os 10% em
           silêncio, e a semana 8 do portão de adoção absorve a diferença.
           Falhar fechado é o certo; falhar calado não é. */}
-      {venue && !venue.cnpj && (
+      {venue && venue.podeCobrarServico === false && (
         <section className="panel" style={{ borderColor: 'var(--burgundy)' }}>
           <p className="label" style={{ color: 'var(--burgundy)' }}>{t('admin.noTipDocTitle')}</p>
           <p className="muted small">{t('admin.noTipDocBody')}</p>

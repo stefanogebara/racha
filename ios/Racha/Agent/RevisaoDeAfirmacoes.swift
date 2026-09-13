@@ -58,6 +58,8 @@ enum RevisaoDeAfirmacoes {
     private static let destinatario = regex(ClaimPatterns.destinatarioRuntime)
     private static let distribuidor = regex(ClaimPatterns.distribuidorComSujeito)
     private static let revoga = regex(ClaimPatterns.revogaDispensa)
+    /// Só os negadores; a evasão preposicional pertence ao distribuidor.
+    private static let negador = regex(ClaimPatterns.negadores)
     /// Alta precisão: uma oração com esta FORMA está afirmando destino,
     /// tenha ou não os dois substantivos dentro dela.
     private static let direcional = regex(ClaimPatterns.formaDirecional)
@@ -69,8 +71,19 @@ enum RevisaoDeAfirmacoes {
     private static let destinoEmQualquerLugar = regex(
         "(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
         + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
-    /// Marcador de lista: `- `, `* `, `• `, `1. `.
-    private static let marcadorDeLista = regex("^\\s*([-*•]|\\d+[.)])\\s+")
+    /// Marcador de lista: `- `, `* `, `• `. (`\\d+[.)]` seria morto: a oração já
+    /// vem cortada no ponto.)
+    private static let marcadorDeLista = regex("^\\s*[-*•]\\s*")
+    /// QUANTIDADE: o que distingue dinheiro DIRIGIDO de uma ação dirigida.
+    ///
+    /// Sem isto, exigir só a frase de destino recusava "Se quiser, mostra pro
+    /// garçom." e "Fala com o maître na saída." — respostas certas, a primeira
+    /// com o valor logo antes. `mostra pro garçom` é objeto indireto de uma
+    /// ação; `100% pro garçom` é o dinheiro indo. A quantidade (ou o marcador
+    /// de lista, que já traz o contexto da linha de cima) é o que separa os
+    /// dois sem precisar modelar o verbo.
+    private static let quantidade = regex(
+        "\\d+\\s*%|\\btud[oa]\\b|\\btod[oa]s?\\b|\\binteir[oa]s?\\b|\\bdireto\\b|\\bintegralmente\\b|\\bmetade\\b")
     private static let fraseDeDestino = regex(
         "^(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
         + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
@@ -134,30 +147,52 @@ enum RevisaoDeAfirmacoes {
         var anterior = 0
         for d in dests {
             var ini = anterior
+            var achou = anterior > 0
             // O substantivo da gorjeta mais próximo ANTES deste destinatário —
             // de qualquer lado dele. A versão anterior só olhava quando a
             // gorjeta vinha antes, e por isso "Sem dúvida, o garçom fica com a
             // gorjeta." (ordem invertida) ficava com a janela valendo o
             // prefixo inteiro: o preâmbulo desligava o guarda, 80 de 80.
             for g in gorjetas where g.location + g.length <= d.location {
-                ini = max(ini, g.location + g.length)
+                ini = max(ini, g.location + g.length); achou = true
             }
             for dir in direcionais where dir.location <= d.location {
-                ini = max(ini, dir.location - 10)
+                ini = max(ini, dir.location - 10); achou = true
             }
             for sep in separadores where sep.location + sep.length <= d.location {
-                ini = max(ini, sep.location + sep.length)
+                ini = max(ini, sep.location + sep.length); achou = true
             }
-            ini = max(0, min(ini, d.location))
+            // FALHA FECHADA: sem candidato que ancore, a janela é VAZIA — não o
+            // prefixo inteiro. Com `ini = 0` como padrão, um destinatário que
+            // viesse antes do substantivo, sem vírgula e sem forma direcional,
+            // devolvia a janela máxima e o preâmbulo voltava a desligar tudo:
+            // "Sem dúvida o garçom fica com a gorjeta" (sem a vírgula). 55 de
+            // 182. O que fechou o caso reportado foi o separador, por acidente
+            // de pontuação — deletar o laço da gorjeta inteiro deixava o
+            // fixture VERDE, e o comentário aqui dizia que ele olhava dos dois
+            // lados. Achado pela revisão de segurança de 2026-09-13.
+            ini = achou ? max(0, min(ini, d.location)) : d.location
             // Se ALGUM destinatário chega sem negação na sua janela, a oração
             // AFIRMA. Olhar só o primeiro deixava negar um destinatário e
             // afirmar outro na mesma oração — "não fica com o salão, fica com
             // o garçom" —, e o teste passava só porque a palavra escolhida
             // (`casa`) não está na lista de runtime: provava a regra com o
             // único substantivo incapaz de exercitá-la.
-            if ini >= d.location || !casa(revoga, ns.substring(with: NSRange(location: ini, length: d.location - ini))) {
-                return false
-            }
+            let antes = ini < d.location
+                ? casa(negador, ns.substring(with: NSRange(location: ini, length: d.location - ini)))
+                : false
+            // E O NEGADOR PODE VIR DEPOIS DO DESTINATÁRIO, colado no verbo: "o
+            // garçom NÃO fica com a gorjeta" é a resposta certa, e era acusada
+            // — a janela só olhava pra trás. O limite é o próximo separador:
+            // com vírgula no meio a negação já é de outra oração, que é o que
+            // mantém "vai pro garçom, SEM passar pela folha" sendo recusado.
+            let fimDoTrecho = separadores.first(where: { $0.location >= d.location + d.length })?.location
+                ?? ns.length
+            let depois = fimDoTrecho > d.location + d.length
+                ? casa(negador, ns.substring(with: NSRange(
+                    location: d.location + d.length, length: fimDoTrecho - d.location - d.length)))
+                : false
+            if !antes && !depois { return false }
             anterior = d.location + d.length
         }
         return true
@@ -165,12 +200,21 @@ enum RevisaoDeAfirmacoes {
 
     /// A oração carrega, ELA MESMA, a cláusula do distribuidor?
     private static func temDistribuidor(_ oracao: String) -> Bool {
-        guard let d = acha(distribuidor, oracao) else { return false }
         let ns = oracao as NSString
-        let ini = max(0, d.location - 30)
-        // Negação DENTRO da cláusula do distribuidor derruba a dispensa: "sem
-        // passar pela folha" não é a cláusula legal, é o contrário dela.
-        return !casa(revoga, ns.substring(with: NSRange(location: ini, length: d.location - ini + d.length)))
+        // TODAS as ocorrências, e a janela olha PRA FRENTE também. Olhava só a
+        // primeira e só pra trás, enquanto o censo de build olhava todas e
+        // ±30: "A gorjeta pertence à equipe e o restaurante distribui, mas não
+        // pela folha." era RECUSADA no build e PASSAVA aqui — o runtime mais
+        // frouxo que o censo, na única direção que chega ao cliente, e
+        // justamente na classe de evasão que o `revoga_dispensa` existe pra
+        // pegar. `pertence` não é forma direcional, então a regra 1b não
+        // salvava. Achado pela revisão de compliance de 2026-09-13.
+        for m in distribuidor.matches(in: oracao, range: NSRange(location: 0, length: ns.length)) {
+            let ini = max(0, m.range.location - 30)
+            let fim = min(ns.length, m.range.location + m.range.length + 30)
+            if !casa(revoga, ns.substring(with: NSRange(location: ini, length: fim - ini))) { return true }
+        }
+        return false
     }
 
     /// Este texto afirma um destino sem dizer quem distribui?
@@ -241,23 +285,29 @@ enum RevisaoDeAfirmacoes {
         //    divisão SEM VERBO ("- 10% de serviço\n- pro garçom"), e é só isso.
         if partes.contains(where: { casa(gorjeta, $0) && casa(destinatario, $0) }) { return false }
         if partes.contains(where: nega) { return false }
-        let iDest = partes.firstIndex(where: { casa(destinatario, $0) }) ?? partes.count
-        if let iDist = partes.firstIndex(where: temDistribuidor), iDist <= iDest { return false }
-        guard iDest < partes.count else { return false }
-        // A oração do destinatário tem que SER frase de destino: preposição ou
-        // genitivo colado no substantivo, logo no começo (depois de marcador de
-        // lista). `a` sozinho fica de fora — é o artigo de "A equipe da mesa 7".
-        let bruta = partes[iDest]
-        let alvo = bruta.trimmingCharacters(in: CharacterSet(charactersIn: " \t-*•>"))
-        // Ancorar no COMEÇO da oração fazia qualquer palavra antes da
-        // preposição derrubar o casamento — e a palavra mais provável é uma
-        // quantidade. `- 100% pro garçom`, que é o exemplo que o próprio
-        // claims.json nomeia como a classe sem verbo, passou a escapar. O
-        // teste usava `- pro garçom`, a única forma em que nada precede a
-        // preposição. Então: começo de oração OU marcador de lista, e uma
-        // frase de destino em qualquer lugar dela.
-        let marcado = casa(marcadorDeLista, bruta)
-        return (marcado || casa(fraseDeDestino, alvo)) && casa(destinoEmQualquerLugar, alvo)
+        // TODAS as orações com destinatário, não a primeira. `firstIndex` era
+        // a mesma forma "só o primeiro" que a revisão anterior tinha achado no
+        // `nega` — deixada intacta no laço irmão, trinta linhas abaixo. Bastava
+        // uma frase inocente com um substantivo de equipe na frente ("A equipe
+        // da mesa 7 já fechou.") pra capturar o índice, falhar o teste de
+        // destino e desarmar a classe inteira. Quatro de quatro casos do
+        // próprio fixture escapavam assim.
+        //
+        // E NÃO SE EXIGE MAIS MARCADOR DE LISTA. `(marcado || fraseDeDestino)`
+        // deixava passar "Sobre a gorjeta\n100% pro garçom" e a versão em
+        // negrito do Markdown; e a alternativa `\d+[.)]` do marcador era morta
+        // por construção, porque a oração já vinha cortada no ponto. O teste
+        // usava `- 100% pro garçom`, a única forma COM marcador — o mesmo
+        // formato do erro anterior, um passo adiante.
+        for (i, o) in partes.enumerated() where casa(destinatario, o) {
+            guard casa(destinoEmQualquerLugar, o), !nega(o) else { continue }
+            // Marcador de lista OU quantidade: ver `quantidade`.
+            guard casa(marcadorDeLista, o) || casa(quantidade, o) else { continue }
+            // Pelo CDC art. 30: o distribuidor tem que ser nomeado ATÉ aqui.
+            if partes.prefix(i + 1).contains(where: temDistribuidor) { continue }
+            return true
+        }
+        return false
     }
 
     /// Chegou perto do assunto? Então PARA DE MOSTRAR até dar pra julgar.

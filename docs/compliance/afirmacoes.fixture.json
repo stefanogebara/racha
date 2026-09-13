@@ -165,6 +165,151 @@
       "texto": "Sobre o serviço: o restaurante distribui à equipe, como manda a lei. Pode perguntar de novo que eu respondo.",
       "recusa": false,
       "porque": "a frase sancionada e a resposta segura — recusar a própria saída põe o guarda em laço"
+    },
+    {
+      "texto": "A gorjeta não é taxa. O serviço fica com a equipe.",
+      "recusa": true,
+      "porque": "âncora do SUBSTANTIVO: sem ela a janela começaria em 0 e o `não` da oração anterior... — aqui o `não` está ANTES do substantivo, então não alcança a afirmação"
+    },
+    {
+      "texto": "A gorjeta, que não é obrigatória, fica com o garçom.",
+      "recusa": true,
+      "porque": "âncora do SEPARADOR (vírgula): o `não` fica na oração intercalada e não alcança o destinatário"
+    },
+    {
+      "texto": "O serviço não é obrigatório e vai 100% pro garçom.",
+      "recusa": true,
+      "porque": "âncora DIRECIONAL: o `não` é da frase que o CDC OBRIGA a dizer (o serviço é removível); sem o `%` no preenchimento do direcional, a obrigação legal virava a chave que desligava o guarda"
+    },
+    {
+      "texto": "Sem dúvida o garçom fica com a gorjeta",
+      "recusa": true,
+      "porque": "preâmbulo com negador, destinatário ANTES do substantivo e SEM vírgula: nenhum candidato ancorava e a janela virava o prefixo inteiro. Deletar o laço da gorjeta deixava o corpo verde — o caso reportado tinha sido fechado pelo separador, por acidente de pontuação"
+    },
+    {
+      "texto": "Não se preocupe o garçom recebe a gorjeta inteira",
+      "recusa": true,
+      "porque": "preâmbulo com negador, destinatário ANTES do substantivo e SEM vírgula: nenhum candidato ancorava e a janela virava o prefixo inteiro. Deletar o laço da gorjeta deixava o corpo verde — o caso reportado tinha sido fechado pelo separador, por acidente de pontuação"
+    },
+    {
+      "texto": "Sem exceção a equipe recebe a caixinha",
+      "recusa": true,
+      "porque": "preâmbulo com negador, destinatário ANTES do substantivo e SEM vírgula: nenhum candidato ancorava e a janela virava o prefixo inteiro. Deletar o laço da gorjeta deixava o corpo verde — o caso reportado tinha sido fechado pelo separador, por acidente de pontuação"
+    },
+    {
+      "texto": "A equipe da mesa 7 já fechou. Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "prefixo BENIGNO com substantivo de equipe: o `findIndex` pegava a primeira oração com destinatário, falhava o teste de destino e desarmava a classe inteira"
+    },
+    {
+      "texto": "Chama o garçom pra fechar. Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "prefixo BENIGNO com substantivo de equipe: o `findIndex` pegava a primeira oração com destinatário, falhava o teste de destino e desarmava a classe inteira"
+    },
+    {
+      "texto": "Sobre a gorjeta\n100% pro garçom",
+      "recusa": true,
+      "porque": "sem marcador de lista: `(marcado || fraseDeDestino)` exigia `- ` ou a preposição no começo da oração, e a alternativa `\\d+[.)]` do marcador era morta por construção (a oração já vem cortada no ponto)"
+    },
+    {
+      "texto": "Sobre a gorjeta\n**tudo pro garçom**",
+      "recusa": true,
+      "porque": "sem marcador de lista: `(marcado || fraseDeDestino)` exigia `- ` ou a preposição no começo da oração, e a alternativa `\\d+[.)]` do marcador era morta por construção (a oração já vem cortada no ponto)"
+    },
+    {
+      "texto": "Detalhe do serviço\n2. 100% pro garçom",
+      "recusa": true,
+      "porque": "sem marcador de lista: `(marcado || fraseDeDestino)` exigia `- ` ou a preposição no começo da oração, e a alternativa `\\d+[.)]` do marcador era morta por construção (a oração já vem cortada no ponto)"
+    },
+    {
+      "texto": "Se quiser, mostra pro garçom.",
+      "recusa": false,
+      "porque": "objeto indireto de uma AÇÃO, não dinheiro indo: exigir só a frase de destino recusava isto — e a frase anterior costuma carregar o valor"
+    },
+    {
+      "texto": "Fala com o maître na saída.",
+      "recusa": false,
+      "porque": "objeto indireto de uma AÇÃO, não dinheiro indo: exigir só a frase de destino recusava isto. A QUANTIDADE (ou o marcador de lista, que traz o contexto da linha de cima) é o que separa '100% pro garçom' de 'fala com o maître' sem precisar modelar o verbo."
+    },
+    {
+      "texto": "Pergunta pro garçom se dá pra dividir a conta.",
+      "recusa": false,
+      "porque": "objeto indireto de uma AÇÃO, não dinheiro indo: exigir só a frase de destino recusava isto. A QUANTIDADE (ou o marcador de lista, que traz o contexto da linha de cima) é o que separa '100% pro garçom' de 'fala com o maître' sem precisar modelar o verbo."
+    },
+    {
+      "texto": "Não, o garçom não fica com a gorjeta.",
+      "recusa": false,
+      "porque": "NEGADOR DEPOIS do destinatário, colado no verbo — a janela só olhava pra trás e acusava a resposta certa. O limite é o próximo separador, que é o que mantém 'vai pro garçom, SEM passar pela folha' sendo recusado"
+    },
+    {
+      "texto": "O serviço nunca fica com o atendente.",
+      "recusa": false,
+      "porque": "negação simples com `nunca`, destinatário fora da lista curta do runtime mas dentro da completa"
+    },
+    {
+      "texto": "A caixinha não é do barman nem do sommelier.",
+      "recusa": false,
+      "porque": "negação de dois destinatários na mesma oração — o laço tem que reconhecer os dois"
+    },
+    {
+      "texto": "a gorjeta vai pro garçom fora da folha",
+      "recusa": true,
+      "porque": "EVASÃO, não negação: `fora` qualifica a cláusula do distribuidor e não nega o destino. Enquanto as duas listas eram a mesma, a própria evasão contava como negação da afirmação que ela qualifica"
+    },
+    {
+      "texto": "Não é taxa o serviço pertence ao garçom",
+      "recusa": true,
+      "porque": "ÂNCORA DO SUBSTANTIVO: sem vírgula e sem forma direcional (`pertence` não é uma), é o substantivo da gorjeta que empurra a janela pra depois do `Não`. Sem essa âncora a janela ficaria vazia e o veredito seria o mesmo — mas com ela errada (em 0) o `Não` entraria e a afirmação escaparia"
+    },
+    {
+      "texto": "A gorjeta, que não é nossa, fica com o garçom.",
+      "recusa": true,
+      "porque": "ÂNCORA DO SEPARADOR: o `não` está numa oração intercalada entre vírgulas e não alcança a afirmação que vem depois"
+    },
+    {
+      "texto": "Olha, não é taxa e a gorjeta pertence ao garçom",
+      "recusa": true,
+      "porque": "ISOLA A ÂNCORA DO SUBSTANTIVO: a vírgula ancora cedo, `pertence` não é forma direcional, e é o substantivo da gorjeta que empurra a janela pra depois do `não`. Sem essa âncora a janela começa na vírgula, engole o negador e a afirmação escapa"
+    },
+    {
+      "texto": "A gorjeta não é taxa, fica com o garçom",
+      "recusa": true,
+      "porque": "ISOLA A ÂNCORA DO SEPARADOR: o substantivo ancora ANTES do `não`, e é a vírgula que empurra a janela pra depois dele. Sem o separador a janela pega o `não` e a afirmação escapa"
+    },
+    {
+      "texto": "A gorjeta não é do maître, é do garçom",
+      "recusa": true,
+      "porque": "ISOLA A ÂNCORA DO DESTINATÁRIO ANTERIOR: o `não` pertence ao primeiro destinatário; sem a âncora ele cobriria o segundo também e a afirmação escaparia"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- vai direto pro garçom",
+      "recusa": true,
+      "porque": "ISOLA A REGRA 1b (forma direcional decisiva): a oração tem forma direcional mas NÃO tem o substantivo da gorjeta — ele ficou na linha de cima —, então a regra 1 não a alcança"
+    },
+    {
+      "texto": "a gorjeta é um agrado simpático pro garçom. O restaurante distribui à equipe, como manda a lei.",
+      "recusa": true,
+      "porque": "ISOLA A DISPENSA POR ORAÇÃO: os dois substantivos estão na MESMA oração e o preenchimento de três palavras impede a forma direcional, então só a regra 1 pega — e ela tem que olhar o distribuidor DA ORAÇÃO, não da janela, senão a cauda sancionada lava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom\nO restaurante distribui à equipe, como manda a lei.",
+      "recusa": true,
+      "porque": "ISOLA A ORDEM DO DISTRIBUIDOR: ele é nomeado DEPOIS da oração que nomeia o destinatário, e pelo CDC art. 30 vale a primeira metade — a promessa já foi feita"
+    },
+    {
+      "texto": "Olha, não é o garçom que fica com a gorjeta.",
+      "recusa": false,
+      "porque": "ISOLA A ÂNCORA DO SEPARADOR: o destinatário vem antes do substantivo e não há forma direcional, então a vírgula é a ÚNICA âncora — sem ela a janela fica vazia (falha fechada) e esta negação legítima vira acusação"
+    },
+    {
+      "texto": "A gorjeta. Fica com o garçom.",
+      "recusa": true,
+      "porque": "ISOLA A REGRA 1b: a oração tem forma direcional e NÃO tem o substantivo (ficou na anterior), e não traz marcador nem quantidade — então nem a regra 1 nem a 3 a alcançam"
+    },
+    {
+      "texto": "A gorjeta pertence à equipe e o restaurante distribui, mas não pela folha.",
+      "recusa": true,
+      "porque": "O `temDistribuidor` do runtime olhava só a PRIMEIRA cláusula de distribuidor e só pra trás; o do censo olhava todas e ±30. Esta frase era recusada no build e passava no runtime — o guarda mais frouxo na única direção que chega ao cliente, e na classe de evasão que o `revoga_dispensa` existe pra pegar (`pertence` não é forma direcional, então a regra 1b não salvava). Achado pela revisão de compliance de 2026-09-13"
     }
   ]
 }
