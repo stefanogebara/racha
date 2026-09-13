@@ -12,7 +12,6 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-cp ios/Racha/Agent/ClaimPatterns.swift "$TMP/CP.swift"
 
 python3 - "$TMP" <<'PY'
 import json, subprocess, sys, os, re
@@ -30,7 +29,18 @@ MUT = [
   "guard casa(marcadorDeLista, o) || casa(quantidade, o) || anteriorTemQuantidade else { continue }", ""),
  ("forma direcional deixa de ser decisiva", "        for o in partes where casa(direcional, o) {\n            if !nega(o) { return true }\n        }", ""),
  ("destinatário OBLÍQUO volta a ser resgatável por negador atrás", "let depois = !obliquo &&", "let depois ="),
- ("repartida deixa de exigir frase CURTA", "            guard ehFraseCurta(o) else { continue }", ""),
+ ("repartida deixa de exigir FRASE DE DESTINO PURA",
+  "            guard casa(fraseDeDestinoPura, ateOSeparador(o)) else { continue }", ""),
+ ("pureza deixa de ser medida até o separador interno",
+  "casa(fraseDeDestinoPura, ateOSeparador(o))", "casa(fraseDeDestinoPura, o)"),
+ ("regência volta a ser adjacência de 14 caracteres",
+  "            let obliquo = ini < d.location\n"
+  "                && casa(regenciaDeDestino, ns.substring(with: NSRange(\n"
+  "                    location: ini, length: d.location - ini)))",
+  "            let atras = max(0, d.location - 14)\n"
+  "            let obliquo = casa(regex(\"(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos)"
+  "\\\\s+((o|a|os|as|the|el|la)\\\\s+)?$\"), ns.substring(with: NSRange(\n"
+  "                location: atras, length: d.location - atras)))"),
  ("distribuidor volta a valer pela janela toda", "&& !temDistribuidor(o) { return true }", "&& !temDistribuidor(texto) { return true }"),
 ]
 
@@ -53,7 +63,42 @@ SOLTA = [
   "        if partes.count > 1 { return false }\n"),
 ]
 
-def roda(fonte):
+PADROES = open('ios/Racha/Agent/ClaimPatterns.swift').read()
+
+# ALARGAMENTOS — a terceira metade, e a que faltava dos dois lados.
+#
+# Apagar uma peça mede FALSO POSITIVO; inserir um atalho mede o mesmo pelo
+# outro lado. Nenhum dos dois enxerga um TETO DE ARIDADE, por construção: a
+# revisão mediu o antigo `ehFraseCurta` em 3, 4, 5, 6 e 40 palavras e o corpo
+# só reagia ABAIXO do valor escolhido. Subir o teto deixava tudo verde, com 48
+# de 64 afirmações partidas escapando por cima dele. Aqui a peça é AFROUXADA no
+# próprio `ClaimPatterns.swift` e exige-se vermelho.
+def alarga_relativa(padroes):
+    import json as _j
+    G = _j.load(open('docs/compliance/claims.json'))['gorjeta_destino']
+    def lit(x): return x.replace('\\', '\\\\').replace('"', '\\"')
+    de, para = lit(G['relativa_de_destino']), lit('(que|quem|who|that)\\s+[^,.;]*')
+    return padroes.replace(de, para) if de in padroes else padroes
+
+def sem_ancora_de_fim(padroes):
+    return '\n'.join(
+        (l[:l.rindex('$"')] + '"' if 'fraseDeDestinoPura' in l and '$"' in l else l)
+        for l in padroes.split('\n'))
+
+ALARGA = [
+ ("aridade do modificador sobe de dois pra nove", lambda p: p.replace('{0,2}', '{0,9}')),
+ ("frase pura perde a âncora de FIM e vira prefixo", sem_ancora_de_fim),
+ ("relativa passa a engolir até o fim da oração", alarga_relativa),
+ # Não é alargamento, é ENCOLHIMENTO — mas mora aqui porque também se faz no
+ # `ClaimPatterns.swift`. Meia tradução é pior que nenhuma.
+ ("regência perde a metade não-portuguesa",
+  lambda p: p.replace('|to|for|with|al|del|de\\\\s+la|of\\\\s+the|a\\\\s+l[oa]s|para\\\\s+el|con', '')),
+ ("negador colado volta a ser só português",
+  lambda p: p.replace('|not|never|jam[\u00e1a]s|ni', '')),
+]
+
+def roda(fonte, padroes=None):
+    open(f'{TMP}/CP.swift','w').write(padroes if padroes is not None else PADROES)
     open(f'{TMP}/Rev.swift','w').write(fonte.replace('enum RevisaoDeAfirmacoes {','public enum RevisaoDeAfirmacoes {',1))
     corpo = ['import Foundation', 'var falhas = 0',
              'let casos: [(String, Bool)] = [' + ','.join(
@@ -88,6 +133,15 @@ for nome, atalho in SOLTA:
     n = roda(guarda.replace(ANCORA, atalho + ANCORA, 1))
     if n is None:
         print(f'✗ {nome}: não compila mutado — o atalho saiu do portão'); ruim += 1; continue
+    print(('✓ ' if n > 0 else '✗ ') + f'{nome}: {n} casos vermelhos')
+    if n == 0: ruim += 1
+for nome, alargar in ALARGA:
+    mutados = alargar(PADROES)
+    if mutados == PADROES:
+        print(f'✗ {nome}: o alargamento não mudou nada — a peça saiu do portão'); ruim += 1; continue
+    n = roda(guarda, mutados)
+    if n is None:
+        print(f'✗ {nome}: não compila alargado — a peça saiu do portão'); ruim += 1; continue
     print(('✓ ' if n > 0 else '✗ ') + f'{nome}: {n} casos vermelhos')
     if n == 0: ruim += 1
 

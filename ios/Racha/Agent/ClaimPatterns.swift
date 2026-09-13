@@ -12,7 +12,6 @@ import Foundation
 
 enum ClaimPatterns {
     static let substantivoGorjeta = "gorjeta|gorjetas|caixinha|gratifica[çc][ãa]o|servi(ç|c|ci)o|servi(ç|c|ci)os|service charge|service fee|\\btips?\\b|gratuity|propina|os 10\\s*%|os dez por cento"
-    static let substantivoDestinatario = "equipe|equipo|\\bstaff\\b|\\bteam\\b|\\btime\\b|gar[çc]o[nm]s?|gar[çc]onete|atendente|pessoal\\b|el personal|sal[ãa]o|funcion[áa]ri|colaborador|mozo|moza|barman|bartender|cozinha|copa|camarer[oa]s?|meser[oa]s?|ma[îi]tre|sommelier|cumim|waiters?|servers?|\\bmo[çc]o|\\bmo[çc]a|quem (te )?(serve|serviu|atende|atendeu)|pra gente|pro pessoal|para n[óo]s|\\bto us\\b|para nosotros|\\bdeles\\b|\\bdelas\\b|com voc[êe]|\\beles\\b|\\bellos\\b"
     /// Mais curta: sem os pronomes que, na mesa, querem dizer os CLIENTES.
     /// Ver `_porque_lista_runtime` no claims.json.
     static let destinatarioRuntime = "equipe|equipo|\\bstaff\\b|\\bteam\\b|gar[çc]o[nm]s?|gar[çc]onete|atendente|el personal|sal[ãa]o|funcion[áa]ri|colaborador|mozo|moza|barman|bartender|copa|camarer[oa]s?|meser[oa]s?|ma[îi]tre|sommelier|cumim|waiters?|servers?|[oad]o?s? time\\b|quem (te )?(serve|serviu|atende|atendeu)"
@@ -31,13 +30,20 @@ enum ClaimPatterns {
     /// Preposição de destino, nas três línguas do produto.
     static let preposicaoDeDestino = "pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|n[oa]s?|to|for|with|al|a\\s+l[oa]s|para\\s+el|con"
     static let artigoDeDestino = "o|a|os|as|the|el|la|los|las|um|uma"
+    /// Até dois modificadores entre o artigo e o núcleo: `the FLOOR staff`.
+    /// Ver `_porque_modificador`.
+    static let modificadorDeDestino = "([\\wáéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ-]+\\s+){0,2}"
     /// Preposição de destino COLADA atrás do destinatário: marca que ele é
     /// oblíquo (o destino do dinheiro), e destino não se retira depois.
-    static let preposicaoColadaAtras = "(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|n[oa]s?|to|for|with|al|a\\s+l[oa]s|para\\s+el|con)\\s+((o|a|os|as|the|el|la|los|las|um|uma)\\s+)?$"
+    static let regenciaDeDestino = "(?:^|[^0-9A-Za-zÀ-ÿ])(pra|para|pro|pros|pras|com|de|d[eoa]s?|ao|aos|à|às|á|ás|no|na|nos|nas|to|for|with|al|del|de\\s+la|of\\s+the|a\\s+l[oa]s|para\\s+el|con)(?=[^0-9A-Za-zÀ-ÿ]|$)"
+    /// A oração INTEIRA é uma frase de destino: marcador, quantidade,
+    /// preposição, artigo, destinatário, genitivos — e nada mais. Sobrou
+    /// palavra, tem verbo. Ver `_porque_frase_pura`.
+    static let fraseDeDestinoPura = "^[\\s*_`~]*(\\s*[-*•]\\s*)?[\\s*_`~]*((\\d+\\s*%|R\\$\\s*\\d|€\\s*\\d|\\d+[.,]\\d{2}\\b|\\btud[oa]\\b|\\btod[oa]s?\\b|\\binteir[oa]s?\\b|\\bdireto\\b|\\bintegralmente\\b|\\bmetade\\b)\\s+([\\wáéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ-]+\\s+){0,2})?(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|n[oa]s?|to|for|with|al|a\\s+l[oa]s|para\\s+el|con)\\s+((o|a|os|as|the|el|la|los|las|um|uma)\\s+)?([\\wáéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ-]+\\s+){0,2}(equipe|equipo|\\bstaff\\b|\\bteam\\b|gar[çc]o[nm]s?|gar[çc]onete|atendente|el personal|sal[ãa]o|funcion[áa]ri|colaborador|mozo|moza|barman|bartender|copa|camarer[oa]s?|meser[oa]s?|ma[îi]tre|sommelier|cumim|waiters?|servers?|[oad]o?s? time\\b|quem (te )?(serve|serviu|atende|atendeu))(\\s+(d[eoa]s?|del|de\\s+la|of\\s+the)\\s+((o|a|os|as|the|el|la|los|las|um|uma)\\s+)?[\\wáéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ-]+)*(\\s+(que|quem|who|that|qui[eé]n)\\s+((te|lhe|nos|you|le)\\s+)?(serv\\w*|atend\\w*|attend\\w*|sirv\\w*)(\\s+[\\wáéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ-]+){0,2})?[\\s*_`~]*[.,;]?[\\s*_`~]*$"
     static let marcadorDeLista = "^\\s*[-*•]\\s*"
     static let separadorInterno = ",|\\b(mas|por[ée]m|e sim|sim)\\b"
     /// Negador COLADO no destinatário. Sem o `sem`: ver `_porque_negadores`.
-    static let negadorColado = "^\\s*(que\\s+)?(n[ãa]o|nunca|nem|jamais)\\b"
+    static let negadorColado = "^\\s*(que\\s+)?(n[ãa]o|nunca|nem|jamais|not|never|jam[áa]s|ni)\\b"
     /// A frase que o produto diz. Não é uma variação.
     static let sancionada = "o restaurante distribui à equipe, como manda a lei"
 }

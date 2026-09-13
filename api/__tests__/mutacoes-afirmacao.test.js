@@ -96,9 +96,18 @@ const MUTACOES = [
   { nome: 'a repartida dispensa a quantidade e o marcador',
     de: '    if (!reMarcador.test(o) && !reQuantidade.test(o) && !anteriorTemQuantidade) continue;',
     para: '' },
-  { nome: 'a repartida deixa de exigir frase CURTA',
-    de: '    if (!ehFraseCurta(o)) continue;',
+  { nome: 'a repartida deixa de exigir FRASE DE DESTINO PURA',
+    de: '    if (!reFraseDeDestinoPura.test(ateSep)) continue;',
     para: '' },
+  { nome: 'a pureza deixa de ser medida até o separador interno',
+    de: '    const ateSep = o.split(new RegExp(G.separador_interno))[0];',
+    para: '    const ateSep = o;' },
+  { nome: 'o modificador entre o artigo e o núcleo some',
+    de: "const reFraseDeDestinoPura = new RegExp(comporFrasePura(G), 'i');",
+    para: "const reFraseDeDestinoPura = new RegExp(comporFrasePura(G).split('{0,2}').join('{0,0}'), 'i');" },
+  { nome: 'a regência volta a ser adjacência de 14 caracteres',
+    de: '    const obliquo = ini < d.index && reRegencia.test(oracao.slice(ini, d.index));',
+    para: "    const obliquo = /(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos)\\s+((o|a|os|as|the|el|la)\\s+)?$/i.test(oracao.slice(Math.max(0, d.index - 14), d.index));" },
   { nome: 'a quantidade da oração anterior deixa de contar',
     de: '    const anteriorTemQuantidade = i > 0 && reQuantidade.test(partes[i - 1])\n      && reFraseDeDestino.test(o);',
     para: '    const anteriorTemQuantidade = false;' },
@@ -174,6 +183,45 @@ const AFROUXAMENTOS = [
     insere: '  partes = partes.slice(0, 1);\n' },
 ];
 
+/**
+ * ALARGAMENTOS — a terceira metade do instrumento.
+ *
+ * Apagar uma peça mede FALSO POSITIVO: o corpo fica vermelho porque o guarda
+ * passou a deixar coisa entrar. Inserir um atalho mede o mesmo pelo outro
+ * lado. Nenhum dos dois enxerga um TETO DE ARIDADE, e por construção: a peça
+ * `ehFraseCurta` era `<= 4`, e a revisão mediu a lista inteira de limites —
+ * 3, 4, 5, 6, 40 — e achou que o corpo prendia o botão a UMA casa e não dizia
+ * nada sobre a classe. Subir o limite deixava tudo verde. Quarenta e oito de
+ * sessenta e quatro afirmações partidas escapavam por cima de um teto que
+ * nenhuma mutação conseguia tocar.
+ *
+ * Então: ALARGAR a peça e exigir vermelho. Um limite que pode ser afrouxado
+ * sem o corpo reagir é um limite que ninguém escolheu.
+ * Pedido pelas revisões de compliance e segurança de 2026-09-14.
+ */
+const ALARGAMENTOS = [
+  { nome: 'a aridade do modificador sobe de dois pra nove',
+    insere: "G.modificador_de_destino = G.modificador_de_destino.replace('{0,2}', '{0,9}');\n" },
+  { nome: 'a frase pura perde a âncora de FIM e vira prefixo',
+    insere: "G.frase_de_destino_pura = G.frase_de_destino_pura.replace(/\\[\\\\s\\*_`~\\]\\*\\$$/, '');\n" },
+  // NÃO É ALARGAMENTO, é ENCOLHIMENTO — mas entra aqui porque usa a mesma
+  // âncora: as peças são compartilhadas e mutá-las pelo JSON é o único jeito.
+  // Meia tradução é pior que nenhuma: enquanto o `negador_colado` era só
+  // português, a metade en/es da regência era INALCANÇÁVEL, e o corpo ficava
+  // verde sem ela. Achado pela revisão de segurança de 2026-09-14.
+  { nome: 'a regência perde a metade não-portuguesa',
+    insere: "G.regencia_de_destino = G.regencia_de_destino.replace(/\\|to\\|for\\|with\\|al\\|del\\|de\\\\s\\+la\\|of\\\\s\\+the\\|a\\\\s\\+l\\[oa\\]s\\|para\\\\s\\+el\\|con/, '');\n" },
+  { nome: 'o negador colado volta a ser só português',
+    insere: "G.negador_colado = G.negador_colado.replace('|not|never|jam[áa]s|ni', '');\n" },
+  { nome: 'a relativa passa a engolir até o fim da oração',
+    insere: "G.relativa_de_destino = '(que|quem|who|that)\\\\s+[^,.;]*';\n" },
+];
+// Os três alargamentos entram ANTES do primeiro padrão composto, porque as
+// peças são compartilhadas: alargar só a frase pura e não o
+// `destino_em_qualquer_lugar`, que é pré-condição da mesma regra, mediria uma
+// metade e chamaria de medição.
+const ANCORA_ALARGAMENTO = 'const reDestinoQualquer = new RegExp(';
+
 describe('cada peça do desenho pode ficar vermelha', () => {
   const original = fs.readFileSync(ALVO, 'utf8');
 
@@ -203,6 +251,15 @@ describe('cada peça do desenho pode ficar vermelha', () => {
     // perda. Se ficar verde, é o corpo que não está prendendo nada.
     expect(original.includes(m.ancora)).toBe(true);
     const mutado = original.replace(m.ancora, m.insere + m.ancora);
+    expect(mutado).not.toBe(original);
+    expect(falhasCom(mutado)).toBeGreaterThan(0);
+  });
+
+  test.each(ALARGAMENTOS.map((m) => [m.nome, m]))('alargar: %s', (_nome, m) => {
+    // A peça é AFROUXADA no lugar, e o corpo tem que acusar. Vermelho aqui é
+    // prova de que o valor escolhido carrega peso; verde é botão decorativo.
+    expect(original.includes(ANCORA_ALARGAMENTO)).toBe(true);
+    const mutado = original.replace(ANCORA_ALARGAMENTO, m.insere + ANCORA_ALARGAMENTO);
     expect(mutado).not.toBe(original);
     expect(falhasCom(mutado)).toBeGreaterThan(0);
   });

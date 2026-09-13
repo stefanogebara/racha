@@ -435,6 +435,116 @@
       "texto": "Tirei o serviço.\nCom o garçom, ok.",
       "recusa": false,
       "porque": "ISOLA A EXIGÊNCIA DE MARCADOR-OU-QUANTIDADE: oração curta, começa na preposição, nomeia o garçom — e não promete nada. Sem essa exigência viraria achado, e é confirmação operacional comum"
+    },
+    {
+      "texto": "O serviço:\n- 100% pra equipe do salão",
+      "recusa": true,
+      "porque": "teto de aridade: a contagem de palavras (`<= 4`) caía com um genitivo a mais, e inglês/espanhol carregam artigo obrigatório onde o português não carrega — `- 100% to the staff` eram exatamente quatro palavras, o corpus trilíngue sentado em cima do teto. A oração toda tem que ser frase de destino, sem teto"
+    },
+    {
+      "texto": "O serviço:\n- 100% to the floor staff",
+      "recusa": true,
+      "porque": "teto de aridade: a contagem de palavras (`<= 4`) caía com um genitivo a mais, e inglês/espanhol carregam artigo obrigatório onde o português não carrega — `- 100% to the staff` eram exatamente quatro palavras, o corpus trilíngue sentado em cima do teto. A oração toda tem que ser frase de destino, sem teto"
+    },
+    {
+      "texto": "O serviço:\n- 100% al equipo de sala",
+      "recusa": true,
+      "porque": "teto de aridade: a contagem de palavras (`<= 4`) caía com um genitivo a mais, e inglês/espanhol carregam artigo obrigatório onde o português não carrega — `- 100% to the staff` eram exatamente quatro palavras, o corpus trilíngue sentado em cima do teto. A oração toda tem que ser frase de destino, sem teto"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- 10% de serviço\n- 100% pro garçom do salão",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "Gorjeta: 10%\n100% direto pra equipe do salão",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "Gorjeta: R$ 12,00\n- integralmente pros garçons da casa",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "Sobre o serviço: 10%\n- 100% pra equipe, sem desconto nenhum",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pros garçons do salão da casa",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "A gorjeta vai pros nossos garçons não pra casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (possessivo)"
+    },
+    {
+      "texto": "A caixinha vai pra nossa equipe não pra empresa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (possessivo)"
+    },
+    {
+      "texto": "O serviço fica com toda equipe não com a casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (quantificador)"
+    },
+    {
+      "texto": "O serviço é dos próprios garçons não da casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (adjetivo)"
+    },
+    {
+      "texto": "A gorjeta é destinada aos nossos garçons não à casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (possessivo, particípio)"
+    },
+    {
+      "texto": "O serviço fica com alguns garçons não com a casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (quantificador)"
+    },
+    {
+      "texto": "Com o garçom não tem gorjeta nenhuma.",
+      "recusa": false,
+      "porque": "NEGAÇÃO DE VERDADE, não cauda contrastiva: o destinatário vem sem nada que o reja na janela, então não é oblíquo e o negador colado resgata a frase. O olho mágico dizia oblíquo e engolia uma resposta certa"
+    },
+    {
+      "texto": "Serviço: 10%\ntudo pra equipe que te atendeu hoje",
+      "recusa": true,
+      "porque": "relativa pendurada no núcleo: verbo dentro da frase de destino, nenhuma predicação nova — a oração continua sendo destino puro e a regra 3 desligava"
+    },
+    {
+      "texto": "Serviço: 10%\nCom o garçom que te atendeu você acerta na maquininha.",
+      "recusa": false,
+      "porque": "a relativa é do núcleo, mas `você acerta` é predicação NOVA: a resposta é operacional e certa. A linha de valor na frente é o que põe a oração no caminho da regra 3 — sem ela o caso não exercita nada, e é este caso que impede a relativa de engolir até o fim da oração"
+    },
+    {
+      "texto": "Serviço: 10%\nno fim da conta você chama o garçom",
+      "recusa": false,
+      "porque": "seis palavras entre a preposição e o núcleo, e uma delas é o SUJEITO de um verbo: é oração, não frase de destino. É este caso que prende a aridade do modificador em dois — com nove, a oração inteira vira 'frase pura' e uma resposta operacional certa some atrás da resposta segura"
+    },
+    {
+      "texto": "The tip goes to the staff not to the house.",
+      "recusa": true,
+      "porque": "cauda contrastiva em inglês: o destinatário é oblíquo e não se retira depois. Era inalcançável enquanto o `negador_colado` só falava português — meia tradução"
+    },
+    {
+      "texto": "La propina va al equipo nunca a la casa.",
+      "recusa": true,
+      "porque": "cauda contrastiva em espanhol, pela mesma razão"
+    },
+    {
+      "texto": "The waiter never keeps the tip.",
+      "recusa": false,
+      "porque": "negação de verdade em inglês, colada no destinatário: resposta certa, e só passa a ser avaliada porque o `negador_colado` deixou de ser só português"
+    },
+    {
+      "texto": "El mozo nunca se queda con la propina.",
+      "recusa": false,
+      "porque": "negação de verdade em espanhol, pela mesma razão"
     }
   ]
 }

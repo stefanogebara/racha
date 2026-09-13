@@ -24,6 +24,20 @@ const path = require('node:path');
 
 const RAIZ = path.join(__dirname, '..');
 const expandirDest = (re, dest) => re.split('{DEST}').join(dest);
+/**
+ * Compõe a FRASE DE DESTINO PURA a partir das outras peças do JSON. Fica aqui,
+ * e não escrita duas vezes, porque o censo de build a importa daqui: escrita à
+ * mão nos dois lados, esta é exatamente a peça que já divergiu três vezes.
+ */
+const comporFrasePura = (G) => G.frase_de_destino_pura
+  .replace('MARCADOR', G.marcador_de_lista.replace(/^\^/, '').replace(/\$$/, ''))
+  .replace('QUANT', G.quantidade)
+  .replace('PREP', G.preposicao_de_destino)
+  .replace(/ART/g, G.artigo_de_destino)
+  .replace('RELATIVA', G.relativa_de_destino)
+  .replace(/MOD/g, G.modificador_de_destino)
+  .replace('DEST', G.substantivo_destinatario_runtime)
+  .replace('GEN', G.genitivo_de_destino);
 const G = JSON.parse(fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'claims.json'), 'utf8')).gorjeta_destino;
 
 /** Literal de string Swift, com as barras e aspas escapadas. */
@@ -44,7 +58,6 @@ import Foundation
 
 enum ClaimPatterns {
     static let substantivoGorjeta = ${lit(G.substantivo_gorjeta)}
-    static let substantivoDestinatario = ${lit(G.substantivo_destinatario)}
     /// Mais curta: sem os pronomes que, na mesa, querem dizer os CLIENTES.
     /// Ver \`_porque_lista_runtime\` no claims.json.
     static let destinatarioRuntime = ${lit(G.substantivo_destinatario_runtime)}
@@ -63,9 +76,16 @@ enum ClaimPatterns {
     /// Preposição de destino, nas três línguas do produto.
     static let preposicaoDeDestino = ${lit(G.preposicao_de_destino)}
     static let artigoDeDestino = ${lit(G.artigo_de_destino)}
+    /// Até dois modificadores entre o artigo e o núcleo: \`the FLOOR staff\`.
+    /// Ver \`_porque_modificador\`.
+    static let modificadorDeDestino = ${lit(G.modificador_de_destino)}
     /// Preposição de destino COLADA atrás do destinatário: marca que ele é
     /// oblíquo (o destino do dinheiro), e destino não se retira depois.
-    static let preposicaoColadaAtras = ${lit(G.preposicao_colada_atras)}
+    static let regenciaDeDestino = ${lit(G.regencia_de_destino)}
+    /// A oração INTEIRA é uma frase de destino: marcador, quantidade,
+    /// preposição, artigo, destinatário, genitivos — e nada mais. Sobrou
+    /// palavra, tem verbo. Ver \`_porque_frase_pura\`.
+    static let fraseDeDestinoPura = ${lit(comporFrasePura(G))}
     static let marcadorDeLista = ${lit(G.marcador_de_lista)}
     static let separadorInterno = ${lit(G.separador_interno)}
     /// Negador COLADO no destinatário. Sem o \`sem\`: ver \`_porque_negadores\`.
@@ -77,7 +97,7 @@ enum ClaimPatterns {
 }
 
 const ALVO = path.join(RAIZ, 'ios', 'Racha', 'Agent', 'ClaimPatterns.swift');
-module.exports = { gerar, ALVO, expandirDest };
+module.exports = { gerar, ALVO, expandirDest, comporFrasePura };
 if (require.main === module) {
   fs.writeFileSync(ALVO, gerar());
   console.log('gerado', path.relative(RAIZ, ALVO));

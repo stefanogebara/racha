@@ -42,7 +42,7 @@ const reDistribuidor = new RegExp(G.distribuidor_com_sujeito, 'i');
 const reRevoga = new RegExp(G.revoga_dispensa, 'i');
 /** Só os negadores; a evasão preposicional pertence à dispensa. */
 const reNegador = new RegExp(G.negadores, 'i');
-const { expandirDest: _exp } = require('../../scripts/gen-claim-patterns.js');
+const { expandirDest: _exp, comporFrasePura } = require('../../scripts/gen-claim-patterns.js');
 const reSuprimeGlobal = new RegExp(
   _exp(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime), 'i');
 const JANELA = G.janela_linhas;
@@ -90,19 +90,18 @@ const reSeparador = new RegExp(G.separador_interno, 'gi');
  */
 const reDestinoQualquer = new RegExp(
   '(' + G.preposicao_de_destino + ')\\s+'
-  + '((' + G.artigo_de_destino + ')\\s+)?(' + G.substantivo_destinatario + ')', 'i');
+  + '((' + G.artigo_de_destino + ')\\s+)?' + G.modificador_de_destino
+  + '(' + G.substantivo_destinatario + ')', 'i');
 const reMarcador = new RegExp(G.marcador_de_lista);
-/** Preposição de destino COLADA ATRÁS: marca o destinatário como OBLÍQUO. */
-const rePrepAtras = new RegExp(G.preposicao_colada_atras, 'i');
+/** REGÊNCIA de destino no vão antes do núcleo: marca o destinatário OBLÍQUO. */
+const reRegencia = new RegExp(G.regencia_de_destino, 'i');
 /**
- * Uma FRASE de destino é curta — "pro garçom", "100% pra equipe" — e não uma
- * oração com verbo. Ver o gêmeo no RevisaoDeAfirmacoes.swift.
+ * A oração é, do começo ao fim, uma FRASE DE DESTINO — "pro garçom",
+ * "- 100% pra equipe do salão" — e não uma oração com verbo. Era uma contagem
+ * de palavras (`<= 4`), um proxy que caía com um genitivo a mais. Ver o gêmeo
+ * no RevisaoDeAfirmacoes.swift.
  */
-function ehFraseCurta(oracao) {
-  // O marcador de lista sai antes da contagem — ver o gêmeo no Swift.
-  return oracao.replace(new RegExp(G.marcador_de_lista), '').trim()
-    .split(/\s+/).filter(Boolean).length <= 4;
-}
+const reFraseDeDestinoPura = new RegExp(comporFrasePura(G), 'i');
 
 /** A oração É, ela toda, uma frase de destino: começa na preposição. */
 const reFraseDeDestino = new RegExp('^\\s*' + reDestinoQualquer.source, 'i');
@@ -159,7 +158,8 @@ function nega(oracao) {
     // Só destinatário SUJEITO é resgatável por negador atrás dele. Regido por
     // preposição ele é OBLÍQUO — o destino do dinheiro — e a negação
     // contrastiva do termo seguinte AFIRMA a promessa. Ver `_porque_obliquo`.
-    const obliquo = rePrepAtras.test(oracao.slice(Math.max(0, d.index - 14), d.index));
+    // Regência não é adjacência: o MESMO vão do `antes`. Ver `_porque_regencia`.
+    const obliquo = ini < d.index && reRegencia.test(oracao.slice(ini, d.index));
     const depois = !obliquo && ateOnde > d.index + d[0].length
       && new RegExp(G.negador_colado, 'i').test(
         oracao.slice(d.index + d[0].length, ateOnde));
@@ -210,8 +210,11 @@ function acusa(janela) {
     if (!reDestRuntime.test(o) || !reDestinoQualquer.test(o) || nega(o)) continue;
     // A oração anterior tem que trazer a QUANTIDADE *e* o substantivo da
     // gorjeta — ver o gêmeo no Swift.
-    // A classe sem verbo é CURTA por natureza — ver o gêmeo no Swift.
-    if (!ehFraseCurta(o)) continue;
+    // A classe NÃO TEM VERBO — a oração toda é a frase de destino. Ver o
+    // gêmeo no Swift.
+    // Até o PRIMEIRO separador interno — ver o gêmeo no Swift.
+    const ateSep = o.split(new RegExp(G.separador_interno))[0];
+    if (!reFraseDeDestinoPura.test(ateSep)) continue;
     const anteriorTemQuantidade = i > 0 && reQuantidade.test(partes[i - 1])
       && reFraseDeDestino.test(o);
     if (!reMarcador.test(o) && !reQuantidade.test(o) && !anteriorTemQuantidade) continue;
@@ -447,15 +450,65 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
     // A lista fixa tinha seis nomes e não podia ver um sétimo, e foi assim que
     // seis padrões da DECISÃO ficaram escritos duas vezes à mão, fora do
     // gerador. Achado pela revisão de compliance de 2026-09-14.
-    const camposDePadrao = Object.keys(G).filter(
-      (k) => !k.startsWith('_') && typeof G[k] === 'string'
-        && !['guarda', 'porque', 'frase_sancionada'].includes(k));
+    //
+    // NÃO-PADRÕES SÃO DECLARADOS, não inferidos por tipo. O filtro
+    // `typeof === 'string'` não enxergava campo de outro tipo: uma lista ou um
+    // número novo entrava no JSON e ficava fora da cobertura sem ninguém ver.
+    // Agora toda chave sem `_` tem que estar de um lado ou do outro.
+    const NAO_SAO_PADRAO = [
+      'guarda', 'porque', 'frase_sancionada', 'janela_linhas', 'onde_o_censo_anda',
+      'destinatarios_so_deteccao', 'frases_aposentadas', 'frases_aprovadas', 'dispensas',
+    ];
+    // Padrão que é SÓ DO CENSO, com motivo: a lista completa de destinatários
+    // inclui os pronomes que na mesa querem dizer os CLIENTES, e o runtime usa
+    // a curta de propósito (`_porque_lista_runtime`). Emitir a completa pro
+    // Swift seria um padrão que ninguém consulta — foi por esse vão que o
+    // `preposicaoColadaAtras` sobreviveu à própria remoção da regra.
+    const SO_DO_CENSO = ['substantivo_destinatario'];
+    // Padrões COMPOSTOS: o valor no JSON traz marcadores em CAIXA ALTA que o
+    // gerador substitui. Cada um tem que declarar aqui quem o compõe — sem
+    // isso a asserção de conteúdo literal falharia, e a saída preguiçosa seria
+    // remover o campo do censo em vez de compô-lo.
+    const COMPOSTOS = {
+      gatilho_forma_direcional: (g) => expandirDest(g.gatilho_forma_direcional, g.substantivo_destinatario_runtime),
+      frase_de_destino_pura: comporFrasePura,
+    };
+    const camposDePadrao = Object.keys(G).filter((k) => !k.startsWith('_') && !NAO_SAO_PADRAO.includes(k));
     expect(camposDePadrao.length).toBeGreaterThanOrEqual(10);
+    // Nada de não-padrão declarado pode ter sumido do JSON: a lista de exceções
+    // não pode envelhecer em silêncio e passar a isentar um campo que existe.
+    expect(NAO_SAO_PADRAO.filter((k) => !(k in G))).toEqual([]);
     for (const campo of camposDePadrao) {
-      // `gatilho_forma_direcional` carrega `{DEST}`, que o gerador expande.
-      const valor = expandirDest(G[campo], G.substantivo_destinatario_runtime);
+      expect(typeof G[campo]).toBe('string');
+      // Marcador em caixa alta sem composição declarada = campo composto que
+      // ninguém compôs. Falha aqui, não silenciosamente no runtime.
+      if (/\b(MARCADOR|QUANT|PREP|ART|MOD|DEST|GEN)\b/.test(G[campo]) || G[campo].includes('{DEST}')) {
+        expect(Object.keys(COMPOSTOS)).toContain(campo);
+      }
+      if (SO_DO_CENSO.includes(campo)) continue;
+      const valor = COMPOSTOS[campo] ? COMPOSTOS[campo](G) : G[campo];
       expect(swift).toContain(valor.replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
     }
+  });
+
+  /**
+   * E O CAMINHO DE VOLTA: um padrão EMITIDO e nunca CONSULTADO é invisível.
+   * O censo acima prova que todo campo do JSON chega ao Swift; não provava que
+   * o guarda de runtime olha pra ele. `preposicaoColadaAtras` sobreviveu à sua
+   * própria remoção da regra por esse vão.
+   * Achado pela revisão de compliance de 2026-09-14.
+   */
+  test('todo padrão emitido é consultado pelo guarda de runtime', () => {
+    const { gerar } = require('../../scripts/gen-claim-patterns.js');
+    const swiftDir = path.join(__dirname, '..', '..', 'ios');
+    // Guarda + suíte de runtime: o alvo Swift inteiro. Um padrão que nem o
+    // guarda nem os testes dele mencionam não existe pra ninguém.
+    const guarda = ['Racha/Agent/RevisaoDeAfirmacoes.swift', 'RachaTests/RevisaoDeAfirmacoesTests.swift']
+      .map((f) => fs.readFileSync(path.join(swiftDir, f), 'utf8')).join('\n');
+    const emitidos = [...gerar().matchAll(/static let (\w+) =/g)].map((m) => m[1]);
+    expect(emitidos.length).toBeGreaterThanOrEqual(10);
+    const orfaos = emitidos.filter((n) => !guarda.includes('ClaimPatterns.' + n));
+    expect(orfaos).toEqual([]);
   });
 });
 

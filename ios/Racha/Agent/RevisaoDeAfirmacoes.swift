@@ -67,7 +67,7 @@ enum RevisaoDeAfirmacoes {
     private static let negadorColado = regex(ClaimPatterns.negadorColado)
     /// Preposição de destino COLADA ATRÁS do destinatário — marca que ele é
     /// OBLÍQUO: o destino do dinheiro, e destino não se retira depois dele.
-    private static let preposicaoColadaAtras = regex(ClaimPatterns.preposicaoColadaAtras)
+    private static let regenciaDeDestino = regex(ClaimPatterns.regenciaDeDestino)
     /// Alta precisão: uma oração com esta FORMA está afirmando destino,
     /// tenha ou não os dois substantivos dentro dela.
     private static let direcional = regex(ClaimPatterns.formaDirecional)
@@ -76,23 +76,45 @@ enum RevisaoDeAfirmacoes {
     /// Uma frase de destino em QUALQUER lugar da oração — não só no começo.
     /// Ancorá-la no começo fazia qualquer palavra antes da preposição derrubar
     /// o casamento, e a mais provável é uma quantidade.
+    /// Até dois MODIFICADORES entre o artigo e o núcleo — `to the FLOOR
+    /// staff`. Sem eles esta pré-condição da regra 3 derrubava a própria
+    /// frase que o corpus trilíngue usa. Ver `_porque_modificador`.
     private static let destinoEmQualquerLugar = regex(
         "(" + ClaimPatterns.preposicaoDeDestino + ")\\s+"
-        + "((" + ClaimPatterns.artigoDeDestino + ")\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
-    /// Uma FRASE de destino é curta — "pro garçom", "100% pra equipe" — e não
-    /// uma oração com verbo. Começar na preposição não bastava: "Com o
-    /// atendente você confirma na saída." também começa, e é resposta certa.
-    /// Três de cinco sumiam atrás da resposta segura. Exigir o substantivo da
-    /// gorjeta na oração ANTERIOR não resolve — em "Gorjeta: 10% — pra
-    /// equipe." o substantivo está duas orações atrás, não uma.
-    /// Achado pela revisão de segurança de 2026-09-14.
-    private static func ehFraseCurta(_ oracao: String) -> Bool {
-        // O marcador de lista sai antes da contagem: "- 100% to the staff"
-        // são quatro palavras mais um traço, e o traço não é palavra.
-        let semMarcador = oracao.replacingOccurrences(
-            of: ClaimPatterns.marcadorDeLista, with: "", options: .regularExpression)
-        return semMarcador.split(whereSeparator: { $0 == " " || $0 == "\t" }).count <= 4
+        + "((" + ClaimPatterns.artigoDeDestino + ")\\s+)?" + ClaimPatterns.modificadorDeDestino
+        + "(" + ClaimPatterns.destinatarioRuntime + ")")
+    /// Até o PRIMEIRO separador interno. A pureza se mede no que a oração
+    /// afirma, não no reforço pendurado atrás da vírgula: "- 100% pra equipe,
+    /// sem desconto nenhum" é a mesma afirmação, e a vírgula é justamente onde
+    /// o `separadorInterno` já diz que começa outra. Sem o corte, qualquer
+    /// cauda desligava a regra 3 inteira.
+    private static func ateOSeparador(_ oracao: String) -> String {
+        let ns = oracao as NSString
+        guard let m = separadorInterno.firstMatch(
+            in: oracao, range: NSRange(location: 0, length: ns.length)) else { return oracao }
+        return ns.substring(to: m.range.location)
     }
+
+    /// A oração é, do começo ao fim, uma FRASE DE DESTINO — "pro garçom",
+    /// "- 100% pra equipe do salão" — e não uma oração com VERBO. Começar na
+    /// preposição não bastava: "Com o atendente você confirma na saída."
+    /// também começa, e é resposta certa. Três de cinco sumiam atrás da
+    /// resposta segura. Exigir o substantivo da gorjeta na oração ANTERIOR não
+    /// resolve — em "Gorjeta: 10% — pra equipe." o substantivo está duas
+    /// orações atrás, não uma.
+    ///
+    /// Isto ERA uma contagem de palavras (`<= 4`), e contar palavras é um
+    /// proxy do que se quer mesmo dizer: *nenhum verbo fora da frase de
+    /// destino*. O proxy caía com um genitivo a mais — "- 100% pra equipe do
+    /// salão" tem cinco — e o corpus que provava a cobertura trilíngue estava
+    /// sentado EM CIMA do teto, porque inglês e espanhol carregam artigo
+    /// obrigatório onde o português não carrega: `- 100% to the staff` são
+    /// exatamente quatro palavras. Agora a oração é consumida inteira pelo
+    /// padrão — marcador, quantidade, preposição, artigo, modificadores,
+    /// destinatário, genitivos — e o que sobra tem que ser nada. Não há teto
+    /// de aridade pra transbordar.
+    /// Achado pela revisão de compliance de 2026-09-14.
+    private static let fraseDeDestinoPura = regex(ClaimPatterns.fraseDeDestinoPura)
 
     /// A oração É, ela toda, uma frase de destino: começa na preposição.
     ///
@@ -102,7 +124,8 @@ enum RevisaoDeAfirmacoes {
     /// frase de destino inteira a quantidade da oração ANTERIOR conta.
     private static let fraseDeDestino = regex(
         "^\\s*(" + ClaimPatterns.preposicaoDeDestino + ")\\s+"
-        + "((" + ClaimPatterns.artigoDeDestino + ")\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
+        + "((" + ClaimPatterns.artigoDeDestino + ")\\s+)?" + ClaimPatterns.modificadorDeDestino
+        + "(" + ClaimPatterns.destinatarioRuntime + ")")
     /// Marcador de lista: `- `, `* `, `• `. (`\\d+[.)]` seria morto: a oração já
     /// vem cortada no ponto.)
     private static let marcadorDeLista = regex(ClaimPatterns.marcadorDeLista)
@@ -239,9 +262,22 @@ enum RevisaoDeAfirmacoes {
             // contrastivas passavam 625; as mesmas 125 frases sem cauda eram
             // recusadas. E é a resposta mais provável à pergunta mais provável
             // da mesa. Achado pela revisão de segurança de 2026-09-14.
-            let inicioAtras = max(0, d.location - 14)
-            let obliquo = casa(preposicaoColadaAtras, ns.substring(with: NSRange(
-                location: inicioAtras, length: d.location - inicioAtras)))
+            //
+            // REGÊNCIA NÃO É ADJACÊNCIA: a pergunta é feita sobre O MESMO VÃO
+            // que o `antes` usa, e não sobre os 14 caracteres colados no
+            // destinatário. O olho mágico admitia UM token entre a preposição
+            // e o núcleo, e artigo nu — e o português põe possessivo ali o
+            // tempo todo. Com um modificador inserido, 1250 de 3125 caudas
+            // contrastivas voltavam a passar: "A gorjeta vai pra NOSSA equipe
+            // não pra casa." Ver `_porque_regencia`.
+            //
+            // De quebra some o falso positivo do "Com o garçom não tem gorjeta
+            // nenhuma.": ali não há nada ancorando a janela, o vão é VAZIO, o
+            // destinatário não é oblíquo e a negação de verdade resgata a
+            // frase. Achado pela revisão de segurança de 2026-09-14.
+            let obliquo = ini < d.location
+                && casa(regenciaDeDestino, ns.substring(with: NSRange(
+                    location: ini, length: d.location - ini)))
             let depois = !obliquo && fimDoTrecho > d.location + d.length && casa(negadorColado, ns.substring(with: NSRange(
                 location: d.location + d.length, length: fimDoTrecho - d.location - d.length)))
             if !antes && !depois { return false }
@@ -391,12 +427,12 @@ enum RevisaoDeAfirmacoes {
             // Piora com a moeda na lista: "Sua parte é R$ 61,00.\nCom o garçom
             // você acerta." passaria a ter quantidade também.
             // Achado pela revisão de segurança de 2026-09-14.
-            // A CLASSE SEM VERBO É CURTA POR NATUREZA — "pro garçom",
-            // "100% pra equipe", "- tudo pra equipe". Uma oração longa com um
-            // `tudo` dentro é outra coisa: "Com o garçom tá tudo certo" é
-            // confirmação operacional, e virava recusa. A regra 1b é quem
-            // cuida das orações longas, porque elas têm verbo.
-            guard ehFraseCurta(o) else { continue }
+            // A CLASSE NÃO TEM VERBO — "pro garçom", "100% pra equipe",
+            // "- 100% pra equipe do salão". Uma oração com verbo é outra
+            // coisa: "Com o garçom tá tudo certo" é confirmação operacional, e
+            // virava recusa. A regra 1b é quem cuida dessas, porque elas têm
+            // verbo.
+            guard casa(fraseDeDestinoPura, ateOSeparador(o)) else { continue }
             let anteriorTemQuantidade = i > 0 && casa(quantidade, partes[i - 1])
                 && casa(fraseDeDestino, o)
             guard casa(marcadorDeLista, o) || casa(quantidade, o) || anteriorTemQuantidade else { continue }

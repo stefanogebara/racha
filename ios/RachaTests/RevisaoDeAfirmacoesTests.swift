@@ -345,7 +345,9 @@ struct RevisaoDeAfirmacoesTests {
     func mesmaRegraDoCenso() {
         let g = claims()
         #expect(g["substantivo_gorjeta"] as! String == ClaimPatterns.substantivoGorjeta)
-        #expect(g["substantivo_destinatario"] as! String == ClaimPatterns.substantivoDestinatario)
+        // A lista COMPLETA de destinatários não é emitida pro Swift: o runtime
+        // usa a curta de propósito (`_porque_lista_runtime`), e emitir a outra
+        // seria um padrão que ninguém consulta. O censo de build é quem a usa.
         #expect(g["substantivo_destinatario_runtime"] as! String == ClaimPatterns.destinatarioRuntime)
         #expect(g["distribuidor_com_sujeito"] as! String == ClaimPatterns.distribuidorComSujeito)
         // O QUINTO — e é o único que passa por expansão de `{DEST}`, logo o
