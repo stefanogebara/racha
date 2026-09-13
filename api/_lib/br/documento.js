@@ -66,21 +66,34 @@ function isValidCpfCnpj(input) {
 /**
  * O que o `createVenue` guarda. Devolve `{ ok, valor }` ou `{ ok:false, code }`.
  *
+ * DOCUMENTO DE CASA É DOCUMENTO DE EMPRESA. A primeira versão aceitava CPF,
+ * porque foi escrita em cima do `isValidCpfCnpj`, que aceita os dois — e o
+ * nome da função (`normalizarCnpjDeCasa`) mentia sobre isso. Três camadas
+ * passaram a tratar o CPF como caso de primeira classe: o portão aceitava, o
+ * fixture listava três CPFs como válidos, e o `formatTaxId` pontuava
+ * `529.982.247-25` no recibo.
+ *
+ * O que isso publica: `venues.cnpj` sai no `/api/check`, que NÃO tem
+ * autenticação — o token da mesa viaja em link compartilhado e em QR
+ * fotografado. Um dono MEI que mandasse o próprio CPF (e MEI é o segmento do
+ * piloto) teria o documento pessoal dele na tela de todo cliente da casa.
+ *
+ * O argumento já estava escrito no `markets.js`, apontado pra Espanha: lá o
+ * NIF de um autónomo É o DNI dele, e por isso a Espanha não mostra documento
+ * nenhum. O Brasil tem a mesma população e a regra não tinha sido aplicada
+ * aqui. Achado pela revisão de segurança de 2026-09-13.
+ *
  * Ausente é LEGÍTIMO: o cadastro pede o documento no passo do recebedor, não
  * no de abrir a casa, e exigi-lo aqui quebraria o assistente. O que não é
  * legítimo é guardar qualquer blob — o corpo vai até 1 MB, e o que entra aqui
  * sai no `/api/check` de todo mundo.
- *
- * Guarda CANÔNICO (só dígitos). A coluna deixa de ser um lugar onde cabem
- * ressalvas, e o formatador do recibo deixa de precisar adivinhar se o que
- * veio é documento ou frase sobre documento.
  *
  * `code`, não frase: quem escolhe a língua é o cliente (CLAUDE.md). O código é
  * o `tax_id_invalid` que o `create-charge.js` já emite e o `i18n.ts` já
  * traduz nas três línguas — um código novo pra mesma coisa seria uma quarta
  * palavra pro mesmo erro e uma tela em inglês cru pra quem lê em espanhol.
  */
-function normalizarCnpjDeCasa(bruto) {
+function normalizarDocumentoDaCasa(bruto, market = 'br') {
   if (bruto == null || bruto === '') return { ok: true, valor: null };
   if (typeof bruto !== 'string' && typeof bruto !== 'number') {
     return { ok: false, code: 'tax_id_invalid' };
@@ -89,16 +102,49 @@ function normalizarCnpjDeCasa(bruto) {
   // Cortado ANTES de qualquer regex: uma string de 1 MB não precisa ser
   // percorrida pra se saber que não é um documento de catorze dígitos.
   if (texto.length > 32) return { ok: false, code: 'tax_id_invalid' };
+
+  // ESPANHA: NIF/CIF é letra + 8 dígitos, ou 8 dígitos + letra. Sem dígito
+  // verificador aqui — o algoritmo espanhol não está implementado, e fingir
+  // que está seria pior que não checar. Confere a FORMA, e diz na cara que a
+  // conferência é de forma. (A exigência do `formatTaxId` era impossível de
+  // satisfazer antes desta linha: o gate de pontuação canônica só aceita
+  // dígitos, e todo NIF começa ou termina com letra — nenhuma casa espanhola
+  // conseguia ser criada com documento.)
+  if (market === 'es') {
+    const nif = texto.replace(/[.\-\s]/g, '').toUpperCase();
+    if (!/^[A-Z]\d{8}$|^\d{8}[A-Z]$/.test(nif)) return { ok: false, code: 'tax_id_invalid' };
+    return { ok: true, valor: nif };
+  }
+
   // SÓ PONTUAÇÃO CANÔNICA — a mesma regra do `formatTaxId`, e pelo mesmo
   // motivo. `isValidCpfCnpj` joga fora tudo que não é dígito, então
   // `CNPJ em analise 11222333000181` passava por ele: a ressalva sumia e o
   // número era aceito como conferido. Escrever a validação em cima de um
   // extrator é validar outra coisa que não o que o usuário mandou.
   if (!/^[\d.\-/\s]+$/.test(texto)) return { ok: false, code: 'tax_id_invalid' };
-  if (!isValidCpfCnpj(texto)) return { ok: false, code: 'tax_id_invalid' };
+  // CNPJ, não "CPF ou CNPJ": ver o cabeçalho.
+  if (docKind(texto) !== 'cnpj') return { ok: false, code: 'tax_id_invalid' };
+  if (!isValidCNPJ(texto)) return { ok: false, code: 'tax_id_invalid' };
   return { ok: true, valor: onlyDigits(texto) };
 }
 
+/**
+ * O documento da casa pode SAIR pro cliente, com este valor?
+ *
+ * `showsVenueTaxId` responde pelo MERCADO; isto responde pelo VALOR. Os dois
+ * são precisos: a política de mercado não sabe o que está guardado na coluna,
+ * e linhas antigas foram escritas antes do portão acima existir. Onze dígitos
+ * na coluna de uma casa brasileira é CPF de alguém, e não sai daqui — a
+ * migração 0002 já tinha decidido o princípio de que documento errado num
+ * recibo é pior que a ausência dele.
+ */
+function documentoPublicavelDaCasa(marketCode, valor, mostraNesteMercado) {
+  if (!mostraNesteMercado) return null;
+  if (!valor) return null;
+  return /^\d{14}$/.test(String(valor)) ? String(valor) : null;
+}
+
 module.exports = {
-  onlyDigits, isValidCPF, isValidCNPJ, docKind, isValidCpfCnpj, normalizarCnpjDeCasa,
+  onlyDigits, isValidCPF, isValidCNPJ, docKind, isValidCpfCnpj,
+  normalizarDocumentoDaCasa, documentoPublicavelDaCasa,
 };

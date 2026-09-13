@@ -1,6 +1,7 @@
 'use strict';
 
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
+const { documentoPublicavelDaCasa } = require('../br/documento.js');
 const { confirmedMoney } = require('./confirmed-money');
 const { disputeCounts } = require('../checks/disputes');
 
@@ -434,7 +435,11 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         return {
           venue: {
             name: table.venues.name,
-            taxId: showsVenueTaxId(table.venues.market) ? (table.venues.cnpj || null) : null,
+            // O VALOR também decide, não só o mercado: onze dígitos nesta coluna
+            // numa casa brasileira é CPF de alguém, e `/api/check` não tem
+            // autenticação. Linhas antigas foram escritas antes do portão do
+            // `createVenue` existir. Ver `documentoPublicavelDaCasa`.
+            taxId: documentoPublicavelDaCasa(table.venues.market, table.venues.cnpj, showsVenueTaxId(table.venues.market)),
             ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points }),
           },
           table: { label: table.label },

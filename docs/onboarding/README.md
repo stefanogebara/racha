@@ -67,7 +67,26 @@ no WhatsApp:
       escaneia e paga uma conta de mentira no celular dele (método sunday —
       "a experiência dissolve o medo")
 - [ ] (nós) Entregar o roteiro de 1 frase: *"Pode escanear o QR da mesa pra
-      ver a conta e pagar quando quiser — a gorjeta vai direto pra gente."*
+      ver a conta e pagar quando quiser — o serviço vem junto e é opcional."*
+      (é o mesmo texto do assistente de implantação, `wiz.staffLine` — um
+      roteiro falado não tem versão, não tem idioma, não tem registro e não
+      tem como ser retratado depois)
+- [ ] (nós) **E a resposta pra quando o cliente perguntar pra onde vai o
+      serviço:** *"o restaurante distribui à equipe, como manda a lei."* Essa
+      frase, não uma variação. O garçom VAI ser perguntado, e sem resposta
+      pronta ele usa a que tiver na cabeça.
+
+      > A versão anterior deste item mandava o garçom dizer *"a gorjeta vai
+      > direto pra gente"*. Isso afirma acerto direto com a equipe, que é o
+      > arranjo que a Lei 13.419/2017 e o STJ Tema 1102 põem fora da lei — o
+      > serviço é remuneração e passa pela folha, e a CLT art. 457 §6º ainda
+      > permite à casa reter parte pros encargos. Dito por um funcionário na
+      > mesa é também oferta vinculante (CDC art. 30) que a casa não tem como
+      > honrar, e a exposição cai no CLIENTE, não em nós. A frase foi
+      > corrigida no produto em 2026-09-13 e sobreviveu AQUI mais um dia,
+      > porque este arquivo era a fonte de onde ela tinha sido copiada pro
+      > dicionário e o censo não andava em `docs/`. Terceira vez na mesma
+      > semana que um conserto pega o artefato e deixa a fonte.
 - [ ] (dono/nós) Colocar displays nas mesas; primeira mesa real paga COM a
       gente presente; só declaramos "ativo" depois disso
 - [ ] (nós) Grupo de WhatsApp da casa (dono + gerente + nós) = suporte

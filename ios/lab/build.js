@@ -19,7 +19,19 @@ const target = process.argv[2] || path.join(dir, '..', 'racha-ios.html');
    da Google Fonts foi aplicado à mão no ARTEFATO em 2026-09-10 e teria voltado
    no primeiro `node build.js`: conserto com prazo de validade. A fonte está
    limpa agora, e este guarda é o que impede a próxima. */
-const HOSTS_PROIBIDOS = /https?:\/\/(?!localhost)[a-z0-9.-]+\.[a-z]{2,}/gi;
+/* UMA FORMA POR FAMÍLIA, não a forma que eu tinha na frente.
+   A primeira versão era /https?:\/\/…\.[a-z]{2,}/ — exigia esquema literal e
+   TLD de letras, que é exatamente o `<link href="https://fonts.googleapis.com/…">`
+   do incidente. Deixava passar `//fonts.googleapis.com/…` (relativo ao
+   protocolo, o que a maioria dos snippets de CDN ainda produz), que numa
+   página servida por HTTPS carrega o MESMO recurso do Google — mesmo IP de
+   visitante, mesma corresponsabilidade — e deixava passar host por IP nu.
+   Achado da revisão de segurança de 2026-09-13. */
+/* Exige FORMA DE HOST — TLD de letras ou IPv4 — senão o `//` de uma divisão
+   ou de um comentário de linha vira "terceiro embutido" e o guarda que grita
+   por qualquer coisa é desligado na primeira semana. */
+const HOSTS_PROIBIDOS =
+  /(?:https?:)?\/\/(?!localhost\b)(?=[a-z0-9])[a-z0-9._~-]*(?:\.[a-z]{2,}|(?:\.\d{1,3}){3})(?::\d+)?/gi;
 const forasteiros = [...new Set(
   out.replace(/<!--[\s\S]*?-->/g, '')              // comentário não baixa nada
      .match(HOSTS_PROIBIDOS) || [])];
@@ -31,7 +43,13 @@ if (forasteiros.length) {
 
 fs.writeFileSync(target, out);
 /* Cópia de auditoria local: as mesmas faces, por caminho relativo, porque
-   `/ios-fonts/` só resolve no deploy e o lab abre por `file://`. */
-fs.writeFileSync(path.join(dir, 'preview.html'),
-  out.replace(/url\(\/ios-fonts\//g, 'url(../fonts/'));
+   `/ios-fonts/` só resolve no deploy e o lab abre por `file://`.
+   SÓ quando não veio alvo explícito: o `claims.test.js` constrói pra um
+   temporário, e escrever no `ios/lab` da árvore real a cada `npx jest` fazia
+   o teste MUTAR o diretório de trabalho — invisível porque o arquivo está
+   gitignorado, e quebrado num checkout somente-leitura. */
+if (!process.argv[2]) {
+  fs.writeFileSync(path.join(dir, 'preview.html'),
+    out.replace(/url\(\/ios-fonts\//g, 'url(../fonts/'));
+}
 console.log('built', target, (out.length / 1024).toFixed(0) + 'KB');

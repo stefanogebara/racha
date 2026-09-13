@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { formatTaxId, isValidCpfCnpj, docKind } from '../src/br.ts';
+// O censo mora em módulo próprio pra poder ser importado e MUTADO de fora —
+// dentro do teste, importá-lo rodava a suíte. Ver o cabeçalho de lá.
+import { ofensoresEm } from './censo-taxid.ts';
+
+function todosOsFontes(dir: string, base = dir): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) out.push(...todosOsFontes(p, base));
+    else if (/\.tsx?$/.test(e.name)) out.push(p.slice(base.length + 1));
+  }
+  return out;
+}
 
 /**
  * O documento da casa chega ao cliente LEGÍVEL.
@@ -46,129 +59,7 @@ test('o MERCADO decide o formato, não o idioma de quem lê', () => {
   assert.equal(formatTaxId('65087663000130', 'br'), '65.087.663/0001-30');
 });
 
-/**
- * ── O CENSO ────────────────────────────────────────────────────────────────
- *
- * A primeira versão deste censo casava com A LINHA QUE EU TINHA ACABADO DE
- * CONSERTAR, não com a classe. A revisão de segurança provou por mutação: sete
- * ofensores diferentes passavam verdes. Os mecanismos, todos da mesma família:
- *
- *   · `!/\w+=\{/` era de LINHA, não de POSIÇÃO — qualquer atributo com chaves
- *     em qualquer lugar da linha (`style={{…}}`) desligava a regra inteira. A
- *     dispensa pra "passar adiante como prop" dispensava também IMPRIMIR;
- *   · o padrão fixava `{taxId}`/`{venue.taxId}`, e `{venue?.taxId}` — o idioma
- *     que este próprio arquivo usa noutro lugar — não casava. Nem apelido;
- *   · `readdirSync` não era recursivo: o primeiro `src/components/` levava o
- *     censo inteiro embora, em silêncio;
- *   · `i18n.ts` era pulado INTEIRO, e o CLAUDE.md manda toda string de usuário
- *     passar por lá. O censo era cego exatamente onde o próximo ofensor está
- *     instruído a morar;
- *   · a dispensa de `exemplo|placeholder` também era de linha: bastava a
- *     palavra num comentário JSX ao lado;
- *   · e só conhecia a forma do CNPJ — um CPF pontuado à mão não era da classe,
- *     embora o `formatTaxId` prometa cuidar dele.
- *
- * O conserto é estrutural em três pontos: as dispensas viraram POSICIONAIS
- * (recorta-se o vão do atributo antes de olhar o resto), o censo virou uma
- * FUNÇÃO PURA, e essa função é exercitada contra um corpo de ofensores
- * conhecidos — não só contra a árvore de hoje, que passa por construção. Uma
- * mutação de controle prova que o assert está ligado; ela não prova que o
- * padrão cobre a classe.
- */
-
-/** Vãos de atributo: `className={…}`, `style={{…}}`, `taxId={venue.taxId}`. */
-const VAO_DE_ATRIBUTO = /\w+=\{(?:[^{}]|\{[^{}]*\})*\}/g;
-/** Literais de string — em `i18n.ts` TUDO é literal, e `{taxId}` lá é buraco de frase. */
-const LITERAL = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g;
-const CNPJ_PONTUADO = /\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/;
-const CPF_PONTUADO = /(?<!\d)\d{3}\.\d{3}\.\d{3}-\d{2}(?!\d)/;
-
-function semComentarios(texto: string): string {
-  return texto
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1'))
-    .join('\n');
-}
-
-/**
- * O censo, como função. `arquivo` só entra na mensagem — a regra não olha o
- * nome de arquivo nenhum, que é justamente o que a versão anterior fazia.
- */
-/**
- * O que NÃO é impressão, embora se escreva com chaves.
- *
- * TypeScript usa `{}` pra três coisas que não põem nada na tela: anotação de
- * tipo (`{ taxId?: string | null }`), desestruturação de parâmetro
- * (`{ venue, taxId, market }`) e chave escapada dentro de um literal de regex
- * (`/\(\{taxId\}\)/`, no `PrivacyNotice`, que REMOVE o buraco da frase). Um
- * censo que confunde tipo com JSX é um censo que vai ser desligado por quem
- * cansar dele — e censo desligado é a origem de metade desta lista.
- */
-function naoEImpressao(trecho: string, antes: string): boolean {
-  if (/\\/.test(trecho)) return true;                    // `\{taxId\}` — literal de regex
-  if (/;/.test(trecho)) return true;                      // `{ a: string; b: number }`
-  if (/:\s*(string|number|boolean|null|undefined|unknown|any)\b/.test(trecho)) return true;
-  if (/^\{[\s\w]+,[\s\w,]*\}$/.test(trecho)) return true;   // `{ venue, taxId, market }`
-  if (/[(,=]\s*$/.test(antes)) return true;                // posição de parâmetro/atribuição
-  return false;
-}
-
-export function ofensoresEm(arquivo: string, bruto: string): string[] {
-  const achados: string[] = [];
-  const linhas = semComentarios(bruto).split('\n');
-  linhas.forEach((linha, i) => {
-    const onde = `${arquivo}:${i + 1}`;
-    // Recorta o vão do atributo PRIMEIRO: o que sobra é posição de texto.
-    const fora = linha.replace(VAO_DE_ATRIBUTO, ' ');
-
-    // A. IMPRESSÃO. Interpolação em posição de texto que leia `taxId` tem que
-    //    passar pelo formatador. Literais são mascarados: `{taxId}` dentro de
-    //    uma frase do dicionário é o buraco que o chamador preenche.
-    const emTexto = fora.replace(LITERAL, (m) => ' '.repeat(m.length));
-    for (const m of emTexto.matchAll(/\{[^{}]*\btaxId\b[^{}]*\}/g)) {
-      if (naoEImpressao(m[0], emTexto.slice(0, m.index))) continue;
-      if (!/formatTaxId/.test(m[0])) achados.push(`${onde} imprime cru: ${m[0].slice(0, 60)}`);
-    }
-
-    // B. APELIDO. `const doc = venue.taxId` e depois `{doc}` escapava da regra
-    //    A inteira — a impressão não menciona `taxId`. Então a leitura é que
-    //    tem que passar pelo formatador. Guarda de verdade (`venue.taxId &&`)
-    //    não é atribuição e não cai aqui.
-    //
-    //    A janela é de três linhas porque a atribuição pode ser um ternário
-    //    quebrado (é o caso do `PrivacyNotice`: o `const` numa linha, o
-    //    `formatTaxId` na seguinte). Linha a linha, isso era falso positivo —
-    //    e o jeito de tirar um falso positivo é dispensar a CLASSE inteira,
-    //    que é como os buracos entram.
-    const apelido = /\b(?:const|let|var)\s+[\w\s,:]+=\s*[^=;]*\btaxId\b/.exec(fora);
-    const janela = linhas.slice(i, i + 3).join('\n');
-    if (apelido && !/formatTaxId/.test(janela)) {
-      achados.push(`${onde} apelida sem formatar: ${apelido[0].trim().slice(0, 60)}`);
-    }
-
-    // C. DOCUMENTO PONTUADO À MÃO. A dispensa é POSICIONAL: só vale se o
-    //    documento estiver DENTRO de um `placeholder=`, que ensina o formato.
-    //    A versão anterior aceitava a palavra "exemplo" em qualquer lugar da
-    //    linha, comentário JSX ao lado inclusive.
-    const semPlaceholder = linha.replace(/placeholder=(?:"[^"]*"|'[^']*'|\{[^{}]*\})/g, ' ');
-    if (CNPJ_PONTUADO.test(semPlaceholder)) achados.push(`${onde} CNPJ pontuado à mão`);
-    if (CPF_PONTUADO.test(semPlaceholder)) achados.push(`${onde} CPF pontuado à mão`);
-  });
-  return achados;
-}
-
-function todosOsFontes(dir: string, base = dir): string[] {
-  const out: string[] = [];
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) out.push(...todosOsFontes(p, base));
-    else if (/\.tsx?$/.test(e.name)) out.push(p.slice(base.length + 1));
-  }
-  return out;
-}
-
-test('o censo reconhece os sete desvios que a revisão provou por mutação', () => {
+test('o censo reconhece os desvios que as revisões provaram por mutação', () => {
   // Cada um destes PASSAVA VERDE na versão anterior. Se algum voltar a passar,
   // o padrão encolheu de volta pra linha que eu estava olhando.
   const desvios = [
@@ -179,6 +70,20 @@ test('o censo reconhece os sete desvios que a revisão provou por mutação', ()
     ['CNPJ à mão numa frase do dicionário', "  'foot.cnpj': { en: 'CNPJ 65.087.663/0001-30', pt: 'CNPJ 65.087.663/0001-30' },"],
     ['a palavra exemplo num comentário ao lado', '  Racha · CNPJ 65.087.663/0001-30 {/* exemplo do rodapé */}'],
     ['cru e simples', '      {taxId}'],
+    // A SEGUNDA rodada. Os quatro primeiros foram ABERTOS pelo conserto dos
+    // sete de cima: mascarar literais pra deixar o `i18n.ts` entrar no censo
+    // apagou junto a única forma de literal que imprime.
+    ['literal de crase', '      <p className="muted small">{`CNPJ ${taxId}`}</p>'],
+    ['atributo de EXIBIÇÃO, não de passagem', '      <input className="doc" readOnly value={taxId ?? \'\'} />'],
+    ['title=, que o navegador pinta', '      <abbr title={taxId ?? \'\'}>doc</abbr>'],
+    ['ternário: tem `: null` e parecia anotação de tipo', '      <p>{taxId ? taxId : null}</p>'],
+    ['contrabarra desligava a regra inteira', "      <p>{String(taxId).replace(/\\D/g, '')}</p>"],
+    // Declaração MAIS leitura: a constante sozinha não imprime nada, e a regra
+    // D segue o NOME justamente porque no `Home.tsx` real a declaração e o
+    // `formatTaxId` estão a cem linhas de distância.
+    ['documento cru em constante, lido sem formatar',
+     "const RACHA_CNPJ = '65087663000130';\nexport const Rodape = () => <span>CNPJ {RACHA_CNPJ}</span>;"],
+    ['documento cru escrito direto no JSX', '      <p className="legal">Racha · CNPJ 65087663000130</p>'],
   ];
   for (const [nome, linha] of desvios) {
     assert.ok(ofensoresEm('mutante.tsx', linha).length > 0, `desvio não pego: ${nome} → ${linha}`);
@@ -193,6 +98,11 @@ test('o censo absolve o que é legítimo — dispensa não é buraco', () => {
     ['buraco de frase no dicionário', "  'priv.doc': { en: 'CNPJ {taxId}', pt: 'CNPJ {taxId}', es: 'NIF {taxId}' },"],
     ['formato ENSINADO num placeholder', '        <input placeholder="00.000.000/0000-00" inputMode="numeric" />'],
     ['declaração de tipo', '  taxId: string | null;'],
+    ['literal de regex que REMOVE o buraco', "    : t('priv.who', { venue }).replace(/\\s*\\(\\{taxId\\}\\)/, ''),"],
+    ['crase sem taxId nenhum', '      <p>{`Mesa ${table.label}`}</p>'],
+    ['o documento formatado, em crase', '      <p>{`CNPJ ${formatTaxId(venue.taxId)}`}</p>'],
+    ['constante declarada e SEMPRE formatada (o Home.tsx de verdade)',
+     "const RACHA_CNPJ = '65087663000130';\nexport const Rodape = () => <span>CNPJ {formatTaxId(RACHA_CNPJ)}</span>;"],
   ];
   for (const [nome, linha] of legitimos) {
     assert.deepEqual(ofensoresEm('ok.tsx', linha), [], `falso positivo: ${nome}`);
@@ -209,6 +119,23 @@ test('nenhuma tela imprime o documento da casa sem passar pelo formatador', () =
   assert.ok(arquivos.length > 10, `só ${arquivos.length} arquivos — o censo parou de andar`);
   const ofensores = arquivos.flatMap((f) => ofensoresEm(f, readFileSync(join(src, f), 'utf8')));
   assert.deepEqual(ofensores, [], `\n${ofensores.join('\n')}\n`);
+});
+
+test('a política de PONTUAÇÃO é testada — sem isto, a regressão inteira volta em uma expressão', () => {
+  // A revisão de segurança reverteu `br.ts` pro comportamento antigo
+  // (`limpo.replace(/[^0-9]/g,'')`) e os oito testes deste arquivo passaram
+  // verdes, com `CNPJ em analise 11222333000181` voltando a sair como
+  // `11.222.333/0001-81`. Os casos de ressalva moravam no fixture, numa seção
+  // que só o teste do SERVIDOR lia. O `'abc'` do teste acima passa nas duas
+  // implementações — parecia cobertura e não era.
+  const fixture = JSON.parse(readFileSync(
+    join(import.meta.dirname, '..', '..', '..', 'api', '_lib', 'br', 'documentos.fixture.json'), 'utf8'));
+  const cruas: string[] = fixture.exibicao_nao_pontua.entradas;
+  assert.ok(cruas.length >= 5);
+  for (const entrada of cruas) {
+    assert.equal(formatTaxId(entrada), entrada.trim(),
+      `${JSON.stringify(entrada)} devia voltar cru — pontuar apaga a ressalva e veste o número de documento conferido`);
+  }
 });
 
 test('servidor e cliente conferem o MESMO documento', () => {

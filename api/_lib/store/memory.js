@@ -8,6 +8,7 @@
 const INLINE_METHODS = new Set(['house_account']);
 
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
+const { documentoPublicavelDaCasa } = require('../br/documento.js');
 const { confirmedMoney } = require('./confirmed-money');
 const { disputeCounts } = require('../checks/disputes');
 
@@ -282,7 +283,11 @@ function createMemoryStore() {
           // Nomeado `taxId` e não `cnpj` porque o campo é o mesmo nos dois
           // mercados e a tela é uma só. Nulo é normal (migração 0002: um CNPJ
           // de mentira num recibo real é pior que a ausência dele).
-          taxId: showsVenueTaxId(venue.market) ? (venue.cnpj || null) : null,
+          // O VALOR também decide, não só o mercado: onze dígitos nesta coluna
+            // numa casa brasileira é CPF de alguém, e `/api/check` não tem
+            // autenticação. Linhas antigas foram escritas antes do portão do
+            // `createVenue` existir. Ver `documentoPublicavelDaCasa`.
+            taxId: documentoPublicavelDaCasa(venue.market, venue.cnpj, showsVenueTaxId(venue.market)),
           ...publicMarketView(venue.market, { servicoBp: venue.servicoBp }),
         },
         table: { label: table.label },

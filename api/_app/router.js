@@ -25,7 +25,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const { createMemoryStore } = require('../_lib/store/memory');
-const { normalizarCnpjDeCasa } = require('../_lib/br/documento.js');
+const { normalizarDocumentoDaCasa } = require('../_lib/br/documento.js');
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
@@ -220,7 +220,7 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
-const { chargingAllowed, market, marketGate, pspCurrency } = require('../_lib/markets');
+const { chargingAllowed, market, marketGate, pspCurrency, isMarket, DEFAULT_MARKET } = require('../_lib/markets');
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
@@ -1549,10 +1549,19 @@ async function route(req, res) {
       // autenticado, e agora também passa pelo formatador do recibo, que é
       // quem lhe dá a aparência de conferido. Achado pela revisão de
       // segurança de 2026-09-13.
-      const doc = normalizarCnpjDeCasa(b.cnpj);
-      if (!doc.ok) return json(res, 400, { success: false, error: 'CNPJ inválido', code: doc.code });
+      // O MERCADO decide a FORMA do documento, então ele é lido antes e o
+      // mesmo valor vai pro validador e pro store. Antes o mercado não era
+      // lido aqui e o validador supunha Brasil: uma casa espanhola não
+      // conseguia ser criada com documento nenhum, porque todo NIF começa ou
+      // termina em letra e o portão só aceitava dígitos. Achado pela revisão
+      // de compliance de 2026-09-13.
+      const mkt = isMarket(b.market) ? b.market : DEFAULT_MARKET;
+      const doc = normalizarDocumentoDaCasa(b.cnpj, mkt);
+      // Sem frase: o servidor manda CÓDIGO e o cliente escolhe a língua
+      // (CLAUDE.md). `err.tax_id_invalid` já existe nos três idiomas.
+      if (!doc.ok) return json(res, 400, { success: false, code: doc.code });
       const venue = await store.createVenue({
-        name: b.name, cnpj: doc.valor, city: b.city ?? null,
+        name: b.name, cnpj: doc.valor, city: b.city ?? null, market: mkt,
         servicoBp: Number.isInteger(b.servicoBp) ? b.servicoBp : 1000,
       });
       await store.addVenueMember(venue.id, user.id, 'owner');
