@@ -239,6 +239,11 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
                 onChange={(e) => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
               {fb('doc', valid.doc, docErr, t('rcpt.docHint'),
                 kind === 'cpf' ? t('admin.cpfOk') : t('admin.cnpjOk'))}
+              {/* A casa HERDA este documento quando ainda não tem um, e é ele
+                  que o cliente lê no comprovante. Herança silenciosa num campo
+                  que vai pra tela de terceiro é coisa que se descobre em
+                  revisão; dizer custa uma linha. */}
+              <span className="small" style={{ color: 'var(--ink-3)' }}>{t('rcpt.docOnReceipt')}</span>
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>

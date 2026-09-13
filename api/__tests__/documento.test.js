@@ -162,7 +162,7 @@ describe('toda rota que lê documento do corpo o confere', () => {
    * inventar um nome novo, e o caso que o teste dizia cobrir. Agora qualquer
    * `b.<ident>` ou `body.<ident>` cujo identificador cheire a documento entra.
    */
-  const LEITURA = /\b(?:b|body)\.(\w*(?:doc|cnpj|cpf|nif|tax)\w*)\b/gi;
+  const LEITURA = /\b(?:b|body)\.(\w*(?:doc|cnpj|cpf|nif|dni|tax)\w*)\b/gi;
 
   /**
    * Quem confere. `\bcharge\b` SAIU: ele casava o caminho do `require`
@@ -206,6 +206,13 @@ describe('toda rota que lê documento do corpo o confere', () => {
       expect(ROUTER).toContain(d.trecho);
       expect(d.porque.length).toBeGreaterThan(40);
     }
+    // E o FATO em que a dispensa se apoia fica pinado: o adaptador Stripe
+    // aceita `payerDocument` e não o envia. A dispensa afirmava isso e nada
+    // verificava — bastaria alguém passar a mandar o campo pro censo
+    // continuar verde sobre um fato que deixou de ser verdade.
+    const stripe = fs.readFileSync(
+      path.join(__dirname, '..', '_lib', 'pay', 'stripe-psp.js'), 'utf8');
+    expect(stripe).toMatch(/void payerDocument;/);
   });
 
   test('o portão do recebedor é COMPORTAMENTO, não grep', () => {

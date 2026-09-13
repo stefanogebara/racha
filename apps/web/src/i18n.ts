@@ -1219,6 +1219,15 @@ export const DICT = {
   'rcpt.holderNeed':  { en: 'Enter the account holder’s name.', pt: 'Informe o nome do titular da conta.', es: 'Introduce el nombre del titular de la cuenta.' },
   'rcpt.holderHint':  { en: 'Same as the bank and tax records.', pt: 'Igual ao cadastro no banco / na Receita.', es: 'Igual que en el banco y en la administración.' },
   'rcpt.docLabel':    { en: 'Holder’s CNPJ or CPF',            pt: 'CNPJ ou CPF do titular', es: 'Documento fiscal del titular' },
+  // O dono digita este documento num passo de KYC — e é ELE que passa a
+  // aparecer no comprovante do cliente, porque a casa herda o documento do
+  // recebedor quando ainda não tem um (`decidirDocumentoDoRecebedor`). Herança
+  // silenciosa num campo que vai pra tela de terceiro é o tipo de coisa que se
+  // descobre numa revisão; dizer é barato. Achado pela revisão de compliance
+  // de 2026-09-13.
+  'rcpt.docOnReceipt': { en: 'This is also the document shown on the diner’s receipt.',
+                        pt: 'Este é também o documento que aparece no comprovante do cliente.',
+                        es: 'Es también el documento que aparece en el recibo del cliente.' },
   'rcpt.docHint':     { en: 'The restaurant’s CNPJ (14 digits) or your CPF (11 digits).',
                         pt: 'CNPJ do restaurante (14 díg.) ou seu CPF (11 díg.).',
                         es: 'El documento de la empresa o el tuyo como autónomo.' },

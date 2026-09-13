@@ -39,6 +39,15 @@ enum RevisaoDeAfirmacoes {
 
     /// O que se mostra no lugar da volta recusada. Não corrige o modelo: diz o
     /// que o produto tem a dizer e devolve a palavra pra pessoa.
+    ///
+    /// EM PORTUGUÊS, e só. O detector é trilíngue — o modelo pode responder em
+    /// inglês ou espanhol e ser recusado — mas o app nativo é monolíngue: não
+    /// há `.lproj`, e cada `Text(` dele é uma frase em português. Uma recusa
+    /// em português numa volta em inglês é consistente com o resto da tela, e
+    /// inventar aqui uma camada de idioma que o app não tem seria a única
+    /// string localizada de um produto que não localiza. Quando o app ganhar
+    /// idioma — se ganhar — esta frase entra junto, e não antes.
+    /// Apontado pela revisão de segurança de 2026-09-13.
     static var respostaSegura: String {
         "Sobre o serviço: \(ClaimPatterns.sancionada). Pode perguntar de novo que eu respondo."
     }

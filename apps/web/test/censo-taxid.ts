@@ -36,7 +36,7 @@
  * estiver aqui; qualquer outro conta como posição de texto. É a regra de
  * allowlist que este repositório passou a semana reaprendendo.
  */
-const PASSAGEM = /^(?:className|style|key|ref|id|htmlFor|type|name|role|tabIndex|inputMode|on[A-Z]\w*|data-\w+|aria-(?:hidden|checked|expanded|controls)|taxId)$/;
+const PASSAGEM = /^(?:className|style|key|ref|id|htmlFor|type|name|role|tabIndex|inputMode|data-\w+|aria-(?:hidden|checked|expanded|controls)|taxId)$/;
 /** Vãos de atributo que passam adiante: `className={…}`, `style={{…}}`, `taxId={…}`. */
 const VAO_DE_ATRIBUTO = /\w+=\{(?:[^{}]|\{[^{}]*\})*\}/g;
 /** Aspas simples e duplas somem inteiras; a crase preserva os `${…}`. */
