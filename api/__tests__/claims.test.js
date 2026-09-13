@@ -40,6 +40,9 @@ const reGorjeta = new RegExp(G.substantivo_gorjeta, 'i');
 const reDestinatario = new RegExp(G.substantivo_destinatario, 'i');
 const reDistribuidor = new RegExp(G.distribuidor_com_sujeito, 'i');
 const reRevoga = new RegExp(G.revoga_dispensa, 'i');
+const { expandirDest: _exp } = require('../../scripts/gen-claim-patterns.js');
+const reSuprimeGlobal = new RegExp(
+  _exp(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime), 'i');
 const JANELA = G.janela_linhas;
 
 /**
@@ -68,19 +71,79 @@ function semComentario(texto, ext) {
  * pagamento" uma dispensa — e "você não precisa esperar a folha" é exatamente
  * como se vende o arranjo ilegal.
  */
+/** Orações, como no guarda de runtime: `. ; ! ? : \n —` separam. */
+function oracoes(texto) {
+  return texto.split(/[.;!?:\n—]/).map((o) => o.trim()).filter(Boolean);
+}
+
+/**
+ * A oração NEGA o destino, em vez de afirmá-lo?
+ *
+ * A MESMA regra escopada do guarda de runtime, e pelo mesmo motivo: um
+ * `reRevoga.test(oracao)` solto faz qualquer preâmbulo tranquilizador
+ * ("Sem dúvida, …") desligar a regra — 112 de 160 afirmações proibidas
+ * passavam assim no Swift. A janela vai do FIM do substantivo da gorjeta (ou
+ * dez caracteres antes da forma direcional, o que vier depois) até o
+ * destinatário.
+ */
+function nega(oracao) {
+  const d = new RegExp(reDestinatario.source, 'i').exec(oracao);
+  if (!d) return false;
+  let ini = 0;
+  const g = new RegExp(reGorjeta.source, 'i').exec(oracao);
+  if (g && g.index + g[0].length <= d.index) ini = g.index + g[0].length;
+  const dir = new RegExp(reSuprimeGlobal.source, 'i').exec(oracao);
+  if (dir && dir.index <= d.index) ini = Math.max(ini, dir.index - 10);
+  ini = Math.max(0, Math.min(ini, d.index));
+  return ini < d.index && reRevoga.test(oracao.slice(ini, d.index));
+}
+
+/** Esta oração carrega, ELA MESMA, a cláusula do distribuidor não negada? */
+function temDistribuidor(oracao) {
+  for (const m of oracao.matchAll(new RegExp(reDistribuidor.source, 'gi'))) {
+    const ini = Math.max(0, m.index - 30);
+    if (!reRevoga.test(oracao.slice(ini, m.index + m[0].length + 30))) return true;
+  }
+  return false;
+}
+
+/**
+ * A regra, e ela é a MESMA do guarda de runtime — de propósito.
+ *
+ * O censo julgava a janela inteira: bastava UMA cláusula de distribuidor em
+ * qualquer posição pra dispensar tudo. Então
+ * `'a gorjeta vai direto pro garçom. O restaurante distribui à equipe, como
+ * manda a lei'` passava — e essa cauda é exatamente o que a regra 9 do
+ * `SystemPrompt` manda dizer e o que as `frases_aprovadas` ensinam a escrever.
+ * O guarda Swift foi reescrito pra recusar isso e o censo ficou pra trás, o
+ * que importa MAIS aqui: é o censo que governa o roteiro IMPRESSO entregue ao
+ * garçom, que é oferta vinculante do CDC art. 30.
+ *
+ * Regra por ORAÇÃO pra dispensa, janela inteira pro gatilho — nomear quem
+ * distribui não desdiz o caminho já prometido.
+ * Achado pela revisão de compliance de 2026-09-13.
+ */
 function acusa(janela) {
   if (!reGorjeta.test(janela) || !reDestinatario.test(janela)) return false;
-  // TODAS as ocorrências, não a primeira. Com `exec` sozinho, uma cláusula
-  // inocente no começo ("o restaurante distribui, mas não é bem assim: …")
-  // dispensava tudo que viesse depois dela. E a janela de revogação olhava
-  // só pra trás; a negação que desfaz a cláusula pode vir depois dela.
-  const todas = [...janela.matchAll(new RegExp(reDistribuidor.source, 'gi'))];
-  if (!todas.length) return true;
-  // Basta UMA cláusula de distribuidor não revogada pra dispensar a janela.
-  return !todas.some((m) => {
-    const ini = Math.max(0, m.index - 30);
-    return !reRevoga.test(janela.slice(ini, m.index + m[0].length + 30));
-  });
+  const partes = oracoes(janela);
+  // 1. Uma oração que junta os dois substantivos traz o distribuidor ela
+  //    mesma — ou está negando.
+  for (const o of partes) {
+    if (reGorjeta.test(o) && reDestinatario.test(o) && !nega(o) && !temDistribuidor(o)) return true;
+  }
+  // 1b. E a FORMA DIRECIONAL numa oração não é resgatável por cláusula de
+  //     distribuidor nenhuma, nem na mesma oração.
+  for (const o of partes) {
+    if (reSuprimeGlobal.test(o) && !nega(o)) return true;
+  }
+  // 2. Repartida entre orações: o distribuidor tem que ser nomeado ATÉ a
+  //    oração do destinatário, nunca depois dela.
+  if (partes.some((o) => reGorjeta.test(o) && reDestinatario.test(o))) return false;
+  if (partes.some(nega)) return false;
+  const iDest = partes.findIndex((o) => reDestinatario.test(o));
+  const iDist = partes.findIndex(temDistribuidor);
+  if (iDist >= 0 && iDest >= 0 && iDist <= iDest) return false;
+  return iDest >= 0;
 }
 
 const EXT = /\.(ts|tsx|swift|html|md)$/;

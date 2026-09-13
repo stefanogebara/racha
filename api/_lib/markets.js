@@ -272,8 +272,11 @@ function marketGate(code, { rail, amountCents, tipCents = 0, venue = null } = {}
   // O comentário desta função já contava essa história de 2026-09-07 — quatro
   // regras copiadas em dois lugares e uma ficou pra trás — e a quinta regra
   // nasceu solta do mesmo jeito. Aqui passa todo mundo.
-  if (tipCents > 0 && venue
-      && !documentoPublicavelDaCasa(venue.market || code, venue.cnpj, true)) {
+  // `venue == null` RECUSA, não libera. Era `tipCents > 0 && venue && !doc` —
+  // a forma `if (thing && !ok)` que o inegociável #7 nomeia, dentro da função
+  // escrita pra fechar o #7. Com gorjeta e sem venue não há o que conferir, e
+  // a resposta certa pra "não sei" é não. Achado pelas duas revisões.
+  if (tipCents > 0 && !documentoPublicavelDaCasa(venue?.market || code, venue?.cnpj, true)) {
     return { code: 'venue_no_tip_document' };
   }
   return checkChargeLimits(code, amountCents + tipCents);

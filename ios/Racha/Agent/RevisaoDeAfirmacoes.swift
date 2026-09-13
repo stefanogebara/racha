@@ -61,6 +61,11 @@ enum RevisaoDeAfirmacoes {
     /// Alta precisão: uma oração com esta FORMA está afirmando destino,
     /// tenha ou não os dois substantivos dentro dela.
     private static let direcional = regex(ClaimPatterns.formaDirecional)
+    /// Uma oração que É uma frase de destino: preposição ou genitivo colado no
+    /// destinatário, logo no começo. Sem `a` sozinho — é artigo.
+    private static let fraseDeDestino = regex(
+        "^(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
+        + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
 
     private static func regex(_ p: String) -> NSRegularExpression {
         // `try!` é deliberado: o padrão é constante e gerado. Se não compilar,
@@ -93,17 +98,33 @@ enum RevisaoDeAfirmacoes {
 
     /// A oração NEGA o destino, em vez de afirmá-lo?
     ///
-    /// O negador tem que vir ANTES do destinatário: "a gorjeta NÃO fica com o
-    /// garçom" é a resposta certa; "vai pro garçom, SEM passar pela folha" é a
-    /// promessa proibida com uma ressalva depois. A versão anterior olhava
-    /// qualquer negador numa janela de 30 caracteres em volta do distribuidor,
-    /// e por isso RECUSAVA a negação correta — a resposta mais direta que
-    /// existe pra "a gorjeta vai pro garçom?" — enquanto deixava passar a
-    /// afirmação proibida. Polaridade invertida nos dois sentidos.
+    /// O negador tem que ATACAR A AFIRMAÇÃO, não apenas vir antes dela. A
+    /// versão anterior olhava TODO o prefixo até o destinatário, e com isso
+    /// qualquer preâmbulo tranquilizador desligava o guarda — "Sem dúvida, a
+    /// gorjeta vai pro garçom", "Não precisa deixar mais nada, o serviço fica
+    /// com a equipe", "A gorjeta não fica com a casa, fica com o garçom". A
+    /// última é a negação de UM destino seguida da afirmação do proibido, e
+    /// era lida como negação inteira. O registro que o `SystemPrompt` pede
+    /// ("frases curtas", "um amigo que faz a conta") produz esses preâmbulos o
+    /// tempo todo: 112 de 160 afirmações proibidas chegavam à tela. Achado
+    /// pela revisão de segurança de 2026-09-13.
+    ///
+    /// A janela começa no FIM do substantivo da gorjeta, ou dez caracteres
+    /// antes da forma direcional — o que vier depois — e termina no
+    /// destinatário. É o espaço onde um "não" nega ESTA afirmação.
     private static func nega(_ oracao: String) -> Bool {
         guard let d = acha(destinatario, oracao) else { return false }
         let ns = oracao as NSString
-        return casa(revoga, ns.substring(to: d.location))
+        var ini = 0
+        if let g = acha(gorjeta, oracao), g.location + g.length <= d.location {
+            ini = g.location + g.length
+        }
+        if let dir = acha(direcional, oracao), dir.location <= d.location {
+            ini = max(ini, dir.location - 10)
+        }
+        ini = max(0, min(ini, d.location))
+        guard ini < d.location else { return false }
+        return casa(revoga, ns.substring(with: NSRange(location: ini, length: d.location - ini)))
     }
 
     /// A oração carrega, ELA MESMA, a cláusula do distribuidor?
@@ -159,11 +180,39 @@ enum RevisaoDeAfirmacoes {
         for o in partes where casa(direcional, o) {
             if !nega(o) { return true }
         }
-        // 3. Afirmação repartida entre orações: nenhuma junta os dois, mas o
-        //    texto junta. Aí basta que ALGUMA oração nomeie o distribuidor.
+        // 3. Afirmação repartida entre orações. Duas correções, da mesma
+        //    revisão e pelo mesmo motivo — o caminho 3 era o que sobrava do
+        //    julgamento antigo, text-wide, escondido atrás dos dois primeiros.
+        //
+        //    ORDEM. Bastava que ALGUMA oração, em qualquer posição, nomeasse o
+        //    distribuidor — então a frase sancionada colada no FIM voltava a
+        //    lavar por aqui o que as regras 1 e 1b já não deixavam lavar. Um
+        //    separador de oração depois do substantivo ("Sobre a gorjeta: vai
+        //    todinha pro garçom.") e um advérbio fora da lista da forma
+        //    direcional bastavam pra cair neste ramo. Pelo CDC art. 30 vale a
+        //    primeira metade: o distribuidor tem que ser nomeado ATÉ a oração
+        //    que nomeia o destinatário, nunca depois dela.
+        //
+        //    E O QUE SOBRA TEM QUE SER FRASE DE DESTINO. O `return true` solto
+        //    recusava qualquer texto com gorjeta numa oração e equipe noutra —
+        //    "Já tirei o serviço. Chama o atendente pra fechar a conta." e
+        //    "Sua parte com serviço é R$ 61,00. Se quiser, mostra pro garçom."
+        //    sumiam da tela, a segunda levando o valor junto e sem a pessoa
+        //    saber. Num app de dividir conta em restaurante esses dois
+        //    substantivos se encontram o tempo todo sem prometer nada: sete de
+        //    sete frases comuns recusadas. E o ramo não ganhava nada — ZERO
+        //    frases do corpo que só ele pegasse. O que ele tem que cobrir é a
+        //    divisão SEM VERBO ("- 10% de serviço\n- pro garçom"), e é só isso.
         if partes.contains(where: { casa(gorjeta, $0) && casa(destinatario, $0) }) { return false }
         if partes.contains(where: nega) { return false }
-        return !partes.contains(where: temDistribuidor)
+        let iDest = partes.firstIndex(where: { casa(destinatario, $0) }) ?? partes.count
+        if let iDist = partes.firstIndex(where: temDistribuidor), iDist <= iDest { return false }
+        guard iDest < partes.count else { return false }
+        // A oração do destinatário tem que SER frase de destino: preposição ou
+        // genitivo colado no substantivo, logo no começo (depois de marcador de
+        // lista). `a` sozinho fica de fora — é o artigo de "A equipe da mesa 7".
+        let alvo = partes[iDest].trimmingCharacters(in: CharacterSet(charactersIn: " \t-*•>"))
+        return casa(fraseDeDestino, alvo)
     }
 
     /// Chegou perto do assunto? Então PARA DE MOSTRAR até dar pra julgar.

@@ -236,6 +236,82 @@ struct RevisaoDeAfirmacoesTests {
                 "a conversa inteira tem que ser recusada")
     }
 
+    @Test("um preâmbulo com negação não desliga o guarda")
+    func preambuloNaoDesliga() {
+        // A regra de negação olhava TODO o prefixo até o destinatário, então
+        // qualquer abertura tranquilizadora desarmava a oração — e é o
+        // registro que o próprio SystemPrompt pede. 112 de 160 afirmações
+        // proibidas chegavam à tela. A suíte prendia a janela por baixo e pelo
+        // lado de lá, e não pelo lado que importava: não havia UM caso em que
+        // o negador estivesse presente e NÃO fosse negação do destino.
+        let preambulos = ["Sem dúvida, ", "Não precisa deixar mais nada, ",
+                          "Você não paga taxa nenhuma, ", "Sem stress, ",
+                          "Nem precisa perguntar, ", "A gorjeta não fica com a casa, "]
+        let afirmacoes = ["a gorjeta vai pro garçom.", "o serviço fica com a equipe.",
+                          "a caixinha é do garçom.", "os 10% vão pros garçons."]
+        for p in preambulos {
+            for a in afirmacoes {
+                #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(p + a),
+                        "preâmbulo desligou o guarda: \(p + a)")
+            }
+        }
+        // E a negação de verdade continua passando — a janela não pode fechar
+        // tanto que recuse a resposta certa.
+        for ok in ["A gorjeta não fica com o garçom.",
+                   "O serviço não vai pro garçom, vai pro CNPJ da casa."] {
+            #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(ok), "recusou a negação: \(ok)")
+        }
+    }
+
+    @Test("uma resposta legítima que menciona a equipe sai INTACTA — com o número dentro")
+    func conversaComumNaoEhRecusada() {
+        // O ramo da afirmação repartida tinha `return true` solto: qualquer
+        // texto com gorjeta numa oração e equipe noutra era recusado. Num app
+        // de dividir conta num restaurante esses dois substantivos se
+        // encontram o tempo todo. A quarta frase é a resposta a "quanto eu
+        // devo?" COM O VALOR, e sumia da tela sem a pessoa saber.
+        //
+        // As frases legítimas da suíte eram seis, escolhidas a dedo, e NENHUMA
+        // tinha um substantivo de equipe sem cláusula de distribuidor — a
+        // lista de aprovadas é cópia de compliance, não conversa de mesa.
+        let comuns = [
+            "Já tirei o serviço. Chama o atendente pra fechar a conta.",
+            "Tirei o serviço. Pergunta pro garçom se dá pra dividir a conta.",
+            "O serviço de 10% está na conta. O garçom já trouxe a maquininha?",
+            "Sua parte com serviço é R$ 61,00. Se quiser, mostra pro garçom.",
+            "Tirei os 10%. Fala com o maître na saída.",
+            "Adicionei o couvert. O serviço continua ligado — R$ 28,00. Chama a atendente pra confirmar.",
+            "A equipe da mesa 7 já fechou. O serviço saiu da sua parte.",
+        ]
+        for t in comuns {
+            #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(t), "recusou conversa comum: \(t)")
+        }
+        // E a divisão SEM VERBO, que é o que aquele ramo existe pra cobrir.
+        #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(
+            "Como funciona:\n- 10% de serviço\n- pro garçom"))
+    }
+
+    @Test("a cauda sancionada também não lava quando os substantivos ficam em orações diferentes")
+    func caudaNaoLavaRepartida() {
+        // `caudaNaoLava` anexa a cauda às linhas do corpo SEM MODIFICAR, e toda
+        // linha do corpo tem os dois substantivos na mesma oração — então a
+        // cauda era sempre testada contra o caminho 1 e nunca contra o 3, que
+        // era onde ela ainda lavava.
+        let cauda = " " + ClaimPatterns.sancionada.prefix(1).uppercased()
+            + ClaimPatterns.sancionada.dropFirst() + "."
+        for t in ["Sobre a gorjeta: vai todinha pro garçom.",
+                  "A gorjeta? Vai certinho pros garçons.",
+                  "Os 10%: caem no bolso do garçom.",
+                  "Como funciona:\n- 10% de serviço\n- vai todinho pro garçom"] {
+            #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(t), "nem sozinha foi pega: \(t)")
+            #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(t + cauda),
+                    "a cauda lavou a repartida: \(t)")
+        }
+        // E a RESPOSTA SEGURA não pode ser recusada por ela mesma — senão o
+        // guarda entra em laço com a própria saída.
+        #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(RevisaoDeAfirmacoes.respostaSegura))
+    }
+
     @Test("o guarda usa os MESMOS padrões do censo de build")
     func mesmaRegraDoCenso() {
         let g = claims()
@@ -243,6 +319,12 @@ struct RevisaoDeAfirmacoesTests {
         #expect(g["substantivo_destinatario"] as! String == ClaimPatterns.substantivoDestinatario)
         #expect(g["substantivo_destinatario_runtime"] as! String == ClaimPatterns.destinatarioRuntime)
         #expect(g["distribuidor_com_sujeito"] as! String == ClaimPatterns.distribuidorComSujeito)
+        // O QUINTO — e é o único que passa por expansão de `{DEST}`, logo o
+        // único que pode divergir por um acento. Era o que faltava.
+        let dest = g["substantivo_destinatario_runtime"] as! String
+        let esperado = (g["gatilho_forma_direcional"] as! String)
+            .replacingOccurrences(of: "{DEST}", with: dest)
+        #expect(esperado == ClaimPatterns.formaDirecional)
         #expect((g["frases_aposentadas"] as! [[String: String]]).count >= 30)
     }
 

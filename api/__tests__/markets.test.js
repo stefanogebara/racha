@@ -427,7 +427,10 @@ describe('marketGate', () => {
   });
 
   test('o Brasil passa com serviço e sem teto', () => {
-    expect(marketGate('br', { rail: 'pix', amountCents: 3000, tipCents: 300 })).toBeNull();
+    // `venue` com documento: desde 2026-09-13 a gorjeta exige CNPJ provado —
+    // ver o bloco "gorjeta exige documento de empresa provado" mais abaixo.
+    const casa = { market: 'br', cnpj: '11444777000161' };
+    expect(marketGate('br', { rail: 'pix', amountCents: 3000, tipCents: 300, venue: casa })).toBeNull();
     expect(marketGate('br', { rail: 'card', amountCents: 100000000 })).toBeNull();
     expect(marketGate('br', { rail: 'bizum', amountCents: 3000 }))
       .toMatchObject({ code: 'rail_unsupported' });
@@ -597,19 +600,52 @@ describe('gorjeta exige documento de empresa provado', () => {
     }
   });
 
-  test('nenhuma rota que cria cobrança chama o adaptador sem passar pelo marketGate com a venue', () => {
-    // O censo que já existia olhava `/marketGate\s*\(/` e por isso não podia
-    // ver uma regra que morasse FORA do marketGate. Agora a regra mora dentro,
-    // e o que se exige é que a venue chegue lá — sem ela o portão da gorjeta
-    // não tem o que conferir e devolve null em silêncio.
+  test('sem venue, o portão RECUSA — não libera', () => {
+    // `if (tipCents > 0 && venue && !doc)`: um chamador que esquecesse a venue
+    // pulava a regra em silêncio. A forma que o inegociável #7 nomeia, dentro
+    // da função escrita pra fechar o #7.
+    expect(gate('br', { rail: 'pix', amountCents: 5000, tipCents: 500 }))
+      .toMatchObject({ code: 'venue_no_tip_document' });
+    expect(gate('br', { rail: 'card', amountCents: 5000, tipCents: 500, venue: null }))
+      .toMatchObject({ code: 'venue_no_tip_document' });
+    // Sem gorjeta, segue passando sem venue: o consumo não depende disto.
+    expect(gate('br', { rail: 'pix', amountCents: 5000, tipCents: 0 })).toBeNull();
+  });
+
+  test('nenhum chamador de marketGate no repositório omite a venue', () => {
+    // A versão anterior deste censo NÃO PODIA FALHAR: casava a lista de
+    // argumentos inteira, e o primeiro posicional é sempre `venue.market` —
+    // então `/venue/` casava com ou sem a venue no objeto de opções. Rodado
+    // contra a árvore ANTES do conserto, dava a mesma resposta: vazio. E a
+    // lista de arquivos era escrita à mão, sem o `house-service.js`, que
+    // chama `marketGate` e não passa venue. Agora o censo acha os chamadores
+    // e olha o OBJETO DE OPÇÕES. Achado pelas duas revisões de 2026-09-13.
     const fs = require('node:fs');
     const path = require('node:path');
     const RAIZ = path.join(__dirname, '..', '..');
+    function anda(dir, out = []) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { if (!/^(node_modules|__tests__)$/.test(e.name)) anda(p, out); }
+        else if (/\.js$/.test(e.name)) out.push(p);
+      }
+      return out;
+    }
+    const chamadores = anda(path.join(RAIZ, 'api'))
+      .filter((f) => /marketGate\s*\(/.test(fs.readFileSync(f, 'utf8')));
+    // Se o censo parar de achar chamador, ele passa calado.
+    expect(chamadores.length).toBeGreaterThanOrEqual(2);
     const semVenue = [];
-    for (const rel of ['api/_app/router.js', 'api/_lib/pay/create-charge.js']) {
-      const texto = fs.readFileSync(path.join(RAIZ, rel), 'utf8');
-      for (const m of texto.matchAll(/marketGate\s*\(([^)]*)\)/g)) {
-        if (!/venue/.test(m[1])) semVenue.push(`${rel}: ${m[0].slice(0, 80)}`);
+    for (const f of chamadores) {
+      const texto = fs.readFileSync(f, 'utf8');
+      // A DECLARAÇÃO da função não é chamada — `function marketGate(code, {…})`
+      // casava o próprio padrão e se acusava.
+      for (const m of texto.matchAll(/(?<!function\s)marketGate\s*\([^,]*,\s*\{([^}]*)\}/g)) {
+        // `tipCents: 0` literal dispensa: não há gorjeta pra conferir.
+        if (/tipCents:\s*0\b/.test(m[1])) continue;
+        if (!/(^|[,{]\s*)venue\s*($|[,:=])/.test(m[1].trim())) {
+          semVenue.push(`${path.relative(RAIZ, f)}: ${m[0].slice(0, 70)}`);
+        }
       }
     }
     expect(semVenue).toEqual([]);

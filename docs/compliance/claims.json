@@ -212,11 +212,6 @@
         "porque": "linha de tabela do roteiro de produto: 'gorjeta por garçom' é a MÉTRICA do painel. Esta linha estava sendo perdoada por uma âncora escrita pra linha de cima — é o achado H4 da revisão de compliance, e agora ela tem dispensa própria, lida."
       },
       {
-        "arquivo": "docs/outreach/README.md",
-        "ancora": "Nunca ofereça repasse direto pro garçom",
-        "porque": "PROIBIÇÃO INTERNA no roteiro de vendas: instrui a escalar pra humano em vez de prometer repasse direto. Nomear o que não se pode prometer é o conteúdo da regra — não se treina vendedor contra uma frase que se recusa a escrever. ATENÇÃO ao que a razão anterior dizia e era FALSO: ela alegava 'lido por gente, não por modelo, não há risco de completação', e a linha 3 deste mesmo arquivo diz que ele é copy PRONTA PRA OLÍMPIA, agente de prospecção. A dispensa continua valendo pelo primeiro motivo; o segundo era uma premissa que o próprio arquivo nega. O bloco de exemplos negativos fica explicitamente FORA do que se ingere no style pack da Olímpia — ver o aviso no topo da seção. Achado pela revisão de compliance de 2026-09-13."
-      },
-      {
         "arquivo": "ios/Racha/Agent/AgentTool.swift",
         "ancora": "remuneração da equipe",
         "porque": "GENITIVO, em descrição de campo de ferramenta lida pelo MODELO: o serviço É remuneração da equipe (Lei 13.419/2017). É a afirmação verdadeira que a lei faz, e o modelo precisa dela pra marcar o extra certo."
@@ -287,14 +282,19 @@
         "porque": "A EXPLICAÇÃO da regra acima, no mesmo bloco: diz que liquidação direta pro garçom é exposição do cliente. Nomear o risco é o conteúdo."
       },
       {
-        "arquivo": "docs/rfp/README.md",
-        "ancora": "liquidada na conta do **próprio restaurante (CNPJ)**",
-        "porque": "PERGUNTA DE RFP ao PSP, e a afirmação é a correta: a gorjeta liquida na conta do próprio restaurante, separada do consumo. Não casa a forma finita porque a ênfase de Markdown parte a expressão — mesmo caso do outreach."
-      },
-      {
         "arquivo": "ios/Racha/Agent/ClaimPatterns.swift",
         "ancora": "static let substantivoDestinatario",
         "porque": "É O PADRÃO do censo de build, não uma afirmação — arquivo GERADO. A lista de runtime, logo abaixo, tem dispensa própria: duas linhas, dois sítios, duas afirmações de que alguém leu."
+      },
+      {
+        "arquivo": "ios/Racha/Agent/ClaimPatterns.swift",
+        "ancora": "static let formaDirecional",
+        "porque": "É O PADRÃO, não uma afirmação — arquivo GERADO. Carrega verbos de movimento e destinatários por definição; um censo que o acusasse estaria acusando a regra de existir. Dispensa e não exclusão de caminho: o resto do arquivo continua varrido."
+      },
+      {
+        "arquivo": "ios/Racha/Agent/ClaimPatterns.swift",
+        "ancora": "static let sancionada",
+        "porque": "É A FRASE SANCIONADA — a única que o produto pode dizer sobre destino de gorjeta, guardada aqui pra que os quatro clientes a repitam literalmente. Acusá-la seria o censo recusando a própria solução."
       }
     ],
     "onde_o_censo_anda": {
@@ -336,7 +336,7 @@
       "pessoal"
     ],
     "_porque_so_deteccao": "Estes destinatários são DETECTADOS pelo censo de build e não entram no guarda de runtime nem na lista de supressão: na boca de um garçom 'pra gente' é a equipe, e na conversa do assistente com quem janta é a MESA. Enquanto o guarda de runtime só acrescentava uma frase, o falso positivo era barato; desde que ele recusa a volta inteira, custaria a resposta certa sobre quem deve quanto. A lista é curta de propósito e o teste exige que todo destinatário novo do censo entre numa das duas pontas — ou é suprimível, ou está declarado aqui com razão. As duas listas divergiram em quinze tokens num commit só, sem nada testando a relação entre elas.",
-    "gatilho_forma_direcional": "(vai|v[ãa]o|segue|seguem|fica|ficam|cai|caem|entra|entram|é|s[ãa]o)\\s+(direto\\s+|integralmente\\s+|direta\\s+|na hora\\s+)?(pra|para|pro|pros|pras|com|de|d[oa]s?|ao?s?|[àá]s?)\\s*(a\\s+|o\\s+|os\\s+|as\\s+)?({DEST})|repassad[oa]s?\\s+(a|ao|[àa]|aos|[àa]s|para|pro|pros)\\s*(o |a |os |as )?({DEST})|cai(em)?\\s+n[ao]\\s+(conta|bolso|m[ãa]o)\\s+d[oa]\\s*({DEST})|({DEST})\\s+(keeps?|distribui|reparte|repassa)|keeps?\\s+(the\\s+)?(tip|service charge|gratuity)|kept\\s+by\\s+(the\\s+)?({DEST})|goes?\\s+(straight\\s+|directly\\s+)?to\\s+(the\\s+|your\\s+|our\\s+)?({DEST})|va[n]?\\s+(directa?\\s+)?(al|a\\s+l[oa]s?|para\\s+(el\\s+|los\\s+)?)\\s*({DEST})|se\\s+queda\\s+con\\s+(el\\s+|la\\s+)?({DEST})|es\\s+(para|del?|de\\s+l[oa]s?)\\s+(el\\s+|la\\s+|los\\s+)?({DEST})|\\bn[óo]s\\s+(distribu[ií]\\w*|reparte\\w*|repassa\\w*)|100\\s*%\\s*(d[oae]s?\\s+)?(gorjeta|servi[çc]o)",
-    "_porque_forma_direcional": "Alta precisão, baixa cobertura. Nasceu como DETECTOR na v2 e falhou — não cobria a classe. Hoje ela é DECISIVA no guarda de runtime: uma oração com esta forma afirma destino, e cláusula de distribuidor nenhuma a resgata, porque 'a gorjeta vai pro garçom, o restaurante distribui à equipe' é a promessa proibida seguida de uma qualificação e pelo CDC art. 30 é a primeira metade que vincula.\n\n`{DEST}` É EXPANDIDO a partir de `substantivo_destinatario_runtime` pelo `scripts/gen-claim-patterns.js`. Era escrito à mão, e por isso divergia: a lista de detecção ganhou quinze substantivos numa rodada e esta não ganhou nenhum; depois `ma[îi]tre` estava numa e `maitre` sem acento na outra, e `o serviço fica com o maître` — frase do PRÓPRIO CORPO — escapava por um acento. Terceira vez que uma letra abriu um buraco. Uma lista só, expandida, e a classe fecha. Um detalhe que custou um falso positivo numa frase APROVADA: `[ée]` casa também o `e` de conjunção, então '…, e a equipe recebe por folha' era lido como afirmação direcional. Classe de caracteres escrita pra tolerar acento tolerando junto uma palavra inteira que não tem nada a ver."
+    "gatilho_forma_direcional": "(vai|v[ãa]o|segue|seguem|fica|ficam|cai|caem|entra|entram|é|s[ãa]o)\\s+((?:[\\wáéíóúâêôãõç-]+)\\s+){0,2}(pra|para|pro|pros|pras|com|de|d[oa]s?|ao?s?|[àá]s?|n[oa]s?)\\s*(a\\s+|o\\s+|os\\s+|as\\s+)?({DEST})|repassad[oa]s?\\s+(a|ao|[àa]|aos|[àa]s|para|pro|pros)\\s*(o |a |os |as )?({DEST})|cai(em)?\\s+n[ao]\\s+(conta|bolso|m[ãa]o)\\s+d[oa]\\s*({DEST})|({DEST})\\s+(keeps?|distribui|reparte|repassa)|keeps?\\s+(the\\s+)?(tip|service charge|gratuity)|kept\\s+by\\s+(the\\s+)?({DEST})|goes?\\s+(straight\\s+|directly\\s+)?to\\s+(the\\s+|your\\s+|our\\s+)?({DEST})|va[n]?\\s+(directa?\\s+)?(al|a\\s+l[oa]s?|para\\s+(el\\s+|los\\s+)?)\\s*({DEST})|se\\s+queda\\s+con\\s+(el\\s+|la\\s+)?({DEST})|es\\s+(para|del?|de\\s+l[oa]s?)\\s+(el\\s+|la\\s+|los\\s+)?({DEST})|\\bn[óo]s\\s+(distribu[ií]\\w*|reparte\\w*|repassa\\w*)|100\\s*%\\s*(d[oae]s?\\s+)?(gorjeta|servi[çc]o)",
+    "_porque_forma_direcional": "Alta precisão, baixa cobertura. Nasceu como DETECTOR na v2 e falhou — não cobria a classe. Hoje ela é DECISIVA no guarda de runtime: uma oração com esta forma afirma destino, e cláusula de distribuidor nenhuma a resgata, porque 'a gorjeta vai pro garçom, o restaurante distribui à equipe' é a promessa proibida seguida de uma qualificação e pelo CDC art. 30 é a primeira metade que vincula.\n\n`{DEST}` É EXPANDIDO a partir de `substantivo_destinatario_runtime` pelo `scripts/gen-claim-patterns.js`. Era escrito à mão, e por isso divergia: a lista de detecção ganhou quinze substantivos numa rodada e esta não ganhou nenhum; depois `ma[îi]tre` estava numa e `maitre` sem acento na outra, e `o serviço fica com o maître` — frase do PRÓPRIO CORPO — escapava por um acento. Terceira vez que uma letra abriu um buraco. Uma lista só, expandida, e a classe fecha. Um detalhe que custou um falso positivo numa frase APROVADA: `[ée]` casa também o `e` de conjunção, então '…, e a equipe recebe por folha' era lido como afirmação direcional. Classe de caracteres escrita pra tolerar acento tolerando junto uma palavra inteira que não tem nada a ver. O ADVÉRBIO deixou de ser enumerado. Era `(direto|integralmente|direta|na hora)?` — quatro itens — e `vai TODINHA pro garçom`, `vai CERTINHO pros garçons` ou `**direto**` em Markdown quebravam o casamento. É o denylist de construções que o próprio `_porque_esta_na_terceira_versao` avisa que a língua sempre ganha, sobrevivendo DENTRO do padrão que o desenho agora trata como decisivo. Agora são até duas palavras quaisquer, limitadas. E entraram `n[oa]s?` nas preposições, porque `caem NO bolso do garçom` não tinha preposição que casasse. Achado pela revisão de segurança de 2026-09-13."
   }
 }
