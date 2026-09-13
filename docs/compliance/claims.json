@@ -221,6 +221,11 @@
         "arquivo": "docs/runbooks/devolver-dinheiro-a-mais.md",
         "ancora": "A gorjeta arrecadada é remuneração do time",
         "porque": "RUNBOOK de restituição: diz que a gorjeta arrecadada é remuneração do time (Lei 13.419/2017) e por isso NÃO é fonte de devolução. A afirmação é sobre de onde o dinheiro não sai."
+      },
+      {
+        "arquivo": "ios/Racha/Agent/ClaimPatterns.swift",
+        "ancora": "static let substantivoDestinatario",
+        "porque": "É O PADRÃO, não uma afirmação — arquivo GERADO por scripts/gen-claim-patterns.js a partir deste JSON. Ele carrega as duas listas de substantivos por definição; um censo que o acusasse estaria acusando a própria regra de existir. Dispensa e não exclusão de caminho: o resto do arquivo continua sendo varrido, e se alguém escrever copy dentro dele o censo vê."
       }
     ],
     "onde_o_censo_anda": {
