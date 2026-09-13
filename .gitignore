@@ -16,3 +16,12 @@ ios/DerivedData/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# iOS design lab — gerados pelo build.js, nunca publicados.
+# `preview.html` é a cópia de auditoria local (fontes por caminho relativo).
+# `ios/lab/racha-ios.html` era um artefato ESTAGNADO versionado por engano:
+# uma cópia velha, com a frase da gorjeta que já tinha sido aposentada em
+# todo lugar que importa. Cópia parada de coisa gerada é só mais um lugar
+# onde a versão errada continua legível. O que se publica é `ios/racha-ios.html`.
+ios/lab/preview.html
+ios/lab/racha-ios.html

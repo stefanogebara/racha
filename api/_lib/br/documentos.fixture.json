@@ -1,0 +1,39 @@
+{
+  "_leia": "O MESMO corpo de documentos, exercitado pelos dois lados. A conferência de CPF/CNPJ existe duas vezes — `api/_lib/br/documento.js` (CommonJS, servidor) e `apps/web/src/br.ts` (TS/ESM, cliente) — porque os runtimes não compartilham módulo. Cópia é dívida; o que impede a divergência é este arquivo: `api/__tests__/documento.test.js` e `apps/web/test/taxid.test.ts` rodam os dois contra ele. Se as implementações discordarem, um dos lados fica vermelho.",
+
+  "validos": [
+    { "doc": "65087663000130", "tipo": "cnpj", "nota": "o CNPJ da Racha, o que a landing e o recibo mostram" },
+    { "doc": "11222333000181", "tipo": "cnpj" },
+    { "doc": "12345678000195", "tipo": "cnpj" },
+    { "doc": "11444777000161", "tipo": "cnpj" },
+    { "doc": "52998224725",    "tipo": "cpf" },
+    { "doc": "11144477735",    "tipo": "cpf" },
+    { "doc": "12345678909",    "tipo": "cpf" }
+  ],
+
+  "invalidos": [
+    { "doc": "99999999999999", "porque": "catorze dígitos repetidos — passam na conta do DV, e por isso são o caso que uma validação ingênua aceita" },
+    { "doc": "00000000000",    "porque": "onze dígitos repetidos, mesma armadilha" },
+    { "doc": "65087663000131", "porque": "o CNPJ da Racha com um dígito trocado — é o typo que o DV existe pra pegar" },
+    { "doc": "52998224726",    "porque": "CPF válido com o último dígito trocado" },
+    { "doc": "5299822472",     "porque": "dez dígitos: incompleto" },
+    { "doc": "529982247251",   "porque": "doze dígitos: nem CPF nem CNPJ" },
+    { "doc": "",               "porque": "vazio" }
+  ],
+
+  "normalizacao_do_servidor": {
+    "_leia": "Só o servidor tem esta função (`normalizarCnpjDeCasa`): é o portão de ESCRITA do `POST /api/venues`. `ok:true` com `valor:null` é ausência legítima — o documento é pedido no passo do recebedor, não no de abrir a casa.",
+    "casos": [
+      { "entrada": "65087663000130",        "ok": true,  "valor": "65087663000130" },
+      { "entrada": "65.087.663/0001-30",    "ok": true,  "valor": "65087663000130", "nota": "pontuação canônica é aceita e some no armazenamento" },
+      { "entrada": " 65087663000130 ",      "ok": true,  "valor": "65087663000130" },
+      { "entrada": null,                    "ok": true,  "valor": null },
+      { "entrada": "",                      "ok": true,  "valor": null },
+      { "entrada": "CNPJ em analise 11222333000181", "ok": false, "nota": "o número é válido; a RESSALVA não pode sumir. Era aceito porque a validação rodava em cima de um extrator de dígitos" },
+      { "entrada": "12.345.678/0001-95 (em regularizacao)", "ok": false, "nota": "mesmo caso, com parênteses" },
+      { "entrada": "99999999999999",        "ok": false },
+      { "entrada": "65087663000131",        "ok": false },
+      { "entrada": "MEI 12345678000195 — nao verificado", "ok": false }
+    ]
+  }
+}

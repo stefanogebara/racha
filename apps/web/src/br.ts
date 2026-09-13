@@ -95,6 +95,21 @@ export function maskCpfCnpj(input: string): string {
  * documento de verdade. Aqui só passa o que está COMPLETO; o resto volta como
  * veio. A migração 0002 já tinha decidido o princípio: documento de mentira num
  * recibo de verdade é pior que a ausência dele.
+ *
+ * A PONTUAÇÃO É, ELA MESMA, UMA AFIRMAÇÃO DE FORMA — e a primeira versão desta
+ * função a concedia pela CONTAGEM DE DÍGITOS, jogando fora tudo que não fosse
+ * dígito. `CNPJ em analise 11222333000181` saía do recibo como
+ * `11.222.333/0001-81`: a ressalva apagada, e o resto vestido de documento
+ * conferido. O campo é escrito por qualquer usuário autenticado
+ * (`createVenue`) e lido por todo cliente não autenticado, então isso não é
+ * hipótese. Achado pela revisão de segurança de 2026-09-13.
+ *
+ * Agora o gatilho é o VALOR ser um documento: só a pontuação canônica é
+ * tolerada antes da conferência, e qualquer outro caractere derruba pro cru.
+ * Note o que continua NÃO sendo feito aqui — dígito verificador. Conferir é
+ * trabalho do caminho de ESCRITA (`isValidCpfCnpj` no `createVenue`), porque
+ * é lá que dá pra recusar; uma função de exibição que valida esconde a
+ * ausência de validação atrás de uma tela bonita.
  */
 export function formatTaxId(raw: string | null | undefined, market?: string): string {
   if (!raw) return '';
@@ -102,10 +117,22 @@ export function formatTaxId(raw: string | null | undefined, market?: string): st
   // Na Espanha o NIF é `B12345678` — letra e oito dígitos, sem pontuação.
   // Pontuá-lo seria inventar um formato que o país não usa. Quem decide é o
   // MERCADO da casa, não a língua de quem lê — mesma regra do dinheiro.
+  //
+  // ESTE RAMO NÃO EXECUTA HOJE: `showsVenueTaxId` (api/_lib/markets.js) só
+  // devolve true pra `br`, então `/api/check` manda `taxId: null` numa casa
+  // espanhola e o recibo nem renderiza. Fica escrito porque o dia em que
+  // alguém ligar aquela chave é o dia em que isto vira código vivo — e aí o
+  // `toUpperCase()` sem conferência de forma está imprimindo, sob rótulo de
+  // documento, o identificador nacional de uma pessoa física (o caso do
+  // autónomo cujo NIF é o DNI). Quem ligar a chave vem parar aqui.
   if (market === 'es') return limpo.toUpperCase();
-  const digitos = onlyDigits(limpo);
-  if (digitos.length === 11 || digitos.length === 14) return maskCpfCnpj(digitos);
-  return limpo;
+  // Só `.`, `-`, `/` e espaço — a pontuação que o próprio documento usa. Uma
+  // letra, uma vírgula ou um parêntese significa que a string carrega algo
+  // ALÉM do documento, e o que carrega ressalva não pode sair vestido de
+  // documento conferido.
+  const canonico = limpo.replace(/[.\-/\s]/g, '');
+  if (!/^\d{11}$|^\d{14}$/.test(canonico)) return limpo;
+  return maskCpfCnpj(canonico);
 }
 
 /** email suficiente pro Pagar.me (que exige e-mail no recebedor). */

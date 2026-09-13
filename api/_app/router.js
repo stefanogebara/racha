@@ -25,6 +25,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const { createMemoryStore } = require('../_lib/store/memory');
+const { normalizarCnpjDeCasa } = require('../_lib/br/documento.js');
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
@@ -1539,8 +1540,19 @@ async function route(req, res) {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.name || !String(b.name).trim()) return json(res, 400, { success: false, error: 'Nome é obrigatório' });
+      // O DOCUMENTO DA CASA É CONFERIDO AQUI, no caminho de ESCRITA.
+      //
+      // Era `b.cnpj ?? null`: sem tipo, sem tamanho, sem dígito verificador —
+      // enquanto o `Admin.tsx` mascarava e desarmava o botão. Cliente
+      // validando e servidor não é o par clássico, e aqui ele tinha alcance:
+      // o valor guardado sai no `/api/check` pra todo cliente NÃO
+      // autenticado, e agora também passa pelo formatador do recibo, que é
+      // quem lhe dá a aparência de conferido. Achado pela revisão de
+      // segurança de 2026-09-13.
+      const doc = normalizarCnpjDeCasa(b.cnpj);
+      if (!doc.ok) return json(res, 400, { success: false, error: 'CNPJ inválido', code: doc.code });
       const venue = await store.createVenue({
-        name: b.name, cnpj: b.cnpj ?? null, city: b.city ?? null,
+        name: b.name, cnpj: doc.valor, city: b.city ?? null,
         servicoBp: Number.isInteger(b.servicoBp) ? b.servicoBp : 1000,
       });
       await store.addVenueMember(venue.id, user.id, 'owner');
