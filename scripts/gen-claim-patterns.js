@@ -52,6 +52,9 @@ enum ClaimPatterns {
     static let revogaDispensa = ${lit(G.revoga_dispensa)}
     /// Alta precisão, baixa cobertura. Oráculo de teste: ver claims.json.
     static let formaDirecional = ${lit(expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime))}
+    /// Destinatários que o censo de build DETECTA e o runtime não — os que,
+    /// na mesa, querem dizer os clientes. Ver \`_porque_so_deteccao\`.
+    static let soDeteccao = ${lit(G.destinatarios_so_deteccao.join('|'))}
     /// A frase que o produto diz. Não é uma variação.
     static let sancionada = ${lit(G.frase_sancionada)}
 }

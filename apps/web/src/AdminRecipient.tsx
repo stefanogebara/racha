@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authedReq as req } from './auth';
 import { useT } from './lang';
-import { onlyDigits, alnum, isValidCpfCnpj, docKind, maskCpfCnpj, isValidEmail, BR_BANKS, bankName } from './br';
+import { onlyDigits, alnum, isValidCNPJ, docKind, maskCpfCnpj, isValidEmail, BR_BANKS, bankName } from './br';
 
 /**
  * "Recebimento" — o recebedor Pagar.me (split) do restaurante, por venue.
@@ -98,7 +98,13 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   const valid = {
     name: name.trim().length >= 2,
     // CPF/CNPJ com dígito verificador — pega quase todo erro de digitação.
-    doc: isValidCpfCnpj(doc),
+    // CNPJ, não "CPF ou CNPJ": o servidor recusa CPF desde 2026-09-13
+    // (documento de casa é documento de empresa), e o formulário dizia
+    // "CPF válido ✓" em verde, liberava o botão, e o dono levava
+    // "Confira o número do documento" — o produto afirmando que o número
+    // está certo e mandando conferir o número, sem caminho adiante e sem
+    // dizer a regra. Cliente MAIS FROUXO que o servidor é sempre um beco.
+    doc: isValidCNPJ(doc),
     // E-mail é OBRIGATÓRIO no Pagar.me (POST /recipients recusa sem ele).
     email: isValidEmail(email),
     bank: bankCode.length === 3,
@@ -238,7 +244,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
                 onBlur={() => touch('doc')} style={errStyle('doc', valid.doc)}
                 onChange={(e) => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
               {fb('doc', valid.doc, docErr, t('rcpt.docHint'),
-                kind === 'cpf' ? t('admin.cpfOk') : t('admin.cnpjOk'))}
+                t('admin.cnpjOk'))}
               {/* A casa HERDA este documento quando ainda não tem um, e é ele
                   que o cliente lê no comprovante. Herança silenciosa num campo
                   que vai pra tela de terceiro é coisa que se descobre em

@@ -56,6 +56,10 @@ describe('mercados', () => {
         const v = publicMarketView('br', { servicoBp: 1000, cnpj });
         expect(v.serviceCharge.bp).toBe(0);
         expect(v.servicoBp).toBe(0);
+        // E o MODO, que é o que o cliente lê pra decidir se DESENHA a linha.
+        // Zerar só o valor deixava uma caixa marcada de "Serviço da equipe
+        // (0%)" na tela — duas verdades no mesmo payload.
+        expect(v.serviceCharge.mode).toBe('none');
       }
       // E com documento, a linha volta.
       expect(publicMarketView('br', { servicoBp: 1000, cnpj: '11.444.777/0001-61' }).serviceCharge.bp)

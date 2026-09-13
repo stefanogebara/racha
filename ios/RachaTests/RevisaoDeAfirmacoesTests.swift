@@ -96,9 +96,12 @@ struct RevisaoDeAfirmacoesTests {
         // da lista de runtime. Não é descuido: está escrito em
         // `_porque_lista_runtime`, e o censo de BUILD continua pegando todas.
         // Fica afirmado aqui pra que a lacuna não possa crescer em silêncio.
+        // GERADO, não escrito à mão. Era uma QUARTA cópia da lista — e já
+        // tinha divergido: faltava `ellos`. Falhava fechado, mas é exatamente
+        // a divergência que o `gen-claim-patterns.js` existe pra acabar, no
+        // teste que certifica a lacuna.
         let pronome = try! NSRegularExpression(
-            pattern: "pra gente|para n[óo]s|\\bto us\\b|para nosotros|\\bdeles\\b|\\bdelas\\b|com voc[êe]|\\beles\\b|pessoal",
-            options: [.caseInsensitive])
+            pattern: ClaimPatterns.soDeteccao, options: [.caseInsensitive])
         for linha in foraDoRuntime {
             let r = pronome.rangeOfFirstMatch(in: linha, range: NSRange(linha.startIndex..., in: linha))
             #expect(r.location != NSNotFound,

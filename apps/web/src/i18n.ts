@@ -1218,7 +1218,10 @@ export const DICT = {
   'rcpt.holderLabel': { en: 'Legal name / account holder',      pt: 'Razão social / nome do titular', es: 'Razón social / nombre del titular' },
   'rcpt.holderNeed':  { en: 'Enter the account holder’s name.', pt: 'Informe o nome do titular da conta.', es: 'Introduce el nombre del titular de la cuenta.' },
   'rcpt.holderHint':  { en: 'Same as the bank and tax records.', pt: 'Igual ao cadastro no banco / na Receita.', es: 'Igual que en el banco y en la administración.' },
-  'rcpt.docLabel':    { en: 'Holder’s CNPJ or CPF',            pt: 'CNPJ ou CPF do titular', es: 'Documento fiscal del titular' },
+  // CNPJ e só: o serviço é remuneração que passa pela folha, e folha exige
+  // pessoa jurídica. O rótulo dizia "CNPJ ou CPF" enquanto o servidor
+  // recusava CPF.
+  'rcpt.docLabel':    { en: 'Restaurant’s CNPJ',                pt: 'CNPJ do restaurante', es: 'CIF del restaurante' },
   // O dono digita este documento num passo de KYC — e é ELE que passa a
   // aparecer no comprovante do cliente, porque a casa herda o documento do
   // recebedor quando ainda não tem um (`decidirDocumentoDoRecebedor`). Herança
@@ -1228,9 +1231,9 @@ export const DICT = {
   'rcpt.docOnReceipt': { en: 'This is also the document shown on the diner’s receipt.',
                         pt: 'Este é também o documento que aparece no comprovante do cliente.',
                         es: 'Es también el documento que aparece en el recibo del cliente.' },
-  'rcpt.docHint':     { en: 'The restaurant’s CNPJ (14 digits) or your CPF (11 digits).',
-                        pt: 'CNPJ do restaurante (14 díg.) ou seu CPF (11 díg.).',
-                        es: 'El documento de la empresa o el tuyo como autónomo.' },
+  'rcpt.docHint':     { en: 'The restaurant’s CNPJ, 14 digits. An individual’s CPF cannot receive here: the service charge is payroll, and payroll needs a company.',
+                        pt: 'O CNPJ do restaurante, 14 dígitos. CPF de pessoa física não recebe aqui: o serviço é remuneração que passa pela folha, e folha exige empresa.',
+                        es: 'El CIF del restaurante. Un documento personal no puede recibir aquí: el servicio es remuneración por nómina, y la nómina exige empresa.' },
   'rcpt.emailLabel':  { en: 'Restaurant e-mail',               pt: 'E-mail do restaurante', es: 'Correo del restaurante' },
   'rcpt.emailBad':    { en: 'Invalid e-mail — check the format.', pt: 'E-mail inválido — confira o formato.', es: 'Correo no válido — revisa el formato.' },
   // Exemplo, e exemplo é tela: um e-mail `.com.br` numa tela espanhola diz

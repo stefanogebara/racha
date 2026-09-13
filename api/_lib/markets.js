@@ -178,7 +178,13 @@ function publicMarketView(code, { servicoBp = 0, cnpj = null } = {}) {
     defaultLang: m.defaultLang,
     rails: [...m.rails],
     serviceCharge: {
-      mode: m.serviceCharge.mode,
+      // O MODO também. Zerar só o `bp` deixava `mode: 'preselected'` ao lado
+      // de `bp: 0`, e é o MODO que o cliente lê pra decidir se mostra a linha
+      // (`App.tsx`: `hasServiceLine = mode !== 'none'`): a casa sem documento
+      // provado ganhava uma caixa marcada dizendo "Serviço da equipe (0%)"
+      // que não soma nada. São as duas verdades no mesmo payload que o
+      // comentário do `servicoBp`, três linhas acima, existe pra proibir.
+      mode: hasService ? m.serviceCharge.mode : 'none',
       bp: hasService ? Number(servicoBp) || 0 : 0,
     },
     payerTaxId: { required: m.payerTaxId.required, kind: m.payerTaxId.kind },
@@ -276,6 +282,16 @@ function marketGate(code, { rail, amountCents, tipCents = 0, venue = null } = {}
   // a forma `if (thing && !ok)` que o inegociável #7 nomeia, dentro da função
   // escrita pra fechar o #7. Com gorjeta e sem venue não há o que conferir, e
   // a resposta certa pra "não sei" é não. Achado pelas duas revisões.
+  // O QUE ESTE PORTÃO NÃO ALCANÇA, dito aqui pra não parecer completo: ele
+  // separa gorjeta de consumo pelo que o CLIENTE declara. Um cliente
+  // modificado que dobre o serviço dentro de `amountCents` liquida como
+  // consumo, e o servidor não tem como distinguir — o dinheiro cai no mesmo
+  // recebedor e a reconciliação fecha, mas o valor deixa de ser SINALIZADO
+  // como gorjeta no relatório que o inegociável #2 promete à casa pra
+  // distribuição por folha. Nenhuma oferta falsa é feita (o
+  // `pix.includesTip` depende de `tipCents > 0`), então não há exposição do
+  // CDC art. 30 — o que se perde é a rastreabilidade da Lei 13.419/2017.
+  // Apontado pela revisão de segurança de 2026-09-13.
   if (tipCents > 0 && !documentoPublicavelDaCasa(venue?.market || code, venue?.cnpj, true)) {
     return { code: 'venue_no_tip_document' };
   }

@@ -274,14 +274,17 @@ final class AgentSession {
             // Keep an empty bubble out of the thread; the failure is attached to the
             // last real message so the person sees it in context.
             // Guardado como as ESCRITAS: `cancel()` pode ter tirado a bolha.
-        if text.isEmpty && pendingTools.isEmpty && messages.indices.contains(bubbleIndex) {
-            messages.remove(at: bubbleIndex)
-        }
+            if text.isEmpty && pendingTools.isEmpty && messages.indices.contains(bubbleIndex) {
+                messages.remove(at: bubbleIndex)
+            }
             return .failed(failure)
         }
 
         if text.isEmpty && pendingTools.isEmpty {
-            messages.remove(at: bubbleIndex)
+            // Guardado como o irmão seis linhas acima — este ficou de fora
+            // quando o outro recebeu a checagem, e é alcançável pelo mesmo
+            // caminho: `cancel()` tirou a bolha e a volta fecha sem texto.
+            if messages.indices.contains(bubbleIndex) { messages.remove(at: bubbleIndex) }
             return .finished
         }
 
