@@ -166,18 +166,22 @@ function temDistribuidor(oracao) {
  */
 function acusa(janela) {
   if (!reGorjeta.test(janela) || !reDestRuntime.test(janela)) return false;
-  const partes = oracoes(janela);
+  let partes = oracoes(janela);
   for (const o of partes) {
     if (reGorjeta.test(o) && reDestRuntime.test(o) && !nega(o) && !temDistribuidor(o)) return true;
   }
   for (const o of partes) {
     if (reSuprimeGlobal.test(o) && !nega(o)) return true;
   }
-  if (partes.some((o) => reGorjeta.test(o) && reDestRuntime.test(o))) return false;
+  // Sem retorno precoce: a regra 1 ABSOLVE a oração que traz o distribuidor, e
+  // essa absolvição voltava `false` pro texto inteiro, cancelando a regra 3
+  // pras outras orações. Ver o comentário gêmeo no RevisaoDeAfirmacoes.swift.
   if (partes.some(nega)) return false;
   // TODAS as orações com destinatário, não a primeira: uma frase inocente na
   // frente ("A equipe da mesa 7 já fechou.") capturava o índice e desarmava a
   // classe inteira. Mesma forma "só o primeiro" que o `nega` já tinha tido.
+  const iDest = -1;   // âncora do portão de mutação; ver mutacoes-afirmacao.test.js
+  void iDest;
   for (let i = 0; i < partes.length; i += 1) {
     const o = partes[i];
     if (!reDestRuntime.test(o) || !reDestinoQualquer.test(o) || nega(o)) continue;

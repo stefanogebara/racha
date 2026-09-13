@@ -14,7 +14,18 @@
  * JSON entre as duas cópias em vez de um porte à mão.
  *
  * Um corpo prova que o código de HOJE passa. Só a mutação prova que cada peça
- * do desenho carrega alguma coisa. Aqui cada mutação nomeada é aplicada ao
+ * do desenho carrega alguma coisa.
+ *
+ * O QUE ESTE ARQUIVO NÃO MEDE, dito pra não virar confiança falsa:
+ *
+ *  · ele muta o lado JS (`claims.test.js`). O guarda Swift roda o MESMO corpo
+ *    compartilhado, mas ninguém apagou peça dele pra ver se o corpo reage.
+ *    A medição que envergonhou o desenho JS — três de seis peças apagáveis com
+ *    o corpo verde — não foi rodada contra o `RevisaoDeAfirmacoes.swift`;
+ *  · e o corpo compartilhado fica verde POR CONCORDÂNCIA quando os dois lados
+ *    erram igual. Ele prova convergência, não correção. O retorno precoce da
+ *    regra 3 é a prova: os dois guardas o tinham, os dois vazavam, e quem viu
+ *    foi uma revisão de fora. Aqui cada mutação nomeada é aplicada ao
  * arquivo de verdade, o corpo roda, e exige-se VERMELHO. Peça que não pode
  * ficar vermelha não tem teste — e, como este repositório aprendeu cinco vezes
  * nesta semana, guarda que não dispara é guarda ausente (inegociável #7).
@@ -122,6 +133,37 @@ function falhasCom(fonte) {
   return F.casos.filter((c) => acusa(c.texto) !== c.recusa).length;
 }
 
+/**
+ * AFROUXAMENTOS — e este é o buraco do próprio instrumento.
+ *
+ * As mutações acima APAGAM peças e exigem vermelho. Uma linha que AFROUXA o
+ * guarda é invisível pra esse formato por construção: apagá-la deixaria o
+ * corpo mais verde, não mais vermelho. Foi assim que um retorno precoce ficou
+ * no código — "a regra 1 já julgou essa oração", só que a regra 1 ABSOLVE a
+ * oração do distribuidor e a absolvição virava o veredito do texto inteiro.
+ * A revisão de compliance achou; nem o corpo compartilhado (os dois lados
+ * erravam igual, então ele ficava verde por concordância) nem este arquivo
+ * podiam ver.
+ *
+ * Então o instrumento ganha a metade que faltava: ACRESCENTAR um atalho
+ * permissivo e exigir que o corpo acuse. Um corpo que não reage a um atalho
+ * novo não está prendendo o guarda — está prendendo o formato dele.
+ */
+const AFROUXAMENTOS = [
+  { nome: 'atalho: qualquer oração com os dois substantivos encerra o julgamento',
+    ancora: '  const iDest = -1;',
+    insere: '  if (partes.some((o) => reGorjeta.test(o) && reDestRuntime.test(o))) return false;\n' },
+  { nome: 'atalho: qualquer distribuidor em qualquer lugar dispensa',
+    ancora: '  const iDest = -1;',
+    insere: '  if (partes.some(temDistribuidor)) return false;\n' },
+  { nome: 'atalho: negação em qualquer lugar do texto dispensa',
+    ancora: '  const iDest = -1;',
+    insere: '  if (reNegador.test(janela)) return false;\n' },
+  { nome: 'atalho: só a primeira oração é olhada',
+    ancora: '  const iDest = -1;',
+    insere: '  partes = partes.slice(0, 1);\n' },
+];
+
 describe('cada peça do desenho pode ficar vermelha', () => {
   const original = fs.readFileSync(ALVO, 'utf8');
 
@@ -144,6 +186,15 @@ describe('cada peça do desenho pode ficar vermelha', () => {
     } else {
       expect(falhas).toBeGreaterThan(0);
     }
+  });
+
+  test.each(AFROUXAMENTOS.map((m) => [m.nome, m]))('afrouxar: %s', (_nome, m) => {
+    // O atalho entra logo antes do laço da regra 3 e o corpo tem que ACUSAR a
+    // perda. Se ficar verde, é o corpo que não está prendendo nada.
+    expect(original.includes(m.ancora)).toBe(true);
+    const mutado = original.replace(m.ancora, m.insere + m.ancora);
+    expect(mutado).not.toBe(original);
+    expect(falhasCom(mutado)).toBeGreaterThan(0);
   });
 
   test('a lista de peças sem cobertura não cresce', () => {

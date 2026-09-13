@@ -283,7 +283,22 @@ enum RevisaoDeAfirmacoes {
         //    sete frases comuns recusadas. E o ramo não ganhava nada — ZERO
         //    frases do corpo que só ele pegasse. O que ele tem que cobrir é a
         //    divisão SEM VERBO ("- 10% de serviço\n- pro garçom"), e é só isso.
-        if partes.contains(where: { casa(gorjeta, $0) && casa(destinatario, $0) }) { return false }
+        // NÃO HÁ MAIS RETORNO PRECOCE AQUI, e a razão dele estava errada.
+        // Ele dizia "a regra 1 já julgou essa oração" — mas a regra 1 ABSOLVE
+        // a oração que traz o distribuidor, e essa absolvição voltava `false`
+        // pro TEXTO INTEIRO, cancelando a regra 3 pra todas as outras. Bastava
+        // pôr um substantivo de gorjeta na cauda sancionada:
+        //
+        //   "…\n- 100% pro garçom\nA gorjeta pertence à equipe e o
+        //    restaurante distribui pela folha."
+        //
+        // `pertence` não é forma direcional (1b cala), a cauda é absolvida
+        // pela regra 1, e o `- 100% pro garçom` nunca era olhado. A promessa
+        // do CAMINHO e a da QUANTIDADE, as duas, na tela.
+        //
+        // Tirar a linha não quebra nada: os quatro falsos positivos que a
+        // motivaram já são segurados pela exigência de marcador-ou-quantidade
+        // logo abaixo. Achado pela revisão de compliance de 2026-09-13.
         if partes.contains(where: nega) { return false }
         // TODAS as orações com destinatário, não a primeira. `firstIndex` era
         // a mesma forma "só o primeiro" que a revisão anterior tinha achado no

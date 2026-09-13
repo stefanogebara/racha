@@ -1225,11 +1225,16 @@ export const DICT = {
   // dizer a regra, porque é ela que falta — não o número.
   // O dono precisa saber que parou de arrecadar o serviço — e por quê. Falhar
   // fechado é o certo; falhar calado não é (inegociável #8).
+  //
+  // "faltando OU NÃO CONFERE": o predicado atrás disto é VALIDADE, não
+  // presença. Dizia "não cadastrado", e quem digitou um CNPJ com um dígito
+  // errado lia isso olhando pro campo preenchido e concluía que o painel
+  // está quebrado. O portão mudou e a frase não tinha mudado junto.
   'admin.noTipDocTitle': { en: 'The service charge is off on this venue',
                         pt: 'O serviço está desligado nesta casa', es: 'El cargo por servicio está desactivado' },
-  'admin.noTipDocBody': { en: 'Without the restaurant’s CNPJ registered, the 10% cannot be collected: the service charge is payroll, and payroll needs a company. Diners still pay for what they ordered — only the service line is off. Register the CNPJ and it comes back.',
-                        pt: 'Sem o CNPJ do restaurante cadastrado, os 10% não podem ser cobrados: o serviço é remuneração que passa pela folha, e folha exige empresa. O cliente continua pagando o consumo normalmente — só a linha de serviço está fora. Cadastre o CNPJ e ela volta.',
-                        es: 'Sin el CIF del restaurante registrado, el 10% no puede cobrarse: el servicio es remuneración por nómina, y la nómina exige empresa. El cliente sigue pagando el consumo — solo la línea de servicio está fuera. Registra el CIF y vuelve.' },
+  'admin.noTipDocBody': { en: 'The CNPJ on file is missing or does not check out, so the 10% cannot be collected: the service charge is payroll, and payroll needs a company. Diners still pay for what they ordered — only the service line is off. Register the CNPJ and it comes back.',
+                        pt: 'O CNPJ cadastrado está faltando ou não confere, então os 10% não podem ser cobrados: o serviço é remuneração que passa pela folha, e folha exige empresa. O cliente continua pagando o consumo normalmente — só a linha de serviço está fora. Cadastre o CNPJ e ela volta.',
+                        es: 'El CIF registrado falta o no es válido, así que el 10% no puede cobrarse: el servicio es remuneración por nómina, y la nómina exige empresa. El cliente sigue pagando el consumo — solo la línea de servicio está fuera. Registra el CIF y vuelve.' },
   'admin.noTipDocCta': { en: 'Register the CNPJ', pt: 'Cadastrar o CNPJ', es: 'Registrar el CIF' },
   'rcpt.docCpfNo':    { en: 'That is a CPF, and the payout document has to be the restaurant’s CNPJ: the service charge is payroll, and payroll needs a company.',
                         pt: 'Esse é um CPF, e o documento de recebimento tem que ser o CNPJ do restaurante: o serviço é remuneração que passa pela folha, e folha exige empresa.',

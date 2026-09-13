@@ -1,5 +1,5 @@
 {
-  "_leia": "O MESMO corpo de frases, com o MESMO veredito, exercitado pelos dois guardas: o censo de build (api/__tests__/claims.test.js) e a revisão de runtime (ios/RachaTests/RevisaoDeAfirmacoesTests.swift). Os padrões já são gerados de uma fonte só; a LÓGICA em volta deles não era, e divergiu em três pontos — num deles o censo de build ficou MAIS FROUXO que o runtime, que é a direção que o gerador existe pra impedir, no guarda que governa o roteiro IMPRESSO entregue ao garçom. `mesmaRegraDoCenso` comparava strings de padrão e não podia ver que os dois `nega` eram funções diferentes. Mesma forma do documentos.fixture.json: cópia declarada, não cópia esquecida.",
+  "_leia": "O MESMO corpo de frases, com o MESMO veredito, exercitado pelos dois guardas: o censo de build (api/__tests__/claims.test.js) e a revisão de runtime (ios/RachaTests/RevisaoDeAfirmacoesTests.swift). Os padrões já são gerados de uma fonte só; a LÓGICA em volta deles não era, e divergiu em três pontos — num deles o censo de build ficou MAIS FROUXO que o runtime, que é a direção que o gerador existe pra impedir, no guarda que governa o roteiro IMPRESSO entregue ao garçom. `mesmaRegraDoCenso` comparava strings de padrão e não podia ver que os dois `nega` eram funções diferentes. Mesma forma do documentos.fixture.json: cópia declarada, não cópia esquecida. ATENÇÃO AO QUE ELE NÃO PROVA: os dois lados podem errar IGUAL, e aí o corpo fica verde por concordância. Ele prova CONVERGÊNCIA, não correção — e a correção continua vindo de fora, das revisões.",
   "casos": [
     {
       "texto": "Sem dúvida, o garçom fica com a gorjeta.",
@@ -310,6 +310,16 @@
       "texto": "A gorjeta pertence à equipe e o restaurante distribui, mas não pela folha.",
       "recusa": true,
       "porque": "O `temDistribuidor` do runtime olhava só a PRIMEIRA cláusula de distribuidor e só pra trás; o do censo olhava todas e ±30. Esta frase era recusada no build e passava no runtime — o guarda mais frouxo na única direção que chega ao cliente, e na classe de evasão que o `revoga_dispensa` existe pra pegar (`pertence` não é forma direcional, então a regra 1b não salvava). Achado pela revisão de compliance de 2026-09-13"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom\nA gorjeta pertence à equipe e o restaurante distribui pela folha.",
+      "recusa": true,
+      "porque": "A CAUDA SANCIONADA COM UM SUBSTANTIVO DE GORJETA DENTRO cancelava a regra 3 pro texto todo: a regra 1 absolvia a cauda (traz o distribuidor), e o retorno precoce transformava essa absolvição no veredito do texto inteiro — o `- 100% pro garçom` nunca era olhado. Os DOIS guardas falhavam igual, então o corpo compartilhado ficava verde POR CONCORDÂNCIA: ele prova convergência, não correção. Achado pela revisão de compliance de 2026-09-13"
+    },
+    {
+      "texto": "Não é taxa nenhuma. Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "Negador numa oração e a afirmação SEM VERBO noutra: só a regra 3 alcança, e a negação não pode dispensar o texto inteiro — ela nega a oração dela. Existe pra prender o atalho 'negação em qualquer lugar dispensa', que o portão de mutação insere"
     }
   ]
 }
