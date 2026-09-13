@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import { semComentarios } from './censo-taxid.ts';
 import { join } from 'node:path';
 import { DICT, LANGS, asLang, money, tError, STRIPE_LOCALE, LANDING_MARKET } from '../src/i18n.ts';
 
@@ -878,14 +879,19 @@ test('nenhuma tela põe o texto CRU do erro no estado — o servidor manda códi
     { arquivo: 'WalletPay.tsx', trecho: "const raw = (e as Error).message || '';" },
     { arquivo: 'auth.ts', trecho: 'throw new Error(error.message);' },
   ];
+  // Comentários somem ESTRUTURALMENTE, com o mesmo removedor do censo de
+  // `taxId`. A versão anterior adivinhava por indentação — "linha indentada
+  // que começa com palavra e não tem `;(){}`" — e isso dispensava
+  // `      e.message`, que é exatamente o que o prettier produz ao quebrar
+  // uma chamada longa: a mesma forma de sink que pôs o inglês da Stripe na
+  // tela de pagamento. Uma allowlist com heurística de prosa dentro volta a
+  // depender de grafia.
   const ofensores: string[] = [];
   for (const f of anda(src)) {
-    readFileSync(join(src, f), 'utf8').split('\n').forEach((linha, i) => {
-      const sem = linha.replace(/(^|[\s;])\/\/[^\n]*$/, '$1');
+    semComentarios(readFileSync(join(src, f), 'utf8')).split('\n').forEach((linha, i) => {
+      const sem = linha;
       if (!/\.message\b/.test(sem)) return;
       if (TRADUTOR.test(sem)) return;              // a reserva do tradutor é o contrato
-      if (/^\s*\*/.test(sem)) return;              // linha de comentário de bloco
-      if (/^\s*(\/\*|\{\/\*)/.test(sem) || /^\s{6,}\w[^;(){}]*$/.test(sem)) return;  // prosa dentro de comentário JSX
       if (DISPENSAS.some((d) => f.endsWith(d.arquivo) && sem.includes(d.trecho))) return;
       ofensores.push(`${f}:${i + 1} ${sem.trim().slice(0, 80)}`);
     });

@@ -41,8 +41,25 @@ describe('mercados', () => {
       // Madrid não cobra serviço de qualquer forma: quem decide é o mercado.
       const es = publicMarketView('es', { servicoBp: 1000 });
       expect(es.serviceCharge.bp).toBe(0);
-      const br = publicMarketView('br', { servicoBp: 1000 });
+      // `cnpj` é preciso: a linha de serviço só aparece onde pode ser cobrada.
+      const br = publicMarketView('br', { servicoBp: 1000, cnpj: '11444777000161' });
       expect(br.serviceCharge.bp).toBe(1000);
+    });
+
+    test('sem documento de empresa provado, a linha de serviço nem é OFERECIDA', () => {
+      // O `marketGate` já recusava a cobrança; a tela seguia oferecendo. O
+      // cliente via o serviço pré-marcado, somado no total, tocava em pagar e
+      // levava a recusa — beco sem saída no caminho padrão. Não é oferta
+      // descumprida (a cobrança não acontece), mas é um total mostrado que a
+      // casa não pode receber. Achado pela revisão de compliance de 2026-09-13.
+      for (const cnpj of [null, '52998224725', '99999999999999', '  ']) {
+        const v = publicMarketView('br', { servicoBp: 1000, cnpj });
+        expect(v.serviceCharge.bp).toBe(0);
+        expect(v.servicoBp).toBe(0);
+      }
+      // E com documento, a linha volta.
+      expect(publicMarketView('br', { servicoBp: 1000, cnpj: '11.444.777/0001-61' }).serviceCharge.bp)
+        .toBe(1000);
     });
 
     test('nenhum mercado pré-marca uma gorjeta opcional', () => {

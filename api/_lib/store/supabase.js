@@ -440,7 +440,9 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
             // autenticação. Linhas antigas foram escritas antes do portão do
             // `createVenue` existir. Ver `documentoPublicavelDaCasa`.
             taxId: documentoPublicavelDaCasa(table.venues.market, table.venues.cnpj, showsVenueTaxId(table.venues.market)),
-            ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points }),
+            // `cnpj` vai junto: sem documento de empresa provado a casa não pode
+            // cobrar serviço, e o que não pode ser cobrado não é oferecido.
+            ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points, cnpj: table.venues.cnpj }),
           },
           table: { label: table.label },
           check: { id: cand.id, items },

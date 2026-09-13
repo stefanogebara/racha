@@ -25,3 +25,12 @@ ios/DerivedData/
 # onde a versão errada continua legível. O que se publica é `ios/racha-ios.html`.
 ios/lab/preview.html
 ios/lab/racha-ios.html
+
+# Gerados pelo prebuild (`apps/web/scripts/embed-ios.mjs`) a partir de
+# `ios/racha-ios.html`, que é censurado e reprodutível da fonte. `dist/` já
+# cobria um; o outro não estava coberto por nada, e nada impedia um
+# `git add -A` de versionar uma cópia velha — a falha que a nota sobre o
+# `ios/lab/racha-ios.html` acima descreve.
+apps/web/public/ios.html
+apps/web/public/ios-fonts/
+apps/web/public/img/carved/

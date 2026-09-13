@@ -58,6 +58,9 @@ final class AgentSession {
     /// trocado, alguém empurrando — era indistinguível de uma sessão sadia.
     private(set) var recusas = 0
 
+    /// Tudo que o agente escreveu desde a última mensagem da pessoa.
+    private var textoDoTurno = ""
+
     init(rachaID: UUID, repository: RachaRepository, client: AnthropicClient,
          transcripts: TranscriptStore, history: @escaping @MainActor () -> HistoryIndex) {
         self.rachaID = rachaID
@@ -121,6 +124,15 @@ final class AgentSession {
 
         task = Task { [weak self] in
             guard let self else { return }
+            // O TEXTO DO AGENTE DESDE A ÚLTIMA FALA DO USUÁRIO. A unidade do
+            // guarda era a VOLTA; a unidade de quem lê é a conversa. Com uma
+            // chamada de ferramenta no meio, "Deixa eu conferir a gorjeta
+            // aqui." e "Fica com os garçons, sim." são duas voltas — nenhuma
+            // afirma nada sozinha, e as duas ficam na tela juntas. É o mesmo
+            // "trecho anterior preso" que o congelamento do stream já tratava,
+            // não carregado pro julgamento. Achado pela revisão de segurança
+            // de 2026-09-13.
+            self.textoDoTurno = ""
             var rounds = 0
             var hitLimit = true
             // A hard ceiling on the loop. A model that keeps calling tools forever
@@ -240,8 +252,13 @@ final class AgentSession {
         // uma frase que é nossa e diz isso. E é o texto RECUSADO que vai pro
         // histórico, não o cru: devolver o cru ensinaria o modelo que aquilo
         // passou, e ele repetiria com mais convicção na volta seguinte.
-        if RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(text) {
+        // Julga o ACUMULADO da conversa, não só esta volta.
+        textoDoTurno += (textoDoTurno.isEmpty ? "" : "\n") + text
+        if RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(textoDoTurno) {
             recusas += 1
+            // A volta que fecha a afirmação é a que some. As anteriores já
+            // estão na tela; a recusa troca esta e o contador registra.
+            textoDoTurno = ""
             logger.warning("volta do agente recusada — \(self.recusas, privacy: .public) nesta sessão")
             text = RevisaoDeAfirmacoes.respostaSegura
         }

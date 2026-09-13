@@ -219,6 +219,23 @@ struct RevisaoDeAfirmacoesTests {
             "A gorjeta não fica com o garçom." + cauda))
     }
 
+    @Test("a afirmação repartida entre VOLTAS, com uma ferramenta no meio, é pega")
+    func repartidaEntreVoltas() {
+        // A unidade do guarda era a volta; a unidade de quem lê é a conversa.
+        // O modelo escreve texto ANTES de chamar ferramenta, e o `run()` dá
+        // até seis voltas: "Deixa eu conferir a gorjeta aqui." e "Fica com os
+        // garçons, sim." são duas voltas, nenhuma afirma nada sozinha, e as
+        // duas ficam na tela juntas.
+        let volta1 = "Deixa eu conferir a gorjeta aqui."
+        let volta2 = "Fica com os garçons, sim. Sua parte é R$ 51,20."
+        #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(volta1))
+        // A segunda sozinha também não, porque o substantivo da gorjeta ficou
+        // na primeira — que é justamente por que o julgamento tem que somar.
+        #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(volta2))
+        #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(volta1 + "\n" + volta2),
+                "a conversa inteira tem que ser recusada")
+    }
+
     @Test("o guarda usa os MESMOS padrões do censo de build")
     func mesmaRegraDoCenso() {
         let g = claims()

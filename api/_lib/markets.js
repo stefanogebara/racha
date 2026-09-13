@@ -155,9 +155,19 @@ function market(code) {
  * linha de serviço, e é 0 quando não tem: o dono pode ter deixado 1000 no
  * cadastro e a conta em Madrid ainda assim não cobra serviço.
  */
-function publicMarketView(code, { servicoBp = 0 } = {}) {
+function publicMarketView(code, { servicoBp = 0, cnpj = null } = {}) {
   const m = market(code);
-  const hasService = m.serviceCharge.mode !== 'none';
+  // A LINHA DE SERVIÇO SÓ APARECE ONDE PODE SER COBRADA.
+  //
+  // O `marketGate` recusa a gorjeta sem documento de empresa provado — e a
+  // tela seguia oferecendo: o cliente via o serviço pré-selecionado, somado
+  // no total, tocava em pagar e levava a recusa. A cobrança não acontece,
+  // então não é oferta descumprida; mas é um total mostrado que a casa não
+  // pode receber, e um beco sem saída no caminho PADRÃO é como um piloto
+  // conclui que o produto está quebrado. Mesma regra, mesmo lugar: quem não
+  // pode cobrar não oferece. Achado pela revisão de compliance de 2026-09-13.
+  const podeCobrarServico = !!documentoPublicavelDaCasa(code, cnpj, true);
+  const hasService = m.serviceCharge.mode !== 'none' && podeCobrarServico;
   return {
     // `servicoBp` cru NÃO viaja: mandar 1000 ao lado de `serviceCharge.bp: 0`
     // são duas verdades no mesmo payload, e o próximo cliente que ler o campo

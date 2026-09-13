@@ -299,7 +299,8 @@ function createMemoryStore() {
             // autenticação. Linhas antigas foram escritas antes do portão do
             // `createVenue` existir. Ver `documentoPublicavelDaCasa`.
             taxId: documentoPublicavelDaCasa(venue.market, venue.cnpj, showsVenueTaxId(venue.market)),
-          ...publicMarketView(venue.market, { servicoBp: venue.servicoBp }),
+          // `cnpj` vai junto — ver supabase.js.
+          ...publicMarketView(venue.market, { servicoBp: venue.servicoBp, cnpj: venue.cnpj }),
         },
         table: { label: table.label },
         check: { id: check.id, items: check.items },

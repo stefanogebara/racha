@@ -172,7 +172,12 @@ function documentoPublicavelDaCasa(marketCode, valor, mostraNesteMercado) {
   const texto = String(valor).trim();
   if (marketCode === 'es') {
     const nif = texto.replace(/[.\-\s]/g, '').toUpperCase();
-    return /^[A-Z]\d{7}[A-Z0-9]$|^\d{8}[A-Z]$/.test(nif) ? nif : null;
+    // A MESMA forma do portão de escrita — CIF ou NIE, nunca DNI. Estava
+    // mais frouxa que a vizinha quarenta linhas acima, que recusa
+    // `^\d{8}[A-Z]$` pelo nome ("documento de casa é documento de empresa"):
+    // o lado que ESCREVE recusava e o lado que PUBLICA imprimiria. E agora
+    // esta função também decide se a gorjeta corre. Um predicado, dois usos.
+    return /^[ABCDEFGHJNPQRSUVW]\d{7}[A-Z0-9]$|^[XYZ]\d{7}[A-Z]$/.test(nif) ? nif : null;
   }
   const digitos = onlyDigits(texto);
   // Confere o DOCUMENTO, não a forma da string: catorze dígitos que não passam
