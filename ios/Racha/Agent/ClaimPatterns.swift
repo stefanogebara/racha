@@ -25,6 +25,19 @@ enum ClaimPatterns {
     /// Destinatários que o censo de build DETECTA e o runtime não — os que,
     /// na mesa, querem dizer os clientes. Ver `_porque_so_deteccao`.
     static let soDeteccao = "pra gente|para n|to us|para nosotros|deles|delas|com voc|eles|ellos|pessoal"
+    /// QUANTIDADE: separa dinheiro DIRIGIDO de ação dirigida. Inclui moeda —
+    /// era a única notação que faltava, e é a que toda linha real usa.
+    static let quantidade = "\\d+\\s*%|R\\$\\s*\\d|€\\s*\\d|\\d+[.,]\\d{2}\\b|\\btud[oa]\\b|\\btod[oa]s?\\b|\\binteir[oa]s?\\b|\\bdireto\\b|\\bintegralmente\\b|\\bmetade\\b"
+    /// Preposição de destino, nas três línguas do produto.
+    static let preposicaoDeDestino = "pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|n[oa]s?|to|for|with|al|a\\s+l[oa]s|para\\s+el|con"
+    static let artigoDeDestino = "o|a|os|as|the|el|la|los|las|um|uma"
+    /// Preposição de destino COLADA atrás do destinatário: marca que ele é
+    /// oblíquo (o destino do dinheiro), e destino não se retira depois.
+    static let preposicaoColadaAtras = "(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|n[oa]s?|to|for|with|al|a\\s+l[oa]s|para\\s+el|con)\\s+((o|a|os|as|the|el|la|los|las|um|uma)\\s+)?$"
+    static let marcadorDeLista = "^\\s*[-*•]\\s*"
+    static let separadorInterno = ",|\\b(mas|por[ée]m|e sim|sim)\\b"
+    /// Negador COLADO no destinatário. Sem o `sem`: ver `_porque_negadores`.
+    static let negadorColado = "^\\s*(que\\s+)?(n[ãa]o|nunca|nem|jamais)\\b"
     /// A frase que o produto diz. Não é uma variação.
     static let sancionada = "o restaurante distribui à equipe, como manda a lei"
 }

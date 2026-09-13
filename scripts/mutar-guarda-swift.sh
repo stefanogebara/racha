@@ -21,7 +21,7 @@ casos = json.load(open('docs/compliance/afirmacoes.fixture.json'))['casos']
 guarda = open('ios/Racha/Agent/RevisaoDeAfirmacoes.swift').read()
 
 MUT = [
- ("negador colado vira negador solto", '"^[\\\\s,]*(que\\\\s+)?(n[ãa]o|nunca|nem|jamais)\\\\b"', 'ClaimPatterns.negadores'),
+ ("negador colado vira negador solto", "regex(ClaimPatterns.negadorColado)", "regex(ClaimPatterns.negadores)"),
  ("nega olha só o primeiro destinatário", "        for d in dests {", "        for d in dests.prefix(1) {"),
  ("janela falha ABERTA", "ini = achou ? max(0, min(ini, d.location)) : d.location", "ini = max(0, min(ini, d.location))"),
  ("repartida olha só a primeira oração", "for (i, o) in partes.enumerated() where casa(destinatario, o) {",
@@ -29,7 +29,28 @@ MUT = [
  ("repartida dispensa marcador e quantidade",
   "guard casa(marcadorDeLista, o) || casa(quantidade, o) || anteriorTemQuantidade else { continue }", ""),
  ("forma direcional deixa de ser decisiva", "        for o in partes where casa(direcional, o) {\n            if !nega(o) { return true }\n        }", ""),
+ ("destinatário OBLÍQUO volta a ser resgatável por negador atrás", "let depois = !obliquo &&", "let depois ="),
+ ("repartida deixa de exigir frase CURTA", "            guard ehFraseCurta(o) else { continue }", ""),
  ("distribuidor volta a valer pela janela toda", "&& !temDistribuidor(o) { return true }", "&& !temDistribuidor(texto) { return true }"),
+]
+
+# AFROUXAMENTOS — a metade que falta a uma mutação que só APAGA.
+#
+# Apagar mede cobertura de FALSO POSITIVO: tirar machinery permissiva aperta o
+# guarda, e o vermelho vem de um caso `recusa: false`. Uma linha que AFROUXA é
+# invisível a esse formato — e foi assim que um retorno precoce permissivo
+# sobreviveu no código dos DOIS lados. Aqui o atalho é INSERIDO antes do laço
+# da regra 3 e exige-se que o corpo acuse a perda.
+ANCORA = "        for (i, o) in partes.enumerated() where casa(destinatario, o) {"
+SOLTA = [
+ ("atalho: qualquer oração com os dois substantivos encerra o julgamento",
+  "        if partes.contains(where: { casa(gorjeta, $0) && casa(destinatario, $0) }) { return false }\n"),
+ ("atalho: qualquer distribuidor em qualquer lugar dispensa",
+  "        if partes.contains(where: temDistribuidor) { return false }\n"),
+ ("atalho: negação em qualquer lugar do texto dispensa",
+  "        if partes.contains(where: nega) { return false }\n"),
+ ("atalho: só a primeira oração é olhada",
+  "        if partes.count > 1 { return false }\n"),
 ]
 
 def roda(fonte):
@@ -55,8 +76,20 @@ for nome, de, para in MUT:
         print(f'✗ {nome}: o trecho não existe mais no arquivo'); ruim += 1; continue
     n = roda(guarda.replace(de, para, 1))
     if n is None:
-        print(f'· {nome}: não compila mutado (peça estrutural)'); continue
+        # NÃO É DESCULPA. Mutação que não compila é peça que saiu do portão em
+        # silêncio — a forma "guarda que nunca dispara" aplicada ao próprio
+        # instrumento. Apontado pela revisão de segurança de 2026-09-14.
+        print(f'✗ {nome}: não compila mutado — a peça saiu do portão'); ruim += 1; continue
     print(('✓ ' if n > 0 else '✗ ') + f'{nome}: {n} casos vermelhos')
     if n == 0: ruim += 1
+for nome, atalho in SOLTA:
+    if ANCORA not in guarda:
+        print(f'✗ {nome}: a âncora do laço da regra 3 não existe mais'); ruim += 1; continue
+    n = roda(guarda.replace(ANCORA, atalho + ANCORA, 1))
+    if n is None:
+        print(f'✗ {nome}: não compila mutado — o atalho saiu do portão'); ruim += 1; continue
+    print(('✓ ' if n > 0 else '✗ ') + f'{nome}: {n} casos vermelhos')
+    if n == 0: ruim += 1
+
 sys.exit(1 if ruim else 0)
 PY

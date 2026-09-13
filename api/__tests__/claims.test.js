@@ -75,7 +75,7 @@ function semComentario(texto, ext) {
  */
 
 /** Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação. */
-const reSeparador = /,|\b(mas|por[ée]m|e sim|sim)\b/gi;
+const reSeparador = new RegExp(G.separador_interno, 'gi');
 /** Frase de destino em QUALQUER lugar da oração. */
 /**
  * UMA LISTA SÓ DENTRO DA DECISÃO. O censo localizava a oração com a lista
@@ -89,13 +89,25 @@ const reSeparador = /,|\b(mas|por[ée]m|e sim|sim)\b/gi;
  * Achado pela revisão de segurança de 2026-09-13.
  */
 const reDestinoQualquer = new RegExp(
-  '(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+'
-  + '(o\\s+|a\\s+|os\\s+|as\\s+)?(' + G.substantivo_destinatario + ')', 'i');
-const reMarcador = /^\s*[-*•]\s*/;
+  '(' + G.preposicao_de_destino + ')\\s+'
+  + '((' + G.artigo_de_destino + ')\\s+)?(' + G.substantivo_destinatario + ')', 'i');
+const reMarcador = new RegExp(G.marcador_de_lista);
+/** Preposição de destino COLADA ATRÁS: marca o destinatário como OBLÍQUO. */
+const rePrepAtras = new RegExp(G.preposicao_colada_atras, 'i');
+/**
+ * Uma FRASE de destino é curta — "pro garçom", "100% pra equipe" — e não uma
+ * oração com verbo. Ver o gêmeo no RevisaoDeAfirmacoes.swift.
+ */
+function ehFraseCurta(oracao) {
+  // O marcador de lista sai antes da contagem — ver o gêmeo no Swift.
+  return oracao.replace(new RegExp(G.marcador_de_lista), '').trim()
+    .split(/\s+/).filter(Boolean).length <= 4;
+}
+
 /** A oração É, ela toda, uma frase de destino: começa na preposição. */
 const reFraseDeDestino = new RegExp('^\\s*' + reDestinoQualquer.source, 'i');
-/** Ver `quantidade` no RevisaoDeAfirmacoes.swift. */
-const reQuantidade = /\d+\s*%|\btud[oa]\b|\btod[oa]s?\b|\binteir[oa]s?\b|\bdireto\b|\bintegralmente\b|\bmetade\b/i;
+/** Ver `_porque_quantidade` no claims.json — inclui MOEDA. */
+const reQuantidade = new RegExp(G.quantidade, 'i');
 /**
  * O CENSO DE BUILD USA A LISTA COMPLETA, e é assim que tem que ser: "a gorjeta
  * vai direto pra gente" na boca de um GARÇOM é a afirmação proibida, e é a
@@ -144,8 +156,12 @@ function nega(oracao) {
     const ateOnde = fim ? fim.index : oracao.length;
     // COLADO no destinatário, e sem `sem`: a cauda da própria frase virava
     // negação da promessa que ela acabara de fazer. Ver o gêmeo no Swift.
-    const depois = ateOnde > d.index + d[0].length
-      && /^[\s,]*(que\s+)?(n[ãa]o|nunca|nem|jamais)\b/i.test(
+    // Só destinatário SUJEITO é resgatável por negador atrás dele. Regido por
+    // preposição ele é OBLÍQUO — o destino do dinheiro — e a negação
+    // contrastiva do termo seguinte AFIRMA a promessa. Ver `_porque_obliquo`.
+    const obliquo = rePrepAtras.test(oracao.slice(Math.max(0, d.index - 14), d.index));
+    const depois = !obliquo && ateOnde > d.index + d[0].length
+      && new RegExp(G.negador_colado, 'i').test(
         oracao.slice(d.index + d[0].length, ateOnde));
     if (!antes && !depois) return false;
     anterior = d.index + d[0].length;
@@ -192,6 +208,10 @@ function acusa(janela) {
   for (let i = 0; i < partes.length; i += 1) {
     const o = partes[i];
     if (!reDestRuntime.test(o) || !reDestinoQualquer.test(o) || nega(o)) continue;
+    // A oração anterior tem que trazer a QUANTIDADE *e* o substantivo da
+    // gorjeta — ver o gêmeo no Swift.
+    // A classe sem verbo é CURTA por natureza — ver o gêmeo no Swift.
+    if (!ehFraseCurta(o)) continue;
     const anteriorTemQuantidade = i > 0 && reQuantidade.test(partes[i - 1])
       && reFraseDeDestino.test(o);
     if (!reMarcador.test(o) && !reQuantidade.test(o) && !anteriorTemQuantidade) continue;
@@ -423,9 +443,15 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
     // Se um campo novo entrar no JSON e não no gerador, o runtime fica com uma
     // regra mais frouxa que o build e ninguém percebe.
     const { expandirDest } = require('../../scripts/gen-claim-patterns.js');
-    for (const campo of ['substantivo_gorjeta', 'substantivo_destinatario',
-      'distribuidor_com_sujeito', 'revoga_dispensa', 'gatilho_forma_direcional',
-      'substantivo_destinatario_runtime']) {
+    // TODOS os campos de padrão do JSON, descobertos — não uma lista fixa.
+    // A lista fixa tinha seis nomes e não podia ver um sétimo, e foi assim que
+    // seis padrões da DECISÃO ficaram escritos duas vezes à mão, fora do
+    // gerador. Achado pela revisão de compliance de 2026-09-14.
+    const camposDePadrao = Object.keys(G).filter(
+      (k) => !k.startsWith('_') && typeof G[k] === 'string'
+        && !['guarda', 'porque', 'frase_sancionada'].includes(k));
+    expect(camposDePadrao.length).toBeGreaterThanOrEqual(10);
+    for (const campo of camposDePadrao) {
       // `gatilho_forma_direcional` carrega `{DEST}`, que o gerador expande.
       const valor = expandirDest(G[campo], G.substantivo_destinatario_runtime);
       expect(swift).toContain(valor.replace(/\\/g, '\\\\').replace(/"/g, '\\"'));

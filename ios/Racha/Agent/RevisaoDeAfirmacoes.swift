@@ -64,18 +64,36 @@ enum RevisaoDeAfirmacoes {
     /// recebe". Sem `sem`: `sem` evade a cláusula do distribuidor e vem na
     /// CAUDA da própria promessa ("…pro garçom SEM passar pela folha"), onde
     /// nega a frase que acabou de ser feita em vez do destino.
-    private static let negadorColado = regex("^[\\s,]*(que\\s+)?(n[ãa]o|nunca|nem|jamais)\\b")
+    private static let negadorColado = regex(ClaimPatterns.negadorColado)
+    /// Preposição de destino COLADA ATRÁS do destinatário — marca que ele é
+    /// OBLÍQUO: o destino do dinheiro, e destino não se retira depois dele.
+    private static let preposicaoColadaAtras = regex(ClaimPatterns.preposicaoColadaAtras)
     /// Alta precisão: uma oração com esta FORMA está afirmando destino,
     /// tenha ou não os dois substantivos dentro dela.
     private static let direcional = regex(ClaimPatterns.formaDirecional)
     /// Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação.
-    private static let separadorInterno = regex(",|\\b(mas|por[ée]m|e sim|sim)\\b")
+    private static let separadorInterno = regex(ClaimPatterns.separadorInterno)
     /// Uma frase de destino em QUALQUER lugar da oração — não só no começo.
     /// Ancorá-la no começo fazia qualquer palavra antes da preposição derrubar
     /// o casamento, e a mais provável é uma quantidade.
     private static let destinoEmQualquerLugar = regex(
-        "(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
-        + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
+        "(" + ClaimPatterns.preposicaoDeDestino + ")\\s+"
+        + "((" + ClaimPatterns.artigoDeDestino + ")\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
+    /// Uma FRASE de destino é curta — "pro garçom", "100% pra equipe" — e não
+    /// uma oração com verbo. Começar na preposição não bastava: "Com o
+    /// atendente você confirma na saída." também começa, e é resposta certa.
+    /// Três de cinco sumiam atrás da resposta segura. Exigir o substantivo da
+    /// gorjeta na oração ANTERIOR não resolve — em "Gorjeta: 10% — pra
+    /// equipe." o substantivo está duas orações atrás, não uma.
+    /// Achado pela revisão de segurança de 2026-09-14.
+    private static func ehFraseCurta(_ oracao: String) -> Bool {
+        // O marcador de lista sai antes da contagem: "- 100% to the staff"
+        // são quatro palavras mais um traço, e o traço não é palavra.
+        let semMarcador = oracao.replacingOccurrences(
+            of: ClaimPatterns.marcadorDeLista, with: "", options: .regularExpression)
+        return semMarcador.split(whereSeparator: { $0 == " " || $0 == "\t" }).count <= 4
+    }
+
     /// A oração É, ela toda, uma frase de destino: começa na preposição.
     ///
     /// Volta a ter emprego — é ela que separa a linha de lista sem marcador
@@ -83,18 +101,17 @@ enum RevisaoDeAfirmacoes {
     /// ("Fala com o maître na saída"), que é ação e não dinheiro indo. Só numa
     /// frase de destino inteira a quantidade da oração ANTERIOR conta.
     private static let fraseDeDestino = regex(
-        "^\\s*(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
-        + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
+        "^\\s*(" + ClaimPatterns.preposicaoDeDestino + ")\\s+"
+        + "((" + ClaimPatterns.artigoDeDestino + ")\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
     /// Marcador de lista: `- `, `* `, `• `. (`\\d+[.)]` seria morto: a oração já
     /// vem cortada no ponto.)
-    private static let marcadorDeLista = regex("^\\s*[-*•]\\s*")
+    private static let marcadorDeLista = regex(ClaimPatterns.marcadorDeLista)
     /// QUANTIDADE: o que distingue dinheiro DIRIGIDO de uma ação dirigida.
     /// Sem isto, exigir só a frase de destino recusava "Se quiser, mostra pro
     /// garçom." e "Fala com o maître na saída." — respostas certas, a primeira
     /// com o valor logo antes. `mostra pro garçom` é objeto indireto de uma
     /// ação; `100% pro garçom` é o dinheiro indo.
-    private static let quantidade = regex(
-        "\\d+\\s*%|\\btud[oa]\\b|\\btod[oa]s?\\b|\\binteir[oa]s?\\b|\\bdireto\\b|\\bintegralmente\\b|\\bmetade\\b")
+    private static let quantidade = regex(ClaimPatterns.quantidade)
 
     private static func regex(_ p: String) -> NSRegularExpression {
         // `try!` é deliberado: o padrão é constante e gerado. Se não compilar,
@@ -214,7 +231,18 @@ enum RevisaoDeAfirmacoes {
             // está em `negadores`. Trocada por `sem`, o veredito inverte.
             let fimDoTrecho = separadores.first(where: { $0.location >= d.location + d.length })?.location
                 ?? ns.length
-            let depois = fimDoTrecho > d.location + d.length && casa(negadorColado, ns.substring(with: NSRange(
+            // SÓ DESTINATÁRIO SUJEITO é resgatável por negador que venha
+            // atrás. Regido por preposição ele é OBLÍQUO — é o destino do
+            // dinheiro — e a negação CONTRASTIVA do termo seguinte afirma a
+            // promessa em vez de negá-la: "A gorjeta fica com a equipe NÃO COM
+            // A CASA" diz que fica com a equipe. Numa grade de 625 caudas
+            // contrastivas passavam 625; as mesmas 125 frases sem cauda eram
+            // recusadas. E é a resposta mais provável à pergunta mais provável
+            // da mesa. Achado pela revisão de segurança de 2026-09-14.
+            let inicioAtras = max(0, d.location - 14)
+            let obliquo = casa(preposicaoColadaAtras, ns.substring(with: NSRange(
+                location: inicioAtras, length: d.location - inicioAtras)))
+            let depois = !obliquo && fimDoTrecho > d.location + d.length && casa(negadorColado, ns.substring(with: NSRange(
                 location: d.location + d.length, length: fimDoTrecho - d.location - d.length)))
             if !antes && !depois { return false }
             anterior = d.location + d.length
@@ -355,6 +383,20 @@ enum RevisaoDeAfirmacoes {
             // A quantidade da oração anterior só vale se ESTA for uma frase de
             // destino inteira — senão "Tirei os 10%. Fala com o maître na saída."
             // vira achado, e é resposta certa com o valor na oração de trás.
+            // A oração anterior tem que trazer a QUANTIDADE *e* o substantivo
+            // da gorjeta. Só a quantidade não basta: `tudo`/`todo` aparecem o
+            // tempo todo fora de contexto de dinheiro, e "Já tirei o serviço
+            // todo.\nCom o atendente você confirma na saída." virava recusa —
+            // três de cinco respostas certas sumiam atrás da resposta segura.
+            // Piora com a moeda na lista: "Sua parte é R$ 61,00.\nCom o garçom
+            // você acerta." passaria a ter quantidade também.
+            // Achado pela revisão de segurança de 2026-09-14.
+            // A CLASSE SEM VERBO É CURTA POR NATUREZA — "pro garçom",
+            // "100% pra equipe", "- tudo pra equipe". Uma oração longa com um
+            // `tudo` dentro é outra coisa: "Com o garçom tá tudo certo" é
+            // confirmação operacional, e virava recusa. A regra 1b é quem
+            // cuida das orações longas, porque elas têm verbo.
+            guard ehFraseCurta(o) else { continue }
             let anteriorTemQuantidade = i > 0 && casa(quantidade, partes[i - 1])
                 && casa(fraseDeDestino, o)
             guard casa(marcadorDeLista, o) || casa(quantidade, o) || anteriorTemQuantidade else { continue }

@@ -57,6 +57,19 @@ enum ClaimPatterns {
     /// Destinatários que o censo de build DETECTA e o runtime não — os que,
     /// na mesa, querem dizer os clientes. Ver \`_porque_so_deteccao\`.
     static let soDeteccao = ${lit(G.destinatarios_so_deteccao.join('|'))}
+    /// QUANTIDADE: separa dinheiro DIRIGIDO de ação dirigida. Inclui moeda —
+    /// era a única notação que faltava, e é a que toda linha real usa.
+    static let quantidade = ${lit(G.quantidade)}
+    /// Preposição de destino, nas três línguas do produto.
+    static let preposicaoDeDestino = ${lit(G.preposicao_de_destino)}
+    static let artigoDeDestino = ${lit(G.artigo_de_destino)}
+    /// Preposição de destino COLADA atrás do destinatário: marca que ele é
+    /// oblíquo (o destino do dinheiro), e destino não se retira depois.
+    static let preposicaoColadaAtras = ${lit(G.preposicao_colada_atras)}
+    static let marcadorDeLista = ${lit(G.marcador_de_lista)}
+    static let separadorInterno = ${lit(G.separador_interno)}
+    /// Negador COLADO no destinatário. Sem o \`sem\`: ver \`_porque_negadores\`.
+    static let negadorColado = ${lit(G.negador_colado)}
     /// A frase que o produto diz. Não é uma variação.
     static let sancionada = ${lit(G.frase_sancionada)}
 }

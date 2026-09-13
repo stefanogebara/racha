@@ -365,6 +365,76 @@
       "texto": "Tirei os 10%. Fala com o maître na saída.",
       "recusa": false,
       "porque": "a quantidade na oração ANTERIOR só conta se ESTA for frase de destino inteira (começa na preposição). Senão esta resposta certa, com o valor na oração de trás, vira achado"
+    },
+    {
+      "texto": "Gorjeta: R$ 12,00 — pra equipe.",
+      "recusa": true,
+      "porque": "A MOEDA era a única notação de quantidade que a lista não conhecia — e é a que toda linha real usa: a própria frase sancionada é 'Inclui R$ 12,00 de serviço'. Escapava dos três caminhos (regra 1 não alcança, 1b não alcança sem verbo, 3 não disparava porque R$ 12,00 não era quantidade). Achado pela revisão de compliance de 2026-09-14"
+    },
+    {
+      "texto": "Inclui R$ 12,00 de serviço\npro garçom",
+      "recusa": true,
+      "porque": "a mesma falta de moeda, em duas linhas — que é o formato do roteiro IMPRESSO entregue ao garçom, onde a afirmação vale como oferta do CDC art. 30."
+    },
+    {
+      "texto": "Como funciona:\n- 10% service charge\n- 100% to the staff",
+      "recusa": true,
+      "porque": "a classe SEM VERBO existia só em português: as preposições de destino eram só `pra|para|com|de|ao|no`. O censo governa a metade `en` do i18n.ts e os documentos em inglês"
+    },
+    {
+      "texto": "Cómo funciona:\n- 10% de servicio\n- 100% al equipo",
+      "recusa": true,
+      "porque": "idem em espanhol: as preposições eram só portuguesas e os ARTIGOS também, então `al equipo` e `to the staff` não casavam. A preposição tinha sido traduzida numa rodada e o artigo não — meia tradução é a mesma forma de meio conserto."
+    },
+    {
+      "texto": "A gorjeta fica com a equipe não com a casa.",
+      "recusa": true,
+      "porque": "NEGAÇÃO CONTRASTIVA DO PRÓXIMO TERMO, não da promessa: afirma que fica com a equipe. É o espelho do caso 'nega um e afirma outro' — os cinco que o corpo tinha punham a negação NA FRENTE, que a janela `antes` já tratava, e nenhum tinha a ordem invertida. Numa grade de 625, passavam 625. É a resposta mais provável à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "A gorjeta vai pro garçom não pro restaurante.",
+      "recusa": true,
+      "porque": "idem, com verbo de movimento e destinatário oblíquo"
+    },
+    {
+      "texto": "O serviço é da equipe não da casa.",
+      "recusa": true,
+      "porque": "idem na forma genitiva ('é da equipe'): a cauda contrastiva nega o próximo termo e não a atribuição feita antes dela"
+    },
+    {
+      "texto": "A caixinha fica com o garçom nunca com o dono.",
+      "recusa": true,
+      "porque": "idem com `nunca` no lugar de `não` — o negador muda e a estrutura da laundering não, que é por que a regra tem que olhar a REGÊNCIA e não o lexema"
+    },
+    {
+      "texto": "A gorjeta fica com a equipe, não com a casa.",
+      "recusa": true,
+      "porque": "o par COM VÍRGULA do caso acima — a vírgula corta a oração, então esta já era recusada; fica no corpo pra que o par vírgula/sem-vírgula esteja escrito, que é onde a rodada anterior tinha errado na direção oposta"
+    },
+    {
+      "texto": "Já tirei o serviço todo.\nCom o atendente você confirma na saída.",
+      "recusa": false,
+      "porque": "A oração anterior tem quantidade (`todo`) mas a frase não promete destino nenhum. Só a quantidade não basta pra carregar a regra 3 entre orações: `tudo`/`todo` aparecem fora de contexto de dinheiro o tempo todo, e três de cinco respostas certas sumiam atrás da resposta segura. Achado pela revisão de segurança de 2026-09-14"
+    },
+    {
+      "texto": "Você pagou tudo, serviço incluso.\nCom o garçom tá tudo certo.",
+      "recusa": false,
+      "porque": "idem — a oração anterior tem `tudo` e o substantivo, mas a seguinte é confirmação operacional, não destino do dinheiro. Por isso a exigência é quantidade E substantivo na anterior, mais frase de destino inteira na atual"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nCom o garçom você acerta na maquininha.",
+      "recusa": false,
+      "porque": "o caso que PIORA quando a moeda entra na lista de quantidades: a oração anterior passa a ter quantidade, e sem a exigência do substantivo esta resposta certa — com o valor — viraria recusa"
+    },
+    {
+      "texto": "O garçom sem dúvida fica com a gorjeta.",
+      "recusa": true,
+      "porque": "ISOLA O NEGADOR COLADO: o `sem` vem DEPOIS do destinatário mas não colado nele — é preâmbulo do verbo, não negação. Com um negador solto (sem âncora) isto passaria; com a âncora, afirma. O destinatário aqui é SUJEITO, então o caminho `depois` está ativo e é ele que o caso exercita"
+    },
+    {
+      "texto": "Tirei o serviço.\nCom o garçom, ok.",
+      "recusa": false,
+      "porque": "ISOLA A EXIGÊNCIA DE MARCADOR-OU-QUANTIDADE: oração curta, começa na preposição, nomeia o garçom — e não promete nada. Sem essa exigência viraria achado, e é confirmação operacional comum"
     }
   ]
 }

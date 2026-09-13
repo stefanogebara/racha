@@ -18,10 +18,11 @@
  *
  * O QUE ESTE ARQUIVO NÃO MEDE, dito pra não virar confiança falsa:
  *
- *  · ele muta o lado JS (`claims.test.js`). O guarda Swift roda o MESMO corpo
- *    compartilhado, mas ninguém apagou peça dele pra ver se o corpo reage.
- *    A medição que envergonhou o desenho JS — três de seis peças apagáveis com
- *    o corpo verde — não foi rodada contra o `RevisaoDeAfirmacoes.swift`;
+ *  · ~~ele muta só o lado JS~~ — o `describe` no fim deste arquivo roda o
+ *    `scripts/mutar-guarda-swift.sh`, que apaga peça do guarda Swift E insere
+ *    atalhos permissivos nele. Corrigido em 2026-09-14; a frase ficou aqui
+ *    riscada porque o defeito que este arquivo persegue é justamente o
+ *    comentário que afirma o contrário do código;
  *  · e o corpo compartilhado fica verde POR CONCORDÂNCIA quando os dois lados
  *    erram igual. Ele prova convergência, não correção. O retorno precoce da
  *    regra 3 é a prova: os dois guardas o tinham, os dois vazavam, e quem viu
@@ -95,12 +96,18 @@ const MUTACOES = [
   { nome: 'a repartida dispensa a quantidade e o marcador',
     de: '    if (!reMarcador.test(o) && !reQuantidade.test(o) && !anteriorTemQuantidade) continue;',
     para: '' },
+  { nome: 'a repartida deixa de exigir frase CURTA',
+    de: '    if (!ehFraseCurta(o)) continue;',
+    para: '' },
   { nome: 'a quantidade da oração anterior deixa de contar',
     de: '    const anteriorTemQuantidade = i > 0 && reQuantidade.test(partes[i - 1])\n      && reFraseDeDestino.test(o);',
     para: '    const anteriorTemQuantidade = false;' },
   { nome: 'o negador pós-destinatário volta a aceitar qualquer negador em qualquer ponto',
-    de: "/^[\\s,]*(que\\s+)?(n[ãa]o|nunca|nem|jamais)\\b/i",
+    de: "new RegExp(G.negador_colado, 'i')",
     para: 'reNegador' },
+  { nome: 'o destinatário OBLÍQUO volta a ser resgatável por negador atrás',
+    de: '    const depois = !obliquo && ateOnde > d.index + d[0].length',
+    para: '    const depois = ateOnde > d.index + d[0].length' },
   { nome: 'a dispensa volta a valer pela janela toda',
     de: '    if (reGorjeta.test(o) && reDestRuntime.test(o) && !nega(o) && !temDistribuidor(o)) return true;',
     para: '    if (reGorjeta.test(o) && reDestRuntime.test(o) && !nega(o) && !temDistribuidor(janela)) return true;' },
