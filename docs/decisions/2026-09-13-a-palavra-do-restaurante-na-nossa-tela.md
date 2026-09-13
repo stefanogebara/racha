@@ -36,6 +36,18 @@ Menor do que parece, e vale dizer em vez de deixar a frase assustando sozinha:
   `registrar_itens_da_nota`, e não passam por servidor nosso nem por cliente
   de terceiro. O texto é a nota impressa da casa, relida.
 
+## Uma parte já é hoje, e não daqui a um adaptador
+
+A revisão de compliance apontou, com razão, que a frase acima descreve a
+adjacência como risco futuro e o próprio documento diz que no iOS os rótulos
+lidos da foto da nota **já** aparecem ao lado do nosso aviso de serviço. Então
+a mitigação de baixo — não encostar a nossa linha na palavra da casa — já é
+devida no caminho que roda, não no que vai existir. Fica **aceita e nomeada**:
+hoje o app é de uso do fundador (ver `docs/compliance/data-map.md`, o gatilho
+de revisão do agente), e a adjacência entra junto com a primeira das duas
+coisas que acontecer — o app na mão de terceiro, ou o adaptador de POS. O que
+não vale é o documento dizer "futuro" sobre uma coisa que é presente.
+
 ## O gatilho
 
 **O dia em que um adaptador de POS importar RÓTULOS de linha** — o `colibri` é

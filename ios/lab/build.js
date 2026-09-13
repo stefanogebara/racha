@@ -26,14 +26,21 @@ const target = process.argv[2] || path.join(dir, '..', 'racha-ios.html');
    protocolo, o que a maioria dos snippets de CDN ainda produz), que numa
    página servida por HTTPS carrega o MESMO recurso do Google — mesmo IP de
    visitante, mesma corresponsabilidade — e deixava passar host por IP nu.
+
+   A segunda revisão achou mais três formas: `https://x@fonts.googleapis.com`
+   (userinfo antes do host), `"https:\/\/…"` (barras escapadas, que é a forma
+   que um JSON embutido no artefato toma) e `http://[2606:4700::1]/` (IPv6).
+   E um falso positivo que teria derrubado o build num comentário inocente:
+   `//TODO.rever isso` casava como host. Comentário de linha JS sai antes.
    Achado da revisão de segurança de 2026-09-13. */
 /* Exige FORMA DE HOST — TLD de letras ou IPv4 — senão o `//` de uma divisão
    ou de um comentário de linha vira "terceiro embutido" e o guarda que grita
    por qualquer coisa é desligado na primeira semana. */
 const HOSTS_PROIBIDOS =
-  /(?:https?:)?\/\/(?!localhost\b)(?=[a-z0-9])[a-z0-9._~-]*(?:\.[a-z]{2,}|(?:\.\d{1,3}){3})(?::\d+)?/gi;
+  /(?:https?:)?\\?\/\\?\/(?!localhost\b)(?:[^\s"'<>/@]*@)?(?=[a-z0-9[])(?:\[[0-9a-f:]+\]|[a-z0-9._~-]*(?:\.[a-z]{2,}|(?:\.\d{1,3}){3}))(?::\d+)?/gi;
 const forasteiros = [...new Set(
   out.replace(/<!--[\s\S]*?-->/g, '')              // comentário não baixa nada
+     .replace(/(^|[^:"'])\/\/.*$/gm, '$1')           // nem comentário de linha em JS
      .match(HOSTS_PROIBIDOS) || [])];
 if (forasteiros.length) {
   console.error('build: o alvo publicado embutiria terceiros:\n  ' + forasteiros.join('\n  '));

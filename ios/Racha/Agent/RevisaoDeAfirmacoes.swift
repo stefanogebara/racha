@@ -63,6 +63,20 @@ enum RevisaoDeAfirmacoes {
 
     private static func casa(_ re: NSRegularExpression, _ s: String) -> Bool { acha(re, s) != nil }
 
+    /// O texto é SEQUER relevante? Duas varreduras, sem alocar nada.
+    ///
+    /// Existe pro `AgentSession` poder perguntar barato a cada pedaço: o
+    /// `corrigir` roda sobre o acumulado inteiro, e chamado a cada delta isso é
+    /// O(n²) na thread principal — 1,9 s de CPU pra uma resposta de 8 KB, num
+    /// Mac, medido pela revisão de segurança. Como o texto só CRESCE, uma vez
+    /// que os dois substantivos apareceram eles não desaparecem: o chamador
+    /// memoriza e para de perguntar. Antes disso, a pergunta custa duas
+    /// varreduras lineares sem construir string nenhuma — e a resposta é
+    /// quase sempre "não", que é o caso comum de uma conversa sobre a conta.
+    static func podeSerRelevante(_ texto: String) -> Bool {
+        casa(gorjeta, texto) && casa(destinatario, texto)
+    }
+
     /// Este TEXTO afirma um destino sem dizer quem distribui?
     ///
     /// Do texto todo, não de uma oração: o substantivo da gorjeta e o do

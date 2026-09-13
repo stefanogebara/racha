@@ -136,6 +136,8 @@ final class AgentSession {
         messages.append(ChatMessage(role: .agent, text: "", isStreaming: true))
 
         var assistantBlocks: [WireMessage.Block] = []
+        /// Ver o uso lá embaixo: uma vez relevante, sempre relevante.
+        var guardaArmado = false
         var pendingTools: [(id: String, name: String, input: JSONValue)] = []
         var text = ""
         var failure: String?
@@ -157,7 +159,16 @@ final class AgentSession {
                 // distribuidor ainda não tinha chegado era cortada, e o resto
                 // da frase era emendado no corte. Derivando, o cru continua
                 // inteiro e a próxima passada vê a frase completa.
-                messages[bubbleIndex].text = RevisaoDeAfirmacoes.corrigir(text, parcial: true)
+                // O guarda só ARMA quando o texto fica relevante, e daí não
+                // desarma: o texto só cresce. Sem isso, `corrigir` varria o
+                // acumulado inteiro a cada delta — O(n²) na thread principal,
+                // 1,9 s de CPU pra uma resposta de 8 KB (e um iPhone é mais
+                // devagar que o Mac onde isso foi medido). Achado pela revisão
+                // de segurança de 2026-09-13.
+                if !guardaArmado { guardaArmado = RevisaoDeAfirmacoes.podeSerRelevante(text) }
+                messages[bubbleIndex].text = guardaArmado
+                    ? RevisaoDeAfirmacoes.corrigir(text, parcial: true)
+                    : text
 
             case .thinkingDelta:
                 streamPhase = .thinking

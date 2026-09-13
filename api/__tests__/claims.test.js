@@ -213,11 +213,28 @@ describe('o artefato publicado vem da fonte', () => {
    * `//fonts.googleapis.com/…` (relativo ao protocolo) passava e carregava
    * EXATAMENTE o mesmo recurso do Google numa página servida por HTTPS.
    */
+  test('um comentário de linha com ponto NÃO derruba o build', () => {
+    // `//TODO.rever essa parte` casava como host na versão anterior do padrão.
+    // Guarda que grita por coisa inocente é guarda desligado na primeira semana.
+    const sujo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'racha-')), 'lab');
+    fs.cpSync(path.join(RAIZ, 'ios', 'lab'), sujo, { recursive: true });
+    const app = path.join(sujo, 'app.html');
+    fs.writeFileSync(app, fs.readFileSync(app, 'utf8').replace(
+      '<style>', '<script>\n//TODO.rever essa parte\nconst r = 10 //b.ce\n</script>\n<style>'));
+    const saida = path.join(sujo, 'ok.html');
+    expect(() => execFileSync(process.execPath, [path.join(sujo, 'build.js'), saida], { stdio: 'pipe' }))
+      .not.toThrow();
+    expect(fs.existsSync(saida)).toBe(true);
+  });
+
   test.each([
     ['esquema explícito', '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo">'],
     ['relativo ao protocolo', '<link rel="stylesheet" href="//fonts.googleapis.com/css2?family=Archivo">'],
     ['IP nu, sem TLD', '<img src="http://93.184.216.34/pixel.gif">'],
     ['script de CDN', '<script src="//cdn.exemplo.test/x.js"></script>'],
+    ['userinfo antes do host', '<link rel="stylesheet" href="https://x@fonts.googleapis.com/css2">'],
+    ['barras escapadas (JSON embutido)', '<script>var u = "https:\\/\\/fonts.googleapis.com/css2";</script>'],
+    ['IPv6 entre colchetes', '<img src="http://[2606:4700::1]/pixel.gif">'],
   ])('o build recusa embutir terceiro no alvo publicado: %s', (_nome, injecao) => {
     const sujo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'racha-')), 'lab');
     fs.cpSync(path.join(RAIZ, 'ios', 'lab'), sujo, { recursive: true });

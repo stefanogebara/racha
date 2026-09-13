@@ -93,6 +93,11 @@ describe('o portão de escrita do POST /api/venues', () => {
     // isso é propriedade DESTA regex, e quem lhe acrescentar um quantificador
     // não vai pensar no corpo de 1 MB do `readBody`. O que este teste afirma
     // é só o comportamento observável, que é o que um teste pode afirmar.
+    //
+    // UMA QUALIFICAÇÃO, porque "não é carregador" foi dito sem ela e vale
+    // só pro caminho BRASILEIRO: o ramo espanhol faz `replace` e
+    // `toUpperCase` — duas alocações da string inteira — ANTES da regex
+    // ancorada. Lá o corte é o que impede percorrer 1 MB duas vezes.
     expect(doc.normalizarDocumentoDaCasa('0'.repeat(33), 'br').ok).toBe(false);
     expect(doc.normalizarDocumentoDaCasa('x'.repeat(1_000_000), 'br').ok).toBe(false);
     expect(doc.normalizarDocumentoDaCasa('B' + '1'.repeat(40), 'es').ok).toBe(false);
