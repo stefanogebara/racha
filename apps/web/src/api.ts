@@ -131,6 +131,13 @@ export interface HouseRedeemResult {
 export interface Venue {
   id: string; name: string; city: string | null; servicoBp: number;
   pspRecipientId: string | null;
+  /**
+   * O documento da casa. Vem só na visão AUTENTICADA do dono (`/api/tables`);
+   * pro cliente ele passa por `documentoPublicavelDaCasa`, que confere o valor
+   * além do mercado. Nulo é legítimo — e desde 2026-09-13 é também o que
+   * desliga a cobrança do serviço, então o painel avisa.
+   */
+  cnpj?: string | null;
   /** br | es — decide o trilho, a moeda e QUAL tela de recebimento aparece. */
   market?: 'br' | 'es';
 }

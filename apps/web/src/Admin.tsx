@@ -168,6 +168,24 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
     <>
       {venue && <AdminSetup venue={venue} tables={tables} />}
 
+      {/* O SERVIÇO PAROU DE CORRER, e sem isto o dono não fica sabendo.
+          Desde 2026-09-13 a gorjeta exige CNPJ provado (`venue_no_tip_document`):
+          sem pessoa jurídica não há folha, e sem folha a frase que o cliente lê
+          no comprovante seria falsa. Mas `cnpj` nulo é o estado LEGÍTIMO das
+          casas do piloto cujo recebedor foi criado à mão no painel do Pagar.me
+          — o `documento.js` diz isso — então elas param de arrecadar os 10% em
+          silêncio, e a semana 8 do portão de adoção absorve a diferença.
+          Falhar fechado é o certo; falhar calado não é. */}
+      {venue && !venue.cnpj && (
+        <section className="panel" style={{ borderColor: 'var(--burgundy)' }}>
+          <p className="label" style={{ color: 'var(--burgundy)' }}>{t('admin.noTipDocTitle')}</p>
+          <p className="muted small">{t('admin.noTipDocBody')}</p>
+          <button className="cta" style={{ marginTop: 8 }} onClick={onConfigure}>
+            {t('admin.noTipDocCta')}
+          </button>
+        </section>
+      )}
+
       <section className="panel" id="mesas" style={{ scrollMarginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <p className="label">{t('admin.tablesN', { n: tables.length })}</p>

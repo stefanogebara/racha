@@ -63,6 +63,14 @@ enum RevisaoDeAfirmacoes {
     private static let direcional = regex(ClaimPatterns.formaDirecional)
     /// Uma oração que É uma frase de destino: preposição ou genitivo colado no
     /// destinatário, logo no começo. Sem `a` sozinho — é artigo.
+    /// Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação.
+    private static let separadorInterno = regex(",|\\b(mas|por[ée]m|e sim|sim)\\b")
+    /// Uma frase de destino em QUALQUER lugar da oração — não só no começo.
+    private static let destinoEmQualquerLugar = regex(
+        "(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
+        + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
+    /// Marcador de lista: `- `, `* `, `• `, `1. `.
+    private static let marcadorDeLista = regex("^\\s*([-*•]|\\d+[.)])\\s+")
     private static let fraseDeDestino = regex(
         "^(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
         + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
@@ -113,18 +121,46 @@ enum RevisaoDeAfirmacoes {
     /// antes da forma direcional — o que vier depois — e termina no
     /// destinatário. É o espaço onde um "não" nega ESTA afirmação.
     private static func nega(_ oracao: String) -> Bool {
-        guard let d = acha(destinatario, oracao) else { return false }
         let ns = oracao as NSString
-        var ini = 0
-        if let g = acha(gorjeta, oracao), g.location + g.length <= d.location {
-            ini = g.location + g.length
+        let todo = NSRange(location: 0, length: ns.length)
+        let dests = destinatario.matches(in: oracao, range: todo).map { $0.range }
+        guard !dests.isEmpty else { return false }
+        let gorjetas = gorjeta.matches(in: oracao, range: todo).map { $0.range }
+        let direcionais = direcional.matches(in: oracao, range: todo).map { $0.range }
+        // Separador interno: depois de uma vírgula ou de um "mas", começa outra
+        // afirmação — e a negação da primeira não alcança a segunda.
+        let separadores = separadorInterno.matches(in: oracao, range: todo).map { $0.range }
+
+        var anterior = 0
+        for d in dests {
+            var ini = anterior
+            // O substantivo da gorjeta mais próximo ANTES deste destinatário —
+            // de qualquer lado dele. A versão anterior só olhava quando a
+            // gorjeta vinha antes, e por isso "Sem dúvida, o garçom fica com a
+            // gorjeta." (ordem invertida) ficava com a janela valendo o
+            // prefixo inteiro: o preâmbulo desligava o guarda, 80 de 80.
+            for g in gorjetas where g.location + g.length <= d.location {
+                ini = max(ini, g.location + g.length)
+            }
+            for dir in direcionais where dir.location <= d.location {
+                ini = max(ini, dir.location - 10)
+            }
+            for sep in separadores where sep.location + sep.length <= d.location {
+                ini = max(ini, sep.location + sep.length)
+            }
+            ini = max(0, min(ini, d.location))
+            // Se ALGUM destinatário chega sem negação na sua janela, a oração
+            // AFIRMA. Olhar só o primeiro deixava negar um destinatário e
+            // afirmar outro na mesma oração — "não fica com o salão, fica com
+            // o garçom" —, e o teste passava só porque a palavra escolhida
+            // (`casa`) não está na lista de runtime: provava a regra com o
+            // único substantivo incapaz de exercitá-la.
+            if ini >= d.location || !casa(revoga, ns.substring(with: NSRange(location: ini, length: d.location - ini))) {
+                return false
+            }
+            anterior = d.location + d.length
         }
-        if let dir = acha(direcional, oracao), dir.location <= d.location {
-            ini = max(ini, dir.location - 10)
-        }
-        ini = max(0, min(ini, d.location))
-        guard ini < d.location else { return false }
-        return casa(revoga, ns.substring(with: NSRange(location: ini, length: d.location - ini)))
+        return true
     }
 
     /// A oração carrega, ELA MESMA, a cláusula do distribuidor?
@@ -211,8 +247,17 @@ enum RevisaoDeAfirmacoes {
         // A oração do destinatário tem que SER frase de destino: preposição ou
         // genitivo colado no substantivo, logo no começo (depois de marcador de
         // lista). `a` sozinho fica de fora — é o artigo de "A equipe da mesa 7".
-        let alvo = partes[iDest].trimmingCharacters(in: CharacterSet(charactersIn: " \t-*•>"))
-        return casa(fraseDeDestino, alvo)
+        let bruta = partes[iDest]
+        let alvo = bruta.trimmingCharacters(in: CharacterSet(charactersIn: " \t-*•>"))
+        // Ancorar no COMEÇO da oração fazia qualquer palavra antes da
+        // preposição derrubar o casamento — e a palavra mais provável é uma
+        // quantidade. `- 100% pro garçom`, que é o exemplo que o próprio
+        // claims.json nomeia como a classe sem verbo, passou a escapar. O
+        // teste usava `- pro garçom`, a única forma em que nada precede a
+        // preposição. Então: começo de oração OU marcador de lista, e uma
+        // frase de destino em qualquer lugar dela.
+        let marcado = casa(marcadorDeLista, bruta)
+        return (marcado || casa(fraseDeDestino, alvo)) && casa(destinoEmQualquerLugar, alvo)
     }
 
     /// Chegou perto do assunto? Então PARA DE MOSTRAR até dar pra julgar.

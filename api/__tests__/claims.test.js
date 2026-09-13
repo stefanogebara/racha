@@ -71,31 +71,58 @@ function semComentario(texto, ext) {
  * pagamento" uma dispensa — e "você não precisa esperar a folha" é exatamente
  * como se vende o arranjo ilegal.
  */
+
+/** Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação. */
+const reSeparador = /,|\b(mas|por[ée]m|e sim|sim)\b/gi;
+/** Frase de destino em QUALQUER lugar da oração. */
+const reDestinoQualquer = new RegExp(
+  '(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+'
+  + '(o\\s+|a\\s+|os\\s+|as\\s+)?(' + G.substantivo_destinatario_runtime + ')', 'i');
+const reFraseDeDestino = new RegExp('^' + reDestinoQualquer.source, 'i');
+const reMarcador = /^\s*([-*•]|\d+[.)])\s+/;
+/**
+ * O CENSO DE BUILD USA A LISTA COMPLETA, e é assim que tem que ser: "a gorjeta
+ * vai direto pra gente" na boca de um GARÇOM é a afirmação proibida, e é a
+ * cópia do produto que este censo governa. A lista curta é do runtime, onde
+ * "a gente" são as pessoas da mesa.
+ *
+ * A divergência que a revisão achou — "não fica com a cozinha, fica com o
+ * garçom" recusada pelo guarda e aceita pelo censo, porque `cozinha` só existe
+ * na lista completa e virava o terminador que engolia o `não` — não vinha da
+ * LISTA e sim do `nega`, que olhava só o PRIMEIRO destinatário. Com todos, os
+ * dois lados concordam usando cada um a sua lista, e é o
+ * `afirmacoes.fixture.json` que prova, caso a caso.
+ */
+const reDestRuntime = reDestinatario;
+
 /** Orações, como no guarda de runtime: `. ; ! ? : \n —` separam. */
 function oracoes(texto) {
   return texto.split(/[.;!?:\n—]/).map((o) => o.trim()).filter(Boolean);
 }
 
 /**
- * A oração NEGA o destino, em vez de afirmá-lo?
- *
- * A MESMA regra escopada do guarda de runtime, e pelo mesmo motivo: um
- * `reRevoga.test(oracao)` solto faz qualquer preâmbulo tranquilizador
- * ("Sem dúvida, …") desligar a regra — 112 de 160 afirmações proibidas
- * passavam assim no Swift. A janela vai do FIM do substantivo da gorjeta (ou
- * dez caracteres antes da forma direcional, o que vier depois) até o
- * destinatário.
+ * A oração NEGA o destino? A MESMA regra do guarda de runtime — ver o
+ * `afirmacoes.fixture.json`, que é o que impede as duas de divergirem outra
+ * vez. Percorre TODOS os destinatários: negar um e afirmar outro na mesma
+ * oração ("não fica com o salão, fica com o garçom") é afirmação.
  */
 function nega(oracao) {
-  const d = new RegExp(reDestinatario.source, 'i').exec(oracao);
-  if (!d) return false;
-  let ini = 0;
-  const g = new RegExp(reGorjeta.source, 'i').exec(oracao);
-  if (g && g.index + g[0].length <= d.index) ini = g.index + g[0].length;
-  const dir = new RegExp(reSuprimeGlobal.source, 'i').exec(oracao);
-  if (dir && dir.index <= d.index) ini = Math.max(ini, dir.index - 10);
-  ini = Math.max(0, Math.min(ini, d.index));
-  return ini < d.index && reRevoga.test(oracao.slice(ini, d.index));
+  const dests = [...oracao.matchAll(new RegExp(reDestRuntime.source, 'gi'))];
+  if (!dests.length) return false;
+  const gorjetas = [...oracao.matchAll(new RegExp(reGorjeta.source, 'gi'))];
+  const direcionais = [...oracao.matchAll(new RegExp(reSuprimeGlobal.source, 'gi'))];
+  const seps = [...oracao.matchAll(reSeparador)];
+  let anterior = 0;
+  for (const d of dests) {
+    let ini = anterior;
+    for (const g of gorjetas) if (g.index + g[0].length <= d.index) ini = Math.max(ini, g.index + g[0].length);
+    for (const dir of direcionais) if (dir.index <= d.index) ini = Math.max(ini, dir.index - 10);
+    for (const sp of seps) if (sp.index + sp[0].length <= d.index) ini = Math.max(ini, sp.index + sp[0].length);
+    ini = Math.max(0, Math.min(ini, d.index));
+    if (ini >= d.index || !reRevoga.test(oracao.slice(ini, d.index))) return false;
+    anterior = d.index + d[0].length;
+  }
+  return true;
 }
 
 /** Esta oração carrega, ELA MESMA, a cláusula do distribuidor não negada? */
@@ -108,42 +135,30 @@ function temDistribuidor(oracao) {
 }
 
 /**
- * A regra, e ela é a MESMA do guarda de runtime — de propósito.
- *
- * O censo julgava a janela inteira: bastava UMA cláusula de distribuidor em
- * qualquer posição pra dispensar tudo. Então
- * `'a gorjeta vai direto pro garçom. O restaurante distribui à equipe, como
- * manda a lei'` passava — e essa cauda é exatamente o que a regra 9 do
- * `SystemPrompt` manda dizer e o que as `frases_aprovadas` ensinam a escrever.
- * O guarda Swift foi reescrito pra recusar isso e o censo ficou pra trás, o
- * que importa MAIS aqui: é o censo que governa o roteiro IMPRESSO entregue ao
- * garçom, que é oferta vinculante do CDC art. 30.
- *
- * Regra por ORAÇÃO pra dispensa, janela inteira pro gatilho — nomear quem
- * distribui não desdiz o caminho já prometido.
- * Achado pela revisão de compliance de 2026-09-13.
+ * A regra, e ela é a MESMA do guarda de runtime — provado pelo fixture
+ * compartilhado, não por comparar strings de padrão. O `mesmaRegraDoCenso`
+ * comparava os PADRÕES e não podia ver que os dois `nega` eram funções
+ * diferentes; três pontos tinham divergido, um deles deixando o censo mais
+ * frouxo que o runtime.
  */
 function acusa(janela) {
-  if (!reGorjeta.test(janela) || !reDestinatario.test(janela)) return false;
+  if (!reGorjeta.test(janela) || !reDestRuntime.test(janela)) return false;
   const partes = oracoes(janela);
-  // 1. Uma oração que junta os dois substantivos traz o distribuidor ela
-  //    mesma — ou está negando.
   for (const o of partes) {
-    if (reGorjeta.test(o) && reDestinatario.test(o) && !nega(o) && !temDistribuidor(o)) return true;
+    if (reGorjeta.test(o) && reDestRuntime.test(o) && !nega(o) && !temDistribuidor(o)) return true;
   }
-  // 1b. E a FORMA DIRECIONAL numa oração não é resgatável por cláusula de
-  //     distribuidor nenhuma, nem na mesma oração.
   for (const o of partes) {
     if (reSuprimeGlobal.test(o) && !nega(o)) return true;
   }
-  // 2. Repartida entre orações: o distribuidor tem que ser nomeado ATÉ a
-  //    oração do destinatário, nunca depois dela.
-  if (partes.some((o) => reGorjeta.test(o) && reDestinatario.test(o))) return false;
+  if (partes.some((o) => reGorjeta.test(o) && reDestRuntime.test(o))) return false;
   if (partes.some(nega)) return false;
-  const iDest = partes.findIndex((o) => reDestinatario.test(o));
+  const iDest = partes.findIndex((o) => reDestRuntime.test(o));
   const iDist = partes.findIndex(temDistribuidor);
   if (iDist >= 0 && iDest >= 0 && iDist <= iDest) return false;
-  return iDest >= 0;
+  if (iDest < 0) return false;
+  const bruta = partes[iDest];
+  const alvo = bruta.replace(/^[\s\t\-*•>]+/, '');
+  return (reMarcador.test(bruta) || reFraseDeDestino.test(alvo)) && reDestinoQualquer.test(alvo);
 }
 
 const EXT = /\.(ts|tsx|swift|html|md)$/;
@@ -418,5 +433,36 @@ describe('as duas listas de destinatário não podem crescer em separado', () =>
     // legível. Um oráculo que parou de casar avalia coisa nenhuma.
     const casadas = G.frases_aposentadas.filter((f) => reSuprime.test(f.linha));
     expect(casadas.length).toBeGreaterThanOrEqual(18);
+  });
+});
+
+describe('o censo de build e o guarda de runtime aplicam a MESMA regra', () => {
+  /**
+   * Os PADRÕES já vinham de uma fonte só; a LÓGICA em volta deles não vinha, e
+   * divergiu em três pontos — num deles o censo ficou MAIS FROUXO que o
+   * runtime, que é a direção que o gerador existe pra impedir, no guarda que
+   * governa o roteiro IMPRESSO entregue ao garçom. `mesmaRegraDoCenso`
+   * comparava strings de padrão e não podia ver que os dois `nega` eram
+   * funções diferentes.
+   *
+   * `docs/compliance/afirmacoes.fixture.json` é o corpo compartilhado: as duas
+   * implementações rodam contra ele, com o mesmo veredito exigido dos dois
+   * lados. Mesma forma do `documentos.fixture.json`.
+   */
+  const F = JSON.parse(fs.readFileSync(
+    path.join(RAIZ, 'docs', 'compliance', 'afirmacoes.fixture.json'), 'utf8'));
+
+  test('cada caso do fixture dá o veredito que o fixture diz', () => {
+    const divergiram = F.casos
+      .filter((c) => acusa(c.texto) !== c.recusa)
+      .map((c) => `${c.recusa ? 'ESCAPOU' : 'FALSO POSITIVO'}: ${c.texto.replace(/\n/g, '⏎').slice(0, 70)}`);
+    expect(divergiram).toEqual([]);
+  });
+
+  test('o fixture cobre os dois vereditos e não encolhe', () => {
+    expect(F.casos.filter((c) => c.recusa).length).toBeGreaterThanOrEqual(18);
+    expect(F.casos.filter((c) => !c.recusa).length).toBeGreaterThanOrEqual(10);
+    // Razão escrita em cada caso: o fixture é a afirmação de que alguém leu.
+    expect(F.casos.filter((c) => !c.porque || c.porque.length < 30)).toEqual([]);
   });
 });

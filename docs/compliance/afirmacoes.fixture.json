@@ -1,0 +1,170 @@
+{
+  "_leia": "O MESMO corpo de frases, com o MESMO veredito, exercitado pelos dois guardas: o censo de build (api/__tests__/claims.test.js) e a revisão de runtime (ios/RachaTests/RevisaoDeAfirmacoesTests.swift). Os padrões já são gerados de uma fonte só; a LÓGICA em volta deles não era, e divergiu em três pontos — num deles o censo de build ficou MAIS FROUXO que o runtime, que é a direção que o gerador existe pra impedir, no guarda que governa o roteiro IMPRESSO entregue ao garçom. `mesmaRegraDoCenso` comparava strings de padrão e não podia ver que os dois `nega` eram funções diferentes. Mesma forma do documentos.fixture.json: cópia declarada, não cópia esquecida.",
+  "casos": [
+    {
+      "texto": "Sem dúvida, o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Sem dúvida, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Sem dúvida, quem te atendeu recebe os 10%.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Não precisa deixar mais nada, o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Não precisa deixar mais nada, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Não precisa deixar mais nada, quem te atendeu recebe os 10%.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Você não paga taxa nenhuma, o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Você não paga taxa nenhuma, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Você não paga taxa nenhuma, quem te atendeu recebe os 10%.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Nem esquenta, o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Nem esquenta, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Nem esquenta, quem te atendeu recebe os 10%.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "O serviço não fica com o salão, fica com o garçom.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "A gorjeta não fica só com o barman, vai pra equipe toda.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "Os 10% não vão pro sommelier, vão pro garçom.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "A caixinha não é do maître, é do garçom que te atendeu.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "A gorjeta não fica com a copa, fica com o atendente.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "divisão SEM VERBO: a frase de destino estava ancorada no começo da oração, e qualquer palavra antes da preposição derrubava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- tudo pro garçom",
+      "recusa": true,
+      "porque": "divisão SEM VERBO: a frase de destino estava ancorada no começo da oração, e qualquer palavra antes da preposição derrubava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- direto pra equipe",
+      "recusa": true,
+      "porque": "divisão SEM VERBO: a frase de destino estava ancorada no começo da oração, e qualquer palavra antes da preposição derrubava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- pro garçom",
+      "recusa": true,
+      "porque": "divisão SEM VERBO: a frase de destino estava ancorada no começo da oração, e qualquer palavra antes da preposição derrubava"
+    },
+    {
+      "texto": "A gorjeta não fica com o garçom.",
+      "recusa": false,
+      "porque": "negação de verdade — a resposta mais direta que existe pra a pergunta"
+    },
+    {
+      "texto": "O serviço não vai pro garçom, vai pro CNPJ da casa.",
+      "recusa": false,
+      "porque": "negação de verdade — a resposta mais direta que existe pra a pergunta"
+    },
+    {
+      "texto": "Já tirei o serviço. Chama o atendente pra fechar a conta.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Tirei o serviço. Pergunta pro garçom se dá pra dividir a conta.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "O serviço de 10% está na conta. O garçom já trouxe a maquininha?",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Sua parte com serviço é R$ 61,00. Se quiser, mostra pro garçom.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Tirei os 10%. Fala com o maître na saída.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Adicionei o couvert. O serviço continua ligado — R$ 28,00. Chama a atendente pra confirmar.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "A equipe da mesa 7 já fechou. O serviço saiu da sua parte.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Inclui R$ 12,00 de serviço. O restaurante distribui à equipe, como manda a lei.",
+      "recusa": false,
+      "porque": "a frase sancionada e a resposta segura — recusar a própria saída põe o guarda em laço"
+    },
+    {
+      "texto": "A gorjeta arrecadada é remuneração do time e passa pela folha de pagamento da casa.",
+      "recusa": false,
+      "porque": "a frase sancionada e a resposta segura — recusar a própria saída põe o guarda em laço"
+    },
+    {
+      "texto": "Sobre o serviço: o restaurante distribui à equipe, como manda a lei. Pode perguntar de novo que eu respondo.",
+      "recusa": false,
+      "porque": "a frase sancionada e a resposta segura — recusar a própria saída põe o guarda em laço"
+    }
+  ]
+}

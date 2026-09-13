@@ -198,16 +198,6 @@
       },
       {
         "arquivo": "docs/onboarding/README.md",
-        "ancora": "Quem fecha a conta hoje",
-        "porque": "PERGUNTA OPERACIONAL do levantamento D0: quem fecha a conta hoje, garçom na mesa ou caixa. Colher o fato do salão não é afirmar nada sobre dinheiro."
-      },
-      {
-        "arquivo": "docs/onboarding/README.md",
-        "ancora": "stats viram argumento pros garçons",
-        "porque": "MÉTRICA de relatório mandada ao dono (gorjetas por garçom). Mede o que cada atendente arrecadou; não diz pra onde o dinheiro vai."
-      },
-      {
-        "arquivo": "docs/onboarding/README.md",
         "ancora": "Métricas de ativação no painel",
         "porque": "linha de tabela do roteiro de produto: 'gorjeta por garçom' é a MÉTRICA do painel. Esta linha estava sendo perdoada por uma âncora escrita pra linha de cima — é o achado H4 da revisão de compliance, e agora ela tem dispensa própria, lida."
       },
@@ -215,16 +205,6 @@
         "arquivo": "ios/Racha/Agent/AgentTool.swift",
         "ancora": "remuneração da equipe",
         "porque": "GENITIVO, em descrição de campo de ferramenta lida pelo MODELO: o serviço É remuneração da equipe (Lei 13.419/2017). É a afirmação verdadeira que a lei faz, e o modelo precisa dela pra marcar o extra certo."
-      },
-      {
-        "arquivo": "ios/Racha/Agent/MockTransport.swift",
-        "ancora": "quanto o pessoal ainda me deve",
-        "porque": "'pessoal' aqui é A MESA — os amigos que devem — e não a equipe da casa; a vizinhança com 'tira o serviço' é uma lista de exemplos do modo demonstração. Substantivo certo, sentido outro."
-      },
-      {
-        "arquivo": "docs/onboarding/README.md",
-        "ancora": "Como distribui pra equipe?",
-        "porque": "PERGUNTA OPERACIONAL ao dono, no levantamento D0: como ELE distribui hoje. Colher o fato não é prometer nada."
       },
       {
         "arquivo": "docs/onboarding/README.md",
@@ -242,24 +222,9 @@
         "porque": "RUNBOOK de restituição: diz que a gorjeta arrecadada é remuneração do time (Lei 13.419/2017) e por isso NÃO é fonte de devolução. A afirmação é sobre de onde o dinheiro não sai."
       },
       {
-        "arquivo": "ios/Racha/Agent/ClaimPatterns.swift",
-        "ancora": "static let destinatario",
-        "porque": "É O PADRÃO, não uma afirmação — arquivo GERADO por scripts/gen-claim-patterns.js a partir deste JSON. Ele carrega as duas listas de substantivos por definição; um censo que o acusasse estaria acusando a própria regra de existir. Dispensa e não exclusão de caminho: o resto do arquivo continua sendo varrido, e se alguém escrever copy dentro dele o censo vê."
-      },
-      {
-        "arquivo": "docs/markets/README.md",
-        "ancora": "no bolso direto de um garçom",
-        "porque": "ANÁLISE da razão de ser do inegociável #2, num documento de estratégia de mercado: descreve o arranjo proibido pra explicar por que é proibido, e compara Brasil e Espanha."
-      },
-      {
         "arquivo": "docs/onboarding/README.md",
         "ancora": "Isso afirma acerto direto com a equipe",
         "porque": "NOTA DE CORREÇÃO — a primeira metade: registra que a frase saiu do roteiro e qual arranjo ela afirmava. Mesmo caso do comentário de código, num arquivo onde comentário não existe."
-      },
-      {
-        "arquivo": "docs/onboarding/README.md",
-        "ancora": "permite à casa reter parte pros encargos",
-        "porque": "NOTA DE CORREÇÃO — a segunda metade, citando a CLT 457 §6º e o CDC art. 30. A janela de três linhas separa o bloco em dois sítios; os dois são lidos."
       },
       {
         "arquivo": "docs/outreach/racha-apresentacao-dinhos.html",
@@ -280,16 +245,6 @@
         "arquivo": "docs/outreach/README.md",
         "ancora": "exposição trabalhista/tributária",
         "porque": "A EXPLICAÇÃO da regra acima, no mesmo bloco: diz que liquidação direta pro garçom é exposição do cliente. Nomear o risco é o conteúdo."
-      },
-      {
-        "arquivo": "ios/Racha/Agent/ClaimPatterns.swift",
-        "ancora": "static let substantivoDestinatario",
-        "porque": "É O PADRÃO do censo de build, não uma afirmação — arquivo GERADO. A lista de runtime, logo abaixo, tem dispensa própria: duas linhas, dois sítios, duas afirmações de que alguém leu."
-      },
-      {
-        "arquivo": "ios/Racha/Agent/ClaimPatterns.swift",
-        "ancora": "static let formaDirecional",
-        "porque": "É O PADRÃO, não uma afirmação — arquivo GERADO. Carrega verbos de movimento e destinatários por definição; um censo que o acusasse estaria acusando a regra de existir. Dispensa e não exclusão de caminho: o resto do arquivo continua varrido."
       }
     ],
     "onde_o_censo_anda": {
@@ -310,7 +265,7 @@
       ],
       "_porque_docs_fora": "Estes dois diretórios são a ANÁLISE da proibição, e analisar exige citar. É a mesma regra que já vale pro comentário de código, e está escrita aqui em vez de escondida numa lista de caminhos — para que a próxima pessoa possa discordar dela. Tudo o mais em docs/ ANDA: estratégia, mercado, onboarding, outreach. O que é entregue a alguém é superfície."
     },
-    "_sobre_dispensas": "Cada dispensa afirma QUE ALGUÉM LEU AQUELA LINHA. A âncora casa a LINHA do achado — a que nomeia o destinatário — e não a vizinhança dela: antes era testada contra a janela e o laço pulava linhas depois de dispensar, o que somado dava um silenciador de uso geral (bastava pôr a linha ofensora ao lado de uma ancorada). Havia instância viva: docs/onboarding/README.md:111 é violação por si só e estava sendo perdoada por uma âncora escrita pra linha 110, cuja razão descrevia uma palavra vizinha que não existia. O teste agora exige que cada dispensa seja usada EXATAMENTE uma vez.\n\nAs famílias legítimas: (a) GENITIVO — 'Serviço da equipe' diz de quem o serviço é, não pra onde vai; (b) PERGUNTA OPERACIONAL ou MÉTRICA — perguntar ao dono como ele distribui, ou medir quanto cada atendente arrecadou, não promete nada; (c) PROIBIÇÃO INTERNA e NEGAÇÃO PÚBLICA — uma regra de venda que diz o que não prometer precisa nomear o que não prometer, e 'isto a gente NÃO faz' é a afirmação correta ao contrário.",
+    "_sobre_dispensas": "Cada dispensa afirma QUE ALGUÉM LEU AQUELA LINHA. A âncora casa a LINHA do achado — a que nomeia o destinatário — e não a vizinhança dela: antes era testada contra a janela e o laço pulava linhas depois de dispensar, o que somado dava um silenciador de uso geral (bastava pôr a linha ofensora ao lado de uma ancorada). Havia instância viva: docs/onboarding/README.md:111 é violação por si só e estava sendo perdoada por uma âncora escrita pra linha 110, cuja razão descrevia uma palavra vizinha que não existia. O teste agora exige que cada dispensa seja usada EXATAMENTE uma vez.\n\nAs famílias legítimas: (a) GENITIVO — 'Serviço da equipe' diz de quem o serviço é, não pra onde vai; (b) PERGUNTA OPERACIONAL ou MÉTRICA — perguntar ao dono como ele distribui, ou medir quanto cada atendente arrecadou, não promete nada; (c) PROIBIÇÃO INTERNA e NEGAÇÃO PÚBLICA — uma regra de venda que diz o que não prometer precisa nomear o que não prometer, e 'isto a gente NÃO faz' é a afirmação correta ao contrário. Seis dispensas saíram em 2026-09-13 quando a regra da afirmação repartida passou a exigir que a oração do destinatário SEJA frase de destino: eram falsos positivos do `return true` solto, e a lista de dispensas estava absorvendo o defeito em vez de apontá-lo. Dispensa que some porque a regra melhorou é o sinal certo — inflação de dispensa é como o próximo achado de verdade passa despercebido.",
     "_porque_lista_gorjeta": "O gatilho é uma CONJUNÇÃO, e por isso vale o mais fraco dos dois lados. A v3 declarou que a lista de destinatários era 'a única metade que precisa crescer' e nunca examinou esta — que não tinha `caixinha`, a palavra que um garçom brasileiro de fato usa, nem `gratuity`, que é o termo padrão em inglês. Cada buraco aqui silencia um destinatário perfeitamente casado do outro lado.",
     "revoga_dispensa": "\\b(sem|n[ãa]o|nunca|nem|without|sin)\\b|\\bno\\s+(payroll|folha|n[óo]mina)|\\b(fora|por fora|antes|[àa] parte|em esp[ée]cie|[àa] margem|por baixo|paralelo)\\b",
     "_porque_revoga": "A dispensa cai quando há negação NA CLÁUSULA ou logo antes dela (30 caracteres). Dois casos reais: 'a gorjeta vai direto pro garçom, SEM passar pela folha de pagamento' — negação antes — e 'A gorjeta vai direto pro garçom, o restaurante NÃO distribui nada' — negação DENTRO da cláusula casada, que a primeira versão deste campo não via porque só olhava o que vinha antes do início do casamento. Uma dispensa que a negação não derruba é um interruptor: basta citar a lei ao contrário pra desligar o guarda. O `no` inglês entrou ANCORADO no substantivo que ele nega (`no payroll`): solto, ele casava com o `no` português de 'liquida NO CNPJ do restaurante' e transformava a frase mais correta da lista num falso positivo. Duas línguas dividindo duas letras. `direto` SAIU da lista: ele qualifica a AFIRMAÇÃO ('vai direto pro garçom'), não a cláusula do distribuidor — pô-lo aqui fazia a própria promessa proibida contar como negação dela mesma, e 'A gorjeta vai direto pro garçom.' passava. Uma palavra na lista errada inverte a polaridade do guarda. Entraram no lugar as evasões que de fato qualificam a folha: 'à margem', 'por baixo', 'paralelo'.",

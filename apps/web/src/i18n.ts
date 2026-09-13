@@ -1188,9 +1188,9 @@ export const DICT = {
   'rcpt.marketplaceHint': { en: 'The Pagar.me account is not in marketplace mode yet — sales has to enable it (already requested).',
                         pt: 'A conta Pagar.me ainda não está em modo marketplace — o comercial precisa habilitar (pedido já feito).',
                         es: 'La cuenta de Pagar.me todavía no está en modo marketplace — el equipo comercial tiene que habilitarlo (ya solicitado).' },
-  'rcpt.docIncomplete': { en: 'A CPF has 11 digits, a CNPJ has 14 — some are still missing.',
-                        pt: 'CPF tem 11 dígitos, CNPJ tem 14 — ainda faltam números.',
-                        es: 'El CPF tiene 11 dígitos y el CNPJ 14 — todavía faltan números.' },
+  'rcpt.docIncomplete': { en: 'A CNPJ has 14 digits — some are still missing.',
+                        pt: 'O CNPJ tem 14 dígitos — ainda faltam alguns.',
+                        es: 'El CIF tiene 9 caracteres — todavía faltan.' },
   'rcpt.docDvBad':    { en: 'The check digits do not match — check the number.',
                         pt: 'Os dígitos verificadores não batem — confira o número.',
                         es: 'Los dígitos de control no coinciden — revisa el número.' },
@@ -1221,6 +1221,19 @@ export const DICT = {
   // CNPJ e só: o serviço é remuneração que passa pela folha, e folha exige
   // pessoa jurídica. O rótulo dizia "CNPJ ou CPF" enquanto o servidor
   // recusava CPF.
+  // Um CPF bem formado NÃO é dígito verificador errado. A mensagem tem que
+  // dizer a regra, porque é ela que falta — não o número.
+  // O dono precisa saber que parou de arrecadar o serviço — e por quê. Falhar
+  // fechado é o certo; falhar calado não é (inegociável #8).
+  'admin.noTipDocTitle': { en: 'The service charge is off on this venue',
+                        pt: 'O serviço está desligado nesta casa', es: 'El cargo por servicio está desactivado' },
+  'admin.noTipDocBody': { en: 'Without the restaurant’s CNPJ registered, the 10% cannot be collected: the service charge is payroll, and payroll needs a company. Diners still pay for what they ordered — only the service line is off. Register the CNPJ and it comes back.',
+                        pt: 'Sem o CNPJ do restaurante cadastrado, os 10% não podem ser cobrados: o serviço é remuneração que passa pela folha, e folha exige empresa. O cliente continua pagando o consumo normalmente — só a linha de serviço está fora. Cadastre o CNPJ e ela volta.',
+                        es: 'Sin el CIF del restaurante registrado, el 10% no puede cobrarse: el servicio es remuneración por nómina, y la nómina exige empresa. El cliente sigue pagando el consumo — solo la línea de servicio está fuera. Registra el CIF y vuelve.' },
+  'admin.noTipDocCta': { en: 'Register the CNPJ', pt: 'Cadastrar o CNPJ', es: 'Registrar el CIF' },
+  'rcpt.docCpfNo':    { en: 'That is a CPF, and the payout document has to be the restaurant’s CNPJ: the service charge is payroll, and payroll needs a company.',
+                        pt: 'Esse é um CPF, e o documento de recebimento tem que ser o CNPJ do restaurante: o serviço é remuneração que passa pela folha, e folha exige empresa.',
+                        es: 'Eso es un documento personal, y el de cobro tiene que ser el CIF del restaurante: el servicio es remuneración por nómina, y la nómina exige empresa.' },
   'rcpt.docLabel':    { en: 'Restaurant’s CNPJ',                pt: 'CNPJ do restaurante', es: 'CIF del restaurante' },
   // O dono digita este documento num passo de KYC — e é ELE que passa a
   // aparecer no comprovante do cliente, porque a casa herda o documento do

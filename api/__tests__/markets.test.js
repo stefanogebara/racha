@@ -640,11 +640,22 @@ describe('gorjeta exige documento de empresa provado', () => {
     // Se o censo parar de achar chamador, ele passa calado.
     expect(chamadores.length).toBeGreaterThanOrEqual(2);
     const semVenue = [];
+    const formaDesconhecida = [];
     for (const f of chamadores) {
       const texto = fs.readFileSync(f, 'utf8');
       // A DECLARAÇÃO da função não é chamada — `function marketGate(code, {…})`
       // casava o próprio padrão e se acusava.
-      for (const m of texto.matchAll(/(?<!function\s)marketGate\s*\([^,]*,\s*\{([^}]*)\}/g)) {
+      //
+      // E TODA chamada tem que casar a forma que este censo sabe ler. Sem
+      // isto, `marketGate(m, opts)` ou `marketGate(m)` simplesmente não
+      // casavam e o censo seguia verde: forma desconhecida não é forma
+      // conforme. Achado pela revisão de segurança de 2026-09-13.
+      const chamadas = [...texto.matchAll(/(?<!function\s)marketGate\s*\(/g)];
+      const lidas = [...texto.matchAll(/(?<!function\s)marketGate\s*\([^,]*,\s*\{([^}]*)\}/g)];
+      if (chamadas.length !== lidas.length) {
+        formaDesconhecida.push(`${path.relative(RAIZ, f)}: ${chamadas.length} chamadas, ${lidas.length} legíveis`);
+      }
+      for (const m of lidas) {
         // `tipCents: 0` literal dispensa: não há gorjeta pra conferir.
         if (/tipCents:\s*0\b/.test(m[1])) continue;
         if (!/(^|[,{]\s*)venue\s*($|[,:=])/.test(m[1].trim())) {
@@ -653,6 +664,7 @@ describe('gorjeta exige documento de empresa provado', () => {
       }
     }
     expect(semVenue).toEqual([]);
+    expect(formaDesconhecida).toEqual([]);
   });
 
   test('o CONSUMO passa sem documento — ninguém deixa de pagar o que comeu', async () => {

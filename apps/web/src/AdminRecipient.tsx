@@ -127,9 +127,17 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
     if (ok && okMsg) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--emerald)' }}>{okMsg}</span>;
     return <span className="muted small" style={{ display: 'block', marginTop: 4 }}>{hint}</span>;
   };
-  const docErr = kind === null
-    ? t('rcpt.docIncomplete')
-    : t('rcpt.docDvBad');
+  // UM CPF BEM FORMADO não é "dígito verificador errado" — os dígitos batem.
+  // Dizer isso era o produto afirmando uma falsidade sobre o número da pessoa
+  // e mandando conferir o que está certo, sem caminho adiante: o `fb` acima
+  // troca a DICA pelo ERRO quando o campo está tocado e inválido, então a
+  // única frase que explicava a regra sumia exatamente no estado que precisa
+  // dela. Achado pelas duas revisões de 2026-09-13.
+  const docErr = kind === 'cpf'
+    ? t('rcpt.docCpfNo')
+    : kind === null
+      ? t('rcpt.docIncomplete')
+      : t('rcpt.docDvBad');
 
   async function copyId() {
     if (!realId) return;

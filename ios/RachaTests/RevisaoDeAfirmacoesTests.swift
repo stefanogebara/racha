@@ -315,6 +315,32 @@ struct RevisaoDeAfirmacoesTests {
         #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(RevisaoDeAfirmacoes.respostaSegura))
     }
 
+    @Test("o corpo COMPARTILHADO: o mesmo veredito que o censo de build dá")
+    func mesmoVereditoDoCenso() {
+        // Os PADRÕES já vinham de uma fonte só; a LÓGICA em volta deles não, e
+        // divergiu em três pontos — num deles o censo de build ficou MAIS
+        // FROUXO que este guarda, que é a direção que o gerador existe pra
+        // impedir, no controle que governa o roteiro IMPRESSO entregue ao
+        // garçom. `mesmaRegraDoCenso` compara strings de padrão e não podia ver
+        // que os dois `nega` eram funções diferentes.
+        //
+        // `docs/compliance/afirmacoes.fixture.json` é o corpo compartilhado: os
+        // dois lados rodam contra ele e o veredito tem que bater nos dois.
+        let raiz = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let dados = try! Data(contentsOf: raiz.appending(path: "docs/compliance/afirmacoes.fixture.json"))
+        let casos = (try! JSONSerialization.jsonObject(with: dados) as! [String: Any])["casos"] as! [[String: Any]]
+        #expect(casos.count >= 28, "o corpo compartilhado encolheu")
+        for c in casos {
+            let texto = c["texto"] as! String
+            let espera = c["recusa"] as! Bool
+            #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(texto) == espera,
+                    "\(espera ? "escapou" : "falso positivo"): \(texto.replacingOccurrences(of: "\n", with: "⏎"))")
+        }
+        #expect(casos.filter { $0["recusa"] as! Bool }.count >= 18)
+        #expect(casos.filter { !($0["recusa"] as! Bool) }.count >= 10)
+    }
+
     @Test("o guarda usa os MESMOS padrões do censo de build")
     func mesmaRegraDoCenso() {
         let g = claims()
