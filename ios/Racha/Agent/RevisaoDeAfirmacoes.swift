@@ -60,33 +60,41 @@ enum RevisaoDeAfirmacoes {
     private static let revoga = regex(ClaimPatterns.revogaDispensa)
     /// Só os negadores; a evasão preposicional pertence ao distribuidor.
     private static let negador = regex(ClaimPatterns.negadores)
+    /// Negador COLADO no destinatário — "o garçom NÃO fica", "o garçom QUE NÃO
+    /// recebe". Sem `sem`: `sem` evade a cláusula do distribuidor e vem na
+    /// CAUDA da própria promessa ("…pro garçom SEM passar pela folha"), onde
+    /// nega a frase que acabou de ser feita em vez do destino.
+    private static let negadorColado = regex("^[\\s,]*(que\\s+)?(n[ãa]o|nunca|nem|jamais)\\b")
     /// Alta precisão: uma oração com esta FORMA está afirmando destino,
     /// tenha ou não os dois substantivos dentro dela.
     private static let direcional = regex(ClaimPatterns.formaDirecional)
-    /// Uma oração que É uma frase de destino: preposição ou genitivo colado no
-    /// destinatário, logo no começo. Sem `a` sozinho — é artigo.
     /// Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação.
     private static let separadorInterno = regex(",|\\b(mas|por[ée]m|e sim|sim)\\b")
     /// Uma frase de destino em QUALQUER lugar da oração — não só no começo.
+    /// Ancorá-la no começo fazia qualquer palavra antes da preposição derrubar
+    /// o casamento, e a mais provável é uma quantidade.
     private static let destinoEmQualquerLugar = regex(
         "(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
+        + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
+    /// A oração É, ela toda, uma frase de destino: começa na preposição.
+    ///
+    /// Volta a ter emprego — é ela que separa a linha de lista sem marcador
+    /// ("pro garçom", logo depois de "10% de serviço") de uma oração com VERBO
+    /// ("Fala com o maître na saída"), que é ação e não dinheiro indo. Só numa
+    /// frase de destino inteira a quantidade da oração ANTERIOR conta.
+    private static let fraseDeDestino = regex(
+        "^\\s*(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
         + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
     /// Marcador de lista: `- `, `* `, `• `. (`\\d+[.)]` seria morto: a oração já
     /// vem cortada no ponto.)
     private static let marcadorDeLista = regex("^\\s*[-*•]\\s*")
     /// QUANTIDADE: o que distingue dinheiro DIRIGIDO de uma ação dirigida.
-    ///
     /// Sem isto, exigir só a frase de destino recusava "Se quiser, mostra pro
     /// garçom." e "Fala com o maître na saída." — respostas certas, a primeira
     /// com o valor logo antes. `mostra pro garçom` é objeto indireto de uma
-    /// ação; `100% pro garçom` é o dinheiro indo. A quantidade (ou o marcador
-    /// de lista, que já traz o contexto da linha de cima) é o que separa os
-    /// dois sem precisar modelar o verbo.
+    /// ação; `100% pro garçom` é o dinheiro indo.
     private static let quantidade = regex(
         "\\d+\\s*%|\\btud[oa]\\b|\\btod[oa]s?\\b|\\binteir[oa]s?\\b|\\bdireto\\b|\\bintegralmente\\b|\\bmetade\\b")
-    private static let fraseDeDestino = regex(
-        "^(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+"
-        + "(o\\s+|a\\s+|os\\s+|as\\s+)?(" + ClaimPatterns.destinatarioRuntime + ")")
 
     private static func regex(_ p: String) -> NSRegularExpression {
         // `try!` é deliberado: o padrão é constante e gerado. Se não compilar,
@@ -181,17 +189,33 @@ enum RevisaoDeAfirmacoes {
             let antes = ini < d.location
                 ? casa(negador, ns.substring(with: NSRange(location: ini, length: d.location - ini)))
                 : false
-            // E O NEGADOR PODE VIR DEPOIS DO DESTINATÁRIO, colado no verbo: "o
-            // garçom NÃO fica com a gorjeta" é a resposta certa, e era acusada
-            // — a janela só olhava pra trás. O limite é o próximo separador:
-            // com vírgula no meio a negação já é de outra oração, que é o que
-            // mantém "vai pro garçom, SEM passar pela folha" sendo recusado.
+            // E O NEGADOR PODE VIR DEPOIS DO DESTINATÁRIO — mas COLADO nele,
+            // e sem `sem`.
+            //
+            // A primeira versão aceitava qualquer negador entre o
+            // destinatário e o próximo separador, e `sem` está na lista: a
+            // CAUDA da própria frase virava negação da promessa que ela
+            // acabara de fazer. "A gorjeta vai direto pro garçom sem passar
+            // pela folha." passava — o arranjo que o inegociável #2 existe pra
+            // impedir, sem qualificação nenhuma, na tela do cliente. E "Os 10%
+            // vão pro garçom e você não paga nada a mais" é frase que o
+            // inegociável #1 (nenhuma taxa pro cliente) faz o modelo produzir
+            // o tempo todo.
+            //
+            // Medido pela revisão: das 31 frases aposentadas que a lista de
+            // runtime cobre, o commit anterior recusava 31 e este recusava 7.
+            // Numa grade de 900, zero escapavam antes e 540 escapavam depois —
+            // o conserto do preâmbulo abriu um buraco uma ordem de grandeza
+            // maior que o que fechou. Achado pela revisão de segurança de
+            // 2026-09-13.
+            //
+            // E o corpo não viu porque o ÚNICO caso de evasão pós-destinatário
+            // que ele tinha usava `fora`, a única palavra de evasão que NÃO
+            // está em `negadores`. Trocada por `sem`, o veredito inverte.
             let fimDoTrecho = separadores.first(where: { $0.location >= d.location + d.length })?.location
                 ?? ns.length
-            let depois = fimDoTrecho > d.location + d.length
-                ? casa(negador, ns.substring(with: NSRange(
-                    location: d.location + d.length, length: fimDoTrecho - d.location - d.length)))
-                : false
+            let depois = fimDoTrecho > d.location + d.length && casa(negadorColado, ns.substring(with: NSRange(
+                location: d.location + d.length, length: fimDoTrecho - d.location - d.length)))
             if !antes && !depois { return false }
             anterior = d.location + d.length
         }
@@ -299,7 +323,13 @@ enum RevisaoDeAfirmacoes {
         // Tirar a linha não quebra nada: os quatro falsos positivos que a
         // motivaram já são segurados pela exigência de marcador-ou-quantidade
         // logo abaixo. Achado pela revisão de compliance de 2026-09-13.
-        if partes.contains(where: nega) { return false }
+        // SEM RETORNO PRECOCE PELA NEGAÇÃO. Uma oração negando em qualquer
+        // lugar desligava a regra 3 pro texto inteiro — e o assunto faz do
+        // prefixo negativo a abertura mais provável: "A gorjeta não fica com o
+        // maître. Sobre a gorjeta\n100% pro garçom" passava. É a classe do
+        // prefixo inocente, reaberta com um prefixo NEGATIVO: o conserto do
+        // `firstIndex` entrou no laço e os retornos de texto inteiro acima
+        // dele ficaram. A negação é julgada POR ORAÇÃO dentro do laço.
         // TODAS as orações com destinatário, não a primeira. `firstIndex` era
         // a mesma forma "só o primeiro" que a revisão anterior tinha achado no
         // `nega` — deixada intacta no laço irmão, trinta linhas abaixo. Bastava
@@ -316,10 +346,26 @@ enum RevisaoDeAfirmacoes {
         // formato do erro anterior, um passo adiante.
         for (i, o) in partes.enumerated() where casa(destinatario, o) {
             guard casa(destinoEmQualquerLugar, o), !nega(o) else { continue }
-            // Marcador de lista OU quantidade: ver `quantidade`.
-            guard casa(marcadorDeLista, o) || casa(quantidade, o) else { continue }
-            // Pelo CDC art. 30: o distribuidor tem que ser nomeado ATÉ aqui.
-            if partes.prefix(i + 1).contains(where: temDistribuidor) { continue }
+            // Marcador de lista OU quantidade — e a quantidade pode estar na
+            // oração ANTERIOR, que é onde o valor costuma morar. Exigi-la na
+            // mesma oração do destinatário fazia a classe sobreviver só na
+            // renderização com marcador de Markdown: tirando os dois traços de
+            // "- 10% de serviço\n- pro garçom" — o exemplo canônico do próprio
+            // comentário — ela escapava, e "Gorjeta: 10% — pra equipe." também.
+            // A quantidade da oração anterior só vale se ESTA for uma frase de
+            // destino inteira — senão "Tirei os 10%. Fala com o maître na saída."
+            // vira achado, e é resposta certa com o valor na oração de trás.
+            let anteriorTemQuantidade = i > 0 && casa(quantidade, partes[i - 1])
+                && casa(fraseDeDestino, o)
+            guard casa(marcadorDeLista, o) || casa(quantidade, o) || anteriorTemQuantidade else { continue }
+            // NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA — a mesma lógica da regra
+            // 1b, que a regra 3 não aplicava. A dispensa por ORDEM valia só
+            // aqui, e por isso bastava ABRIR com a frase sancionada pra
+            // liberar o `- 100% pro garçom` depois dela. A regra 9 do
+            // `SystemPrompt` MANDA o modelo dizer essa frase, então abrir com
+            // ela é o caso provável, não o exótico. As mesmas duas frases,
+            // trocadas de ordem, davam vereditos opostos. Achado pela revisão
+            // de segurança de 2026-09-13.
             return true
         }
         return false

@@ -1,0 +1,62 @@
+#!/bin/bash
+# PORTÃO DE MUTAÇÃO DO GUARDA SWIFT.
+#
+# O `api/__tests__/mutacoes-afirmacao.test.js` muta o CENSO (JS). O guarda que
+# chega ao cliente é o Swift, e ninguém tinha apagado peça dele pra ver se o
+# corpo compartilhado reage — a medição que envergonhou o desenho JS (três de
+# seis peças apagáveis com o corpo verde) nunca tinha sido rodada do outro
+# lado. Apontado pela revisão de segurança de 2026-09-13.
+#
+# Roda fora do Xcode, com `swiftc` sobre os dois arquivos do Agent: dois
+# segundos por mutação em vez de trinta.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+cp ios/Racha/Agent/ClaimPatterns.swift "$TMP/CP.swift"
+
+python3 - "$TMP" <<'PY'
+import json, subprocess, sys, os, re
+TMP = sys.argv[1]
+casos = json.load(open('docs/compliance/afirmacoes.fixture.json'))['casos']
+guarda = open('ios/Racha/Agent/RevisaoDeAfirmacoes.swift').read()
+
+MUT = [
+ ("negador colado vira negador solto", '"^[\\\\s,]*(que\\\\s+)?(n[ãa]o|nunca|nem|jamais)\\\\b"', 'ClaimPatterns.negadores'),
+ ("nega olha só o primeiro destinatário", "        for d in dests {", "        for d in dests.prefix(1) {"),
+ ("janela falha ABERTA", "ini = achou ? max(0, min(ini, d.location)) : d.location", "ini = max(0, min(ini, d.location))"),
+ ("repartida olha só a primeira oração", "for (i, o) in partes.enumerated() where casa(destinatario, o) {",
+  "for (i, o) in partes.enumerated().prefix(1) where casa(destinatario, o) {"),
+ ("repartida dispensa marcador e quantidade",
+  "guard casa(marcadorDeLista, o) || casa(quantidade, o) || anteriorTemQuantidade else { continue }", ""),
+ ("forma direcional deixa de ser decisiva", "        for o in partes where casa(direcional, o) {\n            if !nega(o) { return true }\n        }", ""),
+ ("distribuidor volta a valer pela janela toda", "&& !temDistribuidor(o) { return true }", "&& !temDistribuidor(texto) { return true }"),
+]
+
+def roda(fonte):
+    open(f'{TMP}/Rev.swift','w').write(fonte.replace('enum RevisaoDeAfirmacoes {','public enum RevisaoDeAfirmacoes {',1))
+    corpo = ['import Foundation', 'var falhas = 0',
+             'let casos: [(String, Bool)] = [' + ','.join(
+                 '(%s, %s)' % (json.dumps(c['texto'], ensure_ascii=False), 'true' if c['recusa'] else 'false') for c in casos) + ']',
+             'for (t, esp) in casos where RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(t) != esp { falhas += 1 }',
+             'print(falhas)']
+    open(f'{TMP}/main.swift','w').write('\n'.join(corpo))
+    r = subprocess.run(['swiftc','-O',f'{TMP}/CP.swift',f'{TMP}/Rev.swift',f'{TMP}/main.swift','-o',f'{TMP}/p'],
+                       capture_output=True, text=True)
+    if r.returncode: return None
+    return int(subprocess.run([f'{TMP}/p'], capture_output=True, text=True).stdout.strip())
+
+base = roda(guarda)
+if base != 0:
+    print(f'✗ o guarda NÃO passa o corpo sem mutação ({base} falhas)'); sys.exit(1)
+print(f'✓ sem mutação: {len(casos)} casos, 0 falhas')
+ruim = 0
+for nome, de, para in MUT:
+    if de not in guarda:
+        print(f'✗ {nome}: o trecho não existe mais no arquivo'); ruim += 1; continue
+    n = roda(guarda.replace(de, para, 1))
+    if n is None:
+        print(f'· {nome}: não compila mutado (peça estrutural)'); continue
+    print(('✓ ' if n > 0 else '✗ ') + f'{nome}: {n} casos vermelhos')
+    if n == 0: ruim += 1
+sys.exit(1 if ruim else 0)
+PY

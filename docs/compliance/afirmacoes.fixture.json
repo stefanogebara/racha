@@ -320,6 +320,51 @@
       "texto": "Não é taxa nenhuma. Como funciona:\n- 10% de serviço\n- 100% pro garçom",
       "recusa": true,
       "porque": "Negador numa oração e a afirmação SEM VERBO noutra: só a regra 3 alcança, e a negação não pode dispensar o texto inteiro — ela nega a oração dela. Existe pra prender o atalho 'negação em qualquer lugar dispensa', que o portão de mutação insere"
+    },
+    {
+      "texto": "A gorjeta vai direto pro garçom sem passar pela folha.",
+      "recusa": true,
+      "porque": "CRÍTICO: a CAUDA da própria frase virava negação da promessa que ela acabara de fazer, porque `sem` está em `negadores` e a janela pós-destinatário aceitava negador em qualquer ponto até o separador. O arranjo que o inegociável #2 existe pra impedir, sem qualificação, na tela. O corpo não via porque o único caso de evasão pós-destinatário usava `fora`, a única palavra de evasão que NÃO está em `negadores`"
+    },
+    {
+      "texto": "Os 10% vão pro garçom e você não paga nada a mais.",
+      "recusa": true,
+      "porque": "idem, e esta é frase que o inegociável #1 (nenhuma taxa pro cliente) faz o modelo produzir o tempo todo"
+    },
+    {
+      "texto": "O serviço fica com a equipe e não passa pela folha de pagamento.",
+      "recusa": true,
+      "porque": "idem, com o negador na segunda metade da mesma oração"
+    },
+    {
+      "texto": "A gorjeta fica com o garçom sem desconto nenhum.",
+      "recusa": true,
+      "porque": "idem, com `sem` sem vírgula — a versão COM vírgula estava no corpo e a sem vírgula não, e só a segunda escapava"
+    },
+    {
+      "texto": "O restaurante distribui a gorjeta à equipe, como manda a lei. Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "ABRIR com a frase sancionada liberava a classe sem verbo: a dispensa por ORDEM valia só na regra 3, enquanto a 1b diz que nada resgata afirmação já feita. A regra 9 do SystemPrompt MANDA o modelo dizer essa frase, então abrir com ela é o caso provável. As mesmas duas frases, trocadas de ordem, davam vereditos opostos"
+    },
+    {
+      "texto": "A gorjeta não fica com o maître. Sobre a gorjeta\n100% pro garçom",
+      "recusa": true,
+      "porque": "PREFIXO NEGATIVO desarmava a regra 3 pro texto inteiro — a classe do prefixo inocente reaberta com negação, e o assunto faz do prefixo negativo a abertura mais provável"
+    },
+    {
+      "texto": "Como funciona:\n10% de serviço\npro garçom",
+      "recusa": true,
+      "porque": "a classe sem verbo sobrevivia só na renderização COM marcador de Markdown: o exemplo canônico do comentário, sem os dois traços, escapava. A quantidade mora na oração anterior"
+    },
+    {
+      "texto": "Gorjeta: 10% — pra equipe.",
+      "recusa": true,
+      "porque": "idem, no formato de uma linha só com travessão"
+    },
+    {
+      "texto": "Tirei os 10%. Fala com o maître na saída.",
+      "recusa": false,
+      "porque": "a quantidade na oração ANTERIOR só conta se ESTA for frase de destino inteira (começa na preposição). Senão esta resposta certa, com o valor na oração de trás, vira achado"
     }
   ]
 }

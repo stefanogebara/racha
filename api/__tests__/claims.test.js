@@ -92,6 +92,8 @@ const reDestinoQualquer = new RegExp(
   '(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos|[àá]s?|no|na|nos|nas)\\s+'
   + '(o\\s+|a\\s+|os\\s+|as\\s+)?(' + G.substantivo_destinatario + ')', 'i');
 const reMarcador = /^\s*[-*•]\s*/;
+/** A oração É, ela toda, uma frase de destino: começa na preposição. */
+const reFraseDeDestino = new RegExp('^\\s*' + reDestinoQualquer.source, 'i');
 /** Ver `quantidade` no RevisaoDeAfirmacoes.swift. */
 const reQuantidade = /\d+\s*%|\btud[oa]\b|\btod[oa]s?\b|\binteir[oa]s?\b|\bdireto\b|\bintegralmente\b|\bmetade\b/i;
 /**
@@ -140,8 +142,11 @@ function nega(oracao) {
     // NÃO fica com a gorjeta" é a resposta certa. Limite: o próximo separador.
     const fim = seps.find((sp) => sp.index >= d.index + d[0].length);
     const ateOnde = fim ? fim.index : oracao.length;
+    // COLADO no destinatário, e sem `sem`: a cauda da própria frase virava
+    // negação da promessa que ela acabara de fazer. Ver o gêmeo no Swift.
     const depois = ateOnde > d.index + d[0].length
-      && reNegador.test(oracao.slice(d.index + d[0].length, ateOnde));
+      && /^[\s,]*(que\s+)?(n[ãa]o|nunca|nem|jamais)\b/i.test(
+        oracao.slice(d.index + d[0].length, ateOnde));
     if (!antes && !depois) return false;
     anterior = d.index + d[0].length;
   }
@@ -176,7 +181,9 @@ function acusa(janela) {
   // Sem retorno precoce: a regra 1 ABSOLVE a oração que traz o distribuidor, e
   // essa absolvição voltava `false` pro texto inteiro, cancelando a regra 3
   // pras outras orações. Ver o comentário gêmeo no RevisaoDeAfirmacoes.swift.
-  if (partes.some(nega)) return false;
+  // Sem retorno precoce pela negação: uma oração negando em qualquer lugar
+  // desligava a regra 3 pro texto inteiro, e o assunto faz do prefixo negativo
+  // a abertura mais provável. A negação é julgada por ORAÇÃO no laço.
   // TODAS as orações com destinatário, não a primeira: uma frase inocente na
   // frente ("A equipe da mesa 7 já fechou.") capturava o índice e desarmava a
   // classe inteira. Mesma forma "só o primeiro" que o `nega` já tinha tido.
@@ -185,8 +192,12 @@ function acusa(janela) {
   for (let i = 0; i < partes.length; i += 1) {
     const o = partes[i];
     if (!reDestRuntime.test(o) || !reDestinoQualquer.test(o) || nega(o)) continue;
-    if (!reMarcador.test(o) && !reQuantidade.test(o)) continue;
-    if (partes.slice(0, i + 1).some(temDistribuidor)) continue;
+    const anteriorTemQuantidade = i > 0 && reQuantidade.test(partes[i - 1])
+      && reFraseDeDestino.test(o);
+    if (!reMarcador.test(o) && !reQuantidade.test(o) && !anteriorTemQuantidade) continue;
+    // Nada resgata uma afirmação já feita — a mesma lógica da regra 1b, que a
+    // regra 3 não aplicava: bastava ABRIR com a frase sancionada pra liberar o
+    // `- 100% pro garçom` depois dela.
     return true;
   }
   return false;

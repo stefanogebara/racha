@@ -93,11 +93,14 @@ const MUTACOES = [
     de: '  for (let i = 0; i < partes.length; i += 1) {',
     para: '  for (let i = 0; i < Math.min(1, partes.length); i += 1) {' },
   { nome: 'a repartida dispensa a quantidade e o marcador',
-    de: '    if (!reMarcador.test(o) && !reQuantidade.test(o)) continue;',
+    de: '    if (!reMarcador.test(o) && !reQuantidade.test(o) && !anteriorTemQuantidade) continue;',
     para: '' },
-  { nome: 'a ordem do distribuidor deixa de valer',
-    de: '    if (partes.slice(0, i + 1).some(temDistribuidor)) continue;',
-    para: '    if (partes.some(temDistribuidor)) continue;' },
+  { nome: 'a quantidade da oração anterior deixa de contar',
+    de: '    const anteriorTemQuantidade = i > 0 && reQuantidade.test(partes[i - 1])\n      && reFraseDeDestino.test(o);',
+    para: '    const anteriorTemQuantidade = false;' },
+  { nome: 'o negador pós-destinatário volta a aceitar qualquer negador em qualquer ponto',
+    de: "/^[\\s,]*(que\\s+)?(n[ãa]o|nunca|nem|jamais)\\b/i",
+    para: 'reNegador' },
   { nome: 'a dispensa volta a valer pela janela toda',
     de: '    if (reGorjeta.test(o) && reDestRuntime.test(o) && !nega(o) && !temDistribuidor(o)) return true;',
     para: '    if (reGorjeta.test(o) && reDestRuntime.test(o) && !nega(o) && !temDistribuidor(janela)) return true;' },
@@ -201,5 +204,37 @@ describe('cada peça do desenho pode ficar vermelha', () => {
     // Duas hoje, as duas falhando FECHADO. Acrescentar uma terceira tem que
     // ser uma decisão, não um efeito colateral.
     expect(MUTACOES.filter((m) => m.semCobertura).length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('o guarda SWIFT também é medido', () => {
+  /**
+   * O resto deste arquivo muta o CENSO. O guarda que chega ao cliente é o
+   * Swift, e até 2026-09-14 ninguém tinha apagado peça dele pra ver se o corpo
+   * compartilhado reage — a medição que envergonhou o desenho JS (três de seis
+   * peças apagáveis com o corpo verde) nunca tinha sido rodada do outro lado,
+   * e os quatro achados daquela rodada eram todos de peças que os DOIS lados
+   * compartilham. Apontado pela revisão de segurança.
+   *
+   * O script roda `swiftc` direto sobre os dois arquivos do Agent — dois
+   * segundos por mutação, sem Xcode. Fica sob `describe` pra que `npx jest`
+   * cubra os dois lados; num ambiente sem toolchain Swift ele é PULADO, e
+   * pular é dito em voz alta, não silencioso.
+   */
+  const { execFileSync } = require('node:child_process');
+  const temSwift = (() => {
+    try { execFileSync('which', ['swiftc'], { stdio: 'pipe' }); return true; } catch { return false; }
+  })();
+
+  (temSwift ? test : test.skip)('cada peça do guarda Swift pode ficar vermelha', () => {
+    const saida = execFileSync(path.join(RAIZ, 'scripts', 'mutar-guarda-swift.sh'),
+      { encoding: 'utf8', timeout: 600000 });
+    // Toda linha tem que começar com ✓: um `✗` é peça sem cobertura, um `·` é
+    // mutação que nem compila.
+    const ruins = saida.split('\n').filter((l) => l.startsWith('✗'));
+    expect(ruins).toEqual([]);
+    expect(saida).toMatch(/sem mutação: \d+ casos, 0 falhas/);
+    // Sete peças hoje. Encolher a lista tem que ser decisão, não descuido.
+    expect((saida.match(/^✓/gm) || []).length).toBeGreaterThanOrEqual(8);
   });
 });

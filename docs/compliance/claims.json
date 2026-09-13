@@ -250,6 +250,16 @@
         "arquivo": "docs/outreach/README.md",
         "ancora": "Nunca ofereça repasse direto pro garçom",
         "porque": "PROIBIÇÃO INTERNA no roteiro de vendas: manda escalar pra humano em vez de prometer repasse direto. Nomear o que não se pode prometer é o conteúdo da regra — não se treina vendedor contra uma frase que se recusa a escrever. O bloco está marcado como fora do style pack da Olímpia."
+      },
+      {
+        "arquivo": "docs/onboarding/README.md",
+        "ancora": "Essa",
+        "porque": "É O ROTEIRO ENSINANDO A FRASE SANCIONADA — 'o restaurante distribui à equipe, como manda a lei' entre aspas, seguida de 'essa frase, não uma variação'. Passou a ser achado quando a dispensa por ORDEM saiu da regra 3 (a cláusula do distribuidor deixou de resgatar o que vem depois dela, que é o certo): aqui o que vem depois é a INSTRUÇÃO sobre a frase, não outra promessa."
+      },
+      {
+        "arquivo": "docs/onboarding/README.md",
+        "ancora": "O garçom VAI ser perguntado",
+        "porque": "segunda metade da mesma instrução: diz POR QUE o garçom precisa da frase pronta. Nomear o garçom aqui é dizer quem vai ser perguntado, não pra onde vai o dinheiro."
       }
     ],
     "onde_o_censo_anda": {

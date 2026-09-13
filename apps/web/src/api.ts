@@ -144,7 +144,13 @@ export interface Venue {
    * perguntava `!venue.cnpj` e o portão perguntava outra coisa: casa com CPF
    * ou com dígito trocado não via aviso e seguia sem arrecadar.
    */
-  podeCobrarServico?: boolean;
+  //
+  // OBRIGATÓRIO de propósito: com `?`, qualquer caminho novo que alimente o
+  // painel sem o campo faz o aviso de "esta casa não pode cobrar serviço"
+  // sumir em silêncio, em vez de aparecer. Degradar aberto num aviso é o
+  // mesmo defeito do guarda que degrada aberto. Ausência tem que ser erro de
+  // tipo. Apontado pela revisão de segurança de 2026-09-13.
+  podeCobrarServico: boolean;
   /** br | es — decide o trilho, a moeda e QUAL tela de recebimento aparece. */
   market?: 'br' | 'es';
 }
