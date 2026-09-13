@@ -22,7 +22,14 @@
       hoje, em uma linha, sem mexer no formato do QR que já está impresso.
     -->
     <meta name="referrer" content="strict-origin" />
-    <title>Racha — pay at the table</title>
+    <!-- O TÍTULO ESTÁTICO É A MARCA, sem frase.
+         Era "Racha — pay at the table", e o idioma real só se sabe depois que o
+         `/api/check` responde com o `defaultLang` da casa: numa mesa brasileira
+         a aba mostrava inglês até a resposta chegar e então virava português.
+         A marca não tem idioma, então não há o que piscar — o `lang.tsx` põe a
+         frase assim que o idioma se resolve. Achado testando no navegador,
+         2026-09-13. -->
+    <title>Racha</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <!-- iOS: instalável pela folha de compartilhar ("Adicionar à Tela de Início") -->
@@ -31,7 +38,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Racha" />
     <!-- Fontes servidas daqui (/fonts), não de CDN: ver @font-face em styles.css. -->
-    <link rel="preload" href="/fonts/InstrumentSerif-400i.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- SEM preload da itálica.
+         Ela é usada (`.venue`, o nome da casa), mas só DEPOIS que o
+         `/api/check` responde — e o navegador avisava, a cada carga, que o
+         recurso pré-carregado não fora usado a tempo. Pré-carregar uma fonte
+         que depende de uma ida ao servidor não adianta nada: ela disputa banda
+         justamente com a chamada que a destrava. Sai o preload; o `@font-face`
+         busca quando o texto existe. -->
   </head>
   <body>
     <div id="root"></div>

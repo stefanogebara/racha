@@ -33,6 +33,8 @@ const StripeWalletPay = lazy(() => import('./StripeWalletPay'));
 const BizumPay = lazy(() => import('./BizumPay'));
 import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, splitEqualLocal, type SplitMode } from './split';
+import { formatTaxId } from './br';
+
 import { lembrarToken, tokenDaVolta, voltandoDePagamento } from './payReturn';
 
 /**
@@ -558,7 +560,7 @@ export default function App() {
               verdade é pior que a ausência dele (migração 0002). */}
           {venue.taxId && (
             <p className="muted small center">
-              {t(venue.market === 'es' ? 'rcpt.taxIdNif' : 'rcpt.taxIdCnpj')}{' '}{venue.taxId}
+              {t(venue.market === 'es' ? 'rcpt.taxIdNif' : 'rcpt.taxIdCnpj')}{' '}{formatTaxId(venue.taxId, venue.market)}
             </p>
           )}
           {/* AVISOS DE DINHEIRO do cliente. Código estável + centavos vêm do
@@ -905,7 +907,7 @@ export default function App() {
         {/* O aviso do art. 9º vive AQUI, na tela da conta — ver PrivacyNotice.
             Leva o nome e o documento da CASA porque é ela a controladora, e um
             aviso que não identifica o controlador não cumpre o art. 9º III. */}
-        <PrivacyNotice venue={venue.name} taxId={venue.taxId} />
+        <PrivacyNotice venue={venue.name} taxId={venue.taxId} market={venue.market} />
         <LangToggle compact />
       </footer>
     </Shell>

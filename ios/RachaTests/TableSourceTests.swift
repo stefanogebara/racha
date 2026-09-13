@@ -208,3 +208,49 @@ struct CheckImportTests {
         #expect(CheckImport.newItems(in: check(scanned), existing: existing).isEmpty)
     }
 }
+
+/// A gorjeta: quem distribui é a CASA, e ela pode reter encargos.
+///
+/// A frase do app prometia 100% à equipe ("vai pra equipe da casa"), e a CLT
+/// art. 457 §6º permite reter de 20% a 33%. A web foi corrigida em 2026-09-10 e
+/// o app ficou pra trás — mesmo produto, mesma lei, dois clientes dizendo
+/// coisas diferentes. Achado testando a plataforma no simulador, 2026-09-13.
+///
+/// Censo de fonte porque a frase é o produto: o que se afirma a um consumidor
+/// sobre para onde vai o dinheiro dele é a coisa que precisa de guarda.
+@Suite("Gorjeta: o que o app afirma")
+struct GorjetaCopyTests {
+
+    private func fonte(_ caminho: String) -> String {
+        // Dos testes até a raiz do projeto iOS.
+        let raiz = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // RachaTests
+            .deletingLastPathComponent()   // ios
+        return (try? String(contentsOf: raiz.appending(path: caminho), encoding: .utf8)) ?? ""
+    }
+
+    @Test("nenhuma tela promete 100% da gorjeta à equipe")
+    func naoPrometeCemPorCento() {
+        for caminho in ["Racha/Features/Balances/SettleSheet.swift",
+                        "Racha/Features/Balances/LedgerSheet.swift"] {
+            let texto = fonte(caminho)
+            #expect(!texto.isEmpty, "não li \(caminho)")
+            // A frase proibida, dentro de um `Text(` — em comentário ela pode
+            // aparecer, porque é lá que se explica por que ela saiu.
+            for linha in texto.split(separator: "\n") {
+                let t = linha.trimmingCharacters(in: .whitespaces)
+                guard t.hasPrefix("Text(") || t.contains("Text(\"") else { continue }
+                #expect(!t.contains("vai pra equipe"),
+                        "\(caminho): promete 100% da gorjeta — a CLT 457 §6º permite reter encargos")
+            }
+        }
+    }
+
+    @Test("a frase nomeia QUEM distribui")
+    func nomeiaODistribuidor() {
+        #expect(fonte("Racha/Features/Balances/SettleSheet.swift")
+            .contains("O restaurante distribui à equipe, como manda a lei"))
+        #expect(fonte("Racha/Features/Balances/LedgerSheet.swift")
+            .contains("o restaurante distribui à equipe"))
+    }
+}

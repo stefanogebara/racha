@@ -11,6 +11,7 @@
  * entalhes: nas linhas da conta E soltos em volta do telefone (escolha do dono).
  */
 import { LangToggle, useT } from './lang';
+import { formatTaxId } from './br';
 import { dishMask } from './dish';
 import { money, LANDING_MARKET } from './i18n';
 import { splitEqualLocal } from './split';
@@ -26,6 +27,10 @@ const PROOF_PEOPLE = 3;
 
 // "1 · Scanned" → "Scanned": o ordinal vem da espinha, não do texto.
 const stripOrdinal = (s: string) => s.replace(/^\d+\s*·\s*/, '');
+
+/** O CNPJ da Racha (a empresa, não a casa). Dígitos crus; quem formata é o
+ *  formatador — ver `taxid.ts`. */
+const RACHA_CNPJ = '65087663000130';
 
 export default function Home() {
   const { t, lang } = useT();
@@ -128,7 +133,10 @@ export default function Home() {
           <a href={DEMO}>{t('land.try')}</a>
           <a href="/admin">{t('land.nav')}</a>
         </nav>
-        <span className="legal">Racha · CNPJ 65.087.663/0001-30 · São Paulo, SP</span>
+        {/* Pelo formatador, não à mão. A versão manual daqui era a ÚNICA
+            formatada no produto inteiro — o comprovante e o aviso, que são o
+            que o cliente lê, imprimiam catorze dígitos crus. */}
+        <span className="legal">Racha · CNPJ {formatTaxId(RACHA_CNPJ)} · São Paulo, SP</span>
       </footer>
     </main>
   );

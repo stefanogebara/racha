@@ -76,6 +76,38 @@ export function maskCpfCnpj(input: string): string {
     .replace(/(\d{4})(\d)/, '$1-$2');
 }
 
+/**
+ * O documento da CASA numa tela de LEITURA — recibo, aviso, rodapé.
+ *
+ * O comprovante e o aviso de privacidade imprimiam `65087663000130`: catorze
+ * dígitos crus, num papel que a pessoa pode guardar. A landing mostrava o mesmo
+ * documento formatado, e só porque alguém tinha digitado os pontos à mão no
+ * JSX. Achado testando a plataforma no navegador, 2026-09-13.
+ *
+ * Mora AQUI, colado no `maskCpfCnpj`, e não num módulo novo: a primeira versão
+ * disto reimplementou a formatação do zero, que é a forma "cópia divergente"
+ * que este repositório passou a semana encontrando. Quem sabe pontuar continua
+ * sendo um só; o que se acrescenta é a POLÍTICA de exibição.
+ *
+ * E a política é conservadora de propósito. O `maskCpfCnpj` é PROGRESSIVO —
+ * formata entrada incompleta enquanto alguém digita, o que é certo num campo e
+ * errado num recibo, onde `65.087.663/0001` (doze dígitos) pareceria um
+ * documento de verdade. Aqui só passa o que está COMPLETO; o resto volta como
+ * veio. A migração 0002 já tinha decidido o princípio: documento de mentira num
+ * recibo de verdade é pior que a ausência dele.
+ */
+export function formatTaxId(raw: string | null | undefined, market?: string): string {
+  if (!raw) return '';
+  const limpo = String(raw).trim();
+  // Na Espanha o NIF é `B12345678` — letra e oito dígitos, sem pontuação.
+  // Pontuá-lo seria inventar um formato que o país não usa. Quem decide é o
+  // MERCADO da casa, não a língua de quem lê — mesma regra do dinheiro.
+  if (market === 'es') return limpo.toUpperCase();
+  const digitos = onlyDigits(limpo);
+  if (digitos.length === 11 || digitos.length === 14) return maskCpfCnpj(digitos);
+  return limpo;
+}
+
 /** email suficiente pro Pagar.me (que exige e-mail no recebedor). */
 export function isValidEmail(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());

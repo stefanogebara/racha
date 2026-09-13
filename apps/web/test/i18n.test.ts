@@ -7,6 +7,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { DICT, LANGS, asLang, money, tError, STRIPE_LOCALE, LANDING_MARKET } from '../src/i18n.ts';
 
 const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: string }][];
@@ -484,6 +486,26 @@ test('todo idioma tem um código de locale que a Stripe conhece', () => {
     assert.ok(KNOWN.has(STRIPE_LOCALE[l]), `${STRIPE_LOCALE[l]} não é um locale da Stripe`);
   }
   assert.notEqual(STRIPE_LOCALE.es, 'es-ES');
+});
+
+test('o título ESTÁTICO não tem idioma — senão a aba pisca', () => {
+  // O `index.html` trazia "Racha — pay at the table". O idioma real só se sabe
+  // depois que o `/api/check` devolve o `defaultLang` da casa, então numa mesa
+  // brasileira a aba mostrava inglês e depois virava português. A marca não tem
+  // idioma; a frase entra quando o idioma se resolve. Achado testando no
+  // navegador, 2026-09-13.
+  // SEM os comentários: um comentário HTML não é renderizado, e o desta linha
+  // cita justamente o título antigo pra explicar por que ele saiu. A regra é
+  // sobre o que o navegador MOSTRA.
+  const html = readFileSync(join(import.meta.dirname, '..', 'index.html'), 'utf8')
+    .replace(/<!--[\s\S]*?-->/g, '');
+  const titulo = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
+  assert.equal(titulo.trim(), 'Racha');
+  // E nenhuma das frases traduzidas pode estar no HTML estático.
+  for (const lang of LANGS) {
+    assert.ok(!html.includes(DICT['doc.title'][lang]),
+      `o index.html traz a frase de ${lang} — a aba vai piscar`);
+  }
 });
 
 test('o título do documento é traduzido — é a aba do navegador', () => {
