@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DICT, LANGS, asLang, money, tError, STRIPE_LOCALE, LANDING_MARKET } from '../src/i18n.ts';
 
@@ -832,4 +832,38 @@ test('a rota do painel MANDA os centavos que o painel formata', async () => {
   const projecao = router.slice(i, i + 1200);
   const faltando = campos.filter((c) => !projecao.includes(c));
   assert.deepEqual(faltando, [], `campos que o painel lê e a rota não manda:\n${faltando.join('\n')}`);
+});
+
+test('nenhuma tela põe o texto CRU do erro no estado — o servidor manda código', () => {
+  // `lang.tsx:156` conta que vinte e uma telas faziam
+  // `setError((e as Error).message)` e foram convertidas. A conversão não
+  // deixou guarda nenhum atrás de si, e três chamadores ficaram pra trás —
+  // achados quando duas chaves novas do dicionário (`tax_id_invalid`,
+  // `recipient_doc_mismatch`) chegavam ao dono como "HTTP 400": o 4xx vem só
+  // com `code`, o `api.ts` cai no status quando não há `error`, e a tela
+  // mostrava o status cru. Dicionário preenchido, frase nunca exibida.
+  // Achado pela revisão de segurança de 2026-09-13.
+  const src = join(import.meta.dirname, '..', 'src');
+  function anda(dir: string, base = dir): string[] {
+    const out: string[] = [];
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) out.push(...anda(p, base));
+      else if (/\.tsx?$/.test(e.name)) out.push(p.slice(base.length + 1));
+    }
+    return out;
+  }
+  // Passar a mensagem crua como RESERVA do `tError` é legítimo: é o contrato
+  // (código primeiro, texto do servidor se o código for desconhecido).
+  const RESERVA = /tError\s*\(/;
+  const ofensores: string[] = [];
+  for (const f of anda(src)) {
+    readFileSync(join(src, f), 'utf8').split('\n').forEach((linha, i) => {
+      const sem = linha.replace(/(^|[^:])\/\/.*$/, '$1');
+      if (!/set\w*\(\s*\(e(rr)? as Error\)\.message/.test(sem)) return;
+      if (RESERVA.test(sem)) return;
+      ofensores.push(`${f}:${i + 1} ${sem.trim().slice(0, 80)}`);
+    });
+  }
+  assert.deepEqual(ofensores, [], `\n${ofensores.join('\n')}\n`);
 });

@@ -19,6 +19,12 @@ que vai pro registro de templates / style pack.
 - [ ] **Compliance WhatsApp:** lead DENTRO da janela de 24h (já conversou) → texto livre (abaixo). Lead FORA da janela / número novo → **template aprovado pela Meta** (seção no fim). Nunca dispare texto livre fora da janela.
 - [ ] **ICP do piloto:** priorize quem já falou com a Olímpia e **disse não pro CRM/reservas** do Seatable — bar/casual vira ICP do Racha. Densidade > alcance: 2-3 bairros de SP.
 - [ ] **Escalar preço pós-piloto → humano.** A Olímpia nunca inventa preço (regra da persona).
+> **Este item NÃO entra no style pack da Olímpia.** Ele nomeia a frase proibida
+> para treinar quem vende, e o que vira prompt de agente segue a regra do
+> prompt: diga o que dizer, não o que não dizer (ver `SystemPrompt.swift`
+> regra 9 e `_escrevendo_proibicoes` em `docs/compliance/claims.json`).
+> Modelo que lê "NUNCA diga X" às vezes diz X.
+
 - [ ] **NUNCA prometer gorjeta pro garçom.** Nem "cai direto no Pix do garçom", nem "o
       garçom recebe mais gorjeta". O serviço liquida no **CNPJ do restaurante** e é
       distribuído via folha (Lei 13.419/2017 + STJ Tema 1102) — liquidação direta pro

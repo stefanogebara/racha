@@ -112,7 +112,11 @@ function normalizarDocumentoDaCasa(bruto, market = 'br') {
   // conseguia ser criada com documento.)
   if (market === 'es') {
     const nif = texto.replace(/[.\-\s]/g, '').toUpperCase();
-    if (!/^[A-Z]\d{8}$|^\d{8}[A-Z]$/.test(nif)) return { ok: false, code: 'tax_id_invalid' };
+    // NIE (X/Y/Z + 7 dígitos + letra) e CIF de controle ALFABÉTICO (tipos
+    // P,Q,R,S,N,W) são formas legítimas que a primeira versão recusava — e
+    // NIE é comuníssimo entre donos de bar em Espanha. "Confere a FORMA" foi
+    // afirmado com mais confiança do que a regex merecia.
+    if (!/^[A-Z]\d{7}[A-Z0-9]$|^\d{8}[A-Z]$/.test(nif)) return { ok: false, code: 'tax_id_invalid' };
     return { ok: true, valor: nif };
   }
 
@@ -133,15 +137,36 @@ function normalizarDocumentoDaCasa(bruto, market = 'br') {
  *
  * `showsVenueTaxId` responde pelo MERCADO; isto responde pelo VALOR. Os dois
  * são precisos: a política de mercado não sabe o que está guardado na coluna,
- * e linhas antigas foram escritas antes do portão acima existir. Onze dígitos
- * na coluna de uma casa brasileira é CPF de alguém, e não sai daqui — a
- * migração 0002 já tinha decidido o princípio de que documento errado num
- * recibo é pior que a ausência dele.
+ * e linhas antigas foram escritas antes do portão de escrita existir. Onze
+ * dígitos na coluna de uma casa brasileira é CPF de alguém, e não sai daqui —
+ * a migração 0002 já tinha decidido que documento errado num recibo é pior
+ * que a ausência dele.
+ *
+ * NORMALIZA ANTES DE CONFERIR. A primeira versão testava `/^\d{14}$/` contra o
+ * valor cru, e antes do portão de escrita existir o `POST /api/venues`
+ * guardava o que viesse — inclusive `65.087.663/0001-30`, que é o que a
+ * máscara do `Admin.tsx` produz. Toda casa piloto cujo dono digitou a
+ * pontuação ficaria com o recibo SEM documento, em silêncio e pra sempre (não
+ * há rota que reescreva o campo). Falha fechada, mas fechada contra o cliente
+ * certo. Achado pela revisão de segurança de 2026-09-13.
+ *
+ * E O MERCADO É LIDO. O parâmetro estava na assinatura e não era usado: a
+ * regra dos catorze dígitos é do Brasil. A Espanha só está a salvo hoje porque
+ * `showsVenueTaxId('es')` é false — no dia em que for true, um NIF perfeito
+ * seria silenciosamente apagado do recibo por uma regra brasileira.
  */
 function documentoPublicavelDaCasa(marketCode, valor, mostraNesteMercado) {
-  if (!mostraNesteMercado) return null;
-  if (!valor) return null;
-  return /^\d{14}$/.test(String(valor)) ? String(valor) : null;
+  if (!mostraNesteMercado || !valor) return null;
+  const texto = String(valor).trim();
+  if (marketCode === 'es') {
+    const nif = texto.replace(/[.\-\s]/g, '').toUpperCase();
+    return /^[A-Z]\d{7}[A-Z0-9]$|^\d{8}[A-Z]$/.test(nif) ? nif : null;
+  }
+  const digitos = onlyDigits(texto);
+  // Confere o DOCUMENTO, não a forma da string: catorze dígitos que não passam
+  // no verificador não são um CNPJ, e pontuar isso no recibo é dar autoridade
+  // a um número que ninguém checou.
+  return isValidCNPJ(digitos) ? digitos : null;
 }
 
 module.exports = {

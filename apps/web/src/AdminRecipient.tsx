@@ -26,7 +26,7 @@ interface CreatedRecipient { recipientId: string; status: string }
 const shortId = (id: string) => (id.length > 11 ? `${id.slice(0, 11)}…` : id);
 
 export default function AdminRecipient({ venueId, onChanged }: { venueId: string; onChanged?: () => void }) {
-  const { t } = useT();
+  const { t, tErr } = useT();
   const [info, setInfo] = useState<RecipientInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -65,10 +65,17 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
       // app já em live → "Recipient not found") NÃO pode travar o painel: cai num
       // sentinel sem id pra o formulário aparecer e o dono criar um novo (que
       // sobrescreve o id morto). O aviso explica o porquê logo abaixo.
-      setLoadError((e as Error).message);
+      // `tErr`, não `.message`: o servidor manda CÓDIGO e quem escolhe a
+      // língua é o cliente. Esta tela era um dos chamadores esquecidos da
+      // conversão que o `lang.tsx` descreve — e as duas chaves novas
+      // (`tax_id_invalid`, `recipient_doc_mismatch`) chegavam aqui como
+      // "HTTP 400", porque o 4xx vem só com `code` e o `api.ts` cai no
+      // status quando não há `error`. Dicionário preenchido, frase nunca
+      // exibida. Achado pela revisão de segurança de 2026-09-13.
+      setLoadError(tErr(e));
       setInfo((prev) => prev ?? { recipientId: null, status: null });
     }
-  }, [venueId]);
+  }, [venueId, tErr]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -157,7 +164,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
       await refresh(); // reflete o status novo (registration/active)
       onChanged?.(); // o aviso âmbar do topo da página some sem F5
     } catch (e) {
-      setSubmitError((e as Error).message);
+      setSubmitError(tErr(e));
     } finally {
       setBusy(false);
     }

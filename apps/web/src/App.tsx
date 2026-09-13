@@ -66,7 +66,7 @@ const NOTICE_KEY: Record<string, Key> = {
 const POLL_BASE_MS = 4000;
 
 export default function App() {
-  const { t, lang, pct, adotarPadraoDaCasa, dmy, hm } = useT();
+  const { t, lang, pct, adotarPadraoDaCasa, dmy, hm, tErr } = useT();
   // O `?t=` da mesa, ou — na volta de um trilho que redireciona (Bizum) — o
   // token que a própria aba guardou. A volta não traz o token na URL: ver
   // `payReturn.ts` pro motivo.
@@ -434,7 +434,7 @@ export default function App() {
     } catch (e) {
       // Fora do modo demo /api/dev/confirm não existe (404) — some o botão.
       if ((e as ApiError).status === 404) setDemoGone(true);
-      else setConfirmError((e as Error).message);
+      else setConfirmError(tErr(e));
     } finally {
       setConfirming(false);
     }

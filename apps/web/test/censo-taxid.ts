@@ -26,8 +26,17 @@
  *       documento, e nenhuma das três regras anteriores conhecia essa forma.
  */
 
-/** Atributos que PINTAM na tela. Não são passagem de prop — são impressão. */
-const SINK = /\b(?:value|title|alt|aria-label|content|label|summary)=\{/g;
+/**
+ * PASSAGEM DE PROP — a lista fechada, e é esta que é a exceção.
+ *
+ * Antes havia uma lista de atributos que PINTAM (`value`, `title`, …) e tudo
+ * o mais era tratado como passagem de prop. Denylist: `defaultValue={taxId}`
+ * e `placeholder={venue.taxId}` escapavam, e os dois renderizam o documento
+ * dentro de um campo visível. Invertido — um atributo só é dispensado se
+ * estiver aqui; qualquer outro conta como posição de texto. É a regra de
+ * allowlist que este repositório passou a semana reaprendendo.
+ */
+const PASSAGEM = /^(?:className|style|key|ref|id|htmlFor|type|name|role|tabIndex|inputMode|on[A-Z]\w*|data-\w+|aria-(?:hidden|checked|expanded|controls)|taxId)$/;
 /** Vãos de atributo que passam adiante: `className={…}`, `style={{…}}`, `taxId={…}`. */
 const VAO_DE_ATRIBUTO = /\w+=\{(?:[^{}]|\{[^{}]*\})*\}/g;
 /** Aspas simples e duplas somem inteiras; a crase preserva os `${…}`. */
@@ -64,8 +73,47 @@ function naoEImpressao(trecho: string, antes: string): boolean {
   if (/;/.test(trecho)) return true;
   if (/^\{\s*\w+\??\s*:\s*[\w'"|\s[\]<>.]+\s*\}$/.test(trecho)) return true;
   if (/^\{[\s\w]+,[\s\w,]*\}$/.test(trecho)) return true;
-  if (/[(,=]\s*$/.test(antes)) return true;
+  // POSIÇÃO DE PARÂMETRO — e `antes` tem que ser CÓDIGO. Testado contra a
+  // linha inteira, qualquer vírgula ou parêntese do TEXTO JSX desligava a
+  // regra: `<p>{venue.name}, {venue.taxId}</p>` e `<p>Racha ({venue.taxId})</p>`
+  // — as duas linhas de rodapé mais naturais que alguém escreveria — passavam
+  // verdes. A falha da v1 outra vez: traço léxico noutro ponto da linha
+  // desarmando a regra. Agora exige um IDENTIFICADOR colado no delimitador,
+  // que é o que uma chamada de função ou um literal de objeto tem, e um `}`
+  // de JSX não tem.
+  // Sem espaço entre o identificador e o delimitador: `foo(` é chamada,
+  // `Racha (` é texto. Com `\s*` no meio, `<p>Racha ({venue.taxId})</p>`
+  // ainda escapava.
+  if (/(?:\w|\)|\])[(,]\s*$|[:=]\s*$/.test(antes)) return true;
   return false;
+}
+
+/**
+ * Some o que NÃO imprime: literal de regex e aspas. A crase FICA, porque
+ * `` {`CNPJ ${taxId}`} `` é a forma de literal que imprime — dela some só o
+ * texto, e os `${…}` ficam.
+ */
+function limpar(linha: string): string {
+  return linha
+    .replace(REGEX_LITERAL, (m) => ' '.repeat(m.length))
+    .replace(ASPAS, (m) => ' '.repeat(m.length))
+    .replace(CRASE, (m) => {
+      let saida = '';
+      let resto = m;
+      while (resto.length) {
+        const abre = resto.indexOf('${');
+        if (abre < 0) { saida += ' '.repeat(resto.length); break; }
+        let nivel = 0;
+        let fim = abre + 1;
+        for (; fim < resto.length; fim++) {
+          if (resto[fim] === '{') nivel++;
+          else if (resto[fim] === '}' && --nivel === 0) break;
+        }
+        saida += ' '.repeat(abre) + resto.slice(abre + 1, fim + 1);
+        resto = resto.slice(fim + 1);
+      }
+      return saida;
+    });
 }
 
 /** O censo. `arquivo` só entra na mensagem — a regra não olha nome de arquivo nenhum. */
@@ -78,36 +126,30 @@ export function ofensoresEm(arquivo: string, bruto: string): string[] {
     const janela = linhas.slice(i, i + 3).join('\n');
     // Atributo de EXIBIÇÃO vira posição de texto ANTES de qualquer recorte:
     // `value={venue.taxId}` pinta na tela tanto quanto `{venue.taxId}`.
-    const fora = linha.replace(SINK, '{').replace(VAO_DE_ATRIBUTO, ' ');
+    // Recorta SÓ os atributos de passagem; os demais viram posição de texto.
+    const fora = linha.replace(VAO_DE_ATRIBUTO, (m) => {
+      const nome = m.slice(0, m.indexOf('='));
+      return PASSAGEM.test(nome) ? ' ' : m.slice(m.indexOf('=') + 1);
+    });
 
     // Literal de regex sai; aspas sem interpolação saem; a CRASE fica, porque
     // `` {`CNPJ ${taxId}`} `` é a forma de literal que imprime.
-    const emTexto = fora
-      .replace(REGEX_LITERAL, (m) => ' '.repeat(m.length))
-      .replace(ASPAS, (m) => ' '.repeat(m.length))
-      // Da crase some só o TEXTO; o miolo de cada `${…}` fica, porque é ele
-      // que imprime. Apagar o literal inteiro foi o que abriu a oitava fuga.
-      .replace(CRASE, (m) => {
-        let saida = '';
-        let resto = m;
-        while (resto.length) {
-          const abre = resto.indexOf('${');
-          if (abre < 0) { saida += ' '.repeat(resto.length); break; }
-          let nivel = 0;
-          let fim = abre + 1;
-          for (; fim < resto.length; fim++) {
-            if (resto[fim] === '{') nivel++;
-            else if (resto[fim] === '}' && --nivel === 0) break;
-          }
-          saida += ' '.repeat(abre) + resto.slice(abre + 1, fim + 1);
-          resto = resto.slice(fim + 1);
-        }
-        return saida;
-      });
+    const emTexto = limpar(fora);
 
-    // A. IMPRESSÃO.
-    for (const m of emTexto.matchAll(/\{[^{}]*\btaxId\b[^{}]*\}/g)) {
-      if (naoEImpressao(m[0], emTexto.slice(0, m.index))) continue;
+    // A. IMPRESSÃO — sobre a JANELA, não a linha.
+    //
+    // Era de linha enquanto B e D já olhavam três linhas: meia correção. Um
+    // `prettier` que quebre a expressão (`<span>{\n  venue.taxId\n}</span>`,
+    // `{venue.taxId ??\n  ''}`) escapava inteiro. Só a primeira linha reporta,
+    // pra não achar o mesmo sítio três vezes.
+    // As linhas seguintes passam pela MESMA limpeza da corrente — máscara só
+    // de aspas deixava um literal de regex (`/\(\{taxId\}\)/`, que REMOVE o
+    // buraco da frase no `PrivacyNotice`) virar achado quando visto de cima.
+    const janelaTexto = i === 0 || !/\{[^{}]*$/.test(linhas[i - 1])
+      ? [emTexto, ...linhas.slice(i + 1, i + 3).map(limpar)].join('\n')
+      : '';
+    for (const m of janelaTexto.matchAll(/\{[^{}]*\btaxId\b[^{}]*\}/g)) {
+      if (naoEImpressao(m[0].replace(/\s+/g, ' '), janelaTexto.slice(0, m.index))) continue;
       if (!/formatTaxId/.test(m[0])) achados.push(`${onde} imprime cru: ${m[0].trim().slice(0, 60)}`);
     }
 

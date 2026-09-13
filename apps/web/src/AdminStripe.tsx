@@ -24,7 +24,7 @@ interface StripeStatus {
 }
 
 export default function AdminStripe({ venueId }: { venueId: string }) {
-  const { t } = useT();
+  const { t, tErr } = useT();
   const [info, setInfo] = useState<StripeStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,10 +35,10 @@ export default function AdminStripe({ venueId }: { venueId: string }) {
       setInfo(await req<StripeStatus>(`/api/psp/stripe-connect?v=${encodeURIComponent(venueId)}`));
       setLoadError(null);
     } catch (e) {
-      setLoadError((e as Error).message);
+      setLoadError(tErr(e));
       setInfo((prev) => prev ?? { accountId: null, status: null, chargesEnabled: false });
     }
-  }, [venueId]);
+  }, [venueId, tErr]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -53,7 +53,7 @@ export default function AdminStripe({ venueId }: { venueId: string }) {
       // Manda o dono pra hosted page de KYC da Stripe — dados bancários lá, não aqui.
       window.location.href = r.onboardingUrl;
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(tErr(e));
       setBusy(false);
     }
   }

@@ -84,6 +84,16 @@ test('o censo reconhece os desvios que as revisões provaram por mutação', () 
     ['documento cru em constante, lido sem formatar',
      "const RACHA_CNPJ = '65087663000130';\nexport const Rodape = () => <span>CNPJ {RACHA_CNPJ}</span>;"],
     ['documento cru escrito direto no JSX', '      <p className="legal">Racha · CNPJ 65087663000130</p>'],
+    // A TERCEIRA rodada. As duas primeiras foram ABERTAS por consertos: a
+    // máscara de literais (pra deixar o i18n.ts entrar) apagou a crase, e a
+    // dispensa de "posição de parâmetro" era testada contra a linha crua —
+    // então qualquer vírgula ou parêntese do TEXTO JSX a desarmava.
+    ['vírgula no texto JSX desarmava a regra', '      <p>{venue.name}, {venue.taxId}</p>'],
+    ['parêntese no texto JSX', '      <p>Racha ({venue.taxId})</p>'],
+    ['expressão quebrada pelo prettier', '      <span>{\n        venue.taxId\n      }</span>'],
+    ['`??` quebrado em duas linhas', "      <p>{venue.taxId ??\n        ''}</p>"],
+    ['defaultValue — pinta e era tratado como passagem de prop', '      <input defaultValue={taxId} />'],
+    ['placeholder DINÂMICO (o estático ensina; este afirma)', '      <input placeholder={venue.taxId} />'],
   ];
   for (const [nome, linha] of desvios) {
     assert.ok(ofensoresEm('mutante.tsx', linha).length > 0, `desvio não pego: ${nome} → ${linha}`);
@@ -101,6 +111,7 @@ test('o censo absolve o que é legítimo — dispensa não é buraco', () => {
     ['literal de regex que REMOVE o buraco', "    : t('priv.who', { venue }).replace(/\\s*\\(\\{taxId\\}\\)/, ''),"],
     ['crase sem taxId nenhum', '      <p>{`Mesa ${table.label}`}</p>'],
     ['o documento formatado, em crase', '      <p>{`CNPJ ${formatTaxId(venue.taxId)}`}</p>'],
+    ['placeholder ESTÁTICO continua ensinando o formato', '        <input placeholder="00.000.000/0000-00" inputMode="numeric" />'],
     ['constante declarada e SEMPRE formatada (o Home.tsx de verdade)',
      "const RACHA_CNPJ = '65087663000130';\nexport const Rodape = () => <span>CNPJ {formatTaxId(RACHA_CNPJ)}</span>;"],
   ];

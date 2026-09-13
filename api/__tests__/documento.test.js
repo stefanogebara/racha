@@ -148,46 +148,80 @@ describe('toda rota que lê documento do corpo o confere', () => {
   const path = require('node:path');
   const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
 
-  /** Campos de documento que chegam pelo corpo. Nome novo? Entra aqui. */
-  const CAMPOS = [/\bb\.cnpj\b/g, /\bb\.document\b/g, /\bb\.payerDocument\b/g, /\bbody\.payerDocument\b/g];
   /**
-   * Quem confere. As três primeiras são conferência NA ROTA; `charge` e
-   * `demoCharge` são o portão de dinheiro, e a conferência do CPF do pagador
-   * mora dentro dele (`api/_lib/pay/create-charge.js`: onze dígitos, e string
-   * vazia conta como ausente). Aceitar o nome da função é aceitar que a
-   * conferência está uma camada abaixo — o que é verdade, e é por isso que
-   * está escrito aqui em vez de a janela ter sido alargada até o padrão casar
-   * por acidente.
+   * Leituras de documento vindas do CORPO — por FORMA, não por lista.
+   *
+   * A v1 enumerava quatro nomes à mão (`b.cnpj`, `b.document`, …), e um nome
+   * novo era invisível — sendo "rota nova" justamente o caso mais provável de
+   * inventar um nome novo, e o caso que o teste dizia cobrir. Agora qualquer
+   * `b.<ident>` ou `body.<ident>` cujo identificador cheire a documento entra.
    */
-  const CONFEREM = /normalizarDocumentoDaCasa|isValidCpfCnpj|isValidCNPJ|isValidCPF|\bcharge\b|demoCharge/;
+  const LEITURA = /\b(?:b|body)\.(\w*(?:doc|cnpj|cpf|nif|tax)\w*)\b/gi;
 
-  test('cada leitura está a poucas linhas de uma conferência', () => {
+  /**
+   * Quem confere. `\bcharge\b` SAIU: ele casava o caminho do `require`
+   * (`'../_lib/pay/create-charge'`, linha 57) e, com a janela, abençoava 390
+   * das 2199 linhas do router — 18% do arquivo, escolhido por onde os
+   * `require` calham de estar. Uma leitura sem validação passava ali de graça.
+   * Achado pela revisão de segurança de 2026-09-13.
+   */
+  const CONFEREM = /normalizarDocumentoDaCasa|isValidCpfCnpj|isValidCNPJ|isValidCPF|createCharge|demoCharge|\bcharge\)\(/;
+
+  /**
+   * A ÚNICA leitura dispensada, com a razão escrita — mesma disciplina das
+   * dispensas do `claims.json`: dispensa é a afirmação de que alguém leu.
+   */
+  const DISPENSADAS = [{
+    trecho: 'payerDocument: b.payerDocument ?? null,',
+    porque: 'caminho Stripe: o `stripe-psp.js` ACEITA e deliberadamente NÃO ENVIA o documento (ver o comentário na linha 145 de lá). O valor morre no adaptador, não chega a terceiro nenhum e não é persistido — não há o que conferir porque não há o que sair.',
+  }];
+
+  test('cada leitura de documento está a poucas linhas de uma conferência', () => {
     const linhas = ROUTER.split('\n');
     const semGuarda = [];
-    let leituras = 0;
+    const nomes = new Set();
     linhas.forEach((linha, i) => {
       // Comentário não lê nada — e os comentários daqui CITAM os campos.
       const codigo = linha.replace(/(^|[^:])\/\/.*$/, '$1');
-      if (!CAMPOS.some((re) => { re.lastIndex = 0; return re.test(codigo); })) return;
-      leituras++;
-      // A janela olha pra trás e pra frente: a conferência pode preceder a
-      // leitura (`const doc = normalizar…(b.cnpj)`) ou vir logo depois.
+      LEITURA.lastIndex = 0;
+      const achou = [...codigo.matchAll(LEITURA)];
+      if (!achou.length) return;
+      achou.forEach((m) => nomes.add(m[1]));
+      if (DISPENSADAS.some((d) => codigo.includes(d.trecho))) return;
       const janela = linhas.slice(Math.max(0, i - 16), i + 8).join('\n');
-      if (!CONFEREM.test(janela)) {
-        semGuarda.push(`router.js:${i + 1}  ${linha.trim().slice(0, 100)}`);
-      }
+      if (!CONFEREM.test(janela)) semGuarda.push(`router.js:${i + 1}  ${linha.trim().slice(0, 100)}`);
     });
     // Um censo que anda em zero leituras passa calado.
-    expect(leituras).toBeGreaterThanOrEqual(3);
+    expect(nomes.size).toBeGreaterThanOrEqual(3);
     expect(semGuarda).toEqual([]);
+    // Dispensa ociosa é buraco esquecido: se o trecho sumir do router, a
+    // razão escrita deixa de descrever alguma coisa.
+    for (const d of DISPENSADAS) {
+      expect(ROUTER).toContain(d.trecho);
+      expect(d.porque.length).toBeGreaterThan(40);
+    }
   });
 
-  test('o documento do recebedor tem que bater com o do recibo', () => {
-    // `venues.cnpj` é o que o cliente lê no comprovante; `b.document` é onde o
-    // split liquida. Nada ligava os dois, então "recibo mostra X, dinheiro vai
-    // pra Y" era alcançável e silencioso — com o material de venda prometendo
-    // ao dono o contrário. Ver `docs/outreach/`.
-    expect(ROUTER).toMatch(/recipient_doc_mismatch/);
+  test('o portão do recebedor não é opcional — nem depende de campo que pode faltar', () => {
+    // A primeira correção guardava a amarra atrás de `venue.cnpj &&`, e
+    // `venue.cnpj` é legitimamente nulo: bastava omitir o CNPJ ao criar a casa
+    // pra desarmar o portão pra sempre. É a forma "guarda opcional" — a mesma
+    // do `active = false` da migração 0031, que nunca podia rodar.
+    //
+    // Isto é uma asserção de FORMA, não de comportamento, e está dito assim
+    // porque grep apresentado como invariante foi achado desta rodada: o teste
+    // anterior só exigia que a string `recipient_doc_mismatch` existisse, e
+    // trocar `!==` por `===` o deixava verde.
+    // O POST, não o GET: existe uma rota GET pro mesmo caminho, e fatiar pelo
+    // pathname sozinho pegava ela.
+    const rota = ROUTER.slice(ROUTER.indexOf("req.method === 'POST' && url.pathname === '/api/psp/recipient'"));
+    const corpo = rota.slice(0, rota.indexOf('return json(res, 200'));
+    // O documento passa pelo MESMO portão do documento da casa.
+    expect(corpo).toMatch(/normalizarDocumentoDaCasa\(\s*b\.document/);
+    // E, quando a casa não tem documento, ela PASSA A TER o do recebedor —
+    // é o que impede o estado "portão desarmado pra sempre".
+    expect(corpo).toMatch(/cnpj:.*docRec\.valor/);
+    expect(corpo).toMatch(/recipient_doc_mismatch/);
     const i18n = fs.readFileSync(
       path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
     expect(i18n).toContain("'err.recipient_doc_mismatch'");
