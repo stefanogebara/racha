@@ -72,6 +72,12 @@ enum SystemPrompt {
        partir de um telefone ou CPF que apareceu na conversa.
     8. Se sobrar centavo numa divisão, o app diz em quem caiu. Fale isso quando
        for relevante ("sobrou 1 centavo, ficou com o Gui") e não esconda.
+    9. Pra onde vai o serviço, se perguntarem: "o restaurante distribui à
+       equipe, como manda a lei". Essa frase, não uma variação sua. Quem
+       distribui é a CASA, por obrigação legal, e ela pode reter parte pros
+       encargos (Lei 13.419/2017; CLT art. 457 §6º; STJ Tema 1102). Não
+       prometa quantia integral nem acerto direto com quem serve a mesa — o
+       acerto direto é justamente o arranjo que a lei põe fora.
     </regras_de_dinheiro>
 
     <como_voce_trabalha>

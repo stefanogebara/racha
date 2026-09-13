@@ -1,5 +1,19 @@
 <!doctype html>
-<html lang="pt-BR">
+<!--
+  O `lang` ESTÁTICO é o PADRÃO DO PRODUTO, e o produto abre em inglês.
+
+  Era `pt-BR` — uma língua que este documento não tem como saber. O app monta
+  em `en` (`lang.tsx`: o padrão quando não há `?lang=` nem escolha guardada) e
+  só troca pro idioma da casa quando o `/api/check` responde. Então o
+  documento declarava português, o leitor de tela era avisado de português, e
+  a primeira coisa renderizada era inglês. Mesma família do `<title>` que
+  piscava: afirmação de idioma feita antes de o idioma se saber.
+
+  Aqui não é escolha editorial — é um valor que tem que casar com
+  `lang.tsx`, e o `i18n.test.ts` exige que case. O efeito do `lang.tsx`
+  corrige depois do mount; isto é o que vale até lá.
+-->
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />

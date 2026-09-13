@@ -277,8 +277,18 @@ estiver no enquadramento.
 E **o consentimento vem da pessoa errada.** Quem cola a chave consente por si;
 os titulares são as OUTRAS pessoas da mesa, cujos nomes foram digitados e cujos
 pedidos estão na foto. Consentimento do art. 8º é pessoal e específico, e o dono
-do aparelho não o fornece por elas. A tela de Ajustes informa modo e custo, e
-nada sobre quem recebe o quê.
+do aparelho não o fornece por elas.
+
+**A tela de Ajustes informava modo e custo, e nada sobre quem recebe o quê** —
+esta frase ficou escrita aqui, no documento, de 2026-09-11 a 2026-09-13, que é
+o tempo que uma lacuna sobrevive quando o lugar onde ela está anotada não é o
+lugar onde ela precisa ser consertada. Fechada em `SettingsSheet.swift`: ao
+lado de cada campo de chave, quem recebe, o quê, e em que país. O art. 9º pede
+a informação ANTES da decisão, e a decisão é colar a chave — numa página de
+política ela chega tarde. A frase sobre consentir pela mesa inteira também
+está na tela, em tinta mais clara que o resto, porque é a parte que o dono do
+aparelho precisa ler. **O que continua valendo é o parágrafo abaixo: informar
+não é consentir, e quem consentiu não é titular do que sai.**
 
 Então o que torna isto aceitável HOJE não é ser opt-in: é que ninguém fora do
 fundador roda o app com chave. O gatilho pra rever não é "o dia em que a chave

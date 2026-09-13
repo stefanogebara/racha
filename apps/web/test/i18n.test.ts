@@ -501,10 +501,45 @@ test('o título ESTÁTICO não tem idioma — senão a aba pisca', () => {
     .replace(/<!--[\s\S]*?-->/g, '');
   const titulo = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
   assert.equal(titulo.trim(), 'Racha');
-  // E nenhuma das frases traduzidas pode estar no HTML estático.
+  // E nenhuma das frases traduzidas pode estar no HTML estático — em lugar
+  // nenhum dele, não só no `<title>`: escondê-la num `<meta description>` é o
+  // mesmo defeito com outra tag.
   for (const lang of LANGS) {
     assert.ok(!html.includes(DICT['doc.title'][lang]),
       `o index.html traz a frase de ${lang} — a aba vai piscar`);
+  }
+});
+
+test('o `lang` estático é o padrão do produto — não um idioma qualquer', () => {
+  // `<html lang="pt-BR">` com o app montando em `en`. O documento declarava
+  // uma língua, o leitor de tela era avisado dela, e a primeira coisa
+  // renderizada era outra. O teste de cima dizia "nenhum idioma no HTML
+  // estático" e não olhava o atributo que É uma declaração de idioma.
+  // Achado pela revisão de segurança de 2026-09-13.
+  const html = readFileSync(join(import.meta.dirname, '..', 'index.html'), 'utf8')
+    .replace(/<!--[\s\S]*?-->/g, '');
+  const lang = html.match(/<html[^>]*\slang="([^"]*)"/)?.[1] ?? '';
+  // `en` é o padrão do `lang.tsx` quando não há `?lang=` nem escolha guardada.
+  assert.equal(lang, 'en',
+    'o `lang` do index.html tem que casar com o padrão de lang.tsx');
+});
+
+test('o manifesto do PWA fala a língua padrão, e o censo sabe que ele existe', () => {
+  // O `manifest.webmanifest` tem uma frase em inglês que o SISTEMA mostra na
+  // hora de instalar — fora do `DICT`, então o laço de frases traduzidas não
+  // podia vê-la. Ela NÃO é um defeito: o manifesto é buscado antes de existir
+  // app, idioma escolhido ou casa conhecida, e não há como trocá-lo sem
+  // negociação no servidor. O que seria defeito é ele falar uma língua que não
+  // é o padrão do produto — aí a instalação prometeria noutra língua o que a
+  // tela abre dizendo. Fica anotado aqui pra que a próxima pessoa ache o
+  // arquivo, em vez de descobri-lo numa revisão.
+  const manifest = JSON.parse(readFileSync(
+    join(import.meta.dirname, '..', 'public', 'manifest.webmanifest'), 'utf8'));
+  assert.equal(manifest.name, 'Racha');
+  for (const lang of LANGS) {
+    if (lang === 'en') continue;
+    assert.ok(!manifest.description.includes(DICT['doc.title'][lang]),
+      `o manifesto traz a frase de ${lang}, mas o produto abre em inglês`);
   }
 });
 

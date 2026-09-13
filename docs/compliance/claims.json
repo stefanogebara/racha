@@ -25,6 +25,7 @@
       "inclui R$ 12,00 de serviço — o restaurante distribui à equipe, como manda a lei",
       "includes R$ 12.00 service charge — the restaurant distributes it to the staff, as the law requires",
       "incluye 12,00 € de servicio — el restaurante lo distribuye al equipo, como exige la ley"
-    ]
+    ],
+    "_escrevendo_proibicoes": "O censo lê AFIRMAÇÃO, não intenção: ele não distingue 'o serviço vai pra equipe' de 'nunca diga que o serviço vai pra equipe'. Isso é de propósito — a dispensa por negação (`nunca|never|não diga`) seria um interruptor que qualquer um poderia pôr na linha pra desligar a regra. Então PROIBIÇÃO SE ESCREVE SEM CITAR A FRASE PROIBIDA: diga o que dizer, não o que não dizer. O `SystemPrompt.swift` regra 9 é o exemplo — e num prompt isso é melhor de qualquer jeito, porque modelo que lê 'NUNCA diga X' às vezes diz X."
   }
 }
