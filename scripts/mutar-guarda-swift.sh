@@ -19,40 +19,16 @@ TMP = sys.argv[1]
 casos = json.load(open('docs/compliance/afirmacoes.fixture.json'))['casos']
 guarda = open('ios/Racha/Agent/RevisaoDeAfirmacoes.swift').read()
 
-MUT = [
- ("negador colado vira negador solto", "regex(ClaimPatterns.negadorColado)", "regex(ClaimPatterns.negadores)"),
- ("âncora do separador interno", "                ini = max(ini, sep.range.location + sep.range.length)", ""),
- ("âncora do destinatário anterior", "            var ini = anterior", "            var ini = 0"),
- ("nega olha só o primeiro destinatário", "        for d in dests {", "        for d in dests.prefix(1) {"),
-
- ("repartida olha só a primeira oração", "        for (i, o) in partes.enumerated() where casa(destinatario, o) {", "        for (i, o) in partes.enumerated().prefix(1) where casa(destinatario, o) {"),
- ("negador atrás deixa de exigir que ALCANCE a gorjeta", "        if !casa(gorjeta, resto) && !soFuncionalAteONucleo(resto) { return false }", "", 'sem-cobertura'),
- ("negador atrás deixa de olhar o CONTRASTE", "        return !casa(contrasteColado, resto)", "        return true"),
- ("dispensa do distribuidor deixa de valer por SEGMENTO", "            for seg in segmentos(o) {", "            for seg in [o] {"),
- ("distribuidor volta a dispensar de dentro de uma RELATIVA", "                let temDist = casa(distribuidor, matriz)", "                let temDist = casa(distribuidor, seg)"),
- ("coordenação deixa de herdar o distribuidor", "                let dispensa = temDist || (!temVerbo && distribuidorAnterior)", "                let dispensa = temDist"),
- ("distribuidor volta a valer pela janela toda", "                if !nega(o) && (casa(revoga, o) || !dispensa) { return true }", "                if !nega(o) && !casa(distribuidor, texto) { return true }"),
- ("evasão deixa de revogar a dispensa do genitivo", "        if casa(revoga, clausula ?? oracao) { return casa(destinatario, oracao) }", ""),
- ("genitivo DESCRITIVO deixa de dispensar", "        return casa(destinatario, semGenitivo)", "        return casa(destinatario, oracao)"),
- ("SUJEITO NOMINAL deixa de vetar a regra 1b", "            if temSujeitoNominal(prefixoSemGorjeta) { continue }", ""),
- ("ANÁFORA de dinheiro deixa de contar como sujeito-gorjeta",
-  "            prefixoSemGorjeta = anaforaDeDinheiro.stringByReplacingMatches(\n                in: prefixoSemGorjeta,\n                range: NSRange(location: 0, length: (prefixoSemGorjeta as NSString).length),\n                withTemplate: \" \")", ""),
- ("prefixo da forma direcional volta a ser CONTADO", "            let comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo",
-  "            let comecaNaForma = prefixo.rangeOfCharacter(from: .alphanumerics) == nil"),
- ("negador atrás deixa de olhar a ORDEM (promessa já feita)", "        if casa(regenciaDoNucleo, antesDoNucleo) && !casa(gorjeta, resto) { return false }", ""),
- ("regra 1b deixa de exigir contexto de dinheiro", "            guard casa(gorjeta, texto) || casa(quantidade, texto) || comecaNaForma", "            guard true"),
- ("caminho FORTE deixa de existir", "            if cabecaValida(cabecaForte, o) != nil { return true }", ""),
- ("caminho FORTE aceita cabeça SEM quantidade", "            if cabecaValida(cabecaForte, o) != nil { return true }", "            if cabecaValida(cabecaDeDestino, o) != nil { return true }"),
- ("qualquer negador volta a LICENCIAR a cabeça não-direcional", "            guard let m = acha(comEvasao ? cabecaDeDestino : cabecaDirecional, o) else { continue }", "            guard let m = acha(casa(revoga, o) ? cabecaDeDestino : cabecaDirecional, o) else { continue }"),
- ("caminho FRACO deixa de exigir cabeça DIRECIONAL", "            let comEvasao = casa(evasaoQueLicencia, o)", "            let comEvasao = true"),
- ("PREFIXO do caminho fraco deixa de ser julgado", "            guard !casa(verboFinito, ns.substring(to: m.location)) else { continue }", ""),
- ("caminho FRACO deixa de exigir resto sem PREDICAÇÃO", "            guard !temPredicacao(resto) else { continue }", ""),
- ("caminho FRACO deixa de exigir quantidade na oração anterior",
-  "            guard partes[..<i].contains(where: {\n                comEvasao ? casa(gorjeta, $0) : (casa(quantidade, $0) || casa(gorjeta, $0))\n            }) else { continue }", ""),
- ("PREFIXO da cabeça deixa de ser julgado", "        if casa(verboFinito, ns.substring(to: m.location)) { return nil }", ""),
- ("pronome regido por preposição volta a contar como sujeito", "            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }", "            _ = p; return true", 'sem-cobertura'),
- ("pré-condição volta a exigir o substantivo da gorjeta", "        guard casa(destinatario, texto) else { return false }", "        guard casa(gorjeta, texto), casa(destinatario, texto) else { return false }"),
-]
+# AS DECISÕES MORAM NUM LUGAR SÓ. Esta lista e a do
+# `api/__tests__/mutacoes-afirmacao.test.js` eram duas, escritas à mão, e a
+# revisão de segurança de 2026-09-14 mediu a distância: sete decisões nomeadas
+# só lá e duas só aqui — uma delas o `soFuncionalAteONucleo` dentro do `nega`,
+# a peça que a mesma revisão estava questionando, nunca mutada do lado que
+# embarca. Ver `_porque` no `docs/compliance/mutacoes.json`.
+DECISOES = json.load(open('docs/compliance/mutacoes.json'))
+MUT = [(d['nome'], d['swift']['de'], d['swift']['para'])
+       + (('sem-cobertura',) if 'swift' in d.get('sem_cobertura', []) else ())
+       for d in DECISOES['decisoes']]
 
 
 # AFROUXAMENTOS — a metade que falta a uma mutação que só APAGA.
@@ -130,39 +106,58 @@ def troca(nome, valor):
                        lambda m: m.group(1) + '"' + valor + '"', padroes, count=1)
     return f
 
-ALARGA = [
- # A aridade mora em TRÊS lugares no Swift: no campo próprio (que o
- # `destinoEmQualquerLugar` compõe em tempo de execução) e já expandida dentro
- # das duas cabeças, que são literais pré-compostos. Mutar só o campo media um
- # terço da peça e dava verde.
- ("aridade do modificador cai de dois pra zero",
-  campo(['modificadorDeDestino', 'cabecaDeDestino', 'cabecaForte', 'cabecaDirecional'], '{0,2}', '{0,0}')),
- ("cabeça do caminho fraco aceita preposição não-direcional",
-  troca('cabecaDirecional', lit_para_swift(COMPOSTO_CABECA_QUALQUER()))),
- ("quantidade DETECTORA deixa de reconhecer notação nenhuma", troca('quantidade', 'zzzznuncacasa')),
- ("verbo finito deixa de ver o sujeito nulo", troca('verboFinito', 'zzzznuncacasa')),
- ("pronome sujeito deixa de contar", troca('pronomeSujeito', 'zzzznuncacasa')),
- ("núcleo de atribuição aceita qualquer substantivo",
-  campo('genitivoDescritivo', '= "(', '= "([\\\\wáéíóúâêôãõç-]+|')),
-]
+def sufixo(nomes, desde):
+    """Corta do primeiro `desde` até o fim do literal — para peças cujo texto
+    exato muda quando uma componente muda de ordem. Um alargamento ancorado
+    num literal longo reporta `não mudou nada` por desatualização, e isso lê
+    como portão verde."""
+    if isinstance(nomes, str): nomes = [nomes]
+    def f(padroes):
+        fora = []
+        for linha in padroes.split('\n'):
+            if any(_re.match(r'\s*static let %s = ' % n, linha) for n in nomes) and desde in linha:
+                linha = linha[:linha.index(desde)] + '"'
+            fora.append(linha)
+        return '\n'.join(fora)
+    return f
+
+def _alargamento(spec):
+    if spec['tipo'] == 'sufixo': return sufixo(spec['nomes'], spec['desde'])
+    if spec['tipo'] == 'troca': return troca(spec['nome'], spec['valor'])
+    if spec['tipo'] == 'campo': return campo(spec['nomes'], spec['de'], spec['para'])
+    if spec['tipo'] == 'cabeca_qualquer':
+        return troca('cabecaDirecional', lit_para_swift(COMPOSTO_CABECA_QUALQUER()))
+    raise SystemExit('alargamento de tipo desconhecido: ' + spec['tipo'])
+
+ALARGA = [(a['nome'], _alargamento(a['swift']), a['direcao'])
+          for a in DECISOES['alargamentos']]
 
 def roda(fonte, padroes=None):
     open(f'{TMP}/CP.swift','w').write(padroes if padroes is not None else PADROES)
     open(f'{TMP}/Rev.swift','w').write(fonte.replace('enum RevisaoDeAfirmacoes {','public enum RevisaoDeAfirmacoes {',1))
-    corpo = ['import Foundation', 'var falhas = 0',
+    # A DIREÇÃO DO VERMELHO, não o total. Contar só o total deixava um
+    # alargamento ser certificado pelo avesso: `cabeça aceita preposição
+    # não-direcional` reportava vermelho e os vermelhos eram todos casos
+    # INOCENTES — luz verde que se lia como cobertura do alargamento e era
+    # cobertura do contrário. O lado JS corrigiu isso em 2026-09-14 e a
+    # correção não tinha atravessado. Apontado pela revisão de segurança.
+    corpo = ['import Foundation', 'var escapes = 0', 'var fp = 0',
              'let casos: [(String, Bool)] = [' + ','.join(
                  '(%s, %s)' % (json.dumps(c['texto'], ensure_ascii=False), 'true' if c['recusa'] else 'false') for c in casos) + ']',
-             'for (t, esp) in casos where RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(t) != esp { falhas += 1 }',
-             'print(falhas)']
+             'for (t, esp) in casos where RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(t) != esp {',
+             '  if esp { escapes += 1 } else { fp += 1 }',
+             '}',
+             'print("\\(escapes) \\(fp)")']
     open(f'{TMP}/main.swift','w').write('\n'.join(corpo))
     r = subprocess.run(['swiftc','-O',f'{TMP}/CP.swift',f'{TMP}/Rev.swift',f'{TMP}/main.swift','-o',f'{TMP}/p'],
                        capture_output=True, text=True)
     if r.returncode: return None
-    return int(subprocess.run([f'{TMP}/p'], capture_output=True, text=True).stdout.strip())
+    e, f = subprocess.run([f'{TMP}/p'], capture_output=True, text=True).stdout.split()
+    return {'escapes': int(e), 'fp': int(f), 'total': int(e) + int(f)}
 
 base = roda(guarda)
-if base != 0:
-    print(f'✗ o guarda NÃO passa o corpo sem mutação ({base} falhas)'); sys.exit(1)
+if base is None or base['total'] != 0:
+    print(f'✗ o guarda NÃO passa o corpo sem mutação ({base})'); sys.exit(1)
 print(f'✓ sem mutação: {len(casos)} casos, 0 falhas')
 ruim = 0
 SEM_COBERTURA = {m[0] for m in MUT if len(m) > 3}
@@ -180,28 +175,30 @@ for m in MUT:
         # Declarada sem cobertura: se um dia ela PASSAR a ficar vermelha é
         # porque alguém escreveu o caso, e aí a marca tem que sair. Exceção que
         # sobrevive à própria razão é a dívida de sempre.
-        print(('✓ ' if n == 0 else '✗ ') + f'{nome}: sem cobertura declarada ({n} vermelhos)')
-        if n != 0: ruim += 1
+        print(('✓ ' if n['total'] == 0 else '✗ ') + f'{nome}: sem cobertura declarada ({n})')
+        if n['total'] != 0: ruim += 1
         continue
-    print(('✓ ' if n > 0 else '✗ ') + f'{nome}: {n} casos vermelhos')
-    if n == 0: ruim += 1
+    print(('✓ ' if n['total'] > 0 else '✗ ') + f'{nome}: {n}')
+    if n['total'] == 0: ruim += 1
 for nome, atalho in SOLTA:
     if ANCORA not in guarda:
         print(f'✗ {nome}: a âncora do laço da regra 3 não existe mais'); ruim += 1; continue
     n = roda(guarda.replace(ANCORA, atalho + ANCORA, 1))
     if n is None:
         print(f'✗ {nome}: não compila mutado — o atalho saiu do portão'); ruim += 1; continue
-    print(('✓ ' if n > 0 else '✗ ') + f'{nome}: {n} casos vermelhos')
-    if n == 0: ruim += 1
-for nome, alargar in ALARGA:
+    print(('✓ ' if n['total'] > 0 else '✗ ') + f'{nome}: {n}')
+    if n['total'] == 0: ruim += 1
+for nome, alargar, direcao in ALARGA:
     mutados = alargar(PADROES)
     if mutados == PADROES:
         print(f'✗ {nome}: o alargamento não mudou nada — a peça saiu do portão'); ruim += 1; continue
     n = roda(guarda, mutados)
     if n is None:
         print(f'✗ {nome}: não compila alargado — a peça saiu do portão'); ruim += 1; continue
-    print(('✓ ' if n > 0 else '✗ ') + f'{nome}: {n} casos vermelhos')
-    if n == 0: ruim += 1
+    # O VERMELHO TEM QUE VIR DA DIREÇÃO DECLARADA.
+    ok = n[direcao] > 0
+    print(('✓ ' if ok else '✗ ') + f'{nome}: {direcao} esperado, medido {n}')
+    if not ok: ruim += 1
 
 sys.exit(1 if ruim else 0)
 PY

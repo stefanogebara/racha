@@ -41,123 +41,24 @@ const F = JSON.parse(fs.readFileSync(
   path.join(RAIZ, 'docs', 'compliance', 'afirmacoes.fixture.json'), 'utf8'));
 
 /**
- * Cada peça do desenho, com a mutação que a apaga. O texto é o que está no
- * arquivo; se um refactor mudar a linha, esta lista quebra alto — que é o
- * comportamento certo, porque a lista só vale se descrever o código de hoje.
+ * Cada peça do desenho, com a mutação que a apaga — LIDA DA LISTA
+ * COMPARTILHADA. As duas metades do portão eram duas listas escritas à mão, e
+ * a revisão de segurança de 2026-09-14 mediu sete decisões nomeadas só aqui e
+ * duas só do lado Swift. Ver `_porque` no `docs/compliance/mutacoes.json`.
+ *
+ * O texto de cada mutação é o que está no arquivo; se um refactor mudar a
+ * linha, esta lista quebra alto — que é o comportamento certo, porque ela só
+ * vale se descrever o código de hoje.
  */
-const MUTACOES = [
-  { nome: 'âncora do destinatário anterior',
-    de: '    const vao = oracao.slice(ini, d.index);',
-    para: '    const vao = oracao.slice(anterior, d.index);' },
-  // DEIXOU DE SER SEM COBERTURA em 2026-09-14: desde que a janela virou o
-  // prefixo inteiro, a lista de evasão encontra `sem` em lugares onde a de
-  // negadores não encontra nada, e o corpo vê a diferença. A marca saiu porque
-  // a razão dela saiu — exceção que sobrevive à própria razão é a dívida de
-  // sempre.
-  { nome: 'nega volta a usar a lista de EVASÃO em vez da de negadores',
-    de: '    const mNeg = new RegExp(reNegador.source, \'i\').exec(vao);',
-    para: '    const mNeg = new RegExp(reRevoga.source, \'i\').exec(vao);' },
-  { nome: 'o negador na frente deixa de precisar ALCANÇAR o destino',
-    de: '    const antes = mNeg ? soFuncionalAteONucleo(vao.slice(mNeg.index + mNeg[0].length)) : false;',
-    para: '    const antes = Boolean(mNeg);' },
-  { nome: 'nega olha só o PRIMEIRO destinatário',
-    de: '  for (const d of dests) {',
-    para: '  for (const d of dests.slice(0, 1)) {' },
-  { nome: 'o negador DEPOIS do destinatário deixa de contar',
-    de: '    if (!antes && !depois) return false;',
-    para: '    if (!antes) return false;' },
-  { nome: 'o negador atrás deixa de olhar a ORDEM (promessa já feita)',
-    de: '  if (reRegenciaDoNucleo.test(antesDoNucleo) && !reGorjeta.test(resto)) return false;',
-    para: '' },
-  // SEM COBERTURA, e medido: desde que a pergunta de ORDEM voltou (regência do
-  // núcleo) e roda ANTES desta, todo caso `recusa: true` do corpo com cauda
-  // negadora tem núcleo oblíquo, e a ORDEM já os recusa. O alcance só decide
-  // pra núcleo NÃO-oblíquo com cauda de conteúdo, e o corpo não tem esse caso.
-  // Falha FECHADO — tirá-lo concede o resgate em mais casos, então a marca é
-  // uma dívida de cobertura, não de polaridade.
-  { nome: 'o negador atrás deixa de exigir que ALCANCE a gorjeta', semCobertura: true,
-    de: '  if (!reGorjeta.test(resto) && !soFuncionalAteONucleo(resto)) return false;',
-    para: '' },
-  { nome: 'o negador atrás deixa de olhar o CONTRASTE',
-    de: '  return !reContrasteColado.test(resto);',
-    para: '  return true;' },
-  { nome: 'a repartida olha só a PRIMEIRA oração com destinatário',
-    de: '  for (let i = 0; i < partes.length; i += 1) {',
-    para: '  for (let i = 0; i < Math.min(1, partes.length); i += 1) {' },
-  { nome: 'a dispensa do distribuidor deixa de valer por SEGMENTO',
-    de: '      for (const seg of segmentos(o)) {',
-    para: '      for (const seg of [o]) {' },
-  { nome: 'o distribuidor volta a dispensar de dentro de uma RELATIVA',
-    de: '        const temDist = reDistribuidor.test(matriz);',
-    para: '        const temDist = reDistribuidor.test(seg);' },
-  { nome: 'o separador interno deixa de ancorar a janela do nega',
-    de: '      if (sp.index >= anterior && sp.index + sp[0].length <= d.index) {',
-    para: '      if (false) {' },
-  { nome: 'a ANÁFORA de dinheiro deixa de contar como sujeito-gorjeta',
-    de: "      .replace(new RegExp(G.anafora_de_dinheiro, 'gi'), ' ');",
-    para: '      ;' },
-  { nome: 'a coordenação deixa de herdar o distribuidor',
-    de: '        const dispensa = temDist || (!temVerbo && distribuidorAnterior);',
-    para: '        const dispensa = temDist;' },
-  { nome: 'a dispensa volta a valer pela janela toda',
-    de: '        if (!nega(o) && (reRevoga.test(o) || !dispensa)) return true;',
-    para: '        if (!nega(o) && (reRevoga.test(o) || !reDistribuidor.test(janela))) return true;' },
-  { nome: 'a evasão deixa de revogar a dispensa do genitivo',
-    de: '  if (reRevoga.test(clausula || oracao)) return reDestRuntime.test(oracao);',
-    para: '' },
-  { nome: 'o genitivo descritivo deixa de dispensar',
-    de: '  return reDestRuntime.test(oracao.replace(reGenitivoDescritivo, \' \'));',
-    para: '  return reDestRuntime.test(oracao);' },
-  // SEM COBERTURA, e declarada: desde que a revogação passou a ser lida na
-  // ORAÇÃO inteira (e não numa janela de ±30 caracteres), ela é redundante com
-  // a checagem de revogação que os dois chamadores já fazem. Falha FECHADO —
-  // tirá-la concede a dispensa em menos casos, nunca em mais.
-  { nome: 'a revogação do distribuidor deixa de valer pela oração', semCobertura: true,
-    de: '    if (!reRevoga.test(oracao)) return true;',
-    para: '    return true;' },
-  { nome: 'o SUJEITO NOMINAL deixa de vetar a regra 1b',
-    de: '    if (temSujeitoNominal(prefixoSemGorjeta)) continue;',
-    para: '' },
-  { nome: 'o prefixo da forma direcional volta a ser CONTADO',
-    de: '    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo;',
-    para: '    const comecaNaForma = !/[0-9A-Za-zÀ-ÿ]/.test(prefixo);' },
-  { nome: 'o destinatário AMBÍGUO volta a bastar na evidência fraca',
-    de: '    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo;',
-    para: '    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta);' },
-  { nome: 'a regra 1b deixa de exigir contexto de dinheiro',
-    de: '    if ((reGorjeta.test(janela) || reQuantidade.test(janela) || comecaNaForma)',
-    para: '    if ((true)' },
-  { nome: 'o caminho FORTE deixa de existir',
-    de: '    if (cabecaValida(reCabecaForte, o) !== null) return true;',
-    para: '' },
-  { nome: 'o caminho FORTE aceita cabeça SEM quantidade',
-    de: '    if (cabecaValida(reCabecaForte, o) !== null) return true;',
-    para: '    if (cabecaValida(reCabeca, o) !== null) return true;' },
-  { nome: 'qualquer negador volta a LICENCIAR a cabeça não-direcional',
-    de: '    const mFraco = (comEvasao ? reCabeca : reCabecaDirecional).exec(o);',
-    para: '    const mFraco = (reRevoga.test(o) ? reCabeca : reCabecaDirecional).exec(o);' },
-  { nome: 'o caminho FRACO deixa de exigir cabeça DIRECIONAL',
-    de: '    const comEvasao = reEvasaoLicencia.test(o);',
-    para: '    const comEvasao = true;' },
-  { nome: 'o PREFIXO do caminho fraco deixa de ser julgado',
-    de: '    if (reVerboFinito.test(o.slice(0, mFraco.index))) continue;',
-    para: '' },
-  { nome: 'o caminho FRACO deixa de exigir resto sem PREDICAÇÃO',
-    de: '    if (temPredicacao(resto)) continue;',
-    para: '' },
-  { nome: 'o caminho FRACO deixa de exigir quantidade na oração anterior',
-    de: '    if (!partes.slice(0, i).some((q) => comEvasao ? reGorjeta.test(q)\n      : (reQuantidade.test(q) || reGorjeta.test(q)))) continue;',
-    para: '' },
-  { nome: 'o PREFIXO da cabeça deixa de ser julgado',
-    de: '  if (reVerboFinito.test(oracao.slice(0, m.index))) return null;',
-    para: '' },
-  { nome: 'a relativa deixa de sair antes do teste de predicação',
-    de: '  const semRelativa = resto.replace(reRelativa, \' \');',
-    para: '  const semRelativa = resto;' },
-  { nome: 'o pronome regido por preposição volta a contar como sujeito', semCobertura: true,
-    de: '    if (!rePrepPronome.test(trecho.slice(0, p))) return true;',
-    para: '    return true;' },
-];
+const DECISOES = JSON.parse(fs.readFileSync(
+  path.join(RAIZ, 'docs', 'compliance', 'mutacoes.json'), 'utf8'));
+const MUTACOES = DECISOES.decisoes.map((d) => ({
+  nome: d.nome,
+  de: d.js.de,
+  para: d.js.para,
+  semCobertura: (d.sem_cobertura || []).includes('js'),
+}));
+
 
 /**
  * Roda o corpo contra uma cópia mutada do censo. Devolve a DIREÇÃO do vermelho.
@@ -211,7 +112,7 @@ function falhasCom(fonte) {
 const AFROUXAMENTOS = [
   { nome: 'atalho: qualquer oração com os dois substantivos encerra o julgamento',
     ancora: '  const iDest = -1;',
-    insere: '  if (partes.some((o) => reGorjeta.test(o) && reDestRuntime.test(o))) return false;\n' },
+    insere: '  if (partes.some((o) => reGorjeta.test(o) && reDestinatarioCenso.test(o))) return false;\n' },
   { nome: 'atalho: qualquer distribuidor em qualquer lugar dispensa',
     ancora: '  const iDest = -1;',
     insere: '  if (partes.some(temDistribuidor)) return false;\n' },
@@ -254,34 +155,9 @@ const AFROUXAMENTOS = [
  * tem que vir de casos `recusa: true`. Apontado pela revisão de segurança de
  * 2026-09-14, que mediu os cinco alargamentos e achou zero escapes nos cinco.
  */
-const ALARGAMENTOS = [
-  // O modificador ESTREITA, não alarga: ele existe pra `to the FLOOR staff`, e
-  // tirá-lo faz essa promessa escapar. Alargá-lo só faz o guarda recusar mais,
-  // e nenhum caso inocente do corpo reage — medido, não suposto.
-  { nome: 'a aridade do modificador cai de dois pra zero', direcao: 'escapes',
-    insere: "G.modificador_de_destino = G.modificador_de_destino.replace('{0,2}', '{0,0}');\n" },
-  { nome: 'a cabeça do caminho fraco aceita preposição não-direcional', direcao: 'fp',
-    insere: "G.preposicao_direcional = G.preposicao_de_destino;\n" },
-  { nome: 'o verbo finito deixa de ver o sujeito nulo', direcao: 'fp',
-    insere: "G.verbo_finito = 'zzzznuncacasa';\n" },
-  // Desde que o prefixo passou a ser julgado por VERBO nos dois caminhos, o
-  // `pronome_sujeito` decide só dentro do `temPredicacao` do RESTO — e lá
-  // ele APERTA quando some: o resto deixa de ter predicação e a oração vira
-  // frase de destino. A direção declarada mudou junto com a peça, que é o
-  // comportamento certo de uma declaração de polaridade.
-  { nome: 'o pronome sujeito deixa de contar', direcao: 'fp',
-    insere: "G.pronome_sujeito = 'zzzznuncacasa';\n" },
-  { nome: 'o separador de cláusula perde a conjunção', direcao: 'escapes',
-    insere: "G.separador_de_clausula = '(?<!\\\\d),(?!\\\\d)';\n" },
-  { nome: 'a quantidade consumida passa a aceitar qualquer palavra', direcao: 'fp',
-    insere: "G.quantidade_consumida = '([\\\\wáéíóúâêôãõç%$€.,-]+)';\n" },
-  // E O OUTRO LADO, que faltava inteiro: estreitar a peça que abre o caminho
-  // fraco faz a promessa ESCAPAR, e nenhuma mutação deste arquivo media isso.
-  { nome: 'a quantidade DETECTORA deixa de reconhecer notação nenhuma', direcao: 'escapes',
-    insere: "G.quantidade = 'zzzznuncacasa';\n" },
-  { nome: 'o núcleo de atribuição aceita qualquer substantivo', direcao: 'escapes',
-    insere: "G.nucleo_de_atribuicao = '([\\\\wáéíóúâêôãõç-]+)';\n" },
-];
+const ALARGAMENTOS = DECISOES.alargamentos.map(
+  (a) => ({ nome: a.nome, direcao: a.direcao, insere: `${a.js}\n` }));
+
 // Os alargamentos entram ANTES do primeiro padrão composto, porque as peças
 // são compartilhadas: alargar só a cabeça e não o `destino_em_qualquer_lugar`,
 // que é pré-condição da mesma regra, mediria uma metade e chamaria de medição.
@@ -348,6 +224,23 @@ describe('cada peça do desenho pode ficar vermelha', () => {
     if (m.semCobertura) { expect(d.total).toBe(0); return; }
     expect({ nome: m.nome, [m.direcao]: d[m.direcao] > 0, outro: d, })
       .toEqual({ nome: m.nome, [m.direcao]: true, outro: d });
+  });
+
+  test('toda decisão tem as DUAS metades, e as âncoras existem nos dois arquivos', () => {
+    // A paridade é por CONSTRUÇÃO — as duas metades moram na mesma entrada.
+    // O que sobra pra afirmar é que cada âncora ainda existe no arquivo dela.
+    const swift = fs.readFileSync(
+      path.join(RAIZ, 'ios', 'Racha', 'Agent', 'RevisaoDeAfirmacoes.swift'), 'utf8');
+    const semMetade = DECISOES.decisoes.filter((d) => !d.js || !d.swift).map((d) => d.nome);
+    expect(semMetade).toEqual([]);
+    const perdidas = DECISOES.decisoes
+      .filter((d) => !swift.includes(d.swift.de))
+      .map((d) => `${d.nome}: a âncora Swift não existe mais`);
+    expect(perdidas).toEqual([]);
+    for (const a of DECISOES.alargamentos) {
+      expect(['escapes', 'fp']).toContain(a.direcao);
+      expect(a.swift).toBeTruthy();
+    }
   });
 
   test('a lista de peças sem cobertura não cresce', () => {

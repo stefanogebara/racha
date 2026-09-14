@@ -40,6 +40,7 @@ const PECAS = (G) => ({
   GORJETANOME: G.substantivo_gorjeta,
   DESTRUNTIME: G.substantivo_destinatario_runtime,
   PRONOME: G.pronome_sujeito.replace(/^\(\?:\^\|\[\^0-9A-Za-zÀ-ÿ\]\)\(/, '').replace(/\)\(\?=\[\^0-9A-Za-zÀ-ÿ\]\|\$\)$/, ''),
+  MODSEMART: G.modificador_sem_artigo,
   MODLONGO: G.modificador_longo,
   MOD: G.modificador_de_destino,
   DEST: G.substantivo_destinatario_runtime,
@@ -52,6 +53,8 @@ const PECAS = (G) => ({
   GEN: G.genitivo_de_destino_simples,
   RELPRON: G.relativo_pronome,
   RELCLIT: G.relativo_clitico,
+  DET: G.determinante,
+  AMBIGUO: G.destinatario_ambiguo,
 });
 /** Substitui TODOS os marcadores, do mais longo pro mais curto — senão `PREP`
  *  comeria o começo de `PREPDEST` e o padrão sairia calado e errado. */
@@ -75,6 +78,11 @@ const COMPOSTOS = {
   genitivo_descritivo: (G) => compor(G, G.genitivo_descritivo),
   sujeito_nominal: (G) => compor(G, G.sujeito_nominal),
   relativa_qualquer: (G) => compor(G, G.relativa_qualquer),
+  adversativa_inicial: (G) => compor(G, G.adversativa_inicial),
+  modificador_sem_artigo: (G) => compor(G, G.modificador_sem_artigo),
+  cabeca_genitiva: (G) => compor(G, G.cabeca_genitiva),
+  ambiguo_possuido: (G) => compor(G, G.ambiguo_possuido),
+  anafora_de_dinheiro: (G) => compor(G, G.anafora_de_dinheiro),
 };
 const G = JSON.parse(fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'claims.json'), 'utf8')).gorjeta_destino;
 
@@ -130,14 +138,27 @@ enum ClaimPatterns {
     /// Sujeito NOMINAL: determinante + substantivo. Ver \`_porque_sujeito_nominal\`.
     static let sujeitoNominal = ${lit(COMPOSTOS.sujeito_nominal(G))}
     /// Como se chama o dinheiro quando o cliente acabou de perguntar dele.
-    static let anaforaDeDinheiro = ${lit(G.anafora_de_dinheiro)}
+    static let anaforaDeDinheiro = ${lit(COMPOSTOS.anafora_de_dinheiro(G))}
     /// Destinatário que também é LUGAR. Ver \`_porque_ambiguo\`.
     static let destinatarioAmbiguo = ${lit(G.destinatario_ambiguo)}
+    /// O sujeito que o veto da regra 1b existe pra proteger. Polaridade do
+    /// lado certo: palavra que a lista não conhece NÃO veta. Ver
+    /// \`_porque_veto_por_contexto\`.
+    static let substantivoNaoDinheiro = ${lit(G.substantivo_nao_dinheiro)}
+    /// O cômodo POSSUÍDO, não visitado: \`fica com o salão\`, \`é da copa\`. Um
+    /// cômodo pode ser destino de movimento e não pode ser dono de dinheiro:
+    /// é a RELAÇÃO que desfaz a ambiguidade, não a palavra.
+    static let ambiguoPossuido = ${lit(COMPOSTOS.ambiguo_possuido(G))}
     /// Só a família do CAMINHO licencia a cabeça não-direcional. Ver \`_porque_licenca\`.
     static let evasaoQueLicencia = ${lit(COMPOSTOS.evasao_que_licencia(G))}
     /// Material FUNCIONAL entre o negador e o núcleo. Ver \`_porque_alcance_antes\`.
     static let palavraFuncional = ${lit(COMPOSTOS.palavra_funcional(G))}
     static let cabecaDirecional = ${lit(COMPOSTOS.cabeca_direcional(G))}
+    /// A mesma cabeça do caminho fraco, com a preposição GENITIVA no lugar
+    /// da direcional. \`A caixinha — DOS atendentes\` é a promessa sem verbo e
+    /// sem direção, e ela escapava porque \`d[oa]s?\` não está no \`PREPDIR\`.
+    /// A licença é a ESTRITA. Ver \`_porque_cabeca_genitiva\`.
+    static let cabecaGenitiva = ${lit(COMPOSTOS.cabeca_genitiva(G))}
     /// Pronome SUJEITO — o que não é regido por preposição. Ver
     /// \`_porque_predicacao\`.
     static let pronomeSujeito = ${lit(G.pronome_sujeito)}
@@ -155,6 +176,10 @@ enum ClaimPatterns {
     static let separadorInterno = ${lit(G.separador_interno)}
     /// Separa ESCOPO de cláusula, e inclui a conjunção coordenativa.
     static let separadorDeClausula = ${lit(G.separador_de_clausula)}
+    /// Abertura de cláusula ADVERSATIVA: ela QUALIFICA a oração anterior em
+    /// vez de afirmar coisa nova. Com slot de advérbio, porque o fabricador
+    /// derrubou as três variantes de \`— sempre mas não pela folha\`.
+    static let adversativaInicial = ${lit(COMPOSTOS.adversativa_inicial(G))}
     /// Negador COLADO no destinatário. Sem o \`sem\`: ver \`_porque_negadores\`.
     static let negadorColado = ${lit(COMPOSTOS.negador_colado(G))}
     /// A frase que o produto diz. Não é uma variação.

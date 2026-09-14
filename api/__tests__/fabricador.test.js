@@ -89,6 +89,8 @@ function* injecoes(texto) {
 }
 
 const TOLERADAS = G._injecoes_toleradas || {};
+/** A chave de uma tolerância: a VARIANTE, sem o rótulo `+palavra → `. */
+const variante = (v) => v.replace(/^\+\S+ → /, '').replace(/⏎/g, '\n');
 
 /**
  * A TERCEIRA GAVETA tem a mesma disciplina das dispensas: cada tolerância
@@ -96,15 +98,40 @@ const TOLERADAS = G._injecoes_toleradas || {};
  * falhas vão morar. Apontado pela revisão de compliance antes de ela ter a
  * primeira entrada — que é a hora certa de pôr a regra.
  */
+const { acusa: acusaTop } = carrega();
+
 describe('as tolerâncias do fabricador têm a disciplina das dispensas', () => {
   test('cada uma nomeia um caso do corpo, tem razão escrita, e é usada', () => {
     const casos = new Set(F.casos.map((c) => c.texto));
     expect(Object.keys(TOLERADAS).filter((t) => !casos.has(t))).toEqual([]);
-    for (const [caso, razoes] of Object.entries(TOLERADAS)) {
-      expect(Array.isArray(razoes) && razoes.length).toBeTruthy();
-      for (const r of razoes) expect(`${caso}: ${r}`).toMatch(/.{80,}/);
+    let variantes = 0;
+    for (const [caso, porVariante] of Object.entries(TOLERADAS)) {
+      expect(Object.keys(porVariante).length).toBeGreaterThan(0);
+      for (const [v, r] of Object.entries(porVariante)) {
+        // A variante tolerada tem que ser o CASO com uma palavra a mais — uma
+        // chave que não deriva do caso perdoaria uma frase que ninguém mediu.
+        expect(v.replace(/(sempre|assim|francamente) /, '')).toBe(caso);
+        expect(`${caso}: ${r}`).toMatch(/.{80,}/);
+        variantes += 1;
+      }
     }
     expect(Object.keys(TOLERADAS).length).toBeLessThanOrEqual(4);
+    // E CADA VARIANTE TOLERADA TEM QUE SER USADA. Tolerância que não tolera
+    // nada é buraco esquecido — a mesma disciplina das dispensas do censo, e
+    // ela já pagou: quando a peça foi consertada, cinco das dez variantes
+    // declaradas deixaram de cair e teriam ficado no arquivo como cobertura
+    // imaginária.
+    const naoUsadas = [];
+    for (const [caso, porVariante] of Object.entries(TOLERADAS)) {
+      const c = F.casos.find((x) => x.texto === caso);
+      const caem = new Set();
+      for (const [variante] of injecoes(caso)) if (acusaTop(variante) !== c.recusa) caem.add(variante);
+      for (const v2 of Object.keys(porVariante)) if (!caem.has(v2)) naoUsadas.push(v2);
+    }
+    expect(naoUsadas).toEqual([]);
+    // O TETO CONTA VARIANTES, não casos: contando casos, uma tolerância podia
+    // crescer de uma pra nove sem o número se mexer.
+    expect(variantes).toBeLessThanOrEqual(12);
   });
 });
 
@@ -140,7 +167,17 @@ describe('uma palavra a mais não desfaz uma promessa', () => {
     // um slot que casa qualquer palavra, e `artigo_de_destino` tem um `a` que
     // casa dentro de `assim`. Suja é a palavra que É uma alternativa de uma
     // lista, não a que aparece dentro de um padrão.
-    const limpa = (t) => t.replace(/\\b|\(\?:|[()^$]/g, '').trim();
+    // O NORMALIZADOR TEM QUE LER O QUE O ARQUIVO ESCREVE HOJE. Ele conhecia
+    // `\b`, `(?:` e as âncoras, e não conhecia os lookarounds explícitos —
+    // e o arquivo está MIGRANDO pra eles (`\b` é ASCII contra `à`, conta `_`
+    // como letra, e casa `da` dentro de `toda`). Cada campo que migra saía do
+    // alcance da prova em silêncio, e a prova continuava verde porque os
+    // mesmos lexemas ainda apareciam `\b`-delimitados noutro campo:
+    // correta por REDUNDÂNCIA, não por construção. A redundância estava
+    // marcada pra sumir. Achado pela revisão de compliance de 2026-09-14.
+    const limpa = (t) => t
+      .replace(/\(\?<?[=!][^)]*\)/g, '')     // (?<![…]) (?=[…]) (?!…)
+      .replace(/\\b|\(\?:|[()^$]/g, '').trim();
     const sujas = [];
     for (const palavra of NEUTRAS) {
       for (const lista of listas) {
@@ -149,6 +186,22 @@ describe('uma palavra a mais não desfaz uma promessa', () => {
       }
     }
     expect(sujas).toEqual([]);
+    // E O NORMALIZADOR TEM QUE TERMINAR O TRABALHO. Uma alternativa que sai
+    // dele ainda com sintaxe de regex nunca vai ser igual a uma palavra, então
+    // ela é INVISÍVEL pra prova — e a prova segue verde dizendo que provou.
+    // Esta asserção é o que transforma `a prova está correta hoje` em `a prova
+    // sabe ler o arquivo`: se um campo migrar pra uma construção nova, falha
+    // aqui em vez de emudecer.
+    const ilegiveis = [];
+    for (const lista of listas) {
+      for (const alt of G[lista].split('|').map(limpa)) {
+        if (/[\\()\[\]{}^$?*+|]/.test(alt)) continue;   // é padrão, não palavra
+        if (/^[0-9A-Za-zÀ-ÿ _-]*$/.test(alt)) continue;     // é palavra limpa
+        if (!/[0-9A-Za-zÀ-ÿ]/.test(alt)) continue;          // é pontuação (`,`, `;`)
+        ilegiveis.push(`${lista}: ${JSON.stringify(alt)}`);
+      }
+    }
+    expect(ilegiveis).toEqual([]);
   });
 
   const promessas = F.casos.filter((c) => c.recusa);
@@ -171,7 +224,12 @@ describe('uma palavra a mais não desfaz uma promessa', () => {
       }
       // A tolerância é POR CASO e descreve a CLASSE: a razão escrita explica
       // por que toda injeção neste caso cai do lado fail-closed.
-      const naoDeclaradas = TOLERADAS[c.texto] ? [] : caiu;
+      // A TOLERÂNCIA É POR VARIANTE EXATA, não por caso. Declarada por caso,
+      // ela perdoava TODAS as injeções daquele caso — nove num deles, duas
+      // noutro — enquanto a razão escrita nomeava uma só, e o teto contava
+      // CASOS, então uma tolerância podia crescer em silêncio.
+      // Apontado pela revisão de segurança de 2026-09-14.
+      const naoDeclaradas = caiu.filter((v) => !(TOLERADAS[c.texto] || {})[variante(v)]);
       expect({ caso: c.texto.slice(0, 40), naoDeclaradas })
         .toEqual({ caso: c.texto.slice(0, 40), naoDeclaradas: [] });
     });
@@ -187,14 +245,42 @@ describe('uma palavra a mais não desfaz uma promessa', () => {
    * partir do defeito da rodada anterior.
    * Achado pela revisão de compliance de 2026-09-14.
    */
-  const PREAMBULOS = ['Com a conta fechada, ', 'Se a pessoa quiser, ', 'No fim da noite, ',
-    'A conta fechou, ', 'Nesse caso, ', 'Pelo que vi, '];
-  test.each(promessas.filter((c) => !c.texto.includes('\n'))
-    .map((c) => [c.texto.slice(0, 50), c]))('preâmbulo: %s', (_nome, c) => {
+  // A GRADE É CONSTRUÍDA DAS PEÇAS QUE ELA EXERCITA, não do último defeito.
+  //
+  // Os seis primeiros preâmbulos eram todos abertura de determinante +
+  // substantivo, porque a grade nasceu do defeito do `sujeito_nominal` — e
+  // NENHUM deles trazia verbo finito. O teste de prefixo da regra 3, que é
+  // outra peça, ficou por medir: `Pode ficar tranquilo, 100% pro garçom.`
+  // desligava a regra inteira, 847 de 2400 variantes, e esta grade não podia
+  // produzi-lo. É a mesma forma do achado da rodada 16 (`os seis eram
+  // negações`), uma rodada depois. Apontado pela revisão de segurança de
+  // 2026-09-14.
+  //
+  // Agora há um preâmbulo por PEÇA que desqualifica um prefixo: verbo finito,
+  // sujeito nominal, pronome sujeito, relativa, e nenhum dos três.
+  const PREAMBULOS = [
+    'Pode ficar tranquilo, ',        // verbo_finito
+    'Tá tudo certo, ',               // verbo_finito, outra abertura
+    'A conta fechou, ',              // sujeito_nominal + verbo
+    'Com a conta fechada, ',         // sujeito_nominal regido por preposição
+    'Ela, ',                         // pronome_sujeito sozinho
+    'O garçom que te atendeu, ',     // relativa
+    'Se a pessoa quiser, ',
+    'No fim da noite, ',
+    'Nesse caso, ',
+    'Pelo que vi, ',
+  ];
+  // E O FILTRO DE UMA LINHA SAIU. Ele excluía por construção justamente os
+  // casos de várias linhas — a forma em que o produto de fato escreve, e a
+  // que o caminho fraco da regra 3 cobre.
+  test.each(promessas
+    .map((c) => [c.texto.replace(/\n/g, ' ⏎ ').slice(0, 50), c]))('preâmbulo: %s', (_nome, c) => {
       const caiu = PREAMBULOS.filter((p) => !acusa(p + c.texto[0].toLowerCase() + c.texto.slice(1)))
         .map((p) => `${p}… → ${c.texto}`);
-      const naoDeclaradas = caiu.filter(
-        (v) => !(TOLERADAS[c.texto] || []).some((t) => v.includes(t)));
+      // O filtro de promessa era `v.includes(t)` com `t` sendo a PROSA da
+      // razão — 200 caracteres contra uma variante de 60. Nunca casava, então
+      // o mecanismo estava inerte deste lado. Agora é a mesma chave dos dois.
+      const naoDeclaradas = caiu.filter((v) => !(TOLERADAS[c.texto] || {})[variante(v)]);
       expect({ caso: c.texto.slice(0, 40), naoDeclaradas })
         .toEqual({ caso: c.texto.slice(0, 40), naoDeclaradas: [] });
     });
@@ -204,9 +290,73 @@ describe('uma palavra a mais não desfaz uma promessa', () => {
       for (const [variante, palavra] of injecoes(c.texto)) {
         if (!acusa(variante)) caiu.push(`+${palavra} → ${variante.replace(/\n/g, '⏎')}`);
       }
-      const naoDeclaradas = caiu.filter(
-        (v) => !(TOLERADAS[c.texto] || []).some((t) => v.includes(t)));
+      const naoDeclaradas = caiu.filter((v) => !(TOLERADAS[c.texto] || {})[variante(v)]);
       expect({ caso: c.texto.slice(0, 40), naoDeclaradas })
         .toEqual({ caso: c.texto.slice(0, 40), naoDeclaradas: [] });
     });
+});
+
+/**
+ * E O MESMO EIXO CONTRA O GUARDA QUE EMBARCA.
+ *
+ * Os três eixos rodavam sobre o CENSO — o `carrega()` recorta o
+ * `claims.test.js` e exporta o `acusa`. O instrumento em que este arquivo mais
+ * confia nunca tinha tocado o binário que chega ao cliente. Não era buraco
+ * vivo (medido: zero divergências na varredura de injeção), mas a divergência
+ * JS×Swift é uma família REAL neste repositório — `\w` é ASCII em JavaScript e
+ * Unicode em ICU, e por isso `100% al señor camarero` era recusado pelo
+ * runtime e LIBERADO pelo censo, que é o único portão sobre o `i18n.ts`, sobre
+ * o roteiro impresso do garçom e sobre o `racha-ios.html`. A assimetria não é
+ * simétrica: o que o censo deixa passar chega ao cliente.
+ * Apontado pela revisão de segurança de 2026-09-14.
+ *
+ * Aqui o eixo de injeção roda nos DOIS e exige o MESMO veredito. Num ambiente
+ * sem toolchain Swift o bloco é PULADO, e pular é dito em voz alta.
+ */
+describe('o fabricador mede os DOIS guardas', () => {
+  const { execFileSync } = require('node:child_process');
+  const temSwift = (() => {
+    try { execFileSync('which', ['swiftc'], { stdio: 'pipe' }); return true; } catch { return false; }
+  })();
+
+  (temSwift ? test : test.skip)('injeção e preâmbulo dão o mesmo veredito no censo e no runtime',
+    () => {
+      const { acusa } = carrega();
+      const variantes = [];
+      for (const c of F.casos) {
+        for (const [v] of injecoes(c.texto)) variantes.push(v);
+      }
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fabsw-'));
+      fs.writeFileSync(path.join(tmp, 'CP.swift'),
+        fs.readFileSync(path.join(RAIZ, 'ios', 'Racha', 'Agent', 'ClaimPatterns.swift'), 'utf8'));
+      fs.writeFileSync(path.join(tmp, 'Rev.swift'),
+        fs.readFileSync(path.join(RAIZ, 'ios', 'Racha', 'Agent', 'RevisaoDeAfirmacoes.swift'), 'utf8')
+          .replace('enum RevisaoDeAfirmacoes {', 'public enum RevisaoDeAfirmacoes {'));
+      // As variantes viajam por ARQUIVO, não por literal: um corpo de 8 mil
+      // strings dentro do fonte Swift leva minutos pra compilar, e o que está
+      // sendo medido é o guarda, não o compilador.
+      fs.writeFileSync(path.join(tmp, 'casos.txt'), variantes.map((v) => JSON.stringify(v)).join('\n'));
+      fs.writeFileSync(path.join(tmp, 'main.swift'), [
+        'import Foundation',
+        `let linhas = try! String(contentsOfFile: "${path.join(tmp, 'casos.txt')}", encoding: .utf8)`,
+        '  .split(separator: "\\n", omittingEmptySubsequences: true)',
+        'var fora: [String] = []',
+        'for l in linhas {',
+        '  let t = try! JSONDecoder().decode(String.self, from: Data(l.utf8))',
+        '  fora.append(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(t) ? "1" : "0")',
+        '}',
+        'print(fora.joined())',
+      ].join('\n'));
+      execFileSync('swiftc', ['-O', `${tmp}/CP.swift`, `${tmp}/Rev.swift`, `${tmp}/main.swift`,
+        '-o', `${tmp}/p`], { timeout: 600000 });
+      const swift = execFileSync(`${tmp}/p`, { encoding: 'utf8', maxBuffer: 1 << 26 }).trim();
+      expect(swift.length).toBe(variantes.length);
+      const divergiram = [];
+      for (let i = 0; i < variantes.length; i += 1) {
+        if (acusa(variantes[i]) !== (swift[i] === '1')) {
+          divergiram.push(`${JSON.stringify(variantes[i])}: censo=${acusa(variantes[i])} runtime=${swift[i] === '1'}`);
+        }
+      }
+      expect(divergiram.slice(0, 8)).toEqual([]);
+    }, 900000);
 });

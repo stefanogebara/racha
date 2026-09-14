@@ -390,9 +390,6 @@ function podeEnviarAviso() {
   return !!process.env.CRON_SECRET;
 }
 
-// Throttle do aviso "CRON_SECRET não configurado" (1×/h por instância).
-let avisoCronSecretAte = 0;
-let avisoRetencaoAte = 0;
 
 /** Compara `Authorization: Bearer <x>` com o segredo sem vazar tempo. */
 function segredoConfere(header, secret) {
@@ -1842,19 +1839,23 @@ async function route(req, res) {
       // centavos, checkId/txid/accountId). Degradar aberta era divulgação
       // cross-tenant sem auth — achado ALTO das duas revisões.
       if (!process.env.CRON_SECRET) {
-        // Fechar por padrão criaria um canário DESLIGADO em silêncio — trocar um
-        // vazamento por um silêncio é o modo de falha #7 outra vez. Então o
-        // estado "não configurado" PAGINA (no máximo 1×/h por instância, senão
-        // a própria rota pública vira o megafone de quem quiser).
+        // FECHA, GRITA NO LOG, E NÃO MANDA NADA PRA FORA.
+        //
+        // A versão anterior PAGINAVA daqui, com um throttle de 1×/h — e este é,
+        // por definição, o ramo em que não há autenticação nenhuma: é o ramo do
+        // segredo ausente. O throttle era `let` de módulo numa função
+        // serverless, então todo cold start o zerava: N requisições
+        // concorrentes forçam N instâncias e rendem N avisos. Mais um `fetch`
+        // de 8s segurado por requisição. A rota pública virava o megafone que o
+        // comentário dizia estar impedindo, e o `podeEnviarAviso()` — que existe
+        // pra ser o dono deste invariante — é FALSO exatamente aqui e não era
+        // consultado. Achado pela revisão de segurança de 2026-09-14.
+        //
+        // O canário não sumiu, mudou de dono: quem sabe que a env não está
+        // setada é o DEPLOY (`scripts/deploy.mjs` lê as envs do projeto pela
+        // API da Vercel e falha alto), e isso não é acionável por ninguém de
+        // fora. As duas rotas de cron irmãs já faziam só isto aqui.
         process.stderr.write('[reconcile-cron] BLOQUEADO: CRON_SECRET não configurado — a conciliação diária NÃO está rodando\n');
-        if (Date.now() > avisoCronSecretAte) {
-          avisoCronSecretAte = Date.now() + 60 * 60 * 1000;
-          await notifyFounderReconcile({
-            mensagem: 'Conciliação diária BLOQUEADA: CRON_SECRET não está configurado na Vercel. '
-              + 'A varredura não roda até setar a env (e a rota ficaria pública sem ela).',
-            venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
-          });
-        }
         return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
       }
       if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
@@ -2033,15 +2034,14 @@ async function route(req, res) {
       // inteira sem índice, e devolvendo a contagem de sessões de cliente da
       // plataforma toda pra quem chamasse. Achado da revisão de segurança.
       if (!process.env.CRON_SECRET) {
+        // MESMA CORREÇÃO DA `/api/cron/reconcile`, e esta rota não estava no
+        // relatório: quem a achou foi o censo `nenhum ramo SEM autenticação
+        // manda nada pra fora`, escrito pra fechar a classe em vez do caso.
+        // O ramo é o do segredo AUSENTE — não há autenticação nenhuma nele —,
+        // o throttle é `let` de módulo numa função serverless (todo cold start
+        // zera), e o efeito é um `fetch` de 8s por requisição. Quem sabe que a
+        // env não está setada é o deploy, e é lá que o canário mora agora.
         process.stderr.write('[retencao] BLOQUEADO: CRON_SECRET não configurado — a retenção NÃO está rodando\n');
-        if (Date.now() > avisoRetencaoAte) {
-          avisoRetencaoAte = Date.now() + 60 * 60 * 1000;
-          await notifyFounderMoneyEvent({
-            kind: 'retention_blocked',
-            detail: 'Retenção BLOQUEADA: CRON_SECRET não está configurado. O aviso de privacidade promete '
-              + 'apagar o nome do cliente em 90 dias e o job que cumpre isso não roda.',
-          });
-        }
         return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
       }
       if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {

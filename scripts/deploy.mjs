@@ -96,3 +96,28 @@ while (Date.now() - start < 5 * 60 * 1000) {
 }
 console.error('timeout aguardando READY');
 process.exit(1);
+
+// O CANÁRIO DO `CRON_SECRET` MORA AQUI, e não na rota.
+//
+// A rota `/api/cron/reconcile` fecha sem o segredo e grita no log, mas quem
+// PAGINAVA era ela — do ramo em que, por definição, não há autenticação: o ramo
+// do segredo ausente. Um `curl` anônimo em N conexões forçava N cold starts e
+// rendia N avisos, porque o throttle era estado de módulo numa função
+// serverless. Aqui a pergunta é feita por quem está fazendo o deploy, com o
+// token do projeto, e ninguém de fora pode acioná-la.
+// Apontado pela revisão de segurança de 2026-09-14.
+const envs = await (await fetch(
+  `https://api.vercel.com/v9/projects/${PROJECT_ID}/env?teamId=${TEAM_ID}`, { headers },
+)).json();
+const temCronSecret = (envs.envs || []).some(
+  (e) => e.key === 'CRON_SECRET' && (e.target || []).includes('production'),
+);
+if (!temCronSecret) {
+  process.stderr.write(
+    '\n✗ CRON_SECRET NÃO ESTÁ CONFIGURADO em production.\n'
+    + '  A conciliação diária (inegociável #8) não roda sem ele: a rota fecha em 503.\n'
+    + '  Configure em https://vercel.com/dashboard → Settings → Environment Variables.\n',
+  );
+  process.exit(1);
+}
+process.stdout.write('✓ CRON_SECRET configurado em production\n');

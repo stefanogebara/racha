@@ -20,10 +20,16 @@
  *
  * O QUE ISTO NÃO MEDE, dito pra não virar confiança falsa:
  *
- *  · roda só o censo JS. Os dois guardas leem os MESMOS tokens do
- *    `claims.json`, então token morto é morto nos dois — mas o Swift tem
- *    peças COMPOSTAS nele (`destinoEmQualquerLugar`, `ateOSeparador`, as
- *    âncoras do `nega`) que só o `mutar-guarda-swift.sh` alcança;
+ *  · roda só o censo JS — e a justificativa que estava escrita aqui ("os dois
+ *    guardas leem os MESMOS tokens do `claims.json`, então token morto é morto
+ *    nos dois") é FALSA, e era falsa desde que o
+ *    `substantivo_destinatario_runtime` nasceu. As duas listas de destinatário
+ *    são diferentes de propósito: `pra gente` na boca de um garçom é a equipe,
+ *    na boca do assistente são os CLIENTES. Um token morto na lista longa pode
+ *    estar vivo na curta e vice-versa. Além disso o Swift tem peças COMPOSTAS
+ *    nele (`destinoEmQualquerLugar`, `ateOSeparador`, as âncoras do `nega`) que
+ *    só o `mutar-guarda-swift.sh` alcança. Apontado pela revisão de compliance
+ *    de 2026-09-14; a lista longa ganhou sonda própria na mesma rodada;
  *  · mede alternativa, não INTERAÇÃO: duas alternativas redundantes entre si
  *    aparecem as duas como carregadas se cada uma tem seu caso, e as três de
  *    moeda estavam justamente assim.
@@ -241,8 +247,36 @@ const VOCABULARIO = {
   relativo_clitico: (ex) => [`Serviço: 10%\n- 100% pra equipe que ${ex} atendeu hoje`, true],
   quantidade: (ex) => [`Gorjeta: ${ex}\npro garçom`, true],
   preposicao_direcional: (ex) => [`Gorjeta: 10%\n${ex} equipe`, true],
-  destinatario_ambiguo: (ex) => [`Vai pra ${ex}, já avisei.`, false],
-  sujeito_nominal: (ex) => [`Sua parte é R$ 61,00. ${ex} comanda vai pro garçom.`, false],
+  // DOIS QUADROS, e os DOIS têm que valer. A sonda antiga montava só o quadro
+  // ALATIVO (`Vai pra …`) porque foi escrita a partir do achado que criou a
+  // peça — e por isso não via que `Fica com o salão.` e `É da copa.` escapavam
+  // com os mesmos três tokens. Um cômodo é destino de MOVIMENTO e não é dono
+  // de dinheiro: a ambiguidade está na RELAÇÃO. Ver `_porque_ambiguo`.
+  destinatario_ambiguo: (ex) => [[`Vai pra ${ex}, já avisei.`, false],
+    [`Fica com ${ex}.`, true]],
+  // A LISTA LONGA — a que só o CENSO usa — ganhou sonda própria. O charter
+  // dizia que os dois guardas leem os mesmos tokens, e isso é falso desde que
+  // o `substantivo_destinatario_runtime` nasceu: `pra gente` na boca de um
+  // garçom é a equipe, na boca do assistente é o cliente. Os tokens de
+  // primeira e segunda pessoa vêm do `destinatarios_so_deteccao` e são
+  // pulados por DERIVAÇÃO, não por lista escrita à mão.
+  // E o token que TRAZ a própria regência (`pro pessoal`, `pra gente`) não
+  // leva outra por cima: a moldura que acrescenta `pra` a um token que já tem
+  // preposição mede uma frase que ninguém escreve.
+  substantivo_destinatario: (ex) => [
+    /^(pra|pro|para|com|to|ao|al)\b/.test(ex)
+      ? `Sobre a gorjeta\n- 100% ${ex}` : `Sobre a gorjeta\n- 100% pra ${ex}`, true],
+  // A lista de determinantes SAIU do `sujeito_nominal` — ela estava escrita
+  // duas vezes lá dentro e uma terceira cópia ia nascer na `anafora_de_dinheiro`.
+  // Virou peça com nome, e a sonda foi junto: é a mesma frase, medindo a mesma
+  // decisão, no campo que agora tem a lista.
+  determinante: (ex) => [`Sua parte é R$ 61,00. ${ex} comanda vai pro garçom.`, false],
+  // O sujeito que o veto da regra 1b existe pra proteger. A sonda prova
+  // ALCANCE com a polaridade certa: dentro de janela de dinheiro, só um
+  // substantivo NOMEADO aqui desarma a regra. Palavra que sumir desta lista
+  // passa a produzir RECUSA, nunca escape — que é a direção que este arquivo
+  // exige de toda enumeração.
+  substantivo_nao_dinheiro: (ex) => [`Sua parte é R$ 61,00. A ${ex} vai pro garçom.`, false],
   separador_interno: (ex) => [`Sobre a gorjeta\n- 100% pra equipe ${ex} você não paga nada a mais`, true],
   enfase_markdown: (ex) => [`Sobre a gorjeta\n${ex}100% pro garçom${ex}`, true],
 };
@@ -319,10 +353,22 @@ describe('toda palavra das listas de vocabulário é ALCANÇÁVEL', () => {
     for (const token of alts) {
       const ex = exemplar(token);
       if (ex === null) continue;                 // não é palavra (classe, âncora)
-      const [texto, esperado] = VOCABULARIO[campo](ex);
-      // A falha mostra a FRASE, não só o token: token sozinho não diz se
-      // quem errou foi o padrão ou a sonda.
-      if (acusa(texto) !== esperado) mudas.push(`${token}  →  ${JSON.stringify(texto)}`);
+      // SÓ-DETECÇÃO: os tokens de primeira e segunda pessoa do
+      // `substantivo_destinatario` querem dizer os CLIENTES quando é o
+      // assistente que fala, e por isso não estão na lista de runtime nem
+      // disparam a frase canônica. A exclusão é DERIVADA do
+      // `destinatarios_so_deteccao`, não escrita à mão aqui.
+      if (campo === 'substantivo_destinatario'
+        && (G.destinatarios_so_deteccao || []).some((d) => ex.includes(d))) continue;
+      const r = VOCABULARIO[campo](ex);
+      // Um quadro ou VÁRIOS, e quando são vários os DOIS têm que valer: uma
+      // peça que decide por relação precisa da relação certa E da errada.
+      const quadros = Array.isArray(r[0]) ? r : [r];
+      for (const [texto, esperado] of quadros) {
+        // A falha mostra a FRASE, não só o token: token sozinho não diz se
+        // quem errou foi o padrão ou a sonda.
+        if (acusa(texto) !== esperado) mudas.push(`${token}  →  ${JSON.stringify(texto)}`);
+      }
     }
     const naoDeclaradas = mudas.filter((m) => !(SEM_SONDA[campo] || {})[m.split('  →  ')[0]]);
     expect({ campo, naoDeclaradas }).toEqual({ campo, naoDeclaradas: [] });
@@ -331,6 +377,59 @@ describe('toda palavra das listas de vocabulário é ALCANÇÁVEL', () => {
       .filter((t) => !mudas.some((m) => m.split('  →  ')[0] === t));
     expect({ campo, sondaveis }).toEqual({ campo, sondaveis: [] });
     for (const [t, porque] of Object.entries(SEM_SONDA[campo] || {})) {
+      expect(`${campo}/${t}: ${porque}`).toMatch(/.{40,}/);
+    }
+  });
+});
+
+/**
+ * TODA ALTERNATIVA É ALCANÇÁVEL COMO *A* CASADA — o teste de SOMBRA.
+ *
+ * As duas medições que já existiam não veem esta: o peso mede se apagar a
+ * alternativa muda veredito, e a sonda mede se o token dispara a frase
+ * canônica. Nenhuma das duas percebe que uma alternativa nunca é A QUE CASA
+ * porque outra, mais curta e ANTES dela na mesma alternância, sempre casa
+ * primeiro. `de\s+la` vive à sombra de `de`; `para\s+el` à de `para`;
+ * `a\s+gente` à de `a`. Três alternativas do `palavra_funcional` estavam
+ * mortas desde que foram escritas, e o arquivo as anunciava como vivas — que é
+ * a forma "peça que nunca dispara" aplicada a uma alternância.
+ * Apontado pela revisão de segurança de 2026-09-14, que as mediu uma a uma.
+ *
+ * O teste: monta o exemplar da alternativa, roda a alternância INTEIRA sobre
+ * ele, e exige que o casamento seja o exemplar todo. Se vier mais curto,
+ * alguém antes comeu o começo.
+ */
+describe('nenhuma alternativa vive à SOMBRA de outra', () => {
+  const SOMBRAS = G._alternativas_na_sombra || {};
+  // TODOS OS CAMPOS, inclusive os do `_campos_fora_do_censo_de_tokens`: a
+  // isenção deles é da pergunta do PESO ("exigir caso de corpo por palavra é
+  // teatro"), e sombra é outra pergunta. `palavra_funcional` está lá, e é
+  // justamente onde as três alternativas mortas moravam.
+  test.each(CAMPOS)('%s', (campo) => {
+    const re = G[campo];
+    const alvo = listaDominante(re);
+    if (alvo.length < 2) return;
+    // SÓ a alternância, ANCORADA: o que se mede é qual ramo vence no mesmo
+    // ponto de partida, não o padrão inteiro com os delimitadores dele.
+    // Um ramo que não compila SOZINHO é recorte do varredor (`?`, `{0,2}`),
+    // não alternativa da regra: ele sai da alternância em vez de rebentá-la.
+    const compila = (t) => { try { new RegExp(t); return true; } catch { return false; } };
+    const ramos = alvo.filter(compila);
+    if (ramos.length < 2) return;
+    const alternancia = new RegExp(`^(?:${ramos.join('|')})`, 'i');
+    const sombreadas = [];
+    for (const token of alvo) {
+      const ex = exemplar(token);
+      // Só as de MAIS DE UMA palavra podem ser comidas por uma mais curta.
+      if (ex === null || !/\s/.test(ex)) continue;
+      const m = alternancia.exec(ex);
+      if (!m || m[0].length !== ex.length) {
+        sombreadas.push(`${token}  →  casou ${JSON.stringify(m && m[0])} em ${JSON.stringify(ex)}`);
+      }
+    }
+    const naoDeclaradas = sombreadas.filter((x) => !(SOMBRAS[campo] || {})[x.split('  →  ')[0]]);
+    expect({ campo, naoDeclaradas }).toEqual({ campo, naoDeclaradas: [] });
+    for (const [t, porque] of Object.entries(SOMBRAS[campo] || {})) {
       expect(`${campo}/${t}: ${porque}`).toMatch(/.{40,}/);
     }
   });
@@ -365,8 +464,19 @@ describe('toda alternativa de todo padrão ESTRUTURAL carrega peso, ou é declar
     // Achado pela revisão de segurança de 2026-09-14.
     expect({ campo, tokens: alts.length }).toEqual({ campo, tokens: alts.length || 'NENHUM' });
     const mortas = [], vivas = [];
+    // A CHAVE DA DECLARAÇÃO PRECISA DISTINGUIR OCORRÊNCIAS DO MESMO TEXTO. O
+    // `contraste_colado` e o `sujeito_nominal` têm DOIS `{0,2}` cada, e um de
+    // cada par carrega peso enquanto o outro não: declarado, o teste acusava
+    // `ressuscitada`; não declarado, acusava `não declarada`. Impasse — e o
+    // impasse é a prova de que a gaveta estava indexada pela coisa errada. A
+    // primeira ocorrência mantém o texto puro (toda declaração já escrita
+    // continua valendo); as repetições ganham `#2`, `#3`.
+    const vistos = new Map();
     for (const [ini, fim] of alts) {
-      const token = re.slice(ini, fim);
+      const texto = re.slice(ini, fim);
+      const ordem = (vistos.get(texto) || 0) + 1;
+      vistos.set(texto, ordem);
+      const token = ordem === 1 ? texto : `${texto}#${ordem}`;
       // Apaga a alternativa E o `|` que a acompanha.
       // Tira a alternativa E a barra que a acompanha — a de trás se ela é a
       // primeira do grupo, a da frente se não.

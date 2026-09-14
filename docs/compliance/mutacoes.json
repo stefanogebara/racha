@@ -1,0 +1,665 @@
+{
+  "_porque": "UMA LISTA, DOIS ADAPTADORES. As duas metades do portão de mutação — o `api/__tests__/mutacoes-afirmacao.test.js`, que muta o censo, e o `scripts/mutar-guarda-swift.sh`, que muta o guarda que chega ao cliente — eram duas listas escritas à mão, e em 2026-09-14 a revisão de segurança mediu a distância entre elas: SETE decisões nomeadas só do lado JS e DUAS só do lado Swift. Uma delas era o `soFuncionalAteONucleo` dentro do `nega`, a peça que a mesma revisão estava questionando: nunca mutada do lado que embarca. Todas as nove ficavam vermelhas na metade que faltava, então era lacuna de escrituração e não buraco vivo — mas é exatamente a forma que o `substantivo_destinatario` e o `substantivo_destinatario_runtime` já tiveram duas vezes, e daquelas a segunda foi um acento.\n\nUm teste comparando os dois conjuntos fecharia o buraco de hoje e apodreceria igual. Então some a segunda lista: as decisões moram AQUI, com as duas mutações lado a lado, e cada portão itera este arquivo. `As duas listas nomeiam as mesmas decisões` deixa de ser um teste e passa a ser verdade por construção; o que sobra pra afirmar é que cada âncora ainda existe no arquivo dela — e isso falha alto no primeiro refactor, que é o comportamento certo.",
+  "_porque_direcao": "ALARGAR UM PADRÃO NÃO É AFROUXAR O GUARDA. `modificador` e `cabeca` abrem a porta da RECUSA: alargá-los faz o guarda recusar MAIS, e o vermelho legítimo vem de casos inocentes (`fp`). `quantidade` abre o caminho FRACO: estreitá-la faz a promessa ESCAPAR (`escapes`). Um vermelho na direção errada não é cobertura, é outra coisa acontecendo — e foi assim que cinco alargamentos foram certificados pelo avesso. O lado JS ganhou a declaração em 2026-09-14; o lado Swift contava um inteiro só e certificava em `n > 0`, e a correção não tinha atravessado. Agora a direção mora na lista compartilhada, então ela atravessa por construção.",
+  "_porque_afrouxamentos_so_js": "OS AFROUXAMENTOS SÃO SÓ DO LADO JS, e é uma decisão, não um esquecimento. Eles INSEREM código JavaScript (um atalho permissivo antes do laço da regra 3) e não têm tradução mecânica pro Swift: o equivalente é o bloco `SOLTA` do `mutar-guarda-swift.sh`, que insere Swift na mesma âncora conceitual e é medido lá. O que este arquivo compartilha é o que TEM as duas metades; fingir que um atalho em JS e um atalho em Swift são a mesma linha seria a escrituração falsa que ele existe pra acabar.",
+  "decisoes": [
+    {
+      "nome": "âncora do destinatário anterior",
+      "js": {
+        "de": "    const vao = oracao.slice(ini, d.index);",
+        "para": "    const vao = oracao.slice(anterior, d.index);"
+      },
+      "swift": {
+        "de": "            var ini = anterior",
+        "para": "            var ini = 0"
+      }
+    },
+    {
+      "nome": "nega volta a usar a lista de EVASÃO em vez da de negadores",
+      "js": {
+        "de": "    const mNeg = new RegExp(reNegador.source, 'i').exec(vao);",
+        "para": "    const mNeg = new RegExp(reRevoga.source, 'i').exec(vao);"
+      },
+      "swift": {
+        "de": "            if let n = acha(negador, vao) {",
+        "para": "            if let n = acha(revoga, vao) {"
+      }
+    },
+    {
+      "nome": "o negador na frente deixa de precisar ALCANÇAR o destino",
+      "js": {
+        "de": "    const antes = mNeg ? soFuncionalAteONucleo(vao.slice(mNeg.index + mNeg[0].length)) : false;",
+        "para": "    const antes = Boolean(mNeg);"
+      },
+      "swift": {
+        "de": "                antes = soFuncionalAteONucleo(\n                    (vao as NSString).substring(from: n.location + n.length))",
+        "para": "                antes = true\n                _ = n"
+      }
+    },
+    {
+      "nome": "nega olha só o PRIMEIRO destinatário",
+      "js": {
+        "de": "  for (const d of dests) {",
+        "para": "  for (const d of dests.slice(0, 1)) {"
+      },
+      "swift": {
+        "de": "        for d in dests {",
+        "para": "        for d in dests.prefix(1) {"
+      }
+    },
+    {
+      "nome": "o negador DEPOIS do destinatário deixa de contar",
+      "js": {
+        "de": "    if (!antes && !depois) return false;",
+        "para": "    if (!antes) return false;"
+      },
+      "swift": {
+        "de": "            if !antes && !depois { return false }",
+        "para": "            if !antes { _ = depois; return false }"
+      }
+    },
+    {
+      "nome": "o negador atrás deixa de olhar a ORDEM (promessa já feita)",
+      "js": {
+        "de": "  if (reRegenciaDoNucleo.test(antesDoNucleo) && !reGorjeta.test(resto)) return false;",
+        "para": ""
+      },
+      "swift": {
+        "de": "        if casa(regenciaDoNucleo, antesDoNucleo) && !casa(gorjeta, resto) { return false }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "o negador atrás deixa de exigir que ALCANCE a gorjeta",
+      "js": {
+        "de": "  if (!reGorjeta.test(resto) && !soFuncionalAteONucleo(resto)) return false;",
+        "para": ""
+      },
+      "swift": {
+        "de": "        if !casa(gorjeta, resto) && !soFuncionalAteONucleo(resto) { return false }",
+        "para": ""
+      },
+      "sem_cobertura": [
+        "js",
+        "swift"
+      ]
+    },
+    {
+      "nome": "o negador atrás deixa de olhar o CONTRASTE",
+      "js": {
+        "de": "  return !reContrasteColado.test(resto);",
+        "para": "  return true;"
+      },
+      "swift": {
+        "de": "        return !casa(contrasteColado, resto)",
+        "para": "        return true"
+      }
+    },
+    {
+      "nome": "a repartida olha só a PRIMEIRA oração com destinatário",
+      "js": {
+        "de": "  for (let i = 0; i < partes.length; i += 1) {",
+        "para": "  for (let i = 0; i < Math.min(1, partes.length); i += 1) {"
+      },
+      "swift": {
+        "de": "        for (i, o) in partes.enumerated() where casa(destinatario, o) {",
+        "para": "        for (i, o) in partes.enumerated().prefix(1) where casa(destinatario, o) {"
+      }
+    },
+    {
+      "nome": "a dispensa do distribuidor deixa de valer por SEGMENTO",
+      "js": {
+        "de": "      for (const seg of segmentos(o)) {",
+        "para": "      for (const seg of [o]) {"
+      },
+      "swift": {
+        "de": "            for seg in segmentos(o) {",
+        "para": "            for seg in [o] {"
+      }
+    },
+    {
+      "nome": "o distribuidor volta a dispensar de dentro de uma RELATIVA",
+      "js": {
+        "de": "        const temDist = reDistribuidor.test(matriz);",
+        "para": "        const temDist = reDistribuidor.test(seg);"
+      },
+      "swift": {
+        "de": "                let temDist = casa(distribuidor, matriz)",
+        "para": "                let temDist = casa(distribuidor, seg)"
+      }
+    },
+    {
+      "nome": "o separador interno deixa de ancorar a janela do nega",
+      "js": {
+        "de": "      if (sp.index >= anterior && sp.index + sp[0].length <= d.index) {",
+        "para": "      if (false) {"
+      },
+      "swift": {
+        "de": "                ini = max(ini, sep.range.location + sep.range.length)",
+        "para": ""
+      }
+    },
+    {
+      "nome": "a ANÁFORA de dinheiro deixa de contar como sujeito-gorjeta",
+      "js": {
+        "de": "      .replace(new RegExp(COMPOR.anafora_de_dinheiro(G), 'gi'), ' ');",
+        "para": ""
+      },
+      "swift": {
+        "de": "            prefixoSemGorjeta = anaforaDeDinheiro.stringByReplacingMatches(\n                in: prefixoSemGorjeta,\n                range: NSRange(location: 0, length: (prefixoSemGorjeta as NSString).length),\n                withTemplate: \" \")",
+        "para": ""
+      }
+    },
+    {
+      "nome": "a coordenação deixa de herdar o distribuidor",
+      "js": {
+        "de": "        const dispensa = temDist || (!temVerbo && distribuidorAnterior);",
+        "para": "        const dispensa = temDist;"
+      },
+      "swift": {
+        "de": "                let dispensa = temDist || (!temVerbo && distribuidorAnterior)",
+        "para": "                let dispensa = temDist"
+      }
+    },
+    {
+      "nome": "a dispensa volta a valer pela janela toda",
+      "js": {
+        "de": "        if (!nega(o) && (reRevoga.test(comAdversativa(iO)) || !dispensa)) return true;",
+        "para": "        if (!nega(o) && (reRevoga.test(comAdversativa(iO)) || !reDistribuidor.test(janela))) return true;"
+      },
+      "swift": {
+        "de": "                if !nega(o) && (casa(revoga, comAdversativa(iO)) || !dispensa) { return true }",
+        "para": "                if !nega(o) && !casa(distribuidor, texto) { return true }"
+      }
+    },
+    {
+      "nome": "a evasão deixa de revogar a dispensa do genitivo",
+      "js": {
+        "de": "  if (reRevoga.test(clausula || oracao)) return reDestinatarioCenso.test(oracao);",
+        "para": ""
+      },
+      "swift": {
+        "de": "        if casa(revoga, clausula ?? oracao) { return casa(destinatario, oracao) }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "o genitivo descritivo deixa de dispensar",
+      "js": {
+        "de": "  return reDestinatarioCenso.test(oracao.replace(reGenitivoDescritivo, ' '));",
+        "para": "  return reDestinatarioCenso.test(oracao);"
+      },
+      "swift": {
+        "de": "        return casa(destinatario, semGenitivo)",
+        "para": "        return casa(destinatario, oracao)"
+      }
+    },
+    {
+      "nome": "a revogação do distribuidor deixa de valer pela oração",
+      "js": {
+        "de": "    if (!reRevoga.test(oracao)) return true;",
+        "para": "    return true;"
+      },
+      "sem_cobertura": [
+        "js",
+        "swift"
+      ],
+      "swift": {
+        "de": "        if casa(revoga, oracao) { return false }",
+        "para": ""
+      },
+      "porque_sem_cobertura": "Nenhum caso do corpo distingue `temDistribuidor` revogado por ORAÇÃO do revogado pela janela: a evasão que revoga cai sempre na mesma oração do distribuidor nos 298 casos escritos. Fica declarada dos DOIS lados; se um dia ficar vermelha é porque alguém escreveu o caso, e aí a marca tem que sair."
+    },
+    {
+      "nome": "o SUJEITO NOMINAL deixa de vetar a regra 1b",
+      "js": {
+        "de": "    if (temSujeitoNominal(prefixoSemGorjeta)\n      && (!contextoDeDinheiro || reNaoDinheiro.test(prefixo))) continue;",
+        "para": ""
+      },
+      "swift": {
+        "de": "            if temSujeitoNominal(prefixoSemGorjeta)\n                && (!contextoDeDinheiro || casa(naoDinheiro, prefixo)) { continue }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "o prefixo da forma direcional volta a ser CONTADO",
+      "js": {
+        "de": "    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo;",
+        "para": "    const comecaNaForma = !/[0-9A-Za-zÀ-ÿ]/.test(prefixo);"
+      },
+      "swift": {
+        "de": "            let comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo",
+        "para": "            let comecaNaForma = prefixo.rangeOfCharacter(from: .alphanumerics) == nil"
+      }
+    },
+    {
+      "nome": "o destinatário AMBÍGUO volta a bastar na evidência fraca",
+      "js": {
+        "de": "    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo;",
+        "para": "    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta);"
+      },
+      "swift": {
+        "de": "            let comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo",
+        "para": "            let comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !(soAmbiguo && false)"
+      }
+    },
+    {
+      "nome": "a regra 1b deixa de exigir contexto de dinheiro",
+      "js": {
+        "de": "    if ((contextoDeDinheiro || comecaNaForma) && !nega(o)) return true;",
+        "para": "    if (!nega(o)) return true;"
+      },
+      "swift": {
+        "de": "            guard contextoDeDinheiro || comecaNaForma else { continue }",
+        "para": "            guard contextoDeDinheiro || comecaNaForma || true else { continue }"
+      }
+    },
+    {
+      "nome": "o caminho FORTE deixa de existir",
+      "js": {
+        "de": "    if (cabecaValida(reCabecaForte, o) !== null) return true;",
+        "para": ""
+      },
+      "swift": {
+        "de": "            if cabecaValida(cabecaForte, o) != nil { return true }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "o caminho FORTE aceita cabeça SEM quantidade",
+      "js": {
+        "de": "    if (cabecaValida(reCabecaForte, o) !== null) return true;",
+        "para": "    if (cabecaValida(reCabeca, o) !== null) return true;"
+      },
+      "swift": {
+        "de": "            if cabecaValida(cabecaForte, o) != nil { return true }",
+        "para": "            if cabecaValida(cabecaDeDestino, o) != nil { return true }"
+      }
+    },
+    {
+      "nome": "qualquer negador volta a LICENCIAR a cabeça não-direcional",
+      "js": {
+        "de": "    let mFraco = (comEvasao ? reCabeca : reCabecaDirecional).exec(o);",
+        "para": "    let mFraco = (reRevoga.test(o) ? reCabeca : reCabecaDirecional).exec(o);"
+      },
+      "swift": {
+        "de": "            var mOpt = acha(comEvasao ? cabecaDeDestino : cabecaDirecional, o)",
+        "para": "            var mOpt = acha(casa(revoga, o) ? cabecaDeDestino : cabecaDirecional, o)"
+      }
+    },
+    {
+      "nome": "o caminho FRACO deixa de exigir cabeça DIRECIONAL",
+      "js": {
+        "de": "    const comEvasao = reEvasaoLicencia.test(janela);",
+        "para": "    const comEvasao = true;"
+      },
+      "swift": {
+        "de": "            let comEvasao = casa(evasaoQueLicencia, texto)",
+        "para": "            let comEvasao = true"
+      }
+    },
+    {
+      "nome": "o PREFIXO do caminho fraco deixa de ser julgado",
+      "js": {
+        "de": "    if (reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;",
+        "para": ""
+      },
+      "swift": {
+        "de": "            guard !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))\n            else { continue }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "o caminho FRACO deixa de exigir resto sem PREDICAÇÃO",
+      "js": {
+        "de": "    if (temPredicacao(resto)) continue;",
+        "para": ""
+      },
+      "swift": {
+        "de": "            guard !temPredicacao(resto) else { continue }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "o caminho FRACO deixa de exigir quantidade na oração anterior",
+      "js": {
+        "de": "    if (!partes.slice(0, i).some((q) => soGorjetaAntes ? reGorjeta.test(q)\n      : (reQuantidade.test(q) || reGorjeta.test(q)))) continue;",
+        "para": ""
+      },
+      "swift": {
+        "de": "            guard partes[..<i].contains(where: {\n                soGorjetaAntes ? casa(gorjeta, $0) : (casa(quantidade, $0) || casa(gorjeta, $0))\n            }) else { continue }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "o PREFIXO da cabeça deixa de ser julgado",
+      "js": {
+        "de": "  if (reVerboFinito.test(ultimoSegmento(oracao.slice(0, m.index)))) return null;",
+        "para": ""
+      },
+      "swift": {
+        "de": "        if casa(verboFinito, ultimoSegmento(ns.substring(to: m.location))) { return nil }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "a relativa deixa de sair antes do teste de predicação",
+      "js": {
+        "de": "  const semRelativa = resto.replace(reRelativa, ' ');",
+        "para": "  const semRelativa = resto;"
+      },
+      "swift": {
+        "de": "        let semRelativa = relativaQualquer.stringByReplacingMatches(\n            in: resto, range: NSRange(location: 0, length: (resto as NSString).length), withTemplate: \" \")",
+        "para": "        let semRelativa = resto"
+      }
+    },
+    {
+      "nome": "o pronome regido por preposição volta a contar como sujeito",
+      "js": {
+        "de": "    if (!rePrepPronome.test(trecho.slice(0, p))) return true;",
+        "para": "    return true;"
+      },
+      "swift": {
+        "de": "            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }",
+        "para": "            _ = p; return true"
+      },
+      "sem_cobertura": [
+        "js",
+        "swift"
+      ]
+    },
+    {
+      "nome": "negador colado vira negador solto",
+      "swift": {
+        "de": "regex(ClaimPatterns.negadorColado)",
+        "para": "regex(ClaimPatterns.negadores)"
+      },
+      "js": {
+        "de": "  const m = new RegExp(COMPOR.negador_colado(G), 'i').exec(cauda);",
+        "para": "  const m = new RegExp(G.negadores, 'i').exec(cauda);"
+      }
+    },
+    {
+      "nome": "pré-condição volta a exigir o substantivo da gorjeta",
+      "swift": {
+        "de": "        guard casa(destinatario, texto) else { return false }",
+        "para": "        guard casa(gorjeta, texto), casa(destinatario, texto) else { return false }"
+      },
+      "js": {
+        "de": "  if (!reDestinatarioCenso.test(janela)) return false;",
+        "para": "  if (!reGorjeta.test(janela) || !reDestinatarioCenso.test(janela)) return false;"
+      }
+    },
+    {
+      "nome": "a cabeça GENITIVA deixa de existir",
+      "js": {
+        "de": "    if (!mFraco) { mFraco = reCabecaGenitiva.exec(o); soGorjetaAntes = true; }",
+        "para": ""
+      },
+      "swift": {
+        "de": "                mOpt = acha(cabecaGenitiva, o)\n                soGorjetaAntes = true",
+        "para": "                soGorjetaAntes = true"
+      }
+    },
+    {
+      "nome": "a cabeça GENITIVA volta a aceitar a licença FRACA",
+      "js": {
+        "de": "{ mFraco = reCabecaGenitiva.exec(o); soGorjetaAntes = true; }",
+        "para": "{ mFraco = reCabecaGenitiva.exec(o); }"
+      },
+      "swift": {
+        "de": "                mOpt = acha(cabecaGenitiva, o)\n                soGorjetaAntes = true",
+        "para": "                mOpt = acha(cabecaGenitiva, o)"
+      }
+    },
+    {
+      "nome": "o cômodo POSSUÍDO volta a ser ambíguo",
+      "js": {
+        "de": "\n      && !reAmbiguoPossuido.test(o);",
+        "para": ";"
+      },
+      "swift": {
+        "de": "\n                && !casa(ambiguoPossuido, o)",
+        "para": ""
+      }
+    },
+    {
+      "nome": "o PREFIXO da cabeça volta a ser julgado inteiro, não pelo último segmento",
+      "js": {
+        "de": "  if (reVerboFinito.test(ultimoSegmento(oracao.slice(0, m.index)))) return null;",
+        "para": "  if (reVerboFinito.test(oracao.slice(0, m.index))) return null;"
+      },
+      "swift": {
+        "de": "        if casa(verboFinito, ultimoSegmento(ns.substring(to: m.location))) { return nil }",
+        "para": "        if casa(verboFinito, ns.substring(to: m.location)) { return nil }"
+      }
+    },
+    {
+      "nome": "o PREFIXO do caminho fraco volta a ser julgado inteiro",
+      "js": {
+        "de": "    if (reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;",
+        "para": "    if (reVerboFinito.test(o.slice(0, mFraco.index))) continue;"
+      },
+      "swift": {
+        "de": "            guard !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))\n            else { continue }",
+        "para": "            guard !casa(verboFinito, ns.substring(to: m.location)) else { continue }"
+      }
+    },
+    {
+      "nome": "o veto da regra 1b volta a valer dentro de janela de dinheiro",
+      "js": {
+        "de": "\n      && (!contextoDeDinheiro || reNaoDinheiro.test(prefixo))) continue;",
+        "para": ") continue;"
+      },
+      "swift": {
+        "de": "\n                && (!contextoDeDinheiro || casa(naoDinheiro, prefixo)) { continue }",
+        "para": " { continue }"
+      }
+    },
+    {
+      "nome": "o genitivo DESCRITIVO deixa de dispensar na regra 1b",
+      "js": {
+        "de": "    if (!destinatarioNaoAtributivo(o, null)) continue;",
+        "para": ""
+      },
+      "swift": {
+        "de": "            guard destinatarioNaoAtributivo(o, nil) else { continue }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "a pista de evasão volta a valer só pela oração",
+      "js": {
+        "de": "    const comEvasao = reEvasaoLicencia.test(janela);",
+        "para": "    const comEvasao = reEvasaoLicencia.test(o);"
+      },
+      "swift": {
+        "de": "            let comEvasao = casa(evasaoQueLicencia, texto)",
+        "para": "            let comEvasao = casa(evasaoQueLicencia, o)"
+      }
+    },
+    {
+      "nome": "a janela do nega volta a cortar só no separador INTERNO",
+      "js": {
+        "de": "const reSeparador = new RegExp(G.separador_de_clausula, 'gi');",
+        "para": "const reSeparador = new RegExp(G.separador_interno, 'gi');"
+      },
+      "swift": {
+        "de": "            for sep in separadorDeClausula.matches(\n                in: oracao, range: NSRange(location: anterior, length: d.location - anterior)) {",
+        "para": "            for sep in separadorInterno.matches(\n                in: oracao, range: NSRange(location: anterior, length: d.location - anterior)) {"
+      }
+    },
+    {
+      "nome": "a oração aberta por ADVERSATIVA deixa de continuar a anterior",
+      "js": {
+        "de": "reRevoga.test(comAdversativa(iO))",
+        "para": "reRevoga.test(o)"
+      },
+      "swift": {
+        "de": "casa(revoga, comAdversativa(iO))",
+        "para": "casa(revoga, o)"
+      }
+    },
+    {
+      "nome": "o prefixo da regra 1b volta a ser a oração inteira",
+      "js": {
+        "de": "    const prefixo = ultimoSegmento(o.slice(0, mDir.index));",
+        "para": "    const prefixo = o.slice(0, mDir.index);"
+      },
+      "swift": {
+        "de": "            let prefixo = ultimoSegmento(\n                acha(direcional, o).map { (o as NSString).substring(to: $0.location) } ?? \"\")",
+        "para": "            let prefixo = acha(direcional, o).map { (o as NSString).substring(to: $0.location) } ?? \"\""
+      }
+    }
+  ],
+  "alargamentos": [
+    {
+      "nome": "a aridade do modificador cai de dois pra zero",
+      "direcao": "escapes",
+      "js": "G.modificador_de_destino = G.modificador_de_destino.replace('{0,2}', '{0,0}');",
+      "swift": {
+        "tipo": "campo",
+        "nomes": [
+          "modificadorDeDestino",
+          "cabecaDeDestino",
+          "cabecaForte",
+          "cabecaDirecional",
+          "cabecaGenitiva"
+        ],
+        "de": "{0,2}",
+        "para": "{0,0}"
+      }
+    },
+    {
+      "nome": "a cabeça do caminho fraco aceita preposição não-direcional",
+      "direcao": "fp",
+      "js": "G.preposicao_direcional = G.preposicao_de_destino;",
+      "swift": {
+        "tipo": "cabeca_qualquer"
+      }
+    },
+    {
+      "nome": "o verbo finito deixa de ver o sujeito nulo",
+      "direcao": "fp",
+      "js": "G.verbo_finito = 'zzzznuncacasa';",
+      "swift": {
+        "tipo": "troca",
+        "nome": "verboFinito",
+        "valor": "zzzznuncacasa"
+      }
+    },
+    {
+      "nome": "o pronome sujeito deixa de contar",
+      "direcao": "fp",
+      "js": "G.pronome_sujeito = 'zzzznuncacasa';",
+      "swift": {
+        "tipo": "troca",
+        "nome": "pronomeSujeito",
+        "valor": "zzzznuncacasa"
+      }
+    },
+    {
+      "nome": "o separador de cláusula perde a conjunção",
+      "direcao": "escapes",
+      "js": "G.separador_de_clausula = '(?<!\\\\d),(?!\\\\d)';",
+      "swift": {
+        "tipo": "troca",
+        "nome": "separadorDeClausula",
+        "valor": "(?<!\\\\\\\\d),(?!\\\\\\\\d)"
+      }
+    },
+    {
+      "nome": "a quantidade consumida passa a aceitar qualquer palavra",
+      "direcao": "fp",
+      "js": "G.quantidade_consumida = '([0-9A-Za-zÀ-ÿ_%$€.,-]+)';",
+      "swift": {
+        "tipo": "campo",
+        "nomes": [
+          "cabecaForte",
+          "cabecaDirecional",
+          "cabecaGenitiva",
+          "palavraFuncional"
+        ],
+        "de": "(\\\\d+\\\\s*%",
+        "para": "([0-9A-Za-zÀ-ÿ_%$€.,-]+|\\\\d+\\\\s*%"
+      }
+    },
+    {
+      "nome": "a quantidade DETECTORA deixa de reconhecer notação nenhuma",
+      "direcao": "escapes",
+      "js": "G.quantidade = 'zzzznuncacasa';",
+      "swift": {
+        "tipo": "troca",
+        "nome": "quantidade",
+        "valor": "zzzznuncacasa"
+      }
+    },
+    {
+      "nome": "o núcleo de atribuição aceita qualquer substantivo",
+      "direcao": "escapes",
+      "js": "G.nucleo_de_atribuicao = '([0-9A-Za-zÀ-ÿ_-]+)';",
+      "swift": {
+        "tipo": "campo",
+        "nomes": [
+          "genitivoDescritivo"
+        ],
+        "de": "= \"(",
+        "para": "= \"([0-9A-Za-zÀ-ÿ_-]+|"
+      }
+    },
+    {
+      "nome": "a regência do núcleo volta ao orçamento de UM token",
+      "direcao": "escapes",
+      "js": "G.modificador_sem_artigo = '(?:(?!(?:ART)\\\\s)[0-9A-Za-zÀ-ÿ_-]+\\\\s+){0,1}';",
+      "swift": {
+        "tipo": "campo",
+        "nomes": [
+          "regenciaDoNucleo"
+        ],
+        "de": "{0,4}",
+        "para": "{0,1}"
+      }
+    },
+    {
+      "nome": "a anáfora de dinheiro deixa de recusar complemento genitivo",
+      "direcao": "fp",
+      "js": "G.anafora_de_dinheiro = G.anafora_de_dinheiro.replace(/\\(\\?!\\(\\?:.*$/, '');",
+      "swift": {
+        "tipo": "sufixo",
+        "nomes": [
+          "anaforaDeDinheiro"
+        ],
+        "desde": "(?!(?:"
+      }
+    },
+    {
+      "nome": "a cabeça genitiva deixa de ser ancorada no começo da oração",
+      "direcao": "fp",
+      "js": "G.cabeca_genitiva = G.cabeca_genitiva.replace('^', '');",
+      "swift": {
+        "tipo": "campo",
+        "nomes": [
+          "cabecaGenitiva"
+        ],
+        "de": "= \"^",
+        "para": "= \""
+      }
+    },
+    {
+      "nome": "a cabeça deixa de exigir fronteira de palavra à esquerda",
+      "direcao": "fp",
+      "js": "for (const c of ['cabeca_de_destino','cabeca_forte','cabeca_direcional','gatilho_forma_direcional']) G[c] = G[c].replace('(?<![0-9A-Za-zÀ-ÿ])', '');",
+      "swift": {
+        "tipo": "campo",
+        "nomes": [
+          "cabecaDeDestino",
+          "cabecaForte",
+          "cabecaDirecional",
+          "formaDirecional"
+        ],
+        "de": "(?<![0-9A-Za-zÀ-ÿ])",
+        "para": ""
+      }
+    }
+  ]
+}

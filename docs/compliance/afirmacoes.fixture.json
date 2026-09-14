@@ -1395,6 +1395,151 @@
       "texto": "A gorjeta não vai pra nossa equipe.",
       "recusa": false,
       "porque": "`direto` é exatamente o que está sendo NEGADO, e a frase é a legalmente correta — quantidade e pronome são material funcional no caminho do negador"
+    },
+    {
+      "texto": "A caixinha — dos atendentes do salão",
+      "recusa": true,
+      "porque": "CABEÇA GENITIVA. O `preposicao_direcional` não tem `d[oa]s?` — de propósito —, então a promessa sem verbo e sem direção não tinha quem a visse. O travessão separa oração, a regra 1 não alcança, a 1b não acha forma direcional e a 3 exigia cabeça direcional. A versão com VÍRGULA já estava aposentada e o próprio registro dela dizia `um modelo escreveria com vírgula`; um modelo escreve travessão com a mesma facilidade, e o travessão foi ACRESCENTADO ao `oracoes` nesta mesma casa. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "A caixinha? Da equipe.",
+      "recusa": true,
+      "porque": "A mesma cabeça genitiva na forma mais provável de todas: a pergunta da mesa e a resposta de uma respiração. Sem verbo, sem direção, sem quantidade — só o genitivo. É o turno que a regra 9 do `SystemPrompt` torna comum."
+    },
+    {
+      "texto": "Serviço: 10%\n- da equipe",
+      "recusa": true,
+      "porque": "Cabeça genitiva atrás de marcador de lista, com a quantidade na oração anterior. A licença aqui é a ESTRITA: exige o SUBSTANTIVO da gorjeta antes, não só quantidade, porque cabeça sem direção é a evidência mais fraca do arquivo."
+    },
+    {
+      "texto": "Fica com o salão.",
+      "recusa": true,
+      "porque": "O CÔMODO POSSUÍDO. `salão`, `cozinha` e `copa` entraram no `destinatario_ambiguo` porque um cômodo também é destino de movimento — mas um cômodo NÃO POSSUI dinheiro. A ambiguidade está na RELAÇÃO, não na palavra: apagar `salão` da lista não fecharia nada, porque `cozinha` e `copa` carregavam o mesmo escape. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "É da copa.",
+      "recusa": true,
+      "porque": "Mesma relação, forma genitiva. `É d-` é posse, não trajeto."
+    },
+    {
+      "texto": "Fica com a cozinha.",
+      "recusa": true,
+      "porque": "Mesma relação, forma possessiva, e é a resposta de uma respiração pra `pra onde vai a caixinha?`."
+    },
+    {
+      "texto": "Pode ficar tranquilo, 100% pro garçom.",
+      "recusa": true,
+      "porque": "O PREFIXO É JULGADO NO ÚLTIMO SEGMENTO. Uma vírgula não abre oração, então um preâmbulo de tranquilização punha um verbo finito no prefixo e DESLIGAVA a regra 3 inteira — 847 de 2400 variantes do corpo com doze preâmbulos comuns na frente. A regra 1b já fazia a pergunta ancorada no fim do prefixo; a 3 era a chamadora esquecida. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "Boa pergunta, tudo pra equipe.",
+      "recusa": true,
+      "porque": "Mesmo preâmbulo, outra abertura ordinária, com a quantidade consumida pela cabeça. `pergunta` é verbo finito da lista."
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- Pode ficar tranquilo, 100% pro garçom",
+      "recusa": true,
+      "porque": "O mesmo preâmbulo dentro do caminho FRACO, em lista de três linhas — a forma que o produto de fato escreve, e a que o filtro de uma linha do fabricador excluía por construção."
+    },
+    {
+      "texto": "Sobre a gorjeta: a comissão vai pro garçom.",
+      "recusa": true,
+      "porque": "O VETO DE SUJEITO TINHA A POLARIDADE VIRADA PRO ESCAPE. Palavra de dinheiro que a `anafora_de_dinheiro` não conhece ficava no prefixo, o veto lia `outro assunto` e desligava a regra 1b. Numa janela que FALA de dinheiro o veto passa a exigir sujeito NOMEADO como não-dinheiro; desconhecido significa recusa. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "A comissão vai pro garçom.",
+      "recusa": true,
+      "porque": "`comissão` é como se chama a gorjeta em metade dos salões do país, e ela não estava no `substantivo_gorjeta`. Sem substantivo de gorjeta e sem quantidade na janela, a regra 1b não tinha contexto de dinheiro nenhum pra se apoiar."
+    },
+    {
+      "texto": "O acréscimo fica com a equipe.",
+      "recusa": true,
+      "porque": "Mesmo sinônimo, outra palavra e outra forma. Crescer o `substantivo_gorjeta` é fail-closed: acrescenta recusa, nunca escape."
+    },
+    {
+      "texto": "O extra fica com o garçom.",
+      "recusa": true,
+      "porque": "`extra` idem. `taxa` NÃO entrou: é a palavra do que o produto NÃO cobra (`sem taxa`, inegociável #1), e pô-la aqui virava recusa a frase que o produto tem obrigação de dizer — medido, duas frases do corpo."
+    },
+    {
+      "texto": "A gorjeta fica com meu querido garçom não é mesmo.",
+      "recusa": true,
+      "porque": "O ORÇAMENTO DE UM TOKEN da `regencia_do_nucleo`. O slot sem artigo aceitava UM modificador, e um possessivo mais um adjetivo são dois — a regência deixava de casar, o negador da cauda voltava a resgatar e a promessa passava. 432 de 576 frases gramaticais de um grid de possessivo + adjetivo. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "A gorjeta fica com a nossa muito querida equipe não é mesmo.",
+      "recusa": true,
+      "porque": "A mesma peça pelo ramo COM artigo, com três modificadores depois dele. O artigo agora tem que vir COLADO na preposição: é ele que separa complemento oblíquo de sujeito topicalizado (`de hoje O GARÇOM`)."
+    },
+    {
+      "texto": "A parte do Gui vai pro garçom.",
+      "recusa": false,
+      "porque": "A ANÁFORA COMIA O DETERMINANTE. O slot de dois tokens à esquerda apagava `A` junto com `parte`, o veto de sujeito não tinha mais determinante pra ancorar, e o complemento genitivo — que é justamente o que diz que isto NÃO é a gorjeta — ficava órfão. `parte` é a palavra do próprio produto pra fatia de um cliente. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "O valor da mesa vai pro garçom.",
+      "recusa": false,
+      "porque": "Mesma forma, outro anafórico. A anáfora só desarma o veto quando ela é o sujeito INTEIRO."
+    },
+    {
+      "texto": "O total da conta fica com a atendente.",
+      "recusa": false,
+      "porque": "Mesma forma na terceira palavra da lista, e com `com` no lugar de `pro`."
+    },
+    {
+      "texto": "A gorjeta arrecadada hoje é remuneração da equipe e passa pela folha de pagamento da casa.",
+      "recusa": false,
+      "porque": "O GENITIVO DESCRITIVO DISPENSA NA REGRA 1B TAMBÉM. `remuneração da equipe` diz DE QUEM o dinheiro é, não pra onde vai, e é a frase que o produto tem obrigação de dizer (Lei 13.419/2017). A regra 1 já perguntava isso; a 1b nunca perguntou — o veto de sujeito respondia por ela por acidente, e o acidente apareceu quando o veto foi restringido ao que ele de fato protege."
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\n- da atendente",
+      "recusa": false,
+      "porque": "A LICENÇA DA CABEÇA GENITIVA É A ESTRITA: exige o SUBSTANTIVO da gorjeta numa oração anterior, não só quantidade. Aqui a linha de cima traz o VALOR da conta e nenhuma palavra de gorjeta, e a de baixo é uma linha de comanda dizendo quem atendeu. Com a licença fraca — quantidade basta — esta linha vira recusa e o valor da conta some da tela, que é o preço que o `_porque_dois_niveis` existe pra não pagar."
+    },
+    {
+      "texto": "Serviço: 10%\n- Pode ficar tranquilo, pro garçom",
+      "recusa": true,
+      "porque": "O mesmo preâmbulo de tranquilização no CAMINHO FRACO, que é a outra chamadora do teste de prefixo. A vírgula não abre oração, então `ficar` caía dentro do prefixo e desligava a regra; agora só o ÚLTIMO segmento do prefixo é julgado."
+    },
+    {
+      "texto": "Sobre a gorjeta: o troco fica com o garçom.",
+      "recusa": true,
+      "porque": "O VETO DE SUJEITO COM A POLARIDADE VIRADA. `troco` é dinheiro e não está — nem deve estar — no `substantivo_gorjeta`: ficava no prefixo, o veto lia `outro assunto` e desligava a regra 1b dentro de uma conversa que acabara de dizer `gorjeta`. Numa janela de dinheiro o veto passa a exigir um sujeito NOMEADO como não-dinheiro; palavra desconhecida significa recusa."
+    },
+    {
+      "texto": "A gorjeta arrecadada é remuneração assim da equipe e passa pela folha de pagamento da casa.",
+      "recusa": false,
+      "porque": "O GENITIVO DESCRITIVO DISPENSA NA REGRA 1B TAMBÉM. Esta frase é a frase aprovada com um advérbio no meio — o fabricador a produziu, e o advérbio separa o núcleo do genitivo o bastante pra `genitivo_descritivo` não casar e a forma direcional casar. A regra 1 já perguntava se o destinatário é atributivo; a 1b nunca perguntou, e o veto de sujeito respondia por ela por acidente. `remuneração da equipe` diz DE QUEM o dinheiro é, não pra onde vai, e é a frase que a Lei 13.419/2017 obriga o produto a poder dizer."
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nO prato vai pro garçom.",
+      "recusa": false,
+      "porque": "A CABEÇA NÃO TINHA FRONTEIRA DE PALAVRA À ESQUERDA, e `to` — a preposição inglesa — é uma alternativa do `preposicao_direcional`. Ela casava DENTRO de `pra·to`: a cabeça virava `to vai pro garçom`, o prefixo virava `A pra` (sem verbo nenhum) e o teste de prefixo, que existe pra desqualificar `vai`, era contornado por um pedaço de palavra. A direção é falso positivo — a conta some da tela —, e a classe é a mesma do `\\b` errado que este arquivo já pagou três vezes. Achado sondando o `substantivo_nao_dinheiro`, 2026-09-14."
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nLevou muito da equipe hoje.",
+      "recusa": false,
+      "porque": "A mesma fronteira, pelo ramo genitivo: `to` dentro de `mui·to`, seguido de `da equipe`. Duas palavras portuguesas comuníssimas terminadas na preposição inglesa, e nenhum caso do corpo tinha uma."
+    },
+    {
+      "texto": "O restaurante distribui a gorjeta à equipe — mas não pela folha.",
+      "recusa": true,
+      "porque": "UMA ORAÇÃO ABERTA POR ADVERSATIVA CONTINUA A ANTERIOR. Com vírgula esta frase é uma oração só e a evasão (`não pela folha`) revoga a dispensa do distribuidor. Com travessão — ou dois-pontos, ponto-e-vírgula, quebra de linha: quatro sinais que um modelo troca pelo mesmo motivo — o `mas não pela folha` virava oração separada, a revogação deixava de ser lida, e a promessa proibida passava com a qualificação colada. Achado pelo eixo de RE-SEGMENTAÇÃO, 2026-09-14."
+    },
+    {
+      "texto": "Serviço: 10%\nCom a equipe — sem passar pela casa.",
+      "recusa": true,
+      "porque": "A PISTA DE EVASÃO VALE PELA JANELA. Ela qualifica o CAMINHO do dinheiro, e uma qualificação mora onde o ritmo da frase a puser: com vírgula a pista fica na mesma oração e licencia a cabeça não-direcional; com travessão ela muda de oração e a promessa escapava. A licença continua a ESTRITA — substantivo da gorjeta numa oração anterior —, que é o que mantém `Sua parte é R$ 61,00.⏎Com o garçom, em dinheiro.` inocente."
+    },
+    {
+      "texto": "A conta fechou e vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "O PREFIXO DA REGRA 1B TAMBÉM É O ÚLTIMO SEGMENTO. Com vírgula esta frase recusa; trocada a vírgula pela conjunção, `A conta` passava a caber no teste de sujeito ancorado, `conta` está no `substantivo_nao_dinheiro`, e o veto desligava a regra. O sujeito que interessa é o DESTA cláusula, não o da frase inteira."
+    },
+    {
+      "texto": "Não precisa e a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "A JANELA DO `nega` CORTA EM ` e ` TAMBÉM. Com vírgula (`Não precisa, a equipe recebe a gorjeta.`) o corpo já tinha o caso: o `Não` responde à PERGUNTA do cliente, não ao destino, e a promessa fica de pé. Trocada a vírgula pela conjunção — mesma frase, outro ritmo —, o `Não` passava a alcançar o destinatário e a promessa escapava. Cinco casos do corpo caíam por esse sinal. Achado pelo eixo de RE-SEGMENTAÇÃO, 2026-09-14."
     }
   ]
 }

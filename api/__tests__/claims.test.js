@@ -74,7 +74,7 @@ function semComentario(texto, ext) {
  */
 
 /** Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação. */
-const reSeparador = new RegExp(G.separador_interno, 'gi');
+const reSeparador = new RegExp(G.separador_de_clausula, 'gi');
 /** Frase de destino em QUALQUER lugar da oração. */
 /**
  * UMA LISTA SÓ DENTRO DA DECISÃO. O censo localizava a oração com a lista
@@ -96,17 +96,38 @@ const reMarcador = new RegExp(G.marcador_de_lista);
 const reContrasteColado = new RegExp(COMPOR.contraste_colado(G), 'i');
 const reRegenciaDoNucleo = new RegExp(COMPOR.regencia_do_nucleo(G), 'i');
 const reSujeitoNominal = new RegExp(COMPOR.sujeito_nominal(G), 'i');
+/** O sujeito que o veto da regra 1b existe pra proteger. Ver o gêmeo. */
+const reNaoDinheiro = new RegExp(G.substantivo_nao_dinheiro, 'i');
 const reDestAmbiguo = new RegExp(G.destinatario_ambiguo, 'gi');
+/** O cômodo POSSUÍDO — a relação, não a palavra. Ver o gêmeo no Swift. */
+const reAmbiguoPossuido = new RegExp(COMPOR.ambiguo_possuido(G), 'i');
 const reEvasaoLicencia = new RegExp(COMPOR.evasao_que_licencia(G), 'i');
-const rePalavraFuncional = new RegExp(COMPOR.palavra_funcional(G), 'gi');
-/** Entre o negador e o núcleo só há material FUNCIONAL? Ver o gêmeo no Swift. */
+const rePalavraFuncional = new RegExp(COMPOR.palavra_funcional(G), 'gdi');
+/**
+ * Entre o negador e o núcleo só há material FUNCIONAL? Ver o gêmeo no Swift.
+ *
+ * SUBTRAÇÃO, não contagem. A versão anterior somava os CARACTERES cobertos e
+ * comparava com as LETRAS presentes, e as duas contas medem coisas
+ * diferentes: `a gente` cobre 7 caracteres e traz 6 letras, `R$ 12,00` cobre
+ * 8 e traz 4. Cada alternativa com espaço ou pontuação dentro vendia folga, e
+ * folga aqui compra uma palavra de CONTEÚDO curta — `tem R$ 12,00 taxa pra`
+ * dava 14 >= 14 e dizia que o negador alcançava o núcleo, com `taxa` no
+ * caminho, que é justamente o que o `_porque_alcance_antes` diz que bloqueia.
+ * A polaridade é fail-open (alcançar = negado = não recusa), então isso ficava
+ * entre um teste de negação e um escape. Achado pela revisão de compliance de
+ * 2026-09-14.
+ */
 function soFuncionalAteONucleo(vao) {
-  let coberto = 0;
-  for (const m of vao.matchAll(rePalavraFuncional)) coberto += m[1].length;
-  const letras = [...vao].filter((c) => /[0-9A-Za-zÀ-ÿ]/.test(c)).length;
-  return coberto >= letras;
+  const restante = [...vao];
+  for (const m of vao.matchAll(rePalavraFuncional)) {
+    const [ini, fim] = m.indices[1];
+    for (let i = ini; i < fim; i += 1) restante[i] = ' ';
+  }
+  return !/[\p{L}\p{N}]/u.test(restante.join(''));
 }
 const reCabecaDirecional = new RegExp(COMPOR.cabeca_direcional(G), 'i');
+/** A cabeça do caminho fraco com preposição GENITIVA. Ver o gêmeo. */
+const reCabecaGenitiva = new RegExp(COMPOR.cabeca_genitiva(G), 'i');
 /** A CABEÇA de destino — PREFIXO, não whitelist ancorada. Ver o gêmeo. */
 const reCabeca = new RegExp(COMPOR.cabeca_de_destino(G), 'i');
 const reCabecaForte = new RegExp(COMPOR.cabeca_forte(G), 'i');
@@ -116,15 +137,28 @@ const reVerboFinito = new RegExp(G.verbo_finito, 'i');
 const reRelativa = new RegExp(COMPOR.relativa_qualquer(G), 'gi');
 const reGenitivoDescritivo = new RegExp(COMPOR.genitivo_descritivo(G), 'gi');
 const reSeparadorCorte = new RegExp(G.separador_interno, 'i');
+/** Abertura de cláusula ADVERSATIVA — ver o gêmeo no Swift. */
+const reAdversativa = new RegExp(COMPOR.adversativa_inicial(G), 'i');
 
+/**
+ * Só o ÚLTIMO segmento do prefixo. Ver `_porque_prefixo_por_segmento` e o
+ * gêmeo no Swift.
+ */
+function ultimoSegmento(prefixo) {
+  let ini = 0;
+  for (const m of prefixo.matchAll(new RegExp(G.separador_de_clausula, 'gi'))) {
+    ini = m.index + m[0].length;
+  }
+  return prefixo.slice(ini);
+}
 /** O que sobra depois da CABEÇA, ou `null`. Ver o gêmeo no Swift. */
 function restoDepoisDaCabeca(oracao) { return cabecaValida(reCabeca, oracao); }
 /** A cabeça casa E o que vem antes não é outra oração. Ver o gêmeo no Swift. */
 function cabecaValida(re, oracao) {
   const m = re.exec(oracao);
   if (!m) return null;
-  // O prefixo é julgado por VERBO FINITO — ver o gêmeo no Swift.
-  if (reVerboFinito.test(oracao.slice(0, m.index))) return null;
+  // O prefixo é julgado por VERBO FINITO, no ÚLTIMO SEGMENTO — ver o gêmeo.
+  if (reVerboFinito.test(ultimoSegmento(oracao.slice(0, m.index)))) return null;
   return oracao.slice(m.index + m[0].length);
 }
 /** O negador atrás resgata? ORDEM e ESCOPO — ver o gêmeo e `_porque_alcance`. */
@@ -149,9 +183,15 @@ function normalizado(texto) {
 }
 /** O resto traz PREDICAÇÃO NOVA? Ver `_porque_predicacao` e o gêmeo no Swift. */
 function temSujeitoNominal(trecho) {
-  for (const m of trecho.matchAll(new RegExp(COMPOR.sujeito_nominal(G), 'gi'))) {
-    const p = m.index + m[0].length - m[1].length - 1 - (m[0].length - m[0].indexOf(m[1]) - m[1].length);
-    if (!rePrepPronome.test(trecho.slice(0, m.index + m[0].indexOf(m[1])))) return true;
+  // A POSIÇÃO DO GRUPO 1, lida do próprio casamento — o gêmeo Swift usa
+  // `m.range(at: 1).location` e aqui se procurava o texto do determinante
+  // DENTRO do casamento com `indexOf`. Concordavam em tudo que se testou, e
+  // divergiriam na primeira vez que o texto do determinante aparecesse
+  // também no delimitador da esquerda. Havia ainda um `const p` calculado por
+  // uma terceira fórmula e nunca usado. Apontado pela revisão de segurança de
+  // 2026-09-14.
+  for (const m of trecho.matchAll(new RegExp(COMPOR.sujeito_nominal(G), 'gdi'))) {
+    if (!rePrepPronome.test(trecho.slice(0, m.indices[1][0]))) return true;
   }
   return false;
 }
@@ -170,8 +210,8 @@ function temPredicacao(resto) {
 /** Destinatário que NÃO é genitivo descritivo. Ver o gêmeo no Swift. */
 function destinatarioNaoAtributivo(oracao, clausula) {
   // Evasão cancela a leitura benigna, e é lida na ORAÇÃO — ver o gêmeo.
-  if (reRevoga.test(clausula || oracao)) return reDestRuntime.test(oracao);
-  return reDestRuntime.test(oracao.replace(reGenitivoDescritivo, ' '));
+  if (reRevoga.test(clausula || oracao)) return reDestinatarioCenso.test(oracao);
+  return reDestinatarioCenso.test(oracao.replace(reGenitivoDescritivo, ' '));
 }
 /** Ver `_porque_quantidade` no claims.json — inclui MOEDA. */
 const reQuantidade = new RegExp(G.quantidade, 'i');
@@ -188,7 +228,13 @@ const reQuantidade = new RegExp(G.quantidade, 'i');
  * dois lados concordam usando cada um a sua lista, e é o
  * `afirmacoes.fixture.json` que prova, caso a caso.
  */
-const reDestRuntime = reDestinatario;
+// O NOME DIZIA `RUNTIME` E O VALOR ERA A LISTA DO CENSO. O guarda de runtime
+// usa a lista CURTA (`substantivo_destinatario_runtime`); aqui a lista é a
+// LONGA, dentro da mesma decisão. Os dois lados concordam caso a caso — é o
+// `afirmacoes.fixture.json` que prova —, mas o nome prometia identidade onde
+// há divergência deliberada, e essa é a forma exata de mentira que este
+// arquivo persegue. Renomeado na revisão de compliance de 2026-09-14.
+const reDestinatarioCenso = reDestinatario;
 
 /** Orações, como no guarda de runtime: `. ; ! ? : \n —` separam. */
 function oracoes(texto) {
@@ -202,7 +248,7 @@ function oracoes(texto) {
  * oração ("não fica com o salão, fica com o garçom") é afirmação.
  */
 function nega(oracao) {
-  const dests = [...oracao.matchAll(new RegExp(reDestRuntime.source, 'gi'))];
+  const dests = [...oracao.matchAll(new RegExp(reDestinatarioCenso.source, 'gi'))];
   if (!dests.length) return false;
   const gorjetas = [...oracao.matchAll(new RegExp(reGorjeta.source, 'gi'))];
   const direcionais = [...oracao.matchAll(new RegExp(reSuprimeGlobal.source, 'gi'))];
@@ -240,7 +286,7 @@ function nega(oracao) {
 /** O distribuidor resgata SÓ se vier antes do destinatário. Ver o gêmeo. */
 function distribuidorAntesDoDestino(oracao) {
   if (!temDistribuidor(oracao)) return false;
-  const dest = new RegExp(reDestRuntime.source, 'i').exec(oracao);
+  const dest = new RegExp(reDestinatarioCenso.source, 'i').exec(oracao);
   if (!dest) return true;
   const dist = new RegExp(reDistribuidor.source, 'i').exec(oracao);
   return !dist || dist.index < dest.index;
@@ -266,9 +312,20 @@ function acusa(janelaCrua) {
   let janela = janelaCrua;
   // A pré-condição não pede mais o substantivo da gorjeta — ver o gêmeo.
   janela = normalizado(janela);
-  if (!reDestRuntime.test(janela)) return false;
+  if (!reDestinatarioCenso.test(janela)) return false;
   let partes = oracoes(janela);
-  for (const o of partes) {
+  // UMA ORAÇÃO ABERTA POR ADVERSATIVA CONTINUA A ANTERIOR. `O restaurante
+  // distribui a gorjeta à equipe, mas não pela folha.` é uma oração só, e a
+  // evasão revoga a dispensa do distribuidor. Trocada a vírgula por travessão,
+  // dois-pontos, ponto-e-vírgula ou quebra de linha — quatro sinais que um
+  // modelo usa pelo mesmo motivo —, o `mas não pela folha` virava oração
+  // separada, a revogação deixava de ser lida e a promessa proibida passava
+  // com a qualificação colada. Uma cláusula aberta por `mas` não é uma
+  // afirmação nova; ela QUALIFICA a anterior, e é o mesmo argumento do CDC
+  // art. 30 que o resto do arquivo usa. Achado pelo eixo de RE-SEGMENTAÇÃO.
+  const comAdversativa = (i) => partes[i]
+    + (reAdversativa.test(partes[i + 1] || '') ? ` ${partes[i + 1]}` : '');
+  for (const [iO, o] of partes.entries()) {
     // A dispensa do distribuidor vale no SEGMENTO dele — ver o gêmeo.
     if (reGorjeta.test(o)) {
       // Coordenação herda o distribuidor; a relativa não dispensa — ver o gêmeo.
@@ -280,7 +337,7 @@ function acusa(janelaCrua) {
         const dispensa = temDist || (!temVerbo && distribuidorAnterior);
         if (temVerbo || temDist) distribuidorAnterior = temDist;
         if (!destinatarioNaoAtributivo(seg, o)) continue;
-        if (!nega(o) && (reRevoga.test(o) || !dispensa)) return true;
+        if (!nega(o) && (reRevoga.test(comAdversativa(iO)) || !dispensa)) return true;
       }
     }
   }
@@ -288,18 +345,44 @@ function acusa(janelaCrua) {
     // Contexto de dinheiro para a regra 1b — ver o gêmeo no Swift.
     const mDir = new RegExp(reSuprimeGlobal.source, 'i').exec(o);
     if (!mDir) continue;
+    // O GENITIVO DESCRITIVO dispensa aqui TAMBÉM. `A gorjeta arrecadada é
+    // remuneração da equipe` diz DE QUEM o dinheiro é, não pra onde vai, e é
+    // a frase que o produto tem que poder dizer. A regra 1 já perguntava
+    // isso; a 1b nunca perguntou — o veto de sujeito respondia por ela, por
+    // acidente, e o acidente apareceu quando o veto foi restringido.
+    if (!destinatarioNaoAtributivo(o, null)) continue;
     // Sujeito NOMINAL que não é a gorjeta veta; prefixo julgado, não contado;
     // destinatário que também é cômodo não basta na evidência mais fraca.
-    const prefixo = o.slice(0, mDir.index);
+    // O PREFIXO DA 1B TAMBÉM É O ÚLTIMO SEGMENTO. `A conta fechou, vai tudo
+    // pro garçom.` recusa; trocada a vírgula por ` e `, o sujeito `A conta`
+    // passava a caber no teste ancorado, `conta` está no
+    // `substantivo_nao_dinheiro`, e o veto desligava a regra. O sujeito que
+    // interessa é o DESTA cláusula, não o da frase inteira — a mesma
+    // doutrina do `_porque_prefixo_por_segmento`, na regra que a inventou.
+    const prefixo = ultimoSegmento(o.slice(0, mDir.index));
     // O sujeito pode ser o dinheiro por outro nome — ver o gêmeo no Swift.
     const prefixoSemGorjeta = prefixo.replace(new RegExp(reGorjeta.source, 'gi'), ' ')
-      .replace(new RegExp(G.anafora_de_dinheiro, 'gi'), ' ');
-    if (temSujeitoNominal(prefixoSemGorjeta)) continue;
+      .replace(new RegExp(COMPOR.anafora_de_dinheiro(G), 'gi'), ' ');
+    // O VETO SÓ VALE ONDE ELE NÃO PODE ESCONDER UMA PROMESSA. A enumeração
+    // do dinheiro estava com a polaridade virada pro escape: palavra de
+    // dinheiro que a lista não conhece (`comissão`, `acréscimo`, `agrado`)
+    // ficava no prefixo, virava `outro assunto`, e vetava a regra 1b. Numa
+    // janela que FALA de dinheiro, o veto agora só vale pra um sujeito
+    // NOMEADO como não-dinheiro — desconhecido significa recusa, que é a
+    // polaridade que este arquivo exige. Fora de janela de dinheiro o veto
+    // vale inteiro, e é lá que mora `A comanda vai pro garçom conferir.`
+    // Ver o gêmeo no Swift e `_porque_veto_por_contexto`.
+    const contextoDeDinheiro = reGorjeta.test(janela) || reQuantidade.test(janela);
+    if (temSujeitoNominal(prefixoSemGorjeta)
+      && (!contextoDeDinheiro || reNaoDinheiro.test(prefixo))) continue;
+    // Um cômodo pode ser DESTINO DE MOVIMENTO e não pode ser DONO de
+    // dinheiro. `Vai pra cozinha` é ambíguo; `Fica com o salão` e `É da copa`
+    // não são — ver o gêmeo no Swift e `_porque_ambiguo`.
     const soAmbiguo = new RegExp(G.destinatario_ambiguo, 'i').test(o)
-      && !reDestRuntime.test(o.replace(reDestAmbiguo, ' '));
+      && !reDestinatarioCenso.test(o.replace(reDestAmbiguo, ' '))
+      && !reAmbiguoPossuido.test(o);
     const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo;
-    if ((reGorjeta.test(janela) || reQuantidade.test(janela) || comecaNaForma)
-      && !nega(o)) return true;
+    if ((contextoDeDinheiro || comecaNaForma) && !nega(o)) return true;
   }
   // Sem retorno precoce: a regra 1 ABSOLVE a oração que traz o distribuidor, e
   // essa absolvição voltava `false` pro texto inteiro, cancelando a regra 3
@@ -314,7 +397,7 @@ function acusa(janelaCrua) {
   void iDest;
   for (let i = 0; i < partes.length; i += 1) {
     const o = partes[i];
-    if (!reDestRuntime.test(o) || !reDestinoQualquer.test(o) || nega(o)) continue;
+    if (!reDestinatarioCenso.test(o) || !reDestinoQualquer.test(o) || nega(o)) continue;
     // O corte no separador vale SÓ no caminho forte — ver `_porque_corte`.
     // Caminho FORTE: quantidade consumida pela cabeça — ver o gêmeo.
     if (cabecaValida(reCabecaForte, o) !== null) return true;
@@ -324,14 +407,26 @@ function acusa(janelaCrua) {
     // Pista de EVASÃO vale como direcionalidade — ver o gêmeo no Swift.
     // O distribuidor dispensa no caminho FRACO, e só nele — ver o gêmeo.
     if (temDistribuidor(o) && !reRevoga.test(o)) continue;
-    const comEvasao = reEvasaoLicencia.test(o);
-    const mFraco = (comEvasao ? reCabeca : reCabecaDirecional).exec(o);
+    // A PISTA DE EVASÃO VALE PELA JANELA, não pela oração. Ela é uma
+    // qualificação do caminho do dinheiro, e uma qualificação mora onde o
+    // ritmo da frase a puser: `Com a equipe, sem passar pela casa.` vira
+    // `Com a equipe — sem passar pela casa.` e a pista muda de oração, com o
+    // mesmo sentido e outro veredito. A licença continua a ESTRITA
+    // (substantivo da gorjeta numa oração anterior), que é o que impede
+    // `Sua parte é R$ 61,00.⏎Com o garçom, em dinheiro.` de virar recusa.
+    // Achado pelo eixo de RE-SEGMENTAÇÃO, 2026-09-14.
+    const comEvasao = reEvasaoLicencia.test(janela);
+    let mFraco = (comEvasao ? reCabeca : reCabecaDirecional).exec(o);
+    // Cabeça GENITIVA: `- da equipe`, `Da equipe.`, `— dos atendentes`. Ver o
+    // gêmeo no Swift e `_porque_cabeca_genitiva`.
+    let soGorjetaAntes = comEvasao;
+    if (!mFraco) { mFraco = reCabecaGenitiva.exec(o); soGorjetaAntes = true; }
     if (!mFraco) continue;
     // Prefixo julgado por VERBO nos dois caminhos — ver o gêmeo.
-    if (reVerboFinito.test(o.slice(0, mFraco.index))) continue;
+    if (reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;
     const resto = o.slice(mFraco.index + mFraco[0].length);
     if (temPredicacao(resto)) continue;
-    if (!partes.slice(0, i).some((q) => comEvasao ? reGorjeta.test(q)
+    if (!partes.slice(0, i).some((q) => soGorjetaAntes ? reGorjeta.test(q)
       : (reQuantidade.test(q) || reGorjeta.test(q)))) continue;
     // Nada resgata uma afirmação já feita — a mesma lógica da regra 1b, que a
     // regra 3 não aplicava: bastava ABRIR com a frase sancionada pra liberar o
@@ -341,8 +436,14 @@ function acusa(janelaCrua) {
   return false;
 }
 
-const EXT = /\.(ts|tsx|swift|html|md)$/;
-const FORA = /^(node_modules|dist|build|Pods|DerivedData|__tests__|test|\.git)$/;
+// O PERÍMETRO É DECLARADO NO JSON, não em duas regexes no meio do teste.
+// Ver `_porque_extensoes` e `_porque_diretorios_fora` no `claims.json`.
+const EXT = new RegExp(`\\.(${G.onde_o_censo_anda.extensoes.join('|')})$`);
+// Diretórios que não são superfície de ninguém. `.*Tests` entrou junto com o
+// perímetro derivado: `RachaTests`/`RachaUITests` são código de teste pela
+// mesma razão que `__tests__` já era, e escrevê-los na lista declarada seria
+// declarar doze arquivos um a um pra dizer a mesma coisa.
+const FORA = new RegExp(`^(${G.onde_o_censo_anda.diretorios_fora.join('|')})$`);
 
 function anda(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -362,6 +463,14 @@ function anda(dir, out = []) {
   }
   return out;
 }
+
+/**
+ * TODO arquivo de extensão vigiada, a partir do raiz — a base do perímetro
+ * DERIVADO. Ver `_porque_perimetro_derivado`: a prosa afirmava esta derivação
+ * enquanto o teste andava só pelas árvores declaradas, e o buraco que ela dizia
+ * ter fechado já tinha aparecido duas vezes (`ios/docs`, `.claude/agents`).
+ */
+function tudoNoRepo() { return anda(RAIZ); }
 
 function superficies() {
   const { arvores, soltos } = G.onde_o_censo_anda;
@@ -453,6 +562,46 @@ describe('a afirmação sobre o destino do serviço', () => {
     const inertes = G.frases_aprovadas.filter(
       (f) => !(reGorjeta.test(f) && reDestinatario.test(f)));
     expect(inertes).toEqual([]);
+  });
+
+  /**
+   * O PERÍMETRO É DERIVADO, e este é o teste que a prosa dizia existir.
+   *
+   * Andar do raiz e exigir que todo arquivo de extensão vigiada esteja numa de
+   * três gavetas — dentro do censo, isento como ANÁLISE da proibição, ou
+   * declarado fora com motivo. Enquanto o perímetro era uma lista que alguém
+   * escrevia, ele esqueceu `ios/docs` numa rodada e `.claude/agents` na
+   * seguinte; a segunda continha o arquivo que ENUNCIA as regras da gorjeta a
+   * um agente, que é texto de prompt pela definição do próprio
+   * `_escrevendo_proibicoes`. Achado pela revisão de compliance de 2026-09-14.
+   */
+  test('o perímetro é DERIVADO: todo arquivo está dentro, isento ou declarado', () => {
+    const dentro = new Set(superficies().map(
+      (f) => path.relative(RAIZ, f).split(path.sep).join('/')));
+    const fora = G.onde_o_censo_anda.fora_do_perimetro || {};
+    const docsFora = G.onde_o_censo_anda.docs_fora;
+    const candidatos = tudoNoRepo()
+      .map((f) => path.relative(RAIZ, f).split(path.sep).join('/'))
+      .filter((rel) => !dentro.has(rel) && !(rel in fora)
+        && !docsFora.some((d) => rel === d || rel.startsWith(`${d}/`)));
+    // ARQUIVO IGNORADO PELO GIT NÃO É SUPERFÍCIE: é artefato de build, e ele
+    // nem sequer PODE ser revisado, porque não está no repositório. Quem
+    // pergunta é o git, não uma lista — `apps/web/public/ios.html` e
+    // `ios/lab/preview.html` são gerados, e declará-los à mão seria a mesma
+    // lista paralela que este teste existe pra eliminar.
+    const ignorados = new Set(candidatos.length ? execFileSync(
+      'git', ['check-ignore', '--stdin'],
+      { cwd: RAIZ, input: candidatos.join('\n'), encoding: 'utf8' },
+      // `check-ignore` sai com 1 quando NENHUM caminho é ignorado.
+    ).split('\n').filter(Boolean) : []);
+    const orfaos = candidatos.filter((rel) => !ignorados.has(rel));
+    expect(orfaos).toEqual([]);
+    // A gaveta declarada tem a disciplina das dispensas: motivo escrito, e
+    // nada de entrada que já não existe.
+    expect(Object.keys(fora).filter((f) => !fs.existsSync(path.join(RAIZ, f)))).toEqual([]);
+    for (const [f, porque] of Object.entries(fora)) {
+      expect(`${f}: ${porque}`).toMatch(/.{80,}/);
+    }
   });
 
   test('nenhuma superfície publicada junta gorjeta e destinatário sem nomear quem distribui', () => {

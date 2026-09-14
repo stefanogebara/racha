@@ -73,6 +73,10 @@ enum RevisaoDeAfirmacoes {
     private static let sujeitoNominal = regex(ClaimPatterns.sujeitoNominal)
     private static let anaforaDeDinheiro = regex(ClaimPatterns.anaforaDeDinheiro)
     private static let destinatarioAmbiguo = regex(ClaimPatterns.destinatarioAmbiguo)
+    /// O sujeito que o veto da regra 1b existe pra proteger. Ver o gêmeo.
+    private static let naoDinheiro = regex(ClaimPatterns.substantivoNaoDinheiro)
+    /// O cômodo POSSUÍDO — a relação, não a palavra. Ver `_porque_ambiguo`.
+    private static let ambiguoPossuido = regex(ClaimPatterns.ambiguoPossuido)
     private static let palavraFuncional = regex(ClaimPatterns.palavraFuncional)
 
     /// Entre o negador e o núcleo só há material FUNCIONAL?
@@ -83,17 +87,24 @@ enum RevisaoDeAfirmacoes {
     /// garçom`. Ver `_porque_alcance_antes`: bastava uma interjeição com
     /// vírgula na frente pra CRIAR a âncora que abre a janela, e eram 144 de
     /// 144. Polaridade: palavra desconhecida = não alcança = recusa.
+    /// SUBTRAÇÃO, não contagem. A versão anterior somava os CARACTERES
+    /// cobertos e comparava com as LETRAS presentes: `a gente` cobre 7 e traz
+    /// 6, `R$ 12,00` cobre 8 e traz 4. Toda alternativa com espaço dentro
+    /// vendia folga, e a polaridade aqui é fail-open. Ver `_porque_alcance_antes`.
     private static func soFuncionalAteONucleo(_ vao: String) -> Bool {
-        let ns = vao as NSString
-        var coberto = 0
-        for m in palavraFuncional.matches(in: vao, range: NSRange(location: 0, length: ns.length)) {
-            coberto += m.range(at: 1).length
+        let restante = NSMutableString(string: vao)
+        for m in palavraFuncional.matches(
+            in: vao, range: NSRange(location: 0, length: (vao as NSString).length)) {
+            let r = m.range(at: 1)
+            restante.replaceCharacters(in: r, with: String(repeating: " ", count: r.length))
         }
-        let letras = vao.reduce(0) { $1.isLetter || $1.isNumber ? $0 + 1 : $0 }
-        return coberto >= letras
+        return !(restante as String).contains { $0.isLetter || $0.isNumber }
     }
     private static let evasaoQueLicencia = regex(ClaimPatterns.evasaoQueLicencia)
     private static let cabecaDirecional = regex(ClaimPatterns.cabecaDirecional)
+    /// A cabeça do caminho fraco com preposição GENITIVA, ANCORADA no começo
+    /// da oração. Ver `_porque_cabeca_genitiva`.
+    private static let cabecaGenitiva = regex(ClaimPatterns.cabecaGenitiva)
 
     /// O negador atrás resgata? Duas perguntas, as duas já doutrina aqui.
     ///
@@ -146,6 +157,8 @@ enum RevisaoDeAfirmacoes {
     private static let direcional = regex(ClaimPatterns.formaDirecional)
     /// Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação.
     private static let separadorInterno = regex(ClaimPatterns.separadorInterno)
+    /// Abertura de cláusula ADVERSATIVA — ela qualifica a oração anterior.
+    private static let adversativaInicial = regex(ClaimPatterns.adversativaInicial)
     private static let separadorDeClausula = regex(ClaimPatterns.separadorDeClausula)
     /// Uma frase de destino em QUALQUER lugar da oração — não só no começo.
     /// Ancorá-la no começo fazia qualquer palavra antes da preposição derrubar
@@ -223,7 +236,7 @@ enum RevisaoDeAfirmacoes {
         // frente, e julgar por sujeito a deixava escapar — a mesma anáfora que
         // derrubou a pré-condição uma rodada antes, um nível abaixo.
         // Achado pelas revisões de 2026-09-14.
-        if casa(verboFinito, ns.substring(to: m.location)) { return nil }
+        if casa(verboFinito, ultimoSegmento(ns.substring(to: m.location))) { return nil }
         return ns.substring(from: m.location + m.length)
     }
 
@@ -238,6 +251,22 @@ enum RevisaoDeAfirmacoes {
     /// preposição. `A COMANDA vai pro garçom` tem um; `Com A CONTA fechada,
     /// vai tudo pro garçom` não tem — ali o nominal é complemento do `com`.
     /// Ver `_porque_sujeito_nominal`.
+    /// Só o ÚLTIMO segmento do prefixo. Uma vírgula não abre oração, então
+    /// `Pode ficar tranquilo, 100% pro garçom.` punha um verbo no prefixo e
+    /// desligava a regra inteira — 847 de 2400 variantes do corpo com doze
+    /// preâmbulos comuns na frente. A regra 1b já fazia a pergunta ancorada no
+    /// FIM do prefixo; a 3 era a chamadora esquecida. Ver
+    /// `_porque_prefixo_por_segmento`.
+    private static func ultimoSegmento(_ prefixo: String) -> String {
+        let ns = prefixo as NSString
+        var ini = 0
+        for m in separadorDeClausula.matches(
+            in: prefixo, range: NSRange(location: 0, length: ns.length)) {
+            ini = max(ini, m.range.location + m.range.length)
+        }
+        return ns.substring(from: ini)
+    }
+
     private static func temSujeitoNominal(_ trecho: String) -> Bool {
         let ns = trecho as NSString
         for m in sujeitoNominal.matches(in: trecho, range: NSRange(location: 0, length: ns.length)) {
@@ -328,7 +357,14 @@ enum RevisaoDeAfirmacoes {
             }
             else { atual.append(ch) }
         }
-        if !atual.isEmpty { fora.append(atual) }
+        // E O RABO SEGUE A MESMA REGRA. A correção de 2026-09-14 trocou o
+        // teste no meio do laço e deixou o do fim como estava, então um
+        // pedaço só-espaço no FINAL do texto virava oração no Swift e era
+        // filtrado no JS. Não muda veredito nenhum que eu tenha conseguido
+        // produzir — ele cai depois de todas as orações reais —, mas é a
+        // mesma assimetria, no mesmo laço, sobrevivendo à própria correção.
+        // Apontado pela revisão de segurança de 2026-09-14.
+        if !atual.trimmingCharacters(in: .whitespaces).isEmpty { fora.append(atual) }
         return fora
     }
 
@@ -357,7 +393,12 @@ enum RevisaoDeAfirmacoes {
         let direcionais = direcional.matches(in: oracao, range: todo).map { $0.range }
         // Separador interno: depois de uma vírgula ou de um "mas", começa outra
         // afirmação — e a negação da primeira não alcança a segunda.
-        let separadores = separadorInterno.matches(in: oracao, range: todo).map { $0.range }
+        // E ` e ` TAMBÉM ABRE OUTRA AFIRMAÇÃO. `Não, vai pra equipe.` recusa;
+        // trocada a vírgula pela conjunção — que é a mesma coisa dita com
+        // outro ritmo —, o `Não` passava a alcançar o destino e a promessa
+        // escapava. Cinco casos do corpo, todos por um sinal.
+        // Achado pelo eixo de RE-SEGMENTAÇÃO, 2026-09-14.
+        let separadores = separadorDeClausula.matches(in: oracao, range: todo).map { $0.range }
 
         var anterior = 0
         for d in dests {
@@ -394,7 +435,7 @@ enum RevisaoDeAfirmacoes {
             // zero vereditos mudam numa grade de 1080. Achado pela revisão de
             // segurança de 2026-09-14, que restaurou cada uma e mediu.
             var ini = anterior
-            for sep in separadorInterno.matches(
+            for sep in separadorDeClausula.matches(
                 in: oracao, range: NSRange(location: anterior, length: d.location - anterior)) {
                 ini = max(ini, sep.range.location + sep.range.length)
             }
@@ -509,7 +550,6 @@ enum RevisaoDeAfirmacoes {
         // Achado pelo fabricador, 2026-09-14.
         if casa(revoga, oracao) { return false }
         return casa(distribuidor, oracao)
-        return false
     }
 
     /// Este texto afirma um destino sem dizer quem distribui?
@@ -564,7 +604,20 @@ enum RevisaoDeAfirmacoes {
         // recusa. Posição não sabe dizer que cláusula qualifica qual
         // afirmação; escopo sabe. Achado pela revisão de segurança de
         // 2026-09-14.
-        for o in partes where casa(gorjeta, o) {
+        // UMA ORAÇÃO ABERTA POR ADVERSATIVA CONTINUA A ANTERIOR. `O
+        // restaurante distribui a gorjeta à equipe, mas não pela folha.` é
+        // uma oração só, e a evasão revoga a dispensa do distribuidor.
+        // Trocada a vírgula por travessão, dois-pontos, ponto-e-vírgula ou
+        // quebra de linha, o `mas não pela folha` virava oração separada, a
+        // revogação deixava de ser lida, e a promessa proibida passava com a
+        // qualificação colada. Uma cláusula aberta por `mas` não é afirmação
+        // nova: ela QUALIFICA a anterior.
+        // Achado pelo eixo de RE-SEGMENTAÇÃO, 2026-09-14.
+        func comAdversativa(_ i: Int) -> String {
+            let prox = i + 1 < partes.count ? partes[i + 1] : ""
+            return casa(adversativaInicial, prox) ? partes[i] + " " + prox : partes[i]
+        }
+        for (iO, o) in partes.enumerated() where casa(gorjeta, o) {
             // COORDENAÇÃO HERDA O DISTRIBUIDOR. `O restaurante distribui a
             // gorjeta à equipe E À COZINHA` põe o segundo destinatário num
             // segmento sem verbo próprio, e a frase SANCIONADA na forma que o
@@ -583,7 +636,7 @@ enum RevisaoDeAfirmacoes {
                 let dispensa = temDist || (!temVerbo && distribuidorAnterior)
                 if temVerbo || temDist { distribuidorAnterior = temDist }
                 guard destinatarioNaoAtributivo(seg, o) else { continue }
-                if !nega(o) && (casa(revoga, o) || !dispensa) { return true }
+                if !nega(o) && (casa(revoga, comAdversativa(iO)) || !dispensa) { return true }
             }
         }
         // 1b. E a FORMA DIRECIONAL numa oração não é resgatável por cláusula
@@ -599,6 +652,14 @@ enum RevisaoDeAfirmacoes {
         //    lavava toda afirmação repartida entre orações, que é a mesma
         //    lavagem da regra 1 entrando pela porta da regra 3.
         for o in partes where casa(direcional, o) {
+            // O GENITIVO DESCRITIVO DISPENSA AQUI TAMBÉM. `A gorjeta
+            // arrecadada é remuneração da equipe` diz DE QUEM o dinheiro é,
+            // não pra onde ele vai, e é a frase que o produto tem que poder
+            // dizer. A regra 1 já perguntava isso; a 1b nunca perguntou — o
+            // veto de sujeito respondia por ela por acidente, e o acidente
+            // apareceu quando o veto foi restringido ao que ele de fato
+            // protege.
+            guard destinatarioNaoAtributivo(o, nil) else { continue }
             // CONTEXTO DE DINHEIRO. Até a pré-condição cair, o substantivo da
             // gorjeta garantia isto de graça; sem ela, `A comanda vai pro
             // garçom conferir.` e `O pedido vai pra copa.` viravam recusa —
@@ -625,7 +686,13 @@ enum RevisaoDeAfirmacoes {
             // e um deles apagava o valor da conta da tela. `A GORJETA vai pro
             // garçom.` tem sujeito nominal e é justamente a promessa, então o
             // substantivo da gorjeta sai antes do teste.
-            let prefixo = acha(direcional, o).map { (o as NSString).substring(to: $0.location) } ?? ""
+            // O PREFIXO DA 1B TAMBÉM É O ÚLTIMO SEGMENTO. `A conta fechou,
+            // vai tudo pro garçom.` recusa; trocada a vírgula por ` e `, o
+            // sujeito `A conta` passava a caber no teste ancorado, `conta`
+            // está no `substantivo_nao_dinheiro`, e o veto desligava a regra.
+            // O sujeito que interessa é o DESTA cláusula.
+            let prefixo = ultimoSegmento(
+                acha(direcional, o).map { (o as NSString).substring(to: $0.location) } ?? "")
             // O SUJEITO PODE SER O DINHEIRO CHAMADO POR OUTRO NOME. `O VALOR
             // vai todo pro garçom.`, `A PARTE vai pro garçom.`, `Esse DINHEIRO
             // fica com o garçom.` — 96 de 96 escapavam porque o veto lia `o
@@ -638,21 +705,37 @@ enum RevisaoDeAfirmacoes {
                 in: prefixoSemGorjeta,
                 range: NSRange(location: 0, length: (prefixoSemGorjeta as NSString).length),
                 withTemplate: " ")
-            if temSujeitoNominal(prefixoSemGorjeta) { continue }
+            // O VETO SÓ VALE ONDE NÃO PODE ESCONDER UMA PROMESSA. A
+            // enumeração do dinheiro estava com a polaridade virada pro
+            // escape: `comissão`, `acréscimo`, `agrado` — palavra de dinheiro
+            // que a lista não conhece ficava no prefixo, virava `outro
+            // assunto` e VETAVA a regra 1b. Numa janela que fala de dinheiro o
+            // veto agora exige um sujeito NOMEADO como não-dinheiro;
+            // desconhecido significa recusa. Fora dela o veto vale inteiro, e
+            // é lá que mora `A comanda vai pro garçom conferir.`
+            // Ver `_porque_veto_por_contexto`.
+            let contextoDeDinheiro = casa(gorjeta, texto) || casa(quantidade, texto)
+            if temSujeitoNominal(prefixoSemGorjeta)
+                && (!contextoDeDinheiro || casa(naoDinheiro, prefixo)) { continue }
             // Na evidência mais fraca, destinatário que também é LUGAR não
             // basta: `Vai pra cozinha, já avisei.` é sobre o pedido.
             // Ver `_porque_ambiguo`.
+            // UM CÔMODO PODE SER DESTINO DE MOVIMENTO E NÃO PODE SER DONO DE
+            // DINHEIRO. A ambiguidade está na RELAÇÃO, não na palavra: `Vai
+            // pra cozinha` é sobre o pedido, `Fica com o salão` e `É da copa`
+            // são a promessa. Apagar `salão` da lista não fecharia isso —
+            // `cozinha` e `copa` carregavam o mesmo escape.
             let soAmbiguo = casa(destinatarioAmbiguo, o)
                 && !casa(destinatario, destinatarioAmbiguo.stringByReplacingMatches(
                     in: o, range: NSRange(location: 0, length: (o as NSString).length),
                     withTemplate: " "))
+                && !casa(ambiguoPossuido, o)
             let comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo
             // O contexto de dinheiro é medido na JANELA, não na oração: em
             // `vai pra equipe · ${e.tip}` o substantivo da gorjeta está na
             // mesma linha e noutra oração, e a janela é o que o
             // `_porque_janela` define como unidade de leitura.
-            guard casa(gorjeta, texto) || casa(quantidade, texto) || comecaNaForma
-            else { continue }
+            guard contextoDeDinheiro || comecaNaForma else { continue }
             if !nega(o) { return true }
         }
         // 3. Afirmação repartida entre orações. Duas correções, da mesma
@@ -771,8 +854,27 @@ enum RevisaoDeAfirmacoes {
             // prefixo não conhece `distributes`, e crescer a lista de verbos
             // com cada tradução é a enumeração que sempre perde.
             if temDistribuidor(o) && !casa(revoga, o) { continue }
-            let comEvasao = casa(evasaoQueLicencia, o)
-            guard let m = acha(comEvasao ? cabecaDeDestino : cabecaDirecional, o) else { continue }
+            // A PISTA DE EVASÃO VALE PELA JANELA, não pela oração: ela
+            // qualifica o CAMINHO do dinheiro, e uma qualificação mora onde o
+            // ritmo da frase a puser. `Com a equipe, sem passar pela casa.`
+            // vira `Com a equipe — sem passar pela casa.` e a pista muda de
+            // oração, com o mesmo sentido e outro veredito. A licença segue a
+            // ESTRITA. Achado pelo eixo de RE-SEGMENTAÇÃO, 2026-09-14.
+            let comEvasao = casa(evasaoQueLicencia, texto)
+            // CABEÇA GENITIVA. `PREPDIR` não tem `d[oa]s?` — de propósito, pra
+            // `Com o garçom, ok.` não entrar por outra porta —, então a
+            // promessa sem verbo e sem direção não tinha quem a visse:
+            // `A caixinha — dos atendentes do salão`, `A caixinha? Da equipe.`,
+            // `Serviço: 10%⏎- da equipe`. A licença é a ESTRITA (substantivo da
+            // gorjeta antes, não só quantidade) e a cabeça é ANCORADA no começo
+            // da oração. Ver `_porque_cabeca_genitiva`.
+            var mOpt = acha(comEvasao ? cabecaDeDestino : cabecaDirecional, o)
+            var soGorjetaAntes = comEvasao
+            if mOpt == nil {
+                mOpt = acha(cabecaGenitiva, o)
+                soGorjetaAntes = true
+            }
+            guard let m = mOpt else { continue }
             let ns = o as NSString
             // O prefixo do caminho FRACO é julgado pela predicação INTEIRA, e
             // não só por sujeito: aqui a evidência é fraca, então qualquer
@@ -782,7 +884,8 @@ enum RevisaoDeAfirmacoes {
             // O prefixo é julgado por VERBO nos DOIS caminhos: pronome
             // sozinho é anáfora, não oração nova — `Ela, pra equipe.` é a
             // mesma promessa. Ver `_porque_cabeca`.
-            guard !casa(verboFinito, ns.substring(to: m.location)) else { continue }
+            guard !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))
+            else { continue }
             let resto = ns.substring(from: m.location + m.length)
             // A FORÇA DA EVIDÊNCIA DECIDE O QUANTO A FORMA PRECISA SER
             // ESTRITA. Quantidade CONSUMIDA pela cabeça é dinheiro dirigido, e
@@ -806,7 +909,7 @@ enum RevisaoDeAfirmacoes {
             // A licença da cabeça não-direcional exige o SUBSTANTIVO da
             // gorjeta antes, não só quantidade — ver `_porque_licenca`.
             guard partes[..<i].contains(where: {
-                comEvasao ? casa(gorjeta, $0) : (casa(quantidade, $0) || casa(gorjeta, $0))
+                soGorjetaAntes ? casa(gorjeta, $0) : (casa(quantidade, $0) || casa(gorjeta, $0))
             }) else { continue }
             // NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA — a mesma lógica da regra
             // 1b, que a regra 3 não aplicava. A dispensa por ORDEM valia só

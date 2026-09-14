@@ -103,6 +103,33 @@ describe('cron: quem escreve não degrada aberta', () => {
     expect(frouxas).toEqual([]);
   });
 
+  test('nenhum ramo SEM autenticação manda nada pra fora', () => {
+    /**
+     * O CENSO QUE FALTAVA, e ele fecha a CLASSE em vez do caso.
+     *
+     * Este arquivo provava que a rota FECHA sem o segredo; não provava que ela
+     * não produz EFEITO EXTERNO antes de fechar. A `/api/cron/reconcile`
+     * paginava o fundador de dentro do ramo `!process.env.CRON_SECRET` — que é,
+     * por definição, o ramo sem autenticação: é o ramo do segredo ausente. O
+     * throttle era `let` de módulo numa função serverless, então todo cold
+     * start o zerava, e N requisições concorrentes rendiam N avisos e N
+     * `fetch` de 8 segundos. Amplificação de function-seconds e telefone do
+     * fundador, por `curl` anônimo.
+     * Achado pela revisão de segurança de 2026-09-14.
+     *
+     * A regra: entre o `if (!process.env.CRON_SECRET)` e o `return` dele não
+     * pode haver chamada de saída. Log em stderr pode — é local, é grátis, e é
+     * o que as outras duas rotas de cron sempre fizeram.
+     */
+    const sujas = [];
+    for (const r of rotas) {
+      const m = /if \(!process\.env\.CRON_SECRET\)\s*\{([\s\S]*?)\n      \}/.exec(r.corpo);
+      if (!m) continue;
+      if (/notify[A-Za-z]*\(|await fetch\(|sendMail|webhook/.test(m[1])) sujas.push(r.nome);
+    }
+    expect(sujas).toEqual([]);
+  });
+
   test('nenhuma rota de cron que escreve cai num limite de taxa como alternativa', () => {
     // `else if (!rateLimitCron(req))` era o caminho que deixava a rota pública.
     const comEscape = rotas
