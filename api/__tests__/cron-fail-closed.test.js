@@ -59,6 +59,27 @@ function escreve(nome) {
   return !SO_LEEM.has(nome);
 }
 
+/**
+ * Rotas SEM portão que mandam coisa pra fora, com o motivo escrito. Cada uma é
+ * uma decisão, não um resto.
+ */
+const SAIDA_SEM_PORTAO = {
+  '/api/demo/beacon': (
+    'TELEMETRIA DE PROSPECÇÃO, e ela TEM que ser pública: quem a dispara é o '
+    + '`sendBeacon` do navegador de um prospecto abrindo o link da Olímpia, que por '
+    + 'definição não tem sessão. O que está bounded e escrito: (a) limite de taxa da '
+    + 'demo, 30 por janela por IP; (b) o corpo aceito é DOIS campos — um `event` de '
+    + 'lista fechada (`opened`/`paid`) e um `pl` de 40 a 400 caracteres —, e nada '
+    + 'disso é lido como instrução nem escrito no nosso banco; (c) a rota NÃO devolve '
+    + 'nada do outro lado, então não vira oráculo de token válido. O que ela não '
+    + 'impede, e está dito: quem já tem um link de prospecção válido pode forjar '
+    + 'evento PARA AQUELE LINK, e isso suja o radar de vendas — não o dinheiro, não '
+    + 'o cliente na mesa, não dado pessoal. A validação do `pl` é da ponte, que é '
+    + 'quem o emitiu; aqui ele é repassado, nunca confiado. Achado pelo censo de '
+    + 'saída ao varrer o router inteiro, 2026-09-14.'
+  ),
+};
+
 describe('cron: quem escreve não degrada aberta', () => {
   const rotas = rotasDeCron();
 
@@ -137,6 +158,42 @@ describe('cron: quem escreve não degrada aberta', () => {
     }
     expect(naoParseadas).toEqual([]);
     expect(sujas).toEqual([]);
+  });
+
+  /**
+   * E O CENSO DE SAÍDA VALE PRO ROUTER INTEIRO, não só pros crons.
+   *
+   * A versão anterior só olhava dentro do ramo `if (!process.env.CRON_SECRET)`,
+   * porque foi escrita a partir do achado que a criou — a mesma forma que a
+   * revisão de compliance nomeou três rodadas seguidas. Uma rota que não é
+   * cron e manda coisa pra fora sem autenticação nenhuma era invisível por
+   * construção, e havia uma: `/api/demo/beacon`.
+   *
+   * A regra: toda chamada de saída (`notify*`, `fetch`) mora numa rota que tem
+   * portão de autenticação, ou está declarada aqui com o motivo escrito.
+   */
+  test('toda chamada de SAÍDA está atrás de um portão, ou declarada', () => {
+    const fonte = SRC.split('\n');
+    const ROTA = /url\.pathname === '([^']+)'/;
+    const SAIDA = /notify[A-Za-z]*\(|await fetch\(/;
+    const PORTAO = /segredoConfere\(|requireOwner|exigeDono|sessaoDoDono|assinatura|verifySignature/;
+    const comentario = (l) => /^\s*(\*|\/\/)/.test(l);
+    let rota = null; let temPortao = false;
+    const soltas = [];
+    for (const l of fonte) {
+      const m = ROTA.exec(l);
+      if (m) { rota = m[1]; temPortao = false; }
+      if (rota && PORTAO.test(l) && !comentario(l)) temPortao = true;
+      if (rota && SAIDA.test(l) && !comentario(l) && !temPortao) soltas.push(rota);
+    }
+    const declaradas = SAIDA_SEM_PORTAO;
+    expect([...new Set(soltas)].filter((r) => !declaradas[r])).toEqual([]);
+    // A gaveta tem a disciplina das dispensas: motivo escrito, e entrada que
+    // deixou de ser necessária cai aqui em vez de envelhecer calada.
+    for (const [r, porque] of Object.entries(declaradas)) {
+      expect(`${r}: ${porque}`).toMatch(/.{200,}/);
+      expect(soltas).toContain(r);
+    }
   });
 
   test('nenhuma rota de cron que escreve cai num limite de taxa como alternativa', () => {
