@@ -60,13 +60,26 @@ function carrega() {
   return require(arq);
 }
 
-/** Cada texto com UMA palavra neutra injetada em cada fronteira de palavra. */
+/**
+ * Cada texto com UMA palavra neutra injetada em cada fronteira — e as
+ * fronteiras incluem o COMEÇO do texto e o começo de cada linha.
+ *
+ * A primeira versão injetava só depois de espaço INTERNO, e por isso era cega
+ * exatamente à região que a rodada que a criou tinha editado: `comecaNaForma`,
+ * os dois testes de prefixo do `cabecaValida`, o `marcador_de_lista`, o `^` do
+ * `contraste_colado` e o do `negador_colado` leem todos a posição zero. Um
+ * instrumento que não alcança o lugar onde as decisões moram mede outra coisa.
+ * Com o eixo de POSIÇÃO, três casos do corpo caíam de cara.
+ * Achado pela revisão de compliance de 2026-09-14.
+ */
 function* injecoes(texto) {
   for (const palavra of NEUTRAS) {
-    // Fronteiras: depois de cada espaço interno de cada linha.
     for (let i = 0; i < texto.length; i += 1) {
-      if (texto[i] !== ' ') continue;
-      yield [`${texto.slice(0, i + 1)}${palavra} ${texto.slice(i + 1)}`, palavra, i];
+      // Depois de espaço interno, e ANTES de cada linha (inclusive a primeira).
+      const fronteira = texto[i] === ' ' ? i + 1
+        : (i === 0 || texto[i - 1] === '\n') ? i : -1;
+      if (fronteira < 0) continue;
+      yield [`${texto.slice(0, fronteira)}${palavra} ${texto.slice(fronteira)}`, palavra, i];
     }
   }
 }

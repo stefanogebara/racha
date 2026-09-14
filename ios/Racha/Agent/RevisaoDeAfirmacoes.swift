@@ -69,6 +69,28 @@ enum RevisaoDeAfirmacoes {
     /// OUTRO destino. "não PRA casa" retira o outro e afirma este; "não TEM
     /// gorjeta nenhuma" nega de verdade. Ver `_porque_contrastiva`.
     private static let contrasteColado = regex(ClaimPatterns.contrasteColado)
+    private static let sujeitoNominal = regex(ClaimPatterns.sujeitoNominal)
+    private static let destinatarioAmbiguo = regex(ClaimPatterns.destinatarioAmbiguo)
+    private static let palavraFuncional = regex(ClaimPatterns.palavraFuncional)
+
+    /// Entre o negador e o núcleo só há material FUNCIONAL?
+    ///
+    /// Um negador que rege o destino é seguido de verbo, preposição e artigo
+    /// até chegar nele. Um negador que nega OUTRA coisa traz conteúdo próprio
+    /// no caminho — `sem DÚVIDA o garçom`, `não PRECISA DEIXAR MAIS NADA o
+    /// garçom`. Ver `_porque_alcance_antes`: bastava uma interjeição com
+    /// vírgula na frente pra CRIAR a âncora que abre a janela, e eram 144 de
+    /// 144. Polaridade: palavra desconhecida = não alcança = recusa.
+    private static func soFuncionalAteONucleo(_ vao: String) -> Bool {
+        let ns = vao as NSString
+        var coberto = 0
+        for m in palavraFuncional.matches(in: vao, range: NSRange(location: 0, length: ns.length)) {
+            coberto += m.range(at: 1).length
+        }
+        let letras = vao.reduce(0) { $1.isLetter || $1.isNumber ? $0 + 1 : $0 }
+        return coberto >= letras
+    }
+    private static let evasaoQueLicencia = regex(ClaimPatterns.evasaoQueLicencia)
     private static let cabecaDirecional = regex(ClaimPatterns.cabecaDirecional)
 
     /// O negador atrás resgata? Duas perguntas, as duas já doutrina aqui.
@@ -81,10 +103,23 @@ enum RevisaoDeAfirmacoes {
     /// O que sobra é negação de verdade. Ver `_porque_alcance`: a versão
     /// anterior perguntava só pelo contraste e deixava passar 90 de 90 caudas
     /// que negam outra coisa ("não precisa deixar mais nada").
-    private static func negadorResgata(_ antesDoNegador: String, _ cauda: String) -> Bool {
+    private static func negadorResgata(_ cauda: String) -> Bool {
         guard let m = acha(negadorColado, cauda) else { return false }
-        if casa(direcional, antesDoNegador) { return false }
         let resto = (cauda as NSString).substring(from: m.location + m.length)
+        // O NEGADOR ATRÁS RESGATA SE ALCANÇA A GORJETA, ou se não diz mais
+        // nada além do verbo que ele nega. `não TEM GORJETA nenhuma`, `não
+        // FICA COM A GORJETA` falam do dinheiro; `não recebe`, `não leva` são
+        // a negação nua do predicado cujo sujeito é o próprio destinatário.
+        // `não precisa DEIXAR MAIS NADA`, `não tem TAXA nenhuma` trazem
+        // conteúdo próprio: negam outra coisa, e nada resgata uma afirmação já
+        // feita (CDC art. 30).
+        //
+        // Substituiu um teste de REGÊNCIA por adjacência — a única peça do
+        // arquivo que tinha ficado sem slot de modificador, declarada como tal
+        // — e o fabricador a derrubou com uma palavra na primeira rodada:
+        // `fica com ASSIM a equipe não precisa deixar mais nada`. Agora não há
+        // adjacência nenhuma aqui. Achado pelo fabricador, 2026-09-14.
+        if !casa(gorjeta, resto) && !soFuncionalAteONucleo(resto) { return false }
         return !casa(contrasteColado, resto)
     }
 
@@ -121,7 +156,7 @@ enum RevisaoDeAfirmacoes {
     /// o runtime não tinha dispensa nenhuma e recusava o turno toda vez que o
     /// modelo repetia o texto que o `AgentTool` lhe ensina.
     /// Ver `_porque_genitivo_descritivo`.
-    private static func destinatarioNaoAtributivo(_ oracao: String) -> Bool {
+    private static func destinatarioNaoAtributivo(_ oracao: String, _ clausula: String? = nil) -> Bool {
         // A DISPENSA É REVOGADA PELA MESMA CLÁUSULA QUE REVOGA O DISTRIBUIDOR.
         // Ela é a única regra deste arquivo que AFROUXA, e sem revogação virava
         // porta: "A renda dos garçons vem da sua gorjeta, SEM FOLHA." e "A verba
@@ -129,7 +164,10 @@ enum RevisaoDeAfirmacoes {
         // — duas regressões medidas contra o commit anterior. Evasão cancela a
         // leitura benigna, que é exatamente o que o `revoga_dispensa` já faz do
         // outro lado.
-        if casa(revoga, oracao) { return casa(destinatario, oracao) }
+        // A REVOGAÇÃO É LIDA NA ORAÇÃO INTEIRA, não no segmento: em `A renda
+        // dos garçons vem da sua gorjeta, SEM FOLHA.` a evasão mora depois da
+        // vírgula, e o genitivo que ela revoga mora antes.
+        if casa(revoga, clausula ?? oracao) { return casa(destinatario, oracao) }
         let semGenitivo = genitivoDescritivo.stringByReplacingMatches(
             in: oracao, range: NSRange(location: 0, length: (oracao as NSString).length),
             withTemplate: " ")
@@ -293,52 +331,36 @@ enum RevisaoDeAfirmacoes {
 
         var anterior = 0
         for d in dests {
-            var ini = anterior
-            var achou = anterior > 0
-            // O substantivo da gorjeta mais próximo ANTES deste destinatário —
-            // de qualquer lado dele. A versão anterior só olhava quando a
-            // gorjeta vinha antes, e por isso "Sem dúvida, o garçom fica com a
-            // gorjeta." (ordem invertida) ficava com a janela valendo o
-            // prefixo inteiro: o preâmbulo desligava o guarda, 80 de 80.
-            for g in gorjetas where g.location + g.length <= d.location {
-                ini = max(ini, g.location + g.length); achou = true
+            // A JANELA VIROU O PREFIXO DESDE O DESTINATÁRIO ANTERIOR, e três
+            // das quatro âncoras saíram.
+            //
+            // Elas existiam porque o `antes` contava qualquer negador que
+            // caísse na janela, então a janela precisava ser pequena — e
+            // acertar o tamanho dela custou três rodadas (preâmbulo que
+            // desligava o guarda, falha aberta quando nada ancorava, a
+            // interjeição que CRIAVA âncora). Desde que o negador precisa
+            // ALCANÇAR o destino, o tamanho da janela deixou de importar: um
+            // negador longe traz conteúdo próprio no caminho e não conta.
+            //
+            // Medido, não suposto: com o escopo no lugar, apagar cada uma das
+            // quatro âncoras deixava o corpo inteiro verde. Peça que não pode
+            // ficar vermelha é peça sem teste, e peça sem teste que também não
+            // decide nada é só peça. Achado pelo portão de mutação ao ser
+            // reapontado pro código novo, 2026-09-14.
+            //
+            // A do DESTINATÁRIO ANTERIOR ficou, e agora ela tem caso: em
+            // "A caixinha não é do barman NEM do sommelier." o `nem` que nega o
+            // segundo mora depois do primeiro, e sem o corte o escopo do `não`
+            // esbarra em `barman` — conteúdo — e a negação some.
+            let vao = ns.substring(with: NSRange(
+                location: anterior, length: d.location - anterior))
+            var antes = false
+            if let n = acha(negador, vao) {
+                // E O NEGADOR TEM QUE ALCANÇAR O DESTINO. Ver
+                // `_porque_alcance_antes`.
+                antes = soFuncionalAteONucleo(
+                    (vao as NSString).substring(from: n.location + n.length))
             }
-            for dir in direcionais where dir.location <= d.location {
-                // TRÊS PALAVRAS ATRÁS, não dez caracteres. O orçamento fixo era
-                // o olho mágico outra vez: `A gorjeta NUNCA MAIS vai pro
-                // garçom.` punha o `nunca` a onze caracteres do verbo e a
-                // janela começava no meio dele, então a negação sumia e a
-                // resposta certa virava recusa.
-                // Achado pela revisão de compliance de 2026-09-14.
-                var p = dir.location, palavras = 0
-                while p > 0 && palavras < 3 {
-                    p -= 1
-                    if ns.character(at: p) == 32 { palavras += 1 }
-                }
-                ini = max(ini, p); achou = true
-            }
-            for sep in separadores where sep.location + sep.length <= d.location {
-                ini = max(ini, sep.location + sep.length); achou = true
-            }
-            // FALHA FECHADA: sem candidato que ancore, a janela é VAZIA — não o
-            // prefixo inteiro. Com `ini = 0` como padrão, um destinatário que
-            // viesse antes do substantivo, sem vírgula e sem forma direcional,
-            // devolvia a janela máxima e o preâmbulo voltava a desligar tudo:
-            // "Sem dúvida o garçom fica com a gorjeta" (sem a vírgula). 55 de
-            // 182. O que fechou o caso reportado foi o separador, por acidente
-            // de pontuação — deletar o laço da gorjeta inteiro deixava o
-            // fixture VERDE, e o comentário aqui dizia que ele olhava dos dois
-            // lados. Achado pela revisão de segurança de 2026-09-13.
-            ini = achou ? max(0, min(ini, d.location)) : d.location
-            // Se ALGUM destinatário chega sem negação na sua janela, a oração
-            // AFIRMA. Olhar só o primeiro deixava negar um destinatário e
-            // afirmar outro na mesma oração — "não fica com o salão, fica com
-            // o garçom" —, e o teste passava só porque a palavra escolhida
-            // (`casa`) não está na lista de runtime: provava a regra com o
-            // único substantivo incapaz de exercitá-la.
-            let antes = ini < d.location
-                ? casa(negador, ns.substring(with: NSRange(location: ini, length: d.location - ini)))
-                : false
             // E O NEGADOR PODE VIR DEPOIS DO DESTINATÁRIO — mas COLADO nele,
             // e sem `sem`.
             //
@@ -379,8 +401,7 @@ enum RevisaoDeAfirmacoes {
                 ? ns.substring(with: NSRange(
                     location: d.location + d.length, length: fimDoTrecho - d.location - d.length))
                 : ""
-            let depois = negadorResgata(
-                ns.substring(to: min(d.location + d.length, ns.length)), cauda)
+            let depois = negadorResgata(cauda)
             if !antes && !depois { return false }
             anterior = d.location + d.length
         }
@@ -499,11 +520,25 @@ enum RevisaoDeAfirmacoes {
         // afirmação; escopo sabe. Achado pela revisão de segurança de
         // 2026-09-14.
         for o in partes where casa(gorjeta, o) {
-            for seg in segmentos(o) where destinatarioNaoAtributivo(seg) {
-                // A revogação vale pela ORAÇÃO, o distribuidor pelo SEGMENTO:
-                // em "…à equipe, MAS NÃO PELA FOLHA." a evasão mora no
-                // segmento seguinte ao do distribuidor.
-                if !nega(o) && (casa(revoga, o) || !casa(distribuidor, seg)) { return true }
+            // COORDENAÇÃO HERDA O DISTRIBUIDOR. `O restaurante distribui a
+            // gorjeta à equipe E À COZINHA` põe o segundo destinatário num
+            // segmento sem verbo próprio, e a frase SANCIONADA na forma que o
+            // dono mais quer — dividir com a cozinha — virava recusa. Segmento
+            // sem verbo é continuação, não afirmação nova.
+            // Achado pela revisão de segurança de 2026-09-14.
+            var distribuidorAnterior = false
+            for seg in segmentos(o) {
+                // O distribuidor tem que estar na predicação MATRIZ: numa
+                // relativa ele modifica a GORJETA e não diz pra onde ela vai.
+                let matriz = relativaQualquer.stringByReplacingMatches(
+                    in: seg, range: NSRange(location: 0, length: (seg as NSString).length),
+                    withTemplate: " ")
+                let temDist = casa(distribuidor, matriz)
+                let temVerbo = casa(verboFinito, seg) || casa(direcional, seg)
+                let dispensa = temDist || (!temVerbo && distribuidorAnterior)
+                if temVerbo || temDist { distribuidorAnterior = temDist }
+                guard destinatarioNaoAtributivo(seg, o) else { continue }
+                if !nega(o) && (casa(revoga, o) || !dispensa) { return true }
             }
         }
         // 1b. E a FORMA DIRECIONAL numa oração não é resgatável por cláusula
@@ -530,10 +565,34 @@ enum RevisaoDeAfirmacoes {
             // escreve — "Fica com a equipe, sim.", "Vai tudo pro garçom." Com
             // sujeito na frente, o assunto é OUTRA COISA.
             // Achado pela revisão de segurança de 2026-09-14.
-            let comecaNaForma = acha(direcional, o).map { m in
-                (o as NSString).substring(to: m.location)
-                    .rangeOfCharacter(from: .alphanumerics) == nil
-            } ?? false
+            // O PREFIXO É JULGADO, NÃO CONTADO. Isto era "nenhum caractere
+            // alfanumérico antes do verbo" — um teste de posição no lugar do
+            // teste de predicação que o resto do arquivo usa. Uma palavra de
+            // discurso na frente desligava tudo: `Sim, vai pro garçom.`,
+            // `Claro, fica com a equipe.`, `Ela fica com o garçom.` — 150 de
+            // 150, e é a resposta de uma volta à pergunta mais provável da
+            // mesa, sem substantivo de gorjeta nenhum porque quem perguntou
+            // acabou de dizer. `Sim,` e `Ela` são adjunto e anáfora; `O Gui
+            // paga` é oração nova. Achado pelas duas revisões de 2026-09-14.
+            // SUJEITO NOMINAL QUE NÃO SEJA A GORJETA VETA a regra 1b: a frase
+            // é sobre OUTRA coisa. `A COMANDA vai pro garçom conferir.`, `O
+            // PEDIDO vai pra copa.` — 34 de 47 turnos inocentes viravam recusa,
+            // e um deles apagava o valor da conta da tela. `A GORJETA vai pro
+            // garçom.` tem sujeito nominal e é justamente a promessa, então o
+            // substantivo da gorjeta sai antes do teste.
+            let prefixo = acha(direcional, o).map { (o as NSString).substring(to: $0.location) } ?? ""
+            let prefixoSemGorjeta = gorjeta.stringByReplacingMatches(
+                in: prefixo, range: NSRange(location: 0, length: (prefixo as NSString).length),
+                withTemplate: " ")
+            if casa(sujeitoNominal, prefixoSemGorjeta) { continue }
+            // Na evidência mais fraca, destinatário que também é LUGAR não
+            // basta: `Vai pra cozinha, já avisei.` é sobre o pedido.
+            // Ver `_porque_ambiguo`.
+            let soAmbiguo = casa(destinatarioAmbiguo, o)
+                && !casa(destinatario, destinatarioAmbiguo.stringByReplacingMatches(
+                    in: o, range: NSRange(location: 0, length: (o as NSString).length),
+                    withTemplate: " "))
+            let comecaNaForma = !casa(sujeitoNominal, prefixo) && !soAmbiguo
             // O contexto de dinheiro é medido na JANELA, não na oração: em
             // `vai pra equipe · ${e.tip}` o substantivo da gorjeta está na
             // mesma linha e noutra oração, e a janela é o que o
@@ -658,7 +717,7 @@ enum RevisaoDeAfirmacoes {
             // prefixo não conhece `distributes`, e crescer a lista de verbos
             // com cada tradução é a enumeração que sempre perde.
             if temDistribuidor(o) && !casa(revoga, o) { continue }
-            let comEvasao = casa(revoga, o)
+            let comEvasao = casa(evasaoQueLicencia, o)
             guard let m = acha(comEvasao ? cabecaDeDestino : cabecaDirecional, o) else { continue }
             let ns = o as NSString
             // O prefixo do caminho FRACO é julgado pela predicação INTEIRA, e
@@ -690,8 +749,11 @@ enum RevisaoDeAfirmacoes {
             // Quantidade OU o substantivo da gorjeta numa oração anterior: em
             // "Sobre a gorjeta\nSim, pra equipe." não há quantidade em lugar
             // nenhum, e a promessa é a mesma.
-            guard partes[..<i].contains(where: { casa(quantidade, $0) || casa(gorjeta, $0) })
-            else { continue }
+            // A licença da cabeça não-direcional exige o SUBSTANTIVO da
+            // gorjeta antes, não só quantidade — ver `_porque_licenca`.
+            guard partes[..<i].contains(where: {
+                comEvasao ? casa(gorjeta, $0) : (casa(quantidade, $0) || casa(gorjeta, $0))
+            }) else { continue }
             // NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA — a mesma lógica da regra
             // 1b, que a regra 3 não aplicava. A dispensa por ORDEM valia só
             // aqui, e por isso bastava ABRIR com a frase sancionada pra
@@ -714,8 +776,14 @@ enum RevisaoDeAfirmacoes {
     /// resposta mais provável a "a gorjeta fica com a equipe?"); e o segundo
     /// substantivo costuma ser a última palavra da frase, então a tela sempre
     /// chegava a um caractere do fim.
-    static func chegouPertoDoAssunto(_ texto: String) -> Bool {
-        casa(gorjeta, texto) || casa(destinatario, texto)
+    static func chegouPertoDoAssunto(_ textoCru: String) -> Bool {
+        // NORMALIZA AQUI TAMBÉM. A trava do streaming é o SEGUNDO ponto de
+        // entrada, e o conserto de NFD tinha ido só no primeiro: em forma
+        // decomposta `gar[çc]o[nm]s?` não casa, a trava não arma, e a promessa
+        // aparece quadro a quadro na tela antes de o veredito final a trocar.
+        // O veredito ficava certo e a garantia do `streamNaoVaza` não.
+        let texto = normalizado(textoCru)
+        return casa(gorjeta, texto) || casa(destinatario, texto)
     }
 
     /// O que mostrar ENQUANTO chega, dado o acumulado cru.

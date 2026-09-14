@@ -42,6 +42,7 @@ const PECAS = (G) => ({
   MOD: G.modificador_de_destino,
   DEST: G.substantivo_destinatario_runtime,
   NEGCOLADO: G.negador_colado,
+  VERBOS: G.verbo_finito.replace(/^\(\?:\^\|\[\^0-9A-Za-zÀ-ÿ\]\)\(/, '').replace(/\)\(\?=\[\^0-9A-Za-zÀ-ÿ\]\|\$\)$/, ''),
   ENFASE: G.enfase_markdown,
   PREPPRON: G.preposicao_antes_de_pronome,
   NUCLEO: G.nucleo_de_atribuicao,
@@ -60,6 +61,8 @@ const COMPOSTOS = {
   cabeca_de_destino: (G) => compor(G, G.cabeca_de_destino),
   cabeca_forte: (G) => compor(G, G.cabeca_forte),
   contraste_colado: (G) => compor(G, G.contraste_colado),
+  evasao_que_licencia: (G) => compor(G, G.evasao_que_licencia),
+  palavra_funcional: (G) => compor(G, G.palavra_funcional),
   cabeca_direcional: (G) => compor(G, G.cabeca_direcional),
   revoga_dispensa: (G) => compor(G, G.revoga_dispensa),
   evasao_de_caminho: (G) => compor(G, G.evasao_de_caminho),
@@ -116,6 +119,14 @@ enum ClaimPatterns {
     /// \`_porque_contrastiva\`.
     /// Destino colado atrás do negador: contraste. Ver \`_porque_alcance\`.
     static let contrasteColado = ${lit(COMPOSTOS.contraste_colado(G))}
+    /// Sujeito NOMINAL: determinante + substantivo. Ver \`_porque_sujeito_nominal\`.
+    static let sujeitoNominal = ${lit(G.sujeito_nominal)}
+    /// Destinatário que também é LUGAR. Ver \`_porque_ambiguo\`.
+    static let destinatarioAmbiguo = ${lit(G.destinatario_ambiguo)}
+    /// Só a família do CAMINHO licencia a cabeça não-direcional. Ver \`_porque_licenca\`.
+    static let evasaoQueLicencia = ${lit(COMPOSTOS.evasao_que_licencia(G))}
+    /// Material FUNCIONAL entre o negador e o núcleo. Ver \`_porque_alcance_antes\`.
+    static let palavraFuncional = ${lit(COMPOSTOS.palavra_funcional(G))}
     static let cabecaDirecional = ${lit(COMPOSTOS.cabeca_direcional(G))}
     /// Pronome SUJEITO — o que não é regido por preposição. Ver
     /// \`_porque_predicacao\`.

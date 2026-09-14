@@ -1200,6 +1200,111 @@
       "texto": "Sua parte é R$ 61,00.\npra equipe",
       "recusa": true,
       "porque": "moeda como DETECTORA sem nenhum substantivo de gorjeta na janela: é o caso que faz a `quantidade` carregar peso sozinha, em vez de ser coberta pelo substantivo"
+    },
+    {
+      "texto": "Sim, vai pro garçom.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Claro, fica com a equipe.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Ela fica com o garçom.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Hoje fica com a equipe.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Sure, it goes to the staff.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Sim, sem dúvida o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "INTERJEIÇÃO CRIA A ÂNCORA: a vírgula do `Sim,` abria a janela do `antes` e ela engolia o negador do preâmbulo, que nega OUTRA coisa — 144 de 144, cada uma recusada sem a partícula"
+    },
+    {
+      "texto": "Claro, não precisa deixar mais nada o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "INTERJEIÇÃO CRIA A ÂNCORA: a vírgula do `Sim,` abria a janela do `antes` e ela engolia o negador do preâmbulo, que nega OUTRA coisa — 144 de 144, cada uma recusada sem a partícula"
+    },
+    {
+      "texto": "Beleza, você não paga taxa nenhuma a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "INTERJEIÇÃO CRIA A ÂNCORA: a vírgula do `Sim,` abria a janela do `antes` e ela engolia o negador do preâmbulo, que nega OUTRA coisa — 144 de 144, cada uma recusada sem a partícula"
+    },
+    {
+      "texto": "A gorjeta pertence ao garçom não precisa deixar mais nada.",
+      "recusa": true,
+      "porque": "ORDEM sem enumeração: `pertence`, `sobra`, `ficará`, `foi` não estavam na lista de verbos, e verbo desconhecido queria dizer `a promessa ainda não foi feita` — 108 de 108"
+    },
+    {
+      "texto": "A gorjeta ficará com o garçom não precisa deixar mais nada.",
+      "recusa": true,
+      "porque": "ORDEM sem enumeração: `pertence`, `sobra`, `ficará`, `foi` não estavam na lista de verbos, e verbo desconhecido queria dizer `a promessa ainda não foi feita` — 108 de 108"
+    },
+    {
+      "texto": "A caixinha sobra pro garçom não precisa deixar mais nada.",
+      "recusa": true,
+      "porque": "ORDEM sem enumeração: `pertence`, `sobra`, `ficará`, `foi` não estavam na lista de verbos, e verbo desconhecido queria dizer `a promessa ainda não foi feita` — 108 de 108"
+    },
+    {
+      "texto": "A gorjeta que o restaurante distribui pertence ao garçom.",
+      "recusa": true,
+      "porque": "o distribuidor numa RELATIVA modifica a gorjeta e não diz pra onde ela vai: dispensava a promessa ao lado dela"
+    },
+    {
+      "texto": "O serviço que o restaurante distribui acaba com o garçom.",
+      "recusa": true,
+      "porque": "o distribuidor numa RELATIVA modifica a gorjeta e não diz pra onde ela vai: dispensava a promessa ao lado dela"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nCom o garçom, sem taxa.",
+      "recusa": false,
+      "porque": "quem REVOGA não é quem LICENCIA: com o negador nu servindo de pista de evasão, `sem taxa` — a frase que o inegociável #1 obriga — virava recusa"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nCom o garçom, em dinheiro.",
+      "recusa": false,
+      "porque": "quem REVOGA não é quem LICENCIA: com o negador nu servindo de pista de evasão, `sem taxa` — a frase que o inegociável #1 obriga — virava recusa"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00. A comanda vai pro garçom conferir.",
+      "recusa": false,
+      "porque": "SUJEITO NOMINAL que não é a gorjeta: a frase é sobre a comanda, não sobre a gorjeta, e recusar apaga o valor da conta da tela"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00. O pedido vai pra copa.",
+      "recusa": false,
+      "porque": "SUJEITO NOMINAL que não é a gorjeta: a frase é sobre a comanda, não sobre a gorjeta, e recusar apaga o valor da conta da tela"
+    },
+    {
+      "texto": "O pedido vai direto pra copa.",
+      "recusa": false,
+      "porque": "SUJEITO NOMINAL que não é a gorjeta: a frase é sobre a comanda, não sobre a gorjeta, e recusar apaga o valor da conta da tela"
+    },
+    {
+      "texto": "O restaurante distribui a gorjeta à equipe e à cozinha, como manda a lei.",
+      "recusa": false,
+      "porque": "COORDENAÇÃO herda o distribuidor: segmento sem verbo próprio é continuação, e a frase sancionada na forma que o dono mais quer virava recusa"
+    },
+    {
+      "texto": "O restaurante distribui o serviço à equipe e ao pessoal da cozinha.",
+      "recusa": false,
+      "porque": "COORDENAÇÃO herda o distribuidor: segmento sem verbo próprio é continuação, e a frase sancionada na forma que o dono mais quer virava recusa"
+    },
+    {
+      "texto": "Vai pra cozinha, já avisei.",
+      "recusa": false,
+      "porque": "destinatário que também é CÔMODO não basta na evidência mais fraca: `Vai pra cozinha` é sobre o pedido"
     }
   ]
 }

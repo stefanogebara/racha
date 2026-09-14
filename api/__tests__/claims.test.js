@@ -94,6 +94,17 @@ const reDestinoQualquer = new RegExp(
 const reMarcador = new RegExp(G.marcador_de_lista);
 /** Negador CONTRASTIVO: `não PRA casa` afirma; `não TEM` nega. Ver o gêmeo. */
 const reContrasteColado = new RegExp(COMPOR.contraste_colado(G), 'i');
+const reSujeitoNominal = new RegExp(G.sujeito_nominal, 'i');
+const reDestAmbiguo = new RegExp(G.destinatario_ambiguo, 'gi');
+const reEvasaoLicencia = new RegExp(COMPOR.evasao_que_licencia(G), 'i');
+const rePalavraFuncional = new RegExp(COMPOR.palavra_funcional(G), 'gi');
+/** Entre o negador e o núcleo só há material FUNCIONAL? Ver o gêmeo no Swift. */
+function soFuncionalAteONucleo(vao) {
+  let coberto = 0;
+  for (const m of vao.matchAll(rePalavraFuncional)) coberto += m[1].length;
+  const letras = [...vao].filter((c) => /[0-9A-Za-zÀ-ÿ]/.test(c)).length;
+  return coberto >= letras;
+}
 const reCabecaDirecional = new RegExp(COMPOR.cabeca_direcional(G), 'i');
 /** A CABEÇA de destino — PREFIXO, não whitelist ancorada. Ver o gêmeo. */
 const reCabeca = new RegExp(COMPOR.cabeca_de_destino(G), 'i');
@@ -116,11 +127,14 @@ function cabecaValida(re, oracao) {
   return oracao.slice(m.index + m[0].length);
 }
 /** O negador atrás resgata? ORDEM e ESCOPO — ver o gêmeo e `_porque_alcance`. */
-function negadorResgata(antesDoNegador, cauda) {
+function negadorResgata(cauda) {
   const m = new RegExp(G.negador_colado, 'i').exec(cauda);
   if (!m) return false;
-  if (reSuprimeGlobal.test(antesDoNegador)) return false;
-  return !reContrasteColado.test(cauda.slice(m.index + m[0].length));
+  const resto = cauda.slice(m.index + m[0].length);
+  // Resgata se ALCANÇA a gorjeta, ou se não diz mais nada além do verbo que
+  // nega. Sem adjacência nenhuma — ver o gêmeo no Swift.
+  if (!reGorjeta.test(resto) && !soFuncionalAteONucleo(resto)) return false;
+  return !reContrasteColado.test(resto);
 }
 /** Os SEGMENTOS de uma oração — separador com a conjunção. Ver o gêmeo. */
 function segmentos(oracao) {
@@ -144,9 +158,9 @@ function temPredicacao(resto) {
   return temSujeitoSolto(semRelativa);
 }
 /** Destinatário que NÃO é genitivo descritivo. Ver o gêmeo no Swift. */
-function destinatarioNaoAtributivo(oracao) {
-  // Evasão cancela a leitura benigna — ver o gêmeo no Swift.
-  if (reRevoga.test(oracao)) return reDestRuntime.test(oracao);
+function destinatarioNaoAtributivo(oracao, clausula) {
+  // Evasão cancela a leitura benigna, e é lida na ORAÇÃO — ver o gêmeo.
+  if (reRevoga.test(clausula || oracao)) return reDestRuntime.test(oracao);
   return reDestRuntime.test(oracao.replace(reGenitivoDescritivo, ' '));
 }
 /** Ver `_porque_quantidade` no claims.json — inclui MOEDA. */
@@ -185,19 +199,10 @@ function nega(oracao) {
   const seps = [...oracao.matchAll(reSeparador)];
   let anterior = 0;
   for (const d of dests) {
-    let ini = anterior;
-    let achou = anterior > 0;
-    for (const g of gorjetas) if (g.index + g[0].length <= d.index) { ini = Math.max(ini, g.index + g[0].length); achou = true; }
-    // TRÊS PALAVRAS atrás, não dez caracteres — ver o gêmeo no Swift.
-    for (const dir of direcionais) if (dir.index <= d.index) {
-      let p = dir.index, palavras = 0;
-      while (p > 0 && palavras < 3) { p -= 1; if (oracao[p] === ' ') palavras += 1; }
-      ini = Math.max(ini, p); achou = true;
-    }
-    for (const sp of seps) if (sp.index + sp[0].length <= d.index) { ini = Math.max(ini, sp.index + sp[0].length); achou = true; }
-    // FALHA FECHADA: sem âncora, a janela é VAZIA, não o prefixo inteiro.
-    ini = achou ? Math.max(0, Math.min(ini, d.index)) : d.index;
-    const antes = ini < d.index && reNegador.test(oracao.slice(ini, d.index));
+    // A janela virou o PREFIXO inteiro — ver o gêmeo no Swift.
+    const vao = oracao.slice(anterior, d.index);
+    const mNeg = new RegExp(reNegador.source, 'i').exec(vao);
+    const antes = mNeg ? soFuncionalAteONucleo(vao.slice(mNeg.index + mNeg[0].length)) : false;
     // E o negador pode vir DEPOIS do destinatário, colado no verbo — "o garçom
     // NÃO fica com a gorjeta" é a resposta certa. Limite: o próximo separador.
     const fim = seps.find((sp) => sp.index >= d.index + d[0].length);
@@ -208,7 +213,7 @@ function nega(oracao) {
     // retira o outro destino e AFIRMA este. Ver `_porque_contrastiva`.
     const cauda = ateOnde > d.index + d[0].length
       ? oracao.slice(d.index + d[0].length, ateOnde) : '';
-    const depois = negadorResgata(oracao.slice(0, d.index + d[0].length), cauda);
+    const depois = negadorResgata(cauda);
     if (!antes && !depois) return false;
     anterior = d.index + d[0].length;
   }
@@ -227,8 +232,8 @@ function distribuidorAntesDoDestino(oracao) {
 /** Esta oração carrega, ELA MESMA, a cláusula do distribuidor não negada? */
 function temDistribuidor(oracao) {
   for (const m of oracao.matchAll(new RegExp(reDistribuidor.source, 'gi'))) {
-    const ini = Math.max(0, m.index - 30);
-    if (!reRevoga.test(oracao.slice(ini, m.index + m[0].length + 30))) return true;
+    // A janela é a ORAÇÃO, não ±30 caracteres — ver o gêmeo no Swift.
+    if (!reRevoga.test(oracao)) return true;
   }
   return false;
 }
@@ -249,17 +254,31 @@ function acusa(janelaCrua) {
   for (const o of partes) {
     // A dispensa do distribuidor vale no SEGMENTO dele — ver o gêmeo.
     if (reGorjeta.test(o)) {
+      // Coordenação herda o distribuidor; a relativa não dispensa — ver o gêmeo.
+      let distribuidorAnterior = false;
       for (const seg of segmentos(o)) {
-        if (destinatarioNaoAtributivo(seg) && !nega(o)
-          && (reRevoga.test(o) || !reDistribuidor.test(seg))) return true;
+        const matriz = seg.replace(reRelativa, ' ');
+        const temDist = reDistribuidor.test(matriz);
+        const temVerbo = reVerboFinito.test(seg) || reSuprimeGlobal.test(seg);
+        const dispensa = temDist || (!temVerbo && distribuidorAnterior);
+        if (temVerbo || temDist) distribuidorAnterior = temDist;
+        if (!destinatarioNaoAtributivo(seg, o)) continue;
+        if (!nega(o) && (reRevoga.test(o) || !dispensa)) return true;
       }
     }
   }
   for (const o of partes) {
     // Contexto de dinheiro para a regra 1b — ver o gêmeo no Swift.
     const mDir = new RegExp(reSuprimeGlobal.source, 'i').exec(o);
-    const comecaNaForma = mDir ? !/[0-9A-Za-zÀ-ÿ]/.test(o.slice(0, mDir.index)) : false;
-    if (mDir && (reGorjeta.test(janela) || reQuantidade.test(janela) || comecaNaForma)
+    if (!mDir) continue;
+    // Sujeito NOMINAL que não é a gorjeta veta; prefixo julgado, não contado;
+    // destinatário que também é cômodo não basta na evidência mais fraca.
+    const prefixo = o.slice(0, mDir.index);
+    if (reSujeitoNominal.test(prefixo.replace(new RegExp(reGorjeta.source, 'gi'), ' '))) continue;
+    const soAmbiguo = new RegExp(G.destinatario_ambiguo, 'i').test(o)
+      && !reDestRuntime.test(o.replace(reDestAmbiguo, ' '));
+    const comecaNaForma = !reSujeitoNominal.test(prefixo) && !soAmbiguo;
+    if ((reGorjeta.test(janela) || reQuantidade.test(janela) || comecaNaForma)
       && !nega(o)) return true;
   }
   // Sem retorno precoce: a regra 1 ABSOLVE a oração que traz o distribuidor, e
@@ -285,13 +304,15 @@ function acusa(janelaCrua) {
     // Pista de EVASÃO vale como direcionalidade — ver o gêmeo no Swift.
     // O distribuidor dispensa no caminho FRACO, e só nele — ver o gêmeo.
     if (temDistribuidor(o) && !reRevoga.test(o)) continue;
-    const mFraco = (reRevoga.test(o) ? reCabeca : reCabecaDirecional).exec(o);
+    const comEvasao = reEvasaoLicencia.test(o);
+    const mFraco = (comEvasao ? reCabeca : reCabecaDirecional).exec(o);
     if (!mFraco) continue;
     // Prefixo julgado por VERBO nos dois caminhos — ver o gêmeo.
     if (reVerboFinito.test(o.slice(0, mFraco.index))) continue;
     const resto = o.slice(mFraco.index + mFraco[0].length);
     if (temPredicacao(resto)) continue;
-    if (!partes.slice(0, i).some((q) => reQuantidade.test(q) || reGorjeta.test(q))) continue;
+    if (!partes.slice(0, i).some((q) => comEvasao ? reGorjeta.test(q)
+      : (reQuantidade.test(q) || reGorjeta.test(q)))) continue;
     // Nada resgata uma afirmação já feita — a mesma lógica da regra 1b, que a
     // regra 3 não aplicava: bastava ABRIR com a frase sancionada pra liberar o
     // `- 100% pro garçom` depois dela.

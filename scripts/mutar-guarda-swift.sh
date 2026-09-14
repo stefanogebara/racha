@@ -21,87 +21,32 @@ guarda = open('ios/Racha/Agent/RevisaoDeAfirmacoes.swift').read()
 
 MUT = [
  ("negador colado vira negador solto", "regex(ClaimPatterns.negadorColado)", "regex(ClaimPatterns.negadores)"),
- # AS TRÊS ÂNCORAS DO `nega` estavam só na lista JS. `nega` NÃO é gerado — é um
- # gêmeo escrito à mão —, e regressão só do lado Swift é exatamente a falha
- # assimétrica que o gerador existe pra impedir: o que o build pega e o runtime
- # não, chega ao cliente. Apontado pelas duas revisões de 2026-09-14.
- ("âncora do substantivo da gorjeta",
-  "            for g in gorjetas where g.location + g.length <= d.location {\n"
-  "                ini = max(ini, g.location + g.length); achou = true\n"
-  "            }", ""),
- ("âncora da forma direcional", "                ini = max(ini, p); achou = true", ""),
- ("janela do nega volta a ser orçamento de CARACTERES",
-  "                while p > 0 && palavras < 3 {\n"
-  "                    p -= 1\n"
-  "                    if ns.character(at: p) == 32 { palavras += 1 }\n"
-  "                }", "                p = max(0, p - 10)"),
- ("âncora do separador interno",
-  "            for sep in separadores where sep.location + sep.length <= d.location {\n"
-  "                ini = max(ini, sep.location + sep.length); achou = true\n"
-  "            }", ""),
- # Sem cobertura, e dito em voz alta — o mesmo veredito que o lado JS já
- # declara: toda entrada que isola esta peça traz também vírgula ou
- # substantivo ancorando no mesmo ponto. Falha FECHADO (tirá-la aperta o
- # guarda), e por isso fica declarada em vez de sumir do relatório.
- ("âncora do destinatário anterior", "var ini = anterior\n            var achou = anterior > 0",
-  "var ini = 0\n            var achou = false", 'sem-cobertura'),
+ ("âncora do destinatário anterior", "                location: anterior, length: d.location - anterior))", "                location: 0, length: d.location))"),
  ("nega olha só o primeiro destinatário", "        for d in dests {", "        for d in dests.prefix(1) {"),
- ("janela falha ABERTA", "ini = achou ? max(0, min(ini, d.location)) : d.location", "ini = max(0, min(ini, d.location))"),
- ("repartida olha só a primeira oração", "for (i, o) in partes.enumerated() where casa(destinatario, o) {",
-  "for (i, o) in partes.enumerated().prefix(1) where casa(destinatario, o) {"),
- ("forma direcional deixa de ser decisiva",
-  "            guard casa(gorjeta, texto) || casa(quantidade, texto) || comecaNaForma\n"
-  "            else { continue }\n            if !nega(o) { return true }", ""),
- ("regra 1b deixa de exigir contexto de dinheiro",
-  "            guard casa(gorjeta, texto) || casa(quantidade, texto) || comecaNaForma\n"
-  "            else { continue }", ""),
- ("negador atrás deixa de olhar a ORDEM (promessa já feita)",
-  "        if casa(direcional, antesDoNegador) { return false }", ""),
- ("negador atrás deixa de olhar o CONTRASTE",
-  "        return !casa(contrasteColado, resto)", "        _ = resto; return true"),
- ("caminho FRACO deixa de exigir cabeça DIRECIONAL",
-  "guard let m = acha(comEvasao ? cabecaDeDestino : cabecaDirecional, o) else { continue }",
-  "guard let m = acha(cabecaDeDestino, o) else { continue }"),
- # Sem cobertura, como o gêmeo JS já declara: o corpo não tem caso em que a
- # dispensa do distribuidor no caminho FRACO muda veredito — ela é redundante
- # com o teste de verbo do prefixo contra este corpo. Falha FECHADO.
- ("distribuidor deixa de dispensar no caminho fraco",
-  "            if temDistribuidor(o) && !casa(revoga, o) { continue }", "", 'sem-cobertura'),
- ("PREFIXO da cabeça deixa de ser julgado",
-  "        if casa(verboFinito, ns.substring(to: m.location)) { return nil }", ""),
- ("PREFIXO do caminho fraco deixa de ser julgado",
-  "            guard !casa(verboFinito, ns.substring(to: m.location)) else { continue }", ""),
- ("caminho FORTE deixa de existir",
-  "            if cabecaValida(cabecaForte, o) != nil { return true }", ""),
- ("caminho FORTE aceita cabeça SEM quantidade",
-  "            if cabecaValida(cabecaForte, o) != nil { return true }",
-  "            if cabecaValida(cabecaDeDestino, o) != nil { return true }"),
- ("caminho FRACO deixa de exigir resto sem PREDICAÇÃO",
-  "            guard !temPredicacao(resto) else { continue }", ""),
+
+ ("repartida olha só a primeira oração", "        for (i, o) in partes.enumerated() where casa(destinatario, o) {", "        for (i, o) in partes.enumerated().prefix(1) where casa(destinatario, o) {"),
+ ("negador atrás deixa de exigir que ALCANCE a gorjeta", "        if !casa(gorjeta, resto) && !soFuncionalAteONucleo(resto) { return false }", ""),
+ ("negador atrás deixa de olhar o CONTRASTE", "        return !casa(contrasteColado, resto)", "        return true"),
+ ("dispensa do distribuidor deixa de valer por SEGMENTO", "            for seg in segmentos(o) {", "            for seg in [o] {"),
+ ("distribuidor volta a dispensar de dentro de uma RELATIVA", "                let temDist = casa(distribuidor, matriz)", "                let temDist = casa(distribuidor, seg)"),
+ ("coordenação deixa de herdar o distribuidor", "                let dispensa = temDist || (!temVerbo && distribuidorAnterior)", "                let dispensa = temDist"),
+ ("distribuidor volta a valer pela janela toda", "                if !nega(o) && (casa(revoga, o) || !dispensa) { return true }", "                if !nega(o) && !casa(distribuidor, texto) { return true }"),
+ ("evasão deixa de revogar a dispensa do genitivo", "        if casa(revoga, clausula ?? oracao) { return casa(destinatario, oracao) }", ""),
+ ("genitivo DESCRITIVO deixa de dispensar", "        return casa(destinatario, semGenitivo)", "        return casa(destinatario, oracao)"),
+ ("SUJEITO NOMINAL deixa de vetar a regra 1b", "            if casa(sujeitoNominal, prefixoSemGorjeta) { continue }", ""),
+ ("prefixo da forma direcional volta a ser CONTADO", "            let comecaNaForma = !casa(sujeitoNominal, prefixo) && !soAmbiguo", "            let comecaNaForma = prefixo.rangeOfCharacter(from: .alphanumerics) == nil"),
+ ("regra 1b deixa de exigir contexto de dinheiro", "            guard casa(gorjeta, texto) || casa(quantidade, texto) || comecaNaForma", "            guard true"),
+ ("caminho FORTE deixa de existir", "            if cabecaValida(cabecaForte, o) != nil { return true }", ""),
+ ("caminho FORTE aceita cabeça SEM quantidade", "            if cabecaValida(cabecaForte, o) != nil { return true }", "            if cabecaValida(cabecaDeDestino, o) != nil { return true }"),
+ ("qualquer negador volta a LICENCIAR a cabeça não-direcional", "            guard let m = acha(comEvasao ? cabecaDeDestino : cabecaDirecional, o) else { continue }", "            guard let m = acha(casa(revoga, o) ? cabecaDeDestino : cabecaDirecional, o) else { continue }"),
+ ("caminho FRACO deixa de exigir cabeça DIRECIONAL", "            let comEvasao = casa(evasaoQueLicencia, o)", "            let comEvasao = true"),
+ ("PREFIXO do caminho fraco deixa de ser julgado", "            guard !casa(verboFinito, ns.substring(to: m.location)) else { continue }", ""),
+ ("caminho FRACO deixa de exigir resto sem PREDICAÇÃO", "            guard !temPredicacao(resto) else { continue }", ""),
  ("caminho FRACO deixa de exigir quantidade na oração anterior",
-  "            guard partes[..<i].contains(where: { casa(quantidade, $0) || casa(gorjeta, $0) })\n            else { continue }", ""),
- ("evasão deixa de revogar a dispensa do genitivo",
-  "        if casa(revoga, oracao) { return casa(destinatario, oracao) }", ""),
- ("dispensa do distribuidor deixa de valer por SEGMENTO",
-  "            for seg in segmentos(o) where destinatarioNaoAtributivo(seg) {",
-  "            for seg in [o] where destinatarioNaoAtributivo(seg) {"),
- ("relativa deixa de sair antes do teste de predicação",
-  "        let semRelativa = relativaQualquer.stringByReplacingMatches(\n"
-  "            in: resto, range: NSRange(location: 0, length: (resto as NSString).length), withTemplate: \" \")",
-  "        let semRelativa = resto"),
- ("pronome regido por preposição volta a contar como sujeito",
-  "            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }",
-  "            _ = p; return true", 'sem-cobertura'),
- ("genitivo DESCRITIVO deixa de dispensar",
-  "        return casa(destinatario, semGenitivo)", "        return casa(destinatario, oracao)"),
- ("distribuidor volta a valer pela janela toda",
-  "                if !nega(o) && (casa(revoga, o) || !casa(distribuidor, seg)) { return true }",
-  "                if !nega(o) && !casa(distribuidor, texto) { return true }"),
- ("revogação deixa de valer pela oração inteira",
-  "        if casa(revoga, oracao) { return false }", "", 'sem-cobertura'),
- ("pré-condição volta a exigir o substantivo da gorjeta",
-  "        guard casa(destinatario, texto) else { return false }",
-  "        guard casa(gorjeta, texto), casa(destinatario, texto) else { return false }"),
+  "            guard partes[..<i].contains(where: {\n                comEvasao ? casa(gorjeta, $0) : (casa(quantidade, $0) || casa(gorjeta, $0))\n            }) else { continue }", ""),
+ ("PREFIXO da cabeça deixa de ser julgado", "        if casa(verboFinito, ns.substring(to: m.location)) { return nil }", ""),
+ ("pronome regido por preposição volta a contar como sujeito", "            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }", "            _ = p; return true", 'sem-cobertura'),
+ ("pré-condição volta a exigir o substantivo da gorjeta", "        guard casa(destinatario, texto) else { return false }", "        guard casa(gorjeta, texto), casa(destinatario, texto) else { return false }"),
 ]
 
 

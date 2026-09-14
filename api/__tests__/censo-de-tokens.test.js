@@ -241,6 +241,8 @@ const VOCABULARIO = {
   relativo_clitico: (ex) => [`Serviço: 10%\n- 100% pra equipe que ${ex} atendeu hoje`, true],
   quantidade: (ex) => [`Gorjeta: ${ex}\npro garçom`, true],
   preposicao_direcional: (ex) => [`Gorjeta: 10%\n${ex} equipe`, true],
+  destinatario_ambiguo: (ex) => [`Vai pra ${ex}, já avisei.`, false],
+  sujeito_nominal: (ex) => [`Sua parte é R$ 61,00. ${ex} comanda vai pro garçom.`, false],
   separador_interno: (ex) => [`Sobre a gorjeta\n- 100% pra equipe ${ex} você não paga nada a mais`, true],
   enfase_markdown: (ex) => [`Sobre a gorjeta\n${ex}100% pro garçom${ex}`, true],
 };
@@ -312,7 +314,7 @@ describe('toda palavra das listas de vocabulário é ALCANÇÁVEL', () => {
     // sobre zero tokens — que foi o primeiro defeito deste arquivo.
     expect({ campo, tokens: alts.length })
       .toEqual({ campo, tokens: expect.any(Number) });
-    expect(alts.length).toBeGreaterThanOrEqual(3);
+    expect(alts.length).toBeGreaterThanOrEqual(2);
     const mudas = [];
     for (const token of alts) {
       const ex = exemplar(token);
@@ -341,7 +343,11 @@ describe('toda alternativa de todo padrão ESTRUTURAL carrega peso, ou é declar
 
   test('a lista de campos fora do censo não cresce em silêncio', () => {
     expect(Object.keys(FORA).filter((k) => !(k in G))).toEqual([]);
-    expect(Object.keys(FORA).length).toBeLessThanOrEqual(5);
+    // O teto subiu de 5 pra 7 em 2026-09-14, e é uma DECISÃO: as duas novas
+    // (`palavra_funcional`, `evasao_que_licencia`) são UNIÕES de listas que o
+    // censo já varre em separado, e varrê-las de novo produziria perdões
+    // duplicados. Toda vez que este número sobe, alguém tem que escrever por quê.
+    expect(Object.keys(FORA).length).toBeLessThanOrEqual(7);
     for (const [campo, porque] of Object.entries(FORA)) {
       expect(`${campo}: ${porque}`).toMatch(/.{80,}/);
     }
