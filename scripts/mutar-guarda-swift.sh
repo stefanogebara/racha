@@ -16,7 +16,10 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 python3 - "$TMP" <<'PY'
 import json, subprocess, sys, os, re
 TMP = sys.argv[1]
+# O CORPO TRILÍNGUE ENTRA NO PORTÃO — ver o gêmeo em mutacoes-afirmacao.test.js.
 casos = json.load(open('docs/compliance/afirmacoes.fixture.json'))['casos']
+_tri = json.load(open('docs/compliance/trilingue.fixture.json'))['trios']
+casos = casos + [{'texto': t[l], 'recusa': t['recusa']} for t in _tri for l in ('pt', 'en', 'es')]
 guarda = open('ios/Racha/Agent/RevisaoDeAfirmacoes.swift').read()
 
 # AS DECISÕES MORAM NUM LUGAR SÓ. Esta lista e a do

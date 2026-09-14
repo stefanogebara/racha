@@ -45,6 +45,7 @@ const G = JSON.parse(fs.readFileSync(
 const F = JSON.parse(fs.readFileSync(
   path.join(RAIZ, 'docs', 'compliance', 'afirmacoes.fixture.json'), 'utf8'));
 const FONTE = fs.readFileSync(path.join(__dirname, 'claims.test.js'), 'utf8');
+const { comDiminutivo } = require('../../scripts/gen-claim-patterns.js');
 
 /**
  * TODAS as alternativas de TODAS as alternâncias — inclusive as aninhadas.
@@ -208,6 +209,23 @@ const SEM_SONDA = G._tokens_sem_sonda || {};
 // exigir caso de corpo por token produziria ou teatro ou perdão em massa — as
 // duas saídas preguiçosas. A lista não pode crescer em silêncio.
 const FORA = G._campos_fora_do_censo_de_tokens || {};
+/**
+ * AS FORMAS DERIVADAS ENTRAM NO CENSO. O gerador emite uma dúzia de tokens que
+ * não existem em arquivo nenhum — `gorjetinha`, `miminho`, `dinheirinho`,
+ * `graninha` — e por isso o censo não podia PESÁ-los, o `_alternativas_mortas`
+ * não podia aposentá-los e o censo de fronteira não podia vê-los: exatamente a
+ * classe que esta rodada consertou movendo o `destino_em_qualquer_lugar` pro
+ * JSON, reintroduzida uma função antes, no mesmo commit.
+ * Apontado pela revisão de segurança de 2026-09-15.
+ */
+const CERCADO = /\(\?<!\[[^\]]*\]\)([a-zà-ÿ]+)\(\?!\[[^\]]*\]\)/g;
+const DERIVADOS = ['substantivo_gorjeta', 'nome_de_quantia'].flatMap((campo) => {
+  const cru = new Set(G[campo].split('|').map((a) => a.replace(/^\\b/, '').replace(/\\b$/, '')));
+  return [...comDiminutivo(G[campo]).matchAll(CERCADO)]
+    .map((m) => m[1])
+    .filter((w) => !cru.has(w));
+});
+
 const CAMPOS = Object.keys(G).filter(
   (k) => !k.startsWith('_') && typeof G[k] === 'string'
     && !['guarda', 'porque', 'frase_sancionada'].includes(k));
@@ -263,11 +281,20 @@ const TRILINGUE = {
 };
 
 const VOCABULARIO = {
-  substantivo_gorjeta: (ex) => [`${ex}: 10%\n- 100% pro garçom`, true],
+  // A MOLDURA TEM QUE DEIXAR O TOKEN DECIDIR. A anterior era
+  // `${ex}: 10%⏎- 100% pro garçom`, e `:` abre oração: a terceira era recusada
+  // pelo caminho FORTE, com a quantidade consumida pela cabeça e sem olhar o
+  // `ex` nenhuma vez. `acusa('zzzqqq: 10%⏎- 100% pro garçom')` = true. A lista
+  // que mais cresceu neste arquivo estava certificada por um teste que
+  // certificaria um erro de digitação. Ver `o TOKEN DE CONTROLE`.
+  substantivo_gorjeta: (ex) => [`A ${ex} vai pro garçom.`, true],
   // O CONSUMIDOR, e a sonda mede a decisão DELE: o negador alcança o núcleo e
   // resgata a frase. Polaridade fail-ABERTO — token inalcançável aqui produz
   // uma RECUSA a mais, nunca um escape. Ver `_porque_nucleo_negavel`.
   nucleo_negavel: (ex) => [`Os 10% vão pro garçom não tem ${ex} nenhum.`, false],
+  // O `no` espanhol entra pela RELAÇÃO, e a relação é com VERBO ESPANHOL.
+  // Crescer esta lista é fail-ABERTO: cada verbo é um `no` a mais que absolve.
+  verbo_espanhol: (ex) => [`La propina no ${ex} al camarero.`, false],
   // Os nomes da QUANTIA — a classe do `parte`/`valor`. Eles DESARMAM o veto de
   // sujeito, então a sonda mede a decisão deles: com complemento genitivo a
   // frase é inocente (a quantia é de alguém, não é a gorjeta); sem ele, é
@@ -279,20 +306,39 @@ const VOCABULARIO = {
   // verbo espanhol não dispara numa moldura portuguesa por razão de língua e
   // não de guarda. Enquanto a moldura era só pt, `keep` e `reparten` liam como
   // inalcançáveis. Ver o eixo TRILÍNGUE.
-  verbo_finito: (ex) => [[`Sobre a gorjeta\n- com a equipe ${ex} tudo certo`, false]],
-  pronome_sujeito: (ex) => [`Sobre a gorjeta\n- com a equipe ${ex} paga na saída`, false],
+  verbo_finito: (ex) => [[`Sobre a gorjeta\n- pra equipe ${ex} bem`, false]],
+  // O PRONOME sozinho, sem verbo: é ELE quem tem que decidir a predicação.
+  // Com verbo na moldura, quem decidia era o verbo e o token era decoração.
+  pronome_sujeito: (ex) => [`Sobre a gorjeta\n- pra equipe, ${ex}`, false],
   preposicao_de_destino: (ex) => [`Sobre a gorjeta\n- 100% ${ex} equipe`, true],
-  artigo_de_destino: (ex) => [`Sobre a gorjeta\n- 100% pra ${ex} equipe`, true],
-  marcador_de_lista: (ex) => [`Sobre a gorjeta\n${ex} 100% pro garçom`, true],
-  quantidade_consumida: (ex) => [`Sobre a gorjeta\n- ${ex} pro garçom`, true],
-  genitivo_de_destino_simples: (ex) => [`A gorjeta é ${ex} equipe.`, true],
+  // O ARTIGO SÓ DECIDE ONDE ELE NÃO É REDUNDANTE COM O MODIFICADOR. Nas
+  // cabeças o slot é opcional e o `modificador_de_destino` casa qualquer
+  // palavra, então trocar o artigo por outra coisa não mudava nada. Onde ele
+  // decide é na `regencia_do_nucleo`, que exige o artigo COLADO na preposição
+  // e proíbe artigo no resto do slot — ver `_porque_alcance`.
+  artigo_de_destino: (ex) =>
+    [`A gorjeta fica com ${ex} nossa muito querida linda equipe não é mesmo.`, true],
+  // Sem quantidade na linha: com quantidade, o caminho FORTE recusa com ou
+  // sem marcador, e o token não decidia nada.
+  marcador_de_lista: (ex) => [`Gorjeta: 10%\n${ex}pra equipe`, true],
+  // O grupo de quantidade da `cabeca_direcional` é OPCIONAL, então a cabeça
+  // casava `pro garçom` com ou sem o `ex`. Sem oração anterior, só o caminho
+  // FORTE pode disparar — e ele EXIGE a quantidade consumida pela cabeça.
+  quantidade_consumida: (ex) => [`${ex} pro garçom.`, true],
+  genitivo_de_destino_simples: (ex) => [`Serviço: 10%\n- ${ex} equipe`, true],
   negador_colado: (ex) => [`Com o garçom ${ex} tem gorjeta nenhuma.`, false],
   negadores: (ex) => [`A gorjeta ${ex} fica com o garçom.`, false],
-  preposicao_antes_de_pronome: (ex) => [`Serviço: 10%\n- 100% pra equipe que cuidou ${ex} você`, true],
-  nucleo_de_atribuicao: (ex) => [`${ex} da equipe sai por folha, como manda a lei.`, false],
-  relativo_pronome: (ex) => [`Serviço: 10%\n- 100% pra equipe ${ex} cuidou de você`, true],
+  // FORA da relativa: o `temPredicacao` retira a relativa ANTES de olhar, então
+  // dentro dela a peça nunca era consultada.
+  preposicao_antes_de_pronome: (ex) => [`Serviço: 10%\n- pra equipe perto ${ex} você`, true],
+  nucleo_de_atribuicao: (ex) => [`A gorjeta é ${ex} da equipe e passa pela folha.`, false],
+  // Sem quantidade na cabeça e com verbo DA LISTA dentro da relativa: é a
+  // retirada da relativa que decide, e o `ex` é quem a marca.
+  relativo_pronome: (ex) => [`Serviço: 10%\n- pra equipe ${ex} recebe tudo`, true],
   relativo_clitico: (ex) => [`Serviço: 10%\n- 100% pra equipe que ${ex} atendeu hoje`, true],
-  quantidade: (ex) => [`Gorjeta: ${ex}\npro garçom`, true],
+  // `Gorjeta` sozinho já licenciava o caminho fraco, então o `ex` era inerte —
+  // e esta é a única lista que o arquivo declara como exceção fail-ABERTA.
+  quantidade: (ex) => [`Conta: ${ex}\npro garçom`, true],
   preposicao_direcional: (ex) => [`Gorjeta: 10%\n${ex} equipe`, true],
   // DOIS QUADROS, e os DOIS têm que valer. A sonda antiga montava só o quadro
   // ALATIVO (`Vai pra …`) porque foi escrita a partir do achado que criou a
@@ -325,7 +371,8 @@ const VOCABULARIO = {
   // exige de toda enumeração.
   substantivo_nao_dinheiro: (ex) => [`Sua parte é R$ 61,00. A ${ex} vai pro garçom.`, false],
   separador_interno: (ex) => [`Sobre a gorjeta\n- 100% pra equipe ${ex} você não paga nada a mais`, true],
-  enfase_markdown: (ex) => [`Sobre a gorjeta\n${ex}100% pro garçom${ex}`, true],
+  // Sem quantidade: com ela o caminho FORTE recusa com ou sem a ênfase.
+  enfase_markdown: (ex) => [`Gorjeta: 10%\n- ${ex}pra equipe${ex}`, true],
 };
 
 /**
@@ -555,5 +602,62 @@ describe('toda alternativa de todo padrão ESTRUTURAL carrega peso, ou é declar
     for (const [t, porque] of Object.entries(MORTAS[campo] || {})) {
       expect(`${campo}/${t}: ${porque}`).toMatch(/.{40,}/);
     }
+  });
+});
+
+/**
+ * O SÉTIMO INSTRUMENTO: O TOKEN DE CONTROLE.
+ *
+ * Uma meta-prova sobre as próprias provas. Pra cada moldura fabricada por uma
+ * sonda, troca-se o exemplar por um token SEM SENTIDO e exige-se que o veredito
+ * VIRE. Sonda que responde a mesma coisa com a palavra real e com `zzzqqq` não
+ * está medindo nada — e três estavam assim, entre elas a do
+ * `substantivo_gorjeta`, que é a lista que mais cresceu neste arquivo e cuja
+ * única outra medição é a grade adversarial.
+ *
+ * É a doutrina que este repositório já aplica às dispensas (`dispensa que não
+ * dispensa nada é buraco esquecido`), às peças (`guarda que nunca dispara é
+ * guarda ausente`) e às declarações de morte, aplicada à camada que até aqui
+ * estava isenta dela: os INSTRUMENTOS. E ela não pode ser vacuosa por
+ * construção, porque a asserção dela É um delta.
+ * Pedida pela revisão de compliance de 2026-09-15, que achou as três.
+ */
+describe('o TOKEN DE CONTROLE: toda sonda tem que reagir ao token', () => {
+  const CONTROLE = 'zzzqqq';
+  /**
+   * A gaveta: sonda cuja moldura não pode reagir ao token, com o motivo
+   * escrito. Mesma disciplina das dispensas — e aqui ela diz uma coisa útil,
+   * que é QUAL outra peça decide no lugar.
+   */
+  const SEM_CONTROLE = G._sondas_sem_controle || {};
+  test.each(Object.keys(VOCABULARIO))('%s', (campo) => {
+    const { acusa } = censoCom(G);
+    if (SEM_CONTROLE[campo]) {
+      expect(`${campo}: ${SEM_CONTROLE[campo]}`).toMatch(/.{160,}/);
+      return;
+    }
+    const r = VOCABULARIO[campo](CONTROLE);
+    const quadros = Array.isArray(r[0]) ? r : [r];
+    // Com um token sem sentido, PELO MENOS UMA das molduras da sonda tem que
+    // dar o veredito contrário ao que ela espera do token de verdade. Se
+    // nenhuma virar, a moldura decide sozinha e o token é decoração.
+    const virou = quadros.some(([texto, esperado]) => acusa(texto) !== esperado);
+    expect({ campo, virou }).toEqual({ campo, virou: true });
+  });
+});
+
+describe('as formas DERIVADAS pelo gerador também são medidas', () => {
+  test('há formas derivadas para medir', () => {
+    expect(DERIVADOS.length).toBeGreaterThanOrEqual(10);
+  });
+
+  test('toda forma derivada decide na moldura canônica', () => {
+    const { acusa } = censoCom(G);
+    // A forma derivada é um token como outro qualquer: tem que DECIDIR. Sem
+    // isto o gerador podia emitir palavras que nenhum instrumento olha — e a
+    // regra de derivação se aplica a tudo que alguém acrescentar depois
+    // (`caixa`→`caixinha`, `nota`→`notinha`, `mesa`→`mesinha`).
+    const mudas = [...new Set(DERIVADOS)].filter((p) => !acusa(`A ${p} vai pro garçom.`));
+    expect(mudas).toEqual([]);
   });
 });

@@ -39,6 +39,22 @@ const RAIZ = path.join(__dirname, '..', '..');
 const ALVO = path.join(__dirname, 'claims.test.js');
 const F = JSON.parse(fs.readFileSync(
   path.join(RAIZ, 'docs', 'compliance', 'afirmacoes.fixture.json'), 'utf8'));
+/**
+ * O CORPO TRILÍNGUE ENTRA NO PORTÃO. Esta rodada pôs tokens que carregam
+ * LÓGICA em `separador_de_clausula` (`and|but|or|y|pero`) e em `determinante`
+ * (`the|el|la|…`) — e o separador de cláusula governa o `ultimoSegmento`, o
+ * `segmentos` e a janela do `nega`, enquanto o determinante governa o veto de
+ * sujeito da regra 1b e a herança da coordenação, que foi o CRITICAL da
+ * rodada 18. Todas essas decisões passaram a ser exercitáveis em en/es e
+ * continuavam medidas só em pt. Apontado pela revisão de segurança de
+ * 2026-09-15.
+ */
+const TRI = JSON.parse(fs.readFileSync(
+  path.join(RAIZ, 'docs', 'compliance', 'trilingue.fixture.json'), 'utf8'));
+const CASOS = [
+  ...F.casos,
+  ...TRI.trios.flatMap((t) => ['pt', 'en', 'es'].map((l) => ({ texto: t[l], recusa: t.recusa }))),
+];
 
 /**
  * Cada peça do desenho, com a mutação que a apaga — LIDA DA LISTA
@@ -85,7 +101,7 @@ function falhasCom(fonte) {
   fs.writeFileSync(arq, corpo + '\nmodule.exports = { acusa };\n');
   const { acusa } = require(arq);
   delete require.cache[arq];
-  const divergiram = F.casos.filter((c) => acusa(c.texto) !== c.recusa);
+  const divergiram = CASOS.filter((c) => acusa(c.texto) !== c.recusa);
   return {
     total: divergiram.length,
     escapes: divergiram.filter((c) => c.recusa).length,

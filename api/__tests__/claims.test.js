@@ -103,6 +103,8 @@ const reDestAmbiguo = new RegExp(G.destinatario_ambiguo, 'gi');
 /** O cômodo POSSUÍDO — a relação, não a palavra. Ver o gêmeo no Swift. */
 const reAmbiguoPossuido = new RegExp(COMPOR.ambiguo_possuido(G), 'i');
 const reEvasaoLicencia = new RegExp(COMPOR.evasao_que_licencia(G), 'i');
+/** Burlar a FOLHA, sem os negadores nus — ver `_porque_evasao_de_folha`. */
+const reEvasaoFolha = new RegExp(G.evasao_de_folha, 'i');
 const rePalavraFuncional = new RegExp(COMPOR.palavra_funcional(G), 'gdi');
 /**
  * Entre o negador e o núcleo só há material FUNCIONAL? Ver o gêmeo no Swift.
@@ -488,7 +490,13 @@ function acusa(janelaCrua) {
     if (!mFraco) { mFraco = reCabecaGenitiva.exec(o); soGorjetaAntes = true; }
     if (!mFraco) continue;
     // Prefixo julgado por VERBO nos dois caminhos — ver o gêmeo.
-    if (reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;
+    // O VERBO DO DISTRIBUIDOR NÃO DESQUALIFICA QUANDO A CLÁUSULA BURLA A
+    // FOLHA. A evasão revoga a dispensa do distribuidor — e não adiantava
+    // nada, porque logo depois este teste desqualificava a oração pelo verbo,
+    // que é o verbo do próprio distribuidor. Duas peças certas, uma
+    // cancelando a outra. Ver `_porque_evasao_de_folha`.
+    const burlaFolha = reEvasaoFolha.test(o) && reDistribuidor.test(o);
+    if (!burlaFolha && reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;
     // E A CABEÇA NÃO PODE CONTER PREDICAÇÃO. Os slots de modificador somam até
     // cinco palavras entre a preposição e o núcleo, e um verbo finito cabe lá
     // com folga — ancorada no `^`, a cabeça deixa o prefixo VAZIO, e o teste de

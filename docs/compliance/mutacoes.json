@@ -78,11 +78,7 @@
       "swift": {
         "de": "        if !casa(negavel, resto) && !soFuncionalAteONucleo(resto) { return false }",
         "para": ""
-      },
-      "sem_cobertura": [
-        "js",
-        "swift"
-      ]
+      }
     },
     {
       "nome": "o negador atrás deixa de olhar o CONTRASTE",
@@ -301,11 +297,11 @@
     {
       "nome": "o PREFIXO do caminho fraco deixa de ser julgado",
       "js": {
-        "de": "    if (reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;",
+        "de": "    if (!burlaFolha && reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;",
         "para": ""
       },
       "swift": {
-        "de": "            guard !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))\n            else { continue }",
+        "de": "            guard burlaFolha\n                || !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))\n            else { continue }",
         "para": ""
       }
     },
@@ -360,13 +356,9 @@
         "para": "    return true;"
       },
       "swift": {
-        "de": "            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }",
-        "para": "            _ = p; return true"
-      },
-      "sem_cobertura": [
-        "js",
-        "swift"
-      ]
+        "de": "        for m in pronomeSujeito.matches(in: trecho, range: NSRange(location: 0, length: ns.length)) {\n            let p = m.range(at: 1).location\n            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }",
+        "para": "        for m in pronomeSujeito.matches(in: trecho, range: NSRange(location: 0, length: ns.length)) {\n            let p = m.range(at: 1).location\n            _ = p; return true"
+      }
     },
     {
       "nome": "negador colado vira negador solto",
@@ -437,12 +429,12 @@
     {
       "nome": "o PREFIXO do caminho fraco volta a ser julgado inteiro",
       "js": {
-        "de": "    if (reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;",
-        "para": "    if (reVerboFinito.test(o.slice(0, mFraco.index))) continue;"
+        "de": "    if (!burlaFolha && reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;",
+        "para": "    if (!burlaFolha && reVerboFinito.test(o.slice(0, mFraco.index))) continue;"
       },
       "swift": {
-        "de": "            guard !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))\n            else { continue }",
-        "para": "            guard !casa(verboFinito, ns.substring(to: m.location)) else { continue }"
+        "de": "            guard burlaFolha\n                || !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))\n            else { continue }",
+        "para": "            guard burlaFolha\n                || !casa(verboFinito, ns.substring(to: m.location))\n            else { continue }"
       }
     },
     {
@@ -564,6 +556,39 @@
       "swift": {
         "de": "        return !temPredicacao(ns.substring(with: NSRange(location: m.location, length: m.length)))",
         "para": "        return !temPredicacao(ns.substring(with: NSRange(location: m.location, length: m.length)))\n            && !temPredicacao(ns.substring(from: m.location + m.length))"
+      }
+    },
+    {
+      "nome": "o verbo do DISTRIBUIDOR volta a desqualificar mesmo quando a cláusula burla a folha",
+      "js": {
+        "de": "    if (!burlaFolha && reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;",
+        "para": "    if (reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;"
+      },
+      "swift": {
+        "de": "            guard burlaFolha\n                || !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))\n            else { continue }",
+        "para": "            guard !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))\n            else { continue }"
+      }
+    },
+    {
+      "nome": "o override do prefixo volta a ler o campo LARGO (revoga_dispensa)",
+      "js": {
+        "de": "    const burlaFolha = reEvasaoFolha.test(o) && reDistribuidor.test(o);",
+        "para": "    const burlaFolha = reRevoga.test(o) && reDistribuidor.test(o);"
+      },
+      "swift": {
+        "de": "            let burlaFolha = casa(evasaoDeFolha, o) && casa(distribuidor, o)",
+        "para": "            let burlaFolha = casa(revoga, o) && casa(distribuidor, o)"
+      }
+    },
+    {
+      "nome": "o distribuidor passa a dispensar TAMBÉM no caminho FORTE",
+      "js": {
+        "de": "    if (cabecaValida(reCabecaForte, o) !== null) return true;",
+        "para": "    if (cabecaValida(reCabecaForte, o) !== null && !(temDistribuidor(o) && !reRevoga.test(o))) return true;"
+      },
+      "swift": {
+        "de": "            if cabecaValida(cabecaForte, o) != nil { return true }",
+        "para": "            if cabecaValida(cabecaForte, o) != nil && !(temDistribuidor(o) && !casa(revoga, o)) { return true }"
       }
     }
   ],

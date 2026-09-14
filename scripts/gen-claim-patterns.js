@@ -40,15 +40,92 @@ const expandirDest = (re, dest) => re.split('{DEST}').join(dest);
  * `comissãinho` e `fatiinha`. O que não é mecânico fica declarado no
  * `_diminutivo_nao_mecanico`, não esquecido.
  */
+/**
+ * VOCABULÁRIO DE DINHEIRO: fronteira, diminutivo e PLURAL, derivados.
+ *
+ * Três defeitos da mesma família, e os três foram achados na mesma rodada:
+ *
+ *  · FRONTEIRA. `ajuda` sem delimitador casa dentro de `ajudar`, e
+ *    `Posso ajudar você a acertar com o garçom.` virava RECUSA — o turno
+ *    inteiro trocado pela resposta segura, com o valor da conta dentro dele.
+ *    `troco` dentro de `trocou`, `renda` dentro de `aprenda`, `agrado` dentro
+ *    de `agradou`. É a quarta encarnação do delimitador errado neste arquivo,
+ *    agora na lista de vocabulário que a rodada anterior fez crescer.
+ *  · PLURAL. `gratifica[çc][ãa]o` não casa `gratificações`, e o plural
+ *    irregular defeitava as DUAS metades do conserto do veto: a palavra não
+ *    está no detector, e um turno que responde sobre gorjeta sem citar valor
+ *    não é janela de dinheiro. `As gratificações ficam com a equipe.`, `As
+ *    comissões vão pro garçom.`, `Os adicionais vão pro garçom.` — cinco
+ *    escapes, na classe de frase que este arquivo inteiro existe pra pegar.
+ *    Os plurais em `+s` sobreviviam por ACIDENTE: sem fronteira à direita,
+ *    `mimo` casa dentro de `mimos`. Acidente, não desenho — e o mesmo acidente
+ *    é o defeito da fronteira.
+ *  · DIMINUTIVO, que já era derivado e continua.
+ *
+ * Tudo conservador: plural mecânico é `-ão→-ões`, `-al→-ais`, `-m→-ns`,
+ * `-r|-s|-z→+es` e vogal→`+s`; o resto fica declarado em
+ * `_plural_nao_mecanico`. Derivar inflexão, não um sufixo — foi a lição que o
+ * diminutivo devia ter sugerido e não sugeriu.
+ * Achado pela revisão de compliance de 2026-09-15.
+ */
+const L = '0-9A-Za-zÀ-ÿ';
+const cerca = (w) => `(?<![${L}])${w}(?![${L}])`;
+const simples = (alt) => /^[a-záéíóúâêôãõçà]+$/.test(alt);
+
+const diminutivoDe = (alt) => {
+  if (/inh[oa]$/.test(alt)) return null;
+  if (!new RegExp(`[bcdfgjlmnprstvxzç][oa]$`).test(alt)) return null;
+  const raiz = alt.slice(0, -1).replace(/c$/, 'qu').replace(/g$/, 'gu').replace(/ç$/, 'c');
+  return raiz + (alt.endsWith('a') ? 'inha' : 'inho');
+};
+
+const pluralDe = (alt) => {
+  if (/s$/.test(alt)) return null;                    // já é plural ou invariável
+  if (/ão$/.test(alt)) return `${alt.slice(0, -2)}ões`;
+  if (/al$/.test(alt)) return `${alt.slice(0, -2)}ais`;
+  if (/el$/.test(alt)) return `${alt.slice(0, -2)}éis`;
+  if (/il$/.test(alt)) return `${alt.slice(0, -2)}is`;
+  if (/ol$/.test(alt)) return `${alt.slice(0, -2)}óis`;
+  if (/ul$/.test(alt)) return `${alt.slice(0, -2)}uis`;
+  if (/m$/.test(alt)) return `${alt.slice(0, -1)}ns`;
+  if (/[rz]$/.test(alt)) return `${alt}es`;
+  if (/[aeiouáéíóúâêôãõ]$/.test(alt)) return `${alt}s`;
+  return null;                                        // consoante rara: declarado
+};
+
+/**
+ * O `\b` sai e a alternativa vira palavra simples: a fronteira passa a ser a
+ * explícita, que é a mesma nos dois motores — o `\b` é ASCII em JavaScript e
+ * Unicode em ICU, divergência que este arquivo já pagou três vezes.
+ */
+const semB = (alt) => alt.replace(/^\\b/, '').replace(/\\b$/, '');
+
+/**
+ * Plural de alternativa que tem CLASSE de caractere no fim — `gratifica[çc][ãa]o`
+ * é a mesma palavra escrita pra aceitar duas grafias, e o plural dela é
+ * regular. Sem isto, os cinco escapes da revisão 19 eram exatamente as
+ * palavras cuja grafia alternativa as tirava da derivação.
+ */
+const pluralComClasse = (alt) => {
+  if (/\[[^\]]*\]o$/.test(alt)) return `${alt.replace(/\[[^\]]*\]o$/, '')}[õo]es`;
+  return null;
+};
+
 const comDiminutivo = (lista) => {
   const fora = [];
-  for (const alt of lista.split('|')) {
-    fora.push(alt);
-    if (!/^[a-záéíóúâêôãõç]+$/.test(alt)) continue;      // não é palavra simples
-    if (/inh[oa]$/.test(alt)) continue;                  // já é diminutivo
-    if (!/[bcdfgjlmnprstvxzç][oa]$/.test(alt)) continue;
-    const raiz = alt.slice(0, -1).replace(/c$/, 'qu').replace(/g$/, 'gu').replace(/ç$/, 'c');
-    fora.push(raiz + (alt.endsWith('a') ? 'inha' : 'inho'));
+  for (const cru of lista.split('|')) {
+    const alt = semB(cru);
+    if (!simples(alt)) {
+      const pl = pluralComClasse(alt);
+      fora.push(cru);
+      if (pl) fora.push(cerca(pl));
+      continue;
+    }
+    const formas = new Set([alt]);
+    for (const f of [diminutivoDe(alt), pluralDe(alt)]) if (f) formas.add(f);
+    const dim = diminutivoDe(alt);
+    if (dim) { const dp = pluralDe(dim); if (dp) formas.add(dp); }
+    for (const f of formas) fora.push(cerca(f));
   }
   return fora.join('|');
 };
@@ -77,6 +154,7 @@ const PECAS = (G) => ({
   MOD: G.modificador_de_destino,
   DEST: G.substantivo_destinatario_runtime,
   NEGCOLADO: G.negador_colado,
+  VERBOESP: G.verbo_espanhol,
   VERBOS: G.verbo_finito.replace(/^\(\?:\^\|\[\^0-9A-Za-zÀ-ÿ\]\)\(/, '').replace(/\)\(\?=\[\^0-9A-Za-zÀ-ÿ\]\|\$\)$/, ''),
   ENFASE: G.enfase_markdown,
   ADVERBIO: G.adverbio,
@@ -198,6 +276,9 @@ enum ClaimPatterns {
     static let ambiguoPossuido = ${lit(COMPOSTOS.ambiguo_possuido(G))}
     /// Só a família do CAMINHO licencia a cabeça não-direcional. Ver \`_porque_licenca\`.
     static let evasaoQueLicencia = ${lit(COMPOSTOS.evasao_que_licencia(G))}
+    /// Burlar a FOLHA, sem os negadores nus: \`sem taxa\` não entra aqui.
+    /// Ver \`_porque_evasao_de_folha\`.
+    static let evasaoDeFolha = ${lit(G.evasao_de_folha)}
     /// Material FUNCIONAL entre o negador e o núcleo. Ver \`_porque_alcance_antes\`.
     static let palavraFuncional = ${lit(COMPOSTOS.palavra_funcional(G))}
     static let cabecaDirecional = ${lit(COMPOSTOS.cabeca_direcional(G))}

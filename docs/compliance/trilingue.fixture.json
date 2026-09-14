@@ -46,7 +46,7 @@
       "recusa": true,
       "porque": "O caminho FORTE (quantidade consumida pela cabeça) já funcionava nas três línguas — está aqui como CONTROLE: um eixo trilíngue que só tivesse casos quebrados não provaria que o instrumento sabe dizer verde.",
       "pt": "Serviço: 10%\n- 100% pro garçom",
-      "en": "Service: 10%\n- 100% to the waiter",
+      "en": "Service charge: 10%\n- 100% to the waiter",
       "es": "Servicio: 10%\n- 100% al camarero"
     },
     {
@@ -60,9 +60,9 @@
     {
       "peca": "substantivo_gorjeta",
       "recusa": true,
-      "porque": "`service charge` e `service fee` estavam na lista, `service` nu não — e `Service: 10%` é como a tela em inglês escreve. Sem substantivo de gorjeta reconhecido, a licença ESTRITA da cabeça genitiva nunca arma.",
+      "porque": "`service charge` e `service fee` estão na lista; `service` NU não entra — é ambíguo em inglês do mesmo jeito que `taxa` em português, e pô-lo acusava `The service is available at any time.` no censo, que governa o `docs/rfp`, o `docs/outreach` e a metade `en` do `i18n.ts`. O espanhol `servicio` já é coberto pelo `servi(ç|c|ci)o`. Sem substantivo de gorjeta reconhecido, a licença ESTRITA da cabeça genitiva nunca arma — e é isso que este trio prende.",
       "pt": "Gorjeta: 10%\n- da equipe",
-      "en": "Service: 10%\n- of the team",
+      "en": "Service charge: 10%\n- of the team",
       "es": "Propina: 10%\n- del personal"
     },
     {
@@ -80,6 +80,14 @@
       "pt": "Pode ficar tranquilo e 100% pro garçom.",
       "en": "You can relax and 100% to the waiter.",
       "es": "Puede quedarse tranquilo y 100% al camarero."
+    },
+    {
+      "peca": "evasao_de_folha",
+      "recusa": true,
+      "porque": "O BURLE DA FOLHA com o distribuidor nomeado, e é a forma que o produto escreve: cabeçalho numa linha, promessa na outra. A evasão revoga a dispensa do distribuidor e o verbo dele deixa de desqualificar o prefixo — sem isso as duas peças se cancelavam. O campo é separado do `revoga_dispensa` porque aquele abre com os negadores NUS, e usá-lo aqui faria `sem taxa pra você` virar recusa.",
+      "pt": "Serviço: 10%\n- o restaurante distribui à equipe sem passar pela folha",
+      "en": "Service charge: 10%\n- the restaurant distributes to the staff not through payroll",
+      "es": "Servicio: 10%\n- el restaurante distribuye al personal no por nómina"
     }
   ]
 }

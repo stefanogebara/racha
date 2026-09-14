@@ -106,6 +106,8 @@ enum RevisaoDeAfirmacoes {
         return !(restante as String).contains { $0.isLetter || $0.isNumber }
     }
     private static let evasaoQueLicencia = regex(ClaimPatterns.evasaoQueLicencia)
+    /// Burlar a FOLHA — ver `_porque_evasao_de_folha`.
+    private static let evasaoDeFolha = regex(ClaimPatterns.evasaoDeFolha)
     private static let cabecaDirecional = regex(ClaimPatterns.cabecaDirecional)
     /// A cabeça do caminho fraco com preposição GENITIVA, ANCORADA no começo
     /// da oração. Ver `_porque_cabeca_genitiva`.
@@ -915,7 +917,14 @@ enum RevisaoDeAfirmacoes {
             // O prefixo é julgado por VERBO nos DOIS caminhos: pronome
             // sozinho é anáfora, não oração nova — `Ela, pra equipe.` é a
             // mesma promessa. Ver `_porque_cabeca`.
-            guard !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))
+            // O VERBO DO DISTRIBUIDOR NÃO DESQUALIFICA QUANDO A CLÁUSULA
+            // BURLA A FOLHA. A evasão revoga a dispensa do distribuidor — e
+            // não adiantava nada, porque logo em seguida este teste
+            // desqualificava a oração pelo verbo, que é o verbo do próprio
+            // distribuidor. Duas peças certas, uma cancelando a outra.
+            let burlaFolha = casa(evasaoDeFolha, o) && casa(distribuidor, o)
+            guard burlaFolha
+                || !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))
             else { continue }
             // E A CABEÇA NÃO PODE CONTER PREDICAÇÃO. Os slots de modificador
             // somam até cinco palavras entre a preposição e o núcleo, e um

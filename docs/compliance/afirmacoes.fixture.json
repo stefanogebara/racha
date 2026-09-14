@@ -1630,6 +1630,66 @@
       "texto": "Sua parte é R$ 1.250,00. Com o garçom você acerta na maquininha.",
       "recusa": false,
       "porque": "O outro lado do ponto do milhar: aqui ele está dentro do número E há um ponto de verdade fechando a frase. As duas orações têm que sair separadas — se o corte no milhar for restaurado, `Sua parte é R$ 1` e `250,00. Com o garçom…` mudam o que cada regra vê."
+    },
+    {
+      "texto": "Serviço: 10%\n- o restaurante distribui à equipe sem passar pela folha",
+      "recusa": true,
+      "porque": "A AFIRMAÇÃO PROIBIDA COM A QUALIFICAÇÃO QUE A AGRAVA, na forma que o produto de fato escreve: cabeçalho numa linha, promessa na outra. A evasão revogava a dispensa do distribuidor CORRETAMENTE — e não adiantava nada, porque logo depois o teste de prefixo do caminho fraco desqualificava a oração pelo verbo, que é o verbo do próprio distribuidor (`distribui`). Duas peças certas, uma cancelando a outra. Com o substantivo da gorjeta na MESMA oração a regra 1 pega, e o corpo tem esse caso; nesta forma não pegava nada, nos dois guardas. Lei 13.419/2017 e inegociável #2. Achado ao procurar caso de corpo pras decisões declaradas SEM COBERTURA — o buraco estava onde o portão dizia não conseguir medir. 2026-09-15."
+    },
+    {
+      "texto": "Gorjeta: 10%\n- a casa reparte com a equipe por fora da folha",
+      "recusa": true,
+      "porque": "A mesma forma pelo outro verbo de distribuidor (`reparte`) e pela outra família de burla (`por fora`). O `evasao_de_folha` é campo próprio, separado do `revoga_dispensa`, porque este abre com os negadores NUS — e usá-lo aqui faria `distribui à equipe, SEM TAXA pra você` virar recusa, que é a frase que o inegociável #1 obriga o produto a dizer."
+    },
+    {
+      "texto": "Serviço: 10%\n- o restaurante distribui à equipe, sem taxa pra você",
+      "recusa": false,
+      "porque": "O CONTRAPONTO, e é ele que decide o desenho da peça. `sem taxa` casa o `revoga_dispensa` (que abre com os negadores nus) e NÃO casa o `evasao_de_folha`. Se o override do prefixo lesse o campo largo, esta frase — a que o inegociável #1 obriga o produto a dizer, com o distribuidor nomeado corretamente — viraria recusa."
+    },
+    {
+      "texto": "Gorjeta: 10%\n- pro garçom ali perto de você",
+      "recusa": true,
+      "porque": "O PRONOME REGIDO POR PREPOSIÇÃO NÃO É SUJEITO. `de você` no fim da oração é complemento, não predicação nova: se contasse como sujeito, o resto teria predicação, a oração deixaria de ser frase de destino e a promessa escaparia. A decisão estava declarada SEM COBERTURA nos dois portões desde que foi escrita, e as duas primeiras frases que escrevi pra cobri-la não cobriam nada: numa delas o pronome estava dentro de uma RELATIVA, que o `temPredicacao` retira ANTES de olhar, então a peça nunca era consultada. Um caso que mede uma peça tem que ser escrito depois de verificar que a peça é quem decide — medido com a mutação aplicada, não suposto. 2026-09-15."
+    },
+    {
+      "texto": "Sobre a gorjeta: o total vai pro garçom.",
+      "recusa": true,
+      "porque": "`total` FICA no `nome_de_quantia` (que DESARMA o veto de sujeito) e não vai pro `substantivo_nao_dinheiro` (que o ARMA), e a decisão está medida. Mover as três palavras de conta — `total`, `soma`, `importância` — conserta dois turnos inocentes esquisitos (`O total fica com o garçom.`) e ABRE três promessas, esta entre elas: numa conversa que acabou de dizer `gorjeta`, `o total vai pro garçom` é a afirmação proibida. Fail-fechado custa um turno; fail-aberto custa a promessa. Achado medindo a recomendação da revisão de compliance de 2026-09-15, que oferecia as duas saídas — a medição escolheu."
+    },
+    {
+      "texto": "O total vai todo pro garçom.",
+      "recusa": true,
+      "porque": "A mesma decisão pelo caminho da quantidade consumida. Se `total` armasse o veto, a anáfora não seria retirada do prefixo, o sujeito nominal vetaria a regra 1b e esta frase — que é a promessa com `todo` dentro — passaria."
+    },
+    {
+      "texto": "A gorjeta no acerto vai pro garçom.",
+      "recusa": true,
+      "porque": "O `no` ESPANHOL com a espreita sem âncora de fim, mais `acerto` — SUBSTANTIVO português — dentro do `verbo_finito`. Juntos faziam `nega()` dar verdadeiro e a promessa passar, nos dois guardas e no censo de build. Recusada no commit pai, liberada por mim na rodada 19. Achado pela revisão de segurança comparando vereditos contra o pai — comparação que nenhuma suíte fazia."
+    },
+    {
+      "texto": "No acerto da conta, fala com o garçom.",
+      "recusa": false,
+      "porque": "O CONTRAPONTO: `no acerto` é português comum e a frase é a resposta certa. Se a correção do `acerto` tivesse sido apertar o `soFuncionalAteONucleo` em vez de tirar o substantivo da lista de verbos, esta frase viraria recusa."
+    },
+    {
+      "texto": "A gorjeta fica com toda a equipe não precisa deixar mais nada.",
+      "recusa": true,
+      "porque": "O NEGADOR ATRÁS TEM QUE ALCANÇAR A GORJETA, e este é o caso que a decisão esperava desde que nasceu declarada SEM COBERTURA. Todo caso do corpo punha o artigo COLADO na preposição, então a `regencia_do_nucleo` decidia primeiro e a linha do alcance nunca era consultada. Um quantificador entre a preposição e o artigo — `com TODA a equipe` — e ela passa a decidir. Eu tinha tentado três frases e falhado; a revisão de segurança achou a quarta, apagando a linha e varrendo o corpo. 2026-09-15."
+    },
+    {
+      "texto": "Os 10% ficam com toda a equipe não precisa pagar mais nada.",
+      "recusa": true,
+      "porque": "A mesma peça com a cauda que o inegociável #1 obriga o modelo a escrever (`não precisa pagar mais nada`), que é justamente o que a torna perigosa: a negação verdadeira está ali, e ela nega OUTRA coisa."
+    },
+    {
+      "texto": "- 100% pro garçom, o restaurante distribui pela folha de pagamento.",
+      "recusa": true,
+      "porque": "NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA, no caminho FORTE. A dispensa do distribuidor vale só no caminho fraco — no forte a quantidade foi consumida pela cabeça e a oferta já vinculou (CDC art. 30). A doutrina está repetida em seis comentários do arquivo e não havia mutação nenhuma que a medisse: apontado pela revisão de segurança, que inseriu a dispensa no caminho forte e viu três casos virarem."
+    },
+    {
+      "texto": "100% pro garçom — o restaurante distribui pela folha de pagamento.",
+      "recusa": true,
+      "porque": "A mesma decisão com travessão no lugar da vírgula: a cláusula do distribuidor vira ORAÇÃO separada e continua sem resgatar a promessa da anterior."
     }
   ]
 }
