@@ -43,11 +43,15 @@ const FONTE = fs.readFileSync(path.join(__dirname, 'claims.test.js'), 'utf8');
 
 /**
  * PALAVRAS NEUTRAS — nenhuma delas está em lista de vocabulário nenhuma do
- * `claims.json`, e o teste abaixo prova isso em vez de afirmar. Uma injeção
+ * `claims.json`, e o teste abaixo prova isso em vez de afirmar. `logo` saiu em
+ * 2026-09-14: ele É membro do `palavra_funcional`, então injetado entre o
+ * negador e o núcleo tornava o vão MAIS funcional e podia virar acusação em
+ * negação — um terço do vocabulário de injeção não era neutro, e a prova não
+ * via porque ela nomeava nove campos à mão. Uma injeção
  * que por acaso fosse destinatário, quantidade ou verbo mudaria o SENTIDO, e
  * aí o veredito poderia mudar com razão.
  */
-const NEUTRAS = ['sempre', 'assim', 'logo'];
+const NEUTRAS = ['sempre', 'assim', 'francamente'];
 
 function carrega() {
   const corpo = FONTE.slice(0, FONTE.indexOf("describe('"))
@@ -86,25 +90,114 @@ function* injecoes(texto) {
 
 const TOLERADAS = G._injecoes_toleradas || {};
 
+/**
+ * A TERCEIRA GAVETA tem a mesma disciplina das dispensas: cada tolerância
+ * nomeia o caso, escreve a razão, e é USADA. Sem isso ela vira o lugar onde as
+ * falhas vão morar. Apontado pela revisão de compliance antes de ela ter a
+ * primeira entrada — que é a hora certa de pôr a regra.
+ */
+describe('as tolerâncias do fabricador têm a disciplina das dispensas', () => {
+  test('cada uma nomeia um caso do corpo, tem razão escrita, e é usada', () => {
+    const casos = new Set(F.casos.map((c) => c.texto));
+    expect(Object.keys(TOLERADAS).filter((t) => !casos.has(t))).toEqual([]);
+    for (const [caso, razoes] of Object.entries(TOLERADAS)) {
+      expect(Array.isArray(razoes) && razoes.length).toBeTruthy();
+      for (const r of razoes) expect(`${caso}: ${r}`).toMatch(/.{80,}/);
+    }
+    expect(Object.keys(TOLERADAS).length).toBeLessThanOrEqual(4);
+  });
+});
+
 describe('uma palavra a mais não desfaz uma promessa', () => {
   const { acusa } = carrega();
 
   test('as palavras injetadas são NEUTRAS de verdade', () => {
     // Prova, não afirma: se uma delas entrar numa lista de vocabulário, a
     // injeção passa a mudar o sentido e o instrumento vira ruído.
-    const listas = ['substantivo_gorjeta', 'substantivo_destinatario', 'quantidade',
-      'quantidade_consumida', 'verbo_finito', 'pronome_sujeito', 'negadores',
-      'nucleo_de_atribuicao', 'preposicao_de_destino'];
+    // A LISTA DERIVA DO JSON. Escrita à mão com nove nomes, ela não via um
+    // décimo — e não via três: `palavra_funcional`, `sujeito_nominal` e
+    // `destinatario_ambiguo` entraram na rodada passada, e `logo` É MEMBRO de
+    // `palavra_funcional`. Um terço do vocabulário de injeção não era neutro,
+    // no teste escrito pra trocar afirmação por prova.
+    // Achado pela revisão de compliance de 2026-09-14.
+    const NAO_VOCABULARIO = ['guarda', 'porque', 'frase_sancionada', 'janela_linhas',
+      'onde_o_censo_anda', 'destinatarios_so_deteccao', 'frases_aposentadas',
+      'frases_aprovadas', 'dispensas',
+      // `palavra_funcional` é a exceção declarada, e é o contrário de uma
+      // contaminação: ela lista o que NÃO é conteúdo — verbo, preposição,
+      // artigo, advérbio. Uma palavra neutra tem que ser funcional; se não
+      // fosse, injetá-la mudaria o sentido da frase e o oráculo do fabricador
+      // estaria errado, não o guarda. Membro daqui é qualificação, não sujeira.
+      // `palavra_funcional`, `negador_colado` e `sujeito_nominal` carregam
+      // SLOTS de advérbio, não vocabulário. Uma palavra neutra é, por
+      // definição, um advérbio — aparecer num slot de advérbio é o que a
+      // qualifica, não o que a contamina. O que contaminaria é ser
+      // DESTINATÁRIO, QUANTIDADE, VERBO ou SUBSTANTIVO DE GORJETA.
+      'palavra_funcional', 'negador_colado', 'sujeito_nominal', 'adverbio'];
+    const listas = Object.keys(G).filter(
+      (k) => !k.startsWith('_') && typeof G[k] === 'string' && !NAO_VOCABULARIO.includes(k));
+    // A pergunta é de IGUALDADE, não de casamento: `modificador_de_destino` é
+    // um slot que casa qualquer palavra, e `artigo_de_destino` tem um `a` que
+    // casa dentro de `assim`. Suja é a palavra que É uma alternativa de uma
+    // lista, não a que aparece dentro de um padrão.
+    const limpa = (t) => t.replace(/\\b|\(\?:|[()^$]/g, '').trim();
     const sujas = [];
     for (const palavra of NEUTRAS) {
       for (const lista of listas) {
-        if (new RegExp(G[lista], 'i').test(` ${palavra} `)) sujas.push(`${palavra} ∈ ${lista}`);
+        const alts = G[lista].split('|').map(limpa);
+        if (alts.includes(palavra)) sujas.push(`${palavra} ∈ ${lista}`);
       }
     }
     expect(sujas).toEqual([]);
   });
 
   const promessas = F.casos.filter((c) => c.recusa);
+  const inocentes = F.casos.filter((c) => !c.recusa);
+
+  /**
+   * O LADO INOCENTE. O cabeçalho dizia que ele fica de fora porque "uma
+   * inserção pode legitimamente criar uma promessa" — verdade pra uma palavra
+   * qualquer, e falso pras palavras que este arquivo PROVA serem neutras. E a
+   * direção que ele mede é a que apaga dinheiro da tela: uma palavra neutra
+   * que DESTRÓI uma negação correta não cria promessa nenhuma, só faz o guarda
+   * recusar a resposta certa.
+   * Achado pela revisão de compliance de 2026-09-14.
+   */
+  test.each(inocentes.map((c) => [c.texto.replace(/\n/g, ' ⏎ ').slice(0, 60), c]))(
+    'inocente: %s', (_nome, c) => {
+      const caiu = [];
+      for (const [variante, palavra] of injecoes(c.texto)) {
+        if (acusa(variante)) caiu.push(`+${palavra} → ${variante.replace(/\n/g, '⏎')}`);
+      }
+      // A tolerância é POR CASO e descreve a CLASSE: a razão escrita explica
+      // por que toda injeção neste caso cai do lado fail-closed.
+      const naoDeclaradas = TOLERADAS[c.texto] ? [] : caiu;
+      expect({ caso: c.texto.slice(0, 40), naoDeclaradas })
+        .toEqual({ caso: c.texto.slice(0, 40), naoDeclaradas: [] });
+    });
+
+  /**
+   * PREÂMBULOS COMUNS, que uma injeção de UMA palavra não consegue construir.
+   *
+   * `sujeito_nominal` precisa de determinante + substantivo pra disparar, e é
+   * ele que VETA a regra 1b — uma peça que DESLIGA uma regra tem que ser
+   * medida alargando-a, não apagando-a. A lista é de aberturas ordinárias de
+   * frase, nenhuma delas negação: o grid que existia no `RevisaoDeAfirmacoes-
+   * Tests` tinha seis preâmbulos e os seis eram negações, porque foi escrito a
+   * partir do defeito da rodada anterior.
+   * Achado pela revisão de compliance de 2026-09-14.
+   */
+  const PREAMBULOS = ['Com a conta fechada, ', 'Se a pessoa quiser, ', 'No fim da noite, ',
+    'A conta fechou, ', 'Nesse caso, ', 'Pelo que vi, '];
+  test.each(promessas.filter((c) => !c.texto.includes('\n'))
+    .map((c) => [c.texto.slice(0, 50), c]))('preâmbulo: %s', (_nome, c) => {
+      const caiu = PREAMBULOS.filter((p) => !acusa(p + c.texto[0].toLowerCase() + c.texto.slice(1)))
+        .map((p) => `${p}… → ${c.texto}`);
+      const naoDeclaradas = caiu.filter(
+        (v) => !(TOLERADAS[c.texto] || []).some((t) => v.includes(t)));
+      expect({ caso: c.texto.slice(0, 40), naoDeclaradas })
+        .toEqual({ caso: c.texto.slice(0, 40), naoDeclaradas: [] });
+    });
   test.each(promessas.map((c) => [c.texto.replace(/\n/g, ' ⏎ ').slice(0, 60), c]))(
     '%s', (_nome, c) => {
       const caiu = [];

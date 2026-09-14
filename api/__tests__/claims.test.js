@@ -94,7 +94,8 @@ const reDestinoQualquer = new RegExp(
 const reMarcador = new RegExp(G.marcador_de_lista);
 /** Negador CONTRASTIVO: `não PRA casa` afirma; `não TEM` nega. Ver o gêmeo. */
 const reContrasteColado = new RegExp(COMPOR.contraste_colado(G), 'i');
-const reSujeitoNominal = new RegExp(G.sujeito_nominal, 'i');
+const reRegenciaDoNucleo = new RegExp(COMPOR.regencia_do_nucleo(G), 'i');
+const reSujeitoNominal = new RegExp(COMPOR.sujeito_nominal(G), 'i');
 const reDestAmbiguo = new RegExp(G.destinatario_ambiguo, 'gi');
 const reEvasaoLicencia = new RegExp(COMPOR.evasao_que_licencia(G), 'i');
 const rePalavraFuncional = new RegExp(COMPOR.palavra_funcional(G), 'gi');
@@ -127,12 +128,14 @@ function cabecaValida(re, oracao) {
   return oracao.slice(m.index + m[0].length);
 }
 /** O negador atrás resgata? ORDEM e ESCOPO — ver o gêmeo e `_porque_alcance`. */
-function negadorResgata(cauda) {
-  const m = new RegExp(G.negador_colado, 'i').exec(cauda);
+function negadorResgata(antesDoNucleo, cauda) {
+  const m = new RegExp(COMPOR.negador_colado(G), 'i').exec(cauda);
   if (!m) return false;
   const resto = cauda.slice(m.index + m[0].length);
   // Resgata se ALCANÇA a gorjeta, ou se não diz mais nada além do verbo que
   // nega. Sem adjacência nenhuma — ver o gêmeo no Swift.
+  // ORDEM, de volta, com REGÊNCIA do núcleo — ver o gêmeo no Swift.
+  if (reRegenciaDoNucleo.test(antesDoNucleo) && !reGorjeta.test(resto)) return false;
   if (!reGorjeta.test(resto) && !soFuncionalAteONucleo(resto)) return false;
   return !reContrasteColado.test(resto);
 }
@@ -145,6 +148,13 @@ function normalizado(texto) {
   return texto.normalize('NFC').replace(/[*_`~]+/g, '');
 }
 /** O resto traz PREDICAÇÃO NOVA? Ver `_porque_predicacao` e o gêmeo no Swift. */
+function temSujeitoNominal(trecho) {
+  for (const m of trecho.matchAll(new RegExp(COMPOR.sujeito_nominal(G), 'gi'))) {
+    const p = m.index + m[0].length - m[1].length - 1 - (m[0].length - m[0].indexOf(m[1]) - m[1].length);
+    if (!rePrepPronome.test(trecho.slice(0, m.index + m[0].indexOf(m[1])))) return true;
+  }
+  return false;
+}
 function temSujeitoSolto(trecho) {
   for (const m of trecho.matchAll(rePronomeSujeito)) {
     const p = m.index + m[0].length - m[1].length;
@@ -200,7 +210,14 @@ function nega(oracao) {
   let anterior = 0;
   for (const d of dests) {
     // A janela virou o PREFIXO inteiro — ver o gêmeo no Swift.
-    const vao = oracao.slice(anterior, d.index);
+    // O separador interno voltou — ver o gêmeo no Swift.
+    let ini = anterior;
+    for (const sp of seps) {
+      if (sp.index >= anterior && sp.index + sp[0].length <= d.index) {
+        ini = Math.max(ini, sp.index + sp[0].length);
+      }
+    }
+    const vao = oracao.slice(ini, d.index);
     const mNeg = new RegExp(reNegador.source, 'i').exec(vao);
     const antes = mNeg ? soFuncionalAteONucleo(vao.slice(mNeg.index + mNeg[0].length)) : false;
     // E o negador pode vir DEPOIS do destinatário, colado no verbo — "o garçom
@@ -213,7 +230,7 @@ function nega(oracao) {
     // retira o outro destino e AFIRMA este. Ver `_porque_contrastiva`.
     const cauda = ateOnde > d.index + d[0].length
       ? oracao.slice(d.index + d[0].length, ateOnde) : '';
-    const depois = negadorResgata(cauda);
+    const depois = negadorResgata(oracao.slice(0, d.index), cauda);
     if (!antes && !depois) return false;
     anterior = d.index + d[0].length;
   }
@@ -274,10 +291,13 @@ function acusa(janelaCrua) {
     // Sujeito NOMINAL que não é a gorjeta veta; prefixo julgado, não contado;
     // destinatário que também é cômodo não basta na evidência mais fraca.
     const prefixo = o.slice(0, mDir.index);
-    if (reSujeitoNominal.test(prefixo.replace(new RegExp(reGorjeta.source, 'gi'), ' '))) continue;
+    // O sujeito pode ser o dinheiro por outro nome — ver o gêmeo no Swift.
+    const prefixoSemGorjeta = prefixo.replace(new RegExp(reGorjeta.source, 'gi'), ' ')
+      .replace(new RegExp(G.anafora_de_dinheiro, 'gi'), ' ');
+    if (temSujeitoNominal(prefixoSemGorjeta)) continue;
     const soAmbiguo = new RegExp(G.destinatario_ambiguo, 'i').test(o)
       && !reDestRuntime.test(o.replace(reDestAmbiguo, ' '));
-    const comecaNaForma = !reSujeitoNominal.test(prefixo) && !soAmbiguo;
+    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo;
     if ((reGorjeta.test(janela) || reQuantidade.test(janela) || comecaNaForma)
       && !nega(o)) return true;
   }
@@ -570,6 +590,10 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
       'contraste_colado', 'preposicao_regendo_pronome', 'genitivo_descritivo',
       'preposicao_direcional', 'evasao_de_caminho', 'relativo_pronome', 'relativo_clitico',
       'relativa_qualquer', 'substantivo_gorjeta', 'gatilho_forma_direcional',
+      'modificador_longo',    // entra composto no contraste_colado
+      'anafora_de_dinheiro',  // consultado só no veto de sujeito
+      'regencia_do_nucleo', 'sujeito_nominal', 'palavra_funcional', 'evasao_que_licencia',
+      'adverbio', 'negador_colado',
     ];
     // O alfabeto de marcadores vem do PRÓPRIO gerador, não de uma lista escrita
     // aqui: marcador novo no `PECAS` fica coberto sem ninguém lembrar. A lista

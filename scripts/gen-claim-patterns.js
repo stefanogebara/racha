@@ -39,11 +39,14 @@ const PECAS = (G) => ({
   ART: G.artigo_de_destino,
   GORJETANOME: G.substantivo_gorjeta,
   DESTRUNTIME: G.substantivo_destinatario_runtime,
+  PRONOME: G.pronome_sujeito.replace(/^\(\?:\^\|\[\^0-9A-Za-zÀ-ÿ\]\)\(/, '').replace(/\)\(\?=\[\^0-9A-Za-zÀ-ÿ\]\|\$\)$/, ''),
+  MODLONGO: G.modificador_longo,
   MOD: G.modificador_de_destino,
   DEST: G.substantivo_destinatario_runtime,
   NEGCOLADO: G.negador_colado,
   VERBOS: G.verbo_finito.replace(/^\(\?:\^\|\[\^0-9A-Za-zÀ-ÿ\]\)\(/, '').replace(/\)\(\?=\[\^0-9A-Za-zÀ-ÿ\]\|\$\)$/, ''),
   ENFASE: G.enfase_markdown,
+  ADVERBIO: G.adverbio,
   PREPPRON: G.preposicao_antes_de_pronome,
   NUCLEO: G.nucleo_de_atribuicao,
   GEN: G.genitivo_de_destino_simples,
@@ -61,13 +64,16 @@ const COMPOSTOS = {
   cabeca_de_destino: (G) => compor(G, G.cabeca_de_destino),
   cabeca_forte: (G) => compor(G, G.cabeca_forte),
   contraste_colado: (G) => compor(G, G.contraste_colado),
+  regencia_do_nucleo: (G) => compor(G, G.regencia_do_nucleo),
   evasao_que_licencia: (G) => compor(G, G.evasao_que_licencia),
   palavra_funcional: (G) => compor(G, G.palavra_funcional),
+  negador_colado: (G) => compor(G, G.negador_colado),
   cabeca_direcional: (G) => compor(G, G.cabeca_direcional),
   revoga_dispensa: (G) => compor(G, G.revoga_dispensa),
   evasao_de_caminho: (G) => compor(G, G.evasao_de_caminho),
   preposicao_regendo_pronome: (G) => compor(G, G.preposicao_regendo_pronome),
   genitivo_descritivo: (G) => compor(G, G.genitivo_descritivo),
+  sujeito_nominal: (G) => compor(G, G.sujeito_nominal),
   relativa_qualquer: (G) => compor(G, G.relativa_qualquer),
 };
 const G = JSON.parse(fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'claims.json'), 'utf8')).gorjeta_destino;
@@ -119,8 +125,12 @@ enum ClaimPatterns {
     /// \`_porque_contrastiva\`.
     /// Destino colado atrás do negador: contraste. Ver \`_porque_alcance\`.
     static let contrasteColado = ${lit(COMPOSTOS.contraste_colado(G))}
+    /// Núcleo REGIDO: complemento oblíquo, não sujeito. Ver \`_porque_alcance\`.
+    static let regenciaDoNucleo = ${lit(COMPOSTOS.regencia_do_nucleo(G))}
     /// Sujeito NOMINAL: determinante + substantivo. Ver \`_porque_sujeito_nominal\`.
-    static let sujeitoNominal = ${lit(G.sujeito_nominal)}
+    static let sujeitoNominal = ${lit(COMPOSTOS.sujeito_nominal(G))}
+    /// Como se chama o dinheiro quando o cliente acabou de perguntar dele.
+    static let anaforaDeDinheiro = ${lit(G.anafora_de_dinheiro)}
     /// Destinatário que também é LUGAR. Ver \`_porque_ambiguo\`.
     static let destinatarioAmbiguo = ${lit(G.destinatario_ambiguo)}
     /// Só a família do CAMINHO licencia a cabeça não-direcional. Ver \`_porque_licenca\`.
@@ -146,7 +156,7 @@ enum ClaimPatterns {
     /// Separa ESCOPO de cláusula, e inclui a conjunção coordenativa.
     static let separadorDeClausula = ${lit(G.separador_de_clausula)}
     /// Negador COLADO no destinatário. Sem o \`sem\`: ver \`_porque_negadores\`.
-    static let negadorColado = ${lit(G.negador_colado)}
+    static let negadorColado = ${lit(COMPOSTOS.negador_colado(G))}
     /// A frase que o produto diz. Não é uma variação.
     static let sancionada = ${lit(G.frase_sancionada)}
 }

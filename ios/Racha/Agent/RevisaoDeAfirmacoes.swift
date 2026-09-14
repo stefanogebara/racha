@@ -69,7 +69,9 @@ enum RevisaoDeAfirmacoes {
     /// OUTRO destino. "não PRA casa" retira o outro e afirma este; "não TEM
     /// gorjeta nenhuma" nega de verdade. Ver `_porque_contrastiva`.
     private static let contrasteColado = regex(ClaimPatterns.contrasteColado)
+    private static let regenciaDoNucleo = regex(ClaimPatterns.regenciaDoNucleo)
     private static let sujeitoNominal = regex(ClaimPatterns.sujeitoNominal)
+    private static let anaforaDeDinheiro = regex(ClaimPatterns.anaforaDeDinheiro)
     private static let destinatarioAmbiguo = regex(ClaimPatterns.destinatarioAmbiguo)
     private static let palavraFuncional = regex(ClaimPatterns.palavraFuncional)
 
@@ -103,7 +105,7 @@ enum RevisaoDeAfirmacoes {
     /// O que sobra é negação de verdade. Ver `_porque_alcance`: a versão
     /// anterior perguntava só pelo contraste e deixava passar 90 de 90 caudas
     /// que negam outra coisa ("não precisa deixar mais nada").
-    private static func negadorResgata(_ cauda: String) -> Bool {
+    private static func negadorResgata(_ antesDoNucleo: String, _ cauda: String) -> Bool {
         guard let m = acha(negadorColado, cauda) else { return false }
         let resto = (cauda as NSString).substring(from: m.location + m.length)
         // O NEGADOR ATRÁS RESGATA SE ALCANÇA A GORJETA, ou se não diz mais
@@ -119,6 +121,21 @@ enum RevisaoDeAfirmacoes {
         // — e o fabricador a derrubou com uma palavra na primeira rodada:
         // `fica com ASSIM a equipe não precisa deixar mais nada`. Agora não há
         // adjacência nenhuma aqui. Achado pelo fabricador, 2026-09-14.
+        // ORDEM, DE VOLTA. Eu tirei a pergunta junto com o instrumento errado
+        // que a respondia (a lista de verbos), e nada mais passou a perguntar
+        // se a promessa já tinha sido feita: `A gorjeta fica com o garçom, não
+        // é mesmo.` — uma tag de confirmação — virava negação e resgatava,
+        // 90 de 120, todas recusadas pelo commit anterior. E a mutação que
+        // mediria isso saiu no MESMO commit, então os dois portões ficaram
+        // verdes sobre uma regra que não existia mais.
+        //
+        // O instrumento certo é o que o `_porque_alcance` já nomeava: REGÊNCIA
+        // do núcleo. Complemento oblíquo (`ao garçom`, `com a equipe`) é
+        // dinheiro já mandado; núcleo nu é sujeito, e sujeito se nega. O slot
+        // de modificador fica entre o ARTIGO e o núcleo — entre a preposição e
+        // o artigo ele deixava `de HOJE o garçom` passar por oblíquo.
+        // Achado pela revisão de segurança de 2026-09-14.
+        if casa(regenciaDoNucleo, antesDoNucleo) && !casa(gorjeta, resto) { return false }
         if !casa(gorjeta, resto) && !soFuncionalAteONucleo(resto) { return false }
         return !casa(contrasteColado, resto)
     }
@@ -217,6 +234,19 @@ enum RevisaoDeAfirmacoes {
     /// "você acerta na maquininha", "eles já sabem", "tá tudo certo".
     /// Ver `_porque_predicacao` — inclusive pela polaridade, que é o que
     /// permite ao `verboFinito` ser uma enumeração.
+    /// Sujeito NOMINAL solto — determinante + substantivo não regido por
+    /// preposição. `A COMANDA vai pro garçom` tem um; `Com A CONTA fechada,
+    /// vai tudo pro garçom` não tem — ali o nominal é complemento do `com`.
+    /// Ver `_porque_sujeito_nominal`.
+    private static func temSujeitoNominal(_ trecho: String) -> Bool {
+        let ns = trecho as NSString
+        for m in sujeitoNominal.matches(in: trecho, range: NSRange(location: 0, length: ns.length)) {
+            let p = m.range(at: 1).location
+            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }
+        }
+        return false
+    }
+
     /// Sujeito SOLTO — pronome que não vem regido por preposição.
     private static func temSujeitoSolto(_ trecho: String) -> Bool {
         let ns = trecho as NSString
@@ -352,8 +382,23 @@ enum RevisaoDeAfirmacoes {
             // "A caixinha não é do barman NEM do sommelier." o `nem` que nega o
             // segundo mora depois do primeiro, e sem o corte o escopo do `não`
             // esbarra em `barman` — conteúdo — e a negação some.
-            let vao = ns.substring(with: NSRange(
-                location: anterior, length: d.location - anterior))
+            // O SEPARADOR INTERNO VOLTOU, e a lição é sobre a medição, não
+            // sobre a peça. Eu apaguei as quatro âncoras porque apagar cada uma
+            // deixava o corpo verde — e isso mediu o CORPO, não a âncora. Com
+            // ela de volta o corpo continua verde e 165 de 165 voltam a ser
+            // recusadas: `Não, vai pra equipe.` — o `Não` responde à PERGUNTA
+            // do cliente, e sem o corte na vírgula ele alcançava o destino da
+            // resposta. É a resposta mais provável à pergunta mais provável.
+            //
+            // As outras três âncoras eram mesmo mortas: restauradas uma a uma,
+            // zero vereditos mudam numa grade de 1080. Achado pela revisão de
+            // segurança de 2026-09-14, que restaurou cada uma e mediu.
+            var ini = anterior
+            for sep in separadorInterno.matches(
+                in: oracao, range: NSRange(location: anterior, length: d.location - anterior)) {
+                ini = max(ini, sep.range.location + sep.range.length)
+            }
+            let vao = ns.substring(with: NSRange(location: ini, length: d.location - ini))
             var antes = false
             if let n = acha(negador, vao) {
                 // E O NEGADOR TEM QUE ALCANÇAR O DESTINO. Ver
@@ -401,7 +446,7 @@ enum RevisaoDeAfirmacoes {
                 ? ns.substring(with: NSRange(
                     location: d.location + d.length, length: fimDoTrecho - d.location - d.length))
                 : ""
-            let depois = negadorResgata(cauda)
+            let depois = negadorResgata(ns.substring(to: d.location), cauda)
             if !antes && !depois { return false }
             anterior = d.location + d.length
         }
@@ -581,10 +626,19 @@ enum RevisaoDeAfirmacoes {
             // garçom.` tem sujeito nominal e é justamente a promessa, então o
             // substantivo da gorjeta sai antes do teste.
             let prefixo = acha(direcional, o).map { (o as NSString).substring(to: $0.location) } ?? ""
-            let prefixoSemGorjeta = gorjeta.stringByReplacingMatches(
+            // O SUJEITO PODE SER O DINHEIRO CHAMADO POR OUTRO NOME. `O VALOR
+            // vai todo pro garçom.`, `A PARTE vai pro garçom.`, `Esse DINHEIRO
+            // fica com o garçom.` — 96 de 96 escapavam porque o veto lia `o
+            // valor` como `outra coisa`. Mesma anáfora que derrubou a
+            // pré-condição duas rodadas antes, agora do lado do sujeito.
+            var prefixoSemGorjeta = gorjeta.stringByReplacingMatches(
                 in: prefixo, range: NSRange(location: 0, length: (prefixo as NSString).length),
                 withTemplate: " ")
-            if casa(sujeitoNominal, prefixoSemGorjeta) { continue }
+            prefixoSemGorjeta = anaforaDeDinheiro.stringByReplacingMatches(
+                in: prefixoSemGorjeta,
+                range: NSRange(location: 0, length: (prefixoSemGorjeta as NSString).length),
+                withTemplate: " ")
+            if temSujeitoNominal(prefixoSemGorjeta) { continue }
             // Na evidência mais fraca, destinatário que também é LUGAR não
             // basta: `Vai pra cozinha, já avisei.` é sobre o pedido.
             // Ver `_porque_ambiguo`.
@@ -592,7 +646,7 @@ enum RevisaoDeAfirmacoes {
                 && !casa(destinatario, destinatarioAmbiguo.stringByReplacingMatches(
                     in: o, range: NSRange(location: 0, length: (o as NSString).length),
                     withTemplate: " "))
-            let comecaNaForma = !casa(sujeitoNominal, prefixo) && !soAmbiguo
+            let comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo
             // O contexto de dinheiro é medido na JANELA, não na oração: em
             // `vai pra equipe · ${e.tip}` o substantivo da gorjeta está na
             // mesma linha e noutra oração, e a janela é o que o

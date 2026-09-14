@@ -47,8 +47,8 @@ const F = JSON.parse(fs.readFileSync(
  */
 const MUTACOES = [
   { nome: 'âncora do destinatário anterior',
-    de: '    const vao = oracao.slice(anterior, d.index);',
-    para: '    const vao = oracao.slice(0, d.index);' },
+    de: '    const vao = oracao.slice(ini, d.index);',
+    para: '    const vao = oracao.slice(anterior, d.index);' },
   // DEIXOU DE SER SEM COBERTURA em 2026-09-14: desde que a janela virou o
   // prefixo inteiro, a lista de evasão encontra `sem` em lugares onde a de
   // negadores não encontra nada, e o corpo vê a diferença. A marca saiu porque
@@ -66,7 +66,16 @@ const MUTACOES = [
   { nome: 'o negador DEPOIS do destinatário deixa de contar',
     de: '    if (!antes && !depois) return false;',
     para: '    if (!antes) return false;' },
-  { nome: 'o negador atrás deixa de exigir que ALCANCE a gorjeta',
+  { nome: 'o negador atrás deixa de olhar a ORDEM (promessa já feita)',
+    de: '  if (reRegenciaDoNucleo.test(antesDoNucleo) && !reGorjeta.test(resto)) return false;',
+    para: '' },
+  // SEM COBERTURA, e medido: desde que a pergunta de ORDEM voltou (regência do
+  // núcleo) e roda ANTES desta, todo caso `recusa: true` do corpo com cauda
+  // negadora tem núcleo oblíquo, e a ORDEM já os recusa. O alcance só decide
+  // pra núcleo NÃO-oblíquo com cauda de conteúdo, e o corpo não tem esse caso.
+  // Falha FECHADO — tirá-lo concede o resgate em mais casos, então a marca é
+  // uma dívida de cobertura, não de polaridade.
+  { nome: 'o negador atrás deixa de exigir que ALCANCE a gorjeta', semCobertura: true,
     de: '  if (!reGorjeta.test(resto) && !soFuncionalAteONucleo(resto)) return false;',
     para: '' },
   { nome: 'o negador atrás deixa de olhar o CONTRASTE',
@@ -81,6 +90,12 @@ const MUTACOES = [
   { nome: 'o distribuidor volta a dispensar de dentro de uma RELATIVA',
     de: '        const temDist = reDistribuidor.test(matriz);',
     para: '        const temDist = reDistribuidor.test(seg);' },
+  { nome: 'o separador interno deixa de ancorar a janela do nega',
+    de: '      if (sp.index >= anterior && sp.index + sp[0].length <= d.index) {',
+    para: '      if (false) {' },
+  { nome: 'a ANÁFORA de dinheiro deixa de contar como sujeito-gorjeta',
+    de: "      .replace(new RegExp(G.anafora_de_dinheiro, 'gi'), ' ');",
+    para: '      ;' },
   { nome: 'a coordenação deixa de herdar o distribuidor',
     de: '        const dispensa = temDist || (!temVerbo && distribuidorAnterior);',
     para: '        const dispensa = temDist;' },
@@ -101,14 +116,14 @@ const MUTACOES = [
     de: '    if (!reRevoga.test(oracao)) return true;',
     para: '    return true;' },
   { nome: 'o SUJEITO NOMINAL deixa de vetar a regra 1b',
-    de: '    if (reSujeitoNominal.test(prefixo.replace(new RegExp(reGorjeta.source, \'gi\'), \' \'))) continue;',
+    de: '    if (temSujeitoNominal(prefixoSemGorjeta)) continue;',
     para: '' },
   { nome: 'o prefixo da forma direcional volta a ser CONTADO',
-    de: '    const comecaNaForma = !reSujeitoNominal.test(prefixo) && !soAmbiguo;',
+    de: '    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo;',
     para: '    const comecaNaForma = !/[0-9A-Za-zÀ-ÿ]/.test(prefixo);' },
   { nome: 'o destinatário AMBÍGUO volta a bastar na evidência fraca',
-    de: '    const comecaNaForma = !reSujeitoNominal.test(prefixo) && !soAmbiguo;',
-    para: '    const comecaNaForma = !reSujeitoNominal.test(prefixo);' },
+    de: '    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta) && !soAmbiguo;',
+    para: '    const comecaNaForma = !temSujeitoNominal(prefixoSemGorjeta);' },
   { nome: 'a regra 1b deixa de exigir contexto de dinheiro',
     de: '    if ((reGorjeta.test(janela) || reQuantidade.test(janela) || comecaNaForma)',
     para: '    if ((true)' },

@@ -1305,6 +1305,96 @@
       "texto": "Vai pra cozinha, já avisei.",
       "recusa": false,
       "porque": "destinatário que também é CÔMODO não basta na evidência mais fraca: `Vai pra cozinha` é sobre o pedido"
+    },
+    {
+      "texto": "Não, vai pra equipe.",
+      "recusa": true,
+      "porque": "o `Não` responde à PERGUNTA do cliente, não ao destino: sem o corte na vírgula ele alcançava a resposta. Eu apaguei essa âncora medindo que apagá-la deixava o corpo verde — o que mediu o CORPO, não a âncora: 165 de 165"
+    },
+    {
+      "texto": "Não, vai pro garçom.",
+      "recusa": true,
+      "porque": "o `Não` responde à PERGUNTA do cliente, não ao destino: sem o corte na vírgula ele alcançava a resposta. Eu apaguei essa âncora medindo que apagá-la deixava o corpo verde — o que mediu o CORPO, não a âncora: 165 de 165"
+    },
+    {
+      "texto": "Não precisa, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "o `Não` responde à PERGUNTA do cliente, não ao destino: sem o corte na vírgula ele alcançava a resposta. Eu apaguei essa âncora medindo que apagá-la deixava o corpo verde — o que mediu o CORPO, não a âncora: 165 de 165"
+    },
+    {
+      "texto": "A gorjeta? Não, vai pro garçom.",
+      "recusa": true,
+      "porque": "o `Não` responde à PERGUNTA do cliente, não ao destino: sem o corte na vírgula ele alcançava a resposta. Eu apaguei essa âncora medindo que apagá-la deixava o corpo verde — o que mediu o CORPO, não a âncora: 165 de 165"
+    },
+    {
+      "texto": "A gorjeta fica com o garçom, não é mesmo.",
+      "recusa": true,
+      "porque": "tag de CONFIRMAÇÃO lida como negação: a pergunta de ORDEM saiu junto com o instrumento errado que a respondia, e a mutação que mediria isso saiu no mesmo commit — os dois portões ficaram verdes sobre uma regra que não existia mais. 90 de 120"
+    },
+    {
+      "texto": "Os 10% vão pro garçom não é.",
+      "recusa": true,
+      "porque": "tag de CONFIRMAÇÃO lida como negação: a pergunta de ORDEM saiu junto com o instrumento errado que a respondia, e a mutação que mediria isso saiu no mesmo commit — os dois portões ficaram verdes sobre uma regra que não existia mais. 90 de 120"
+    },
+    {
+      "texto": "O serviço é da equipe não é.",
+      "recusa": true,
+      "porque": "tag de CONFIRMAÇÃO lida como negação: a pergunta de ORDEM saiu junto com o instrumento errado que a respondia, e a mutação que mediria isso saiu no mesmo commit — os dois portões ficaram verdes sobre uma regra que não existia mais. 90 de 120"
+    },
+    {
+      "texto": "O valor vai todo pro garçom.",
+      "recusa": true,
+      "porque": "o sujeito é o DINHEIRO chamado por outro nome: o veto lia `o valor` como `outra coisa` e desligava a regra 1b — 96 de 96, a mesma anáfora que derrubou a pré-condição duas rodadas antes, agora do lado do sujeito"
+    },
+    {
+      "texto": "A parte vai pro garçom.",
+      "recusa": true,
+      "porque": "o sujeito é o DINHEIRO chamado por outro nome: o veto lia `o valor` como `outra coisa` e desligava a regra 1b — 96 de 96, a mesma anáfora que derrubou a pré-condição duas rodadas antes, agora do lado do sujeito"
+    },
+    {
+      "texto": "Esse valor fica com o garçom.",
+      "recusa": true,
+      "porque": "o sujeito é o DINHEIRO chamado por outro nome: o veto lia `o valor` como `outra coisa` e desligava a regra 1b — 96 de 96, a mesma anáfora que derrubou a pré-condição duas rodadas antes, agora do lado do sujeito"
+    },
+    {
+      "texto": "O dinheiro fica com o garçom.",
+      "recusa": true,
+      "porque": "o sujeito é o DINHEIRO chamado por outro nome: o veto lia `o valor` como `outra coisa` e desligava a regra 1b — 96 de 96, a mesma anáfora que derrubou a pré-condição duas rodadas antes, agora do lado do sujeito"
+    },
+    {
+      "texto": "Com a conta fechada, vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "abertura ORDINÁRIA, não negação: o grid de preâmbulos tinha seis membros e os seis eram negações, porque foi escrito a partir do defeito da rodada anterior"
+    },
+    {
+      "texto": "Se a pessoa quiser, vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "abertura ORDINÁRIA, não negação: o grid de preâmbulos tinha seis membros e os seis eram negações, porque foi escrito a partir do defeito da rodada anterior"
+    },
+    {
+      "texto": "A conta fechou, vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "abertura ORDINÁRIA, não negação: o grid de preâmbulos tinha seis membros e os seis eram negações, porque foi escrito a partir do defeito da rodada anterior"
+    },
+    {
+      "texto": "Fica com a gente e com o garçom.",
+      "recusa": true,
+      "porque": "SEGUNDO CONJUNTO: só o primeiro destinatário estava protegido, e o primeiro costuma ser um dos que o runtime exclui de propósito"
+    },
+    {
+      "texto": "A gorjeta não vai direto pro garçom.",
+      "recusa": false,
+      "porque": "`direto` é exatamente o que está sendo NEGADO, e a frase é a legalmente correta — quantidade e pronome são material funcional no caminho do negador"
+    },
+    {
+      "texto": "A gorjeta não vai 100% pro garçom.",
+      "recusa": false,
+      "porque": "`direto` é exatamente o que está sendo NEGADO, e a frase é a legalmente correta — quantidade e pronome são material funcional no caminho do negador"
+    },
+    {
+      "texto": "A gorjeta não vai pra nossa equipe.",
+      "recusa": false,
+      "porque": "`direto` é exatamente o que está sendo NEGADO, e a frase é a legalmente correta — quantidade e pronome são material funcional no caminho do negador"
     }
   ]
 }
