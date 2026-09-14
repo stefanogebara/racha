@@ -42,7 +42,7 @@ const reDistribuidor = new RegExp(G.distribuidor_com_sujeito, 'i');
 const reRevoga = new RegExp(G.revoga_dispensa, 'i');
 /** Só os negadores; a evasão preposicional pertence à dispensa. */
 const reNegador = new RegExp(G.negadores, 'i');
-const { expandirDest: _exp, comporFrasePura } = require('../../scripts/gen-claim-patterns.js');
+const { expandirDest: _exp, COMPOSTOS: COMPOR, PECAS } = require('../../scripts/gen-claim-patterns.js');
 const reSuprimeGlobal = new RegExp(
   _exp(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime), 'i');
 const JANELA = G.janela_linhas;
@@ -93,18 +93,42 @@ const reDestinoQualquer = new RegExp(
   + '((' + G.artigo_de_destino + ')\\s+)?' + G.modificador_de_destino
   + '(' + G.substantivo_destinatario + ')', 'i');
 const reMarcador = new RegExp(G.marcador_de_lista);
-/** REGÊNCIA de destino no vão antes do núcleo: marca o destinatário OBLÍQUO. */
-const reRegencia = new RegExp(G.regencia_de_destino, 'i');
-/**
- * A oração é, do começo ao fim, uma FRASE DE DESTINO — "pro garçom",
- * "- 100% pra equipe do salão" — e não uma oração com verbo. Era uma contagem
- * de palavras (`<= 4`), um proxy que caía com um genitivo a mais. Ver o gêmeo
- * no RevisaoDeAfirmacoes.swift.
- */
-const reFraseDeDestinoPura = new RegExp(comporFrasePura(G), 'i');
+/** Negador CONTRASTIVO: `não PRA casa` afirma; `não TEM` nega. Ver o gêmeo. */
+const reContrastiva = new RegExp(COMPOR.negacao_contrastiva(G), 'i');
+/** A CABEÇA de destino — PREFIXO, não whitelist ancorada. Ver o gêmeo. */
+const reCabeca = new RegExp(COMPOR.cabeca_de_destino(G), 'i');
+const reCabecaForte = new RegExp(COMPOR.cabeca_forte(G), 'i');
+const rePronomeSujeito = new RegExp(G.pronome_sujeito, 'gi');
+const rePrepPronome = new RegExp(COMPOR.preposicao_regendo_pronome(G), 'i');
+const reVerboFinito = new RegExp(G.verbo_finito, 'i');
+const reRelativa = new RegExp(COMPOR.relativa_qualquer(G), 'gi');
+const reGenitivoDescritivo = new RegExp(COMPOR.genitivo_descritivo(G), 'gi');
+const reSeparadorCorte = new RegExp(G.separador_interno, 'i');
 
-/** A oração É, ela toda, uma frase de destino: começa na preposição. */
-const reFraseDeDestino = new RegExp('^\\s*' + reDestinoQualquer.source, 'i');
+/** O que sobra depois da CABEÇA, ou `null`. Ver o gêmeo no Swift. */
+function restoDepoisDaCabeca(oracao) {
+  const m = reCabeca.exec(oracao);
+  return m ? oracao.slice(m.index + m[0].length) : null;
+}
+/** Até o primeiro separador interno — só no caminho FORTE. Ver `_porque_corte`. */
+function ateOSeparador(oracao) {
+  const m = reSeparadorCorte.exec(oracao);
+  return m ? oracao.slice(0, m.index) : oracao;
+}
+/** O resto traz PREDICAÇÃO NOVA? Ver `_porque_predicacao` e o gêmeo no Swift. */
+function temPredicacao(resto) {
+  const semRelativa = resto.replace(reRelativa, ' ');
+  if (reVerboFinito.test(semRelativa)) return true;
+  for (const m of semRelativa.matchAll(rePronomeSujeito)) {
+    const p = m.index + m[0].length - m[1].length;
+    if (!rePrepPronome.test(semRelativa.slice(0, p))) return true;
+  }
+  return false;
+}
+/** Destinatário que NÃO é genitivo descritivo. Ver o gêmeo no Swift. */
+function destinatarioNaoAtributivo(oracao) {
+  return reDestRuntime.test(oracao.replace(reGenitivoDescritivo, ' '));
+}
 /** Ver `_porque_quantidade` no claims.json — inclui MOEDA. */
 const reQuantidade = new RegExp(G.quantidade, 'i');
 /**
@@ -155,14 +179,12 @@ function nega(oracao) {
     const ateOnde = fim ? fim.index : oracao.length;
     // COLADO no destinatário, e sem `sem`: a cauda da própria frase virava
     // negação da promessa que ela acabara de fazer. Ver o gêmeo no Swift.
-    // Só destinatário SUJEITO é resgatável por negador atrás dele. Regido por
-    // preposição ele é OBLÍQUO — o destino do dinheiro — e a negação
-    // contrastiva do termo seguinte AFIRMA a promessa. Ver `_porque_obliquo`.
-    // Regência não é adjacência: o MESMO vão do `antes`. Ver `_porque_regencia`.
-    const obliquo = ini < d.index && reRegencia.test(oracao.slice(ini, d.index));
-    const depois = !obliquo && ateOnde > d.index + d[0].length
-      && new RegExp(G.negador_colado, 'i').test(
-        oracao.slice(d.index + d[0].length, ateOnde));
+    // O negador atrás só resgata se for negação DE VERDADE: `não PRA casa`
+    // retira o outro destino e AFIRMA este. Ver `_porque_contrastiva`.
+    const cauda = ateOnde > d.index + d[0].length
+      ? oracao.slice(d.index + d[0].length, ateOnde) : '';
+    const depois = new RegExp(G.negador_colado, 'i').test(cauda)
+      && !reContrastiva.test(cauda);
     if (!antes && !depois) return false;
     anterior = d.index + d[0].length;
   }
@@ -189,7 +211,7 @@ function acusa(janela) {
   if (!reGorjeta.test(janela) || !reDestRuntime.test(janela)) return false;
   let partes = oracoes(janela);
   for (const o of partes) {
-    if (reGorjeta.test(o) && reDestRuntime.test(o) && !nega(o) && !temDistribuidor(o)) return true;
+    if (reGorjeta.test(o) && destinatarioNaoAtributivo(o) && !nega(o) && !temDistribuidor(o)) return true;
   }
   for (const o of partes) {
     if (reSuprimeGlobal.test(o) && !nega(o)) return true;
@@ -208,16 +230,19 @@ function acusa(janela) {
   for (let i = 0; i < partes.length; i += 1) {
     const o = partes[i];
     if (!reDestRuntime.test(o) || !reDestinoQualquer.test(o) || nega(o)) continue;
-    // A oração anterior tem que trazer a QUANTIDADE *e* o substantivo da
-    // gorjeta — ver o gêmeo no Swift.
-    // A classe NÃO TEM VERBO — a oração toda é a frase de destino. Ver o
-    // gêmeo no Swift.
-    // Até o PRIMEIRO separador interno — ver o gêmeo no Swift.
-    const ateSep = o.split(new RegExp(G.separador_interno))[0];
-    if (!reFraseDeDestinoPura.test(ateSep)) continue;
-    const anteriorTemQuantidade = i > 0 && reQuantidade.test(partes[i - 1])
-      && reFraseDeDestino.test(o);
-    if (!reMarcador.test(o) && !reQuantidade.test(o) && !anteriorTemQuantidade) continue;
+    // O corte no separador vale SÓ no caminho forte — ver `_porque_corte`.
+    const seg = ateOSeparador(o);
+    const rForte = restoDepoisDaCabeca(seg);
+    if ((reMarcador.test(seg) || reCabecaForte.test(seg)) && rForte !== null
+      && !temPredicacao(rForte)) return true;
+    // Evidência fraca (quantidade só na oração anterior): a oração tem que ser
+    // a frase de destino e MAIS NADA. Ver `_porque_dois_niveis`.
+    const resto = restoDepoisDaCabeca(o);
+    // Aqui NÃO se pergunta por predicação: o caminho fraco exige resto VAZIO,
+    // e vazio já não tem predicação. Perguntar as duas coisas é uma guarda que
+    // não pode disparar, e guarda que não dispara é guarda ausente.
+    if (resto === null) continue;
+    if (!(i > 0 && reQuantidade.test(partes[i - 1]) && !/[0-9A-Za-zÀ-ÿ]/.test(resto))) continue;
     // Nada resgata uma afirmação já feita — a mesma lógica da regra 1b, que a
     // regra 3 não aplicava: bastava ABRIR com a frase sancionada pra liberar o
     // `- 100% pro garçom` depois dela.
@@ -445,7 +470,6 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
     const swift = gerar();
     // Se um campo novo entrar no JSON e não no gerador, o runtime fica com uma
     // regra mais frouxa que o build e ninguém percebe.
-    const { expandirDest } = require('../../scripts/gen-claim-patterns.js');
     // TODOS os campos de padrão do JSON, descobertos — não uma lista fixa.
     // A lista fixa tinha seis nomes e não podia ver um sétimo, e foi assim que
     // seis padrões da DECISÃO ficaram escritos duas vezes à mão, fora do
@@ -454,39 +478,50 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
     // NÃO-PADRÕES SÃO DECLARADOS, não inferidos por tipo. O filtro
     // `typeof === 'string'` não enxergava campo de outro tipo: uma lista ou um
     // número novo entrava no JSON e ficava fora da cobertura sem ninguém ver.
-    // Agora toda chave sem `_` tem que estar de um lado ou do outro.
     const NAO_SAO_PADRAO = [
       'guarda', 'porque', 'frase_sancionada', 'janela_linhas', 'onde_o_censo_anda',
       'destinatarios_so_deteccao', 'frases_aposentadas', 'frases_aprovadas', 'dispensas',
     ];
-    // Padrão que é SÓ DO CENSO, com motivo: a lista completa de destinatários
-    // inclui os pronomes que na mesa querem dizer os CLIENTES, e o runtime usa
-    // a curta de propósito (`_porque_lista_runtime`). Emitir a completa pro
-    // Swift seria um padrão que ninguém consulta — foi por esse vão que o
-    // `preposicaoColadaAtras` sobreviveu à própria remoção da regra.
-    const SO_DO_CENSO = ['substantivo_destinatario'];
-    // Padrões COMPOSTOS: o valor no JSON traz marcadores em CAIXA ALTA que o
-    // gerador substitui. Cada um tem que declarar aqui quem o compõe — sem
-    // isso a asserção de conteúdo literal falharia, e a saída preguiçosa seria
-    // remover o campo do censo em vez de compô-lo.
-    const COMPOSTOS = {
-      gatilho_forma_direcional: (g) => expandirDest(g.gatilho_forma_direcional, g.substantivo_destinatario_runtime),
-      frase_de_destino_pura: comporFrasePura,
-    };
+    // Padrão que é SÓ DO CENSO, com motivo escrito. Emitir pro Swift um padrão
+    // que o guarda não consulta é o vão pelo qual o `preposicaoColadaAtras`
+    // sobreviveu à própria remoção da regra.
+    const SO_DO_CENSO = [
+      'substantivo_destinatario',      // a completa inclui os pronomes da MESA
+      'preposicao_antes_de_pronome',   // entra composta no preposicao_regendo_pronome
+      'genitivo_de_destino_simples',   // idem, dentro do PREPDEST e do GEN
+      'nucleo_de_atribuicao',          // idem, dentro do genitivo_descritivo
+      'cabeca_de_destino', 'cabeca_forte', 'negacao_contrastiva',
+      'preposicao_regendo_pronome', 'genitivo_descritivo',
+    ];
+    // O alfabeto de marcadores vem do PRÓPRIO gerador, não de uma lista escrita
+    // aqui: marcador novo no `PECAS` fica coberto sem ninguém lembrar. A lista
+    // fixa de seis nomes que não podia ver um sétimo é o defeito de round 11, e
+    // escrevê-la de novo aqui seria reintroduzi-lo um nível acima. E é por isto
+    // que a checagem não é `[A-Z]{3,}`: o `distribuidor_com_sujeito` diz `CNPJ`.
+    const RESIDUO = new RegExp('\\b(' + Object.keys(PECAS(G)).join('|') + ')\\b');
     const camposDePadrao = Object.keys(G).filter((k) => !k.startsWith('_') && !NAO_SAO_PADRAO.includes(k));
     expect(camposDePadrao.length).toBeGreaterThanOrEqual(10);
-    // Nada de não-padrão declarado pode ter sumido do JSON: a lista de exceções
-    // não pode envelhecer em silêncio e passar a isentar um campo que existe.
+    // A lista de exceções não pode envelhecer em silêncio e passar a isentar
+    // um campo que não existe mais.
     expect(NAO_SAO_PADRAO.filter((k) => !(k in G))).toEqual([]);
+    expect(SO_DO_CENSO.filter((k) => !(k in G))).toEqual([]);
     for (const campo of camposDePadrao) {
       expect(typeof G[campo]).toBe('string');
-      // Marcador em caixa alta sem composição declarada = campo composto que
-      // ninguém compôs. Falha aqui, não silenciosamente no runtime.
-      if (/\b(MARCADOR|QUANT|PREP|ART|MOD|DEST|GEN)\b/.test(G[campo]) || G[campo].includes('{DEST}')) {
-        expect(Object.keys(COMPOSTOS)).toContain(campo);
-      }
+      // Marcador em caixa alta é campo COMPOSTO. Sem composição declarada, o
+      // padrão sairia com o literal `MARCADOR` dentro e casaria a palavra.
+      // A checagem é sobre a SAÍDA e não sobre uma lista de nomes: a lista de
+      // nomes é o defeito de round 11 reintroduzido um nível acima.
+      const composto = COMPOR[campo];
+      // Marcador no valor cru = campo COMPOSTO. Sem composição declarada o
+      // padrão sairia com o literal `MARCADOR` dentro e casaria a palavra —
+      // falha aqui, não em silêncio no runtime.
+      if (RESIDUO.test(G[campo])) expect(Object.keys(COMPOR)).toContain(campo);
+      // E a saída composta não pode sobrar marcador nenhum: substituição
+      // parcial (`MOD` comido pelo começo de `MARCADOR`, `PREP` pelo de
+      // `PREPDEST`) sai calada e errada.
+      if (composto) expect(RESIDUO.test(composto(G))).toBe(false);
       if (SO_DO_CENSO.includes(campo)) continue;
-      const valor = COMPOSTOS[campo] ? COMPOSTOS[campo](G) : G[campo];
+      const valor = composto ? composto(G) : G[campo];
       expect(swift).toContain(valor.replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
     }
   });
@@ -500,11 +535,14 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
    */
   test('todo padrão emitido é consultado pelo guarda de runtime', () => {
     const { gerar } = require('../../scripts/gen-claim-patterns.js');
-    const swiftDir = path.join(__dirname, '..', '..', 'ios');
-    // Guarda + suíte de runtime: o alvo Swift inteiro. Um padrão que nem o
-    // guarda nem os testes dele mencionam não existe pra ninguém.
-    const guarda = ['Racha/Agent/RevisaoDeAfirmacoes.swift', 'RachaTests/RevisaoDeAfirmacoesTests.swift']
-      .map((f) => fs.readFileSync(path.join(swiftDir, f), 'utf8')).join('\n');
+    // SÓ O GUARDA. A primeira versão contava menção no arquivo de TESTE como
+    // consulta, e já havia um órfão passando por essa porta: `soDeteccao` era
+    // emitido pro binário e citado só por um teste. Um padrão que sobrevive à
+    // remoção da sua regra com uma linha de teste é exatamente o defeito que
+    // este portão foi escrito pra achar — o portão continha uma instância do
+    // que proíbe. Achado pela revisão de segurança de 2026-09-14.
+    const guarda = fs.readFileSync(path.join(
+      __dirname, '..', '..', 'ios', 'Racha', 'Agent', 'RevisaoDeAfirmacoes.swift'), 'utf8');
     const emitidos = [...gerar().matchAll(/static let (\w+) =/g)].map((m) => m[1]);
     expect(emitidos.length).toBeGreaterThanOrEqual(10);
     const orfaos = emitidos.filter((n) => !guarda.includes('ClaimPatterns.' + n));

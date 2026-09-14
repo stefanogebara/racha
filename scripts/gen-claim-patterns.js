@@ -25,19 +25,41 @@ const path = require('node:path');
 const RAIZ = path.join(__dirname, '..');
 const expandirDest = (re, dest) => re.split('{DEST}').join(dest);
 /**
- * Compõe a FRASE DE DESTINO PURA a partir das outras peças do JSON. Fica aqui,
- * e não escrita duas vezes, porque o censo de build a importa daqui: escrita à
- * mão nos dois lados, esta é exatamente a peça que já divergiu três vezes.
+ * Compõe os padrões que têm MARCADORES EM CAIXA ALTA no JSON. Fica aqui, e não
+ * escrito duas vezes, porque o censo de build importa daqui: escrita à mão nos
+ * dois lados, esta é exatamente a peça que já divergiu três vezes.
  */
-const comporFrasePura = (G) => G.frase_de_destino_pura
-  .replace('MARCADOR', G.marcador_de_lista.replace(/^\^/, '').replace(/\$$/, ''))
-  .replace('QUANT', G.quantidade)
-  .replace('PREP', G.preposicao_de_destino)
-  .replace(/ART/g, G.artigo_de_destino)
-  .replace('RELATIVA', G.relativa_de_destino)
-  .replace(/MOD/g, G.modificador_de_destino)
-  .replace('DEST', G.substantivo_destinatario_runtime)
-  .replace('GEN', G.genitivo_de_destino);
+const PECAS = (G) => ({
+  MARCADOR: G.marcador_de_lista.replace(/^\^/, '').replace(/\$$/, ''),
+  QUANT_C: G.quantidade_consumida,
+  PREPDEST: G.preposicao_de_destino + '|' + G.genitivo_de_destino_simples,
+  PREP: G.preposicao_de_destino,
+  ART: G.artigo_de_destino,
+  MOD: G.modificador_de_destino,
+  DEST: G.substantivo_destinatario_runtime,
+  NEGCOLADO: G.negador_colado,
+  ENFASE: G.enfase_markdown,
+  PREPPRON: G.preposicao_antes_de_pronome,
+  NUCLEO: G.nucleo_de_atribuicao.replace('GORJETA', G.substantivo_gorjeta),
+  GEN: G.genitivo_de_destino_simples,
+  RELPRON: G.relativo_pronome,
+  RELCLIT: G.relativo_clitico,
+});
+/** Substitui TODOS os marcadores, do mais longo pro mais curto — senão `PREP`
+ *  comeria o começo de `PREPDEST` e o padrão sairia calado e errado. */
+const compor = (G, re) => Object.entries(PECAS(G))
+  .sort((a, b) => b[0].length - a[0].length)
+  .reduce((acc, [nome, valor]) => acc.split(nome).join(valor), re);
+const COMPOSTOS = {
+  gatilho_forma_direcional: (G) => expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime),
+  cabeca_de_destino: (G) => compor(G, G.cabeca_de_destino),
+  cabeca_forte: (G) => compor(G, G.cabeca_forte),
+  negacao_contrastiva: (G) => compor(G, G.negacao_contrastiva),
+  preposicao_regendo_pronome: (G) => compor(G, G.preposicao_regendo_pronome),
+  genitivo_descritivo: (G) => compor(G, G.genitivo_descritivo),
+  relativa_qualquer: (G) => compor(G, G.relativa_qualquer),
+  nucleo_de_atribuicao: (G) => G.nucleo_de_atribuicao.replace('GORJETA', G.substantivo_gorjeta),
+};
 const G = JSON.parse(fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'claims.json'), 'utf8')).gorjeta_destino;
 
 /** Literal de string Swift, com as barras e aspas escapadas. */
@@ -67,9 +89,6 @@ enum ClaimPatterns {
     static let negadores = ${lit(G.negadores)}
     /// Alta precisão, baixa cobertura. Oráculo de teste: ver claims.json.
     static let formaDirecional = ${lit(expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime))}
-    /// Destinatários que o censo de build DETECTA e o runtime não — os que,
-    /// na mesa, querem dizer os clientes. Ver \`_porque_so_deteccao\`.
-    static let soDeteccao = ${lit(G.destinatarios_so_deteccao.join('|'))}
     /// QUANTIDADE: separa dinheiro DIRIGIDO de ação dirigida. Inclui moeda —
     /// era a única notação que faltava, e é a que toda linha real usa.
     static let quantidade = ${lit(G.quantidade)}
@@ -79,13 +98,29 @@ enum ClaimPatterns {
     /// Até dois modificadores entre o artigo e o núcleo: \`the FLOOR staff\`.
     /// Ver \`_porque_modificador\`.
     static let modificadorDeDestino = ${lit(G.modificador_de_destino)}
-    /// Preposição de destino COLADA atrás do destinatário: marca que ele é
-    /// oblíquo (o destino do dinheiro), e destino não se retira depois.
-    static let regenciaDeDestino = ${lit(G.regencia_de_destino)}
-    /// A oração INTEIRA é uma frase de destino: marcador, quantidade,
-    /// preposição, artigo, destinatário, genitivos — e nada mais. Sobrou
-    /// palavra, tem verbo. Ver \`_porque_frase_pura\`.
-    static let fraseDeDestinoPura = ${lit(comporFrasePura(G))}
+    /// A CABEÇA: do começo da oração até o núcleo. É PREFIXO — o que importa é
+    /// o RESTO, e adjunto não é predicação. Ver \`_porque_cabeca\`.
+    static let cabecaDeDestino = ${lit(COMPOSTOS.cabeca_de_destino(G))}
+    /// A mesma cabeça, com a quantidade OBRIGATÓRIA: evidência forte de
+    /// dinheiro dirigido. Ver \`_porque_dois_niveis\`.
+    static let cabecaForte = ${lit(COMPOSTOS.cabeca_forte(G))}
+    /// Negador CONTRASTIVO: \`não PRA casa\` retira o outro destino e afirma
+    /// este; \`não TEM gorjeta nenhuma\` nega de verdade. Ver
+    /// \`_porque_contrastiva\`.
+    static let negacaoContrastiva = ${lit(COMPOSTOS.negacao_contrastiva(G))}
+    /// Pronome SUJEITO — o que não é regido por preposição. Ver
+    /// \`_porque_predicacao\`.
+    static let pronomeSujeito = ${lit(G.pronome_sujeito)}
+    static let preposicaoRegendoPronome = ${lit(COMPOSTOS.preposicao_regendo_pronome(G))}
+    /// GENITIVO DESCRITIVO: \`remuneração da equipe\` diz de quem o dinheiro é,
+    /// não pra onde vai — e é o texto que o AgentTool ensina ao modelo. Ver
+    /// \`_porque_genitivo_descritivo\`.
+    static let genitivoDescritivo = ${lit(COMPOSTOS.genitivo_descritivo(G))}
+    /// Enumeração com a POLARIDADE do lado certo: verbo que a lista não
+    /// conhece vira recusa, nunca escape. Ver \`_porque_predicacao\`.
+    static let verboFinito = ${lit(G.verbo_finito)}
+    /// Relativa, retirada antes do teste de predicação.
+    static let relativaQualquer = ${lit(COMPOSTOS.relativa_qualquer(G))}
     static let marcadorDeLista = ${lit(G.marcador_de_lista)}
     static let separadorInterno = ${lit(G.separador_interno)}
     /// Negador COLADO no destinatário. Sem o \`sem\`: ver \`_porque_negadores\`.
@@ -97,7 +132,7 @@ enum ClaimPatterns {
 }
 
 const ALVO = path.join(RAIZ, 'ios', 'Racha', 'Agent', 'ClaimPatterns.swift');
-module.exports = { gerar, ALVO, expandirDest, comporFrasePura };
+module.exports = { gerar, ALVO, expandirDest, COMPOSTOS, PECAS };
 if (require.main === module) {
   fs.writeFileSync(ALVO, gerar());
   console.log('gerado', path.relative(RAIZ, ALVO));

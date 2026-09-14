@@ -21,28 +21,61 @@ guarda = open('ios/Racha/Agent/RevisaoDeAfirmacoes.swift').read()
 
 MUT = [
  ("negador colado vira negador solto", "regex(ClaimPatterns.negadorColado)", "regex(ClaimPatterns.negadores)"),
+ # AS TRÊS ÂNCORAS DO `nega` estavam só na lista JS. `nega` NÃO é gerado — é um
+ # gêmeo escrito à mão —, e regressão só do lado Swift é exatamente a falha
+ # assimétrica que o gerador existe pra impedir: o que o build pega e o runtime
+ # não, chega ao cliente. Apontado pelas duas revisões de 2026-09-14.
+ ("âncora do substantivo da gorjeta",
+  "            for g in gorjetas where g.location + g.length <= d.location {\n"
+  "                ini = max(ini, g.location + g.length); achou = true\n"
+  "            }", ""),
+ ("âncora da forma direcional",
+  "            for dir in direcionais where dir.location <= d.location {\n"
+  "                ini = max(ini, dir.location - 10); achou = true\n"
+  "            }", ""),
+ ("âncora do separador interno",
+  "            for sep in separadores where sep.location + sep.length <= d.location {\n"
+  "                ini = max(ini, sep.location + sep.length); achou = true\n"
+  "            }", ""),
+ # Sem cobertura, e dito em voz alta — o mesmo veredito que o lado JS já
+ # declara: toda entrada que isola esta peça traz também vírgula ou
+ # substantivo ancorando no mesmo ponto. Falha FECHADO (tirá-la aperta o
+ # guarda), e por isso fica declarada em vez de sumir do relatório.
+ ("âncora do destinatário anterior", "var ini = anterior\n            var achou = anterior > 0",
+  "var ini = 0\n            var achou = false", 'sem-cobertura'),
  ("nega olha só o primeiro destinatário", "        for d in dests {", "        for d in dests.prefix(1) {"),
  ("janela falha ABERTA", "ini = achou ? max(0, min(ini, d.location)) : d.location", "ini = max(0, min(ini, d.location))"),
  ("repartida olha só a primeira oração", "for (i, o) in partes.enumerated() where casa(destinatario, o) {",
   "for (i, o) in partes.enumerated().prefix(1) where casa(destinatario, o) {"),
- ("repartida dispensa marcador e quantidade",
-  "guard casa(marcadorDeLista, o) || casa(quantidade, o) || anteriorTemQuantidade else { continue }", ""),
  ("forma direcional deixa de ser decisiva", "        for o in partes where casa(direcional, o) {\n            if !nega(o) { return true }\n        }", ""),
- ("destinatário OBLÍQUO volta a ser resgatável por negador atrás", "let depois = !obliquo &&", "let depois ="),
- ("repartida deixa de exigir FRASE DE DESTINO PURA",
-  "            guard casa(fraseDeDestinoPura, ateOSeparador(o)) else { continue }", ""),
- ("pureza deixa de ser medida até o separador interno",
-  "casa(fraseDeDestinoPura, ateOSeparador(o))", "casa(fraseDeDestinoPura, o)"),
- ("regência volta a ser adjacência de 14 caracteres",
-  "            let obliquo = ini < d.location\n"
-  "                && casa(regenciaDeDestino, ns.substring(with: NSRange(\n"
-  "                    location: ini, length: d.location - ini)))",
-  "            let atras = max(0, d.location - 14)\n"
-  "            let obliquo = casa(regex(\"(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos)"
-  "\\\\s+((o|a|os|as|the|el|la)\\\\s+)?$\"), ns.substring(with: NSRange(\n"
-  "                location: atras, length: d.location - atras)))"),
+ ("negação CONTRASTIVA deixa de desqualificar o negador atrás",
+  "let depois = casa(negadorColado, cauda) && !casa(negacaoContrastiva, cauda)",
+  "let depois = casa(negadorColado, cauda)"),
+ ("repartida deixa de exigir CABEÇA DE DESTINO",
+  "            guard let resto = restoDepoisDaCabeca(o) else { continue }",
+  "            let resto = restoDepoisDaCabeca(o) ?? \"\""),
+ ("caminho FORTE deixa de existir",
+  "            if casa(marcadorDeLista, seg) || casa(cabecaForte, seg),\n"
+  "               let r = restoDepoisDaCabeca(seg), !temPredicacao(r) { return true }", ""),
+ ("caminho forte deixa de exigir resto SEM PREDICAÇÃO",
+  "let r = restoDepoisDaCabeca(seg), !temPredicacao(r) { return true }",
+  "let r = restoDepoisDaCabeca(seg) { _ = r; return true }"),
+ ("caminho forte para de cortar no separador", "let seg = ateOSeparador(o)", "let seg = o"),
+ ("caminho FRACO deixa de exigir resto vazio",
+  "guard i > 0, casa(quantidade, partes[i - 1]), restoVazio else { continue }",
+  "guard i > 0, casa(quantidade, partes[i - 1]) else { continue }"),
+ ("relativa deixa de sair antes do teste de predicação",
+  "        let semRelativa = relativaQualquer.stringByReplacingMatches(\n"
+  "            in: resto, range: NSRange(location: 0, length: (resto as NSString).length), withTemplate: \" \")",
+  "        let semRelativa = resto"),
+ ("pronome regido por preposição volta a contar como sujeito",
+  "            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }",
+  "            _ = p; return true"),
+ ("genitivo DESCRITIVO deixa de dispensar",
+  "        return casa(destinatario, semGenitivo)", "        return casa(destinatario, oracao)"),
  ("distribuidor volta a valer pela janela toda", "&& !temDistribuidor(o) { return true }", "&& !temDistribuidor(texto) { return true }"),
 ]
+
 
 # AFROUXAMENTOS — a metade que falta a uma mutação que só APAGA.
 #
@@ -69,32 +102,49 @@ PADROES = open('ios/Racha/Agent/ClaimPatterns.swift').read()
 #
 # Apagar uma peça mede FALSO POSITIVO; inserir um atalho mede o mesmo pelo
 # outro lado. Nenhum dos dois enxerga um TETO DE ARIDADE, por construção: a
-# revisão mediu o antigo `ehFraseCurta` em 3, 4, 5, 6 e 40 palavras e o corpo
+# revisão mediu o antigo teto de palavras em 3, 4, 5, 6 e 40 e o corpo
 # só reagia ABAIXO do valor escolhido. Subir o teto deixava tudo verde, com 48
 # de 64 afirmações partidas escapando por cima dele. Aqui a peça é AFROUXADA no
 # próprio `ClaimPatterns.swift` e exige-se vermelho.
-def alarga_relativa(padroes):
-    import json as _j
-    G = _j.load(open('docs/compliance/claims.json'))['gorjeta_destino']
-    def lit(x): return x.replace('\\', '\\\\').replace('"', '\\"')
-    de, para = lit(G['relativa_de_destino']), lit('(que|quem|who|that)\\s+[^,.;]*')
-    return padroes.replace(de, para) if de in padroes else padroes
+# CADA ALARGAMENTO NOMEIA A PEÇA, não um literal. A versão anterior fazia
+# `padroes.replace('{0,2}', '{0,9}')` sobre o arquivo INTEIRO, e `{0,2}` mora em
+# três peças: o vermelho vinha do advérbio da forma direcional e da cauda da
+# relativa, e o modificador — a peça que a mutação NOMEIA — não era medido.
+# Portão que reporta vermelho pelo motivo errado é portão que mente.
+# Achado pela revisão de segurança de 2026-09-14.
+import re as _re
 
-def sem_ancora_de_fim(padroes):
-    return '\n'.join(
-        (l[:l.rindex('$"')] + '"' if 'fraseDeDestinoPura' in l and '$"' in l else l)
-        for l in padroes.split('\n'))
+def campo(nomes, de, para):
+    """Muta SÓ as linhas `static let <nome> = "..."` nomeadas."""
+    if isinstance(nomes, str): nomes = [nomes]
+    def f(padroes):
+        fora = []
+        for linha in padroes.split('\n'):
+            if any(_re.match(r'\s*static let %s = ' % n, linha) for n in nomes):
+                linha = linha.replace(de, para)
+            fora.append(linha)
+        return '\n'.join(fora)
+    return f
+
+def troca(nome, valor):
+    """Substitui o literal INTEIRO de `static let <nome>`."""
+    def f(padroes):
+        return _re.sub(r'(static let %s = )"(?:[^"\\\\]|\\\\.)*"' % nome,
+                       lambda m: m.group(1) + '"' + valor + '"', padroes, count=1)
+    return f
 
 ALARGA = [
- ("aridade do modificador sobe de dois pra nove", lambda p: p.replace('{0,2}', '{0,9}')),
- ("frase pura perde a âncora de FIM e vira prefixo", sem_ancora_de_fim),
- ("relativa passa a engolir até o fim da oração", alarga_relativa),
- # Não é alargamento, é ENCOLHIMENTO — mas mora aqui porque também se faz no
- # `ClaimPatterns.swift`. Meia tradução é pior que nenhuma.
- ("regência perde a metade não-portuguesa",
-  lambda p: p.replace('|to|for|with|al|del|de\\\\s+la|of\\\\s+the|a\\\\s+l[oa]s|para\\\\s+el|con', '')),
- ("negador colado volta a ser só português",
-  lambda p: p.replace('|not|never|jam[\u00e1a]s|ni', '')),
+ # A aridade mora em TRÊS lugares no Swift: no campo próprio (que o
+ # `destinoEmQualquerLugar` compõe em tempo de execução) e já expandida dentro
+ # das duas cabeças, que são literais pré-compostos. Mutar só o campo media um
+ # terço da peça e dava verde.
+ ("aridade do modificador sobe de dois pra nove",
+  campo(['modificadorDeDestino', 'cabecaDeDestino', 'cabecaForte'], '{0,2}', '{0,9}')),
+ ("cabeça deixa de ser ancorada no começo da oração", campo('cabecaDeDestino', '"^', '"')),
+ ("verbo finito deixa de ver o sujeito nulo", troca('verboFinito', 'zzzznuncacasa')),
+ ("pronome sujeito deixa de contar", troca('pronomeSujeito', 'zzzznuncacasa')),
+ ("núcleo de atribuição aceita qualquer substantivo",
+  campo('genitivoDescritivo', '= "(', '= "([\\\\wáéíóúâêôãõç-]+|')),
 ]
 
 def roda(fonte, padroes=None):
@@ -116,7 +166,9 @@ if base != 0:
     print(f'✗ o guarda NÃO passa o corpo sem mutação ({base} falhas)'); sys.exit(1)
 print(f'✓ sem mutação: {len(casos)} casos, 0 falhas')
 ruim = 0
-for nome, de, para in MUT:
+SEM_COBERTURA = {m[0] for m in MUT if len(m) > 3}
+for m in MUT:
+    nome, de, para = m[0], m[1], m[2]
     if de not in guarda:
         print(f'✗ {nome}: o trecho não existe mais no arquivo'); ruim += 1; continue
     n = roda(guarda.replace(de, para, 1))
@@ -125,6 +177,13 @@ for nome, de, para in MUT:
         # silêncio — a forma "guarda que nunca dispara" aplicada ao próprio
         # instrumento. Apontado pela revisão de segurança de 2026-09-14.
         print(f'✗ {nome}: não compila mutado — a peça saiu do portão'); ruim += 1; continue
+    if nome in SEM_COBERTURA:
+        # Declarada sem cobertura: se um dia ela PASSAR a ficar vermelha é
+        # porque alguém escreveu o caso, e aí a marca tem que sair. Exceção que
+        # sobrevive à própria razão é a dívida de sempre.
+        print(('✓ ' if n == 0 else '✗ ') + f'{nome}: sem cobertura declarada ({n} vermelhos)')
+        if n != 0: ruim += 1
+        continue
     print(('✓ ' if n > 0 else '✗ ') + f'{nome}: {n} casos vermelhos')
     if n == 0: ruim += 1
 for nome, atalho in SOLTA:

@@ -96,12 +96,16 @@ struct RevisaoDeAfirmacoesTests {
         // da lista de runtime. Não é descuido: está escrito em
         // `_porque_lista_runtime`, e o censo de BUILD continua pegando todas.
         // Fica afirmado aqui pra que a lacuna não possa crescer em silêncio.
-        // GERADO, não escrito à mão. Era uma QUARTA cópia da lista — e já
-        // tinha divergido: faltava `ellos`. Falhava fechado, mas é exatamente
-        // a divergência que o `gen-claim-patterns.js` existe pra acabar, no
-        // teste que certifica a lacuna.
+        // LIDA DO JSON, não emitida pro Swift. Era uma QUARTA cópia da lista
+        // — e já tinha divergido: faltava `ellos`. Passou pelo gerador, e
+        // saiu dele de novo: emitida, ela era um padrão que só o TESTE
+        // consultava, e o portão de órfãos contava essa menção como uso. Um
+        // padrão que sobrevive à remoção da sua regra com uma linha de teste
+        // é o defeito que o portão existe pra achar. Ver a revisão de
+        // segurança de 2026-09-14.
+        let soDeteccao = (claims()["destinatarios_so_deteccao"] as! [String]).joined(separator: "|")
         let pronome = try! NSRegularExpression(
-            pattern: ClaimPatterns.soDeteccao, options: [.caseInsensitive])
+            pattern: soDeteccao, options: [.caseInsensitive])
         for linha in foraDoRuntime {
             let r = pronome.rangeOfFirstMatch(in: linha, range: NSRange(linha.startIndex..., in: linha))
             #expect(r.location != NSNotFound,

@@ -545,6 +545,241 @@
       "texto": "El mozo nunca se queda con la propina.",
       "recusa": false,
       "porque": "negação de verdade em espanhol, pela mesma razão"
+    },
+    {
+      "texto": "Gorjeta: R$ 12,00 pra equipe.",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- R$ 12,00 pra equipe",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Propina: € 12,00 al equipo.",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Serviço:\n- R$ 25,00 pro garçom",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Serviço:\n- 25,00 pro garçom",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Inclui R$ 24,00 de serviço\n- R$ 24,00 pra equipe do salão",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom não pra casa",
+      "recusa": true,
+      "porque": "cauda CONTRASTIVA na regra 3 — a classe sem verbo não tem nada ancorando a janela, e o teste de oblíquo falhava ABERTO justamente ali: 3125 de 3125"
+    },
+    {
+      "texto": "Gorjeta: 10%\n100% pra equipe não pra casa",
+      "recusa": true,
+      "porque": "cauda CONTRASTIVA na regra 3 — a classe sem verbo não tem nada ancorando a janela, e o teste de oblíquo falhava ABERTO justamente ali: 3125 de 3125"
+    },
+    {
+      "texto": "Pro garçom não pra casa vai toda a gorjeta.",
+      "recusa": true,
+      "porque": "cauda CONTRASTIVA na regra 3 — a classe sem verbo não tem nada ancorando a janela, e o teste de oblíquo falhava ABERTO justamente ali: 3125 de 3125"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom hoje",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom em dinheiro",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom 🙂",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pra equipe do salão principal",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Service charge: 10%\n- 100% to the staff on duty",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Sobre o serviço: 10%\n+ 100% pro garçom",
+      "recusa": true,
+      "porque": "marcador de lista que o CommonMark tem e o padrão não tinha"
+    },
+    {
+      "texto": "Sobre o serviço: 10%\n> 100% pro garçom",
+      "recusa": true,
+      "porque": "marcador de lista que o CommonMark tem e o padrão não tinha"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pro time",
+      "recusa": true,
+      "porque": "`time` estava escrito com o artigo embutido e era inalcançável em toda a classe sem verbo"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% ao time",
+      "recusa": true,
+      "porque": "`time` estava escrito com o artigo embutido e era inalcançável em toda a classe sem verbo"
+    },
+    {
+      "texto": "Serviço: 10%\ntudo pra equipe que cuidou de você",
+      "recusa": true,
+      "porque": "relativa sem enumerar o verbo dela: `serv*|atend*` perdia pra `cuidou`, `trabalharam`, `montou`, `took care of`"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pros garçons que trabalharam hoje",
+      "recusa": true,
+      "porque": "relativa sem enumerar o verbo dela: `serv*|atend*` perdia pra `cuidou`, `trabalharam`, `montou`, `took care of`"
+    },
+    {
+      "texto": "Service charge: 10%\n- 100% to the staff who took care of you",
+      "recusa": true,
+      "porque": "relativa sem enumerar o verbo dela: `serv*|atend*` perdia pra `cuidou`, `trabalharam`, `montou`, `took care of`"
+    },
+    {
+      "texto": "Serviço: 10%\nCom o garçom que te atendeu você acerta.",
+      "recusa": false,
+      "porque": "relativa sem enumerar o verbo dela: `serv*|atend*` perdia pra `cuidou`, `trabalharam`, `montou`, `took care of`"
+    },
+    {
+      "texto": "Já tirei o serviço.\nCom o garçom, tudo certo.",
+      "recusa": false,
+      "porque": "evidência FRACA (quantidade só na linha de cima) exige forma estrita: a oração inteira tem que ser a frase de destino e mais nada, senão a resposta certa COM o dinheiro dela some atrás da resposta segura"
+    },
+    {
+      "texto": "Tirei os 10%.\nCom o garçom, você acerta na maquininha.",
+      "recusa": false,
+      "porque": "evidência FRACA (quantidade só na linha de cima) exige forma estrita: a oração inteira tem que ser a frase de destino e mais nada, senão a resposta certa COM o dinheiro dela some atrás da resposta segura"
+    },
+    {
+      "texto": "O serviço é R$ 24,00.\nCom a equipe, tudo certo.",
+      "recusa": false,
+      "porque": "evidência FRACA (quantidade só na linha de cima) exige forma estrita: a oração inteira tem que ser a frase de destino e mais nada, senão a resposta certa COM o dinheiro dela some atrás da resposta segura"
+    },
+    {
+      "texto": "Sua parte com serviço é R$ 61,00.\nCom o garçom, ok.",
+      "recusa": false,
+      "porque": "evidência FRACA (quantidade só na linha de cima) exige forma estrita: a oração inteira tem que ser a frase de destino e mais nada, senão a resposta certa COM o dinheiro dela some atrás da resposta segura"
+    },
+    {
+      "texto": "A gorjeta de hoje o garçom não recebe.",
+      "recusa": false,
+      "porque": "a preposição rege a GORJETA, não o destinatário — o teste por presença no vão falhava FECHADO aqui, 6 de 6"
+    },
+    {
+      "texto": "A caixinha do almoço o garçom não leva.",
+      "recusa": false,
+      "porque": "a preposição rege a GORJETA, não o destinatário — o teste por presença no vão falhava FECHADO aqui, 6 de 6"
+    },
+    {
+      "texto": "Marquei como remuneração da equipe (serviço).",
+      "recusa": false,
+      "porque": "GENITIVO DESCRITIVO: o genitivo do próprio dinheiro diz de quem ele é. É o texto que o AgentTool ensina ao modelo, e o runtime recusava o turno toda vez que ele o repetia"
+    },
+    {
+      "texto": "A gorjeta arrecadada é remuneração da equipe e passa pela folha de pagamento da casa.",
+      "recusa": false,
+      "porque": "GENITIVO DESCRITIVO: o genitivo do próprio dinheiro diz de quem ele é. É o texto que o AgentTool ensina ao modelo, e o runtime recusava o turno toda vez que ele o repetia"
+    },
+    {
+      "texto": "A remuneração da equipe sai por folha, como manda a lei.",
+      "recusa": false,
+      "porque": "GENITIVO DESCRITIVO: o genitivo do próprio dinheiro diz de quem ele é. É o texto que o AgentTool ensina ao modelo, e o runtime recusava o turno toda vez que ele o repetia"
+    },
+    {
+      "texto": "A gorjeta vai pro bolso da equipe.",
+      "recusa": true,
+      "porque": "e o genitivo de um RECIPIENTE não é descritivo — `bolso` não é o dinheiro, é onde ele vai parar"
+    },
+    {
+      "texto": "A gorjeta vai pra mão do garçom.",
+      "recusa": true,
+      "porque": "e o genitivo de um RECIPIENTE não é descritivo — `bolso` não é o dinheiro, é onde ele vai parar"
+    },
+    {
+      "texto": "A gorjeta é da equipe.",
+      "recusa": true,
+      "porque": "e o genitivo de um RECIPIENTE não é descritivo — `bolso` não é o dinheiro, é onde ele vai parar"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pra equipe, e você não paga nada a mais",
+      "recusa": true,
+      "porque": "promessa proibida com cláusula inocente pendurada: pelo CDC art. 30 é a primeira metade que vincula"
+    },
+    {
+      "texto": "Serviço da equipe (10%) — opcional",
+      "recusa": false,
+      "porque": "genitivo descritivo na cópia que o produto MOSTRA — era dispensa escrita à mão no censo e recusa no runtime, a assimetria que o cabeçalho do gerador nomeia como dano"
+    },
+    {
+      "texto": "O serviço da equipe (gorjeta) vai separado, pelo Pix.",
+      "recusa": false,
+      "porque": "genitivo descritivo na cópia que o produto MOSTRA — era dispensa escrita à mão no censo e recusa no runtime, a assimetria que o cabeçalho do gerador nomeia como dano"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- 100% pra equipe mas você não paga nada a mais",
+      "recusa": true,
+      "porque": "metade LEXICAL do separador interno, e este caso é quem a faz carregar peso: sem o corte no `mas`, o `você não paga` atrás dele conta como predicação nova, a oração deixa de ser frase de destino e a regra 3 desliga. Pelo CDC art. 30 é a primeira metade que vincula. A versão anterior deste caso recusava com corte e sem corte — media nada"
+    },
+    {
+      "texto": "Sobre a gorjeta\n__tudo pro garçom__",
+      "recusa": true,
+      "porque": "ênfase de markdown com SUBLINHADO, e é o membro que quebrou o `\\b`: `_` é caractere de palavra, então `\\btudo\\b` não casa logo depois de `__`"
+    },
+    {
+      "texto": "Sobre a gorjeta\n~~100% pro garçom~~",
+      "recusa": true,
+      "porque": "ênfase de markdown RISCADA: a classe de ênfase tem cinco membros e só o asterisco tinha caso"
+    },
+    {
+      "texto": "Sobre a gorjeta\n`100% pro garçom`",
+      "recusa": true,
+      "porque": "ênfase de markdown em CÓDIGO (crase): mesma classe, mesmo motivo — cada membro é uma decisão"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- 100% pra equipe você combina com ela",
+      "recusa": false,
+      "porque": "PREDICAÇÃO POR SUJEITO no caminho FORTE, com verbo FORA da lista de propósito: escrito com `acerta`, o caso era pego pelo `verbo_finito` e o teste de pronome continuava sem medir nada. Duas peças redundantes num caso só não medem nenhuma das duas"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- com a equipe tá tudo certo",
+      "recusa": false,
+      "porque": "PREDICAÇÃO DE SUJEITO NULO no caminho forte: sem pronome, é o `verbo_finito` que decide. É a enumeração cuja polaridade está do lado certo, e este é o caso que a faz carregar peso"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pra equipe que fica na varanda",
+      "recusa": true,
+      "porque": "a RELATIVA sai antes do teste de predicação: `fica` é verbo da relativa, não da oração. Sem a retirada, a promessa proibida escapa por trazer um verbo pendurado no núcleo"
+    },
+    {
+      "texto": "Os 10%: caem no bolso do garçom.",
+      "recusa": true,
+      "porque": "a alternativa que nomeia BOLSO/CONTA/MÃO — o arranjo que o inegociável #2 existe pra impedir — estava escrita `cai(em)?`, que não casa `caem`, e vivia coberta pela primeira alternativa. Agora o corpo compartilhado prende essa, e não a vizinha dela"
+    },
+    {
+      "texto": "A gorjeta cai na conta do garçom.",
+      "recusa": true,
+      "porque": "idem, com CONTA no lugar de bolso"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- 100% pra equipe MAS você não paga nada a mais",
+      "recusa": true,
+      "porque": "separador interno em CAIXA ALTA: o corte do censo era feito sem a bandeira `i` enquanto o do runtime é sempre insensível a caixa, e o censo — que governa o roteiro IMPRESSO — ficava mais frouxo que o guarda, na única direção que o gerador existe pra impedir"
     }
   ]
 }

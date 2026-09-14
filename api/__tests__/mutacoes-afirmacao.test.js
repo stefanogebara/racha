@@ -93,33 +93,43 @@ const MUTACOES = [
   { nome: 'a repartida olha só a PRIMEIRA oração com destinatário',
     de: '  for (let i = 0; i < partes.length; i += 1) {',
     para: '  for (let i = 0; i < Math.min(1, partes.length); i += 1) {' },
-  { nome: 'a repartida dispensa a quantidade e o marcador',
-    de: '    if (!reMarcador.test(o) && !reQuantidade.test(o) && !anteriorTemQuantidade) continue;',
+
+  { nome: 'a repartida deixa de exigir CABEÇA DE DESTINO',
+    de: '    const resto = restoDepoisDaCabeca(o);',
+    para: "    const resto = (restoDepoisDaCabeca(o) || '');" },
+  { nome: 'o caminho forte deixa de exigir resto SEM PREDICAÇÃO',
+    de: '      && !temPredicacao(rForte)) return true;',
+    para: '      ) return true;' },
+  { nome: 'o caminho FORTE deixa de existir',
+    de: `    if ((reMarcador.test(seg) || reCabecaForte.test(seg)) && rForte !== null
+      && !temPredicacao(rForte)) return true;`,
     para: '' },
-  { nome: 'a repartida deixa de exigir FRASE DE DESTINO PURA',
-    de: '    if (!reFraseDeDestinoPura.test(ateSep)) continue;',
-    para: '' },
-  { nome: 'a pureza deixa de ser medida até o separador interno',
-    de: '    const ateSep = o.split(new RegExp(G.separador_interno))[0];',
-    para: '    const ateSep = o;' },
-  { nome: 'o modificador entre o artigo e o núcleo some',
-    de: "const reFraseDeDestinoPura = new RegExp(comporFrasePura(G), 'i');",
-    para: "const reFraseDeDestinoPura = new RegExp(comporFrasePura(G).split('{0,2}').join('{0,0}'), 'i');" },
-  { nome: 'a regência volta a ser adjacência de 14 caracteres',
-    de: '    const obliquo = ini < d.index && reRegencia.test(oracao.slice(ini, d.index));',
-    para: "    const obliquo = /(pra|para|pro|pros|pras|com|de|d[oa]s?|ao|aos)\\s+((o|a|os|as|the|el|la)\\s+)?$/i.test(oracao.slice(Math.max(0, d.index - 14), d.index));" },
-  { nome: 'a quantidade da oração anterior deixa de contar',
-    de: '    const anteriorTemQuantidade = i > 0 && reQuantidade.test(partes[i - 1])\n      && reFraseDeDestino.test(o);',
-    para: '    const anteriorTemQuantidade = false;' },
+  { nome: 'o caminho forte para de cortar no separador',
+    de: '    const seg = ateOSeparador(o);',
+    para: '    const seg = o;' },
+  { nome: 'o caminho FRACO deixa de exigir resto vazio',
+    de: "    if (!(i > 0 && reQuantidade.test(partes[i - 1]) && !/[0-9A-Za-zÀ-ÿ]/.test(resto))) continue;",
+    para: '    if (!(i > 0 && reQuantidade.test(partes[i - 1]))) continue;' },
+  { nome: 'a negação contrastiva deixa de desqualificar o negador',
+    de: '    const depois = new RegExp(G.negador_colado, \'i\').test(cauda)\n      && !reContrastiva.test(cauda);',
+    para: "    const depois = new RegExp(G.negador_colado, 'i').test(cauda);" },
+  { nome: 'a relativa deixa de sair antes do teste de predicação',
+    de: "  const semRelativa = resto.replace(reRelativa, ' ');",
+    para: '  const semRelativa = resto;' },
+  { nome: 'o pronome regido por preposição volta a contar como sujeito',
+    de: '    if (!rePrepPronome.test(semRelativa.slice(0, p))) return true;',
+    para: '    return true;' },
+  { nome: 'o genitivo descritivo deixa de dispensar',
+    de: "  return reDestRuntime.test(oracao.replace(reGenitivoDescritivo, ' '));",
+    para: '  return reDestRuntime.test(oracao);' },
+
   { nome: 'o negador pós-destinatário volta a aceitar qualquer negador em qualquer ponto',
     de: "new RegExp(G.negador_colado, 'i')",
     para: 'reNegador' },
-  { nome: 'o destinatário OBLÍQUO volta a ser resgatável por negador atrás',
-    de: '    const depois = !obliquo && ateOnde > d.index + d[0].length',
-    para: '    const depois = ateOnde > d.index + d[0].length' },
+
   { nome: 'a dispensa volta a valer pela janela toda',
-    de: '    if (reGorjeta.test(o) && reDestRuntime.test(o) && !nega(o) && !temDistribuidor(o)) return true;',
-    para: '    if (reGorjeta.test(o) && reDestRuntime.test(o) && !nega(o) && !temDistribuidor(janela)) return true;' },
+    de: '    if (reGorjeta.test(o) && destinatarioNaoAtributivo(o) && !nega(o) && !temDistribuidor(o)) return true;',
+    para: '    if (reGorjeta.test(o) && destinatarioNaoAtributivo(o) && !nega(o) && !temDistribuidor(janela)) return true;' },
   // O laço sobre TODAS as cláusulas de distribuidor não entra na lista: ele só
   // difere de "só a primeira" quando uma cláusula anterior está revogada e uma
   // posterior não — e aí ele AFROUXA, não aperta. Nenhuma entrada que construí
@@ -189,7 +199,7 @@ const AFROUXAMENTOS = [
  * Apagar uma peça mede FALSO POSITIVO: o corpo fica vermelho porque o guarda
  * passou a deixar coisa entrar. Inserir um atalho mede o mesmo pelo outro
  * lado. Nenhum dos dois enxerga um TETO DE ARIDADE, e por construção: a peça
- * `ehFraseCurta` era `<= 4`, e a revisão mediu a lista inteira de limites —
+ * o teto de palavras da regra 3 era `<= 4`, e a revisão mediu a lista de limites —
  * 3, 4, 5, 6, 40 — e achou que o corpo prendia o botão a UMA casa e não dizia
  * nada sobre a classe. Subir o limite deixava tudo verde. Quarenta e oito de
  * sessenta e quatro afirmações partidas escapavam por cima de um teto que
@@ -202,24 +212,28 @@ const AFROUXAMENTOS = [
 const ALARGAMENTOS = [
   { nome: 'a aridade do modificador sobe de dois pra nove',
     insere: "G.modificador_de_destino = G.modificador_de_destino.replace('{0,2}', '{0,9}');\n" },
-  { nome: 'a frase pura perde a âncora de FIM e vira prefixo',
-    insere: "G.frase_de_destino_pura = G.frase_de_destino_pura.replace(/\\[\\\\s\\*_`~\\]\\*\\$$/, '');\n" },
-  // NÃO É ALARGAMENTO, é ENCOLHIMENTO — mas entra aqui porque usa a mesma
-  // âncora: as peças são compartilhadas e mutá-las pelo JSON é o único jeito.
-  // Meia tradução é pior que nenhuma: enquanto o `negador_colado` era só
-  // português, a metade en/es da regência era INALCANÇÁVEL, e o corpo ficava
-  // verde sem ela. Achado pela revisão de segurança de 2026-09-14.
-  { nome: 'a regência perde a metade não-portuguesa',
-    insere: "G.regencia_de_destino = G.regencia_de_destino.replace(/\\|to\\|for\\|with\\|al\\|del\\|de\\\\s\\+la\\|of\\\\s\\+the\\|a\\\\s\\+l\\[oa\\]s\\|para\\\\s\\+el\\|con/, '');\n" },
-  { nome: 'o negador colado volta a ser só português',
-    insere: "G.negador_colado = G.negador_colado.replace('|not|never|jam[áa]s|ni', '');\n" },
-  { nome: 'a relativa passa a engolir até o fim da oração',
-    insere: "G.relativa_de_destino = '(que|quem|who|that)\\\\s+[^,.;]*';\n" },
+  { nome: 'a cabeça deixa de ser ancorada no começo da oração',
+    insere: "G.cabeca_de_destino = G.cabeca_de_destino.replace('^', '');\n" },
+  { nome: 'o núcleo de atribuição passa a aceitar qualquer substantivo',
+    insere: "G.nucleo_de_atribuicao = '[\\\\wáéíóúâêôãõç-]+';\n" },
+  { nome: 'o verbo finito deixa de ver o sujeito nulo',
+    insere: "G.verbo_finito = 'zzzznuncacasa';\n" },
+  { nome: 'o pronome sujeito deixa de contar',
+    insere: "G.pronome_sujeito = 'zzzznuncacasa';\n" },
+  { nome: 'a quantidade consumida passa a aceitar qualquer palavra',
+    insere: "G.quantidade_consumida = '([\\\\wáéíóúâêôãõç%$€.,-]+)';\n" },
 ];
-// Os três alargamentos entram ANTES do primeiro padrão composto, porque as
-// peças são compartilhadas: alargar só a frase pura e não o
-// `destino_em_qualquer_lugar`, que é pré-condição da mesma regra, mediria uma
-// metade e chamaria de medição.
+// Os alargamentos entram ANTES do primeiro padrão composto, porque as peças
+// são compartilhadas: alargar só a cabeça e não o `destino_em_qualquer_lugar`,
+// que é pré-condição da mesma regra, mediria uma metade e chamaria de medição.
+//
+// E CADA UM NOMEIA A PEÇA, não um literal. A versão anterior fazia
+// `replace('{0,2}', '{0,9}')` sobre o arquivo INTEIRO, e `{0,2}` aparecia em
+// três peças diferentes: o vermelho vinha do adverbio da forma direcional e da
+// cauda da relativa, e o modificador — a peça que a mutação nomeia, a que
+// existe por causa de `to the FLOOR staff` — não era medida. Um portão que
+// reporta verde-virou-vermelho pelo motivo errado. Achado pela revisão de
+// segurança de 2026-09-14.
 const ANCORA_ALARGAMENTO = 'const reDestinoQualquer = new RegExp(';
 
 describe('cada peça do desenho pode ficar vermelha', () => {
