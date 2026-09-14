@@ -112,11 +112,41 @@ function todasAsAlternativas(re) {
   for (const [de, ate] of classes) {
     const corpoClasse = re.slice(de, ate);
     if (/\\w|a-z|A-Z|À-ÿ|0-9/.test(corpoClasse)) continue;
+    // E CLASSE SÓ DE LETRAS É UMA VARIANTE DE GRAFIA OU DE GÊNERO, não uma
+    // enumeração de decisões: `d[oae]s?` é UMA preposição escrita com um
+    // colchete, `m[ãa]o` é uma palavra com e sem acento. Varrer o `e` de
+    // `[oae]` produz um perdão que não diz nada — o mesmo ruído do `\\w`, com
+    // outra sintaxe. `[-*•+>]` e `[\\s*_\`~]`, que enumeram SÍMBOLOS e cada um é
+    // uma decisão, continuam varridos.
+    if (/^[A-Za-zÀ-ÿ]+$/.test(corpoClasse)) continue;
     for (let i = de; i < ate; i += 1) {
       if (re[i] === '\\') { spans.set(`${i}:${i + 2}`, [i, i + 2]); i += 1; continue; }
       if (re[i + 1] === '-' && i + 2 < ate) { spans.set(`${i}:${i + 3}`, [i, i + 3]); i += 2; continue; }
       spans.set(`${i}:${i + 1}`, [i, i + 1]);
     }
+  }
+  // OPCIONALIDADE E REPETIÇÃO TAMBÉM SÃO DECISÕES. `(MARCADOR)?`,
+  // `((QUANT_C)\\s+MOD)?`, `{0,2}`, `^` — nenhuma delas tem `|`, e por isso as
+  // DUAS CABEÇAS, que são as peças em que toda esta rodada se apoia, recebiam
+  // um ✓ calado sobre zero tokens. Mesma forma do defeito que este arquivo
+  // corrigiu pra alternância aninhada, deixado de pé pra alternância escrita
+  // com outra sintaxe. Achado pela revisão de segurança de 2026-09-14.
+  let g = 0, classe2 = false;
+  for (let i = 0; i < re.length; i += 1) {
+    const c = re[i];
+    if (c === '\\') { i += 1; continue; }
+    if (classe2) { if (c === ']') classe2 = false; continue; }
+    if (c === '[') { classe2 = true; continue; }
+    if (c === '(') { g += 1; continue; }
+    if (c === ')') {
+      g -= 1;
+      // `(...)?` — apagar o `?` torna o grupo OBRIGATÓRIO, que é a decisão.
+      if (re[i + 1] === '?') spans.set(`${i + 1}:${i + 2}`, [i + 1, i + 2]);
+      continue;
+    }
+    if (c === '^' && g === 0 && i === 0) spans.set('0:1', [0, 1]);
+    const rep = /^\{\d+,\d+\}/.exec(re.slice(i));
+    if (rep) { spans.set(`${i}:${i + rep[0].length}`, [i, i + rep[0].length]); i += rep[0].length - 1; }
   }
   return [...spans.values()];
 }
@@ -180,7 +210,15 @@ const CAMPOS = Object.keys(G).filter(
  * canônica que ele deveria disparar e exige-se o veredito. Token novo entra
  * coberto sem ninguém lembrar; token inalcançável falha alto.
  */
-// AS SONDAS RODAM NO CAMINHO FORTE de propósito. A primeira versão montava
+// AS SONDAS TÊM QUE RODAR NO RAMO EM QUE A PEÇA DECIDE, e isso as faz mudar
+// quando o código muda — o que é o comportamento certo e já aconteceu duas
+// vezes. Primeiro elas rodavam no caminho FRACO, onde o resto não-vazio já
+// bastava e o verbo nunca era consultado. Depois, no ramo da quantidade
+// CONSUMIDA — que deixou de perguntar por predicação quando a revisão mostrou
+// que, pelo CDC art. 30, `- 100% pro garçom` já vincula. Hoje rodam no ramo do
+// MARCADOR SEM QUANTIDADE, que é o único em que `verbo_finito` e
+// `pronome_sujeito` mudam veredito. Sonda que não muda quando o ramo muda é
+// sonda que parou de medir. A primeira versão montava
 // `Tirei os 10%.\nCom o garçom <verbo> tudo certo.`, que cai no caminho FRACO —
 // e lá o resto não-vazio já basta pra deixar passar, com verbo ou sem. A sonda
 // dava verde sobre uma peça que ela nunca consultava: vacuidade no instrumento
@@ -188,8 +226,8 @@ const CAMPOS = Object.keys(G).filter(
 const VOCABULARIO = {
   substantivo_gorjeta: (ex) => [`${ex}: 10%\n- 100% pro garçom`, true],
   substantivo_destinatario_runtime: (ex) => [`Sobre a gorjeta\n- 100% pra ${ex}`, true],
-  verbo_finito: (ex) => [`Sobre a gorjeta\n- 100% pra equipe ${ex} tudo certo`, false],
-  pronome_sujeito: (ex) => [`Sobre a gorjeta\n- 100% pra equipe ${ex} paga na saída`, false],
+  verbo_finito: (ex) => [`Sobre a gorjeta\n- com a equipe ${ex} tudo certo`, false],
+  pronome_sujeito: (ex) => [`Sobre a gorjeta\n- com a equipe ${ex} paga na saída`, false],
   preposicao_de_destino: (ex) => [`Sobre a gorjeta\n- 100% ${ex} equipe`, true],
   artigo_de_destino: (ex) => [`Sobre a gorjeta\n- 100% pra ${ex} equipe`, true],
   marcador_de_lista: (ex) => [`Sobre a gorjeta\n${ex} 100% pro garçom`, true],
@@ -201,6 +239,8 @@ const VOCABULARIO = {
   nucleo_de_atribuicao: (ex) => [`${ex} da equipe sai por folha, como manda a lei.`, false],
   relativo_pronome: (ex) => [`Serviço: 10%\n- 100% pra equipe ${ex} cuidou de você`, true],
   relativo_clitico: (ex) => [`Serviço: 10%\n- 100% pra equipe que ${ex} atendeu hoje`, true],
+  quantidade: (ex) => [`Gorjeta: ${ex}\npro garçom`, true],
+  preposicao_direcional: (ex) => [`Gorjeta: 10%\n${ex} equipe`, true],
   separador_interno: (ex) => [`Sobre a gorjeta\n- 100% pra equipe ${ex} você não paga nada a mais`, true],
   enfase_markdown: (ex) => [`Sobre a gorjeta\n${ex}100% pro garçom${ex}`, true],
 };
@@ -239,6 +279,16 @@ function listaDominante(re) {
  */
 function exemplar(token) {
   let t = token;
+  // NOTAÇÃO DE NÚMERO é fabricável, e precisa ser: a `quantidade` é uma lista
+  // de NOTAÇÕES, e as três de moeda são justamente as que o fabricador
+  // genérico recusava — as mesmas que, mortas, produziram
+  // `Gorjeta: R$ 12,00 — pra equipe.` na rodada anterior.
+  t = t.replace(/\\d\+\[\.,\]\\d\{2\}/g, '12,00')
+    .replace(/\\d\+\\s\*%/g, '10%')
+    .replace(/\\d\+/g, '12')
+    .replace(/\\\$/g, '\u0001')   // cifrão LITERAL, marcado
+    .replace(/\\s[*+]/g, ' ')
+    .replace(/\\d/g, '2');
   if (/[+*{}]|\\[dwsWSD]|\.|\(\?[=!<]/.test(t)) return null;   // não sei fabricar: falha alto
   t = t.replace(/\((?:\?:)?([^()|]*)\|[^()]*\)/g, '$1');        // (a|b) → a
   t = t.replace(/\((?:\?:)?([^()]*)\)\?/g, '');                 // (x)? → ''
@@ -246,7 +296,11 @@ function exemplar(token) {
   t = t.replace(/\[\^[^\]]*\]/g, 'x');
   t = t.replace(/\[([^\]])[^\]]*\]/g, '$1');                    // [oa] → o
   t = t.replace(/(.)\?/g, '');                                  // s? → ''
-  t = t.replace(/\\b|\^|\$/g, '').replace(/\\(.)/g, '$1').trim();
+  // O `$` LITERAL da moeda é marcado antes e devolvido depois: a limpeza de
+  // âncoras (`^`, `$`) comia o cifrão de `R$ 2` e a sonda passava a medir
+  // `R 2`, que não é notação nenhuma. A peça que a sonda existe pra provar era
+  // a única que ela não conseguia escrever.
+  t = t.replace(/\\b|\^|\$/g, '').replace(/\\(.)/g, '$1').replace(/\u0001/g, '$').trim();
   return /^[\wáéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ %,.$€-]+$/.test(t) && t ? t : null;
 }
 
@@ -256,19 +310,23 @@ describe('toda palavra das listas de vocabulário é ALCANÇÁVEL', () => {
     const alts = listaDominante(G[campo]);
     // Se o varredor deixar de achar a lista, ele falha ALTO em vez de dar ✓
     // sobre zero tokens — que foi o primeiro defeito deste arquivo.
-    expect({ campo, tokens: alts.length }).toEqual({ campo, tokens: alts.length });
+    expect({ campo, tokens: alts.length })
+      .toEqual({ campo, tokens: expect.any(Number) });
     expect(alts.length).toBeGreaterThanOrEqual(3);
     const mudas = [];
     for (const token of alts) {
       const ex = exemplar(token);
       if (ex === null) continue;                 // não é palavra (classe, âncora)
       const [texto, esperado] = VOCABULARIO[campo](ex);
-      if (acusa(texto) !== esperado) mudas.push(token);
+      // A falha mostra a FRASE, não só o token: token sozinho não diz se
+      // quem errou foi o padrão ou a sonda.
+      if (acusa(texto) !== esperado) mudas.push(`${token}  →  ${JSON.stringify(texto)}`);
     }
-    const naoDeclaradas = mudas.filter((t) => !(SEM_SONDA[campo] || {})[t]);
+    const naoDeclaradas = mudas.filter((m) => !(SEM_SONDA[campo] || {})[m.split('  →  ')[0]]);
     expect({ campo, naoDeclaradas }).toEqual({ campo, naoDeclaradas: [] });
     // Declaração que envelheceu: token que voltou a ser sondável sai da lista.
-    const sondaveis = Object.keys(SEM_SONDA[campo] || {}).filter((t) => !mudas.includes(t));
+    const sondaveis = Object.keys(SEM_SONDA[campo] || {})
+      .filter((t) => !mudas.some((m) => m.split('  →  ')[0] === t));
     expect({ campo, sondaveis }).toEqual({ campo, sondaveis: [] });
     for (const [t, porque] of Object.entries(SEM_SONDA[campo] || {})) {
       expect(`${campo}/${t}: ${porque}`).toMatch(/.{40,}/);
@@ -292,11 +350,14 @@ describe('toda alternativa de todo padrão ESTRUTURAL carrega peso, ou é declar
   test.each(CAMPOS.filter((c) => !(c in VOCABULARIO) && !(c in FORA)))('%s', (campo) => {
     const re = G[campo];
     const alts = todasAsAlternativas(re);
-    // Padrão sem alternância nenhuma não tem token a varrer — e isso tem que
-    // ser raro: se um campo de lista cair aqui, o varredor quebrou.
-    expect({ campo, alternativas: alts.length })
-      .toEqual({ campo, alternativas: alts.length });
-    if (!alts.length) return;
+    // PISO DE VERDADE. Aqui estava `expect({campo, n}).toEqual({campo, n})` —
+    // uma comparação do valor com ele mesmo, que não pode falhar, logo abaixo
+    // de um comentário dizendo que um campo sem tokens significa varredor
+    // quebrado. Vacuidade dentro do instrumento escrito pra achar vacuidade,
+    // e ela escondia que cinco dos sete campos estruturais — as duas cabeças
+    // entre eles — eram varridos sobre zero tokens.
+    // Achado pela revisão de segurança de 2026-09-14.
+    expect({ campo, tokens: alts.length }).toEqual({ campo, tokens: alts.length || 'NENHUM' });
     const mortas = [], vivas = [];
     for (const [ini, fim] of alts) {
       const token = re.slice(ini, fim);

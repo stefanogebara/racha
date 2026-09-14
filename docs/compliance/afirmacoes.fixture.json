@@ -753,8 +753,8 @@
     },
     {
       "texto": "Sobre a gorjeta\n- 100% pra equipe você combina com ela",
-      "recusa": false,
-      "porque": "PREDICAÇÃO POR SUJEITO no caminho FORTE, com verbo FORA da lista de propósito: escrito com `acerta`, o caso era pego pelo `verbo_finito` e o teste de pronome continuava sem medir nada. Duas peças redundantes num caso só não medem nenhuma das duas"
+      "recusa": true,
+      "porque": "ESTE CASO ESTAVA ERRADO, e o veredito virou. `- 100% pra equipe` JÁ fez a promessa: pelo CDC art. 30 a oferta obriga no momento em que é feita, e o que vem pendurado atrás qualifica, não desdiz — é a mesma razão pela qual a regra 1b é decisiva. Enquanto ele era `recusa: false`, ele obrigava o caminho da quantidade consumida a perguntar por predicação, e era a aridade do retirador de relativa que decidia dinheiro: `- 100% pro garçom QUE HOJE RECEBE DIRETO` escapava porque o `hoje` gastava a única palavra que o retirador tira. Apontado pela revisão de compliance"
     },
     {
       "texto": "Sobre a gorjeta\n- com a equipe tá tudo certo",
@@ -780,6 +780,201 @@
       "texto": "Sobre a gorjeta\n- 100% pra equipe MAS você não paga nada a mais",
       "recusa": true,
       "porque": "separador interno em CAIXA ALTA: o corte do censo era feito sem a bandeira `i` enquanto o do runtime é sempre insensível a caixa, e o censo — que governa o roteiro IMPRESSO — ficava mais frouxo que o guarda, na única direção que o gerador existe pra impedir"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- com o garçom você acerta na maquininha",
+      "recusa": false,
+      "porque": "PREDICAÇÃO POR SUJEITO no ramo do marcador SEM quantidade, que é onde ela decide de verdade. Substitui o caso que virou recusa: sem ele, o teste de pronome ficava sem quem o prendesse"
+    },
+    {
+      "texto": "Sobre a gorjeta\nSim, 100% pro garçom.",
+      "recusa": true,
+      "porque": "ADJUNTO NA FRENTE do separador: o corte no primeiro separador jogava fora a promessa em vez do qualificador, e `sim` nu disparava no deslocamento zero. É a resposta direta à pergunta direta"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- Na prática, 100% pro garçom",
+      "recusa": true,
+      "porque": "idem, com vírgula de verdade e sem o `sim`: o marcador ficava no segmento 1 e a promessa no 2"
+    },
+    {
+      "texto": "Sobre o serviço:\n- 100% pro garçom que hoje recebe direto.",
+      "recusa": true,
+      "porque": "o retirador de relativa tira UMA palavra; um advérbio gasta o orçamento e o verbo da relativa sobra, virando `predicação` da oração principal. Teto de aridade um nível abaixo"
+    },
+    {
+      "texto": "Service charge: 10%\n- 100% to the staff who served you.",
+      "recusa": true,
+      "porque": "e com verbo FORA da lista a conta se inverte: `served` gasta o orçamento e `you` sobra exposto, sem preposição regendo. Pronome enclítico é livre em inglês e em português"
+    },
+    {
+      "texto": "Sobre o serviço: 10%. \npro garçom.",
+      "recusa": true,
+      "porque": "espaço sobrando antes da quebra de linha: o `oracoes` do Swift guardava a oração `\" \"` que o gêmeo JS descartava, e o caminho fraco lê `partes[i - 1]`. Censo recusava, runtime passava"
+    },
+    {
+      "texto": "O serviço vira o pagamento da equipe no fim do turno.",
+      "recusa": true,
+      "porque": "`pagamento` é nome de EVENTO, não de identidade: é o ato de transferir, que é o que a Lei 13.419 regula. Estava no núcleo de atribuição e dispensava um repasse"
+    },
+    {
+      "texto": "Vai sim, 100% pro garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "Vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "Fica com a equipe, sim.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "É todo do garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "100% pra equipe.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "Cai na conta do garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "É repassado ao time.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "10% pro garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "Gorjeta: 10%\nHoje 100% pro garçom",
+      "recusa": true,
+      "porque": "PREÂMBULO à esquerda da cabeça: o lado direito deixou de ser whitelist, o esquerdo continuava sendo, e uma palavra na frente desligava a regra 3 inteira — 60 de 65"
+    },
+    {
+      "texto": "Sobre a gorjeta\nEntão tudo pro garçom",
+      "recusa": true,
+      "porque": "PREÂMBULO à esquerda da cabeça: o lado direito deixou de ser whitelist, o esquerdo continuava sendo, e uma palavra na frente desligava a regra 3 inteira — 60 de 65"
+    },
+    {
+      "texto": "Gorjeta: 10%\nNo fim, 100% pra equipe",
+      "recusa": true,
+      "porque": "PREÂMBULO à esquerda da cabeça: o lado direito deixou de ser whitelist, o esquerdo continuava sendo, e uma palavra na frente desligava a regra 3 inteira — 60 de 65"
+    },
+    {
+      "texto": "A gorjeta fica com a equipe não só com o garçom.",
+      "recusa": true,
+      "porque": "cauda contrastiva que é ORAÇÃO INTEIRA, não sintagma: o que separa contraste de negação é o OBJETO da preposição, não a distância até ela"
+    },
+    {
+      "texto": "A gorjeta vai pro garçom não vai pro caixa.",
+      "recusa": true,
+      "porque": "cauda contrastiva que é ORAÇÃO INTEIRA, não sintagma: o que separa contraste de negação é o OBJETO da preposição, não a distância até ela"
+    },
+    {
+      "texto": "O serviço é da equipe não é da casa.",
+      "recusa": true,
+      "porque": "cauda contrastiva que é ORAÇÃO INTEIRA, não sintagma: o que separa contraste de negação é o OBJETO da preposição, não a distância até ela"
+    },
+    {
+      "texto": "A gorjeta pertence à equipe e o restaurante distribui pela folha.",
+      "recusa": true,
+      "porque": "NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA, e a regra 1 não aplicava isso: bastava colar a frase sancionada depois. A segunda metade é o texto que a regra 9 do prompt MANDA escrever, então era a cláusula mais provável de aparecer colada na promessa"
+    },
+    {
+      "texto": "O serviço destina-se à equipe e o restaurante distribui pela folha.",
+      "recusa": true,
+      "porque": "NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA, e a regra 1 não aplicava isso: bastava colar a frase sancionada depois. A segunda metade é o texto que a regra 9 do prompt MANDA escrever, então era a cláusula mais provável de aparecer colada na promessa"
+    },
+    {
+      "texto": "A gorjeta beneficia a equipe e o restaurante distribui pela folha.",
+      "recusa": true,
+      "porque": "NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA, e a regra 1 não aplicava isso: bastava colar a frase sancionada depois. A segunda metade é o texto que a regra 9 do prompt MANDA escrever, então era a cláusula mais provável de aparecer colada na promessa"
+    },
+    {
+      "texto": "Sua parte com serviço é R$ 61,00.\n- Com o garçom, ok.",
+      "recusa": false,
+      "porque": "MARCADOR NU não é evidência forte: um traço não dirige dinheiro. Cinco casos `recusa: false` invertiam só de ganhar `- ` na frente, e marcador é como um modelo renderiza resposta de dois itens"
+    },
+    {
+      "texto": "Tirei os 10%.\n- Com o garçom, você acerta na maquininha.",
+      "recusa": false,
+      "porque": "MARCADOR NU não é evidência forte: um traço não dirige dinheiro. Cinco casos `recusa: false` invertiam só de ganhar `- ` na frente, e marcador é como um modelo renderiza resposta de dois itens"
+    },
+    {
+      "texto": "O serviço é R$ 24,00.\n- Com a equipe, tudo certo.",
+      "recusa": false,
+      "porque": "MARCADOR NU não é evidência forte: um traço não dirige dinheiro. Cinco casos `recusa: false` invertiam só de ganhar `- ` na frente, e marcador é como um modelo renderiza resposta de dois itens"
+    },
+    {
+      "texto": "O serviço cai na conta do garçom.",
+      "recusa": true,
+      "porque": "CONTA: mesma família do bolso e da mão, e cada uma precisa do seu caso"
+    },
+    {
+      "texto": "A verba da equipe é a gorjeta que você deixa na mão dela.",
+      "recusa": true,
+      "porque": "EVASÃO REVOGA A DISPENSA do genitivo descritivo: `verba da equipe` seria atribuição, mas `na mão dela` é o caminho direto. É o único lugar em que o `evasao_de_caminho` decide, e cada recipiente da família precisa do seu caso"
+    },
+    {
+      "texto": "O pagamento da equipe é o que cai no bolso do garçom.",
+      "recusa": true,
+      "porque": "idem com BOLSO: sem a revogação, o genitivo atributivo dispensava a promessa inteira"
+    },
+    {
+      "texto": "A renda dos garçons é o que entra na conta deles.",
+      "recusa": true,
+      "porque": "idem com CONTA, e com o possessivo contraído (`deles`), que precisa de alternativa própria"
+    },
+    {
+      "texto": "Gorjeta: 10%\nPra equipe você avisa na saída.",
+      "recusa": false,
+      "porque": "PREDICAÇÃO no caminho FRACO: a cabeça é direcional e a quantidade está na linha de cima, mas `você avisa` é oração nova. Era o único ramo em que o teste de predicação decide e ele não tinha caso próprio"
+    },
+    {
+      "texto": "Tirei o serviço.\nVocê confirma tudo com o garçom.",
+      "recusa": false,
+      "porque": "SUJEITO ANTES da cabeça: `tudo com o garçom` é cabeça forte, e sem julgar o prefixo o guarda recusava uma frase operacional. É o caso que prende o teste do prefixo"
+    },
+    {
+      "texto": "Pro garçom, por favor.",
+      "recusa": false,
+      "porque": "cabeça direcional sem quantidade em lugar nenhum: evidência fraca é FRACA, e sem a exigência da quantidade na oração anterior o caminho fraco vira um sim pra qualquer frase de destino"
+    },
+    {
+      "texto": "Gorjeta: 10%\nPra equipe que fica na varanda.",
+      "recusa": true,
+      "porque": "a RELATIVA sai antes do teste de predicação, e agora só o caminho fraco pergunta por predicação — sem a retirada, `fica` derruba a regra e a promessa escapa"
+    },
+    {
+      "texto": "Gorjeta: 10%\nPra equipe que cuidou de você.",
+      "recusa": true,
+      "porque": "pronome REGIDO por preposição não é sujeito: `de você` é objeto. Sem essa distinção a promessa escapa por trazer um pronome na cauda da relativa"
+    },
+    {
+      "texto": "O restaurante distribui a gorjeta à equipe, mas não pela folha.",
+      "recusa": true,
+      "porque": "REVOGAÇÃO DEPOIS do distribuidor: a janela do `temDistribuidor` tem que olhar PRA FRENTE. Com o distribuidor vindo primeiro, ele resgataria — e o `mas não pela folha` é a evasão que o `revoga_dispensa` existe pra pegar"
+    },
+    {
+      "texto": "Gorjeta: 10%\nPra equipe tá tudo certo.",
+      "recusa": false,
+      "porque": "SUJEITO NULO no caminho fraco: sem pronome, é o `verbo_finito` que decide, e era o único ramo em que ele muda veredito — sem este caso, desligar a lista inteira deixava o corpo verde"
+    },
+    {
+      "texto": "A caixinha é o bolso dos garçons.",
+      "recusa": true,
+      "porque": "o núcleo de atribuição tem que ser CURTO: com qualquer substantivo valendo como núcleo, `bolso dos garçons` vira genitivo descritivo e a dispensa engole a promessa. É o caso que mede o alargamento do núcleo na direção do ESCAPE"
     }
   ]
 }

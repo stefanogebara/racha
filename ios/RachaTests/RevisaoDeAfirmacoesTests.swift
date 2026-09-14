@@ -231,14 +231,23 @@ struct RevisaoDeAfirmacoesTests {
         // A unidade do guarda era a volta; a unidade de quem lê é a conversa.
         // O modelo escreve texto ANTES de chamar ferramenta, e o `run()` dá
         // até seis voltas: "Deixa eu conferir a gorjeta aqui." e "Fica com os
-        // garçons, sim." são duas voltas, nenhuma afirma nada sozinha, e as
-        // duas ficam na tela juntas.
+        // garçons, sim." são duas voltas que ficam na tela juntas. A soma
+        // continua sendo a unidade certa de julgamento — o que mudou é que a
+        // segunda metade já não depende da primeira pra ser vista.
         let volta1 = "Deixa eu conferir a gorjeta aqui."
         let volta2 = "Fica com os garçons, sim. Sua parte é R$ 51,20."
         #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(volta1))
-        // A segunda sozinha também não, porque o substantivo da gorjeta ficou
-        // na primeira — que é justamente por que o julgamento tem que somar.
-        #expect(!RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(volta2))
+        // A SEGUNDA SOZINHA AGORA É PEGA, e essa asserção mudou de lado em
+        // 2026-09-14. Ela dizia `!` — "a segunda sozinha também não, porque o
+        // substantivo da gorjeta ficou na primeira" —, e essa era exatamente a
+        // porta que a revisão de segurança mediu: o guarda só lia o texto do
+        // MODELO, a pergunta do cliente nunca entrava nele, e um prompt que
+        // pede frases curtas produz a resposta com anáfora. Quinze respostas
+        // curtas naturais à pergunta mais provável da mesa escapavam, e esta
+        // é uma delas. A pré-condição não pede mais o substantivo; quem julga
+        // são as regras.
+        #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(volta2),
+                "a resposta anafórica sozinha também é afirmação")
         #expect(RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(volta1 + "\n" + volta2),
                 "a conversa inteira tem que ser recusada")
     }

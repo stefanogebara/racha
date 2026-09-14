@@ -33,14 +33,17 @@ const PECAS = (G) => ({
   MARCADOR: G.marcador_de_lista.replace(/^\^/, '').replace(/\$$/, ''),
   QUANT_C: G.quantidade_consumida,
   PREPDEST: G.preposicao_de_destino + '|' + G.genitivo_de_destino_simples,
+  PREPDIR: G.preposicao_direcional,
+  EVASAOCAMINHO: G.evasao_de_caminho.replace('DEST', G.substantivo_destinatario_runtime),
   PREP: G.preposicao_de_destino,
   ART: G.artigo_de_destino,
+  GORJETANOME: G.substantivo_gorjeta,
   MOD: G.modificador_de_destino,
   DEST: G.substantivo_destinatario_runtime,
   NEGCOLADO: G.negador_colado,
   ENFASE: G.enfase_markdown,
   PREPPRON: G.preposicao_antes_de_pronome,
-  NUCLEO: G.nucleo_de_atribuicao.replace('GORJETA', G.substantivo_gorjeta),
+  NUCLEO: G.nucleo_de_atribuicao,
   GEN: G.genitivo_de_destino_simples,
   RELPRON: G.relativo_pronome,
   RELCLIT: G.relativo_clitico,
@@ -54,11 +57,13 @@ const COMPOSTOS = {
   gatilho_forma_direcional: (G) => expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime),
   cabeca_de_destino: (G) => compor(G, G.cabeca_de_destino),
   cabeca_forte: (G) => compor(G, G.cabeca_forte),
-  negacao_contrastiva: (G) => compor(G, G.negacao_contrastiva),
+  regencia_contrastiva: (G) => compor(G, G.regencia_contrastiva),
+  cabeca_direcional: (G) => compor(G, G.cabeca_direcional),
+  revoga_dispensa: (G) => compor(G, G.revoga_dispensa),
+  evasao_de_caminho: (G) => compor(G, G.evasao_de_caminho),
   preposicao_regendo_pronome: (G) => compor(G, G.preposicao_regendo_pronome),
   genitivo_descritivo: (G) => compor(G, G.genitivo_descritivo),
   relativa_qualquer: (G) => compor(G, G.relativa_qualquer),
-  nucleo_de_atribuicao: (G) => G.nucleo_de_atribuicao.replace('GORJETA', G.substantivo_gorjeta),
 };
 const G = JSON.parse(fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'claims.json'), 'utf8')).gorjeta_destino;
 
@@ -84,7 +89,7 @@ enum ClaimPatterns {
     /// Ver \`_porque_lista_runtime\` no claims.json.
     static let destinatarioRuntime = ${lit(G.substantivo_destinatario_runtime)}
     static let distribuidorComSujeito = ${lit(G.distribuidor_com_sujeito)}
-    static let revogaDispensa = ${lit(G.revoga_dispensa)}
+    static let revogaDispensa = ${lit(COMPOSTOS.revoga_dispensa(G))}
     /// Só os negadores de verdade — a evasão preposicional fica na dispensa.
     static let negadores = ${lit(G.negadores)}
     /// Alta precisão, baixa cobertura. Oráculo de teste: ver claims.json.
@@ -107,7 +112,8 @@ enum ClaimPatterns {
     /// Negador CONTRASTIVO: \`não PRA casa\` retira o outro destino e afirma
     /// este; \`não TEM gorjeta nenhuma\` nega de verdade. Ver
     /// \`_porque_contrastiva\`.
-    static let negacaoContrastiva = ${lit(COMPOSTOS.negacao_contrastiva(G))}
+    static let regenciaContrastiva = ${lit(COMPOSTOS.regencia_contrastiva(G))}
+    static let cabecaDirecional = ${lit(COMPOSTOS.cabeca_direcional(G))}
     /// Pronome SUJEITO — o que não é regido por preposição. Ver
     /// \`_porque_predicacao\`.
     static let pronomeSujeito = ${lit(G.pronome_sujeito)}

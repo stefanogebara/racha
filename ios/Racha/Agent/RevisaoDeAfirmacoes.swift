@@ -68,7 +68,36 @@ enum RevisaoDeAfirmacoes {
     /// Negador CONTRASTIVO: o negador colado no destinatário é seguido de
     /// OUTRO destino. "não PRA casa" retira o outro e afirma este; "não TEM
     /// gorjeta nenhuma" nega de verdade. Ver `_porque_contrastiva`.
-    private static let negacaoContrastiva = regex(ClaimPatterns.negacaoContrastiva)
+    private static let regenciaContrastiva = regex(ClaimPatterns.regenciaContrastiva)
+    private static let cabecaDirecional = regex(ClaimPatterns.cabecaDirecional)
+
+    /// A cauda é CONTRASTE, não negação? "não PRA CASA" retira o outro destino
+    /// e afirma este; "não TEM gorjeta nenhuma" nega de verdade.
+    ///
+    /// A primeira versão perguntava isso por ADJACÊNCIA — negador seguido de
+    /// preposição —, e um advérbio no meio a derrubava: "não MAIS pra casa",
+    /// "não SÓ pra casa", "não EXATAMENTE pra casa" voltavam a lavar a
+    /// promessa. Quarta vez que uma pergunta de regência é respondida por
+    /// vizinhança neste arquivo.
+    ///
+    /// A pergunta certa é a mesma da regra 3, e por isso reusa a mesma peça: o
+    /// que vem depois do negador PREDICA alguma coisa? Se predica, é negação;
+    /// se só nomeia outro destino, é contraste. Sem enumerar advérbio e sem
+    /// teto de palavras.
+    private static func ehContrastiva(_ cauda: String) -> Bool {
+        guard let m = acha(negadorColado, cauda) else { return false }
+        let ns = cauda as NSString
+        let resto = ns.substring(from: m.location + m.length)
+        // A pergunta é sobre o que está ENTRE o negador e o outro destino, não
+        // sobre a cauda inteira: em "Pro garçom NÃO PRA CASA vai toda a
+        // gorjeta" o verbo da oração principal vem DEPOIS do contraste, e
+        // olhar a cauda toda o lia como negação de verdade.
+        // Onde a preposição cai não importa — o que importa é o OBJETO dela,
+        // e o `regenciaContrastiva` já exclui a própria gorjeta. Perguntar
+        // também por predicação no vão deixava passar a cauda que é oração
+        // inteira: "não VAI pro caixa", "não É da casa".
+        return casa(regenciaContrastiva, resto)
+    }
     /// Alta precisão: uma oração com esta FORMA está afirmando destino,
     /// tenha ou não os dois substantivos dentro dela.
     private static let direcional = regex(ClaimPatterns.formaDirecional)
@@ -101,27 +130,46 @@ enum RevisaoDeAfirmacoes {
     /// modelo repetia o texto que o `AgentTool` lhe ensina.
     /// Ver `_porque_genitivo_descritivo`.
     private static func destinatarioNaoAtributivo(_ oracao: String) -> Bool {
+        // A DISPENSA É REVOGADA PELA MESMA CLÁUSULA QUE REVOGA O DISTRIBUIDOR.
+        // Ela é a única regra deste arquivo que AFROUXA, e sem revogação virava
+        // porta: "A renda dos garçons vem da sua gorjeta, SEM FOLHA." e "A verba
+        // da equipe é a gorjeta que você deixa NA MÃO dela." passavam a escapar
+        // — duas regressões medidas contra o commit anterior. Evasão cancela a
+        // leitura benigna, que é exatamente o que o `revoga_dispensa` já faz do
+        // outro lado.
+        if casa(revoga, oracao) { return casa(destinatario, oracao) }
         let semGenitivo = genitivoDescritivo.stringByReplacingMatches(
             in: oracao, range: NSRange(location: 0, length: (oracao as NSString).length),
             withTemplate: " ")
         return casa(destinatario, semGenitivo)
     }
 
-    /// Até o PRIMEIRO separador interno — onde o `separadorInterno` já diz que
-    /// começa OUTRA afirmação. Usado só no caminho FORTE: ver `_porque_corte`.
-    private static func ateOSeparador(_ oracao: String) -> String {
-        let ns = oracao as NSString
-        guard let m = separadorInterno.firstMatch(
-            in: oracao, range: NSRange(location: 0, length: ns.length)) else { return oracao }
-        return ns.substring(to: m.range.location)
-    }
-
     /// O que sobra da oração depois da CABEÇA de destino — ou `nil` se ela não
     /// começa por uma. Ver `_porque_cabeca`: a pureza era uma whitelist
     /// ancorada nos dois lados e falhava ABERTO em tudo que não modelava.
     private static func restoDepoisDaCabeca(_ oracao: String) -> String? {
-        guard let m = acha(cabecaDeDestino, oracao) else { return nil }
-        return (oracao as NSString).substring(from: m.location + m.length)
+        cabecaValida(cabecaDeDestino, oracao)
+    }
+
+    /// A cabeça casa E o que vem antes dela não é outra oração. Devolve o resto.
+    private static func cabecaValida(_ re: NSRegularExpression, _ oracao: String) -> String? {
+        guard let m = acha(re, oracao) else { return nil }
+        let ns = oracao as NSString
+        // O QUE VEM ANTES DA CABEÇA TAMBÉM É JULGADO, pela mesma pergunta. A
+        // cabeça era ancorada em `^`, e uma palavra de preâmbulo desligava a
+        // regra 3 inteira: "Hoje 100% pro garçom", "No fim, 100% pra equipe",
+        // "Então tudo pro garçom" — 60 de 65 numa grade de preâmbulos. O lado
+        // direito deixou de ser whitelist nesta rodada; o esquerdo continuava
+        // sendo, e falhava aberto do mesmo jeito.
+        //
+        // Adjunto antes não desmancha nada; oração inteira antes desmancha, e
+        // é o que separa "Hoje 100% pro garçom" de "Você acerta com o garçom".
+        // O prefixo é julgado só por SUJEITO SOLTO, não por verbo. Verbo
+        // antes da cabeça costuma ser a cópula da própria afirmação de destino
+        // ("É todo do garçom", "Vai tudo pro garçom"); sujeito novo é que faz
+        // dela outra oração ("VOCÊ acerta com o garçom").
+        if temSujeitoSolto(ns.substring(to: m.location)) { return nil }
+        return ns.substring(from: m.location + m.length)
     }
 
     /// O resto traz PREDICAÇÃO NOVA — sujeito solto ou verbo finito?
@@ -131,6 +179,16 @@ enum RevisaoDeAfirmacoes {
     /// "você acerta na maquininha", "eles já sabem", "tá tudo certo".
     /// Ver `_porque_predicacao` — inclusive pela polaridade, que é o que
     /// permite ao `verboFinito` ser uma enumeração.
+    /// Sujeito SOLTO — pronome que não vem regido por preposição.
+    private static func temSujeitoSolto(_ trecho: String) -> Bool {
+        let ns = trecho as NSString
+        for m in pronomeSujeito.matches(in: trecho, range: NSRange(location: 0, length: ns.length)) {
+            let p = m.range(at: 1).location
+            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }
+        }
+        return false
+    }
+
     private static func temPredicacao(_ resto: String) -> Bool {
         // A relativa sai antes: o verbo dela é da relativa, não da oração.
         let semRelativa = relativaQualquer.stringByReplacingMatches(
@@ -138,12 +196,7 @@ enum RevisaoDeAfirmacoes {
         if casa(verboFinito, semRelativa) { return true }
         // Pronome SUJEITO: o que não vem regido por preposição. Aqui a
         // adjacência é regência de fato — pronome não admite modificador.
-        let ns = semRelativa as NSString
-        for m in pronomeSujeito.matches(in: semRelativa, range: NSRange(location: 0, length: ns.length)) {
-            let p = m.range(at: 1).location
-            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }
-        }
-        return false
+        return temSujeitoSolto(semRelativa)
     }
 
 
@@ -179,7 +232,16 @@ enum RevisaoDeAfirmacoes {
             //  e travessão também separam oração: "o restaurante distribui, mas
             // não é bem assim: a gorjeta vai pro garçom" é uma promessa com uma
             // cláusula inocente na frente.
-            if ".;!?:\n—".contains(ch) { if !atual.isEmpty { fora.append(atual) }; atual = "" }
+            if ".;!?:\n—".contains(ch) {
+                // SÓ-ESPAÇO NÃO É ORAÇÃO. O gêmeo JS faz `.map(trim).filter(Boolean)`;
+                // aqui só o literalmente vazio era descartado, então "10%. \npro
+                // garçom" produzia uma oração `" "` entre as duas e deslocava
+                // TODOS os índices — e o caminho fraco lê `partes[i - 1]`. O
+                // censo recusava e o runtime passava, na metade escrita à mão.
+                // Achado pela revisão de compliance de 2026-09-14.
+                if !atual.trimmingCharacters(in: .whitespaces).isEmpty { fora.append(atual) }
+                atual = ""
+            }
             else { atual.append(ch) }
         }
         if !atual.isEmpty { fora.append(atual) }
@@ -290,11 +352,36 @@ enum RevisaoDeAfirmacoes {
                 ? ns.substring(with: NSRange(
                     location: d.location + d.length, length: fimDoTrecho - d.location - d.length))
                 : ""
-            let depois = casa(negadorColado, cauda) && !casa(negacaoContrastiva, cauda)
+            let depois = casa(negadorColado, cauda) && !ehContrastiva(cauda)
             if !antes && !depois { return false }
             anterior = d.location + d.length
         }
         return true
+    }
+
+    /// O distribuidor resgata SÓ se vier antes da afirmação de destino.
+    ///
+    /// NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA — é a doutrina da regra 1b (CDC
+    /// art. 30), e a regra 1 não a aplicava. Bastava colar a frase sancionada
+    /// depois: "A gorjeta PERTENCE À EQUIPE e o restaurante distribui pela
+    /// folha." passava, e a segunda metade é literalmente o texto que a regra
+    /// 9 do `SystemPrompt` manda o modelo escrever — a cláusula mais provável
+    /// de aparecer colada na promessa era a que desligava a promessa.
+    ///
+    /// Ordem, e não lista de verbos: a versão que a revisão atacou dependia de
+    /// `gatilho_forma_direcional` conhecer o verbo (`é` sim, `pertence` não,
+    /// `destina-se` não, `beneficia` não), e enumerar conectivo é o jogo que a
+    /// língua sempre ganha. Achado pela revisão de segurança de 2026-09-14.
+    private static func distribuidorAntesDoDestino(_ oracao: String) -> Bool {
+        guard temDistribuidor(oracao) else { return false }
+        let todo = NSRange(location: 0, length: (oracao as NSString).length)
+        // A posição do DESTINATÁRIO, não da frase de destino: `beneficia A
+        // EQUIPE` é objeto direto, sem preposição nenhuma, e a frase de
+        // destino não casa. Enumerar a regência é o mesmo jogo perdido.
+        guard let dest = destinatario.firstMatch(in: oracao, range: todo)
+        else { return true }
+        guard let dist = distribuidor.firstMatch(in: oracao, range: todo) else { return true }
+        return dist.range.location < dest.range.location
     }
 
     /// A oração carrega, ELA MESMA, a cláusula do distribuidor?
@@ -337,12 +424,28 @@ enum RevisaoDeAfirmacoes {
     /// duas coisas, cada uma no seu lugar — a DETECÇÃO alcança o texto todo,
     /// a DISPENSA vale só na oração que a carrega.
     static func afirmaDestinoSemDistribuidor(_ texto: String) -> Bool {
-        guard casa(gorjeta, texto), casa(destinatario, texto) else { return false }
+        // A PRÉ-CONDIÇÃO NÃO PEDE MAIS O SUBSTANTIVO DA GORJETA, e essa era a
+        // porta por onde tudo passava. O texto julgado é só o do MODELO — a
+        // pergunta do cliente não entra nele —, e um prompt que manda escrever
+        // "frases curtas, uma ideia por frase" produz a resposta com anáfora:
+        // "Vai sim, 100% pro garçom." não repete `gorjeta` porque quem
+        // perguntou acabou de dizer. Quinze respostas curtas naturais à
+        // pergunta mais provável da mesa, quinze escapes — e todas as peças
+        // desta rodada ficavam atrás desta linha, inalcançáveis. As mesmas
+        // quinze com `A gorjeta? ` na frente: doze recusas. O substantivo
+        // fazia 100% do trabalho.
+        //
+        // Agora quem decide são as REGRAS: a 1 continua exigindo os dois
+        // substantivos NA MESMA ORAÇÃO, a 1b exige forma direcional e a 3
+        // exige quantidade ou marcador com cabeça de destino. O que sai daqui
+        // é só o turno que não nomeia destinatário nenhum.
+        // Achado pela revisão de segurança de 2026-09-14.
+        guard casa(destinatario, texto) else { return false }
         let partes = oracoes(texto)
         // 1. Uma oração que junta os dois substantivos tem que trazer o
         //    distribuidor ELA MESMA — ou estar negando.
         for o in partes where casa(gorjeta, o) && destinatarioNaoAtributivo(o) {
-            if !nega(o) && !temDistribuidor(o) { return true }
+            if !nega(o) && !distribuidorAntesDoDestino(o) { return true }
         }
         // 1b. E a FORMA DIRECIONAL numa oração não é resgatável por cláusula
         //     de distribuidor nenhuma, nem na mesma oração: "a gorjeta vai pro
@@ -450,13 +553,16 @@ enum RevisaoDeAfirmacoes {
             // medir a FORMA e não cortava pra medir a QUANTIDADE, então o
             // `tudo` de "Com o garçom, TUDO CERTO." contava como dinheiro
             // dirigido e a resposta certa virava recusa. Ver `_porque_corte`.
-            let seg = ateOSeparador(o)
-            if casa(marcadorDeLista, seg) || casa(cabecaForte, seg),
-               let r = restoDepoisDaCabeca(seg), !temPredicacao(r) { return true }
+            // CAMINHO FORTE: quantidade consumida pela cabeça. Pelo CDC
+            // art. 30 a oferta obriga no momento em que é feita, e o que vier
+            // pendurado atrás qualifica, não desdiz.
+            if cabecaValida(cabecaForte, o) != nil { return true }
             // Aqui NÃO se pergunta por predicação: o caminho fraco exige resto
             // VAZIO, e vazio já não tem predicação. Perguntar as duas coisas é
             // uma guarda que não pode disparar — guarda ausente.
-            guard let resto = restoDepoisDaCabeca(o) else { continue }
+            // CAMINHO FRACO: a quantidade está só na oração anterior, então
+            // a FORMA tem que compensar — cabeça ancorada e direcional.
+            guard let resto = cabecaValida(cabecaDirecional, o) else { continue }
             // A FORÇA DA EVIDÊNCIA DECIDE O QUANTO A FORMA PRECISA SER
             // ESTRITA. Quantidade CONSUMIDA pela cabeça é dinheiro dirigido, e
             // aí um adjunto atrás do núcleo não desmancha nada. Quantidade só
@@ -464,9 +570,11 @@ enum RevisaoDeAfirmacoes {
             // uma frase de destino e MAIS NADA — senão "Sua parte com serviço
             // é R$ 61,00.\nCom o garçom, ok." vira recusa, e é a resposta
             // certa com o dinheiro dela dentro. Ver `_porque_dois_niveis`.
-            let restoVazio = resto.trimmingCharacters(
-                in: CharacterSet.alphanumerics.inverted).isEmpty
-            guard i > 0, casa(quantidade, partes[i - 1]), restoVazio else { continue }
+            // `pro garçom` é dinheiro indo; `com o garçom` é com quem se
+            // acerta, e é resposta certa. A primeira versão exigia RESTO VAZIO
+            // em vez disso, e um advérbio derrubava a regra.
+            guard !temPredicacao(resto) else { continue }
+            guard i > 0, casa(quantidade, partes[i - 1]) else { continue }
             // NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA — a mesma lógica da regra
             // 1b, que a regra 3 não aplicava. A dispensa por ORDEM valia só
             // aqui, e por isso bastava ABRIR com a frase sancionada pra

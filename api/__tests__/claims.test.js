@@ -37,12 +37,12 @@ const G = JSON.parse(
 ).gorjeta_destino;
 
 const reGorjeta = new RegExp(G.substantivo_gorjeta, 'i');
+const { expandirDest: _exp, COMPOSTOS: COMPOR, PECAS } = require('../../scripts/gen-claim-patterns.js');
 const reDestinatario = new RegExp(G.substantivo_destinatario, 'i');
 const reDistribuidor = new RegExp(G.distribuidor_com_sujeito, 'i');
-const reRevoga = new RegExp(G.revoga_dispensa, 'i');
+const reRevoga = new RegExp(COMPOR.revoga_dispensa(G), 'i');
 /** Só os negadores; a evasão preposicional pertence à dispensa. */
 const reNegador = new RegExp(G.negadores, 'i');
-const { expandirDest: _exp, COMPOSTOS: COMPOR, PECAS } = require('../../scripts/gen-claim-patterns.js');
 const reSuprimeGlobal = new RegExp(
   _exp(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime), 'i');
 const JANELA = G.janela_linhas;
@@ -94,7 +94,8 @@ const reDestinoQualquer = new RegExp(
   + '(' + G.substantivo_destinatario + ')', 'i');
 const reMarcador = new RegExp(G.marcador_de_lista);
 /** Negador CONTRASTIVO: `não PRA casa` afirma; `não TEM` nega. Ver o gêmeo. */
-const reContrastiva = new RegExp(COMPOR.negacao_contrastiva(G), 'i');
+const reRegenciaContrastiva = new RegExp(COMPOR.regencia_contrastiva(G), 'i');
+const reCabecaDirecional = new RegExp(COMPOR.cabeca_direcional(G), 'i');
 /** A CABEÇA de destino — PREFIXO, não whitelist ancorada. Ver o gêmeo. */
 const reCabeca = new RegExp(COMPOR.cabeca_de_destino(G), 'i');
 const reCabecaForte = new RegExp(COMPOR.cabeca_forte(G), 'i');
@@ -106,27 +107,39 @@ const reGenitivoDescritivo = new RegExp(COMPOR.genitivo_descritivo(G), 'gi');
 const reSeparadorCorte = new RegExp(G.separador_interno, 'i');
 
 /** O que sobra depois da CABEÇA, ou `null`. Ver o gêmeo no Swift. */
-function restoDepoisDaCabeca(oracao) {
-  const m = reCabeca.exec(oracao);
-  return m ? oracao.slice(m.index + m[0].length) : null;
+function restoDepoisDaCabeca(oracao) { return cabecaValida(reCabeca, oracao); }
+/** A cabeça casa E o que vem antes não é outra oração. Ver o gêmeo no Swift. */
+function cabecaValida(re, oracao) {
+  const m = re.exec(oracao);
+  if (!m) return null;
+  if (temSujeitoSolto(oracao.slice(0, m.index))) return null;
+  return oracao.slice(m.index + m[0].length);
 }
-/** Até o primeiro separador interno — só no caminho FORTE. Ver `_porque_corte`. */
-function ateOSeparador(oracao) {
-  const m = reSeparadorCorte.exec(oracao);
-  return m ? oracao.slice(0, m.index) : oracao;
+/** A cauda é CONTRASTE, não negação? Ver o gêmeo no Swift. */
+function ehContrastiva(cauda) {
+  const m = new RegExp(G.negador_colado, 'i').exec(cauda);
+  if (!m) return false;
+  const resto = cauda.slice(m.index + m[0].length);
+  // O que importa é o OBJETO da preposição — ver o gêmeo no Swift.
+  return reRegenciaContrastiva.test(resto);
 }
 /** O resto traz PREDICAÇÃO NOVA? Ver `_porque_predicacao` e o gêmeo no Swift. */
-function temPredicacao(resto) {
-  const semRelativa = resto.replace(reRelativa, ' ');
-  if (reVerboFinito.test(semRelativa)) return true;
-  for (const m of semRelativa.matchAll(rePronomeSujeito)) {
+function temSujeitoSolto(trecho) {
+  for (const m of trecho.matchAll(rePronomeSujeito)) {
     const p = m.index + m[0].length - m[1].length;
-    if (!rePrepPronome.test(semRelativa.slice(0, p))) return true;
+    if (!rePrepPronome.test(trecho.slice(0, p))) return true;
   }
   return false;
 }
+function temPredicacao(resto) {
+  const semRelativa = resto.replace(reRelativa, ' ');
+  if (reVerboFinito.test(semRelativa)) return true;
+  return temSujeitoSolto(semRelativa);
+}
 /** Destinatário que NÃO é genitivo descritivo. Ver o gêmeo no Swift. */
 function destinatarioNaoAtributivo(oracao) {
+  // Evasão cancela a leitura benigna — ver o gêmeo no Swift.
+  if (reRevoga.test(oracao)) return reDestRuntime.test(oracao);
   return reDestRuntime.test(oracao.replace(reGenitivoDescritivo, ' '));
 }
 /** Ver `_porque_quantidade` no claims.json — inclui MOEDA. */
@@ -183,12 +196,20 @@ function nega(oracao) {
     // retira o outro destino e AFIRMA este. Ver `_porque_contrastiva`.
     const cauda = ateOnde > d.index + d[0].length
       ? oracao.slice(d.index + d[0].length, ateOnde) : '';
-    const depois = new RegExp(G.negador_colado, 'i').test(cauda)
-      && !reContrastiva.test(cauda);
+    const depois = new RegExp(G.negador_colado, 'i').test(cauda) && !ehContrastiva(cauda);
     if (!antes && !depois) return false;
     anterior = d.index + d[0].length;
   }
   return true;
+}
+
+/** O distribuidor resgata SÓ se vier antes do destinatário. Ver o gêmeo. */
+function distribuidorAntesDoDestino(oracao) {
+  if (!temDistribuidor(oracao)) return false;
+  const dest = new RegExp(reDestRuntime.source, 'i').exec(oracao);
+  if (!dest) return true;
+  const dist = new RegExp(reDistribuidor.source, 'i').exec(oracao);
+  return !dist || dist.index < dest.index;
 }
 
 /** Esta oração carrega, ELA MESMA, a cláusula do distribuidor não negada? */
@@ -208,10 +229,12 @@ function temDistribuidor(oracao) {
  * frouxo que o runtime.
  */
 function acusa(janela) {
-  if (!reGorjeta.test(janela) || !reDestRuntime.test(janela)) return false;
+  // A pré-condição não pede mais o substantivo da gorjeta — ver o gêmeo.
+  if (!reDestRuntime.test(janela)) return false;
   let partes = oracoes(janela);
   for (const o of partes) {
-    if (reGorjeta.test(o) && destinatarioNaoAtributivo(o) && !nega(o) && !temDistribuidor(o)) return true;
+    if (reGorjeta.test(o) && destinatarioNaoAtributivo(o) && !nega(o)
+      && !distribuidorAntesDoDestino(o)) return true;
   }
   for (const o of partes) {
     if (reSuprimeGlobal.test(o) && !nega(o)) return true;
@@ -231,18 +254,15 @@ function acusa(janela) {
     const o = partes[i];
     if (!reDestRuntime.test(o) || !reDestinoQualquer.test(o) || nega(o)) continue;
     // O corte no separador vale SÓ no caminho forte — ver `_porque_corte`.
-    const seg = ateOSeparador(o);
-    const rForte = restoDepoisDaCabeca(seg);
-    if ((reMarcador.test(seg) || reCabecaForte.test(seg)) && rForte !== null
-      && !temPredicacao(rForte)) return true;
+    // Caminho FORTE: quantidade consumida pela cabeça — ver o gêmeo.
+    if (cabecaValida(reCabecaForte, o) !== null) return true;
     // Evidência fraca (quantidade só na oração anterior): a oração tem que ser
     // a frase de destino e MAIS NADA. Ver `_porque_dois_niveis`.
-    const resto = restoDepoisDaCabeca(o);
-    // Aqui NÃO se pergunta por predicação: o caminho fraco exige resto VAZIO,
-    // e vazio já não tem predicação. Perguntar as duas coisas é uma guarda que
-    // não pode disparar, e guarda que não dispara é guarda ausente.
+    // Caminho FRACO: cabeça ancorada e DIRECIONAL — ver o gêmeo no Swift.
+    const resto = cabecaValida(reCabecaDirecional, o);
     if (resto === null) continue;
-    if (!(i > 0 && reQuantidade.test(partes[i - 1]) && !/[0-9A-Za-zÀ-ÿ]/.test(resto))) continue;
+    if (temPredicacao(resto)) continue;
+    if (!(i > 0 && reQuantidade.test(partes[i - 1]))) continue;
     // Nada resgata uma afirmação já feita — a mesma lógica da regra 1b, que a
     // regra 3 não aplicava: bastava ABRIR com a frase sancionada pra liberar o
     // `- 100% pro garçom` depois dela.
@@ -262,7 +282,13 @@ function anda(dir, out = []) {
       if (FORA.test(e.name)) continue;
       if (G.onde_o_censo_anda.docs_fora.includes(rel)) continue;
       anda(p, out);
-    } else if (EXT.test(e.name) && !/\.test\./.test(e.name)) out.push(p);
+    } else if (EXT.test(e.name) && !/\.test\./.test(e.name)
+      // A isenção vale por ARQUIVO também. Escrita só no ramo do diretório,
+      // as duas entradas de arquivo do `docs_fora` não faziam nada — eram
+      // `.json`, que o `EXT` já descarta —, e o `_porque_docs_fora` anunciava
+      // um mecanismo que não existia. Ramo morto sob comentário dizendo que
+      // funciona. Achado pela revisão de compliance de 2026-09-14.
+      && !G.onde_o_censo_anda.docs_fora.includes(rel)) out.push(p);
   }
   return out;
 }
@@ -490,8 +516,10 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
       'preposicao_antes_de_pronome',   // entra composta no preposicao_regendo_pronome
       'genitivo_de_destino_simples',   // idem, dentro do PREPDEST e do GEN
       'nucleo_de_atribuicao',          // idem, dentro do genitivo_descritivo
-      'cabeca_de_destino', 'cabeca_forte', 'negacao_contrastiva',
-      'preposicao_regendo_pronome', 'genitivo_descritivo',
+      'cabeca_de_destino', 'cabeca_forte', 'cabeca_direcional',
+      'regencia_contrastiva', 'preposicao_regendo_pronome', 'genitivo_descritivo',
+      'preposicao_direcional', 'evasao_de_caminho', 'relativo_pronome', 'relativo_clitico',
+      'relativa_qualquer',
     ];
     // O alfabeto de marcadores vem do PRÓPRIO gerador, não de uma lista escrita
     // aqui: marcador novo no `PECAS` fica coberto sem ninguém lembrar. A lista

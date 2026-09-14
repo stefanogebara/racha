@@ -55,26 +55,6 @@ const MUTACOES = [
   { nome: 'âncora do separador interno',
     de: 'for (const sp of seps) if (sp.index + sp[0].length <= d.index) { ini = Math.max(ini, sp.index + sp[0].length); achou = true; }',
     para: '' },
-  // ── SEM COBERTURA, e dito em voz alta ──────────────────────────────────
-  //
-  // Estas duas peças NÃO conseguem ficar vermelhas contra o corpo, e eu não
-  // achei entrada que as distinga — procurei por busca, não por intuição. Pela
-  // régua deste arquivo isso quer dizer que elas não têm teste, e ficam aqui
-  // marcadas em vez de sumirem do relatório:
-  //
-  //  · `âncora do destinatário anterior` — impedir que a negação do primeiro
-  //    destinatário cubra o segundo. Toda entrada que construí pra isolá-la
-  //    tinha também vírgula ou substantivo ancorando no mesmo ponto.
-  //  · `nega usando a lista de EVASÃO` — trocar `negadores` por
-  //    `revoga_dispensa` no `nega`. A evasão preposicional aparece, na prática,
-  //    DEPOIS do destinatário (é onde ela qualifica a folha), e ali a checagem
-  //    já usa `negadores`.
-  //
-  // As duas podem ser redundância — e redundância sob um comentário que afirma
-  // o contrário é exatamente o que este repositório passou a semana achando.
-  // Ficam porque falham FECHADO (tirá-las aperta o guarda, não afrouxa), e
-  // porque decidir removê-las sem entrada que as distinga seria adivinhar nos
-  // dois sentidos. O que NÃO se faz é contá-las como cobertas.
   { nome: 'âncora do destinatário anterior', semCobertura: true,
     de: '    let ini = anterior;\n    let achou = anterior > 0;',
     para: '    let ini = 0;\n    let achou = false;' },
@@ -93,49 +73,48 @@ const MUTACOES = [
   { nome: 'a repartida olha só a PRIMEIRA oração com destinatário',
     de: '  for (let i = 0; i < partes.length; i += 1) {',
     para: '  for (let i = 0; i < Math.min(1, partes.length); i += 1) {' },
-
-  { nome: 'a repartida deixa de exigir CABEÇA DE DESTINO',
-    de: '    const resto = restoDepoisDaCabeca(o);',
-    para: "    const resto = (restoDepoisDaCabeca(o) || '');" },
-  { nome: 'o caminho forte deixa de exigir resto SEM PREDICAÇÃO',
-    de: '      && !temPredicacao(rForte)) return true;',
-    para: '      ) return true;' },
-  { nome: 'o caminho FORTE deixa de existir',
-    de: `    if ((reMarcador.test(seg) || reCabecaForte.test(seg)) && rForte !== null
-      && !temPredicacao(rForte)) return true;`,
-    para: '' },
-  { nome: 'o caminho forte para de cortar no separador',
-    de: '    const seg = ateOSeparador(o);',
-    para: '    const seg = o;' },
-  { nome: 'o caminho FRACO deixa de exigir resto vazio',
-    de: "    if (!(i > 0 && reQuantidade.test(partes[i - 1]) && !/[0-9A-Za-zÀ-ÿ]/.test(resto))) continue;",
-    para: '    if (!(i > 0 && reQuantidade.test(partes[i - 1]))) continue;' },
-  { nome: 'a negação contrastiva deixa de desqualificar o negador',
-    de: '    const depois = new RegExp(G.negador_colado, \'i\').test(cauda)\n      && !reContrastiva.test(cauda);',
+  { nome: 'a negação CONTRASTIVA deixa de desqualificar o negador atrás',
+    de: '    const depois = new RegExp(G.negador_colado, \'i\').test(cauda) && !ehContrastiva(cauda);',
     para: "    const depois = new RegExp(G.negador_colado, 'i').test(cauda);" },
+  { nome: 'o contraste deixa de olhar o OBJETO da preposição',
+    de: '  return reRegenciaContrastiva.test(resto);',
+    para: '  return /(pra|para|pro|com|de|d[oa]s?|ao|aos)/i.test(resto);' },
+  { nome: 'o caminho FRACO deixa de exigir cabeça DIRECIONAL',
+    de: '    const resto = cabecaValida(reCabecaDirecional, o);',
+    para: '    const resto = cabecaValida(reCabeca, o);' },
+  { nome: 'o caminho FRACO deixa de exigir resto sem PREDICAÇÃO',
+    de: '    if (temPredicacao(resto)) continue;',
+    para: '' },
+  { nome: 'o PREFIXO da cabeça deixa de ser julgado',
+    de: '  if (temSujeitoSolto(oracao.slice(0, m.index))) return null;',
+    para: '' },
+  { nome: 'o caminho FORTE deixa de existir',
+    de: '    if (cabecaValida(reCabecaForte, o) !== null) return true;',
+    para: '' },
+  { nome: 'o caminho FORTE aceita cabeça SEM quantidade',
+    de: '    if (cabecaValida(reCabecaForte, o) !== null) return true;',
+    para: '    if (cabecaValida(reCabeca, o) !== null) return true;' },
+  { nome: 'o caminho FRACO deixa de exigir quantidade na oração anterior',
+    de: '    if (!(i > 0 && reQuantidade.test(partes[i - 1]))) continue;',
+    para: '' },
   { nome: 'a relativa deixa de sair antes do teste de predicação',
     de: "  const semRelativa = resto.replace(reRelativa, ' ');",
     para: '  const semRelativa = resto;' },
   { nome: 'o pronome regido por preposição volta a contar como sujeito',
-    de: '    if (!rePrepPronome.test(semRelativa.slice(0, p))) return true;',
+    de: '    if (!rePrepPronome.test(trecho.slice(0, p))) return true;',
     para: '    return true;' },
   { nome: 'o genitivo descritivo deixa de dispensar',
     de: "  return reDestRuntime.test(oracao.replace(reGenitivoDescritivo, ' '));",
     para: '  return reDestRuntime.test(oracao);' },
-
-  { nome: 'o negador pós-destinatário volta a aceitar qualquer negador em qualquer ponto',
-    de: "new RegExp(G.negador_colado, 'i')",
-    para: 'reNegador' },
-
+  { nome: 'a evasão deixa de revogar a dispensa do genitivo',
+    de: '  if (reRevoga.test(oracao)) return reDestRuntime.test(oracao);',
+    para: '' },
+  { nome: 'o distribuidor volta a resgatar em qualquer ORDEM',
+    de: '  return !dist || dist.index < dest.index;',
+    para: '  return true;' },
   { nome: 'a dispensa volta a valer pela janela toda',
-    de: '    if (reGorjeta.test(o) && destinatarioNaoAtributivo(o) && !nega(o) && !temDistribuidor(o)) return true;',
-    para: '    if (reGorjeta.test(o) && destinatarioNaoAtributivo(o) && !nega(o) && !temDistribuidor(janela)) return true;' },
-  // O laço sobre TODAS as cláusulas de distribuidor não entra na lista: ele só
-  // difere de "só a primeira" quando uma cláusula anterior está revogada e uma
-  // posterior não — e aí ele AFROUXA, não aperta. Nenhuma entrada que construí
-  // distingue os dois sem ser uma frase que ninguém escreve. O que carrega
-  // peso aqui é a janela olhar PRA FRENTE, e essa está logo abaixo. Dito em
-  // vez de contado como coberto.
+    de: '    if (reGorjeta.test(o) && destinatarioNaoAtributivo(o) && !nega(o)\n      && !distribuidorAntesDoDestino(o)) return true;',
+    para: '    if (reGorjeta.test(o) && destinatarioNaoAtributivo(o) && !nega(o)\n      && !temDistribuidor(janela)) return true;' },
   { nome: 'a janela do distribuidor deixa de olhar pra frente',
     de: 'if (!reRevoga.test(oracao.slice(ini, m.index + m[0].length + 30))) return true;',
     para: 'if (!reRevoga.test(oracao.slice(ini, m.index + m[0].length))) return true;' },
@@ -144,7 +123,17 @@ const MUTACOES = [
     para: '' },
 ];
 
-/** Roda o corpo contra uma cópia mutada do censo. Devolve quantos casos falham. */
+/**
+ * Roda o corpo contra uma cópia mutada do censo. Devolve a DIREÇÃO do vermelho.
+ *
+ * `escapes` são casos `recusa: true` que passaram a passar; `fp` são
+ * `recusa: false` que passaram a ser recusados. Contar só o total é o que
+ * deixava um ALARGAMENTO ser certificado pelos falsos positivos que ele evita:
+ * `aridade do modificador sobe pra nove` e `cabeça deixa de ser ancorada`
+ * reportavam "1 caso vermelho" e os dois vermelhos eram casos INOCENTES — luz
+ * verde que se lia como cobertura do alargamento e era cobertura do contrário.
+ * Apontado pela revisão de segurança de 2026-09-14.
+ */
 function falhasCom(fonte) {
   const tmp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mut-'));
   const arq = path.join(tmp, 'censo.js');
@@ -159,7 +148,12 @@ function falhasCom(fonte) {
   fs.writeFileSync(arq, corpo + '\nmodule.exports = { acusa };\n');
   const { acusa } = require(arq);
   delete require.cache[arq];
-  return F.casos.filter((c) => acusa(c.texto) !== c.recusa).length;
+  const divergiram = F.casos.filter((c) => acusa(c.texto) !== c.recusa);
+  return {
+    total: divergiram.length,
+    escapes: divergiram.filter((c) => c.recusa).length,
+    fp: divergiram.filter((c) => !c.recusa).length,
+  };
 }
 
 /**
@@ -209,19 +203,43 @@ const AFROUXAMENTOS = [
  * sem o corpo reagir é um limite que ninguém escolheu.
  * Pedido pelas revisões de compliance e segurança de 2026-09-14.
  */
+/**
+ * ALARGAMENTOS — e cada um DECLARA a direção do vermelho que espera.
+ *
+ * Alargar um PADRÃO nem sempre afrouxa o GUARDA, e confundir as duas coisas é
+ * o que deixava este bloco ser certificado pelo avesso. `modificador` e
+ * `cabeca` são padrões que abrem a porta da RECUSA: alargá-los faz o guarda
+ * recusar MAIS, então o vermelho legítimo vem de casos inocentes. `quantidade`
+ * é o que abre o caminho FRACO: estreitá-la faz a promessa ESCAPAR. Um
+ * vermelho na direção errada não é cobertura, é outra coisa acontecendo.
+ *
+ * `direcao: 'fp'` — a mutação aperta o guarda, e o vermelho tem que vir de
+ * casos `recusa: false`. `direcao: 'escapes'` — a mutação afrouxa, e o vermelho
+ * tem que vir de casos `recusa: true`. Apontado pela revisão de segurança de
+ * 2026-09-14, que mediu os cinco alargamentos e achou zero escapes nos cinco.
+ */
 const ALARGAMENTOS = [
-  { nome: 'a aridade do modificador sobe de dois pra nove',
-    insere: "G.modificador_de_destino = G.modificador_de_destino.replace('{0,2}', '{0,9}');\n" },
-  { nome: 'a cabeça deixa de ser ancorada no começo da oração',
-    insere: "G.cabeca_de_destino = G.cabeca_de_destino.replace('^', '');\n" },
-  { nome: 'o núcleo de atribuição passa a aceitar qualquer substantivo',
-    insere: "G.nucleo_de_atribuicao = '[\\\\wáéíóúâêôãõç-]+';\n" },
-  { nome: 'o verbo finito deixa de ver o sujeito nulo',
+  // O modificador ESTREITA, não alarga: ele existe pra `to the FLOOR staff`, e
+  // tirá-lo faz essa promessa escapar. Alargá-lo só faz o guarda recusar mais,
+  // e nenhum caso inocente do corpo reage — medido, não suposto.
+  { nome: 'a aridade do modificador cai de dois pra zero', direcao: 'escapes',
+    insere: "G.modificador_de_destino = G.modificador_de_destino.replace('{0,2}', '{0,0}');\n" },
+  { nome: 'a cabeça do caminho fraco perde a âncora do começo', direcao: 'fp',
+    insere: "G.cabeca_direcional = G.cabeca_direcional.replace('^', '');\n" },
+  { nome: 'o verbo finito deixa de ver o sujeito nulo', direcao: 'fp',
     insere: "G.verbo_finito = 'zzzznuncacasa';\n" },
-  { nome: 'o pronome sujeito deixa de contar',
+  { nome: 'o pronome sujeito deixa de contar', direcao: 'fp',
     insere: "G.pronome_sujeito = 'zzzznuncacasa';\n" },
-  { nome: 'a quantidade consumida passa a aceitar qualquer palavra',
+  { nome: 'a quantidade consumida passa a aceitar qualquer palavra', direcao: 'fp',
     insere: "G.quantidade_consumida = '([\\\\wáéíóúâêôãõç%$€.,-]+)';\n" },
+  // E O OUTRO LADO, que faltava inteiro: estreitar a peça que abre o caminho
+  // fraco faz a promessa ESCAPAR, e nenhuma mutação deste arquivo media isso.
+  { nome: 'a quantidade DETECTORA deixa de reconhecer notação nenhuma', direcao: 'escapes',
+    insere: "G.quantidade = 'zzzznuncacasa';\n" },
+  { nome: 'a preposição direcional vira qualquer preposição de destino', direcao: 'fp',
+    insere: "G.preposicao_direcional = G.preposicao_de_destino;\n" },
+  { nome: 'o núcleo de atribuição aceita qualquer substantivo', direcao: 'escapes',
+    insere: "G.nucleo_de_atribuicao = '([\\\\wáéíóúâêôãõç-]+)';\n" },
 ];
 // Os alargamentos entram ANTES do primeiro padrão composto, porque as peças
 // são compartilhadas: alargar só a cabeça e não o `destino_em_qualquer_lugar`,
@@ -240,7 +258,7 @@ describe('cada peça do desenho pode ficar vermelha', () => {
   const original = fs.readFileSync(ALVO, 'utf8');
 
   test('sem mutação, o corpo passa inteiro', () => {
-    expect(falhasCom(original)).toBe(0);
+    expect(falhasCom(original).total).toBe(0);
   });
 
   test.each(MUTACOES.map((m) => [m.nome, m]))('%s', (_nome, m) => {
@@ -249,7 +267,7 @@ describe('cada peça do desenho pode ficar vermelha', () => {
     expect(original.includes(m.de)).toBe(true);
     const mutado = original.replace(m.de, m.para);
     expect(mutado).not.toBe(original);
-    const falhas = falhasCom(mutado);
+    const falhas = falhasCom(mutado).total;
     if (m.semCobertura) {
       // Declarada sem cobertura: se um dia ela PASSAR a ficar vermelha, é
       // porque alguém escreveu o caso — e aí a marca tem que sair. Uma
@@ -266,7 +284,7 @@ describe('cada peça do desenho pode ficar vermelha', () => {
     expect(original.includes(m.ancora)).toBe(true);
     const mutado = original.replace(m.ancora, m.insere + m.ancora);
     expect(mutado).not.toBe(original);
-    expect(falhasCom(mutado)).toBeGreaterThan(0);
+    expect(falhasCom(mutado).total).toBeGreaterThan(0);
   });
 
   test.each(ALARGAMENTOS.map((m) => [m.nome, m]))('alargar: %s', (_nome, m) => {
@@ -275,7 +293,15 @@ describe('cada peça do desenho pode ficar vermelha', () => {
     expect(original.includes(ANCORA_ALARGAMENTO)).toBe(true);
     const mutado = original.replace(ANCORA_ALARGAMENTO, m.insere + ANCORA_ALARGAMENTO);
     expect(mutado).not.toBe(original);
-    expect(falhasCom(mutado)).toBeGreaterThan(0);
+    const d = falhasCom(mutado);
+    // O VERMELHO TEM QUE VIR DA DIREÇÃO DECLARADA. Contar só o total deixava a
+    // mutação ser certificada pelo avesso.
+    // A chave declarada tem que EXISTIR no relatório: `direcao: 'escape'`
+    // contra um contador chamado `escapes` dava `undefined > 0` = false, e o
+    // teste falhava por digitação em vez de por medição.
+    expect(Object.keys(d)).toContain(m.direcao);
+    expect({ nome: m.nome, [m.direcao]: d[m.direcao] > 0, outro: d, })
+      .toEqual({ nome: m.nome, [m.direcao]: true, outro: d });
   });
 
   test('a lista de peças sem cobertura não cresce', () => {
