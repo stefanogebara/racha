@@ -14,6 +14,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
@@ -22,7 +23,13 @@ const TEAM_ID = 'team_0OAVq8O0WIyi5FXT8Bgoxvnx';
 const OAUTH_CLIENT_ID = 'cl_HYyOPBNtFMfHhaUn9L4QPfTZz6TP47bp'; // público (bundle do CLI)
 const REPO = 'stefanogebara/racha';
 
-const authPath = path.join(process.env.APPDATA || '', 'com.vercel.cli/Data/auth.json');
+// `APPDATA` só existe no Windows, e sem ele o caminho resolvia RELATIVO ao cwd:
+// o `loadToken()` estourava ENOENT na máquina que publica este repositório,
+// antes de qualquer outra coisa. Achado pela revisão de segurança de 2026-09-14.
+const authBase = process.env.APPDATA
+  || (process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Application Support')
+    : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')));
+const authPath = path.join(authBase, 'com.vercel.cli/Data/auth.json');
 
 async function loadToken() {
   const auth = JSON.parse(fs.readFileSync(authPath, 'utf8'));
@@ -66,6 +73,40 @@ execFileSync('git', ['-C', repoRoot, 'push', 'origin', 'HEAD:main'], { stdio: 'i
 const sha = execFileSync('git', ['-C', repoRoot, 'rev-parse', 'origin/main']).toString().trim();
 console.log(`deployando ${REPO}@${sha.slice(0, 8)}`);
 
+// O CANÁRIO DO `CRON_SECRET` MORA AQUI, e ANTES do deploy.
+//
+// A rota `/api/cron/reconcile` fecha sem o segredo e grita no log, mas quem
+// PAGINAVA era ela — do ramo em que, por definição, não há autenticação: o ramo
+// do segredo ausente. Um `curl` anônimo em N conexões forçava N cold starts e
+// rendia N avisos, porque o throttle era estado de módulo numa função
+// serverless. Aqui a pergunta é feita por quem está fazendo o deploy, com o
+// token do projeto, e ninguém de fora pode acioná-la.
+//
+// E ANTES, não depois: a primeira versão deste bloco ficava no FIM do arquivo,
+// abaixo de um `process.exit` em todos os caminhos do laço de polling. Era
+// código inalcançável — o pager tinha sido tirado da rota e posto numa linha
+// que nunca roda, o que deixou o inegociável #8 sem canário nenhum por um
+// commit inteiro. Achado pela revisão de segurança de 2026-09-14. Aqui ele
+// também IMPEDE o deploy em vez de reclamar depois de a produção já estar no ar.
+//
+// Falha FECHADO: um 401 ou 403 devolve JSON sem `envs`, `temCronSecret` vira
+// false e o script sai com 1.
+const envs = await (await fetch(
+  `https://api.vercel.com/v9/projects/${PROJECT_ID}/env?teamId=${TEAM_ID}`, { headers },
+)).json();
+const temCronSecret = (envs.envs || []).some(
+  (e) => e.key === 'CRON_SECRET' && (e.target || []).includes('production'),
+);
+if (!temCronSecret) {
+  process.stderr.write(
+    '\n✗ CRON_SECRET NÃO ESTÁ CONFIGURADO em production — deploy ABORTADO.\n'
+    + '  A conciliação diária (inegociável #8) não roda sem ele: a rota fecha em 503.\n'
+    + '  Configure em https://vercel.com/dashboard → Settings → Environment Variables.\n',
+  );
+  process.exit(1);
+}
+process.stdout.write('✓ CRON_SECRET configurado em production\n');
+
 const createRes = await fetch(`https://api.vercel.com/v13/deployments?teamId=${TEAM_ID}&skipAutoDetectionConfirmation=1`, {
   method: 'POST',
   headers: { ...headers, 'Content-Type': 'application/json' },
@@ -96,28 +137,3 @@ while (Date.now() - start < 5 * 60 * 1000) {
 }
 console.error('timeout aguardando READY');
 process.exit(1);
-
-// O CANÁRIO DO `CRON_SECRET` MORA AQUI, e não na rota.
-//
-// A rota `/api/cron/reconcile` fecha sem o segredo e grita no log, mas quem
-// PAGINAVA era ela — do ramo em que, por definição, não há autenticação: o ramo
-// do segredo ausente. Um `curl` anônimo em N conexões forçava N cold starts e
-// rendia N avisos, porque o throttle era estado de módulo numa função
-// serverless. Aqui a pergunta é feita por quem está fazendo o deploy, com o
-// token do projeto, e ninguém de fora pode acioná-la.
-// Apontado pela revisão de segurança de 2026-09-14.
-const envs = await (await fetch(
-  `https://api.vercel.com/v9/projects/${PROJECT_ID}/env?teamId=${TEAM_ID}`, { headers },
-)).json();
-const temCronSecret = (envs.envs || []).some(
-  (e) => e.key === 'CRON_SECRET' && (e.target || []).includes('production'),
-);
-if (!temCronSecret) {
-  process.stderr.write(
-    '\n✗ CRON_SECRET NÃO ESTÁ CONFIGURADO em production.\n'
-    + '  A conciliação diária (inegociável #8) não roda sem ele: a rota fecha em 503.\n'
-    + '  Configure em https://vercel.com/dashboard → Settings → Environment Variables.\n',
-  );
-  process.exit(1);
-}
-process.stdout.write('✓ CRON_SECRET configurado em production\n');

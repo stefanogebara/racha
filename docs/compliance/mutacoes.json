@@ -1,6 +1,6 @@
 {
   "_porque": "UMA LISTA, DOIS ADAPTADORES. As duas metades do portão de mutação — o `api/__tests__/mutacoes-afirmacao.test.js`, que muta o censo, e o `scripts/mutar-guarda-swift.sh`, que muta o guarda que chega ao cliente — eram duas listas escritas à mão, e em 2026-09-14 a revisão de segurança mediu a distância entre elas: SETE decisões nomeadas só do lado JS e DUAS só do lado Swift. Uma delas era o `soFuncionalAteONucleo` dentro do `nega`, a peça que a mesma revisão estava questionando: nunca mutada do lado que embarca. Todas as nove ficavam vermelhas na metade que faltava, então era lacuna de escrituração e não buraco vivo — mas é exatamente a forma que o `substantivo_destinatario` e o `substantivo_destinatario_runtime` já tiveram duas vezes, e daquelas a segunda foi um acento.\n\nUm teste comparando os dois conjuntos fecharia o buraco de hoje e apodreceria igual. Então some a segunda lista: as decisões moram AQUI, com as duas mutações lado a lado, e cada portão itera este arquivo. `As duas listas nomeiam as mesmas decisões` deixa de ser um teste e passa a ser verdade por construção; o que sobra pra afirmar é que cada âncora ainda existe no arquivo dela — e isso falha alto no primeiro refactor, que é o comportamento certo.",
-  "_porque_direcao": "ALARGAR UM PADRÃO NÃO É AFROUXAR O GUARDA. `modificador` e `cabeca` abrem a porta da RECUSA: alargá-los faz o guarda recusar MAIS, e o vermelho legítimo vem de casos inocentes (`fp`). `quantidade` abre o caminho FRACO: estreitá-la faz a promessa ESCAPAR (`escapes`). Um vermelho na direção errada não é cobertura, é outra coisa acontecendo — e foi assim que cinco alargamentos foram certificados pelo avesso. O lado JS ganhou a declaração em 2026-09-14; o lado Swift contava um inteiro só e certificava em `n > 0`, e a correção não tinha atravessado. Agora a direção mora na lista compartilhada, então ela atravessa por construção.",
+  "_porque_direcao": "ALARGAR UM PADRÃO NÃO É AFROUXAR O GUARDA. `modificador` e `cabeca` abrem a porta da RECUSA: alargá-los faz o guarda recusar MAIS, e o vermelho legítimo vem de casos inocentes (`fp`). `quantidade` abre o caminho FRACO: estreitá-la faz a promessa ESCAPAR (`escapes`). Um vermelho na direção errada não é cobertura, é outra coisa acontecendo — e foi assim que cinco alargamentos foram certificados pelo avesso. O lado JS ganhou a declaração em 2026-09-14; o lado Swift contava um inteiro só e certificava em `n > 0`, e a correção não tinha atravessado. Agora a direção mora na lista compartilhada, então ela atravessa por construção.\n\nE A DIREÇÃO DO ALARGAMENTO DEIXOU DE SER SÓ DE PADRÃO. Até 2026-09-14 toda decisão era mutada APAGANDO (o que mede falso positivo) e todo alargamento operava num literal do `ClaimPatterns.swift`. A direção em que o dinheiro ESCAPA era, por construção, imensurável pra qualquer decisão que mora no CÓDIGO e não num regex — e é lá que moram `dispensa`, `contextoDeDinheiro`, `negadorResgata`, `temDistribuidor` e `soAmbiguo`. A revisão de segurança construiu o instrumento e rodou doze: três voltaram verdes, uma delas um CRITICAL vivo (a herança da coordenação). As decisões deste arquivo agora têm mutações que AFROUXAM a lógica, com `para` que torna o guarda estritamente mais permissivo, e o corpo tem que ficar vermelho na direção declarada.",
   "_porque_afrouxamentos_so_js": "OS AFROUXAMENTOS SÃO SÓ DO LADO JS, e é uma decisão, não um esquecimento. Eles INSEREM código JavaScript (um atalho permissivo antes do laço da regra 3) e não têm tradução mecânica pro Swift: o equivalente é o bloco `SOLTA` do `mutar-guarda-swift.sh`, que insere Swift na mesma âncora conceitual e é medido lá. O que este arquivo compartilha é o que TEM as duas metades; fingir que um atalho em JS e um atalho em Swift são a mesma linha seria a escrituração falsa que ele existe pra acabar.",
   "decisoes": [
     {
@@ -61,22 +61,22 @@
     {
       "nome": "o negador atrás deixa de olhar a ORDEM (promessa já feita)",
       "js": {
-        "de": "  if (reRegenciaDoNucleo.test(antesDoNucleo) && !reGorjeta.test(resto)) return false;",
+        "de": "  if (reRegenciaDoNucleo.test(antesDoNucleo) && !reNegavel.test(resto)) return false;",
         "para": ""
       },
       "swift": {
-        "de": "        if casa(regenciaDoNucleo, antesDoNucleo) && !casa(gorjeta, resto) { return false }",
+        "de": "        if casa(regenciaDoNucleo, antesDoNucleo) && !casa(negavel, resto) { return false }",
         "para": ""
       }
     },
     {
       "nome": "o negador atrás deixa de exigir que ALCANCE a gorjeta",
       "js": {
-        "de": "  if (!reGorjeta.test(resto) && !soFuncionalAteONucleo(resto)) return false;",
+        "de": "  if (!reNegavel.test(resto) && !soFuncionalAteONucleo(resto)) return false;",
         "para": ""
       },
       "swift": {
-        "de": "        if !casa(gorjeta, resto) && !soFuncionalAteONucleo(resto) { return false }",
+        "de": "        if !casa(negavel, resto) && !soFuncionalAteONucleo(resto) { return false }",
         "para": ""
       },
       "sem_cobertura": [
@@ -153,11 +153,11 @@
     {
       "nome": "a coordenação deixa de herdar o distribuidor",
       "js": {
-        "de": "        const dispensa = temDist || (!temVerbo && distribuidorAnterior);",
+        "de": "        const dispensa = temDist\n          || (!temVerbo && !reSintagmaNominal.test(seg) && distribuidorAnterior);",
         "para": "        const dispensa = temDist;"
       },
       "swift": {
-        "de": "                let dispensa = temDist || (!temVerbo && distribuidorAnterior)",
+        "de": "                let dispensa = temDist\n                    || (!temVerbo && !casa(sintagmaNominal, seg) && distribuidorAnterior)",
         "para": "                let dispensa = temDist"
       }
     },
@@ -510,6 +510,61 @@
         "de": "            let prefixo = ultimoSegmento(\n                acha(direcional, o).map { (o as NSString).substring(to: $0.location) } ?? \"\")",
         "para": "            let prefixo = acha(direcional, o).map { (o as NSString).substring(to: $0.location) } ?? \"\""
       }
+    },
+    {
+      "nome": "o negador atrás volta a ler o DETECTOR no lugar do consumidor",
+      "js": {
+        "de": "const reNegavel = new RegExp(G.nucleo_negavel, 'i');",
+        "para": "const reNegavel = reGorjeta;"
+      },
+      "swift": {
+        "de": "    private static let negavel = regex(ClaimPatterns.nucleoNegavel)",
+        "para": "    private static let negavel = gorjeta"
+      }
+    },
+    {
+      "nome": "a CABEÇA do caminho fraco volta a poder conter predicação",
+      "js": {
+        "de": "    if (temPredicacao(mFraco[0])) continue;",
+        "para": ""
+      },
+      "swift": {
+        "de": "            guard !temPredicacao(ns.substring(with: NSRange(location: m.location, length: m.length)))\n            else { continue }",
+        "para": ""
+      }
+    },
+    {
+      "nome": "a herança da coordenação volta a falhar ABERTO",
+      "js": {
+        "de": "          || (!temVerbo && !reSintagmaNominal.test(seg) && distribuidorAnterior);",
+        "para": "          || (!temVerbo && distribuidorAnterior);"
+      },
+      "swift": {
+        "de": "                    || (!temVerbo && !casa(sintagmaNominal, seg) && distribuidorAnterior)",
+        "para": "                    || (!temVerbo && distribuidorAnterior)"
+      }
+    },
+    {
+      "nome": "a regra 1 volta a atravessar segmento sem exigir frase de destino",
+      "js": {
+        "de": "        if (!reGorjeta.test(seg) && !fraseDeDestino(seg)) continue;",
+        "para": "        if (!reGorjeta.test(seg) && !fraseDeDestino(seg) && false) continue;"
+      },
+      "swift": {
+        "de": "                guard casa(gorjeta, seg) || fraseDeDestino(seg) else { continue }",
+        "para": "                guard casa(gorjeta, seg) || fraseDeDestino(seg) || true else { continue }"
+      }
+    },
+    {
+      "nome": "a frase de destino volta a exigir resto sem predicação",
+      "js": {
+        "de": "  return !temPredicacao(m[0]);",
+        "para": "  return !temPredicacao(m[0]) && !temPredicacao(seg.slice(m.index + m[0].length));"
+      },
+      "swift": {
+        "de": "        return !temPredicacao(ns.substring(with: NSRange(location: m.location, length: m.length)))",
+        "para": "        return !temPredicacao(ns.substring(with: NSRange(location: m.location, length: m.length)))\n            && !temPredicacao(ns.substring(from: m.location + m.length))"
+      }
     }
   ],
   "alargamentos": [
@@ -597,14 +652,14 @@
     {
       "nome": "o núcleo de atribuição aceita qualquer substantivo",
       "direcao": "escapes",
-      "js": "G.nucleo_de_atribuicao = '([0-9A-Za-zÀ-ÿ_-]+)';",
+      "js": "G.nucleo_de_atribuicao = G.nucleo_de_atribuicao.replace('(gorjeta', '([0-9A-Za-zÀ-ÿ_-]+|gorjeta');",
       "swift": {
         "tipo": "campo",
         "nomes": [
           "genitivoDescritivo"
         ],
-        "de": "= \"(",
-        "para": "= \"([0-9A-Za-zÀ-ÿ_-]+|"
+        "de": "(?<![0-9A-Za-zÀ-ÿ])(gorjeta",
+        "para": "(?<![0-9A-Za-zÀ-ÿ])([0-9A-Za-zÀ-ÿ_-]+|gorjeta"
       }
     },
     {
@@ -633,19 +688,6 @@
       }
     },
     {
-      "nome": "a cabeça genitiva deixa de ser ancorada no começo da oração",
-      "direcao": "fp",
-      "js": "G.cabeca_genitiva = G.cabeca_genitiva.replace('^', '');",
-      "swift": {
-        "tipo": "campo",
-        "nomes": [
-          "cabecaGenitiva"
-        ],
-        "de": "= \"^",
-        "para": "= \""
-      }
-    },
-    {
       "nome": "a cabeça deixa de exigir fronteira de palavra à esquerda",
       "direcao": "fp",
       "js": "for (const c of ['cabeca_de_destino','cabeca_forte','cabeca_direcional','gatilho_forma_direcional']) G[c] = G[c].replace('(?<![0-9A-Za-zÀ-ÿ])', '');",
@@ -660,6 +702,54 @@
         "de": "(?<![0-9A-Za-zÀ-ÿ])",
         "para": ""
       }
+    },
+    {
+      "nome": "a cabeça genitiva deixa de ser ancorada no começo da oração",
+      "direcao": "fp",
+      "js": "G.cabeca_genitiva = G.cabeca_genitiva.replace('(?:^|SEPCLAUSULA\\\\s*)', '');",
+      "swift": {
+        "tipo": "campo",
+        "nomes": [
+          "cabecaGenitiva"
+        ],
+        "de": "= \"(?:^|(?<!\\\\d),(?!\\\\d)|\\\\b(e sim|e|mas|por[ée]m|ou)\\\\b|;\\\\s*)",
+        "para": "= \""
+      }
+    },
+    {
+      "nome": "o sujeito não-dinheiro perde a fronteira de palavra",
+      "direcao": "escapes",
+      "js": "G.substantivo_nao_dinheiro = G.substantivo_nao_dinheiro.replace('(?<![0-9A-Za-zÀ-ÿ])(?:', '(?:').replace(')(?![0-9A-Za-zÀ-ÿ])', ')');",
+      "swift": {
+        "tipo": "troca",
+        "nome": "substantivoNaoDinheiro",
+        "valor": "(?:comanda|pedido|conta|mesa|nota fiscal|nota|ficha|card[áa]pio|menu|maquininha|m[áa]quina|bandeja|prato|copo|garrafa|cupom|recibo|comprovante|qr|link|chave|senha|reserva|encomenda)"
+      }
+    },
+    {
+      "nome": "o núcleo de atribuição perde a fronteira de palavra",
+      "direcao": "escapes",
+      "js": "G.nucleo_de_atribuicao = G.nucleo_de_atribuicao.replace('(?<![0-9A-Za-zÀ-ÿ])', '');",
+      "swift": {
+        "tipo": "campo",
+        "nomes": [
+          "genitivoDescritivo"
+        ],
+        "de": "(?<![0-9A-Za-zÀ-ÿ])(gorjeta",
+        "para": "(gorjeta"
+      }
+    },
+    {
+      "nome": "o ponto volta a fechar oração dentro de um número",
+      "direcao": "escapes",
+      "js": "G.separador_de_oracao = '[.;!?:\\\\n—]';",
+      "swift": {
+        "tipo": "troca",
+        "nome": "separadorDeOracao",
+        "valor": "[.;!?:\\\\n—]"
+      },
+      "semCobertura": true,
+      "porque_sem_cobertura": "NENHUM CASO DO CORPO DISTINGUE, e o motivo é aritmético: partido no ponto do milhar, `R$ 1.250,00` vira `R$ 1` e `250,00` — e as DUAS metades continuam casando `quantidade` (`R\\$\\s*\\d` de um lado, `\\d+[.,]\\d{2}` do outro). O contexto de dinheiro sobrevive ao corte, então o veredito não muda. A peça entrou porque o `RachaTests` produziu a frase em que ela importa, e o conserto que a acompanhou (a frase de destino deixou de exigir resto sem predicação) fechou o caso sozinho — medido, não suposto. Ela fica porque um limite de oração dentro de um NÚMERO está errado independentemente de o corpo de hoje reagir, e a marca sai no dia em que alguém escrever o caso."
     }
   ]
 }

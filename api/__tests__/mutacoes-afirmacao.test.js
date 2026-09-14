@@ -156,7 +156,9 @@ const AFROUXAMENTOS = [
  * 2026-09-14, que mediu os cinco alargamentos e achou zero escapes nos cinco.
  */
 const ALARGAMENTOS = DECISOES.alargamentos.map(
-  (a) => ({ nome: a.nome, direcao: a.direcao, insere: `${a.js}\n` }));
+  (a) => ({
+    nome: a.nome, direcao: a.direcao, insere: `${a.js}\n`, semCobertura: !!a.semCobertura,
+  }));
 
 // Os alargamentos entram ANTES do primeiro padrão composto, porque as peças
 // são compartilhadas: alargar só a cabeça e não o `destino_em_qualquer_lugar`,
@@ -269,15 +271,22 @@ describe('o guarda SWIFT também é medido', () => {
     try { execFileSync('which', ['swiftc'], { stdio: 'pipe' }); return true; } catch { return false; }
   })();
 
+  // O TETO DE TEMPO CRESCE COM A LISTA. Eram 47 mutações e 600s bastavam; são
+  // 70, e o portão passou de 1100s — o `execFileSync` estourava, o erro que ele
+  // atira não é serializável pelo jest-worker, e a suíte INTEIRA morria com
+  // `Converting circular structure to JSON` em vez de dizer que o portão
+  // demorou. Um instrumento que falha por fora do formato que ele reporta é a
+  // forma `guarda que nunca dispara` aplicada ao relógio. 2026-09-14.
   (temSwift ? test : test.skip)('cada peça do guarda Swift pode ficar vermelha', () => {
     const saida = execFileSync(path.join(RAIZ, 'scripts', 'mutar-guarda-swift.sh'),
-      { encoding: 'utf8', timeout: 600000 });
+      { encoding: 'utf8', timeout: 45 * 60 * 1000 });
     // Toda linha tem que começar com ✓: um `✗` é peça sem cobertura, um `·` é
     // mutação que nem compila.
     const ruins = saida.split('\n').filter((l) => l.startsWith('✗'));
     expect(ruins).toEqual([]);
     expect(saida).toMatch(/sem mutação: \d+ casos, 0 falhas/);
     // Sete peças hoje. Encolher a lista tem que ser decisão, não descuido.
-    expect((saida.match(/^✓/gm) || []).length).toBeGreaterThanOrEqual(8);
-  });
+    // Setenta peças hoje. Encolher a lista tem que ser decisão, não descuido.
+    expect((saida.match(/^✓/gm) || []).length).toBeGreaterThanOrEqual(60);
+  }, 50 * 60 * 1000);
 });

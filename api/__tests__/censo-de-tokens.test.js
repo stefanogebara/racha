@@ -231,6 +231,10 @@ const CAMPOS = Object.keys(G).filter(
 // escrito pra achar vacuidade. Achado rodando o portão de mutação contra ela.
 const VOCABULARIO = {
   substantivo_gorjeta: (ex) => [`${ex}: 10%\n- 100% pro garçom`, true],
+  // O CONSUMIDOR, e a sonda mede a decisão DELE: o negador alcança o núcleo e
+  // resgata a frase. Polaridade fail-ABERTO — token inalcançável aqui produz
+  // uma RECUSA a mais, nunca um escape. Ver `_porque_nucleo_negavel`.
+  nucleo_negavel: (ex) => [`Os 10% vão pro garçom não tem ${ex} nenhum.`, false],
   substantivo_destinatario_runtime: (ex) => [`Sobre a gorjeta\n- 100% pra ${ex}`, true],
   verbo_finito: (ex) => [`Sobre a gorjeta\n- com a equipe ${ex} tudo certo`, false],
   pronome_sujeito: (ex) => [`Sobre a gorjeta\n- com a equipe ${ex} paga na saída`, false],

@@ -71,7 +71,17 @@ function* reescritas(texto) {
     // saber também, senão ele mede a própria ignorância.
     if (texto[i] === ',' && /\d/.test(texto[i - 1] || '') && /\d/.test(texto[i + 1] || '')) continue;
     for (const novo of alvos) {
-      yield [`${texto.slice(0, i)}${novo}${texto.slice(i + 1)}`, `${texto[i]}→${novo}`, i];
+      const v = `${texto.slice(0, i)}${novo}${texto.slice(i + 1)}`;
+      // MAIÚSCULA DEPOIS DE UM SINAL QUE NÃO FECHA FRASE não é reescrita, é
+      // outra frase. Trocar `.` por ` ` em `…o serviço. Chama o atendente…`
+      // produz `…o serviço  Chama…`, que ninguém escreve: a maiúscula é ela
+      // mesma o limite de oração que o sinal marcava. O instrumento estava
+      // medindo a própria ignorância, e é o mesmo critério que já recusou
+      // `Serviço: 10%, - da equipe` (marcador de lista no meio da linha).
+      // Apontado pela revisão de compliance de 2026-09-14.
+      const depois = v.slice(i + novo.length).replace(/^\s+/, '');
+      if (!/[.?!]/.test(novo) && /^\p{Lu}/u.test(depois)) continue;
+      yield [v, `${texto[i]}→${novo}`, i];
     }
   }
 }
@@ -100,6 +110,21 @@ describe('as tolerâncias da re-segmentação têm a disciplina das dispensas', 
     // das dispensas do censo e das injeções do fabricador.
     expect(naoUsadas).toEqual([]);
     expect(variantes).toBeLessThanOrEqual(40);
+    // ESCAPE E FALSO POSITIVO SÃO CONTADOS SEPARADO, com tetos separados.
+    // Uma gaveta que não distingue `recusamos algo inocente` de `deixamos
+    // passar uma promessa` absorve um escape por rodada — e absorveu um, que a
+    // revisão de segurança achou arquivado entre os falsos positivos com uma
+    // razão que argumentava contra uma correção que ninguém tinha proposto.
+    // Apontado pela revisão de segurança de 2026-09-14.
+    const escapes = Object.keys(TOLERADAS)
+      .filter((t) => casos.get(t).recusa)
+      .reduce((n, t) => n + Object.keys(TOLERADAS[t]).length, 0);
+    const fp = variantes - escapes;
+    expect({ escapes, fp }).toEqual({ escapes: expect.any(Number), fp: expect.any(Number) });
+    // O teto do ESCAPE é apertado de propósito: cada um tem que ser uma
+    // decisão escrita, não um resto.
+    expect(escapes).toBeLessThanOrEqual(4);
+    expect(fp).toBeLessThanOrEqual(12);
   });
 });
 

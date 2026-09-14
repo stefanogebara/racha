@@ -129,7 +129,7 @@ def _alargamento(spec):
         return troca('cabecaDirecional', lit_para_swift(COMPOSTO_CABECA_QUALQUER()))
     raise SystemExit('alargamento de tipo desconhecido: ' + spec['tipo'])
 
-ALARGA = [(a['nome'], _alargamento(a['swift']), a['direcao'])
+ALARGA = [(a['nome'], _alargamento(a['swift']), a['direcao'], a.get('semCobertura', False))
           for a in DECISOES['alargamentos']]
 
 def roda(fonte, padroes=None):
@@ -152,7 +152,15 @@ def roda(fonte, padroes=None):
     r = subprocess.run(['swiftc','-O',f'{TMP}/CP.swift',f'{TMP}/Rev.swift',f'{TMP}/main.swift','-o',f'{TMP}/p'],
                        capture_output=True, text=True)
     if r.returncode: return None
-    e, f = subprocess.run([f'{TMP}/p'], capture_output=True, text=True).stdout.split()
+    # BINÁRIO QUE NÃO IMPRIME NADA É MUTAÇÃO QUE ESTOUROU EM TEMPO DE EXECUÇÃO
+    # — regex inválido montado pela própria mutação, quase sempre. Isso fazia o
+    # script morrer com um traceback no meio da lista, e as mutações depois
+    # dela nem rodavam: o portão deixava de medir em silêncio, que é a forma
+    # que ele existe pra achar. Agora devolve None, e None já é reportado como
+    # falha nomeada. Achado rodando o portão em 2026-09-14.
+    saida = subprocess.run([f'{TMP}/p'], capture_output=True, text=True).stdout.split()
+    if len(saida) != 2: return None
+    e, f = saida
     return {'escapes': int(e), 'fp': int(f), 'total': int(e) + int(f)}
 
 base = roda(guarda)
@@ -188,13 +196,20 @@ for nome, atalho in SOLTA:
         print(f'✗ {nome}: não compila mutado — o atalho saiu do portão'); ruim += 1; continue
     print(('✓ ' if n['total'] > 0 else '✗ ') + f'{nome}: {n}')
     if n['total'] == 0: ruim += 1
-for nome, alargar, direcao in ALARGA:
+for nome, alargar, direcao, sem_cobertura in ALARGA:
     mutados = alargar(PADROES)
     if mutados == PADROES:
         print(f'✗ {nome}: o alargamento não mudou nada — a peça saiu do portão'); ruim += 1; continue
     n = roda(guarda, mutados)
     if n is None:
         print(f'✗ {nome}: não compila alargado — a peça saiu do portão'); ruim += 1; continue
+    if sem_cobertura:
+        # Declarada sem cobertura: se um dia FICAR vermelha é porque alguém
+        # escreveu o caso, e aí a marca tem que sair. Exceção que sobrevive à
+        # própria razão é a dívida de sempre.
+        print(('✓ ' if n['total'] == 0 else '✗ ') + f'{nome}: sem cobertura declarada ({n})')
+        if n['total'] != 0: ruim += 1
+        continue
     # O VERMELHO TEM QUE VIR DA DIREÇÃO DECLARADA.
     ok = n[direcao] > 0
     print(('✓ ' if ok else '✗ ') + f'{nome}: {direcao} esperado, medido {n}')

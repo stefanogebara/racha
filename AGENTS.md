@@ -3,7 +3,7 @@
 **O jeito mais rápido de fechar a conta.** QR na mesa → vê a conta → racha → paga
 (Pix-first) → mesa fecha. Separate product from Seatable (own repo, own Supabase, own
 brand), same company and sales machine (Olímpia). Strategy doc:
-`restaurant-ai-mcp/.Codex/plans/2026-07-17-racha-pay-at-table-brazil/README.md`.
+`restaurant-ai-mcp/.claude/plans/2026-07-17-racha-pay-at-table-brazil/README.md`.
 
 ## Non-negotiables (each one is paid-for knowledge)
 
@@ -55,8 +55,11 @@ brand), same company and sales machine (Olímpia). Strategy doc:
 
 - `npx jest` green before done — split engine and state machine have property-style tests
   (sum invariant, no negative parts, idempotent webhook application).
-- Any code that moves money ships only after **fintech-compliance + security review**
-  (agents in `.Codex/agents/`). No exceptions, no "it's a small change".
+- Any code that moves money ships only after **fintech-compliance + security-reviewer**
+  (both in `.codex/agents/`). No exceptions, no "it's a small change". The
+  `security-reviewer` agent was named here for months without existing — half of a
+  two-signature gate with nothing behind it — and both reviewers flagged the gap on
+  2026-09-07 before it got written.
 - Synthetic canary (staging, daily once deployed): open check → split 3 ways → 2 Pix +
   1 card → reconcile exact → close table. Any failure is a page.
 

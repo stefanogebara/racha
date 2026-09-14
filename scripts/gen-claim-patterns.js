@@ -38,6 +38,8 @@ const PECAS = (G) => ({
   PREP: G.preposicao_de_destino,
   ART: G.artigo_de_destino,
   GORJETANOME: G.substantivo_gorjeta,
+  NEGAVEL: G.nucleo_negavel,
+  SEPCLAUSULA: G.separador_de_clausula,
   DESTRUNTIME: G.substantivo_destinatario_runtime,
   PRONOME: G.pronome_sujeito.replace(/^\(\?:\^\|\[\^0-9A-Za-zÀ-ÿ\]\)\(/, '').replace(/\)\(\?=\[\^0-9A-Za-zÀ-ÿ\]\|\$\)$/, ''),
   MODSEMART: G.modificador_sem_artigo,
@@ -77,6 +79,7 @@ const COMPOSTOS = {
   preposicao_regendo_pronome: (G) => compor(G, G.preposicao_regendo_pronome),
   genitivo_descritivo: (G) => compor(G, G.genitivo_descritivo),
   sujeito_nominal: (G) => compor(G, G.sujeito_nominal),
+  sintagma_nominal: (G) => compor(G, G.sintagma_nominal),
   relativa_qualquer: (G) => compor(G, G.relativa_qualquer),
   adversativa_inicial: (G) => compor(G, G.adversativa_inicial),
   modificador_sem_artigo: (G) => compor(G, G.modificador_sem_artigo),
@@ -104,6 +107,10 @@ import Foundation
 
 enum ClaimPatterns {
     static let substantivoGorjeta = ${lit(COMPOSTOS.substantivo_gorjeta(G))}
+    /// O que o NEGADOR pode estar negando. Detector e consumidor são listas
+    /// diferentes: aqui a polaridade é fail-ABERTO — mais palavras, mais
+    /// resgate, menos recusa. Ver \`_porque_nucleo_negavel\`.
+    static let nucleoNegavel = ${lit(G.nucleo_negavel)}
     /// Mais curta: sem os pronomes que, na mesa, querem dizer os CLIENTES.
     /// Ver \`_porque_lista_runtime\` no claims.json.
     static let destinatarioRuntime = ${lit(G.substantivo_destinatario_runtime)}
@@ -137,6 +144,9 @@ enum ClaimPatterns {
     static let regenciaDoNucleo = ${lit(COMPOSTOS.regencia_do_nucleo(G))}
     /// Sujeito NOMINAL: determinante + substantivo. Ver \`_porque_sujeito_nominal\`.
     static let sujeitoNominal = ${lit(COMPOSTOS.sujeito_nominal(G))}
+    /// O mesmo sintagma, SEM a âncora do fim: o segmento tem sujeito próprio
+    /// em qualquer lugar dele? Ver \`_porque_sintagma_nominal\`.
+    static let sintagmaNominal = ${lit(COMPOSTOS.sintagma_nominal(G))}
     /// Como se chama o dinheiro quando o cliente acabou de perguntar dele.
     static let anaforaDeDinheiro = ${lit(COMPOSTOS.anafora_de_dinheiro(G))}
     /// Destinatário que também é LUGAR. Ver \`_porque_ambiguo\`.
@@ -174,6 +184,9 @@ enum ClaimPatterns {
     static let relativaQualquer = ${lit(COMPOSTOS.relativa_qualquer(G))}
     static let marcadorDeLista = ${lit(G.marcador_de_lista)}
     static let separadorInterno = ${lit(G.separador_interno)}
+    /// Ponto entre DÍGITOS não fecha oração: \`R\$ 1.250,00\` é um número.
+    /// Ver \`_porque_separador_de_oracao\`.
+    static let separadorDeOracao = ${lit(G.separador_de_oracao)}
     /// Separa ESCOPO de cláusula, e inclui a conjunção coordenativa.
     static let separadorDeClausula = ${lit(G.separador_de_clausula)}
     /// Abertura de cláusula ADVERSATIVA: ela QUALIFICA a oração anterior em

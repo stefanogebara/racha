@@ -1459,7 +1459,7 @@
     {
       "texto": "O extra fica com o garçom.",
       "recusa": true,
-      "porque": "`extra` idem. `taxa` NÃO entrou: é a palavra do que o produto NÃO cobra (`sem taxa`, inegociável #1), e pô-la aqui virava recusa a frase que o produto tem obrigação de dizer — medido, duas frases do corpo."
+      "porque": "`extra` idem. E a justificativa que estava escrita aqui — `crescer o `substantivo_gorjeta` é fail-closed: acrescenta recusa, nunca escape` — era FALSA, e o commit que a escreveu pagou por ela: há dois consumidores da lista com a polaridade ao contrário (o `resto` do `negadorResgata` e o lookahead negativo do `contraste_colado`), e as cinco palavras acrescentadas transformaram três recusas em escapes. A lista foi PARTIDA: detector (`substantivo_gorjeta`, fail-closed) e consumidor (`nucleo_negavel`, fail-aberto). Ver `_porque_nucleo_negavel`."
     },
     {
       "texto": "A gorjeta fica com meu querido garçom não é mesmo.",
@@ -1540,6 +1540,96 @@
       "texto": "Não precisa e a equipe recebe a gorjeta.",
       "recusa": true,
       "porque": "A JANELA DO `nega` CORTA EM ` e ` TAMBÉM. Com vírgula (`Não precisa, a equipe recebe a gorjeta.`) o corpo já tinha o caso: o `Não` responde à PERGUNTA do cliente, não ao destino, e a promessa fica de pé. Trocada a vírgula pela conjunção — mesma frase, outro ritmo —, o `Não` passava a alcançar o destinatário e a promessa escapava. Cinco casos do corpo caíam por esse sinal. Achado pelo eixo de RE-SEGMENTAÇÃO, 2026-09-14."
+    },
+    {
+      "texto": "Os 10% vão pro garçom não tem acréscimo nenhum.",
+      "recusa": true,
+      "porque": "A CAUDA QUE O INEGOCIÁVEL #1 OBRIGA O MODELO A ESCREVER, com um sinônimo de gorjeta dentro. Esta frase era RECUSADA no pai e passou a ESCAPAR quando `acréscimo` entrou no `substantivo_gorjeta`: o `resto` do `negadorResgata` passou a casar a lista, o resgate disparou e `nega()` calou as três regras. Detector e consumidor são listas diferentes — ver `_porque_nucleo_negavel`. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "Os 10% vão pro garçom não tem comissão nenhuma.",
+      "recusa": true,
+      "porque": "A mesma cauda com o sinônimo mais comum de todos. Três das cinco palavras acrescentadas abriam esta porta, e a justificativa escrita dizia que crescer a lista era fail-closed."
+    },
+    {
+      "texto": "Os 10% vão pro garçom não tem nada extra.",
+      "recusa": true,
+      "porque": "A mesma cauda pelo terceiro sinônimo, e a forma mais natural dela: `nada extra` em vez de `extra nenhum`."
+    },
+    {
+      "texto": "A taxa vai pro garçom.",
+      "recusa": true,
+      "porque": "`taxa` É a palavra mais comum pros 10% num salão brasileiro, e ela não podia entrar na lista nua: `sem taxa` e `não tem taxa nenhuma` são frases que o inegociável #1 obriga o produto a dizer. A saída é a mesma do cômodo — a RELAÇÃO, não a palavra: `a taxa` DETERMINADA é uma expressão referencial e é a gorjeta; `taxa` nua sob negador ou existencial é o que o produto NÃO cobra. Achado pela revisão de compliance de 2026-09-14, que retirou a minha justificativa anterior (`custo declarado`) mostrando que ela se apoiava num caso que eu tinha classificado errado."
+    },
+    {
+      "texto": "Serviço: 10% no fim da conta você chama o garçom.",
+      "recusa": false,
+      "porque": "A CABEÇA NÃO PODE CONTER PREDICAÇÃO. Os slots de modificador da `cabeca_genitiva` somam até cinco palavras entre a preposição e o núcleo, e `conta você chama o garçom` cabe lá: ancorada no `^`, a cabeça deixa o prefixo VAZIO, e o teste de prefixo — que existe pra desqualificar `chama` — não vê nada. O `^` que eu pus pra fechar `no fim da conta você chama o garçom` pelo lado do meio da linha abriu a mesma frase pelo começo dela. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "Sobre o serviço\nServiço da equipe (10% da sua parte) — opcional",
+      "recusa": false,
+      "porque": "A CABEÇA GENITIVA É ANCORADA NO COMEÇO DA ORAÇÃO, e este é o caso que prende a âncora. `da equipe` aqui é GENITIVO DESCRITIVO — diz de quem é o serviço, não pra onde ele vai — e é a linha que o produto imprime na tela do cliente, com o `opcional` que o CDC exige. Sem a âncora, a cabeça casa no MEIO da oração, onde não há verbo pra `temPredicacao` ver, e três superfícies publicadas viram achado (`i18n.ts:209`, o `home.legal`, a descrição da ferramenta do agente). A primeira versão deste caso não tinha a linha de cima e por isso não prendia nada: sem oração anterior com o substantivo da gorjeta, a regra 3 nem chega na cabeça. `O corpo não reage` não é `a peça não carrega peso` — aqui quem respondeu primeiro foi o censo sobre as superfícies."
+    },
+    {
+      "texto": "O restaurante distribui à equipe pela folha e a gorjeta pertence ao garçom.",
+      "recusa": true,
+      "porque": "A HERANÇA DA COORDENAÇÃO FALHAVA ABERTO. O segundo segmento não tem verbo da lista (`pertence` não está, e o `distribuidorAntesDoDestino` cita esse verbo exato como o motivo de este arquivo ter parado de enumerar conectivo), então ele era lido como CONTINUAÇÃO do primeiro e herdava a dispensa do distribuidor. A regra 9 do `SystemPrompt` MANDA o modelo escrever a metade esquerda, então a frase mais provável do produto carimbava qualquer coisa coordenada depois dela — a falha que o cabeçalho deste guarda chama de CARIMBAVA O PROIBIDO. Continuação agora exige evidência POSITIVA: segmento com sujeito próprio é afirmação nova. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "O restaurante distribui à equipe e a caixinha cabe ao garçom.",
+      "recusa": true,
+      "porque": "O mesmo carimbo com outro verbo fora da lista. Quatro verbos ordinários (`pertence`, `beneficia`, `destina-se`, `cabe`) abriam a porta, e a correção não pode ser crescer o `verbo_finito`: a peça tinha a polaridade virada, não o tamanho errado."
+    },
+    {
+      "texto": "O restaurante distribui à equipe como manda a lei, e a gorjeta pertence ao garçom.",
+      "recusa": true,
+      "porque": "Este caso JÁ ESTAVA no corpo e passava por acidente: o segmento `como manda a lei` carrega `manda`, que está no `verbo_finito`, e era isso — uma palavra num segmento sem conteúdo nenhum — que zerava a herança. Apagar qualquer uma das duas vírgulas fazia a mesma frase escapar. O caso canônico de `a frase sancionada na frente não lava a promessa` estava preso por um verbo num aposto."
+    },
+    {
+      "texto": "A gorjetinha é do garçom.",
+      "recusa": true,
+      "porque": "`gorjetinha` é o registro que o `SystemPrompt` pede (`um amigo que faz a conta`) e é a palavra do CLIENTE — um modelo espelha o vocabulário da pergunta que recebeu, e o texto julgado é só o turno dele. `gorjeta|gorjetas` não casa `gorjetinha`, e sem contexto de dinheiro reconhecido a regra 1b era vetada pelo sujeito nominal. É o incidente `gar[çc]on`/`garçom` com o outro substantivo. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "O troco fica com o garçom.",
+      "recusa": true,
+      "porque": "`troco` é dinheiro e não estava em lista nenhuma. Crescer o DETECTOR virou fail-closed nesta rodada, quando o consumidor do negador ganhou campo próprio (`nucleo_negavel`) — antes disso, acrescentar esta palavra teria aberto três escapes."
+    },
+    {
+      "texto": "A porcentagem vai pro garçom.",
+      "recusa": true,
+      "porque": "Idem, e é a palavra mais provável depois de `10%` na mesma conversa."
+    },
+    {
+      "texto": "Serviço: 10%, da equipe.",
+      "recusa": true,
+      "porque": "A CABEÇA GENITIVA ANCORA NO SEGMENTO, não na oração. A vírgula não separa oração, mas separa CLÁUSULA em todo o resto do arquivo — `ultimoSegmento`, `segmentos` e a janela do `nega` cortam nela. Com travessão, dois-pontos, ponto-e-vírgula ou quebra de linha esta frase era recusada; com vírgula, escapava. É o sinal que um modelo escolhe mais, e era o único que derrotava a peça. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "A gorjeta? A fatia anotada vai pro garçom.",
+      "recusa": true,
+      "porque": "O `substantivo_nao_dinheiro` não tinha delimitador, e ele é EXCULPATÓRIO: `nota` casava dentro de `anotada`, o veto de sujeito disparava e a promessa passava. Um particípio ordinário no sujeito derrubava uma recusa DENTRO da janela de dinheiro, que é onde a polaridade tinha acabado de ser apertada de propósito. O sujeito aqui é `fatia` e não `porcentagem` porque `porcentagem` virou substantivo de gorjeta na mesma rodada — e aí quem recusa é a regra 1, e o caso deixa de medir a peça que ele existe pra medir. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "A caixinha vai pra merenda da equipe.",
+      "recusa": true,
+      "porque": "O `nucleo_de_atribuicao` também não tinha delimitador, e ele também absolve: `renda` casava dentro de `merenda`, o genitivo virava DESCRITIVO e a promessa passava. As duas peças exculpatórias do arquivo estavam sem fronteira, na mesma rodada em que as cabeças ganharam a delas."
+    },
+    {
+      "texto": "Já tirei o serviço, chama o atendente que ele confere.",
+      "recusa": false,
+      "porque": "A REGRA 1 SÓ ATRAVESSA SEGMENTO SE O SEGMENTO FOR FRASE DE DESTINO. Esta frase CONFIRMA que o serviço saiu — a confirmação que o CDC e o inegociável #3 obrigam o produto a poder dar — e o guarda pisava nela: com vírgula, `serviço` e `atendente` caem na mesma oração, e a regra 1 perguntava só se o TOKEN do destinatário está no segmento, nunca se ele está numa RELAÇÃO de destino. `chama o atendente que ele confere` não tem cabeça de destino nenhuma. No MESMO segmento nada mudou, então `A gorjeta, pro garçom.` segue recusada. Ver `_porque_travessia_de_segmento`."
+    },
+    {
+      "texto": "a caixinha, dos atendentes do salão São R$ 1.250,00 no total.",
+      "recusa": true,
+      "porque": "DUAS PEÇAS NUMA FRASE SÓ, e quem a produziu foi a suíte do iOS, que cola uma linha de TOTAL depois de cada frase aposentada — instrumento que o corpo compartilhado não tem. Primeiro: o `oracoes` cortava em `.` cru, então `R$ 1.250,00` era partido ao meio e o rabo de uma frase caía dentro da oração da outra; a vírgula decimal já estava protegida havia rodadas, o ponto do MILHAR não. Segundo: a travessia de segmento da regra 1, escrita nesta mesma rodada, exigia que o segmento fosse frase de destino E MAIS NADA — e aqui a promessa está inteira no segmento, com uma frase NOVA colada atrás sem pontuação no meio. O que vem depois da cabeça não desfaz a promessa (CDC art. 30, a doutrina que a regra 1b já aplicava); o que desqualifica é verbo no PREFIXO ou predicação DENTRO da cabeça."
+    },
+    {
+      "texto": "Sua parte é R$ 1.250,00. Com o garçom você acerta na maquininha.",
+      "recusa": false,
+      "porque": "O outro lado do ponto do milhar: aqui ele está dentro do número E há um ponto de verdade fechando a frase. As duas orações têm que sair separadas — se o corte no milhar for restaurado, `Sua parte é R$ 1` e `250,00. Com o garçom…` mudam o que cada regra vê."
     }
   ]
 }

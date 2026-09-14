@@ -38,6 +38,8 @@ const G = JSON.parse(
 
 const { expandirDest: _exp, COMPOSTOS: COMPOR, PECAS } = require('../../scripts/gen-claim-patterns.js');
 const reGorjeta = new RegExp(COMPOR.substantivo_gorjeta(G), 'i');
+/** O que o NEGADOR pode negar — ver `_porque_nucleo_negavel`. */
+const reNegavel = new RegExp(G.nucleo_negavel, 'i');
 const reDestinatario = new RegExp(G.substantivo_destinatario, 'i');
 const reDistribuidor = new RegExp(G.distribuidor_com_sujeito, 'i');
 const reRevoga = new RegExp(COMPOR.revoga_dispensa(G), 'i');
@@ -96,6 +98,8 @@ const reMarcador = new RegExp(G.marcador_de_lista);
 const reContrasteColado = new RegExp(COMPOR.contraste_colado(G), 'i');
 const reRegenciaDoNucleo = new RegExp(COMPOR.regencia_do_nucleo(G), 'i');
 const reSujeitoNominal = new RegExp(COMPOR.sujeito_nominal(G), 'i');
+/** Sujeito próprio em QUALQUER lugar do segmento — ver o gêmeo. */
+const reSintagmaNominal = new RegExp(COMPOR.sintagma_nominal(G), 'i');
 /** O sujeito que o veto da regra 1b existe pra proteger. Ver o gêmeo. */
 const reNaoDinheiro = new RegExp(G.substantivo_nao_dinheiro, 'i');
 const reDestAmbiguo = new RegExp(G.destinatario_ambiguo, 'gi');
@@ -169,13 +173,31 @@ function negadorResgata(antesDoNucleo, cauda) {
   // Resgata se ALCANÇA a gorjeta, ou se não diz mais nada além do verbo que
   // nega. Sem adjacência nenhuma — ver o gêmeo no Swift.
   // ORDEM, de volta, com REGÊNCIA do núcleo — ver o gêmeo no Swift.
-  if (reRegenciaDoNucleo.test(antesDoNucleo) && !reGorjeta.test(resto)) return false;
-  if (!reGorjeta.test(resto) && !soFuncionalAteONucleo(resto)) return false;
+  // O QUE O NEGADOR PODE ESTAR NEGANDO É OUTRA LISTA. Aqui a polaridade é
+  // fail-ABERTO — mais palavras, mais resgate, menos recusa —, e por isso o
+  // detector (`substantivo_gorjeta`, que cresce livre) não serve.
+  // Ver `_porque_nucleo_negavel`.
+  if (reRegenciaDoNucleo.test(antesDoNucleo) && !reNegavel.test(resto)) return false;
+  if (!reNegavel.test(resto) && !soFuncionalAteONucleo(resto)) return false;
   return !reContrasteColado.test(resto);
 }
 /** Os SEGMENTOS de uma oração — separador com a conjunção. Ver o gêmeo. */
 function segmentos(oracao) {
-  return oracao.split(new RegExp(G.separador_de_clausula, 'gi')).filter((x) => x && x.trim());
+  // `String.split` com um regex que CAPTURA insere as capturas no resultado, e
+  // o `separador_de_clausula` tem `\b(e sim|e|mas|por[ée]m|ou)\b`: o censo
+  // ganhava segmentos extras com a conjunção nua, e o gêmeo Swift — que fatia
+  // entre casamentos — não. Inerte hoje (são todas palavras funcionais, sem
+  // destinatário e sem verbo), mas é divergência estrutural na função em que a
+  // herança da coordenação mora. Apontado pela revisão de segurança.
+  const re = new RegExp(G.separador_de_clausula, 'gi');
+  const fora = [];
+  let ini = 0;
+  for (const m of oracao.matchAll(re)) {
+    fora.push(oracao.slice(ini, m.index));
+    ini = m.index + m[0].length;
+  }
+  fora.push(oracao.slice(ini));
+  return fora.filter((x) => x && x.trim());
 }
 /** Ênfase de markdown e forma composta saem antes do julgamento. Ver o gêmeo. */
 function normalizado(texto) {
@@ -238,7 +260,8 @@ const reDestinatarioCenso = reDestinatario;
 
 /** Orações, como no guarda de runtime: `. ; ! ? : \n —` separam. */
 function oracoes(texto) {
-  return texto.split(/[.;!?:\n—]/).map((o) => o.trim()).filter(Boolean);
+  // Ponto entre DÍGITOS não fecha oração — ver `_porque_separador_de_oracao`.
+  return texto.split(new RegExp(G.separador_de_oracao, 'g')).map((o) => o.trim()).filter(Boolean);
 }
 
 /**
@@ -292,6 +315,25 @@ function distribuidorAntesDoDestino(oracao) {
   return !dist || dist.index < dest.index;
 }
 
+/**
+ * O segmento é uma FRASE DE DESTINO — cabeça de destino, sem verbo no prefixo
+ * e sem predicação no resto? É a mesma pergunta do caminho fraco da regra 3,
+ * reusada onde a regra 1 precisa atravessar segmento. Ver o gêmeo no Swift.
+ */
+function fraseDeDestino(seg) {
+  const m = reCabeca.exec(seg);
+  if (!m) return false;
+  if (reVerboFinito.test(ultimoSegmento(seg.slice(0, m.index)))) return false;
+  // O QUE VEM DEPOIS DA CABEÇA NÃO DESFAZ A PROMESSA — é a doutrina do CDC
+  // art. 30 que a regra 1b já aplica: a primeira metade vincula. `a caixinha,
+  // dos atendentes do salão São R$ 1.250,00 no total.` tem a promessa inteira
+  // no segmento e uma frase NOVA colada atrás dela, sem pontuação no meio, e
+  // exigir resto-sem-predicação deixava a frase aposentada passar. O que
+  // desqualifica é verbo no PREFIXO (a promessa nunca começou) ou predicação
+  // DENTRO da cabeça. Achado pelo `RachaTests`, 2026-09-14.
+  return !temPredicacao(m[0]);
+}
+
 /** Esta oração carrega, ELA MESMA, a cláusula do distribuidor não negada? */
 function temDistribuidor(oracao) {
   for (const m of oracao.matchAll(new RegExp(reDistribuidor.source, 'gi'))) {
@@ -334,9 +376,35 @@ function acusa(janelaCrua) {
         const matriz = seg.replace(reRelativa, ' ');
         const temDist = reDistribuidor.test(matriz);
         const temVerbo = reVerboFinito.test(seg) || reSuprimeGlobal.test(seg);
-        const dispensa = temDist || (!temVerbo && distribuidorAnterior);
+        // A HERANÇA DA COORDENAÇÃO FALHA FECHADO. Ela dizia `segmento sem
+        // verbo CONHECIDO é continuação do anterior`, e verbo desconhecido
+        // virava continuação: `O restaurante distribui à equipe e a gorjeta
+        // PERTENCE ao garçom.` passava, e `pertence`, `beneficia`,
+        // `destina-se` e `cabe` são exatamente os verbos que o
+        // `distribuidorAntesDoDestino` cita como o motivo de este arquivo ter
+        // parado de enumerar conectivo. A regra 9 do `SystemPrompt` MANDA o
+        // modelo escrever a metade esquerda, então a frase mais provável do
+        // produto dava carimbo a qualquer coisa coordenada depois dela.
+        // Agora a continuação exige evidência POSITIVA: um segmento com
+        // sujeito NOMINAL próprio é afirmação nova, não continuação.
+        // Achado pela revisão de segurança de 2026-09-14.
+        const dispensa = temDist
+          || (!temVerbo && !reSintagmaNominal.test(seg) && distribuidorAnterior);
         if (temVerbo || temDist) distribuidorAnterior = temDist;
         if (!destinatarioNaoAtributivo(seg, o)) continue;
+        // A REGRA 1 ATRAVESSA SEGMENTO SÓ SE O SEGMENTO FOR FRASE DE DESTINO.
+        //
+        // Ela perguntava se o TOKEN do destinatário está no segmento, e nunca
+        // se ele está numa RELAÇÃO de destino — e é por isso que juntar duas
+        // frases numa oração produzia recusa: `Já tirei o serviço, chama o
+        // atendente que ele confere.` confirma que o serviço SAIU, e o guarda
+        // pisava justamente nessa confirmação (CDC, inegociável #3). Vinte e
+        // duas variantes do eixo de RE-SEGMENTAÇÃO eram essa classe, e eu
+        // tinha escrito que a única alternativa era a vírgula deixar de
+        // juntar — o que reabriria `A gorjeta, pro garçom.`, a promessa mais
+        // curta do arquivo. Era falsa dicotomia: a regra 3 já tem a pergunta.
+        // No MESMO segmento nada muda. Achado pela revisão de compliance.
+        if (!reGorjeta.test(seg) && !fraseDeDestino(seg)) continue;
         if (!nega(o) && (reRevoga.test(comAdversativa(iO)) || !dispensa)) return true;
       }
     }
@@ -424,6 +492,14 @@ function acusa(janelaCrua) {
     if (!mFraco) continue;
     // Prefixo julgado por VERBO nos dois caminhos — ver o gêmeo.
     if (reVerboFinito.test(ultimoSegmento(o.slice(0, mFraco.index)))) continue;
+    // E A CABEÇA NÃO PODE CONTER PREDICAÇÃO. Os slots de modificador somam até
+    // cinco palavras entre a preposição e o núcleo, e um verbo finito cabe lá
+    // com folga — ancorada no `^`, a cabeça deixa o prefixo VAZIO, e o teste de
+    // prefixo, que existe pra desqualificar exatamente isso, não vê nada.
+    // `Serviço: 10% no fim da conta você chama o garçom.` virava recusa: o
+    // `^` que eu pus pra fechar essa frase por um lado abriu-a pelo outro.
+    // Achado pela revisão de compliance de 2026-09-14.
+    if (temPredicacao(mFraco[0])) continue;
     const resto = o.slice(mFraco.index + mFraco[0].length);
     if (temPredicacao(resto)) continue;
     if (!partes.slice(0, i).some((q) => soGorjetaAntes ? reGorjeta.test(q)
@@ -730,19 +806,23 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
     // Padrão que é SÓ DO CENSO, com motivo escrito. Emitir pro Swift um padrão
     // que o guarda não consulta é o vão pelo qual o `preposicaoColadaAtras`
     // sobreviveu à própria remoção da regra.
+    // Padrão que é SÓ DO CENSO, com motivo escrito. Emitir pro Swift um padrão
+    // que o guarda não consulta é o vão pelo qual o `preposicaoColadaAtras`
+    // sobreviveu à própria remoção da regra.
+    //
+    // A LISTA TINHA 25 NOMES E 23 ERAM FALSOS: aqueles campos SÃO emitidos e
+    // SÃO consultados pelo guarda — o teste irmão (`todo padrão emitido é
+    // consultado`) falharia se não fossem. A isenção não isentava nada de
+    // verdade, mas desligava a asserção `o Swift contém este valor` pra 23
+    // peças: se o gerador parasse de emitir uma delas, `npx jest` continuaria
+    // verde e só o Xcode notaria. Uma lista de exceções que não descreve
+    // exceção nenhuma é a forma "guarda que nunca dispara" aplicada a um
+    // teste. Apontado pela revisão de compliance de 2026-09-14.
     const SO_DO_CENSO = [
-      'substantivo_destinatario',      // a completa inclui os pronomes da MESA
-      'preposicao_antes_de_pronome',   // entra composta no preposicao_regendo_pronome
-      'genitivo_de_destino_simples',   // idem, dentro do PREPDEST e do GEN
-      'nucleo_de_atribuicao',          // idem, dentro do genitivo_descritivo
-      'cabeca_de_destino', 'cabeca_forte', 'cabeca_direcional',
-      'contraste_colado', 'preposicao_regendo_pronome', 'genitivo_descritivo',
-      'preposicao_direcional', 'evasao_de_caminho', 'relativo_pronome', 'relativo_clitico',
-      'relativa_qualquer', 'substantivo_gorjeta', 'gatilho_forma_direcional',
-      'modificador_longo',    // entra composto no contraste_colado
-      'anafora_de_dinheiro',  // consultado só no veto de sujeito
-      'regencia_do_nucleo', 'sujeito_nominal', 'palavra_funcional', 'evasao_que_licencia',
-      'adverbio', 'negador_colado',
+      'substantivo_destinatario',   // a completa inclui os pronomes da MESA; o
+                                    // runtime usa a curta, de propósito
+      'modificador_longo',          // entra composto no `contraste_colado` e no
+                                    // `regencia_do_nucleo`, nunca sozinho
     ];
     // O alfabeto de marcadores vem do PRÓPRIO gerador, não de uma lista escrita
     // aqui: marcador novo no `PECAS` fica coberto sem ninguém lembrar. A lista
@@ -874,5 +954,27 @@ describe('o censo de build e o guarda de runtime aplicam a MESMA regra', () => {
     expect(F.casos.filter((c) => !c.recusa).length).toBeGreaterThanOrEqual(10);
     // Razão escrita em cada caso: o fixture é a afirmação de que alguém leu.
     expect(F.casos.filter((c) => !c.porque || c.porque.length < 30)).toEqual([]);
+  });
+});
+
+/**
+ * AS DUAS CÓPIAS DO CONTRATO NÃO PODEM DIVERGIR.
+ *
+ * O `AGENTS.md` é a cópia que as ferramentas que leem `AGENTS.md` carregam no
+ * lugar do `CLAUDE.md`, e no commit que o criou ela JÁ tinha divergido: o
+ * parágrafo do portão de duas assinaturas — justamente o que registra que o
+ * `security-reviewer` foi nomeado por meses sem existir — saiu truncado, e o
+ * caminho do documento de estratégia virou `.Codex/plans/`, que não existe.
+ * Regra copiada em dois lugares diverge, e a cópia que vale é a da ferramenta
+ * que lê: é o modo de falha nomeado deste repositório, aplicado às próprias
+ * regras. Apontado pela revisão de segurança de 2026-09-14.
+ *
+ * A única diferença LEGÍTIMA é onde vivem as definições dos agentes.
+ */
+describe('as duas cópias do contrato são a mesma', () => {
+  test('AGENTS.md é o CLAUDE.md com a substituição declarada, e nada mais', () => {
+    const claude = fs.readFileSync(path.join(RAIZ, 'CLAUDE.md'), 'utf8');
+    const agents = fs.readFileSync(path.join(RAIZ, 'AGENTS.md'), 'utf8');
+    expect(agents).toBe(claude.split('.claude/agents/').join('.codex/agents/'));
   });
 });

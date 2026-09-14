@@ -109,8 +109,13 @@ const DEFAULT_MARKET = 'br';
  * exatamente o caminho provável de um piloto às pressas. A apresentação
  * continua funcionando (a tela é revisável), o dinheiro não.
  *
- * É o mesmo desenho do `CRON_SECRET` na revisão #37: o estado "não configurado"
- * não é permissivo, é recusa.
+ * É o mesmo desenho do `CRON_SECRET`: o estado "não configurado" não é
+ * permissivo, é recusa. (O que MUDOU de lá pra cá, em 2026-09-14, é quem
+ * avisa: a rota fecha e grita no log, e o canário do inegociável #8 passou a
+ * morar no `scripts/deploy.mjs`, que aborta o deploy antes de publicar. A
+ * rota paginava de dentro do ramo SEM autenticação, o que a transformava em
+ * megafone pra quem quisesse. O desenho que este comentário cita — fechar em
+ * vez de degradar — é o que continua valendo.)
  */
 function esEnabled() {
   return process.env.RACHA_ES_ENABLED === 'true';

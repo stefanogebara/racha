@@ -122,11 +122,20 @@ describe('cron: quem escreve não degrada aberta', () => {
      * o que as outras duas rotas de cron sempre fizeram.
      */
     const sujas = [];
+    // ROTA QUE O CENSO NÃO SABE LER NÃO PODE SER PULADA. A primeira versão
+    // exigia a chave de fechamento com SEIS espaços exatos e fazia `continue`
+    // quando não achava: uma rota aninhada um nível a mais, ou escrita sem
+    // chaves, saía do censo em silêncio — a forma "guarda que nunca dispara"
+    // dentro do censo escrito pra fechar essa forma. Apontado pela revisão de
+    // segurança de 2026-09-14.
+    const naoParseadas = [];
     for (const r of rotas) {
-      const m = /if \(!process\.env\.CRON_SECRET\)\s*\{([\s\S]*?)\n      \}/.exec(r.corpo);
-      if (!m) continue;
+      if (!/if \(!process\.env\.CRON_SECRET\)/.test(r.corpo)) continue;
+      const m = /if \(!process\.env\.CRON_SECRET\)\s*\{([\s\S]*?)\n\s*\}/.exec(r.corpo);
+      if (!m) { naoParseadas.push(r.nome); continue; }
       if (/notify[A-Za-z]*\(|await fetch\(|sendMail|webhook/.test(m[1])) sujas.push(r.nome);
     }
+    expect(naoParseadas).toEqual([]);
     expect(sujas).toEqual([]);
   });
 

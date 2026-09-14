@@ -53,6 +53,8 @@ enum RevisaoDeAfirmacoes {
     }
 
     private static let gorjeta = regex(ClaimPatterns.substantivoGorjeta)
+    /// O que o NEGADOR pode negar. Ver `_porque_nucleo_negavel`.
+    private static let negavel = regex(ClaimPatterns.nucleoNegavel)
     // A lista de RUNTIME, mais curta: `a gente`, `você` e `pessoal` são as
     // pessoas da MESA quando quem fala é o assistente. Ver claims.json.
     private static let destinatario = regex(ClaimPatterns.destinatarioRuntime)
@@ -71,6 +73,9 @@ enum RevisaoDeAfirmacoes {
     private static let contrasteColado = regex(ClaimPatterns.contrasteColado)
     private static let regenciaDoNucleo = regex(ClaimPatterns.regenciaDoNucleo)
     private static let sujeitoNominal = regex(ClaimPatterns.sujeitoNominal)
+    /// Sujeito próprio em QUALQUER lugar do segmento — o `sujeitoNominal` é
+    /// ancorado no fim porque julga PREFIXO. Ver `_porque_sintagma_nominal`.
+    private static let sintagmaNominal = regex(ClaimPatterns.sintagmaNominal)
     private static let anaforaDeDinheiro = regex(ClaimPatterns.anaforaDeDinheiro)
     private static let destinatarioAmbiguo = regex(ClaimPatterns.destinatarioAmbiguo)
     /// O sujeito que o veto da regra 1b existe pra proteger. Ver o gêmeo.
@@ -146,8 +151,11 @@ enum RevisaoDeAfirmacoes {
         // de modificador fica entre o ARTIGO e o núcleo — entre a preposição e
         // o artigo ele deixava `de HOJE o garçom` passar por oblíquo.
         // Achado pela revisão de segurança de 2026-09-14.
-        if casa(regenciaDoNucleo, antesDoNucleo) && !casa(gorjeta, resto) { return false }
-        if !casa(gorjeta, resto) && !soFuncionalAteONucleo(resto) { return false }
+        // O QUE O NEGADOR PODE ESTAR NEGANDO É OUTRA LISTA, com a polaridade
+        // ao contrário: mais palavras, mais resgate, menos recusa. Ver
+        // `_porque_nucleo_negavel`.
+        if casa(regenciaDoNucleo, antesDoNucleo) && !casa(negavel, resto) { return false }
+        if !casa(negavel, resto) && !soFuncionalAteONucleo(resto) { return false }
         return !casa(contrasteColado, resto)
     }
 
@@ -157,6 +165,8 @@ enum RevisaoDeAfirmacoes {
     private static let direcional = regex(ClaimPatterns.formaDirecional)
     /// Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação.
     private static let separadorInterno = regex(ClaimPatterns.separadorInterno)
+    /// Ponto entre DÍGITOS não fecha oração — ver o gêmeo no censo.
+    private static let separadorDeOracao = regex(ClaimPatterns.separadorDeOracao)
     /// Abertura de cláusula ADVERSATIVA — ela qualifica a oração anterior.
     private static let adversativaInicial = regex(ClaimPatterns.adversativaInicial)
     private static let separadorDeClausula = regex(ClaimPatterns.separadorDeClausula)
@@ -340,33 +350,21 @@ enum RevisaoDeAfirmacoes {
     }
 
     private static func oracoes(_ texto: String) -> [String] {
-        var fora: [String] = [], atual = ""
-        for ch in texto {
-            //  e travessão também separam oração: "o restaurante distribui, mas
-            // não é bem assim: a gorjeta vai pro garçom" é uma promessa com uma
-            // cláusula inocente na frente.
-            if ".;!?:\n—".contains(ch) {
-                // SÓ-ESPAÇO NÃO É ORAÇÃO. O gêmeo JS faz `.map(trim).filter(Boolean)`;
-                // aqui só o literalmente vazio era descartado, então "10%. \npro
-                // garçom" produzia uma oração `" "` entre as duas e deslocava
-                // TODOS os índices — e o caminho fraco lê `partes[i - 1]`. O
-                // censo recusava e o runtime passava, na metade escrita à mão.
-                // Achado pela revisão de compliance de 2026-09-14.
-                if !atual.trimmingCharacters(in: .whitespaces).isEmpty { fora.append(atual) }
-                atual = ""
-            }
-            else { atual.append(ch) }
+        // PONTO ENTRE DÍGITOS NÃO FECHA ORAÇÃO: `R$ 1.250,00` é um número, e
+        // cortar nele punha o rabo de uma frase dentro da oração da outra. A
+        // vírgula decimal já estava protegida havia rodadas; o ponto do
+        // MILHAR, não. Ver `_porque_separador_de_oracao`.
+        let ns = texto as NSString
+        var fora: [String] = [], ini = 0
+        for m in separadorDeOracao.matches(
+            in: texto, range: NSRange(location: 0, length: ns.length)) {
+            fora.append(ns.substring(with: NSRange(location: ini, length: m.range.location - ini)))
+            ini = m.range.location + m.range.length
         }
-        // E O RABO SEGUE A MESMA REGRA. A correção de 2026-09-14 trocou o
-        // teste no meio do laço e deixou o do fim como estava, então um
-        // pedaço só-espaço no FINAL do texto virava oração no Swift e era
-        // filtrado no JS. Não muda veredito nenhum que eu tenha conseguido
-        // produzir — ele cai depois de todas as orações reais —, mas é a
-        // mesma assimetria, no mesmo laço, sobrevivendo à própria correção.
-        // Apontado pela revisão de segurança de 2026-09-14.
-        if !atual.trimmingCharacters(in: .whitespaces).isEmpty { fora.append(atual) }
-        return fora
+        fora.append(ns.substring(from: ini))
+        return fora.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
+
 
     /// A oração NEGA o destino, em vez de afirmá-lo?
     ///
@@ -552,6 +550,20 @@ enum RevisaoDeAfirmacoes {
         return casa(distribuidor, oracao)
     }
 
+    /// O segmento é uma FRASE DE DESTINO — cabeça de destino, sem verbo no
+    /// prefixo e sem predicação nem na cabeça nem no resto? É a mesma pergunta
+    /// do caminho fraco da regra 3, reusada onde a regra 1 atravessa segmento.
+    private static func fraseDeDestino(_ seg: String) -> Bool {
+        guard let m = acha(cabecaDeDestino, seg) else { return false }
+        let ns = seg as NSString
+        if casa(verboFinito, ultimoSegmento(ns.substring(to: m.location))) { return false }
+        // O QUE VEM DEPOIS DA CABEÇA NÃO DESFAZ A PROMESSA — doutrina do CDC
+        // art. 30 que a regra 1b já aplica. `a caixinha, dos atendentes do
+        // salão São R$ 1.250,00 no total.` tem a promessa inteira no segmento
+        // e uma frase NOVA colada atrás, sem pontuação no meio.
+        return !temPredicacao(ns.substring(with: NSRange(location: m.location, length: m.length)))
+    }
+
     /// Este texto afirma um destino sem dizer quem distribui?
     ///
     /// POR ORAÇÃO, e não pelo texto todo — e essa é a diferença que importa.
@@ -633,9 +645,31 @@ enum RevisaoDeAfirmacoes {
                     withTemplate: " ")
                 let temDist = casa(distribuidor, matriz)
                 let temVerbo = casa(verboFinito, seg) || casa(direcional, seg)
-                let dispensa = temDist || (!temVerbo && distribuidorAnterior)
+                // A HERANÇA DA COORDENAÇÃO FALHA FECHADO. Ela dizia
+                // `segmento sem verbo CONHECIDO é continuação`, e verbo
+                // desconhecido virava continuação: `O restaurante distribui à
+                // equipe e a gorjeta PERTENCE ao garçom.` passava — e
+                // `pertence`, `beneficia`, `destina-se` e `cabe` são os verbos
+                // que o `distribuidorAntesDoDestino` cita como o motivo de este
+                // arquivo ter parado de enumerar conectivo. A regra 9 do
+                // `SystemPrompt` MANDA o modelo escrever a metade esquerda, e
+                // isso dava carimbo a qualquer coisa coordenada depois dela.
+                // Continuação agora exige evidência POSITIVA: segmento com
+                // sujeito próprio é afirmação nova.
+                let dispensa = temDist
+                    || (!temVerbo && !casa(sintagmaNominal, seg) && distribuidorAnterior)
                 if temVerbo || temDist { distribuidorAnterior = temDist }
                 guard destinatarioNaoAtributivo(seg, o) else { continue }
+                // A REGRA 1 SÓ ATRAVESSA SEGMENTO SE O SEGMENTO FOR FRASE DE
+                // DESTINO. Ela perguntava se o TOKEN do destinatário está no
+                // segmento, e nunca se ele está numa RELAÇÃO de destino — e é
+                // por isso que juntar duas frases numa oração virava recusa.
+                // `Já tirei o serviço, chama o atendente que ele confere.`
+                // confirma que o serviço SAIU, e o guarda pisava nessa
+                // confirmação (CDC, inegociável #3). No MESMO segmento nada
+                // muda, então `A gorjeta, pro garçom.` segue recusada.
+                // Ver `_porque_travessia_de_segmento`.
+                guard casa(gorjeta, seg) || fraseDeDestino(seg) else { continue }
                 if !nega(o) && (casa(revoga, comAdversativa(iO)) || !dispensa) { return true }
             }
         }
@@ -885,6 +919,14 @@ enum RevisaoDeAfirmacoes {
             // sozinho é anáfora, não oração nova — `Ela, pra equipe.` é a
             // mesma promessa. Ver `_porque_cabeca`.
             guard !casa(verboFinito, ultimoSegmento(ns.substring(to: m.location)))
+            else { continue }
+            // E A CABEÇA NÃO PODE CONTER PREDICAÇÃO. Os slots de modificador
+            // somam até cinco palavras entre a preposição e o núcleo, e um
+            // verbo finito cabe lá com folga — ancorada no `^`, a cabeça deixa
+            // o prefixo VAZIO e o teste de prefixo não vê nada. `Serviço: 10%
+            // no fim da conta você chama o garçom.` virava recusa: o `^` que
+            // fechou a frase por um lado abriu-a pelo outro.
+            guard !temPredicacao(ns.substring(with: NSRange(location: m.location, length: m.length)))
             else { continue }
             let resto = ns.substring(from: m.location + m.length)
             // A FORÇA DA EVIDÊNCIA DECIDE O QUANTO A FORMA PRECISA SER
