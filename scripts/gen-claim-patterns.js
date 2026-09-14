@@ -38,6 +38,7 @@ const PECAS = (G) => ({
   PREP: G.preposicao_de_destino,
   ART: G.artigo_de_destino,
   GORJETANOME: G.substantivo_gorjeta,
+  DESTRUNTIME: G.substantivo_destinatario_runtime,
   MOD: G.modificador_de_destino,
   DEST: G.substantivo_destinatario_runtime,
   NEGCOLADO: G.negador_colado,
@@ -54,10 +55,11 @@ const compor = (G, re) => Object.entries(PECAS(G))
   .sort((a, b) => b[0].length - a[0].length)
   .reduce((acc, [nome, valor]) => acc.split(nome).join(valor), re);
 const COMPOSTOS = {
-  gatilho_forma_direcional: (G) => expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime),
+  substantivo_gorjeta: (G) => compor(G, G.substantivo_gorjeta),
+  gatilho_forma_direcional: (G) => compor(G, expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime)),
   cabeca_de_destino: (G) => compor(G, G.cabeca_de_destino),
   cabeca_forte: (G) => compor(G, G.cabeca_forte),
-  regencia_contrastiva: (G) => compor(G, G.regencia_contrastiva),
+  contraste_colado: (G) => compor(G, G.contraste_colado),
   cabeca_direcional: (G) => compor(G, G.cabeca_direcional),
   revoga_dispensa: (G) => compor(G, G.revoga_dispensa),
   evasao_de_caminho: (G) => compor(G, G.evasao_de_caminho),
@@ -84,7 +86,7 @@ function gerar() {
 import Foundation
 
 enum ClaimPatterns {
-    static let substantivoGorjeta = ${lit(G.substantivo_gorjeta)}
+    static let substantivoGorjeta = ${lit(COMPOSTOS.substantivo_gorjeta(G))}
     /// Mais curta: sem os pronomes que, na mesa, querem dizer os CLIENTES.
     /// Ver \`_porque_lista_runtime\` no claims.json.
     static let destinatarioRuntime = ${lit(G.substantivo_destinatario_runtime)}
@@ -93,7 +95,7 @@ enum ClaimPatterns {
     /// Só os negadores de verdade — a evasão preposicional fica na dispensa.
     static let negadores = ${lit(G.negadores)}
     /// Alta precisão, baixa cobertura. Oráculo de teste: ver claims.json.
-    static let formaDirecional = ${lit(expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime))}
+    static let formaDirecional = ${lit(COMPOSTOS.gatilho_forma_direcional(G))}
     /// QUANTIDADE: separa dinheiro DIRIGIDO de ação dirigida. Inclui moeda —
     /// era a única notação que faltava, e é a que toda linha real usa.
     static let quantidade = ${lit(G.quantidade)}
@@ -112,7 +114,8 @@ enum ClaimPatterns {
     /// Negador CONTRASTIVO: \`não PRA casa\` retira o outro destino e afirma
     /// este; \`não TEM gorjeta nenhuma\` nega de verdade. Ver
     /// \`_porque_contrastiva\`.
-    static let regenciaContrastiva = ${lit(COMPOSTOS.regencia_contrastiva(G))}
+    /// Destino colado atrás do negador: contraste. Ver \`_porque_alcance\`.
+    static let contrasteColado = ${lit(COMPOSTOS.contraste_colado(G))}
     static let cabecaDirecional = ${lit(COMPOSTOS.cabeca_direcional(G))}
     /// Pronome SUJEITO — o que não é regido por preposição. Ver
     /// \`_porque_predicacao\`.
@@ -129,6 +132,8 @@ enum ClaimPatterns {
     static let relativaQualquer = ${lit(COMPOSTOS.relativa_qualquer(G))}
     static let marcadorDeLista = ${lit(G.marcador_de_lista)}
     static let separadorInterno = ${lit(G.separador_interno)}
+    /// Separa ESCOPO de cláusula, e inclui a conjunção coordenativa.
+    static let separadorDeClausula = ${lit(G.separador_de_clausula)}
     /// Negador COLADO no destinatário. Sem o \`sem\`: ver \`_porque_negadores\`.
     static let negadorColado = ${lit(G.negador_colado)}
     /// A frase que o produto diz. Não é uma variação.

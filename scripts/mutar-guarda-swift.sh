@@ -29,10 +29,12 @@ MUT = [
   "            for g in gorjetas where g.location + g.length <= d.location {\n"
   "                ini = max(ini, g.location + g.length); achou = true\n"
   "            }", ""),
- ("âncora da forma direcional",
-  "            for dir in direcionais where dir.location <= d.location {\n"
-  "                ini = max(ini, dir.location - 10); achou = true\n"
-  "            }", ""),
+ ("âncora da forma direcional", "                ini = max(ini, p); achou = true", ""),
+ ("janela do nega volta a ser orçamento de CARACTERES",
+  "                while p > 0 && palavras < 3 {\n"
+  "                    p -= 1\n"
+  "                    if ns.character(at: p) == 32 { palavras += 1 }\n"
+  "                }", "                p = max(0, p - 10)"),
  ("âncora do separador interno",
   "            for sep in separadores where sep.location + sep.length <= d.location {\n"
   "                ini = max(ini, sep.location + sep.length); achou = true\n"
@@ -47,18 +49,28 @@ MUT = [
  ("janela falha ABERTA", "ini = achou ? max(0, min(ini, d.location)) : d.location", "ini = max(0, min(ini, d.location))"),
  ("repartida olha só a primeira oração", "for (i, o) in partes.enumerated() where casa(destinatario, o) {",
   "for (i, o) in partes.enumerated().prefix(1) where casa(destinatario, o) {"),
- ("forma direcional deixa de ser decisiva", "        for o in partes where casa(direcional, o) {\n            if !nega(o) { return true }\n        }", ""),
- ("negação CONTRASTIVA deixa de desqualificar o negador atrás",
-  "let depois = casa(negadorColado, cauda) && !ehContrastiva(cauda)",
-  "let depois = casa(negadorColado, cauda)"),
- ("contraste deixa de olhar o OBJETO da preposição",
-  "        return casa(regenciaContrastiva, resto)",
-  "        return casa(regex(\"(pra|para|pro|com|de|d[oa]s?|ao|aos)\"), resto)"),
+ ("forma direcional deixa de ser decisiva",
+  "            guard casa(gorjeta, texto) || casa(quantidade, texto) || comecaNaForma\n"
+  "            else { continue }\n            if !nega(o) { return true }", ""),
+ ("regra 1b deixa de exigir contexto de dinheiro",
+  "            guard casa(gorjeta, texto) || casa(quantidade, texto) || comecaNaForma\n"
+  "            else { continue }", ""),
+ ("negador atrás deixa de olhar a ORDEM (promessa já feita)",
+  "        if casa(direcional, antesDoNegador) { return false }", ""),
+ ("negador atrás deixa de olhar o CONTRASTE",
+  "        return !casa(contrasteColado, resto)", "        _ = resto; return true"),
  ("caminho FRACO deixa de exigir cabeça DIRECIONAL",
-  "guard let resto = cabecaValida(cabecaDirecional, o) else { continue }",
-  "guard let resto = cabecaValida(cabecaDeDestino, o) else { continue }"),
+  "guard let m = acha(comEvasao ? cabecaDeDestino : cabecaDirecional, o) else { continue }",
+  "guard let m = acha(cabecaDeDestino, o) else { continue }"),
+ # Sem cobertura, como o gêmeo JS já declara: o corpo não tem caso em que a
+ # dispensa do distribuidor no caminho FRACO muda veredito — ela é redundante
+ # com o teste de verbo do prefixo contra este corpo. Falha FECHADO.
+ ("distribuidor deixa de dispensar no caminho fraco",
+  "            if temDistribuidor(o) && !casa(revoga, o) { continue }", "", 'sem-cobertura'),
  ("PREFIXO da cabeça deixa de ser julgado",
-  "        if temSujeitoSolto(ns.substring(to: m.location)) { return nil }", ""),
+  "        if casa(verboFinito, ns.substring(to: m.location)) { return nil }", ""),
+ ("PREFIXO do caminho fraco deixa de ser julgado",
+  "            guard !casa(verboFinito, ns.substring(to: m.location)) else { continue }", ""),
  ("caminho FORTE deixa de existir",
   "            if cabecaValida(cabecaForte, o) != nil { return true }", ""),
  ("caminho FORTE aceita cabeça SEM quantidade",
@@ -67,21 +79,26 @@ MUT = [
  ("caminho FRACO deixa de exigir resto sem PREDICAÇÃO",
   "            guard !temPredicacao(resto) else { continue }", ""),
  ("caminho FRACO deixa de exigir quantidade na oração anterior",
-  "            guard i > 0, casa(quantidade, partes[i - 1]) else { continue }", ""),
+  "            guard partes[..<i].contains(where: { casa(quantidade, $0) || casa(gorjeta, $0) })\n            else { continue }", ""),
  ("evasão deixa de revogar a dispensa do genitivo",
   "        if casa(revoga, oracao) { return casa(destinatario, oracao) }", ""),
- ("distribuidor volta a resgatar em qualquer ORDEM",
-  "        return dist.range.location < dest.range.location", "        return true"),
+ ("dispensa do distribuidor deixa de valer por SEGMENTO",
+  "            for seg in segmentos(o) where destinatarioNaoAtributivo(seg) {",
+  "            for seg in [o] where destinatarioNaoAtributivo(seg) {"),
  ("relativa deixa de sair antes do teste de predicação",
   "        let semRelativa = relativaQualquer.stringByReplacingMatches(\n"
   "            in: resto, range: NSRange(location: 0, length: (resto as NSString).length), withTemplate: \" \")",
   "        let semRelativa = resto"),
  ("pronome regido por preposição volta a contar como sujeito",
   "            if !casa(preposicaoRegendoPronome, ns.substring(to: p)) { return true }",
-  "            _ = p; return true"),
+  "            _ = p; return true", 'sem-cobertura'),
  ("genitivo DESCRITIVO deixa de dispensar",
   "        return casa(destinatario, semGenitivo)", "        return casa(destinatario, oracao)"),
- ("distribuidor volta a valer pela janela toda", "&& !distribuidorAntesDoDestino(o) { return true }", "&& !temDistribuidor(texto) { return true }"),
+ ("distribuidor volta a valer pela janela toda",
+  "                if !nega(o) && (casa(revoga, o) || !casa(distribuidor, seg)) { return true }",
+  "                if !nega(o) && !casa(distribuidor, texto) { return true }"),
+ ("revogação deixa de valer pela oração inteira",
+  "        if casa(revoga, oracao) { return false }", "", 'sem-cobertura'),
  ("pré-condição volta a exigir o substantivo da gorjeta",
   "        guard casa(destinatario, texto) else { return false }",
   "        guard casa(gorjeta, texto), casa(destinatario, texto) else { return false }"),
@@ -125,6 +142,25 @@ PADROES = open('ios/Racha/Agent/ClaimPatterns.swift').read()
 # Achado pela revisão de segurança de 2026-09-14.
 import re as _re
 
+def lit_para_swift(x):
+    return x.replace('\\', '\\\\').replace('"', '\\"')
+
+def COMPOSTO_CABECA_QUALQUER():
+    import subprocess as _s
+    return _s.run(['node','-e',
+      "const G=require('./docs/compliance/claims.json').gorjeta_destino;"
+      "const {COMPOSTOS}=require('./scripts/gen-claim-patterns.js');"
+      "process.stdout.write(COMPOSTOS.cabeca_de_destino(G));"],
+      capture_output=True, text=True).stdout
+
+def ClaimPatternsPrepDir():
+    import json as _j
+    return _j.load(open('docs/compliance/claims.json'))['gorjeta_destino']['preposicao_direcional']
+
+def ClaimPatternsPrepDest():
+    import json as _j
+    return _j.load(open('docs/compliance/claims.json'))['gorjeta_destino']['preposicao_de_destino']
+
 def campo(nomes, de, para):
     """Muta SÓ as linhas `static let <nome> = "..."` nomeadas."""
     if isinstance(nomes, str): nomes = [nomes]
@@ -151,7 +187,8 @@ ALARGA = [
  # terço da peça e dava verde.
  ("aridade do modificador cai de dois pra zero",
   campo(['modificadorDeDestino', 'cabecaDeDestino', 'cabecaForte', 'cabecaDirecional'], '{0,2}', '{0,0}')),
- ("cabeça do caminho fraco perde a âncora do começo", campo('cabecaDirecional', '"^', '"')),
+ ("cabeça do caminho fraco aceita preposição não-direcional",
+  troca('cabecaDirecional', lit_para_swift(COMPOSTO_CABECA_QUALQUER()))),
  ("quantidade DETECTORA deixa de reconhecer notação nenhuma", troca('quantidade', 'zzzznuncacasa')),
  ("verbo finito deixa de ver o sujeito nulo", troca('verboFinito', 'zzzznuncacasa')),
  ("pronome sujeito deixa de contar", troca('pronomeSujeito', 'zzzznuncacasa')),

@@ -357,18 +357,26 @@ struct RevisaoDeAfirmacoesTests {
     @Test("o guarda usa os MESMOS padrões do censo de build")
     func mesmaRegraDoCenso() {
         let g = claims()
-        #expect(g["substantivo_gorjeta"] as! String == ClaimPatterns.substantivoGorjeta)
         // A lista COMPLETA de destinatários não é emitida pro Swift: o runtime
         // usa a curta de propósito (`_porque_lista_runtime`), e emitir a outra
         // seria um padrão que ninguém consulta. O censo de build é quem a usa.
         #expect(g["substantivo_destinatario_runtime"] as! String == ClaimPatterns.destinatarioRuntime)
-        #expect(g["distribuidor_com_sujeito"] as! String == ClaimPatterns.distribuidorComSujeito)
-        // O QUINTO — e é o único que passa por expansão de `{DEST}`, logo o
-        // único que pode divergir por um acento. Era o que faltava.
-        let dest = g["substantivo_destinatario_runtime"] as! String
-        let esperado = (g["gatilho_forma_direcional"] as! String)
-            .replacingOccurrences(of: "{DEST}", with: dest)
-        #expect(esperado == ClaimPatterns.formaDirecional)
+        //
+        // OS CAMPOS COMPOSTOS NÃO SÃO COMPARADOS AQUI, e isso é uma escolha, não
+        // um esquecimento. `substantivo_gorjeta`, `distribuidor_com_sujeito` e
+        // `gatilho_forma_direcional` carregam marcadores em CAIXA ALTA que o
+        // gerador substitui; reproduzir a substituição em Swift seria uma
+        // TERCEIRA cópia da composição — exatamente a forma que este arquivo
+        // passou quatro rodadas eliminando. Quem prende esses três é o
+        // `claims.test.js`: `ClaimPatterns.swift é exatamente o que o gerador
+        // produz` (byte a byte) mais `o gerador emite todos os padrões que a
+        // regra usa` (todo campo do JSON aparece na saída, composto ou cru).
+        // O que sobra aqui é o campo CRU, que é onde um acento ainda pode
+        // divergir sem ninguém ver.
+        //
+        // Quando os três eram crus, esta asserção pegava divergência de
+        // acento; hoje ela pegaria só a diferença entre `{DEST}` e a lista
+        // expandida, que é a diferença que o gerador existe pra produzir.
         #expect((g["frases_aposentadas"] as! [[String: String]]).count >= 30)
     }
 

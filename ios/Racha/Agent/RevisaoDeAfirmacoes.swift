@@ -68,41 +68,33 @@ enum RevisaoDeAfirmacoes {
     /// Negador CONTRASTIVO: o negador colado no destinatário é seguido de
     /// OUTRO destino. "não PRA casa" retira o outro e afirma este; "não TEM
     /// gorjeta nenhuma" nega de verdade. Ver `_porque_contrastiva`.
-    private static let regenciaContrastiva = regex(ClaimPatterns.regenciaContrastiva)
+    private static let contrasteColado = regex(ClaimPatterns.contrasteColado)
     private static let cabecaDirecional = regex(ClaimPatterns.cabecaDirecional)
 
-    /// A cauda é CONTRASTE, não negação? "não PRA CASA" retira o outro destino
-    /// e afirma este; "não TEM gorjeta nenhuma" nega de verdade.
+    /// O negador atrás resgata? Duas perguntas, as duas já doutrina aqui.
     ///
-    /// A primeira versão perguntava isso por ADJACÊNCIA — negador seguido de
-    /// preposição —, e um advérbio no meio a derrubava: "não MAIS pra casa",
-    /// "não SÓ pra casa", "não EXATAMENTE pra casa" voltavam a lavar a
-    /// promessa. Quarta vez que uma pergunta de regência é respondida por
-    /// vizinhança neste arquivo.
+    /// ORDEM: se antes dele já houve forma direcional, a promessa vinculou
+    /// (CDC art. 30) e o que vem atrás qualifica, não desdiz — a mesma regra
+    /// da 1b e a do distribuidor. ESCOPO: se logo depois dele vem OUTRO
+    /// destino, é contraste, e contraste afirma.
     ///
-    /// A pergunta certa é a mesma da regra 3, e por isso reusa a mesma peça: o
-    /// que vem depois do negador PREDICA alguma coisa? Se predica, é negação;
-    /// se só nomeia outro destino, é contraste. Sem enumerar advérbio e sem
-    /// teto de palavras.
-    private static func ehContrastiva(_ cauda: String) -> Bool {
+    /// O que sobra é negação de verdade. Ver `_porque_alcance`: a versão
+    /// anterior perguntava só pelo contraste e deixava passar 90 de 90 caudas
+    /// que negam outra coisa ("não precisa deixar mais nada").
+    private static func negadorResgata(_ antesDoNegador: String, _ cauda: String) -> Bool {
         guard let m = acha(negadorColado, cauda) else { return false }
-        let ns = cauda as NSString
-        let resto = ns.substring(from: m.location + m.length)
-        // A pergunta é sobre o que está ENTRE o negador e o outro destino, não
-        // sobre a cauda inteira: em "Pro garçom NÃO PRA CASA vai toda a
-        // gorjeta" o verbo da oração principal vem DEPOIS do contraste, e
-        // olhar a cauda toda o lia como negação de verdade.
-        // Onde a preposição cai não importa — o que importa é o OBJETO dela,
-        // e o `regenciaContrastiva` já exclui a própria gorjeta. Perguntar
-        // também por predicação no vão deixava passar a cauda que é oração
-        // inteira: "não VAI pro caixa", "não É da casa".
-        return casa(regenciaContrastiva, resto)
+        if casa(direcional, antesDoNegador) { return false }
+        let resto = (cauda as NSString).substring(from: m.location + m.length)
+        return !casa(contrasteColado, resto)
     }
+
+
     /// Alta precisão: uma oração com esta FORMA está afirmando destino,
     /// tenha ou não os dois substantivos dentro dela.
     private static let direcional = regex(ClaimPatterns.formaDirecional)
     /// Vírgula, `mas`, `porém`, `e sim`: daqui pra frente é outra afirmação.
     private static let separadorInterno = regex(ClaimPatterns.separadorInterno)
+    private static let separadorDeClausula = regex(ClaimPatterns.separadorDeClausula)
     /// Uma frase de destino em QUALQUER lugar da oração — não só no começo.
     /// Ancorá-la no começo fazia qualquer palavra antes da preposição derrubar
     /// o casamento, e a mais provável é uma quantidade.
@@ -110,7 +102,7 @@ enum RevisaoDeAfirmacoes {
     /// staff`. Sem eles esta pré-condição da regra 3 derrubava a própria
     /// frase que o corpus trilíngue usa. Ver `_porque_modificador`.
     private static let destinoEmQualquerLugar = regex(
-        "(" + ClaimPatterns.preposicaoDeDestino + ")\\s+"
+        "(" + ClaimPatterns.preposicaoDeDestino + ")\\s+" + ClaimPatterns.modificadorDeDestino
         + "((" + ClaimPatterns.artigoDeDestino + ")\\s+)?" + ClaimPatterns.modificadorDeDestino
         + "(" + ClaimPatterns.destinatarioRuntime + ")")
     private static let cabecaDeDestino = regex(ClaimPatterns.cabecaDeDestino)
@@ -168,7 +160,15 @@ enum RevisaoDeAfirmacoes {
         // antes da cabeça costuma ser a cópula da própria afirmação de destino
         // ("É todo do garçom", "Vai tudo pro garçom"); sujeito novo é que faz
         // dela outra oração ("VOCÊ acerta com o garçom").
-        if temSujeitoSolto(ns.substring(to: m.location)) { return nil }
+        // O prefixo é julgado por VERBO FINITO, não por sujeito. Verbo é o
+        // que faz do prefixo outra oração — "O Gui PAGA tudo pro garçom",
+        // "Mostra tudo pro garçom", "Você CONFIRMA tudo com o garçom" são
+        // frases de conta, não promessas de destino. Pronome sozinho não é
+        // oração: "ELA, 100% pro garçom." é a mesma promessa com anáfora na
+        // frente, e julgar por sujeito a deixava escapar — a mesma anáfora que
+        // derrubou a pré-condição uma rodada antes, um nível abaixo.
+        // Achado pelas revisões de 2026-09-14.
+        if casa(verboFinito, ns.substring(to: m.location)) { return nil }
         return ns.substring(from: m.location + m.length)
     }
 
@@ -226,6 +226,22 @@ enum RevisaoDeAfirmacoes {
     private static func casa(_ re: NSRegularExpression, _ s: String) -> Bool { acha(re, s) != nil }
 
     /// Orações, separadas por `. ; ! ? \n`. A unidade do julgamento.
+    /// Ênfase de markdown NÃO é conteúdo, e forma composta NÃO é outra letra.
+    ///
+    /// `- **100%** pro garçom` era 6 de 6 escapes: a classe de ênfase morava
+    /// num lugar só do padrão (antes do marcador) e todos os casos do corpo
+    /// embrulhavam a frase INTEIRA, que é a única posição em que ela estava.
+    /// Interleavá-la em cada junção seria outra enumeração; tirá-la é o que um
+    /// renderizador de markdown faz.
+    ///
+    /// E `precomposedStringWithCanonicalMapping` porque `gar[çc]o[nm]s?` não
+    /// casa `c` + U+0327: em NFD o guarda inteiro era inerte, e o cliente cola
+    /// texto de onde quiser. Achado pela revisão de segurança de 2026-09-14.
+    private static func normalizado(_ texto: String) -> String {
+        texto.precomposedStringWithCanonicalMapping
+            .replacingOccurrences(of: "[*_`~]+", with: "", options: .regularExpression)
+    }
+
     private static func oracoes(_ texto: String) -> [String] {
         var fora: [String] = [], atual = ""
         for ch in texto {
@@ -288,7 +304,18 @@ enum RevisaoDeAfirmacoes {
                 ini = max(ini, g.location + g.length); achou = true
             }
             for dir in direcionais where dir.location <= d.location {
-                ini = max(ini, dir.location - 10); achou = true
+                // TRÊS PALAVRAS ATRÁS, não dez caracteres. O orçamento fixo era
+                // o olho mágico outra vez: `A gorjeta NUNCA MAIS vai pro
+                // garçom.` punha o `nunca` a onze caracteres do verbo e a
+                // janela começava no meio dele, então a negação sumia e a
+                // resposta certa virava recusa.
+                // Achado pela revisão de compliance de 2026-09-14.
+                var p = dir.location, palavras = 0
+                while p > 0 && palavras < 3 {
+                    p -= 1
+                    if ns.character(at: p) == 32 { palavras += 1 }
+                }
+                ini = max(ini, p); achou = true
             }
             for sep in separadores where sep.location + sep.length <= d.location {
                 ini = max(ini, sep.location + sep.length); achou = true
@@ -352,7 +379,8 @@ enum RevisaoDeAfirmacoes {
                 ? ns.substring(with: NSRange(
                     location: d.location + d.length, length: fimDoTrecho - d.location - d.length))
                 : ""
-            let depois = casa(negadorColado, cauda) && !ehContrastiva(cauda)
+            let depois = negadorResgata(
+                ns.substring(to: min(d.location + d.length, ns.length)), cauda)
             if !antes && !depois { return false }
             anterior = d.location + d.length
         }
@@ -372,6 +400,18 @@ enum RevisaoDeAfirmacoes {
     /// `gatilho_forma_direcional` conhecer o verbo (`é` sim, `pertence` não,
     /// `destina-se` não, `beneficia` não), e enumerar conectivo é o jogo que a
     /// língua sempre ganha. Achado pela revisão de segurança de 2026-09-14.
+    /// Os SEGMENTOS de uma oração, separados pelo `separadorInterno`.
+    private static func segmentos(_ oracao: String) -> [String] {
+        let ns = oracao as NSString
+        var fora: [String] = [], ini = 0
+        for m in separadorDeClausula.matches(in: oracao, range: NSRange(location: 0, length: ns.length)) {
+            fora.append(ns.substring(with: NSRange(location: ini, length: m.range.location - ini)))
+            ini = m.range.location + m.range.length
+        }
+        fora.append(ns.substring(from: ini))
+        return fora.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
     private static func distribuidorAntesDoDestino(_ oracao: String) -> Bool {
         guard temDistribuidor(oracao) else { return false }
         let todo = NSRange(location: 0, length: (oracao as NSString).length)
@@ -395,11 +435,14 @@ enum RevisaoDeAfirmacoes {
         // justamente na classe de evasão que o `revoga_dispensa` existe pra
         // pegar. `pertence` não é forma direcional, então a regra 1b não
         // salvava. Achado pela revisão de compliance de 2026-09-13.
-        for m in distribuidor.matches(in: oracao, range: NSRange(location: 0, length: ns.length)) {
-            let ini = max(0, m.range.location - 30)
-            let fim = min(ns.length, m.range.location + m.range.length + 30)
-            if !casa(revoga, ns.substring(with: NSRange(location: ini, length: fim - ini))) { return true }
-        }
+        // A JANELA É A ORAÇÃO, não ±30 caracteres. O orçamento fixo era a
+        // mesma forma do olho mágico: `O restaurante distribui ASSIM a gorjeta
+        // à equipe, mas não pela folha.` empurrava o `mas não pela folha` pra
+        // fora da janela e a evasão deixava de revogar. A oração já é a
+        // unidade do julgamento em todo o resto do arquivo.
+        // Achado pelo fabricador, 2026-09-14.
+        if casa(revoga, oracao) { return false }
+        return casa(distribuidor, oracao)
         return false
     }
 
@@ -423,7 +466,7 @@ enum RevisaoDeAfirmacoes {
     /// e foi por isso que ela virou text-wide na rodada anterior. Então as
     /// duas coisas, cada uma no seu lugar — a DETECÇÃO alcança o texto todo,
     /// a DISPENSA vale só na oração que a carrega.
-    static func afirmaDestinoSemDistribuidor(_ texto: String) -> Bool {
+    static func afirmaDestinoSemDistribuidor(_ textoCru: String) -> Bool {
         // A PRÉ-CONDIÇÃO NÃO PEDE MAIS O SUBSTANTIVO DA GORJETA, e essa era a
         // porta por onde tudo passava. O texto julgado é só o do MODELO — a
         // pergunta do cliente não entra nele —, e um prompt que manda escrever
@@ -440,12 +483,28 @@ enum RevisaoDeAfirmacoes {
         // exige quantidade ou marcador com cabeça de destino. O que sai daqui
         // é só o turno que não nomeia destinatário nenhum.
         // Achado pela revisão de segurança de 2026-09-14.
+        let texto = normalizado(textoCru)
         guard casa(destinatario, texto) else { return false }
         let partes = oracoes(texto)
         // 1. Uma oração que junta os dois substantivos tem que trazer o
         //    distribuidor ELA MESMA — ou estar negando.
-        for o in partes where casa(gorjeta, o) && destinatarioNaoAtributivo(o) {
-            if !nega(o) && !distribuidorAntesDoDestino(o) { return true }
+        // A DISPENSA DO DISTRIBUIDOR VALE NO SEGMENTO DELE. Era um teste de
+        // ORDEM, e ordem errava dos dois lados: com a frase sancionada na
+        // FRENTE ela virava um interruptor de absolvição — "O restaurante
+        // distribui à equipe, como manda a lei, e a gorjeta pertence ao
+        // garçom." passava —, e a moldura mais natural do português põe o
+        // destinatário como SUJEITO e o distribuidor depois dele, então "A
+        // equipe recebe a gorjeta pela folha de pagamento da casa." virava
+        // recusa. Posição não sabe dizer que cláusula qualifica qual
+        // afirmação; escopo sabe. Achado pela revisão de segurança de
+        // 2026-09-14.
+        for o in partes where casa(gorjeta, o) {
+            for seg in segmentos(o) where destinatarioNaoAtributivo(seg) {
+                // A revogação vale pela ORAÇÃO, o distribuidor pelo SEGMENTO:
+                // em "…à equipe, MAS NÃO PELA FOLHA." a evasão mora no
+                // segmento seguinte ao do distribuidor.
+                if !nega(o) && (casa(revoga, o) || !casa(distribuidor, seg)) { return true }
+            }
         }
         // 1b. E a FORMA DIRECIONAL numa oração não é resgatável por cláusula
         //     de distribuidor nenhuma, nem na mesma oração: "a gorjeta vai pro
@@ -460,6 +519,27 @@ enum RevisaoDeAfirmacoes {
         //    lavava toda afirmação repartida entre orações, que é a mesma
         //    lavagem da regra 1 entrando pela porta da regra 3.
         for o in partes where casa(direcional, o) {
+            // CONTEXTO DE DINHEIRO. Até a pré-condição cair, o substantivo da
+            // gorjeta garantia isto de graça; sem ela, `A comanda vai pro
+            // garçom conferir.` e `O pedido vai pra copa.` viravam recusa —
+            // 34 de 47 turnos inocentes, e um deles apagava o valor da conta
+            // da tela, que é a falha que este arquivo existe pra não repetir.
+            //
+            // A forma direcional NO COMEÇO da oração conta como contexto: o
+            // sujeito elidido é o assunto, e é assim que a resposta curta se
+            // escreve — "Fica com a equipe, sim.", "Vai tudo pro garçom." Com
+            // sujeito na frente, o assunto é OUTRA COISA.
+            // Achado pela revisão de segurança de 2026-09-14.
+            let comecaNaForma = acha(direcional, o).map { m in
+                (o as NSString).substring(to: m.location)
+                    .rangeOfCharacter(from: .alphanumerics) == nil
+            } ?? false
+            // O contexto de dinheiro é medido na JANELA, não na oração: em
+            // `vai pra equipe · ${e.tip}` o substantivo da gorjeta está na
+            // mesma linha e noutra oração, e a janela é o que o
+            // `_porque_janela` define como unidade de leitura.
+            guard casa(gorjeta, texto) || casa(quantidade, texto) || comecaNaForma
+            else { continue }
             if !nega(o) { return true }
         }
         // 3. Afirmação repartida entre orações. Duas correções, da mesma
@@ -562,7 +642,35 @@ enum RevisaoDeAfirmacoes {
             // uma guarda que não pode disparar — guarda ausente.
             // CAMINHO FRACO: a quantidade está só na oração anterior, então
             // a FORMA tem que compensar — cabeça ancorada e direcional.
-            guard let resto = cabecaValida(cabecaDirecional, o) else { continue }
+            // PISTA DE EVASÃO VALE COMO DIRECIONALIDADE. `com`/`no`/`em` são
+            // excluídos porque `Com o garçom, ok.` é resposta certa — mas
+            // `- no bolso do garçom` e `- em espécie, com o garçom` são a
+            // promessa proibida na mesma forma sem verbo que a regra 3 existe
+            // pra cobrir, e a evasão é a evidência que separa as duas.
+            // Achado pela revisão de compliance de 2026-09-14.
+            // O DISTRIBUIDOR DISPENSA NO CAMINHO FRACO, e só nele. Aqui a
+            // evidência é fraca por definição — a quantidade está noutra
+            // oração —, então nomear quem distribui basta pra não ser promessa
+            // avulsa. No caminho FORTE não dispensa: ali a quantidade foi
+            // consumida pela cabeça e a oferta já vinculou (CDC art. 30).
+            //
+            // Sem isto, a FRASE SANCIONADA em inglês era recusada: o teste de
+            // prefixo não conhece `distributes`, e crescer a lista de verbos
+            // com cada tradução é a enumeração que sempre perde.
+            if temDistribuidor(o) && !casa(revoga, o) { continue }
+            let comEvasao = casa(revoga, o)
+            guard let m = acha(comEvasao ? cabecaDeDestino : cabecaDirecional, o) else { continue }
+            let ns = o as NSString
+            // O prefixo do caminho FRACO é julgado pela predicação INTEIRA, e
+            // não só por sujeito: aqui a evidência é fraca, então qualquer
+            // oração na frente desqualifica. É o que separa `assim pra equipe`
+            // (adjunto) de `mostra pro garçom` e de `O restaurante distribui à
+            // equipe` (orações). Ver `_porque_dois_niveis`.
+            // O prefixo é julgado por VERBO nos DOIS caminhos: pronome
+            // sozinho é anáfora, não oração nova — `Ela, pra equipe.` é a
+            // mesma promessa. Ver `_porque_cabeca`.
+            guard !casa(verboFinito, ns.substring(to: m.location)) else { continue }
+            let resto = ns.substring(from: m.location + m.length)
             // A FORÇA DA EVIDÊNCIA DECIDE O QUANTO A FORMA PRECISA SER
             // ESTRITA. Quantidade CONSUMIDA pela cabeça é dinheiro dirigido, e
             // aí um adjunto atrás do núcleo não desmancha nada. Quantidade só
@@ -574,7 +682,16 @@ enum RevisaoDeAfirmacoes {
             // acerta, e é resposta certa. A primeira versão exigia RESTO VAZIO
             // em vez disso, e um advérbio derrubava a regra.
             guard !temPredicacao(resto) else { continue }
-            guard i > 0, casa(quantidade, partes[i - 1]) else { continue }
+            // QUALQUER oração anterior da janela, não só a de trás. O
+            // `partes[i - 1]` era adjacência posicional: um bullet a mais
+            // entre a linha do valor e a do destino — `- 10% de serviço\n-
+            // sem desconto\n- pro garçom` — e a regra desligava. A janela já
+            // é o limite; `_porque_janela` é quem o define.
+            // Quantidade OU o substantivo da gorjeta numa oração anterior: em
+            // "Sobre a gorjeta\nSim, pra equipe." não há quantidade em lugar
+            // nenhum, e a promessa é a mesma.
+            guard partes[..<i].contains(where: { casa(quantidade, $0) || casa(gorjeta, $0) })
+            else { continue }
             // NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA — a mesma lógica da regra
             // 1b, que a regra 3 não aplicava. A dispensa por ORDEM valia só
             // aqui, e por isso bastava ABRIR com a frase sancionada pra
