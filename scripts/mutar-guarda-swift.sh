@@ -121,7 +121,26 @@ def sufixo(nomes, desde):
         return '\n'.join(fora)
     return f
 
+def prefixo(nomes, ate):
+    """Corta do começo do literal até o marcador `ate`. Simétrico do `sufixo`,
+    e pelo mesmo motivo: uma âncora escrita como literal composto muda toda vez
+    que uma componente dela muda, e o portão passa a reportar `não mudou nada`
+    por desatualização — o que se lê como verde. A `cabeca_genitiva` quebrou
+    assim três vezes: o `^` virou `(?:^|<separador>\\s*)`, e o separador cresceu
+    duas vezes depois disso."""
+    if isinstance(nomes, str): nomes = [nomes]
+    def f(padroes):
+        fora = []
+        for linha in padroes.split('\n'):
+            if any(_re.match(r'\s*static let %s = ' % n, linha) for n in nomes) and ate in linha:
+                i = linha.index('= "') + 3
+                linha = linha[:i] + linha[linha.index(ate):]
+            fora.append(linha)
+        return '\n'.join(fora)
+    return f
+
 def _alargamento(spec):
+    if spec['tipo'] == 'prefixo': return prefixo(spec['nomes'], spec['ate'])
     if spec['tipo'] == 'sufixo': return sufixo(spec['nomes'], spec['desde'])
     if spec['tipo'] == 'troca': return troca(spec['nome'], spec['valor'])
     if spec['tipo'] == 'campo': return campo(spec['nomes'], spec['de'], spec['para'])

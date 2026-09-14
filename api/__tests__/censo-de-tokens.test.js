@@ -177,10 +177,25 @@ function censoCom(mutado) {
 }
 
 /** Roda o corpo com `claims.json` mutado. Devolve quantos casos divergem. */
+/**
+ * O PESO É MEDIDO CONTRA OS DOIS CORPOS. O corpo compartilhado é ~99%
+ * português, e por isso todo token de inglês e de espanhol entrava aqui sem
+ * peso nenhum — não porque não decidisse nada, mas porque não havia frase que
+ * o fizesse decidir. Declarar essas dezenas de tokens como mortos teria sido o
+ * perdão em massa que este arquivo chama de saída preguiçosa. O eixo trilíngue
+ * é o corpo que faltava. 2026-09-14.
+ */
+const TRI = JSON.parse(fs.readFileSync(
+  path.join(RAIZ, 'docs', 'compliance', 'trilingue.fixture.json'), 'utf8'));
+const TODOS = [
+  ...F.casos,
+  ...TRI.trios.flatMap((t) => ['pt', 'en', 'es'].map((l) => ({ texto: t[l], recusa: t.recusa }))),
+];
+
 function falhasCom(mutado) {
   const m = censoCom(mutado);
   if (!m) return null;
-  return F.casos.filter((c) => m.acusa(c.texto) !== c.recusa).length;
+  return TODOS.filter((c) => m.acusa(c.texto) !== c.recusa).length;
 }
 
 const MORTAS = G._alternativas_mortas || {};
@@ -229,14 +244,42 @@ const CAMPOS = Object.keys(G).filter(
 // e lá o resto não-vazio já basta pra deixar passar, com verbo ou sem. A sonda
 // dava verde sobre uma peça que ela nunca consultava: vacuidade no instrumento
 // escrito pra achar vacuidade. Achado rodando o portão de mutação contra ela.
+/**
+ * Molduras por LÍNGUA, para os campos cujo vocabulário é trilíngue. A pergunta
+ * é de ALCANCE — existe frase em que este token decide? — e alcance é
+ * existencial: uma moldura basta.
+ */
+const TRILINGUE = {
+  verbo_finito: (ex) => [
+    [`Sobre a gorjeta\n- pra equipe ${ex} tudo certo`, false],
+    [`About the tip\n- to the waiter ${ex} all good`, false],
+    [`Sobre la propina\n- al camarero ${ex} todo bien`, false],
+  ],
+  adverbio: (ex) => [
+    [`Serviço: 10%\n- ${ex} da equipe`, true],
+    [`Service charge: 10%\n- ${ex} of the staff`, true],
+    [`Servicio: 10%\n- ${ex} del personal`, true],
+  ],
+};
+
 const VOCABULARIO = {
   substantivo_gorjeta: (ex) => [`${ex}: 10%\n- 100% pro garçom`, true],
   // O CONSUMIDOR, e a sonda mede a decisão DELE: o negador alcança o núcleo e
   // resgata a frase. Polaridade fail-ABERTO — token inalcançável aqui produz
   // uma RECUSA a mais, nunca um escape. Ver `_porque_nucleo_negavel`.
   nucleo_negavel: (ex) => [`Os 10% vão pro garçom não tem ${ex} nenhum.`, false],
+  // Os nomes da QUANTIA — a classe do `parte`/`valor`. Eles DESARMAM o veto de
+  // sujeito, então a sonda mede a decisão deles: com complemento genitivo a
+  // frase é inocente (a quantia é de alguém, não é a gorjeta); sem ele, é
+  // promessa. Ver `_porque_nome_de_quantia`.
+  nome_de_quantia: (ex) => [[`A ${ex} do Gui vai pro garçom.`, false],
+    [`A ${ex} vai pro garçom.`, true]],
   substantivo_destinatario_runtime: (ex) => [`Sobre a gorjeta\n- 100% pra ${ex}`, true],
-  verbo_finito: (ex) => [`Sobre a gorjeta\n- com a equipe ${ex} tudo certo`, false],
+  // TRÊS QUADROS, um por língua, e basta UM: a pergunta é de ALCANCE, e um
+  // verbo espanhol não dispara numa moldura portuguesa por razão de língua e
+  // não de guarda. Enquanto a moldura era só pt, `keep` e `reparten` liam como
+  // inalcançáveis. Ver o eixo TRILÍNGUE.
+  verbo_finito: (ex) => [[`Sobre a gorjeta\n- com a equipe ${ex} tudo certo`, false]],
   pronome_sujeito: (ex) => [`Sobre a gorjeta\n- com a equipe ${ex} paga na saída`, false],
   preposicao_de_destino: (ex) => [`Sobre a gorjeta\n- 100% ${ex} equipe`, true],
   artigo_de_destino: (ex) => [`Sobre a gorjeta\n- 100% pra ${ex} equipe`, true],
@@ -368,6 +411,16 @@ describe('toda palavra das listas de vocabulário é ALCANÇÁVEL', () => {
       // Um quadro ou VÁRIOS, e quando são vários os DOIS têm que valer: uma
       // peça que decide por relação precisa da relação certa E da errada.
       const quadros = Array.isArray(r[0]) ? r : [r];
+      // Campos de vocabulário TRILÍNGUE respondem à pergunta do alcance de
+      // forma EXISTENCIAL: basta UMA moldura em que o token decida. Um verbo
+      // espanhol não dispara numa moldura portuguesa por razão de LÍNGUA, não
+      // de guarda, e enquanto a moldura era só pt eles liam como
+      // inalcançáveis. Ver o eixo TRILÍNGUE.
+      if (TRILINGUE[campo]) {
+        const alcanca = TRILINGUE[campo](ex).some(([t, esp]) => acusa(t) === esp);
+        if (!alcanca) mudas.push(`${token}  →  nenhuma das três molduras`);
+        continue;
+      }
       for (const [texto, esperado] of quadros) {
         // A falha mostra a FRASE, não só o token: token sozinho não diz se
         // quem errou foi o padrão ou a sonda.
@@ -446,11 +499,13 @@ describe('toda alternativa de todo padrão ESTRUTURAL carrega peso, ou é declar
 
   test('a lista de campos fora do censo não cresce em silêncio', () => {
     expect(Object.keys(FORA).filter((k) => !(k in G))).toEqual([]);
-    // O teto subiu de 5 pra 7 em 2026-09-14, e é uma DECISÃO: as duas novas
-    // (`palavra_funcional`, `evasao_que_licencia`) são UNIÕES de listas que o
-    // censo já varre em separado, e varrê-las de novo produziria perdões
-    // duplicados. Toda vez que este número sobe, alguém tem que escrever por quê.
-    expect(Object.keys(FORA).length).toBeLessThanOrEqual(7);
+    // O teto subiu de 5 pra 7 em 2026-09-14 (as duas novas eram UNIÕES de
+    // listas que o censo já varre em separado), e pra 8 no mesmo dia: o
+    // `adverbio` saiu do peso e entrou na SONDA trilíngue, que é a pergunta
+    // certa pra ele. Toda vez que este número sobe, alguém escreve por quê —
+    // e o motivo tem que dizer ONDE a peça passou a ser medida, senão `fora
+    // do censo` vira `fora de tudo`.
+    expect(Object.keys(FORA).length).toBeLessThanOrEqual(8);
     for (const [campo, porque] of Object.entries(FORA)) {
       expect(`${campo}: ${porque}`).toMatch(/.{80,}/);
     }

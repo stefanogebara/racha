@@ -24,6 +24,34 @@ const path = require('node:path');
 
 const RAIZ = path.join(__dirname, '..');
 const expandirDest = (re, dest) => re.split('{DEST}').join(dest);
+
+/**
+ * O DIMINUTIVO É CLASSE PRODUTIVA, e por isso ele é DERIVADO aqui em vez de
+ * escrito à mão na lista. Em português qualquer substantivo ganha
+ * `-inho/-inha`, e no salão o cliente usa: `gorjetinha`, `dinheirinho`,
+ * `graninha`, `ajudinha`, `troquinho`. Enumerá-los é o jogo que a língua
+ * natural sempre ganha — o mesmo argumento que fez o `adverbio` tratar
+ * `-mente` como morfologia. Achado pela grade adversarial de 2026-09-14, que
+ * derrubou onze diminutivos de palavras que a lista JÁ conhecia.
+ *
+ * A derivação é CONSERVADORA: só a forma mecânica, `-o`/`-a` átono precedido
+ * de consoante. Nasal (`-ão`), hiato (`fatia`, `prêmio`) e final consonântico
+ * pedem `-zinho`, cuja forma varia com o falante; derivá-las produziria
+ * `comissãinho` e `fatiinha`. O que não é mecânico fica declarado no
+ * `_diminutivo_nao_mecanico`, não esquecido.
+ */
+const comDiminutivo = (lista) => {
+  const fora = [];
+  for (const alt of lista.split('|')) {
+    fora.push(alt);
+    if (!/^[a-záéíóúâêôãõç]+$/.test(alt)) continue;      // não é palavra simples
+    if (/inh[oa]$/.test(alt)) continue;                  // já é diminutivo
+    if (!/[bcdfgjlmnprstvxzç][oa]$/.test(alt)) continue;
+    const raiz = alt.slice(0, -1).replace(/c$/, 'qu').replace(/g$/, 'gu').replace(/ç$/, 'c');
+    fora.push(raiz + (alt.endsWith('a') ? 'inha' : 'inho'));
+  }
+  return fora.join('|');
+};
 /**
  * Compõe os padrões que têm MARCADORES EM CAIXA ALTA no JSON. Fica aqui, e não
  * escrito duas vezes, porque o censo de build importa daqui: escrita à mão nos
@@ -38,9 +66,11 @@ const PECAS = (G) => ({
   PREP: G.preposicao_de_destino,
   ART: G.artigo_de_destino,
   GORJETANOME: G.substantivo_gorjeta,
+  QUANTIANOME: comDiminutivo(G.nome_de_quantia),
   NEGAVEL: G.nucleo_negavel,
   SEPCLAUSULA: G.separador_de_clausula,
   DESTRUNTIME: G.substantivo_destinatario_runtime,
+  DESTCENSO: G.substantivo_destinatario,
   PRONOME: G.pronome_sujeito.replace(/^\(\?:\^\|\[\^0-9A-Za-zÀ-ÿ\]\)\(/, '').replace(/\)\(\?=\[\^0-9A-Za-zÀ-ÿ\]\|\$\)$/, ''),
   MODSEMART: G.modificador_sem_artigo,
   MODLONGO: G.modificador_longo,
@@ -64,9 +94,11 @@ const compor = (G, re) => Object.entries(PECAS(G))
   .sort((a, b) => b[0].length - a[0].length)
   .reduce((acc, [nome, valor]) => acc.split(nome).join(valor), re);
 const COMPOSTOS = {
-  substantivo_gorjeta: (G) => compor(G, G.substantivo_gorjeta),
+  substantivo_gorjeta: (G) => compor(G, comDiminutivo(G.substantivo_gorjeta)),
   gatilho_forma_direcional: (G) => compor(G, expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime)),
   cabeca_de_destino: (G) => compor(G, G.cabeca_de_destino),
+  destino_em_qualquer_lugar: (G) => compor(G, G.destino_em_qualquer_lugar),
+  destino_em_qualquer_lugar_censo: (G) => compor(G, G.destino_em_qualquer_lugar_censo),
   cabeca_forte: (G) => compor(G, G.cabeca_forte),
   contraste_colado: (G) => compor(G, G.contraste_colado),
   regencia_do_nucleo: (G) => compor(G, G.regencia_do_nucleo),
@@ -81,6 +113,7 @@ const COMPOSTOS = {
   sujeito_nominal: (G) => compor(G, G.sujeito_nominal),
   sintagma_nominal: (G) => compor(G, G.sintagma_nominal),
   relativa_qualquer: (G) => compor(G, G.relativa_qualquer),
+  negadores: (G) => compor(G, G.negadores),
   adversativa_inicial: (G) => compor(G, G.adversativa_inicial),
   modificador_sem_artigo: (G) => compor(G, G.modificador_sem_artigo),
   cabeca_genitiva: (G) => compor(G, G.cabeca_genitiva),
@@ -106,6 +139,12 @@ function gerar() {
 import Foundation
 
 enum ClaimPatterns {
+    // NÃO EMITE \`preposicaoDeDestino\`, \`artigoDeDestino\` nem
+    // \`modificadorDeDestino\`: desde que o \`destinoEmQualquerLugar\` passou a
+    // ser gerado (e não montado à mão nos dois gêmeos), o guarda não consulta
+    // nenhuma das três DIRETAMENTE — elas vivem dentro das composições. Padrão
+    // emitido e não consultado é o vão pelo qual o \`preposicaoColadaAtras\`
+    // sobreviveu à própria remoção da regra.
     static let substantivoGorjeta = ${lit(COMPOSTOS.substantivo_gorjeta(G))}
     /// O que o NEGADOR pode estar negando. Detector e consumidor são listas
     /// diferentes: aqui a polaridade é fail-ABERTO — mais palavras, mais
@@ -117,20 +156,18 @@ enum ClaimPatterns {
     static let distribuidorComSujeito = ${lit(G.distribuidor_com_sujeito)}
     static let revogaDispensa = ${lit(COMPOSTOS.revoga_dispensa(G))}
     /// Só os negadores de verdade — a evasão preposicional fica na dispensa.
-    static let negadores = ${lit(G.negadores)}
+    static let negadores = ${lit(COMPOSTOS.negadores(G))}
     /// Alta precisão, baixa cobertura. Oráculo de teste: ver claims.json.
     static let formaDirecional = ${lit(COMPOSTOS.gatilho_forma_direcional(G))}
     /// QUANTIDADE: separa dinheiro DIRIGIDO de ação dirigida. Inclui moeda —
     /// era a única notação que faltava, e é a que toda linha real usa.
     static let quantidade = ${lit(G.quantidade)}
-    /// Preposição de destino, nas três línguas do produto.
-    static let preposicaoDeDestino = ${lit(G.preposicao_de_destino)}
-    static let artigoDeDestino = ${lit(G.artigo_de_destino)}
-    /// Até dois modificadores entre o artigo e o núcleo: \`the FLOOR staff\`.
-    /// Ver \`_porque_modificador\`.
-    static let modificadorDeDestino = ${lit(G.modificador_de_destino)}
     /// A CABEÇA: do começo da oração até o núcleo. É PREFIXO — o que importa é
     /// o RESTO, e adjunto não é predicação. Ver \`_porque_cabeca\`.
+    /// PRÉ-CONDIÇÃO da regra 3: há destino em qualquer lugar da oração? Era
+    /// escrita à mão nos DOIS gêmeos, fora do gerador e fora de todo
+    /// instrumento. Ver \`_porque_destino_em_qualquer_lugar\`.
+    static let destinoEmQualquerLugar = ${lit(COMPOSTOS.destino_em_qualquer_lugar(G))}
     static let cabecaDeDestino = ${lit(COMPOSTOS.cabeca_de_destino(G))}
     /// A mesma cabeça, com a quantidade OBRIGATÓRIA: evidência forte de
     /// dinheiro dirigido. Ver \`_porque_dois_niveis\`.
@@ -202,7 +239,7 @@ enum ClaimPatterns {
 }
 
 const ALVO = path.join(RAIZ, 'ios', 'Racha', 'Agent', 'ClaimPatterns.swift');
-module.exports = { gerar, ALVO, expandirDest, COMPOSTOS, PECAS };
+module.exports = { gerar, ALVO, expandirDest, COMPOSTOS, PECAS, comDiminutivo };
 if (require.main === module) {
   fs.writeFileSync(ALVO, gerar());
   console.log('gerado', path.relative(RAIZ, ALVO));

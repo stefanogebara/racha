@@ -1,0 +1,85 @@
+{
+  "_leia": "O EIXO TRILÍNGUE. Cada entrada é a MESMA frase nas três línguas do produto, com o mesmo veredito esperado. O guarda é documentado como trilíngue e o censo governa a metade `en` do `i18n.ts`, o `docs/rfp`, o `docs/outreach` e o `ios/docs` — e o corpo era ~99% português. O arquivo registra SEIS defeitos de meia-tradução, todos achados por acaso: `gar[çc]on` contra `garçom`, `server\\b` contra `servers`, `ma[îi]tre` contra `maitre`, o `artigo_de_destino` só-pt, o `negador_colado` só-pt e o `relativo_pronome` sondado pela metade. Seis acidentes e nenhum instrumento. Este é o instrumento, pedido pelas revisões de compliance e de segurança de 2026-09-14, que convergiram nele independentemente.\n\nNa primeira rodada ele achou OITO classes vivas, uma delas numa peça escrita na rodada anterior e outra reabrindo o escape que a rodada anterior tinha fechado. Cada entrada nomeia a PEÇA que ela mede: um trio que não nomeia peça é um trio que ninguém sabe por que existe.",
+  "trios": [
+    {
+      "peca": "adversativa_inicial / revoga_dispensa",
+      "recusa": true,
+      "porque": "Uma cláusula aberta por adversativa CONTINUA a anterior, e a evasão (`não pela folha`) revoga a dispensa do distribuidor. A peça era só portuguesa: `but` e `pero` não estavam em lugar nenhum, então o escape que a rodada 17 fechou em português continuava aberto nas outras duas línguas.",
+      "pt": "O restaurante distribui a gorjeta à equipe, mas não pela folha.",
+      "en": "The restaurant distributes the tip to the staff, but not through payroll.",
+      "es": "El restaurante distribuye la propina al personal, pero no por nómina."
+    },
+    {
+      "peca": "negadores",
+      "recusa": false,
+      "porque": "A NEGAÇÃO CORRETA, que o guarda tem que deixar passar. `not` e `never` não estavam no `negadores` — que tinha `without` e `sin`, as duas línguas pela metade —, e o guarda RECUSAVA a negação. O `no` espanhol entrou pela RELAÇÃO (seguido de VERBO), não pela palavra: `no` nu colide com a preposição portuguesa (`no bolso`, `no Pix`).",
+      "pt": "A gorjeta não vai pro garçom.",
+      "en": "The tip does not go to the waiter.",
+      "es": "La propina no va al camarero."
+    },
+    {
+      "peca": "destino_em_qualquer_lugar + cabeca_genitiva",
+      "recusa": true,
+      "porque": "A PRÉ-CONDIÇÃO da regra 3 compunha só o `preposicao_de_destino`, sem o GENITIVO. Em português isso não aparece porque `d[oa]s?` está nas duas listas; em inglês e espanhol o `of the` e o `del` não passavam da pré-condição e a promessa escapava inteira. A peça estava escrita à mão nos DOIS gêmeos, fora do gerador e de todos os instrumentos.",
+      "pt": "Serviço: 10%\n- da equipe",
+      "en": "Service charge: 10%\n- of the staff",
+      "es": "Servicio: 10%\n- del personal"
+    },
+    {
+      "peca": "adverbio",
+      "recusa": true,
+      "porque": "O slot de advérbio da cabeça genitiva nasceu na rodada 17, do fabricador, e nasceu só em português. `always` e `siempre` não eram advérbio pra este arquivo, então o slot era fail-aberto fora do pt.",
+      "pt": "Serviço: 10%\n- sempre da equipe",
+      "en": "Service charge: 10%\n- always of the staff",
+      "es": "Servicio: 10%\n- siempre del personal"
+    },
+    {
+      "peca": "determinante / sujeito_nominal",
+      "recusa": false,
+      "porque": "O veto de sujeito da regra 1b — a peça que custou duas rodadas pra ficar de pé em português — era INERTE em inglês e espanhol, porque o `determinante` só tinha artigos portugueses. Sem determinante não há sujeito nominal, sem sujeito não há veto, e o turno inocente virava recusa: a direção que apaga o valor da conta da tela.",
+      "pt": "A comanda vai pro garçom conferir.",
+      "en": "The check goes to the waiter to confirm.",
+      "es": "La comanda va al camarero para confirmar."
+    },
+    {
+      "peca": "cabeca_forte",
+      "recusa": true,
+      "porque": "O caminho FORTE (quantidade consumida pela cabeça) já funcionava nas três línguas — está aqui como CONTROLE: um eixo trilíngue que só tivesse casos quebrados não provaria que o instrumento sabe dizer verde.",
+      "pt": "Serviço: 10%\n- 100% pro garçom",
+      "en": "Service: 10%\n- 100% to the waiter",
+      "es": "Servicio: 10%\n- 100% al camarero"
+    },
+    {
+      "peca": "separador_de_clausula",
+      "recusa": true,
+      "porque": "O corte de cláusula — que o `ultimoSegmento`, o `segmentos` e a janela do `nega` usam — não conhecia `and`, `but`, `or`, `y` nem `pero`. Em inglês e espanhol o `segmentos` devolvia a oração inteira como um segmento só, e a correção de prefixo-por-último-segmento da rodada 17 era inerte fora do português. O `o` espanhol NÃO entrou: colide com o artigo português.",
+      "pt": "A conta fechou e vai tudo pro garçom.",
+      "en": "The bill is closed and it all goes to the waiter.",
+      "es": "La cuenta se cerró y todo va al camarero."
+    },
+    {
+      "peca": "substantivo_gorjeta",
+      "recusa": true,
+      "porque": "`service charge` e `service fee` estavam na lista, `service` nu não — e `Service: 10%` é como a tela em inglês escreve. Sem substantivo de gorjeta reconhecido, a licença ESTRITA da cabeça genitiva nunca arma.",
+      "pt": "Gorjeta: 10%\n- da equipe",
+      "en": "Service: 10%\n- of the team",
+      "es": "Propina: 10%\n- del personal"
+    },
+    {
+      "peca": "adversativa_inicial (travessão)",
+      "recusa": true,
+      "porque": "O MESMO trio com TRAVESSÃO em vez de vírgula, que é o que prende a `adversativa_inicial`: com vírgula a frase é uma oração só e a revogação é lida nela mesma; com travessão o `but not through payroll` vira oração SEPARADA, e só a peça da adversativa a religa à anterior. Com vírgula, `but` e `pero` não carregam peso nenhum — o par de trios é que mede a peça.",
+      "pt": "O restaurante distribui a gorjeta à equipe — mas não pela folha.",
+      "en": "The restaurant distributes the tip to the staff — but not through payroll.",
+      "es": "El restaurante distribuye la propina al personal — pero no por nómina."
+    },
+    {
+      "peca": "separador_de_clausula (prefixo por segmento)",
+      "recusa": true,
+      "porque": "A correção de `o prefixo é julgado no ÚLTIMO SEGMENTO` depende do corte de cláusula, e o corte não conhecia `and`, `but`, `or`, `y` nem `pero`. Este trio põe um preâmbulo com VERBO antes da promessa, separado pela conjunção: sem a conjunção no separador, o verbo do preâmbulo cai no prefixo e desliga a regra 3 — o escape de 847-em-2400 da rodada 17, reaberto fora do português.",
+      "pt": "Pode ficar tranquilo e 100% pro garçom.",
+      "en": "You can relax and 100% to the waiter.",
+      "es": "Puede quedarse tranquilo y 100% al camarero."
+    }
+  ]
+}

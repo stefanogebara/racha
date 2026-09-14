@@ -44,7 +44,7 @@ const reDestinatario = new RegExp(G.substantivo_destinatario, 'i');
 const reDistribuidor = new RegExp(G.distribuidor_com_sujeito, 'i');
 const reRevoga = new RegExp(COMPOR.revoga_dispensa(G), 'i');
 /** Só os negadores; a evasão preposicional pertence à dispensa. */
-const reNegador = new RegExp(G.negadores, 'i');
+const reNegador = new RegExp(COMPOR.negadores(G), 'i');
 const reSuprimeGlobal = new RegExp(COMPOR.gatilho_forma_direcional(G), 'i');
 const JANELA = G.janela_linhas;
 
@@ -89,10 +89,7 @@ const reSeparador = new RegExp(G.separador_de_clausula, 'gi');
  * decisão, não. Aqui é a completa — o censo é o lado estrito.
  * Achado pela revisão de segurança de 2026-09-13.
  */
-const reDestinoQualquer = new RegExp(
-  '(' + G.preposicao_de_destino + ')\\s+' + G.modificador_de_destino
-  + '((' + G.artigo_de_destino + ')\\s+)?' + G.modificador_de_destino
-  + '(' + G.substantivo_destinatario + ')', 'i');
+const reDestinoQualquer = new RegExp(COMPOR.destino_em_qualquer_lugar_censo(G), 'i');
 const reMarcador = new RegExp(G.marcador_de_lista);
 /** Negador CONTRASTIVO: `não PRA casa` afirma; `não TEM` nega. Ver o gêmeo. */
 const reContrasteColado = new RegExp(COMPOR.contraste_colado(G), 'i');
@@ -823,6 +820,10 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
                                     // runtime usa a curta, de propósito
       'modificador_longo',          // entra composto no `contraste_colado` e no
                                     // `regencia_do_nucleo`, nunca sozinho
+      'nome_de_quantia',            // entra composto na `anafora_de_dinheiro`,
+                                    // e lá com os diminutivos derivados junto
+      'destino_em_qualquer_lugar_censo',  // a versão com a lista LONGA de
+                                    // destinatário; o runtime usa a curta
     ];
     // O alfabeto de marcadores vem do PRÓPRIO gerador, não de uma lista escrita
     // aqui: marcador novo no `PECAS` fica coberto sem ninguém lembrar. A lista

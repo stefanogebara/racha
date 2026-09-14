@@ -708,12 +708,11 @@
       "direcao": "fp",
       "js": "G.cabeca_genitiva = G.cabeca_genitiva.replace('(?:^|SEPCLAUSULA\\\\s*)', '');",
       "swift": {
-        "tipo": "campo",
+        "tipo": "prefixo",
         "nomes": [
           "cabecaGenitiva"
         ],
-        "de": "= \"(?:^|(?<!\\\\d),(?!\\\\d)|\\\\b(e sim|e|mas|por[ée]m|ou)\\\\b|;\\\\s*)",
-        "para": "= \""
+        "ate": "[\\\\s*_`~]*"
       }
     },
     {

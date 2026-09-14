@@ -176,10 +176,7 @@ enum RevisaoDeAfirmacoes {
     /// Até dois MODIFICADORES entre o artigo e o núcleo — `to the FLOOR
     /// staff`. Sem eles esta pré-condição da regra 3 derrubava a própria
     /// frase que o corpus trilíngue usa. Ver `_porque_modificador`.
-    private static let destinoEmQualquerLugar = regex(
-        "(" + ClaimPatterns.preposicaoDeDestino + ")\\s+" + ClaimPatterns.modificadorDeDestino
-        + "((" + ClaimPatterns.artigoDeDestino + ")\\s+)?" + ClaimPatterns.modificadorDeDestino
-        + "(" + ClaimPatterns.destinatarioRuntime + ")")
+    private static let destinoEmQualquerLugar = regex(ClaimPatterns.destinoEmQualquerLugar)
     private static let cabecaDeDestino = regex(ClaimPatterns.cabecaDeDestino)
     private static let cabecaForte = regex(ClaimPatterns.cabecaForte)
     private static let pronomeSujeito = regex(ClaimPatterns.pronomeSujeito)

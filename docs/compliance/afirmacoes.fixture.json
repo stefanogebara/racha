@@ -1607,9 +1607,9 @@
       "porque": "A CABEÇA GENITIVA ANCORA NO SEGMENTO, não na oração. A vírgula não separa oração, mas separa CLÁUSULA em todo o resto do arquivo — `ultimoSegmento`, `segmentos` e a janela do `nega` cortam nela. Com travessão, dois-pontos, ponto-e-vírgula ou quebra de linha esta frase era recusada; com vírgula, escapava. É o sinal que um modelo escolhe mais, e era o único que derrotava a peça. Achado pela revisão de segurança de 2026-09-14."
     },
     {
-      "texto": "A gorjeta? A fatia anotada vai pro garçom.",
+      "texto": "A gorjeta? A porção anotada vai pro garçom.",
       "recusa": true,
-      "porque": "O `substantivo_nao_dinheiro` não tinha delimitador, e ele é EXCULPATÓRIO: `nota` casava dentro de `anotada`, o veto de sujeito disparava e a promessa passava. Um particípio ordinário no sujeito derrubava uma recusa DENTRO da janela de dinheiro, que é onde a polaridade tinha acabado de ser apertada de propósito. O sujeito aqui é `fatia` e não `porcentagem` porque `porcentagem` virou substantivo de gorjeta na mesma rodada — e aí quem recusa é a regra 1, e o caso deixa de medir a peça que ele existe pra medir. Achado pela revisão de segurança de 2026-09-14."
+      "porque": "O `substantivo_nao_dinheiro` não tinha delimitador, e ele é EXCULPATÓRIO: `nota` casava dentro de `anotada`, o veto de sujeito disparava e a promessa passava. Um particípio ordinário no sujeito derrubava uma recusa DENTRO da janela de dinheiro, que é onde a polaridade tinha acabado de ser apertada de propósito. O sujeito é `porção` — nem dinheiro nem não-dinheiro — porque as duas versões anteriores deste caso (`porcentagem`, depois `fatia`) foram para as listas de dinheiro na mesma rodada, e aí quem recusa é outra regra e o caso deixa de medir a peça que ele existe pra medir. Duas vezes seguidas: um caso que mede uma peça tem que ser escrito com palavras que nenhuma OUTRA peça conhece. Achado pela revisão de segurança de 2026-09-14."
     },
     {
       "texto": "A caixinha vai pra merenda da equipe.",
