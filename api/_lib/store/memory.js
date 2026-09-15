@@ -1011,7 +1011,29 @@ function createMemoryStore() {
       // Mirrors the supabase PK: a txid re-register must fail loudly, never
       // silently replace money amounts (review finding).
       if (houseLoads.has(txid)) throw new Error('duplicate house load txid');
-      houseLoads.set(txid, { txid, accountId, amountCents, bonusCents, validityDays, status: 'pendente' });
+      houseLoads.set(txid, {
+        txid, accountId, amountCents, bonusCents, validityDays, status: 'pendente',
+        // `createdAt` existe pro TETO de cargas vivas — a coluna já existia no
+        // Postgres (`house_loads.created_at`) e faltava aqui, então o gêmeo em
+        // memória não podia medir a mesma janela. Ver `assertLoadSlot`.
+        createdAt: new Date().toISOString(),
+      });
+    },
+    /**
+     * Quantas cargas de saldo desta conta ainda estão VIVAS — pendentes e
+     * dentro da janela de validade do Pix. Espelha `listPendingCharges`, que é
+     * a mesma pergunta do lado da conta da mesa. Ver `assertLoadSlot`.
+     */
+    async countPendingHouseLoads({ accountId, windowMs = Infinity } = {}) {
+      const now = Date.now();
+      return [...houseLoads.values()].filter((l) => {
+        if (l.status !== 'pendente') return false;
+        if (l.accountId !== accountId) return false;
+        // Linha antiga sem `createdAt` conta como viva: falhar FECHADO é
+        // recusar uma carga a mais, nunca liberar uma janela inteira.
+        const idade = l.createdAt ? now - Date.parse(l.createdAt) : 0;
+        return idade <= windowMs;
+      }).length;
     },
     async findHouseLoadByTxid(txid) {
       const l = houseLoads.get(txid);

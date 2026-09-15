@@ -1,5 +1,11 @@
 'use strict';
 
+// A janela é a MESMA da conta da mesa — validade do Pix, 15 minutos — e vem de
+// lá, não de um número repetido aqui: duas janelas que deviam ser uma já
+// divergiram neste repositório por um acento e por um `\b`.
+const { JANELA_VIVA_MS } = require('../pay/create-charge');
+const TETO_CARGAS = 5;
+
 /**
  * House Accounts — saldo da casa. Orchestrates the account ledger, the check
  * ledger, and the PSP. Store + psp injected → runs against both stores.
@@ -234,6 +240,33 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     // Quando a Espanha ganhar um trilho de recarga, muda o `rail` aqui.
     const gate = marketGate(venue.market, { rail: 'pix', amountCents, tipCents: 0 });
     if (gate) throw badRequest(`mercado ${venue.market}: ${gate.code}`, gate.code, gate.vars);
+
+    /**
+     * O TETO DE CARGAS VIVAS, e ANTES da chamada ao adquirente.
+     *
+     * Esta é a MAIS exposta das três rotas que criam cobrança, e a declaração
+     * do censo de saída diz por quê: não passa pela fábrica de cobrança, então
+     * não herda teto de valor nenhum, e não há conta aberta pra limitar o valor
+     * — carga de saldo não tem conta. O `chargeRef` daqui leva um `randomUUID`
+     * de propósito ("duas cargas idênticas são cobranças DIFERENTES"), então
+     * nem nominalmente havia idempotência.
+     *
+     * A conta: carregar saldo é UM ato deliberado. Cinco cargas vivas na mesma
+     * janela de 15 minutos já cobre quem errou o valor, desistiu e voltou — o
+     * teto da conta da mesa é vinte porque lá há uma mesa inteira de gente, e
+     * aqui há uma pessoa. Fechado na mesma rodada que o teto da mesa, pela
+     * revisão de segurança de 2026-09-15.
+     */
+    const vivas = await store.countPendingHouseLoads({
+      accountId: account.id, windowMs: JANELA_VIVA_MS,
+    });
+    if (vivas >= TETO_CARGAS) {
+      const err = new Error(`too many live pending loads for this account (${vivas})`);
+      err.statusCode = 429;
+      err.code = 'too_many_pending_loads';
+      err.vars = { limit: TETO_CARGAS, windowMinutes: JANELA_VIVA_MS / 60000 };
+      throw err;
+    }
 
     const bonusCents = quoteBonusCents(amountCents, cfg.bonusBp);
     const charge = await psp.createPixCharge({

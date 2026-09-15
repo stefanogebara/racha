@@ -1152,6 +1152,20 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       });
       throwOn(error, 'registerHouseLoad');
     },
+    /** Ver o gêmeo em `memory.js` e `assertLoadSlot`. */
+    async countPendingHouseLoads({ accountId, windowMs = null } = {}) {
+      let q = client
+        .from('house_loads')
+        .select('txid', { count: 'exact', head: true })
+        .eq('account_id', accountId)
+        .eq('status', 'pendente');
+      if (windowMs != null && Number.isFinite(windowMs)) {
+        q = q.gte('created_at', new Date(Date.now() - windowMs).toISOString());
+      }
+      const { count, error } = await q;
+      throwOn(error, 'countPendingHouseLoads');
+      return count || 0;
+    },
     async findHouseLoadByTxid(txid) {
       if (!txid) return null;
       const { data, error } = await client

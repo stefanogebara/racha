@@ -54,7 +54,7 @@ const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
-const { createChargeService } = require('../_lib/pay/create-charge');
+const { createChargeService, assertChargeSlot } = require('../_lib/pay/create-charge');
 const { errorStatus, errorBody } = require('../_lib/http-error');
 const { readBody } = require('../_lib/read-body');
 const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
@@ -655,6 +655,13 @@ async function route(req, res) {
         return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
       }
       try {
+        // O TETO DE PENDENTES VIVAS, e ANTES da chamada ao adquirente. Esta
+        // rota monta a cobrança sozinha — não passa pela fábrica —, então o
+        // portão que mora lá não vale aqui por herança. É a mesma forma
+        // "chamador esquecido" que já custou o portão de mercado e a validação
+        // do `payerLabel` nesta exata rota; um teste estrutural exige o
+        // emparelhamento. Ver `assertChargeSlot`.
+        await assertChargeSlot(store, view.check.id);
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
         const charge = rail === 'bizum'
           ? await stripePsp.createBizumCharge({

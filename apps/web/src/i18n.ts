@@ -417,6 +417,19 @@ export const DICT = {
                             pt: 'Valor acima do que falta ({left}).',
                         es: 'El importe supera lo que falta ({left}).' },
   'err.tax_id_invalid': { en: 'Check the document number.', pt: 'Confira o número do documento.', es: 'Revisa el número del documento.' },
+  // TETO DE COBRANÇAS VIVAS. O servidor manda `{limit}` e `{windowMinutes}`
+  // crus; quem escreve a frase é o cliente, que sabe o idioma de quem lê. A
+  // mensagem diz o que FAZER — esperar um QR vencer ou pagar um dos abertos —
+  // porque um teto que só diz "não" numa mesa com a conta na mão é uma tela
+  // sem saída.
+  'err.too_many_pending_charges': {
+    en: 'Too many payment codes open for this table ({limit} in {windowMinutes} min). Pay one of them, or wait for one to expire.',
+    pt: 'Códigos de pagamento demais abertos nesta mesa ({limit} em {windowMinutes} min). Pague um deles, ou espere um vencer.',
+    es: 'Demasiados códigos de pago abiertos en esta mesa ({limit} en {windowMinutes} min). Paga uno, o espera a que caduque.' },
+  'err.too_many_pending_loads': {
+    en: 'Too many top-ups open on this balance ({limit} in {windowMinutes} min). Pay one of them, or wait for one to expire.',
+    pt: 'Recargas demais abertas neste saldo ({limit} em {windowMinutes} min). Pague uma delas, ou espere uma vencer.',
+    es: 'Demasiadas recargas abiertas en este saldo ({limit} en {windowMinutes} min). Paga una, o espera a que caduque.' },
   // O documento do recebedor tem que ser o MESMO que o recibo mostra: um é
   // onde o dinheiro liquida, o outro é o que o cliente lê. Divergir é o
   // comprovante dizer uma coisa e o split fazer outra.

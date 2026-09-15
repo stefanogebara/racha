@@ -32,6 +32,97 @@ function badRequest(msg, code, vars) {
   return err;
 }
 
+/**
+ * O TETO DE COBRANÇAS PENDENTES VIVAS POR CONTA — o que faltava ao portão.
+ *
+ * O teto de VALOR existe (`amount_over`) e não limita a CONTAGEM: o
+ * `remainingCents` é `totalCents - paidCents`, `paidCents` conta evento
+ * CONFIRMADO, e o `registerCharge` grava linha pendente sem lançar evento
+ * nenhum. Então N cobranças pendentes podem ser cada uma pelo valor INTEIRO que
+ * falta. E o `chargeRef`, apesar de determinístico, NÃO é idempotência no
+ * adquirente: quem deriva o `txid` dele é o MockPsp; a Pagar.me o recebe como
+ * `code`/`metadata` — referência de comerciante — sem cabeçalho de idempotência
+ * e com e-mail único por chamada, de propósito. Em produção cada POST idêntico
+ * cria um pedido novo e um BR Code vivo novo.
+ *
+ * Somando: um chamador com um token de mesa — que viaja em QR fotografado e em
+ * link compartilhado — emitia BR Codes de 15 minutos sem limite, cada um pelo
+ * valor cheio da conta, e a pilha ainda realimentava o
+ * `/api/cron/reconcile-pending`, que faz uma chamada ao adquirente por cobrança
+ * pendente. Achado pela revisão de segurança de 2026-09-15 (HIGH-4), declarado
+ * naquela rodada e fechado nesta.
+ *
+ * A CONTA DO TETO, escrita como a do `registraMissDeCheck`, porque um número
+ * sem aritmética é um número que alguém vai afrouxar sem medir:
+ *
+ *   · a janela é a validade do Pix, 15 minutos — a mesma do `mock-psp` e do
+ *     `expires_in: 900` do Pagar.me. Cobrança vencida não conta, senão uma mesa
+ *     que tentou algumas vezes ao longo da noite ficava trancada;
+ *   · o pior caso LEGÍTIMO dentro de 15 minutos é uma mesa de dez pessoas em
+ *     que cada uma erra uma vez (QR expirou, abriu o app errado, voltou): vinte
+ *     cobranças vivas. Vinte é isso, não um palpite;
+ *   · acima disso não é uma mesa. É o mesmo raciocínio do limite de taxa que a
+ *     `/api/check` NÃO tem: o que não pode é fechar a conta na cara do segundo
+ *     cliente, e vinte não fecha.
+ *
+ * Por CONTA, não por IP: um salão inteiro é um IP só atrás do NAT do
+ * restaurante, e o abuso que importa é contra UMA conta — é ela que tem o
+ * token, e é o recebedor daquela casa que paga a conta do tráfego.
+ */
+const JANELA_VIVA_MS = 15 * 60 * 1000;
+const TETO_PENDENTES = 20;
+
+/**
+ * Há vaga pra mais uma cobrança nesta conta?
+ *
+ * Mora aqui e é EXPORTADA porque há dois sítios que criam cobrança de conta: o
+ * `createCharge` e a rota `/api/pay/stripe-intent`, que monta a cobrança
+ * sozinha. Um teste estrutural exige que toda chamada de `create*Charge` seja
+ * precedida por esta — a forma "chamador esquecido" já custou a validação do
+ * `payerLabel` e o portão de mercado do `/api/house/load`.
+ *
+ * ANTES da chamada ao PSP, sempre: o ponto do teto é não falar com o
+ * adquirente. Depois seria contar o estrago.
+ *
+ * O QUE ESTE TETO NÃO É, dito de frente:
+ *
+ *  · não é ATÔMICO. Duas requisições simultâneas podem ler dezenove e passar
+ *    as duas — o teto é de ESTOQUE, não invariante de dinheiro, e ultrapassar
+ *    por duas ou três sob concorrência não perde centavo nenhum. O inegociável
+ *    #7 exige RPC atômico pra reivindicação condicional que MOVE dinheiro;
+ *    esta não move: ela recusa trabalho. Trocar por RPC custaria uma migração e
+ *    um caminho novo no banco pra ganhar precisão que a contenção não precisa;
+ *  · não limita o FLUXO, só o estoque. Quem esperar as vivas vencerem abre mais
+ *    vinte. O que ele fecha é o tamanho da pilha — que é o que realimenta o
+ *    `/api/cron/reconcile-pending`, uma chamada ao adquirente por pendente — e
+ *    o número de BR Codes vivos ao mesmo tempo pela conta cheia;
+ *  · não é idempotência. Pedidos idênticos continuam criando cobranças
+ *    distintas até o teto, porque a Pagar.me não recebe cabeçalho de
+ *    idempotência nenhum. Fundir cobranças pela FORMA (mesmo valor, mesma
+ *    gorjeta) seria pior: numa divisão igual duas pessoas pedem o mesmo valor
+ *    ao mesmo tempo, e devolver a mesma cobrança às duas faria as duas
+ *    pensarem que pagaram enquanto só uma cobrança existe — conta subpaga com
+ *    dois clientes tranquilos. Idempotência de verdade precisa de chave vinda
+ *    do cliente, e é decisão de contrato, não de guarda.
+ */
+async function assertChargeSlot(store, checkId) {
+  const vivas = await store.listPendingCharges({
+    checkId,
+    windowMs: JANELA_VIVA_MS,
+    // `TETO + 1` basta pra decidir, e mantém a consulta barata no Postgres.
+    limit: TETO_PENDENTES + 1,
+  });
+  if (vivas.length >= TETO_PENDENTES) {
+    const err = new Error(`too many live pending charges for this check (${vivas.length})`);
+    // 429, não 400: o pedido está bem formado e a resposta é "agora não".
+    err.statusCode = 429;
+    err.code = 'too_many_pending_charges';
+    // Centavos crus e números crus — quem formata é o cliente.
+    err.vars = { limit: TETO_PENDENTES, windowMinutes: JANELA_VIVA_MS / 60000 };
+    throw err;
+  }
+}
+
 const WALLETS = Object.freeze(['apple_pay', 'google_pay']);
 
 function createChargeService({ store, psp }) {
@@ -151,6 +242,8 @@ function createChargeService({ store, psp }) {
         'amount_over', { leftCents: remaining });
     }
 
+    await assertChargeSlot(store, checkId);
+
     const chargeRef = `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`;
     let charge;
     if (wallet) {
@@ -196,4 +289,6 @@ function createChargeService({ store, psp }) {
   };
 }
 
-module.exports = { createChargeService };
+module.exports = {
+  createChargeService, assertChargeSlot, TETO_PENDENTES, JANELA_VIVA_MS,
+};
