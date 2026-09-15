@@ -120,6 +120,20 @@ conciliação levanta `paid_after_close`.
    gravado** — recarregue a conta e confira o valor de novo, porque o teto pode
    ter mudado junto.
 
+   **As respostas que esta rota dá**, porque ela é chamada por `curl` e não tem
+   tela que traduza:
+
+   | resposta | o que aconteceu | o que fazer |
+   |---|---|---|
+   | `200 {duplicate: true, recorded: {...}}` | esta referência já estava registrada | nada — confira em `recorded` se o valor é o que você quis |
+   | `409 restitution_conflict` | a conta mudou no meio; **nada foi gravado** | recarregue, confira o teto, registre de novo |
+   | `400 use_acquirer_refund` | o trilho do adquirente ainda está aberto | devolva por lá (passo 2) |
+   | `400 nothing_to_restitute` | esta cobrança não deve nada de volta | confira se é a cobrança certa |
+   | `400 amount_over` | acima do teto; `vars.leftCents` diz o máximo | registre só o que é devido |
+   | `400 reference_required` | faltou a referência (mínimo 3 caracteres) | ponha o comprovante |
+   | `503 payment_age_unknown` | não deu pra saber a idade da cobrança (ou é um trilho sem prazo cadastrado) | tente de novo; se insistir, fale com o time |
+   | `500 restitution_unavailable` | o banco não respondeu — **pode ter gravado** | **confira a conta antes de repetir** |
+
 **No primeiro deploy com isto**: todo pagamento atrasado ANTIGO, sem resposta,
 aparece como `critical` na primeira conciliação da noite. Avise as casas do
 piloto antes, e responda os antigos pelo painel.

@@ -43,7 +43,12 @@ const { isTerminalRecipientStatus } = require('../recipient-status');
  */
 function chaveDaDevolucaoForaDoTrilho(type, payload) {
   if (type !== 'PAYMENT_REFUNDED' || !payload || payload.offRail !== true) return null;
-  const ref = String(payload.reference == null ? '' : payload.reference).trim().toLowerCase();
+  // `btrim` do Postgres tira SÓ o espaço ASCII — e o dublê usava `trim()` do
+  // JS, que tira tabulação, quebra de linha e NBSP também. Dublê mais restritivo
+  // que o banco esconde o furo em vez de mostrá-lo (segurança LOW-1 de
+  // d7f2683). Aqui ele imita o `btrim`; quem tira o resto é a rota, na entrada.
+  const ref = String(payload.reference == null ? '' : payload.reference)
+    .replace(/^ +| +$/g, '').toLowerCase();
   return `${payload.txid}\u0000${ref}`;
 }
 
@@ -697,7 +702,9 @@ function createMemoryStore() {
       if (chave && log.some((e) => chaveDaDevolucaoForaDoTrilho(e.type, e.payload) === chave)) {
         throw Object.assign(
           new Error('memory store appendEventIfUnchanged: devolução fora do trilho já registrada'),
-          { pgCode: '23505' },
+          // O NOME do índice também: é por ele que o classificador distingue
+          // "já registrada" de qualquer outra unicidade violada.
+          { pgCode: '23505', pgConstraint: 'check_events_offrail_refund_uidx' },
         );
       }
       return this.appendEvent(checkId, type, payload, pspEventId);
@@ -712,7 +719,13 @@ function createMemoryStore() {
       }
       const log = events.get(checkId);
       const seq = log.length + 1;
-      log.push({ seq, type, payload, ...(pspEventId != null ? { pspEventId } : {}) });
+      // `created_at` como no Postgres: o dublê tem que devolver o razão com a
+      // mesma forma, senão a data que decide o prazo do trilho só existe em
+      // produção (compliance MEDIUM-4 de d7f2683).
+      log.push({
+        seq, type, payload, created_at: new Date().toISOString(),
+        ...(pspEventId != null ? { pspEventId } : {}),
+      });
       return seq;
     },
     /** Ver a 0028: quem abriu a conta na mesa. Idempotente por conta+sessão. */

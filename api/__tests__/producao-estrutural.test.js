@@ -200,6 +200,27 @@ describe('o portão e o adaptador leem o MESMO valor', () => {
     expect(provider).not.toBe('mock');   // em produção, mock NUNCA
   });
 
+  test.each([
+    ['vazio (nenhuma env)', undefined],
+    ['prod', 'prod'],
+    ['Production', 'Production'],
+    ['PRODUCTION', 'PRODUCTION'],
+    ['live', 'live'],
+    ['producao', 'producao'],
+    ['staging', 'staging'],
+  ])('RACHA_ENV %s conta como produção — falha fechada', async (_nome, valor) => {
+    /**
+     * A regra é lista de RECUSA, não de permissão. A versão anterior só tratava
+     * a string VAZIA como produção, e o comentário em cima dela prometia o
+     * contrário — então `RACHA_ENV=prod` digitado no painel punha casa de
+     * verdade no mock, com o cron verde (segurança HIGH-1 de d7f2683). O valor
+     * vem de um campo que uma pessoa digita: o conjunto é aberto.
+     */
+    const { mod } = bootar({ NODE_ENV: 'production', ...(valor === undefined ? {} : { RACHA_ENV: valor }) });
+    expect(await pagarResponde(mod)).toBe(503);
+    expect(mod.psp.provider).toBe('unconfigured');
+  });
+
   test('o desconhecido conta como produção — o portão dispara sem VERCEL_ENV nenhum', async () => {
     // A cláusula anterior (`VERCEL === '1'`) era inalcançável: as duas variáveis
     // saem da MESMA chave do projeto na Vercel, então com ela desligada não
@@ -302,9 +323,37 @@ describe('o cron de pendentes, em produção quebrada', () => {
     expect(daConfig[0]).toEqual(['alerta:config-producao']);
   });
 
+  test('uma casa VELHA sem recebedor não desliga o canário do KYC', async () => {
+    /**
+     * `getRecipient` devolve `null` SEM chamar ninguém quando o id não é `r*_`
+     * (ver `pagarme-psp`), e a casa nem entrava no relatório. Contando FALHAS,
+     * uma linha dessas na lista pendente fazia `falharam === pending.length`
+     * ser falso pra sempre: adquirente inteiro fora do ar e cron 200 verde
+     * (segurança MEDIUM-1 de d7f2683). O dublê do `psp-indisponivel` é mais
+     * hostil que o adaptador real — estoura em tudo —, então aqui o PSP é
+     * trocado por um que reproduz a semântica REAL.
+     */
+    const { mod } = bootar({ RACHA_ENV: 'production' });
+    const velha = mod.store.seedVenue({ name: 'Sem recebedor', cnpj: '11222333000181' });
+    const nova = mod.store.seedVenue({ name: 'Com recebedor', cnpj: '11222333000181' });
+    await mod.store.setVenueRecipient(nova.id, 're_valido123', { status: 'registration' });
+    await mod.store.setVenueRecipientStatus(velha.id, 'pending');
+    await mod.store.setVenueRecipientStatus(nova.id, 'pending');
+    mod.psp.getRecipient = async (id) => {
+      if (!/^r[ep]_/.test(id || '')) return null;      // o real NÃO estoura aqui
+      throw new Error('ECONNRESET: adquirente fora do ar');
+    };
+    const { status, corpo } = await chamarCron(mod, '/api/cron/recipient-status');
+    expect({ status, code: corpo.code }).toEqual({ status: 503, code: 'psp_unavailable' });
+  });
+
   test('o cron de KYC não devolve 200 quando TODAS as consultas ao adquirente falham', async () => {
     const { mod } = bootar({ RACHA_ENV: 'production' });   // psp = o que recusa
     const casa = mod.store.seedVenue({ name: 'Casa Pendente', cnpj: '11222333000181' });
+    // RECEBEDOR DE VERDADE (`re_`): com o `rcpt_demo` da semente, a casa nem é
+    // perguntada — e o teste passava por não haver consulta nenhuma, não por o
+    // portão funcionar.
+    await mod.store.setVenueRecipient(casa.id, 're_pendente123', { status: 'registration' });
     await mod.store.setVenueRecipientStatus(casa.id, 'pending');
     const pendentes = await mod.store.listVenuesPendingRecipient();
     expect(pendentes.length).toBeGreaterThan(0);

@@ -131,3 +131,22 @@ test('a rota usa o lançamento condicional, e a leitura que autoriza é a mesma'
   expect(rota).toMatch(/desfecho === 'duplicado'/);
   expect(rota).not.toMatch(/pgCode/);
 });
+
+test('só o NOSSO índice significa "já registrada" — outra unicidade é recusa', () => {
+  /**
+   * `check_events` tem `unique (check_id, seq)` além do índice parcial da 0034.
+   * Tratar qualquer 23505 como duplicata responderia 200 `{duplicate: true}`
+   * sobre um lançamento que NÃO entrou — o oposto do que aconteceu, e a forma
+   * de falha que este repositório chama de silêncio (compliance LOW-1 de
+   * d7f2683).
+   */
+  const { INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO } = require('../_lib/checks/reconcile');
+  const erro = (pgCode, pgConstraint) => Object.assign(new Error('x'), { pgCode, pgConstraint });
+  expect(desfechoDoLancamento(erro('23505', INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO))).toBe('duplicado');
+  expect(desfechoDoLancamento(erro('23505', 'check_events_check_id_seq_key'))).toBe('recusado');
+  expect(desfechoDoLancamento(erro('23505', undefined))).toBe('recusado');
+  expect(desfechoDoLancamento(erro('40001', undefined))).toBe('conflito');
+  // E o que não é recusa PROVADA continua sendo "não sei" — pode ter escrito.
+  expect(desfechoDoLancamento(erro('40003', undefined))).toBe('indefinido');
+  expect(desfechoDoLancamento(erro('PGRST116', undefined))).toBe('indefinido');
+});

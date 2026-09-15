@@ -159,7 +159,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
   admin: VenueAdmin; venueId: string; onPrint: (t: VenueTable) => void; onConfigure: () => void;
 }) {
   const [newLabel, setNewLabel] = useState('');
-  const { t, tErr } = useT();
+  const { t } = useT();
   const { venue, tables, error } = admin;
 
   async function add() { if (await admin.addTable(newLabel)) setNewLabel(''); }
@@ -209,11 +209,16 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
             onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
           <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>
         </div>
-        {/* TRADUZIDO: o `useVenueAdmin` grava CÓDIGO de propósito (ele roda
-            acima da árvore do React e não tem idioma), e quem vira palavra é a
-            tela. Sem isto, fechar a conta de uma mesa cuja conta sumiu imprimia
-            `check_not_found` na cara do dono (segurança LOW-3 de ec86b37). */}
-        {error && <p className="muted small" style={{ color: 'var(--alerta)' }}>{tErr(error)}</p>}
+        {/* CRU, porque JÁ VEM TRADUZIDO. O `useVenueAdmin` traduz no setter
+            (`setError(trErr(e))`) e escreve frases prontas; embrulhar de novo em
+            `tErr` aqui APAGAVA todas elas — `tErr` recebe um ERRO e lê `.code`
+            /`.message`, e uma string não tem nenhum dos dois, então o retorno
+            era '' e o dono via um parágrafo vermelho VAZIO ao fechar uma conta,
+            desativar uma mesa ocupada ou falhar ao criar mesa. O conserto de
+            ec86b37 (LOW-3) destruiu seis mensagens boas pra consertar uma, e a
+            que ele queria consertar também ficou vazia (segurança HIGH-2 de
+            d7f2683). O código cru que sobrava vira frase na ORIGEM, no hook. */}
+        {error && <p className="muted small" style={{ color: 'var(--alerta)' }}>{error}</p>}
         {tables.length === 0 && <p className="muted small">{t('admin.noTables')}</p>}
         {/* `table`, não `t`: o parâmetro chamava-se `t` e sombreava o tradutor,
             então `t('admin.openBill')` chamaria a MESA como função. */}

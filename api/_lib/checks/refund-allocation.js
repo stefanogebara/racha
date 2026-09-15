@@ -70,8 +70,10 @@ function servicoDevidoDoAtrasado(estado, txid) {
  * @param {string} txid
  * @param {object} pg o pagamento no estado derivado
  * @param {number} valor centavos desta devolução
+ * @param {{forcada?: boolean}} [opcoes] `forcada` quando o dinheiro foi TIRADO
+ *   (chargeback/disputa perdida) em vez de devolvido por escolha da casa.
  */
-function alocarDevolucaoDoPagamento(estado, txid, pg, valor) {
+function alocarDevolucaoDoPagamento(estado, txid, pg, valor, opcoes = {}) {
   const consumo = Math.max(0, pg.amountCents - (pg.refundedAmountCents || 0));
   const gorjeta = Math.max(0, (pg.tipCents || 0) - (pg.refundedTipCents || 0));
   const excedente = Math.min(
@@ -81,16 +83,25 @@ function alocarDevolucaoDoPagamento(estado, txid, pg, valor) {
   const devido = Math.min(servicoDevidoDoAtrasado(estado, txid), gorjeta);
   // Sem serviço devido E fora de um atrasado em aberto, nada muda: as duas
   // regras antigas, intactas.
-  if (devido === 0 && !atrasadoEmAberto(pg)) {
+  if (devido === 0 && !consumoPrimeiro(pg, opcoes)) {
     return excedente > 0
       ? allocateRestitution(consumo, gorjeta, valor, excedente)
       : allocateRefund(consumo, gorjeta, valor);
   }
-  return tresBaldes(consumo, gorjeta, excedente, devido, valor, atrasadoEmAberto(pg));
+  return tresBaldes(consumo, gorjeta, excedente, devido, valor, consumoPrimeiro(pg, opcoes));
 }
 
-/** Atrasado que ainda não foi respondido: o consumo volta antes da gorjeta. */
-function atrasadoEmAberto(pg) {
+/**
+ * O consumo volta antes da gorjeta só numa devolução ESCOLHIDA por quem devolve.
+ *
+ * Num CHARGEBACK ninguém escolheu nada: a rede tirou o dinheiro, e o razão está
+ * registrando de onde ele saiu — aí a verdade é o proporcional. Mandar a gorjeta
+ * inteira ficar nos livros enquanto a rede levou parte do dinheiro mentiria pra
+ * folha, que é exatamente o que o comentário do `webhook-handler` já dizia sobre
+ * o chargeback levar a gorjeta junto (compliance MEDIUM-2 de d7f2683).
+ */
+function consumoPrimeiro(pg, opcoes) {
+  if (opcoes && opcoes.forcada) return false;
   return pg.late === true && pg.lateResolved !== true;
 }
 

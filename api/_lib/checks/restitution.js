@@ -75,13 +75,22 @@ function tetoDaRestituicao(estado, txid, opcoes = {}) {
   // O ESTORNO QUE FALHOU sai do PAGAMENTO, não da lista de anomalias: a anomalia
   // é projeção e some quando alguém resolve a pendência — e resolver primeiro
   // trancava a devolução pra sempre (compliance HIGH-1 de ec86b37).
-  const estornoFalhou = pg.refundReversed === true;
+  const estornoFalhou = (pg.reversedOpenCents || 0) > 0;
   // O MEIO vem do RAZÃO; a linha de `payments` é só o reserva, porque ela é
   // melhor-esforço (MEDIUM-4). A DATA só existe na linha — e não saber a data
   // não é o mesmo que estar no prazo: quem decide isso é `codigoDaRecusa`.
   const meio = trilhoDoMeio(pg.method || (opcoes && opcoes.method) || null);
-  const prazoDias = PRAZO_DO_TRILHO_DIAS[meio] || null;
-  const quando = Date.parse((opcoes && opcoes.confirmedAt) || '');
+  // TRILHO SEM PRAZO CADASTRADO não é trilho aberto pra sempre: é trilho que
+  // esta regra não sabe julgar. O `bizum` caía aí — o mercado está construído e
+  // desligado, e a devolução legítima não teria como ser registrada NUNCA, que
+  // é o MEDIUM-3 desta série sobrevivendo no outro mercado (compliance MEDIUM-5
+  // de d7f2683). Quem responde por "não sei" é o `codigoDaRecusa`.
+  const prazoDias = Object.prototype.hasOwnProperty.call(PRAZO_DO_TRILHO_DIAS, meio)
+    ? PRAZO_DO_TRILHO_DIAS[meio] : null;
+  const prazoConhecido = prazoDias !== null;
+  // A DATA do razão primeiro; a linha de `payments` é reserva (ela cobre os
+  // pagamentos gravados antes de o razão passar a carregar `created_at`).
+  const quando = Date.parse(pg.confirmedAt || (opcoes && opcoes.confirmedAt) || '');
   const dataConhecida = Number.isFinite(quando);
   const foraDoPrazo = prazoDias !== null && dataConhecida
     && (Date.now() - quando) > prazoDias * DIA_MS;
@@ -97,7 +106,7 @@ function tetoDaRestituicao(estado, txid, opcoes = {}) {
   const liquido = Math.max(0, pg.amountCents - (pg.refundedAmountCents || 0))
     + Math.max(0, (pg.tipCents || 0) - (pg.refundedTipCents || 0));
   return {
-    excesso, tardio, trilhoImpossivel, motivo, dataConhecida,
+    excesso, tardio, trilhoImpossivel, motivo, dataConhecida, prazoConhecido,
     teto: Math.min(liquido, excesso + tardio),
   };
 }
@@ -120,7 +129,7 @@ function codigoDaRecusa(estado, txid, limites) {
   if (!limites || limites.teto > 0) return null;
   const temMarca = paidAfterClose(estado).some((x) => x.txid === txid);
   if (!temMarca) return 'nothing_to_restitute';
-  if (!limites.dataConhecida) return 'payment_age_unknown';
+  if (!limites.dataConhecida || !limites.prazoConhecido) return 'payment_age_unknown';
   return 'use_acquirer_refund';
 }
 

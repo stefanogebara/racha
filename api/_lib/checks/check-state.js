@@ -291,6 +291,10 @@ function emptyPayments() {
  * is a clean idempotent no-op). Pure; returns a NEW state object.
  */
 function applyEvent(state, evt, seq = null) {
+  // A data do evento, quando o store a traz (`created_at` no Postgres e no
+  // dublê). Opcional: um razão antigo, ou um teste que monta eventos à mão,
+  // segue funcionando — quem lê trata `null` como "não sei".
+  const quando = evt && typeof evt.created_at === 'string' ? evt.created_at : null;
   // Idempotent replay short-circuit must run BEFORE strict validation so a
   // duplicate webhook is a no-op, not an anomaly.
   if (state && evt && evt.type === 'PAYMENT_CONFIRMED') {
@@ -391,6 +395,18 @@ function applyEvent(state, evt, seq = null) {
          * compliance MEDIUM-4 de ec86b37). A fonte é o razão (inegociável #6).
          */
         method: typeof p.method === 'string' ? p.method : null,
+        /**
+         * QUANDO o dinheiro entrou — do EVENTO, que é imutável.
+         *
+         * É a data que decide se o trilho de devolução ainda está aberto (Pix,
+         * 90 dias; cartão, 180). Ela vinha só da linha de `payments`, que a
+         * própria rota trata como melhor-esforço: linha não projetada, ou um
+         * 5xx passageiro, e a resposta virava "não sei a idade" — a marca
+         * `critical` eterna pela porta da indisponibilidade. E sem ela no razão,
+         * o `railImpossible: 'pix_90d'` gravado ali não podia ser re-derivado
+         * por uma auditoria (compliance MEDIUM-4 de d7f2683).
+         */
+        confirmedAt: quando,
       };
       /**
        * E o que o adaptador DISSE fica como conferência.
@@ -429,6 +445,11 @@ function applyEvent(state, evt, seq = null) {
       }
       next.paidCents -= amount;
       next.tipCents -= tip;
+      // O estorno que ENFIM saiu abate o saldo revertido em aberto: a
+      // testemunha do trilho impossível vale o que ainda não voltou.
+      if (pay.reversedOpenCents) {
+        pay.reversedOpenCents = Math.max(0, pay.reversedOpenCents - (amount + tip));
+      }
       return recompute(next);
     }
     case 'PAYMENT_REFUND_REVERSED': {
@@ -451,7 +472,7 @@ function applyEvent(state, evt, seq = null) {
       // que nenhum: manda a pessoa discutir no caixa por uma quantia que
       // ninguém deve. Achado pela revisão de segurança de 2026-09-08.
       /**
-       * A MARCA DURÁVEL no pagamento — o fato, não o aviso.
+       * O SALDO REVERTIDO EM ABERTO — o fato, não o aviso, e com TAMANHO.
        *
        * A anomalia é a PROJEÇÃO: ela existe pra tela do cliente e some quando
        * alguém resolve a pendência. Mas "o estorno deste pagamento falhou" é um
@@ -459,10 +480,17 @@ function applyEvent(state, evt, seq = null) {
        * pendência primeiro — a ordem natural, porque é a marca mais barulhenta e
        * a que o cliente vê — apagava a testemunha e trancava a devolução PRA
        * SEMPRE, com a recusa mandando usar um trilho que já tinha falhado
-       * (compliance HIGH-1 de ec86b37). Agora a ordem dos cliques não decide
-       * mais nada: o campo fica.
+       * (compliance HIGH-1 de ec86b37).
+       *
+       * A primeira versão disto era um `true` que nunca saía, e isso abria a
+       * porta do outro lado: uma reversão de dez centavos sobre um estorno de
+       * cem reais destrancava a atestação do pagamento INTEIRO, pra sempre,
+       * mesmo depois de o estorno ser refeito com sucesso pelo adquirente
+       * (compliance MEDIUM-1 de d7f2683). Agora o campo tem tamanho e o
+       * `PAYMENT_REFUNDED` seguinte o abate: a testemunha vale exatamente o que
+       * o adquirente deixou de devolver.
        */
-      pay.refundReversed = true;
+      pay.reversedOpenCents = (pay.reversedOpenCents || 0) + amount + tip;
       return withAnomaly(recompute(next), seq, 'PAYMENT_REFUND_REVERSED',
         `estorno de ${p.txid} FALHOU: dinheiro voltou pro restaurante e o cliente ficou sem`,
         p.txid, 'high', amount + tip);
@@ -712,12 +740,37 @@ function paidAfterClose(state) {
     const l = liquido(p);
     const d = duplicado.get(txid);
     const servico = Math.max(0, (p.tipCents || 0) - (p.refundedTipCents || 0));
-    // O serviço ACOMPANHA o consumo: a fração dele que corresponde à parte
-    // duplicada é devida de qualquer jeito, arredondada a favor de quem pagou.
-    // A versão anterior só marcava "devido" quando a duplicidade era EXATA — um
-    // estorno de um centavo numa irmã e a resposta honesta apagava o serviço
-    // inteiro.
-    const servicoDevido = l > 0 ? Math.min(servico, Math.ceil((servico * d) / l)) : 0;
+    /**
+     * O SERVIÇO ACOMPANHA O CONSUMO — pela duplicidade COMO ELA CHEGOU, não
+     * pelo que sobrou dela.
+     *
+     * A fração devida sai de `excessCents / amountCents`, os dois do momento em
+     * que o pagamento entrou, e desconta o que já voltou de gorjeta. A versão
+     * anterior usava o LÍQUIDO (`d / l`), e aí a marca se apagava sozinha
+     * justamente quando a casa fazia a coisa certa: devolvido o consumo
+     * duplicado, `l` e `d` viram zero, `servicoDevido` vira zero, e os 10%
+     * que nunca foram serviço prestado deixavam de ser "devidos de qualquer
+     * jeito" e viravam PERGUNTA — com botão. Um clique em "não pagou no caixa"
+     * apagava dinheiro do cliente e deixava o valor na base da folha (Lei
+     * 13.419/2017 + STJ Tema 1102). Medido pela revisão de compliance de
+     * d7f2683 (HIGH-1): a ordem dos cliques voltava a decidir dinheiro, agora
+     * pelo caminho devolver→responder.
+     *
+     * Pela duplicidade original a marca sobrevive ao estorno do principal, e só
+     * some quando o próprio serviço volta. O invariante da soma não muda: o
+     * termo `servicoDevido` se cancela entre a pergunta e a marca.
+     */
+    const base = Math.max(0, p.amountCents || 0);
+    const duplicadoOriginal = Math.min(Math.max(0, p.excessCents || 0), base);
+    const devidoOriginal = base > 0
+      ? Math.ceil(((p.tipCents || 0) * duplicadoOriginal) / base) : 0;
+    const servicoDevido = Math.max(0, Math.min(
+      servico,
+      devidoOriginal - (p.refundedTipCents || 0),
+      // Nunca mais do que a fatia do que AINDA está pago, quando a duplicidade
+      // do momento é maior que a original (a conta encolheu depois).
+      Math.max(devidoOriginal, l > 0 ? Math.ceil((servico * d) / l) : 0),
+    ));
     const pergunta = (l - d) + (servico - servicoDevido);
     if (!p.lateResolved && pergunta > 0) out.push({ txid, amountCents: pergunta });
     if (servicoDevido > 0) out.push({ txid, amountCents: servicoDevido, sempreDevido: true });

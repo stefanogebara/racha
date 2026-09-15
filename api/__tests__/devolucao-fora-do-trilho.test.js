@@ -19,7 +19,7 @@
  *     ninguém prestou (compliance MEDIUM-2).
  */
 
-const { reduce, paidAfterClose } = require('../_lib/checks/check-state');
+const { reduce, paidAfterClose, validateEvent } = require('../_lib/checks/check-state');
 const { tetoDaRestituicao, codigoDaRecusa } = require('../_lib/checks/restitution');
 const { alocarDevolucaoDoPagamento, servicoDevidoDoAtrasado } = require('../_lib/checks/refund-allocation');
 
@@ -60,9 +60,31 @@ describe('o teto da devolução por fora', () => {
      */
     const resolvida = reduce([...ATRASADO, refunded('txC', 10000, 1000), revertido('txC', 10000, 1000), resolvido('txC')]);
     expect(resolvida.anomalies.some((a) => a.type === 'PAYMENT_REFUND_REVERSED')).toBe(false);
-    expect(resolvida.payments.txC.refundReversed).toBe(true);
+    // O SALDO REVERTIDO EM ABERTO, que é o fato, com tamanho.
+    expect(resolvida.payments.txC.reversedOpenCents).toBe(11000);
     expect(tetoDaRestituicao(resolvida, 'txC', { confirmedAt: diasAtras(1) }))
       .toMatchObject({ trilhoImpossivel: true, tardio: 11000, motivo: 'refund_reversed' });
+  });
+
+  test('o estorno REFEITO com sucesso fecha a porta de novo — a testemunha não é eterna', () => {
+    /**
+     * A primeira versão gravava um `true` que nunca saía, e isso abria a porta
+     * pelo outro lado: uma reversão de dez centavos sobre um estorno de cem
+     * reais destrancava a atestação do pagamento INTEIRO, pra sempre, mesmo
+     * depois de o adquirente enfim devolver (compliance MEDIUM-1 de d7f2683).
+     */
+    const falhouEDepoisFoi = reduce([...ATRASADO,
+      refunded('txC', 10000, 1000), revertido('txC', 10000, 1000), refunded('txC', 10000, 1000)]);
+    expect(falhouEDepoisFoi.payments.txC.reversedOpenCents).toBe(0);
+    expect(tetoDaRestituicao(falhouEDepoisFoi, 'txC', { confirmedAt: diasAtras(1) }))
+      .toMatchObject({ trilhoImpossivel: false, motivo: null });
+
+    // E uma reversão PARCIAL vale só o que ficou faltando.
+    const parcial = reduce([...ATRASADO,
+      refunded('txC', 10000, 1000), revertido('txC', 10, 0)]);
+    expect(parcial.payments.txC.reversedOpenCents).toBe(10);
+    expect(tetoDaRestituicao(parcial, 'txC', { confirmedAt: diasAtras(1) }))
+      .toMatchObject({ trilhoImpossivel: true, motivo: 'refund_reversed' });
   });
 
   test('cada trilho tem o SEU prazo: Pix 90 dias, cartão 180', () => {
@@ -269,5 +291,132 @@ describe('o atrasado em aberto devolve o CONSUMO antes da gorjeta', () => {
     const normal = reduce([opened(20000), paid('t1', 10000, 1000)]);
     expect(alocarDevolucaoDoPagamento(normal, 't1', normal.payments.t1, 5500))
       .toEqual({ amountCents: 5000, tipCents: 500 });
+  });
+});
+
+describe('o serviço DEVIDO sobrevive ao estorno do principal', () => {
+  /**
+   * A fração devida saía do LÍQUIDO (`d / l`), e aí a marca se apagava sozinha
+   * justamente quando a casa fazia a coisa certa: devolvido o consumo
+   * duplicado, `l` e `d` viram zero, o serviço deixa de ser "devido de qualquer
+   * jeito" e vira PERGUNTA — com botão. Um clique em "não pagou no caixa"
+   * apagava dinheiro do cliente e deixava o valor na base da folha (Lei
+   * 13.419/2017 + STJ Tema 1102). A ordem dos cliques voltava a decidir
+   * dinheiro, agora por devolver→responder (compliance HIGH-1 de d7f2683).
+   */
+  const DUPLICIDADE = [opened(20000), paid('txA', 20000, 2000), closed(), paid('txC', 10000, 1000)];
+
+  test('devolvido o consumo duplicado, o serviço continua `sempreDevido`', () => {
+    expect(paidAfterClose(reduce(DUPLICIDADE)))
+      .toEqual([{ txid: 'txC', amountCents: 1000, sempreDevido: true }]);
+    const depois = reduce([...DUPLICIDADE, refunded('txC', 10000, 0)]);
+    expect(paidAfterClose(depois))
+      .toEqual([{ txid: 'txC', amountCents: 1000, sempreDevido: true }]);
+  });
+
+  test('e o botão do painel não consegue apagá-lo', () => {
+    const depois = reduce([...DUPLICIDADE, refunded('txC', 10000, 0)]);
+    expect(() => validateEvent({
+      type: 'PAYMENT_ISSUE_RESOLVED',
+      payload: { txid: 'txC', note: 'a mesa não pagou no caixa', by: 'u-1', scope: 'paid_after_close' },
+    }, depois)).toThrow(/duplicidade/);
+  });
+
+  test('some só quando o próprio serviço volta', () => {
+    expect(paidAfterClose(reduce([...DUPLICIDADE, refunded('txC', 10000, 1000)]))).toEqual([]);
+  });
+
+  test('na duplicidade PARCIAL a fatia devida também sobrevive', () => {
+    const parcial = [opened(20000), paid('txA', 15000, 1500), closed(), paid('txC', 10000, 1000)];
+    const antes = paidAfterClose(reduce(parcial));
+    expect(antes).toContainEqual({ txid: 'txC', amountCents: 500, sempreDevido: true });
+    const depois = paidAfterClose(reduce([...parcial, refunded('txC', 5000, 0)]));
+    expect(depois).toContainEqual({ txid: 'txC', amountCents: 500, sempreDevido: true });
+  });
+
+  test('a gorjeta já devolvida ABATE o que ainda é devido', () => {
+    // Duplicidade parcial (5000 de 10000) com 1000 de serviço: 500 devidos. A
+    // casa devolve 300 de gorjeta — restam 200, não 500. Sem esse abatimento a
+    // marca pedia de volta um dinheiro que já tinha voltado, e o dono devolvia
+    // duas vezes o mesmo serviço.
+    const parcial = [opened(20000), paid('txA', 15000, 1500), closed(), paid('txC', 10000, 1000)];
+    expect(paidAfterClose(reduce(parcial)))
+      .toContainEqual({ txid: 'txC', amountCents: 500, sempreDevido: true });
+    expect(paidAfterClose(reduce([...parcial, refunded('txC', 0, 300)])))
+      .toContainEqual({ txid: 'txC', amountCents: 200, sempreDevido: true });
+    expect(paidAfterClose(reduce([...parcial, refunded('txC', 0, 500)])))
+      .not.toContainEqual(expect.objectContaining({ sempreDevido: true }));
+  });
+
+  test('a mesa que pagou NO CAIXA continua sem `sempreDevido` — o razão não vê o caixa', () => {
+    expect(paidAfterClose(reduce(ATRASADO))).toEqual([{ txid: 'txC', amountCents: 11000 }]);
+    expect(paidAfterClose(reduce([...ATRASADO, refunded('txC', 10000, 0)])))
+      .toEqual([{ txid: 'txC', amountCents: 1000 }]);
+  });
+});
+
+test('o CHARGEBACK continua proporcional — ninguém escolheu de onde o dinheiro sai', () => {
+  // O balde do consumo-primeiro existe pra quem ESCOLHE devolver. Num
+  // chargeback a rede decidiu, e deixar a gorjeta inteira nos livros enquanto a
+  // rede levou parte do dinheiro mentiria pra folha (compliance MEDIUM-2 de
+  // d7f2683) — que é o que o comentário do `webhook-handler` já dizia.
+  const st = reduce(ATRASADO);
+  const pg = st.payments.txC;
+  expect(alocarDevolucaoDoPagamento(st, 'txC', pg, 5000))
+    .toEqual({ amountCents: 5000, tipCents: 0 });
+  const forcado = alocarDevolucaoDoPagamento(st, 'txC', pg, 5000, { forcada: true });
+  expect(forcado.tipCents).toBeGreaterThan(0);
+  expect(forcado.amountCents + forcado.tipCents).toBe(5000);
+
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const W = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+  // A disputa perdida marca `forcada`; o estorno comum, não.
+  expect(W).toMatch(/alocarDevolucao\(state, parsed\.txid, pay, parsed\.refundDeltaCents, \{ forcada: true \}\)/);
+  expect(W).toMatch(/alocarDevolucao\(state, parsed\.txid, pay, delta\)/);
+});
+
+describe('a DATA que decide o prazo vem do razão', () => {
+  const emDia = (d, ev) => ({ ...ev, created_at: new Date(Date.now() - d * 86400000).toISOString() });
+  const velho = [
+    emDia(200, opened(30000)), emDia(200, paid('txA', 20000, 2000)),
+    emDia(200, closed()), emDia(200, paid('txC', 10000, 1000)),
+  ];
+
+  test('sem a linha de `payments`, o Pix de 200 dias ainda é trilho impossível', () => {
+    const st = reduce(velho);
+    expect(st.payments.txC.confirmedAt).toBeTruthy();
+    expect(tetoDaRestituicao(st, 'txC', {}))
+      .toMatchObject({ trilhoImpossivel: true, motivo: 'pix_90d', dataConhecida: true });
+  });
+
+  test('um razão SEM data (evento montado à mão) segue funcionando — e diz que não sabe', () => {
+    const st = reduce(ATRASADO);
+    expect(st.payments.txC.confirmedAt).toBeNull();
+    expect(tetoDaRestituicao(st, 'txC', {})).toMatchObject({ dataConhecida: false });
+  });
+
+  test('trilho SEM prazo cadastrado não é trilho aberto pra sempre', () => {
+    // `bizum`: o mercado está construído e desligado, e a devolução legítima
+    // não teria como ser registrada NUNCA (compliance MEDIUM-5 de d7f2683).
+    const biz = reduce([
+      emDia(1, opened(30000)), emDia(1, paid('t1', 30000)), emDia(1, closed()),
+      emDia(1, { type: 'PAYMENT_CONFIRMED', payload: { txid: 't2', amountCents: 5000, tipCents: 0, method: 'bizum' } }),
+    ]);
+    const limites = tetoDaRestituicao(biz, 't2', {});
+    expect(limites.prazoConhecido).toBe(false);
+    // O excedente não depende de trilho nenhum, então na conta acima há teto.
+    // A recusa aparece no atrasado que só COMPLETA a conta: marca existe, sobra
+    // não, e o prazo do trilho é desconhecido — "não sei", não "use o
+    // adquirente", porque mandar a casa a um trilho que talvez esteja fechado é
+    // pior que admitir a dúvida.
+    const completa = reduce([
+      emDia(1, opened(30000)), emDia(1, paid('t1', 20000)), emDia(1, closed()),
+      emDia(1, { type: 'PAYMENT_CONFIRMED', payload: { txid: 'b2', amountCents: 10000, tipCents: 0, method: 'bizum' } }),
+    ]);
+    expect(paidAfterClose(completa)).toEqual([{ txid: 'b2', amountCents: 10000 }]);
+    const semTeto = tetoDaRestituicao(completa, 'b2', {});
+    expect(semTeto).toMatchObject({ teto: 0, prazoConhecido: false, dataConhecida: true });
+    expect(codigoDaRecusa(completa, 'b2', semTeto)).toBe('payment_age_unknown');
   });
 });

@@ -85,6 +85,13 @@ function throwOn(error, op) {
   if (typeof error.code === 'string' && (SQLSTATE_RE.test(error.code) || PGRST_RE.test(error.code))) {
     e.pgCode = error.code;
   }
+  // O NOME da restrição violada, quando o Postgres o diz. Só forma, como o
+  // código: quem decide o que ele prova é o classificador. Sem isto, QUALQUER
+  // unicidade virava "já registrado" — inclusive a `(check_id, seq)` do razão,
+  // que significaria o oposto (compliance LOW-1 de d7f2683).
+  const texto = `${error.message || ''} ${error.details || ''}`;
+  const achado = texto.match(/unique constraint "([a-z0-9_]+)"/i);
+  if (achado) e.pgConstraint = achado[1];
   throw e;
 }
 
@@ -188,7 +195,13 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     if (!isUuid(checkId)) return []; // malformed id → empty log → "not found"
     const { data, error } = await client
       .from('check_events')
-      .select('seq, type, payload')
+      // `created_at`: a DATA do evento, que é o que decide se o trilho de
+      // devolução daquele pagamento ainda está aberto. Sem ela, a única fonte da
+      // data era a linha de `payments` — a projeção que a rota da devolução
+      // trata como melhor-esforço —, e um `railImpossible: 'pix_90d'` gravado no
+      // razão não podia ser re-derivado dele por uma auditoria (compliance
+      // MEDIUM-4 de d7f2683).
+      .select('seq, type, payload, created_at')
       .eq('check_id', checkId)
       .order('seq', { ascending: true });
     throwOn(error, 'loadEvents');

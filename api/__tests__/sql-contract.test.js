@@ -853,12 +853,23 @@ test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
       // ESCRITA (`e.pgCode = ...`) não é leitura. Casa a partir do nome, porque
       // o match agora é a palavra e não o acesso pontuado.
       if (/^pgCode\s*=[^=]/.test(fonte.slice(m.index, m.index + 14))) continue;
-      // E a forma de LITERAL (`{ pgCode: '40001' }`), que o dublê do store usa
-      // pra produzir o erro na mesma forma que o `throwOn` do Supabase produz.
-      // Também é escrita. Uma DECISÃO escrita dentro de um literal
-      // (`{ conflito: pgCode === '40001' }`) não tem os dois-pontos logo depois
-      // do nome, então continua sendo pega.
-      if (/^pgCode\s*:/.test(fonte.slice(m.index, m.index + 14))) continue;
+      /**
+       * E a forma de LITERAL (`{ pgCode: '40001' }`), que o dublê do store usa
+       * pra produzir o erro na mesma forma que o `throwOn` do Supabase produz.
+       * Também é escrita.
+       *
+       * O VALOR tem de ser literal. `pgCode:` sozinho também casa o RENOME de
+       * uma desestruturação — `const { pgCode: sqlstate } = e` — e aí a decisão
+       * que vem depois (`if (sqlstate === '23505')`) não tem a palavra `pgCode`
+       * em lugar nenhum: some do censo inteiro. A revisão de segurança de
+       * d7f2683 provou a fuga (MEDIUM-2), e o cabeçalho acima já registrava a
+       * IRMÃ dela (a desestruturação sem renome) como achado anterior — a
+       * isenção nova reabriu a família.
+       *
+       * Exigindo string ou número depois dos dois-pontos, `{ pgCode: '40001' }`
+       * segue isento e `{ pgCode: sqlstate }` volta a ser pego.
+       */
+      if (/^pgCode\s*:\s*['"`\d]/.test(fonte.slice(m.index, m.index + 20))) continue;
       // Dentro de uma interpolação (`${e.pgCode}`) é texto, não decisão.
       if (/\$\{[^}]*$/.test(antes)) continue;
       decisoes.push({ arquivo: path.relative(raiz, p), linha });
@@ -881,4 +892,35 @@ test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
     expect({ arquivo: d.arquivo, passaPeloClassificador: /recusaProvada\(/.test(d.linha) })
       .toEqual({ arquivo: '_lib/checks/reconcile.js', passaPeloClassificador: true });
   }
+});
+/**
+ * O CENSO DO `pgCode` É TESTADO CONTRA FUGAS CONHECIDAS.
+ *
+ * Duas já passaram por ele: a desestruturação sem renome (achado de 2026-09-09)
+ * e o renome, que a isenção de literal reabriu (segurança MEDIUM-2 de d7f2683).
+ * Uma isenção escrita a olho é uma fuga esperando; aqui ela é medida.
+ */
+test('as isenções do censo do `pgCode` isentam só ESCRITA', () => {
+  const isento = (fonte, i) => /^pgCode\s*=[^=]/.test(fonte.slice(i, i + 14))
+    || /^pgCode\s*:\s*['"`\d]/.test(fonte.slice(i, i + 20));
+  const pega = (fonte) => [...fonte.matchAll(/\bpgCode\b/g)].some((m) => !isento(fonte, m.index));
+  const casos = [
+    ['decisão pontuada', "if (e.pgCode === '40001') {}", true],
+    ['desestruturação', 'const { pgCode } = e; if (pgCode) {}', true],
+    ['desestruturação COM RENOME', "const { pgCode: sqlstate } = e; if (sqlstate === '23505') {}", true],
+    ['decisão frouxa', "if (e.pgCode == '40001') {}", true],
+    ['decisão dentro de literal', "const r = { conflito: e.pgCode === '40001' };", true],
+    ['cópia pra variável', "const s = e.pgCode; if (s === '23505') {}", true],
+    ['ESCRITA por atribuição', "e.pgCode = error.code;", false],
+    ['ESCRITA por literal', "Object.assign(new Error(), { pgCode: '40001' })", false],
+    ['ESCRITA por literal numérica', 'const e = { pgCode: 40001 };', false],
+  ];
+  const resultado = casos.map(([nome, fonte]) => [nome, pega(fonte)]);
+  expect(resultado).toEqual(casos.map(([nome, , esperado]) => [nome, esperado]));
+
+  // E a isenção do teste é a MESMA do censo, palavra por palavra — senão isto
+  // aqui prova um censo que não existe.
+  const fonte = fs.readFileSync(__filename, 'utf8');
+  expect(fonte).toContain("/^pgCode\\s*=[^=]/.test(fonte.slice(m.index, m.index + 14))");
+  expect(fonte).toContain("/^pgCode\\s*:\\s*['\"`\\d]/.test(fonte.slice(m.index, m.index + 20))");
 });

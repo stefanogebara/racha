@@ -52,11 +52,11 @@ const { alocarDevolucaoDoPagamento } = require('../checks/refund-allocation');
  * registra fora do trilho. Eram duas cópias da mesma conta, e uma delas não
  * conhecia o serviço devido do pago-depois-de-fechar.
  */
-function alocarDevolucao(state, txid, pay, delta) {
+function alocarDevolucao(state, txid, pay, delta, opcoes) {
   // A regra mora em `refund-allocation.js` — a mesma que a devolução fora do
   // trilho usa. O `state` deixou de ser ignorado: é dele que sai o serviço
   // DEVIDO de um pagamento atrasado (balde 2).
-  return alocarDevolucaoDoPagamento(state, txid, pay, delta);
+  return alocarDevolucaoDoPagamento(state, txid, pay, delta, opcoes);
 }
 
 
@@ -126,11 +126,22 @@ async function applyConfirmedPayment(parsed, deps) {
    * subtração.
    */
   /**
-   * Reversão: desfaz o que ESTE estorno tirou, na mesma proporção.
+   * Reversão: desfaz o que ESTE estorno tirou, na mesma proporção do que já
+   * saiu — `allocateRefund` sobre `refundedAmountCents`/`refundedTipCents`.
    *
-   * O `refund.failed` traz o valor do estorno que falhou. Rateá-lo contra o
-   * que já foi estornado devolve exatamente as partes que foram tiradas —
-   * pelo mesmo `allocateRefund`, então a ida e a volta não podem divergir.
+   * O texto aqui dizia que a ida e a volta "não podem divergir, pelo mesmo
+   * `allocateRefund`". Deixou de ser verdade quando a IDA ganhou três baldes:
+   * uma devolução que saiu 10000/1000 pelos baldes 1 e 2 e é revertida em 5000
+   * volta ~4546/454 pelo proporcional, e a base da folha sobe por um caminho e
+   * desce por outro (compliance MEDIUM-3 de d7f2683).
+   *
+   * A reversão SEGUE proporcional, e de propósito: ela rateia sobre o que já
+   * foi estornado no TOTAL daquele pagamento, que é o saldo real a recompor —
+   * não sobre um lançamento específico, que o `refund.failed` não identifica.
+   * O que muda é a honestidade do comentário: a divergência existe, é contra o
+   * cliente em no máximo um arredondamento, e some quando a reversão é integral
+   * (o caso do MED e o comum). Fechar isso de verdade exige o estorno falho
+   * apontar QUAL lançamento falhou, e o adquirente não manda isso.
    */
   let reversalAllocated = null;
   if (type === 'PAYMENT_REFUND_REVERSED') {
@@ -298,7 +309,12 @@ async function applyConfirmedPayment(parsed, deps) {
     // deixá-la nos livros como paga mentiria pra folha — mas o excedente nunca
     // foi gorjeta nem receita, e não pode virar desconto na folha por ordem de
     // subtração.
-    refundAllocated = alocarDevolucao(state, parsed.txid, pay, parsed.refundDeltaCents);
+    //
+    // `forcada`: aqui o dinheiro foi TIRADO, não devolvido. O balde do consumo
+    // primeiro existe pra quem ESCOLHE devolver; num chargeback a rede decidiu,
+    // e o proporcional é o que diz a verdade sobre de onde o dinheiro saiu
+    // (compliance MEDIUM-2 de d7f2683).
+    refundAllocated = alocarDevolucao(state, parsed.txid, pay, parsed.refundDeltaCents, { forcada: true });
   }
   if (type === 'PAYMENT_REFUNDED' && Number.isSafeInteger(parsed.cumulativeRefundedCents)) {
     const pay = state && state.payments[parsed.txid];

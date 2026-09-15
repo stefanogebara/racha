@@ -60,7 +60,17 @@ function pspIndisponivel(motivo) {
   // `Array.isArray(psp.currencies)` segue falso e o portão do `create-charge`
   // recusa antes de qualquer chamada.
   return new Proxy({ provider: 'unconfigured', motivo: String(motivo) }, {
-    get: (alvo, chave) => (chave in alvo ? alvo[chave] : recusa),
+    get: (alvo, chave) => {
+      if (chave in alvo) return alvo[chave];
+      // O RUNTIME TAMBÉM PERGUNTA. `then` faz de qualquer objeto um thenable:
+      // um `await psp` chamaria a recusa como executor e rejeitaria em vez de
+      // devolver o adaptador. `toJSON`/`inspect` idem, na hora de logar. São
+      // chaves do protocolo do JavaScript, não métodos de PSP (segurança LOW-2
+      // de d7f2683).
+      if (typeof chave === 'symbol' || chave === 'then' || chave === 'toJSON'
+          || chave === 'inspect' || chave === 'constructor') return undefined;
+      return recusa;
+    },
   });
 }
 

@@ -106,7 +106,31 @@ const store = useSupabase
 // explícito de produção vence até isso, pra suíte poder exercitar o portão.
 const AMBIENTE = (process.env.VERCEL_ENV || process.env.RACHA_ENV || '').trim();
 const EM_TESTE = !!process.env.JEST_WORKER_ID || process.env.NODE_ENV === 'test';
-const EM_PRODUCAO = AMBIENTE === 'production' || (AMBIENTE === '' && !EM_TESTE);
+/**
+ * SÓ SAI DA PRODUÇÃO QUEM DIZ, COM UMA DAS DUAS PALAVRAS.
+ *
+ * A versão anterior era `AMBIENTE === 'production' || (AMBIENTE === '' &&
+ * !EM_TESTE)` — uma LISTA DE PERMISSÃO — com um comentário em cima dizendo que
+ * o desconhecido contava como produção. O comentário era a intenção; o código
+ * fazia o contrário: só a string VAZIA caía do lado seguro, e qualquer outro
+ * valor que não fosse exatamente `production` saía da produção.
+ *
+ * E o valor deixou de vir da Vercel (conjunto FECHADO: production/preview/
+ * development) pra vir de um campo que uma pessoa digita. Alguém escreve
+ * `prod`, ou `Production`, e uma casa de verdade passa a servir BR Code do
+ * mock, com o razão num mapa em memória e o cron devolvendo 200 verde — o
+ * incidente C1 inteiro, embaixo do guarda escrito pra impedi-lo. Medido pela
+ * revisão de segurança de d7f2683 (HIGH-1), que provou os seis valores.
+ *
+ * Agora é lista de RECUSA: `preview` e `development` saem; todo o resto —
+ * inclusive o que ninguém previu — é produção e falha fechada. O `deploy.mjs`
+ * exige `RACHA_ENV=production` exato, mas ele não cobre deploy pelo painel,
+ * rollback, nem push pela integração de git: o portão do runtime é o que
+ * precisa estar certo sozinho.
+ */
+const FORA_DA_PRODUCAO = ['preview', 'development'];
+const EM_PRODUCAO = AMBIENTE === 'production'
+  || (!FORA_DA_PRODUCAO.includes(AMBIENTE) && !EM_TESTE);
 const CONFIG_DE_PRODUCAO_FALTANDO = EM_PRODUCAO
   ? [!useSupabase && 'RACHA_STORE=supabase',
     RACHA_PSP !== 'pagarme' && 'RACHA_PSP=pagarme'].filter(Boolean)
@@ -1757,7 +1781,18 @@ async function route(req, res) {
       }
       // A REFERÊNCIA não é enfeite: é o que prova a devolução se o cliente
       // abrir um MED depois, e o que evita a casa pagar duas vezes.
-      const ref = String(b.reference || '').trim().slice(0, 120);
+      /**
+       * A REFERÊNCIA, NORMALIZADA AQUI — uma vez, antes de virar chave.
+       *
+       * Ela é a chave de idempotência da 0034, e os dois lados normalizavam
+       * diferente: o `trim()` do JS tira toda espécie de espaço em branco, o
+       * `btrim` do Postgres tira só o espaço ASCII. Uma referência terminada em
+       * tabulação era duplicata pro dublê e entrava de novo em produção — e o
+       * `.trim().slice(120)` anterior conseguia até CRIAR esse caso, cortando
+       * no meio do espaço (segurança LOW-1 de d7f2683). Colapsando o branco
+       * antes, os dois lados passam a ver a mesma string.
+       */
+      const ref = String(b.reference || '').replace(/\s+/g, ' ').trim().slice(0, 120).trim();
       if (ref.length < 3) {
         return json(res, 400, { success: false, code: 'reference_required' });
       }
@@ -1911,7 +1946,16 @@ async function route(req, res) {
         // retry merece a resposta da primeira vez, não um segundo lançamento.
         if (desfecho === 'duplicado') {
           process.stderr.write(`[restituicao] reentrega da mesma referência em ${b.checkId}\n`);
-          return json(res, 200, { success: true, data: { duplicate: true } });
+          // O QUE JÁ ESTÁ NO RAZÃO, não só "ok". Quem repetiu com o valor
+          // trocado por engano precisa ver que o registrado é outro número —
+          // senão lê sucesso e vai embora (compliance LOW-2 de d7f2683).
+          const jaGravado = (await store.loadEvents(b.checkId).catch(() => []))
+            .filter((e) => e.type === 'PAYMENT_REFUNDED' && e.payload && e.payload.offRail === true
+              && String(e.payload.txid) === String(b.txid)
+              && String(e.payload.reference || '').replace(/\s+/g, ' ').trim().toLowerCase() === ref.toLowerCase())
+            .map((e) => ({ seq: e.seq, amountCents: e.payload.amountCents, tipCents: e.payload.tipCents }))
+            .pop() || null;
+          return json(res, 200, { success: true, data: { duplicate: true, recorded: jaGravado } });
         }
         // AQUI sim é falha: o razão não recebeu nada. E o MESMO ponto do
         // `resolve-issue` (compliance LOW-E de 57c0d2e, agora aqui): banco fora
@@ -2238,12 +2282,39 @@ async function route(req, res) {
       if (!psp.getRecipient) return json(res, 200, { success: true, data: { checked: 0, transitions: 0, note: 'PSP sem getRecipient' } });
       const pending = await store.listVenuesPendingRecipient();
       const detail = [];
+      /**
+       * QUEM FOI PERGUNTADO, e quantos RESPONDERAM — não quantos falharam.
+       *
+       * A comparação `falharam === pending.length` era furável por uma linha
+       * velha: `getRecipient` devolve `null` SEM chamar ninguém quando o id não
+       * é `r*_` (ver `pagarme-psp`), e o `continue` não deixava entrada no
+       * `detail`. Uma casa marcada `pending` antes de ter recebedor ficava lá
+       * pra sempre e desligava o canário — adquirente inteiro fora do ar, três
+       * de quatro consultas com erro, cron 200 VERDE (segurança MEDIUM-1 de
+       * d7f2683).
+       *
+       * Contar aquele `null` como "o adquirente respondeu" refazia o buraco
+       * pelo outro lado. Uma chamada que nunca saiu não é sucesso nem falha: a
+       * casa sem recebedor de verdade não é PERGUNTADA, aparece no relatório, e
+       * o 503 olha só quem foi.
+       */
+      let consultadas = 0;
+      let responderam = 0;
       for (const v of pending) {
+        if (!temRecebedorReal(v)) {
+          detail.push({ venue: v.id, note: 'pendente sem recebedor de verdade' });
+          continue;
+        }
+        consultadas += 1;
         let info;
         try { info = await psp.getRecipient(v.pspRecipientId); }
         catch (e) { detail.push({ venue: v.id, error: String(e.message).slice(0, 120) }); continue; }
+        responderam += 1;
         const live = info && info.status ? info.status : null;
-        if (!live || live === v.pspRecipientStatus) continue; // sem mudança
+        // O `null` VISÍVEL: a casa sem recebedor de verdade some do relatório e
+        // é ela que sustenta a lista pendente pra sempre.
+        if (!live) { detail.push({ venue: v.id, note: 'sem status vivo' }); continue; }
+        if (live === v.pspRecipientStatus) continue; // sem mudança
         if (isTerminalRecipientStatus(live)) {
           // Status que interessa ao dono (active/refused/…): avisa. Só grava DEPOIS
           // que o aviso saiu — se falhar (endpoint fora), não consome a transição
@@ -2278,9 +2349,8 @@ async function route(req, res) {
       // o único sinal era um `detail` que ninguém lê — enquanto o cron irmão,
       // quarenta linhas abaixo, devolve 503 justamente pra pintar de vermelho
       // (inegociável #8; segurança MEDIUM-1 de ec86b37).
-      const falharam = detail.filter((d) => d.error).length;
-      if (pending.length > 0 && falharam === pending.length) {
-        process.stderr.write(`[recipient-status] TODAS as ${falharam} consultas falharam\n`);
+      if (consultadas > 0 && responderam === 0) {
+        process.stderr.write(`[recipient-status] o adquirente não respondeu NENHUMA das ${consultadas} consultas\n`);
         return json(res, 503, { success: false, code: 'psp_unavailable' });
       }
       return json(res, 200, { success: true, data: { checked: pending.length, notified, detail } });

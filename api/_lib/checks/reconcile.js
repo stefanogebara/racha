@@ -570,11 +570,19 @@ function recusaProvada(codigo) {
  * chama trata como "pode ter escrito" — a direção conservadora, que no caminho
  * da devolução significa mandar CONFERIR antes de repetir.
  */
+/** O índice parcial da 0034 — o único 23505 que significa "já registrada". */
+const INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO = 'check_events_offrail_refund_uidx';
+
 function desfechoDoLancamento(err) {
   const codigo = err && err.pgCode;
   if (!recusaProvada(codigo)) return 'indefinido';
   if (codigo === '40001') return 'conflito';
-  if (codigo === '23505') return 'duplicado';
+  // `23505` SÓ do nosso índice. O razão tem outra unicidade — `(check_id, seq)`
+  // — e tratá-la como "já registrada" responderia 200 sobre um lançamento que
+  // não entrou, que é o oposto do que aconteceu (compliance LOW-1 de d7f2683).
+  if (codigo === '23505') {
+    return err.pgConstraint === INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO ? 'duplicado' : 'recusado';
+  }
   return 'recusado';
 }
 
@@ -1254,4 +1262,4 @@ async function reconcileVenueHouse(store, venueId) {
 
 module.exports = {
   acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, recusaProvada,
-  desfechoDoLancamento, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+  desfechoDoLancamento, INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
