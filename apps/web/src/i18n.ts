@@ -604,6 +604,9 @@ export const DICT = {
    * tela do CLIENTE ganhou esse tratamento (`NOTICE_KEY`); a do dono era o
    * chamador esquecido. Achado pela revisão de segurança de 2026-09-08.
    */
+  'find.paid_after_close': { en: 'a payment of {amount} arrived after the bill closed — if the table also paid at the till, it is owed back',
+                        pt: 'um pagamento de {amount} chegou depois de a conta fechar — se a mesa também pagou no caixa, é valor a devolver',
+                        es: 'un pago de {amount} llegó después de cerrar la cuenta — si la mesa también pagó en caja, hay que devolverlo' },
   'find.overpaid_pending_restitution': { en: 'received {amount} more than the bill asked — refund pending',
                         pt: 'recebeu {amount} a mais do que a conta pedia — devolução pendente',
                         es: 'ha recibido {amount} de más — devolución pendiente' },
@@ -780,6 +783,9 @@ export const DICT = {
   'find.other':       { en: 'needs a look: {code}',
                         pt: 'precisa de atenção: {code}',
                         es: 'necesita atención: {code}' },
+  'panel.paidAfterClose': { en: 'arrived after the bill closed: {amount} — if the table also paid at the till, it is owed back',
+                        pt: 'chegou depois de a conta fechar: {amount} — se a mesa também pagou no caixa, é valor a devolver',
+                        es: 'llegó después de cerrar la cuenta: {amount} — si la mesa también pagó en caja, hay que devolverlo' },
   'panel.owedBack':   { en: 'owed back: {amount}',               pt: 'a devolver: {amount}', es: 'a devolver: {amount}' },
   'panel.toRefund':   { en: 'to refund to diners',               pt: 'a devolver a clientes', es: 'a devolver a clientes' },
   'panel.receivedToday': { en: 'received today · {n} payments', pt: 'recebido hoje · {n} pagamentos', es: 'recibido hoy · {n} pagos' },
@@ -975,9 +981,15 @@ export const DICT = {
   // fazer, e quem está no meio de um pagamento acompanha a conta PELO token da
   // mesa: girado, a tela vira "conta não encontrada" e ele não vê a
   // confirmação — e pode pagar de novo no caixa. (Compliance, M2.)
-  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately, and anyone paying right now loses their confirmation screen. Payments already started with the old code can still arrive for up to 15 minutes, and they only show here once confirmed — before charging at the till, wait those 15 minutes or ask the table whether anyone already paid. Anything that arrives after you charge shows here as money to give back.',
-                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora, e quem está pagando agora perde a tela de confirmação. Pagamentos já iniciados com o código antigo ainda podem chegar por até 15 minutos, e só aparecem aqui depois de confirmados — antes de cobrar no caixa, espere esses 15 minutos ou pergunte na mesa se alguém já pagou. O que chegar depois da cobrança no caixa aparece aqui como valor a devolver.',
-                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante, y quien esté pagando ahora pierde la pantalla de confirmación. Los pagos ya iniciados con el código antiguo aún pueden llegar durante hasta 15 minutos, y solo aparecen aquí una vez confirmados — antes de cobrar en caja, espera esos 15 minutos o pregunta en la mesa si alguien ya pagó. Lo que llegue después del cobro en caja aparece aquí como importe a devolver.' },
+  // A última frase dizia que o que chegasse depois da cobrança no caixa
+  // "aparece aqui como valor a devolver" — e não aparecia: o Racha não registra o
+  // caixa, e um Pix atrasado só completava a conta. Agora o pagamento que chega
+  // depois de fechar é marcado na linha da mesa (`panel.paidAfterClose`) e vira
+  // achado da conciliação. E o prazo de 15 minutos é do Pix: um cartão em
+  // confirmação pode chegar depois. (Compliance HIGH-1 e LOW-3 de 40d5c50.)
+  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately, and anyone paying right now loses their confirmation screen. Payments already started with the old code can still arrive — a Pix for up to 15 minutes, a card still confirming possibly later — and they only show here once confirmed. Before charging at the till, wait those 15 minutes or ask the table whether anyone already paid. A payment that arrives after the bill is closed is marked on its table here: if the table also paid at the till, it is owed back.',
+                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora, e quem está pagando agora perde a tela de confirmação. Pagamentos já iniciados com o código antigo ainda podem chegar — um Pix por até 15 minutos, um cartão ainda em confirmação talvez depois — e só aparecem aqui depois de confirmados. Antes de cobrar no caixa, espere esses 15 minutos ou pergunte na mesa se alguém já pagou. Pagamento que chegar depois de a conta fechar fica marcado na mesa, aqui: se a mesa também pagou no caixa, é valor a devolver.',
+                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante, y quien esté pagando ahora pierde la pantalla de confirmación. Los pagos ya iniciados con el código antiguo aún pueden llegar — un Pix durante hasta 15 minutos, una tarjeta aún en confirmación quizá después — y solo aparecen aquí una vez confirmados. Antes de cobrar en caja, espera esos 15 minutos o pregunta en la mesa si alguien ya pagó. Un pago que llegue después de cerrar la cuenta queda marcado en su mesa, aquí: si la mesa también pagó en caja, hay que devolverlo.' },
   'admin.deactivateAsk': { en: 'Deactivate {table}? Its QR stops working.',
                         pt: 'Desativar a {table}? O QR dela para de funcionar.',
                         es: '¿Desactivar {table}? Su QR deja de funcionar.' },

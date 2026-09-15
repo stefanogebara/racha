@@ -32,7 +32,7 @@ const { disputeCounts } = require('../checks/disputes');
  */
 
 const crypto = require('crypto');
-const { reduce } = require('../checks/check-state');
+const { reduce, paidAfterClose } = require('../checks/check-state');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
 const { isTerminalRecipientStatus } = require('../recipient-status');
@@ -505,6 +505,9 @@ function createMemoryStore() {
             // número morria ali: nenhum painel, nenhuma tela. Ver
             // `overpaid_pending_restitution` na conciliação.
             overpaidCents: state.overpaidCents,
+            // PAGO DEPOIS DE FECHAR, sem excedente — ver `paidAfterClose`. A equipe
+            // confere com a mesa se ela também pagou no caixa. (Compliance HIGH-1.)
+            paidAfterClose: paidAfterClose(state),
             /**
              * QUAL cobrança devolver — o painel não podia dizer.
              *

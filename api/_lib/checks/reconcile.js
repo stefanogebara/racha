@@ -17,7 +17,7 @@
  * and merely log `info`.
  */
 
-const { reduce } = require('./check-state');
+const { reduce, paidAfterClose } = require('./check-state');
 const houseState = require('../house/account-state');
 
 /**
@@ -27,6 +27,9 @@ const houseState = require('../house/account-state');
  * @param {Array} input.payments      payment rows: { txid, amountCents, tipCents, status }
  * @returns {{ checkId: string, ok: boolean, driftCents: number, findings: Array }}
  */
+/** Quanto tempo o `paid_after_close` fica perguntando. Ver o laço 1d. */
+const PAGO_DEPOIS_DE_FECHAR_MS = 7 * 24 * 60 * 60 * 1000;
+
 function reconcileCheck({ checkId, events, payments }) {
   const findings = [];
   const add = (severity, code, msg, extra = {}) =>
@@ -99,6 +102,25 @@ function reconcileCheck({ checkId, events, payments }) {
         `prazo de prova da disputa de ${txid} vence em ${diasRestantes} dia(s) (${pay.disputeDueBy})`,
         { txid, dueBy: pay.disputeDueBy, disputedCents: pay.disputedAmountCents });
     }
+  }
+
+  // 1d. O PAGAMENTO QUE CHEGOU DEPOIS DE A CONTA FECHAR — e o caixa pode ter
+  // cobrado a mesma pessoa de novo. Ver `paidAfterClose` no redutor.
+  //
+  // Achado por SETE DIAS a partir da confirmação: é o tempo de a equipe
+  // conferir com a mesa. Sem o corte, a varredura — que olha a história inteira
+  // da casa — repetiria a pergunta toda noite, pra sempre, e pergunta que se
+  // repete pra sempre é pergunta que se para de ler. Depois dos sete dias o
+  // pagamento continua marcado na linha da mesa, no painel. Sem data de
+  // confirmação não há como contar os sete dias: sinaliza. (Compliance HIGH-1
+  // de 40d5c50, CDC art. 42.)
+  for (const x of paidAfterClose(state)) {
+    const row = byTxid.get(x.txid);
+    const quando = row ? Date.parse(row.confirmedAt) : NaN;
+    if (Number.isFinite(quando) && agora - quando > PAGO_DEPOIS_DE_FECHAR_MS) continue;
+    add('high', 'paid_after_close',
+      `pagamento ${x.txid} de ${x.amountCents}¢ chegou depois de a conta fechar — se a mesa também pagou no caixa, é valor a devolver (CDC art. 42)`,
+      { txid: x.txid, amountCents: x.amountCents, ...(row && row.confirmedAt ? { since: row.confirmedAt } : {}) });
   }
 
   /**

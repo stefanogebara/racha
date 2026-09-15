@@ -603,8 +603,26 @@ function lateTxids(state) {
   return Object.keys(state.payments).filter((t) => state.payments[t].late);
 }
 
+/**
+ * PAGO DEPOIS DE FECHAR, e sem excedente — o caso CALADO.
+ *
+ * O Racha não registra o que o caixa recebe. Um Pix iniciado antes de o QR
+ * girar e confirmado depois de a equipe cobrar a mesa no caixa e fechar a conta
+ * completa a conta até o total: excedente zero, nada a devolver no razão — e a
+ * mesa pagou duas vezes. Com excedente, `overpaidCents` já grita; este é o que
+ * não gritava. O `late` existia e ninguém fora dos testes o lia. Uma regra, lida
+ * pela conciliação e pelos dois stores. (Compliance HIGH-1 de 40d5c50, CDC art. 42.)
+ */
+function paidAfterClose(state) {
+  if (!state) return [];
+  return Object.entries(state.payments)
+    .filter(([, p]) => p.late && !((p.excessCents || 0) > 0))
+    .map(([txid, p]) => ({ txid, amountCents: p.amountCents - (p.refundedAmountCents || 0) }))
+    .filter((x) => x.amountCents > 0);
+}
+
 module.exports = {
   ANOMALY_SEVERITIES,
   STATUS, EVENT_TYPES, EventValidationError,
-  reduce, applyEvent, validateEvent, remainingCents, lateTxids, initialState,
+  reduce, applyEvent, validateEvent, remainingCents, lateTxids, paidAfterClose, initialState,
 };

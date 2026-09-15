@@ -10,21 +10,26 @@
  * começavam a medir o orçamento esgotado em vez do que diziam medir. O jest dá
  * a cada arquivo um registro de módulos — e um store — novo.
  *
- * Os testes que andam no RELÓGIO (seis horas, um dia) vêm depois dos que não
- * andam: uma linha criada "no futuro" conta na janela de quem vier depois.
+ * Um teste que anda no RELÓGIO grava linhas "no futuro", e elas contam na
+ * janela de quem vier depois. Os que gravam no futuro em chave COMPARTILHADA (o
+ * orçamento global) vêm por último; os outros só gravam em chaves próprias —
+ * da casa, da conta — que nenhum outro teste lê.
  */
 
 // A PONTE DE AVISO é um endereço que recusa na hora: nenhum teste daqui fala
 // com a ponte de verdade, e o da ponte que FALHA precisa de uma que falhe.
 process.env.RACHA_NOTIFY_URL = 'http://127.0.0.1:1';
-// O `waitUntil` da Vercel, observado.
-jest.mock('@vercel/functions', () => ({ waitUntil: jest.fn() }));
+// O `@vercel/functions` é o DE VERDADE: o teste do `waitUntil` instala um
+// contexto de requisição no mesmo símbolo que a Vercel usa, e o pacote o lê. Com
+// o pacote mocado, um nome de símbolo errado passava verde (segurança LOW-2 de
+// 40d5c50).
 
 const http = require('node:http');
 const { TETO_PENDENTES, JANELA_VIVA_MS, geracaoDoQr } = require('../_lib/pay/create-charge');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const HORA = 60 * 60 * 1000;
+const DIA = 24 * HORA;
 
 beforeAll(() => {
   jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -76,6 +81,15 @@ describe('o aviso de teto disparado, pelo router', () => {
     r.spy = jest.spyOn(Date, 'now').mockImplementation(() => real() + r.desloc);
     return r;
   };
+  // Um contexto de requisição da Vercel, no símbolo que ela usa.
+  const comContexto = () => {
+    const waitUntil = jest.fn();
+    const sim = Symbol.for('@vercel/request-context');
+    const antes = globalThis[sim];
+    globalThis[sim] = { get: () => ({ waitUntil }) };
+    return { waitUntil, volta: () => { if (antes === undefined) delete globalThis[sim]; else globalThis[sim] = antes; } };
+  };
+  const ultimas = (frase, n) => process.stderr.write.mock.calls.map(([t]) => String(t)).filter((t) => t.includes(frase)).slice(-n);
   // Atrasa as reivindicações de ALERTA: separa "a resposta saiu" de "o aviso saiu".
   const atrasarAvisos = (ms) => {
     const orig = lojaDoRouter.claimSlots;
@@ -86,40 +100,32 @@ describe('o aviso de teto disparado, pelo router', () => {
     return () => { lojaDoRouter.claimSlots = orig; };
   };
 
-  test('o `waitUntil` recebe a promessa DO AVISO — ela só resolve depois de o aviso sair', async () => {
-    // A primeira versão só conferia que recebeu "uma promessa", e
-    // `waitUntil(Promise.resolve())` passava verde. (Segurança L-A de 3a10835.)
-    const { waitUntil } = require('@vercel/functions');
+  test('com o contexto da Vercel, o `waitUntil` DELA recebe a promessa do aviso — que só resolve depois de o aviso sair', async () => {
+    // A primeira versão conferia que o `waitUntil` recebia "uma promessa", e
+    // `waitUntil(Promise.resolve())` passava verde (segurança L-A de 3a10835); a
+    // segunda mocava o pacote, e o ramo de produção nunca rodava (LOW-2 de 40d5c50).
     const t = await mesaCheia(casa('Espera'), 'W1');
+    const ctx = comContexto();
     const volta = atrasarAvisos(300);
     try {
-      waitUntil.mockClear();
       const antes = avisos().length;
       expect((await pagar(t.qrToken, '10.83.0.1')).status).toBe(429);
       expect(avisos().length - antes).toBe(0);          // a recusa saiu ANTES do aviso
-      expect(waitUntil).toHaveBeenCalledTimes(1);
-      await waitUntil.mock.calls[0][0];
+      expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
+      await ctx.waitUntil.mock.calls[0][0];
       expect(avisos().length - antes).toBe(1);          // e a promessa entregue é a do aviso
-    } finally { volta(); }
+    } finally { volta(); ctx.volta(); }
   });
 
-  test('na Vercel SEM contexto de requisição, o aviso sai ANTES da resposta — e uma linha diz por quê', async () => {
-    const { waitUntil } = require('@vercel/functions');
-    const vercel = process.env.VERCEL;
-    process.env.VERCEL = '1';   // e nenhum contexto no símbolo global: o `waitUntil` do pacote não faria nada
+  test('SEM contexto de requisição, o aviso sai ANTES da resposta — e uma linha diz por quê', async () => {
     const t = await mesaCheia(casa('Sem Espera'), 'SE1');
     const volta = atrasarAvisos(300);
     try {
-      waitUntil.mockClear();
       const antes = avisos().length;
       expect((await pagar(t.qrToken, '10.90.0.1')).status).toBe(429);
       expect(avisos().length - antes).toBe(1);          // já tinha saído quando a resposta chegou
-      expect(waitUntil).not.toHaveBeenCalled();
-      expect(linhas('SEM waitUntil na Vercel')).toBeGreaterThan(0);
-    } finally {
-      volta();
-      if (vercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = vercel;
-    }
+      expect(linhas('SEM waitUntil')).toBeGreaterThan(0);
+    } finally { volta(); }
   });
 
   test('GIRAR o QR e o ataque voltar na geração NOVA pagina de novo, na hora; na mesma geração, não', async () => {
@@ -155,6 +161,23 @@ describe('o aviso de teto disparado, pelo router', () => {
       expect((await pagar(t.qrToken, '10.86.6.1')).status).toBe(429);
       expect(linhas(SUSP) - s0).toBe(2);                // seis horas depois, com disparo contido, repete
     } finally { relogio.spy.mockRestore(); }
+  });
+
+  test('a suspensão de RECARGA não cala a de MESA — cada tipo tem a sua, com o remédio dele', async () => {
+    // (Compliance MEDIUM-1 e segurança LOW-4 de 40d5c50.)
+    const { avisarTetoDisparado } = require('../_app/router');
+    const venue = casa('Dois Tipos');
+    const SUSP = 'AVISOS DA CASA SUSPENSOS';
+    for (let i = 0; i < 3; i += 1) await lojaDoRouter.claimSlots({ keys: [`alerta-dia:venue:${venue.id}:recarga`], limits: [3], windowMs: DIA });
+    const s0 = linhas(SUSP);
+    await avisarTetoDisparado({ code: 'too_many_pending_loads_venue', venueId: venue.id, statusCode: 429 });
+    expect(linhas(SUSP) - s0).toBe(1);
+    expect(ultimas(SUSP, 1)[0]).toMatch(/não há QR a girar/);
+    for (let i = 0; i < 3; i += 1) await lojaDoRouter.claimSlots({ keys: [`alerta-dia:venue:${venue.id}:mesa`], limits: [3], windowMs: DIA });
+    const t = await mesaCheia(venue, 'DT1');
+    expect((await pagar(t.qrToken, '10.94.0.1')).status).toBe(429);
+    expect(linhas(SUSP) - s0).toBe(2);                 // a da mesa sai também
+    expect(ultimas(SUSP, 1)[0]).toMatch(/girar no painel o QR/);
   });
 
   test('uma reivindicação SEGUINTE que estoura devolve as anteriores — a conta não fica calada seis horas', async () => {
@@ -264,6 +287,28 @@ describe('o aviso de teto disparado, pelo router', () => {
     }
   });
 
+  test('a PONTE falha: a vaga da hora da divergência VOLTA — a volta seguinte tenta de novo', async () => {
+    // Guardada, uma falha passageira da ponte atrasava a página em até uma hora
+    // (segurança LOW-3 de 40d5c50). A ponte é 127.0.0.1:1, que recusa na hora.
+    const segredoCron = process.env.CRON_SECRET;
+    process.env.CRON_SECRET = 'cron-de-teste-0123456789abcdef';
+    process.env.RACHA_NOTIFY_SECRET = 'segredo-de-teste';
+    const orig = lojaDoRouter.slotsFingerprint;
+    lojaDoRouter.slotsFingerprint = async () => 'e'.repeat(32);
+    const cron = () => fetch(`http://127.0.0.1:${porta}/api/cron/reconcile-pending`,
+      { headers: { authorization: 'Bearer cron-de-teste-0123456789abcdef' } });
+    const DIVERGE = 'A 0033 EM PRODUÇÃO NÃO É A DESTE DEPLOY';
+    try {
+      const d0 = linhas(DIVERGE);
+      await cron(); await cron();
+      expect(linhas(DIVERGE) - d0).toBe(2);             // as duas voltas tentaram
+    } finally {
+      lojaDoRouter.slotsFingerprint = orig;
+      delete process.env.RACHA_NOTIFY_SECRET;
+      if (segredoCron === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = segredoCron;
+    }
+  });
+
   test('quando o orçamento da casa REABRE, a conta contida pagina — a vaga dela voltou na recusa', async () => {
     // Guardada, a vaga de deduplicação calava a conta seis horas depois de o
     // orçamento abrir. (Segurança L-B de 3a10835.) Anda no relógio: vem depois
@@ -309,17 +354,26 @@ describe('o aviso de teto disparado, pelo router', () => {
     } finally { relogio.spy.mockRestore(); }
   });
 
-  test('o teto DIÁRIO: esgotado, sai UM aviso de que acabou — e depois só o log', async () => {
-    // Antes, do décimo terceiro em diante o único rastro era uma linha de
-    // stderr (#8). Por último neste arquivo: esgota o contador do dia.
-    while ((await lojaDoRouter.claimSlots({ keys: ['alerta-dia:global'], limits: [12], windowMs: 86_400_000 })).claimId) { /* esgota */ }
-    const SUSPENSOS = 'AVISOS DE TETO SUSPENSOS';
-    const antesA = avisos().length; const antesS = linhas(SUSPENSOS);
-    for (let i = 1; i <= 2; i += 1) {
-      const t = await mesaCheia(casa(`Fim ${i}`), 'F1');
-      expect((await pagar(t.qrToken, `10.88.0.${i}`)).status).toBe(429);
+  test('o orçamento GLOBAL esgotado: cada casa atacada recebe a SUA suspensão, com o nome dela', async () => {
+    // Com uma chave de suspensão global só, uma casa-isca tomava a vaga a cada
+    // seis horas e a casa atacada nunca era nomeada (segurança LOW-1 de
+    // 40d5c50). Por último neste arquivo: esgota o orçamento do dia.
+    while ((await lojaDoRouter.claimSlots({ keys: ['alerta-dia:global'], limits: [12], windowMs: DIA })).claimId) { /* esgota */ }
+    const SUSP = 'AVISOS DE TETO SUSPENSOS';
+    const antesA = avisos().length; const s0 = linhas(SUSP);
+    const casas = [casa('Fim Um'), casa('Fim Dois')];
+    for (const [i, venue] of casas.entries()) {
+      const t = await mesaCheia(venue, 'F1');
+      expect((await pagar(t.qrToken, `10.88.0.${i + 1}`)).status).toBe(429);
     }
     expect(avisos().length - antesA).toBe(0);
-    expect(linhas(SUSPENSOS) - antesS).toBe(1);
+    expect(linhas(SUSP) - s0).toBe(2);
+    const [primeira, segunda] = ultimas(SUSP, 2);
+    expect(primeira).toContain(`casa ${casas[0].id} · Fim Um`);
+    expect(segunda).toContain(`casa ${casas[1].id} · Fim Dois`);
+    // A mesma casa, outra mesa, na mesma janela: não repete.
+    const t = await mesaCheia(casas[0], 'F2');
+    expect((await pagar(t.qrToken, '10.88.0.9')).status).toBe(429);
+    expect(linhas(SUSP) - s0).toBe(2);
   });
 });

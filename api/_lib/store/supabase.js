@@ -33,7 +33,7 @@ const { disputeCounts } = require('../checks/disputes');
  */
 
 const { createClient } = require('@supabase/supabase-js');
-const { reduce } = require('../checks/check-state');
+const { reduce, paidAfterClose } = require('../checks/check-state');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const { RECIPIENT_TERMINAL } = require('../recipient-status');
 
@@ -1357,6 +1357,9 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
             // número morria ali: nenhum painel, nenhuma tela. Ver
             // `overpaid_pending_restitution` na conciliação.
             overpaidCents: state.overpaidCents,
+            // PAGO DEPOIS DE FECHAR, sem excedente — ver `paidAfterClose`. A equipe
+            // confere com a mesa se ela também pagou no caixa. (Compliance HIGH-1.)
+            paidAfterClose: paidAfterClose(state),
             /**
              * QUAL cobrança devolver — o painel não podia dizer.
              *

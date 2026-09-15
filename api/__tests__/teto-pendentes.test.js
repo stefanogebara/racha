@@ -23,9 +23,6 @@
 // A PONTE DE AVISO é um endereço que recusa na hora: nenhum teste deste arquivo
 // fala com a ponte de verdade, e o da ponte que FALHA precisa de uma que falhe.
 process.env.RACHA_NOTIFY_URL = 'http://127.0.0.1:1';
-// O `waitUntil` da Vercel, observado: o teste do embrulho confere que a
-// promessa do aviso chega até ele.
-jest.mock('@vercel/functions', () => ({ waitUntil: jest.fn() }));
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -797,6 +794,11 @@ describe('pelo router: demo, token, rotação, e o aviso que sai DEPOIS da recus
     expect(rotuloDoAviso('Zé Bar & Grill (Centro) #2 - Mesa 7')).toBe('Zé Bar & Grill (Centro) #2 - Mesa 7');
     expect(rotuloDoAviso('Açaí da Praça · Varanda')).toBe('Açaí da Praça Varanda');
     expect(rotuloDoAviso(null)).toBe('?');
+    // Dentro da escrita latina também há sósias: ponto do meio, dois-pontos
+    // sobrescrito, `ǃ`, `ǀ`, largura cheia, numerais romanos. (LOW-5 de 40d5c50.)
+    expect(rotuloDoAviso('evilꞏcom')).toBe('evil com');
+    expect(rotuloDoAviso('a\u{10781}b')).toBe('a b');
+    expect(rotuloDoAviso('Zé ǃǀ ｅｖｉｌ Ⅻ')).toBe('Zé');
   });
 
   test('o aviso nomeia CONTA, CASA e MESA — nessa ordem — e avisa os dois custos do remédio', async () => {
@@ -812,7 +814,10 @@ describe('pelo router: demo, token, rotação, e o aviso que sai DEPOIS da recus
     expect(m).toContain(`conta ${checkId} · casa Bar do Aviso · mesa Varanda 3. `);
     expect(m).toMatch(/perde a tela de confirmação/);
     // E o que a compliance de 7a65e93 achou faltando: o código antigo ainda cobra.
-    expect(m).toMatch(/ainda podem cair por até 15 minutos/);
+    expect(m).toMatch(/ainda podem cair — Pix por até 15 minutos, cartão ainda em confirmação talvez depois/);
+    // E o que a compliance de 40d5c50 achou prometido e não entregue: o que cai
+    // depois de fechar agora FICA marcado na mesa.
+    expect(m).toMatch(/fica marcado na mesa/);
   });
 
   test('nome e rótulo são TEXTO DO DONO no pager do fundador: sem link, sem quebra, quarenta caracteres', async () => {

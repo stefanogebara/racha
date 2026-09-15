@@ -45,6 +45,8 @@ interface PanelData {
        * uma obrigação que a tela anuncia e não sabe endereçar.
        */
       overpaidTxids?: Array<{ txid: string; restituteCents: number }>;
+      /** Pago DEPOIS de a conta fechar, sem excedente — ver `paidAfterClose` no redutor. */
+      paidAfterClose?: Array<{ txid: string; amountCents: number }>;
     };
   }>;
   today: {
@@ -201,6 +203,21 @@ export default function Panel() {
                   {(c.state.overpaidTxids || []).map((x) => (
                     <em key={x.txid} className="mono" style={{ display: 'block', opacity: 0.75 }}>
                       {x.txid} · {brl(x.restituteCents)}
+                    </em>
+                  ))}
+                </span>
+              )}
+              {/* PAGO DEPOIS DE FECHAR. O Racha não registra o caixa: um Pix que
+                  confirma depois de a mesa pagar no caixa e a conta fechar só
+                  completa a conta, e a dívida não aparecia em lugar nenhum. A
+                  frase de girar o QR manda a equipe olhar AQUI. (Compliance
+                  HIGH-1 de 40d5c50.) */}
+              {(c.state.paidAfterClose || []).length > 0 && (
+                <span className="owed" style={{ color: 'var(--burgundy)', fontSize: 12 }}>
+                  {(c.state.paidAfterClose || []).map((x) => (
+                    <em key={x.txid} style={{ display: 'block' }}>
+                      {t('panel.paidAfterClose', { amount: brl(x.amountCents) })}{' '}
+                      <span className="mono" style={{ opacity: 0.75 }}>{x.txid}</span>
                     </em>
                   ))}
                 </span>
