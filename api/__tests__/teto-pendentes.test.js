@@ -25,7 +25,7 @@ const path = require('node:path');
 
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const {
-  createChargeService, assertChargeSlot, TETO_PENDENTES, JANELA_VIVA_MS,
+  createChargeService, assertChargeSlot, TETO_PENDENTES, TETO_POR_ORIGEM, JANELA_VIVA_MS,
   MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
 } = require('../_lib/pay/create-charge');
 const { createMemoryStore } = require('../_lib/store/memory');
@@ -65,8 +65,21 @@ describe('o teto de cobranças pendentes vivas por conta', () => {
       path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'App.tsx'), 'utf8');
     const m = /Math\.min\((\d+), people \+ 1\)/.exec(app);
     expect({ achou: !!m }).toEqual({ achou: true });
-    expect(Number(m[1])).toBe(MAX_PESSOAS_NA_DIVISAO);
-    expect(TETO_PENDENTES).toBe(MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA);
+    // A derivação lê UM cliente. O app iOS já chama `GET /api/check`; no dia
+    // em que ganhar um fluxo de pagamento com teto próprio de pessoas, este
+    // número deixa de ser derivado e este teste continua verde. Se isso
+    // acontecer, o teto tem que ler o MAIOR dos dois. Apontado pela revisão
+    // de segurança de 2026-09-15 (LOW-5).
+    expect({ passoAPassoDoApp: Number(m[1]), derivacao: MAX_PESSOAS_NA_DIVISAO })
+      .toEqual({ passoAPassoDoApp: MAX_PESSOAS_NA_DIVISAO, derivacao: MAX_PESSOAS_NA_DIVISAO });
+    // A camada POR ORIGEM é a derivada: uma mesa cheia, três tentativas cada,
+    // mais metade pelas tentativas que os outros portões recusam.
+    expect(TETO_POR_ORIGEM).toBe((MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA * 3) / 2);
+    // E a POR CONTA tem que ficar acima do que UMA origem cria numa janela
+    // viva: o balde de dez minutos pode virar uma vez em quinze, então uma
+    // origem cria até o DOBRO do seu teto. Se a conta couber nisso, uma origem
+    // só volta a trancar a mesa — que é o HIGH-1 da revisão de segurança.
+    expect(TETO_PENDENTES).toBeGreaterThan(2 * TETO_POR_ORIGEM);
     expect(JANELA_VIVA_MS).toBe(15 * 60 * 1000);
   });
 
@@ -106,7 +119,14 @@ describe('o teto de cobranças pendentes vivas por conta', () => {
     const i18n = fs.readFileSync(
       path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
     for (const codigo of ['too_many_pending_charges', 'too_many_pending_loads']) {
-      const bloco = i18n.slice(i18n.indexOf(`'err.${codigo}'`), i18n.indexOf(`'err.${codigo}'`) + 700);
+      // ATÉ A PRÓXIMA CHAVE, não 700 caracteres. A janela fixa vazava pras
+      // entradas seguintes do dicionário: apagar o `pt:` desta chave deixava
+      // as seis asserções verdes, porque o `pt:` da vizinha estava dentro da
+      // janela. Achado pela revisão de segurança de 2026-09-15 (LOW-2).
+      const ini = i18n.indexOf(`'err.${codigo}'`);
+      expect(ini).toBeGreaterThanOrEqual(0);
+      const fim = i18n.indexOf("\n  '", ini + 1);
+      const bloco = i18n.slice(ini, fim === -1 ? undefined : fim);
       expect(bloco).toMatch(/en:/); expect(bloco).toMatch(/pt:/); expect(bloco).toMatch(/es:/);
     }
   });
@@ -170,51 +190,140 @@ describe('o teto de cobranças pendentes vivas por conta', () => {
   });
 });
 
-describe('TODA criação de cobrança passa pelo teto', () => {
+describe('o teto AMARRA contra o atacante que ele existe pra parar', () => {
   /**
-   * O CENSO DE CHAMADORES, porque há DOIS sítios que criam cobrança de conta:
-   * o `create-charge` e a `/api/pay/stripe-intent`, que monta a cobrança
-   * sozinha. A forma "chamador esquecido" já custou o portão de mercado e a
-   * validação do `payerLabel` nesta mesma rota — duas vezes. Um teto que só
-   * vale num dos dois trilhos não é um teto.
+   * A primeira versão só era testada do ponto de vista de quem PAGA: todo caso
+   * esperava cada cobrança antes da próxima. A revisão de segurança de
+   * 2026-09-15 disparou trezentas em paralelo contra um PSP com latência e viu
+   * trezentas criadas e zero recusadas — a janela entre ler e gravar é uma ida
+   * inteira ao adquirente. Estes testes fazem o que o atacante faz.
    */
-  const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
-  const FABRICA = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'create-charge.js'), 'utf8');
-  const CASA = fs.readFileSync(path.join(__dirname, '..', '_lib', 'house', 'house-service.js'), 'utf8');
+  function mundoLento(latMs) {
+    const store = createMemoryStore();
+    const base = new MockPsp({ webhookSecret: SECRET });
+    const psp = Object.create(base);
+    psp.createPixCharge = async (a) => {
+      await new Promise((r) => setTimeout(r, latMs));
+      return base.createPixCharge(a);
+    };
+    const venue = store.seedVenue({ name: 'Boteco Lento', servicoBp: 1000 });
+    const table = store.seedTable(venue.id, 'Mesa 1');
+    return { store, psp, table, charge: createChargeService({ store, psp }) };
+  }
 
-  const semComentario = (src) => src.split('\n')
-    .filter((l) => !/^\s*(\/\*|\*|\/\/)/.test(l)).join('\n');
-
-  test('todo sítio que chama create*Charge confere vaga antes', () => {
-    // LARGO DE PROPÓSITO: qualquer receptor (`psp`, `stripePsp`, `demoPsp`,
-    // `this.psp`), qualquer caixa, e também o despacho dinâmico `psp[x](`, que
-    // o `markets.test.js` já teve de defender. Um censo preso a DOIS nomes de
-    // receptor é a forma "lista escrita a partir do achado".
-    // Achado pela revisão de compliance de 2026-09-15 (LOW-1).
-    const CRIA = /create(?:Pix|Wallet|Bizum)Charge\s*\(|\bpsp\s*\[[^\]]+\]\s*\(/i;
-    const alvos = { 'router.js': ROUTER, 'create-charge.js': FABRICA, 'house-service.js': CASA };
-    const semTeto = [];
-    for (const [nome, src] of Object.entries(alvos)) {
-      const linhas = semComentario(src).split('\n');
-      for (let i = 0; i < linhas.length; i += 1) {
-        if (!CRIA.test(linhas[i])) continue;
-        // A vaga é conferida ANTES, na mesma função: janela generosa de 60
-        // linhas acima, que é mais que qualquer corpo de rota daqui.
-        const antes = linhas.slice(Math.max(0, i - 60), i).join('\n');
-        if (!/assertChargeSlot\(|assertLoadSlot\(/.test(antes)) {
-          semTeto.push(`${nome}:${i + 1}  ${linhas[i].trim().slice(0, 50)}`);
-        }
-      }
-    }
-    expect(semTeto).toEqual([]);
+  test('uma rajada CONCORRENTE não passa do teto', async () => {
+    const { store, table, charge } = mundoLento(40);
+    const check = await contaAberta(store, table);
+    const n = TETO_PENDENTES + 100;
+    const rs = await Promise.allSettled(Array.from({ length: n }, (_, i) =>
+      charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 })));
+    const criadas = rs.filter((r) => r.status === 'fulfilled').length;
+    const recusadas = rs.filter((r) => r.status === 'rejected' && r.reason.code === 'too_many_pending_charges').length;
+    expect({ criadas, recusadas }).toEqual({ criadas: TETO_PENDENTES, recusadas: n - TETO_PENDENTES });
+    // E o que ficou no banco é o que foi criado — a reserva não vazou.
+    expect(await store.countPendingCharges({ checkId: check.id, windowMs: JANELA_VIVA_MS }))
+      .toBe(TETO_PENDENTES);
   });
 
-  test('a enumeração ACHA os sítios — censo que não vê nada dá ✓ calado', () => {
-    const CRIA = /create(?:Pix|Wallet|Bizum)Charge\s*\(/gi;
-    const total = [ROUTER, FABRICA, CASA]
-      .map((s) => (semComentario(s).match(CRIA) || []).length)
-      .reduce((a, b) => a + b, 0);
-    expect(total).toBeGreaterThanOrEqual(4);
+  test('uma cobrança que ESTOURA no PSP devolve a vaga', async () => {
+    // Sem o `finally`, cada falha do adquirente vazaria uma reserva, e uma
+    // noite de instabilidade da Pagar.me trancaria mesas que não criaram nada.
+    const { store, psp, table } = mundo();
+    const check = await contaAberta(store, table);
+    let falhas = 0;
+    const instavel = Object.create(psp);
+    instavel.createPixCharge = async (a) => {
+      if (falhas < TETO_PENDENTES) { falhas += 1; throw new Error('gateway 502'); }
+      return psp.createPixCharge(a);
+    };
+    const charge = createChargeService({ store, psp: instavel });
+    for (let i = 0; i < TETO_PENDENTES; i += 1) {
+      await expect(charge({ checkId: check.id, amountCents: 100 + i })).rejects.toThrow('gateway 502');
+    }
+    await expect(charge({ checkId: check.id, amountCents: 9999 })).resolves.toBeTruthy();
+  });
+
+  test('a contagem do teto NÃO esconde as linhas mais novas', async () => {
+    // O `listPendingCharges` serve a conciliação e tem um limite superior de
+    // idade (`graceMs`) que esconde de propósito o que acabou de nascer. A
+    // contagem do teto é outra pergunta: a linha de agora conta.
+    const { store, table, charge } = mundo();
+    const check = await contaAberta(store, table);
+    await charge({ checkId: check.id, amountCents: 100 });
+    expect(await store.countPendingCharges({ checkId: check.id, windowMs: JANELA_VIVA_MS })).toBe(1);
+    expect((await store.listPendingCharges({ checkId: check.id, graceMs: 20_000 })).length).toBe(0);
+  });
+});
+
+describe('TODA criação de cobrança passa pelo teto', () => {
+  /**
+   * O CENSO DE CHAMADORES, e a primeira versão dele tinha três cegueiras que
+   * se somavam — todas medidas pela revisão de segurança de 2026-09-15
+   * (MEDIUM-2):
+   *
+   *  · lista FIXA de três arquivos. A refatoração que o quebra é a que qualquer
+   *    um chamaria de limpeza: tirar o handler do intent da Stripe do router
+   *    de 2200 linhas pra um módulo próprio. Os dois testes ficavam verdes e o
+   *    teto sumia do trilho Stripe. O `markets.test.js` já tinha um
+   *    caminhador de árvore inteira pra exatamente isto, trezentas linhas
+   *    adiante;
+   *  · o nome do RECEPTOR na regex: `pagarme.`, `adapter.`, `demoPsp.` e
+   *    `psp[creator](` eram invisíveis;
+   *  · o sentinela contava `>= 4` com seis sítios reais — duas de folga, que é
+   *    exatamente o que o trilho Stripe contribui.
+   *
+   * Agora: árvore inteira de `api/`, qualquer receptor, um curinga pra trilho
+   * que ainda não existe (`create*Charge`), e contagem EXATA — sítio novo obriga
+   * a uma decisão, em vez de caber na folga.
+   */
+  const RAIZ_API = path.join(__dirname, '..');
+  const ADAPTADORES = /_lib\/pay\/(mock|pagarme|stripe)-psp\.js$/;
+  const semComentario = (src) => src.split('\n')
+    .filter((l) => !/^\s*(\/\*|\*|\/\/)/.test(l)).join('\n');
+  const arquivos = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (['node_modules', '__tests__'].includes(e.name)) continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.js')) arquivos.push(full);
+    }
+  }(RAIZ_API));
+  // Os adaptadores DEFINEM os métodos; quem os CHAMA precisa do teto.
+  const chamadores = arquivos.filter((f) => !ADAPTADORES.test(f.replace(/\\/g, '/')));
+  const CRIA = /\.create[A-Z]\w*Charge\s*\(|\bpsp\s*\[\s*\w+\s*\]\s*\(/;
+
+  const sitios = [];
+  for (const f of chamadores) {
+    const linhas = semComentario(fs.readFileSync(f, 'utf8')).split('\n');
+    linhas.forEach((l, i) => {
+      if (!CRIA.test(l)) return;
+      const antes = linhas.slice(Math.max(0, i - 60), i).join('\n');
+      sitios.push({
+        onde: `${path.relative(RAIZ_API, f)}:${i + 1}  ${l.trim().slice(0, 50)}`,
+        comTeto: /assertChargeSlot\(|assertLoadSlot\(/.test(antes),
+      });
+    });
+  }
+
+  test('todo sítio que cria cobrança confere vaga antes', () => {
+    expect(sitios.filter((x) => !x.comTeto).map((x) => x.onde)).toEqual([]);
+  });
+
+  test('o censo acha EXATAMENTE os sítios de hoje — sítio novo é decisão, não folga', () => {
+    // Seis: três na fábrica (Pix, carteira, Bizum), dois no intent da Stripe
+    // (Bizum, carteira), um na carga de saldo. Mudou? Leia o sítio novo antes
+    // de mudar o número.
+    expect(sitios.map((x) => x.onde)).toHaveLength(6);
+  });
+
+  test('a caminhada é da árvore inteira, não de uma lista de arquivos', () => {
+    // Um arquivo-isca fora dos três conhecidos, com uma cobrança sem teto,
+    // tem que ser VISTO. Sem isto a lista fixa pode voltar em silêncio.
+    const isca = "async function x(psp) { return pagarme.createPixCharge({ a: 1 }); }\n";
+    expect(CRIA.test(isca)).toBe(true);
+    expect(chamadores.length).toBeGreaterThan(10);
+    expect(chamadores.some((f) => f.includes(`${path.sep}_lib${path.sep}`))).toBe(true);
   });
 });
 
@@ -305,15 +414,52 @@ describe('o teto de cargas de saldo vivas por conta', () => {
     expect({ todas, nenhuma }).toEqual({ todas: TETO_CARGAS, nenhuma: 0 });
   });
 
+  test('o teto POR CASA amarra mesmo com contas novas — conta é de graça', async () => {
+    // `openAccount` aceita qualquer telefone de 10 a 13 dígitos sem
+    // verificação. Um teto só por conta era um teto sobre nada.
+    const { store, house } = casa();
+    const venue = store.seedVenue({ name: 'Bar Casa', servicoBp: 1000, pspRecipientId: 'rcpt_c' });
+    await house.updateConfig(venue.id, { enabled: true, bonusBp: 0, validityDays: 30 });
+    const table = store.seedTable(venue.id, 'Mesa 1');
+    let criadas = 0; let recusa = null;
+    for (let conta = 0; conta < 25 && !recusa; conta += 1) {
+      const { accountToken } = await house.openAccount({
+        tableQrToken: table.qrToken, phone: `1198${String(conta).padStart(7, '0')}`, name: `C${conta}`,
+      });
+      for (let i = 0; i < TETO_CARGAS && !recusa; i += 1) {
+        try { await house.createLoad({ accountToken, amountCents: 10000 + i }); criadas += 1; }
+        catch (e) { recusa = e; }
+      }
+    }
+    expect(criadas).toBe(200);
+    expect(recusa).toMatchObject({ statusCode: 429, code: 'too_many_pending_loads', vars: { limit: 200 } });
+  });
+
   test('os DOIS stores implementam a contagem — o gêmeo não pode ficar pra trás', () => {
     // Um teto que só existe no store de memória é um teto que não existe: quem
     // roda em produção é o Supabase. Mesma disciplina do `store-contract`.
     const mem = fs.readFileSync(path.join(__dirname, '..', '_lib', 'store', 'memory.js'), 'utf8');
     const sup = fs.readFileSync(path.join(__dirname, '..', '_lib', 'store', 'supabase.js'), 'utf8');
-    expect(mem).toContain('async countPendingHouseLoads(');
-    expect(sup).toContain('async countPendingHouseLoads(');
+    for (const metodo of ['countPendingHouseLoads', 'countPendingCharges']) {
+      expect({ metodo, memoria: mem.includes(`async ${metodo}(`) }).toEqual({ metodo, memoria: true });
+      expect({ metodo, supabase: sup.includes(`async ${metodo}(`) }).toEqual({ metodo, supabase: true });
+    }
+    // O teto por CASA precisa do filtro por venue nos DOIS.
+    expect(mem).toMatch(/countPendingHouseLoads\(\{[^}]*venueId/);
+    expect(sup).toMatch(/countPendingHouseLoads\(\{[^}]*venueId/);
     // E a janela tem que ser aplicada nos dois, senão um conta vencidas.
     expect(mem).toMatch(/countPendingHouseLoads[\s\S]{0,600}windowMs/);
     expect(sup).toMatch(/countPendingHouseLoads[\s\S]{0,600}windowMs/);
+  });
+});
+
+describe('a camada POR ORIGEM está nas duas rotas que cobram conta', () => {
+  // A mesma forma "chamador esquecido": duas rotas, uma regra.
+  const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+  test.each(['/api/pay', '/api/pay/stripe-intent'])('%s', (rota) => {
+    const ini = ROUTER.indexOf(`url.pathname === '${rota}'`);
+    expect(ini).toBeGreaterThan(0);
+    const fim = ROUTER.indexOf("url.pathname === '", ini + 20);
+    expect(ROUTER.slice(ini, fim)).toMatch(/exigeVagaDaOrigem\(req, view\.check\.id\)/);
   });
 });

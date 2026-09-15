@@ -54,7 +54,7 @@ const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
-const { createChargeService, assertChargeSlot } = require('../_lib/pay/create-charge');
+const { createChargeService, assertChargeSlot, TETO_POR_ORIGEM } = require('../_lib/pay/create-charge');
 const { errorStatus, errorBody } = require('../_lib/http-error');
 const { readBody } = require('../_lib/read-body');
 const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
@@ -337,6 +337,30 @@ function rateLimitCron(req) {
  * de carteira. Alguém martelando a demo esgotava o orçamento de carteira de
  * um restaurante que por acaso saísse pelo mesmo ip.
  */
+/**
+ * A camada POR ORIGEM do teto de cobranças — ver `TETO_POR_ORIGEM` no
+ * `create-charge.js`, que diz por que são duas camadas.
+ *
+ * A chave é CONTA × IP, não IP: um salão inteiro é um IP só atrás do NAT do
+ * restaurante (a aritmética está no `registraMissDeCheck`), e com a conta na
+ * chave outra mesa no mesmo wi-fi não divide o balde. É ESTA camada que separa
+ * um atacante remoto da mesa: com QR fotografado, a origem dele é outra, e o
+ * balde dele enche sem tocar no da mesa.
+ *
+ * Local por instância, como todo balde deste arquivo, e com a mesma ressalva
+ * do `clientIp` — por isso ela não é a última defesa: o teto por conta, no
+ * `assertChargeSlot`, é.
+ */
+function exigeVagaDaOrigem(req, checkId) {
+  if (rateLimitBucket(req, `pay:${checkId}`, TETO_POR_ORIGEM)) return;
+  process.stderr.write(`[teto] origem esgotada check=${checkId} teto=${TETO_POR_ORIGEM}\n`);
+  const err = new Error('too many payment attempts from this origin for this check');
+  err.statusCode = 429;
+  err.code = 'too_many_pending_charges';
+  // O balde de `rateLimitBucket` vira a cada DEZ minutos.
+  err.vars = { limit: TETO_POR_ORIGEM, windowMinutes: 10 };
+  throw err;
+}
 function rateLimitDemo(req) {
   return rateLimitBucket(req, 'demo', 30);
 }
@@ -572,6 +596,9 @@ async function route(req, res) {
       const body = JSON.parse(await readBody(req) || '{}');
       const view = await store.getCheckByQrToken(body.token || '');
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      // A camada POR ORIGEM do teto, antes da fábrica — ela não vê `req`. O 429
+      // sai pelo catch externo, com `Retry-After`.
+      exigeVagaDaOrigem(req, view.check.id);
       // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
       // pelo PSP real — dinheiro fake mesmo com o app em live.
       const isDemo = (body.token || '') === DEMO_TABLE_TOKEN;
@@ -669,14 +696,16 @@ async function route(req, res) {
       if (gate) {
         return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
       }
+      let liberarVaga = null;
       try {
+        exigeVagaDaOrigem(req, view.check.id);
         // O TETO DE PENDENTES VIVAS, e ANTES da chamada ao adquirente. Esta
         // rota monta a cobrança sozinha — não passa pela fábrica —, então o
         // portão que mora lá não vale aqui por herança. É a mesma forma
         // "chamador esquecido" que já custou o portão de mercado e a validação
         // do `payerLabel` nesta exata rota; um teste estrutural exige o
         // emparelhamento. Ver `assertChargeSlot`.
-        await assertChargeSlot(store, view.check.id);
+        liberarVaga = await assertChargeSlot(store, view.check.id);
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
         const charge = rail === 'bizum'
           ? await stripePsp.createBizumCharge({
@@ -730,6 +759,10 @@ async function route(req, res) {
         // do teto acrescentou não disparava em trilho nenhum além do Pix.
         // Achado pela revisão de compliance de 2026-09-15 (HIGH-2).
         return json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e));
+      } finally {
+        // A reserva sai depois do registro, ou quando o PSP estoura — ver
+        // `emVoo` no `create-charge.js`.
+        if (liberarVaga) liberarVaga();
       }
     }
 

@@ -338,6 +338,32 @@ function createMemoryStore() {
      * expiry stop being polled without any write). house_account rows are
      * excluded — they confirm inline, never via the gateway.
      */
+    /**
+     * Quantas cobranças desta conta estão VIVAS — pendentes e dentro da janela.
+     *
+     * É a pergunta do TETO, e NÃO é a do `listPendingCharges`. Aquela serve a
+     * conciliação e tem um limite SUPERIOR de idade (`graceMs`, "dá ao webhook
+     * a primeira chance") cuja função é esconder justamente as linhas mais
+     * novas — o contrário do que um teto quer contar. No Supabase isso ainda
+     * compara o relógio do Postgres (`default now()`) com o da função: com o
+     * banco adiantado δ, toda cobrança do último δ sumia do teto, e um atacante
+     * SERIAL, sem concorrência nenhuma, nunca via as próprias cobranças. E
+     * aquela exclui os métodos que confirmam sem gateway por um motivo de
+     * CONCILIAÇÃO; o teto herdava a exclusão sem ninguém ter decidido. Aqui:
+     * limite INFERIOR só, contagem só, método nenhum excluído. Achado pela
+     * revisão de segurança de 2026-09-15 (MEDIUM-1, LOW-4).
+     */
+    async countPendingCharges({ checkId, windowMs = Infinity } = {}) {
+      if (!checkId) throw new Error('countPendingCharges: checkId');
+      const now = Date.now();
+      let n = 0;
+      for (const p of payments.values()) {
+        if (p.status !== 'pendente' || p.checkId !== checkId) continue;
+        // Idade negativa (relógio adiantado) CONTA: limite inferior só.
+        if (now - Date.parse(p.createdAt) <= windowMs) n += 1;
+      }
+      return n;
+    },
     async listPendingCharges({ checkId = null, graceMs = 0, windowMs = Infinity, limit = 100 } = {}) {
       const now = Date.now();
       return [...payments.values()]
@@ -1024,11 +1050,18 @@ function createMemoryStore() {
      * dentro da janela de validade do Pix. Espelha `listPendingCharges`, que é
      * a mesma pergunta do lado da conta da mesa. Ver `assertLoadSlot` no `house-service.js`.
      */
-    async countPendingHouseLoads({ accountId, windowMs = Infinity } = {}) {
+    async countPendingHouseLoads({ accountId = null, venueId = null, windowMs = Infinity } = {}) {
+      // Sem filtro nenhum isto contaria TODAS as cargas do sistema: falharia
+      // fechado, mas calado. Alto é melhor.
+      if (!accountId && !venueId) throw new Error('countPendingHouseLoads: accountId ou venueId');
       const now = Date.now();
       return [...houseLoads.values()].filter((l) => {
         if (l.status !== 'pendente') return false;
-        if (l.accountId !== accountId) return false;
+        if (accountId && l.accountId !== accountId) return false;
+        if (venueId) {
+          const conta = houseAccounts.get(l.accountId);
+          if (!conta || conta.venueId !== venueId) return false;
+        }
         // Linha antiga sem `createdAt` conta como viva: falhar FECHADO é
         // recusar uma carga a mais, nunca liberar uma janela inteira.
         const idade = l.createdAt ? now - Date.parse(l.createdAt) : 0;

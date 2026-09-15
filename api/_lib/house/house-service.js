@@ -23,18 +23,62 @@ const TETO_CARGAS = 10;
  *
  * ANTES da chamada ao PSP, como o gêmeo: o ponto é não falar com o adquirente.
  */
-async function assertLoadSlot(store, accountId) {
-  const vivas = await store.countPendingHouseLoads({
-    accountId, windowMs: JANELA_VIVA_MS,
-  });
-  if (vivas < TETO_CARGAS) return;
-  // Ver o gêmeo: guarda que ninguém vê é guarda caracterizado em produção.
-  process.stderr.write(`[teto] cargas vivas conta=${accountId} vivas=${vivas} teto=${TETO_CARGAS}\n`);
-  const err = new Error(`too many live pending loads for this account (${vivas})`);
-  err.statusCode = 429;
-  err.code = 'too_many_pending_loads';
-  err.vars = { limit: TETO_CARGAS, windowMinutes: JANELA_VIVA_MS / 60000 };
-  throw err;
+/**
+ * E O TETO POR CASA, porque conta de saldo é DE GRAÇA.
+ *
+ * Um teto por conta num endpoint em que contas são geradas, não obtidas, é um
+ * teto sobre nada: o `openAccount` aceita qualquer sequência de 10 a 13
+ * dígitos como telefone, sem verificação, e o limite é um balde local de dez
+ * por IP e as cinco mil contas por casa. 5000 × 10 = cinquenta mil BR Codes de
+ * recarga vivos por casa, cada um até o teto de carga, e cada conta ainda
+ * grava um nome e um telefone — é também uma questão de minimização da LGPD,
+ * não só de carga. O teto por casa limita o agregado independentemente de
+ * quantas contas existam. Achado pela revisão de segurança de 2026-09-15
+ * (MEDIUM-3).
+ *
+ * Duzentos: uma casa movimentada numa noite de promoção vê algumas dezenas de
+ * recargas em quinze minutos. O preço, dito: um atacante com vinte contas
+ * esgota as recargas da casa por quinze minutos. Recarga não é pagar a conta,
+ * e é a troca certa contra cinquenta mil cobranças vivas.
+ */
+const TETO_CARGAS_POR_CASA = 200;
+
+/** Ver `emVoo` no `create-charge.js`: a mesma reserva, pela mesma razão. */
+const cargasEmVoo = new Map();
+
+async function assertLoadSlot(store, account) {
+  const [daConta, daCasa] = await Promise.all([
+    store.countPendingHouseLoads({ accountId: account.id, windowMs: JANELA_VIVA_MS }),
+    store.countPendingHouseLoads({ venueId: account.venueId, windowMs: JANELA_VIVA_MS }),
+  ]);
+  // Síncrono daqui até a reserva — ver o gêmeo.
+  const vooConta = cargasEmVoo.get(`a:${account.id}`) || 0;
+  const vooCasa = cargasEmVoo.get(`v:${account.venueId}`) || 0;
+  const cheia = daConta + vooConta >= TETO_CARGAS
+    ? { limite: TETO_CARGAS, onde: `conta=${account.id}`, n: daConta + vooConta }
+    : daCasa + vooCasa >= TETO_CARGAS_POR_CASA
+      ? { limite: TETO_CARGAS_POR_CASA, onde: `casa=${account.venueId}`, n: daCasa + vooCasa }
+      : null;
+  if (cheia) {
+    // Ver o gêmeo: guarda que ninguém vê é guarda caracterizado em produção.
+    process.stderr.write(`[teto] cargas vivas ${cheia.onde} ocupadas=${cheia.n} teto=${cheia.limite}\n`);
+    const err = new Error(`too many live pending loads (${cheia.n})`);
+    err.statusCode = 429;
+    err.code = 'too_many_pending_loads';
+    err.vars = { limit: cheia.limite, windowMinutes: JANELA_VIVA_MS / 60000 };
+    throw err;
+  }
+  const chaves = [`a:${account.id}`, `v:${account.venueId}`];
+  for (const k of chaves) cargasEmVoo.set(k, (cargasEmVoo.get(k) || 0) + 1);
+  let liberada = false;
+  return function liberar() {
+    if (liberada) return;
+    liberada = true;
+    for (const k of chaves) {
+      const n = (cargasEmVoo.get(k) || 1) - 1;
+      if (n <= 0) cargasEmVoo.delete(k); else cargasEmVoo.set(k, n);
+    }
+  };
 }
 
 /**
@@ -272,8 +316,8 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const gate = marketGate(venue.market, { rail: 'pix', amountCents, tipCents: 0 });
     if (gate) throw badRequest(`mercado ${venue.market}: ${gate.code}`, gate.code, gate.vars);
 
-    await assertLoadSlot(store, account.id);
-
+    const liberarCarga = await assertLoadSlot(store, account);
+    try {
     const bonusCents = quoteBonusCents(amountCents, cfg.bonusBp);
     const charge = await psp.createPixCharge({
       // Random nonce: two identical loads are DIFFERENT charges (the mock PSP
@@ -295,6 +339,9 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       txid: charge.txid, copiaECola: charge.copiaECola, expiresAt: charge.expiresAt,
       amountCents, bonusCents,
     };
+    } finally {
+      liberarCarga();
+    }
   }
 
   /**

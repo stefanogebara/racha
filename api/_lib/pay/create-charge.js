@@ -89,7 +89,34 @@ const JANELA_VIVA_MS = 15 * 60 * 1000;
 /** O máximo de pessoas que o passo a passo da divisão permite. Ver o teste. */
 const MAX_PESSOAS_NA_DIVISAO = 20;
 const TENTATIVAS_POR_PESSOA = 3;
-const TETO_PENDENTES = MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA;
+/**
+ * DUAS CAMADAS, porque uma só foi medida ao contrário.
+ *
+ * A primeira versão tinha UM teto por conta, e a revisão de segurança de
+ * 2026-09-15 (HIGH-1, HIGH-2) mediu o que ele fazia contra um atacante de
+ * verdade: NÃO parava um script concorrente (300 pedidos simultâneos, 300
+ * cobranças criadas, zero recusadas — a janela entre ler e gravar é uma ida
+ * inteira ao PSP), e DAVA a um script serial uma negação de serviço: sessenta
+ * cobranças de um centavo — R$ 1,83 que ninguém paga — e a mesa inteira
+ * levava 429 pra pagar a própria conta. Reproduzido aqui antes de mexer. Antes
+ * do teto um atacante gastava o tempo do adquirente; depois dele, podia impedir
+ * a mesa de pagar. Numa rota de token portador, qualquer recurso compartilhado
+ * por conta é esgotável por quem tem o token — o que se pode fazer é tornar
+ * esgotá-lo CARO e limitado, não fingir que é impossível.
+ *
+ *  · POR ORIGEM (conta × IP), no router: o que uma mesa legítima gasta. É a
+ *    derivação de sempre — vinte pessoas, três tentativas — mais metade, porque
+ *    ali se contam TENTATIVAS, e os outros portões recusam algumas (o erro mais
+ *    comum da mesa é `amount_over`, duas pessoas tocando "pagar" ao mesmo
+ *    tempo). Uma mesa inteira atrás do wi-fi do salão é uma origem só, e cabe;
+ *  · POR CONTA, aqui: o teto de ESTOQUE, alto o bastante pra que UMA origem não
+ *    o encha. Numa janela viva de quinze minutos o balde de dez minutos da
+ *    origem pode virar uma vez, então uma origem cria no máximo o dobro do seu
+ *    teto; o da conta fica acima disso. Encher a conta passa a exigir várias
+ *    origens.
+ */
+const TETO_POR_ORIGEM = (MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA * 3) / 2;
+const TETO_PENDENTES = 200;
 
 /**
  * Há vaga pra mais uma cobrança nesta conta?
@@ -124,28 +151,62 @@ const TETO_PENDENTES = MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA;
  *    dois clientes tranquilos. Idempotência de verdade precisa de chave vinda
  *    do cliente, e é decisão de contrato, não de guarda.
  */
+/**
+ * Cobranças entre a conferência e o registro, NESTA instância.
+ *
+ * É o que faz o teto amarrar contra um script concorrente: a janela entre ler
+ * a contagem e gravar a linha é uma ida inteira ao PSP (150 a 800 ms contra a
+ * Pagar.me), e todo pedido que chegava nesse intervalo já tinha passado. Com a
+ * reserva, a conta é "vivas no banco + em voo aqui", e ler-e-reservar é
+ * síncrono — em JS nada intercala entre o `await` que devolveu a contagem e o
+ * `set` —, então é atômico DENTRO da instância.
+ *
+ * O que continua aberto, e está dito: entre instâncias o teto vira
+ * `teto × instâncias servindo aquela conta ao mesmo tempo`. Fechar isso exige
+ * um RPC que conte e reserve numa instrução só no Postgres — migração nova.
+ * O inegociável #7 exige RPC pra reivindicação condicional que MOVE dinheiro;
+ * esta recusa trabalho, e a camada por origem já amarra o caso de uma origem só.
+ */
+const emVoo = new Map();
+
+/**
+ * Há vaga pra mais uma cobrança nesta conta? Se houver, RESERVA e devolve a
+ * função que libera — o chamador a chama num `finally`, depois do registro.
+ *
+ * Mora aqui e é EXPORTADA porque há dois sítios que criam cobrança de conta: o
+ * `createCharge` e a rota `/api/pay/stripe-intent`, que monta a cobrança
+ * sozinha. Um teste estrutural exige que toda criação de cobrança seja
+ * precedida por esta — a forma "chamador esquecido" já custou a validação do
+ * `payerLabel` e o portão de mercado dessa mesma rota.
+ *
+ * ANTES da chamada ao PSP, sempre: o ponto do teto é não falar com o
+ * adquirente. Depois seria contar o estrago.
+ */
 async function assertChargeSlot(store, checkId) {
-  const vivas = await store.listPendingCharges({
-    checkId,
-    windowMs: JANELA_VIVA_MS,
-    // `TETO + 1` basta pra decidir, e mantém a consulta barata no Postgres.
-    limit: TETO_PENDENTES + 1,
-  });
-  if (vivas.length >= TETO_PENDENTES) {
+  const vivas = await store.countPendingCharges({ checkId, windowMs: JANELA_VIVA_MS });
+  // Síncrono daqui até o `set`. Ver `emVoo`.
+  const ocupadas = vivas + (emVoo.get(checkId) || 0);
+  if (ocupadas >= TETO_PENDENTES) {
     // UM GUARDA QUE NINGUÉM VÊ É CARACTERIZADO EM PRODUÇÃO, por um cliente de
-    // pé na mesa. O router só loga status >= 500, então uma recusa 429 saía
-    // muda: se isto começar a disparar em mesa de verdade, a casa vive "o app
-    // não deixa pagar" e nós não vemos nada. Uma linha por recusa, com o id da
-    // conta e mais nada — nome de pagador não entra em log.
-    process.stderr.write(`[teto] cobranças vivas check=${checkId} vivas=${vivas.length} teto=${TETO_PENDENTES}\n`);
-    const err = new Error(`too many live pending charges for this check (${vivas.length})`);
+    // pé na mesa. O router só loga status >= 500. Uma linha por recusa, com o
+    // id da conta e mais nada — nome de pagador não entra em log.
+    process.stderr.write(`[teto] cobranças vivas check=${checkId} ocupadas=${ocupadas} teto=${TETO_PENDENTES}\n`);
+    const err = new Error(`too many live pending charges for this check (${ocupadas})`);
     // 429, não 400: o pedido está bem formado e a resposta é "agora não".
     err.statusCode = 429;
     err.code = 'too_many_pending_charges';
-    // Centavos crus e números crus — quem formata é o cliente.
+    // Números crus — quem formata é o cliente.
     err.vars = { limit: TETO_PENDENTES, windowMinutes: JANELA_VIVA_MS / 60000 };
     throw err;
   }
+  emVoo.set(checkId, (emVoo.get(checkId) || 0) + 1);
+  let liberada = false;
+  return function liberar() {
+    if (liberada) return;
+    liberada = true;
+    const n = (emVoo.get(checkId) || 1) - 1;
+    if (n <= 0) emVoo.delete(checkId); else emVoo.set(checkId, n);
+  };
 }
 
 const WALLETS = Object.freeze(['apple_pay', 'google_pay']);
@@ -267,8 +328,8 @@ function createChargeService({ store, psp }) {
         'amount_over', { leftCents: remaining });
     }
 
-    await assertChargeSlot(store, checkId);
-
+    const liberar = await assertChargeSlot(store, checkId);
+    try {
     const chargeRef = `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`;
     let charge;
     if (wallet) {
@@ -311,10 +372,16 @@ function createChargeService({ store, psp }) {
       method: rail,
       wallet: wallet ?? null,
     };
+    } finally {
+      // Depois do registro, a linha já está no banco e a reserva sai; se o PSP
+      // ou o registro estourarem, a vaga volta. Entre o registro e esta linha a
+      // cobrança conta duas vezes — do lado de recusar, que é o lado certo.
+      liberar();
+    }
   };
 }
 
 module.exports = {
-  createChargeService, assertChargeSlot, TETO_PENDENTES, JANELA_VIVA_MS,
+  createChargeService, assertChargeSlot, TETO_PENDENTES, TETO_POR_ORIGEM, JANELA_VIVA_MS,
   MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
 };
