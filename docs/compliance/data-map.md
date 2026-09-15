@@ -54,7 +54,7 @@ documentada, em nome próprio. Ver lacuna 4.
 |---|---|---|---|
 | **Supabase — projeto de dados da Racha** (`SUPABASE_URL`, sem literal no código) | tudo da tabela acima, menos o login | é o banco | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
 | **Supabase — projeto de auth do SEATABLE** (`ckforlwdhewexyqljsaf.supabase.co`) | e-mail do dono, hash de senha, identidade OAuth, sessão | login compartilhado entre os dois produtos (`apps/web/src/auth.ts`, `AUTH_SUPABASE_URL`) | AWS |
-| **Vercel** | requisições, logs de função — **incluindo o `t` da mesa, que viaja na query string do `/api/check` e é consultado a cada 4s** | hospedagem | EUA/edge |
+| **Vercel** | requisições, logs de função — **incluindo o `t` da mesa, que viaja na query string do `/api/check` e é consultado a cada 4s**, e as linhas `[teto]` quando o teto de cobranças vivas dispara: id da conta, id da **conta de saldo** (pseudônimo, não é o token portador) e id da casa — nenhum IP, telefone ou nome | hospedagem; as linhas `[teto]` são controle de abuso por interesse legítimo (LGPD arts. 7º IX e 10) | EUA/edge |
 | **Pagar.me** (`api.pagar.me`) | CPF do pagador quando informado, `payerLabel` dentro da descrição da cobrança (`Racha <label>`), valor, split | criar a cobrança Pix/cartão e liquidar direto pra casa | Brasil |
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
 | **Google Pay** (`pay.google.com`) | o que a folha da carteira do sistema operacional troca com o Google | botão de carteira — **só em casa que o servidor declarou `acceptsWallet`** | Google |
@@ -100,6 +100,9 @@ produtos sem consentimento, e o mesmo vale pro login compartilhado da linha de
 cima. Enquanto não estiver no DPA (lacuna 4), o que existe é uma prática sem
 instrumento. A alternativa técnica é mandar alerta de fundador por um canal que
 não seja o outro produto.
+
+
+**O livro de vagas do teto (`charge_slots`, migração 0033).** Guarda uma linha por cobrança criada nos últimos quinze minutos, com chave `check:<id>`, `account:<id>` ou `venue:<id>` — **nenhum IP, telefone ou nome**. O id de conta de saldo é pseudônimo; a própria reivindicação apaga linhas com mais de um dia, então ele não fica além disso. Existe pra conter abuso (interesse legítimo, arts. 7º IX e 10). A alternativa que separaria um atacante da mesa — guardar uma chave de ORIGEM, ainda que em hash de IP — foi considerada e **não** adotada: seria dado pessoal persistido pra um ganho de contenção modesto.
 
 ## 3. O que deliberadamente NÃO sai e NÃO fica
 

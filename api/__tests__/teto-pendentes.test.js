@@ -1,235 +1,170 @@
 'use strict';
 
 /**
- * O TETO DE COBRANÇAS PENDENTES VIVAS.
+ * O TETO DE COBRANÇAS VIVAS — terceira forma, e estes testes fazem o que o
+ * ATACANTE faz.
  *
- * O portão de dinheiro tinha teto de VALOR (`amount_over`) e nenhum de
- * CONTAGEM. `remainingCents` é `totalCents - paidCents`, `paidCents` conta
- * evento CONFIRMADO, e o `registerCharge` grava linha pendente sem lançar
- * evento — então N cobranças pendentes podiam ser cada uma pelo valor INTEIRO
- * que falta. E o `chargeRef`, apesar de determinístico, não é idempotência no
- * adquirente: quem deriva o `txid` dele é o MockPsp, e é por isso que os testes
- * antigos NÃO viam o problema. A Pagar.me o recebe como referência de
- * comerciante, sem cabeçalho de idempotência, com e-mail único por chamada.
+ * As duas formas anteriores foram testadas do ponto de vista de quem PAGA:
+ * todo caso esperava cada cobrança antes da próxima, e as duas passaram verdes
+ * enquanto a revisão de segurança de 2026-09-15 media:
  *
- * Um chamador com um token de mesa — que viaja em QR fotografado e em link
- * compartilhado — emitia BR Codes de 15 minutos sem limite, cada um pelo valor
- * cheio da conta. Achado pela revisão de segurança de 2026-09-15 (HIGH-4).
+ *  · 300 pedidos simultâneos → 300 cobranças, zero recusas;
+ *  · 60 cobranças de um centavo → a mesa inteira trancada;
+ *  · três instâncias, um IP → a mesa trancada de novo;
+ *  · 90 corpos INVÁLIDOS do wi-fi do salão → a mesa trancada com zero cobrança;
+ *  · pedidos em fluxo com latência no banco → 214 e 228 contra teto 200.
  *
- * Estes testes VARIAM o valor de propósito: repetir o mesmo pedido colapsa no
- * mock (mesmo `chargeRef`, mesmo `txid`) e mediria o mock, não o teto.
+ * Todos moravam na memória da função. Agora a contagem e a reserva são UMA
+ * instrução no banco (`claim_slots`, migração 0033; `claimSlots` no gêmeo em
+ * memória), chamada depois da validação. Cada forma de ataque acima tem um
+ * teste aqui.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
+const http = require('node:http');
 
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const {
-  createChargeService, assertChargeSlot, TETO_PENDENTES, TETO_POR_ORIGEM, JANELA_VIVA_MS,
+  createChargeService, TETO_PENDENTES, JANELA_VIVA_MS,
   MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
 } = require('../_lib/pay/create-charge');
 const { createMemoryStore } = require('../_lib/store/memory');
+const { createHouseService } = require('../_lib/house/house-service');
 
 const SECRET = 'test-webhook-secret-0123456789';
+const RAIZ = path.join(__dirname, '..', '..');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const ler = (...p) => fs.readFileSync(path.join(RAIZ, ...p), 'utf8');
 
-function mundo() {
-  const store = createMemoryStore();
-  const psp = new MockPsp({ webhookSecret: SECRET });
+beforeAll(() => { jest.spyOn(process.stderr, 'write').mockImplementation(() => true); });
+afterAll(() => { jest.restoreAllMocks(); });
+
+/**
+ * Um mundo com latência opcional no PSP e AO REDOR da reivindicação — a
+ * latência do banco que a forma anterior não tinha e que a revisão pôs.
+ */
+function mundo({ pspMs = 0, claimMs = 0, store = createMemoryStore() } = {}) {
+  if (claimMs) {
+    const orig = store.claimSlots.bind(store);
+    store.claimSlots = async (a) => { await sleep(claimMs / 2); const r = await orig(a); await sleep(claimMs / 2); return r; };
+  }
+  const base = new MockPsp({ webhookSecret: SECRET });
+  const psp = Object.create(base);
+  if (pspMs) psp.createPixCharge = async (a) => { await sleep(pspMs); return base.createPixCharge(a); };
   const venue = store.seedVenue({ name: 'Boteco Teto', servicoBp: 1000 });
-  const table = store.seedTable(venue.id, 'Mesa 9');
+  const table = store.seedTable(venue.id, `Mesa ${Math.random()}`);
   return { store, psp, venue, table, charge: createChargeService({ store, psp }) };
 }
 
-async function contaAberta(store, table) {
-  // Conta grande: o teto que se está medindo é o de CONTAGEM, e uma conta
-  // pequena bateria no de VALOR primeiro e mediria a outra guarda.
-  return store.openCheck(table.qrToken, [{ id: 'i1', name: 'Rodízio', priceCents: 500000 }]);
-}
+// Conta grande: o teto medido é o de CONTAGEM, não o de VALOR.
+const contaAberta = (store, table) => store.openCheck(table.qrToken, [{ id: 'i1', name: 'Rodízio', priceCents: 900000 }]);
+const pendentes = async (store, checkId) => (await store.listPendingCharges({ checkId, limit: 99999 })).length;
+// Valores DISTINTOS: repetidos colapsam no `txid` do mock e mediriam o mock.
+const nova = (charge, checkId, i) => charge({ checkId, amountCents: 100 + i, tipCents: 0 });
 
-describe('o teto de cobranças pendentes vivas por conta', () => {
-  test('o teto é DERIVADO do passo a passo da divisão, não escolhido', () => {
-    /**
-     * A PRIMEIRA VERSÃO DESTE NÚMERO ERA UM PALPITE que se descrevia como
-     * medida: "o pior caso legítimo é uma mesa de dez pessoas". O produto
-     * afere VINTE — o passo a passo da divisão para em `Math.min(20, …)` —,
-     * e com teto vinte uma mesa cheia consumia todas as vagas em primeira
-     * tentativa. A primeira pessoa que precisasse de um segundo código (tirou
-     * o serviço, a tela dormiu, o wi-fi engoliu o pedido) não conseguia pagar
-     * a própria conta. Achado pela revisão de compliance de 2026-09-15.
-     *
-     * Este teste PRENDE a derivação à UI: se o passo a passo passar a dividir
-     * entre trinta, ele falha e alguém decide o teto de novo, em vez de
-     * descobrir na mesa.
-     */
-    const app = fs.readFileSync(
-      path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'App.tsx'), 'utf8');
-    const m = /Math\.min\((\d+), people \+ 1\)/.exec(app);
+describe('o número', () => {
+  test('cabe a mesa inteira que o produto permite, com folga', () => {
+    // A primeira versão era um palpite descrito como medida ("uma mesa de dez
+    // pessoas") contra uma UI que divide entre VINTE. O teste prende a UI.
+    const m = /Math\.min\((\d+), people \+ 1\)/.exec(ler('apps', 'web', 'src', 'App.tsx'));
     expect({ achou: !!m }).toEqual({ achou: true });
-    // A derivação lê UM cliente. O app iOS já chama `GET /api/check`; no dia
-    // em que ganhar um fluxo de pagamento com teto próprio de pessoas, este
-    // número deixa de ser derivado e este teste continua verde. Se isso
-    // acontecer, o teto tem que ler o MAIOR dos dois. Apontado pela revisão
-    // de segurança de 2026-09-15 (LOW-5).
-    expect({ passoAPassoDoApp: Number(m[1]), derivacao: MAX_PESSOAS_NA_DIVISAO })
-      .toEqual({ passoAPassoDoApp: MAX_PESSOAS_NA_DIVISAO, derivacao: MAX_PESSOAS_NA_DIVISAO });
-    // A camada POR ORIGEM é a derivada: uma mesa cheia, três tentativas cada,
-    // mais metade pelas tentativas que os outros portões recusam.
-    expect(TETO_POR_ORIGEM).toBe((MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA * 3) / 2);
-    // E a POR CONTA tem que ficar acima do que UMA origem cria numa janela
-    // viva: o balde de dez minutos pode virar uma vez em quinze, então uma
-    // origem cria até o DOBRO do seu teto. Se a conta couber nisso, uma origem
-    // só volta a trancar a mesa — que é o HIGH-1 da revisão de segurança.
-    expect(TETO_PENDENTES).toBeGreaterThan(2 * TETO_POR_ORIGEM);
+    // A derivação lê UM cliente. No dia em que o app iOS ganhar um fluxo de
+    // pagamento com teto próprio de pessoas, o teto tem que ler o MAIOR dos
+    // dois — este teste continuaria verde. (Revisão de segurança, LOW-5.)
+    expect(Number(m[1])).toBe(MAX_PESSOAS_NA_DIVISAO);
+    expect(TETO_PENDENTES).toBeGreaterThanOrEqual(3 * MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA);
     expect(JANELA_VIVA_MS).toBe(15 * 60 * 1000);
   });
 
-  test('a mesa CHEIA que o produto permite cabe, com folga de tentativas', async () => {
-    // O caso que a revisão achou: vinte pessoas, divisão igual, todas pagam.
-    // Nenhuma pode levar 429 na primeira tentativa, nem na segunda.
+  test('a mesa cheia paga — vinte pessoas, três tentativas cada', async () => {
     const { store, table, charge } = mundo();
     const check = await contaAberta(store, table);
-    for (let i = 0; i < MAX_PESSOAS_NA_DIVISAO * 2; i += 1) {
-      await expect(charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 }))
-        .resolves.toBeTruthy();
+    for (let i = 0; i < MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA; i += 1) {
+      await expect(nova(charge, check.id, i)).resolves.toBeTruthy();
     }
-  });
-
-  test('deixa passar até o teto e recusa a seguinte, com código estável', async () => {
-    const { store, table, charge } = mundo();
-    const check = await contaAberta(store, table);
-    for (let i = 0; i < TETO_PENDENTES; i += 1) {
-      // Valor VARIÁVEL: mesmo pedido colapsaria no `txid` derivado do mock.
-      await charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 });
-    }
-    expect((await store.listPendingCharges({ checkId: check.id, limit: 999 })).length)
-      .toBe(TETO_PENDENTES);
-    await expect(charge({ checkId: check.id, amountCents: 999, tipCents: 0 }))
-      .rejects.toMatchObject({ statusCode: 429, code: 'too_many_pending_charges' });
-  });
-
-  test('o erro leva os NÚMEROS crus, nunca a frase — quem escreve é o cliente', async () => {
-    const { store, table, charge } = mundo();
-    const check = await contaAberta(store, table);
-    for (let i = 0; i < TETO_PENDENTES; i += 1) {
-      await charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 });
-    }
-    const err = await charge({ checkId: check.id, amountCents: 999 }).catch((e) => e);
-    expect(err.vars).toEqual({ limit: TETO_PENDENTES, windowMinutes: 15 });
-    // E a chave existe nas TRÊS línguas — servidor manda código, cliente traduz.
-    const i18n = fs.readFileSync(
-      path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
-    for (const codigo of ['too_many_pending_charges', 'too_many_pending_loads']) {
-      // ATÉ A PRÓXIMA CHAVE, não 700 caracteres. A janela fixa vazava pras
-      // entradas seguintes do dicionário: apagar o `pt:` desta chave deixava
-      // as seis asserções verdes, porque o `pt:` da vizinha estava dentro da
-      // janela. Achado pela revisão de segurança de 2026-09-15 (LOW-2).
-      const ini = i18n.indexOf(`'err.${codigo}'`);
-      expect(ini).toBeGreaterThanOrEqual(0);
-      const fim = i18n.indexOf("\n  '", ini + 1);
-      const bloco = i18n.slice(ini, fim === -1 ? undefined : fim);
-      expect(bloco).toMatch(/en:/); expect(bloco).toMatch(/pt:/); expect(bloco).toMatch(/es:/);
-    }
-  });
-
-  test('NÃO fala com o adquirente quando o teto fecha', async () => {
-    // O ponto inteiro do teto: a chamada não sai. Um teto conferido DEPOIS da
-    // cobrança criada é contar o estrago, não impedi-lo.
-    const { store, psp, table, charge } = mundo();
-    const check = await contaAberta(store, table);
-    for (let i = 0; i < TETO_PENDENTES; i += 1) {
-      await charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 });
-    }
-    let chamou = false;
-    // `Object.create`, não espalhamento: o adaptador é uma CLASSE, e `{...psp}`
-    // copia só as propriedades próprias — o portão de mercado perde os métodos
-    // do protótipo e a cobrança morre com `psp_market_mismatch`, que é outro
-    // erro e mediria outra guarda.
-    const espiao = Object.create(psp);
-    espiao.createPixCharge = async (...a) => { chamou = true; return psp.createPixCharge(...a); };
-    const comEspiao = createChargeService({ store, psp: espiao });
-    await expect(comEspiao({ checkId: check.id, amountCents: 999 })).rejects.toMatchObject({ code: 'too_many_pending_charges' });
-    expect(chamou).toBe(false);
-  });
-
-  test('cobrança VENCIDA não ocupa vaga — a mesa não fica trancada a noite toda', async () => {
-    const { store, table, charge } = mundo();
-    const check = await contaAberta(store, table);
-    for (let i = 0; i < TETO_PENDENTES; i += 1) {
-      await charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 });
-    }
-    // Envelhece as vivas para além da validade do Pix.
-    // `getPayment` devolve a linha viva do store em memória — envelhecer aqui
-    // é o equivalente honesto de esperar quinze minutos.
-    const velho = new Date(Date.now() - JANELA_VIVA_MS - 60_000).toISOString();
-    for (const p of await store.listPendingCharges({ checkId: check.id, limit: 999 })) {
-      (await store.getPayment(p.txid)).createdAt = velho;
-    }
-    await expect(charge({ checkId: check.id, amountCents: 999, tipCents: 0 })).resolves.toBeTruthy();
-  });
-
-  test('cobrança CONFIRMADA não ocupa vaga', async () => {
-    const { store, table, charge } = mundo();
-    const check = await contaAberta(store, table);
-    const feitas = [];
-    for (let i = 0; i < TETO_PENDENTES; i += 1) {
-      feitas.push(await charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 }));
-    }
-    (await store.getPayment(feitas[0].txid)).status = 'confirmado';
-    await expect(charge({ checkId: check.id, amountCents: 999, tipCents: 0 })).resolves.toBeTruthy();
-  });
-
-  test('o teto é POR CONTA: outra mesa não herda o bloqueio', async () => {
-    const { store, venue, table, charge } = mundo();
-    const check = await contaAberta(store, table);
-    for (let i = 0; i < TETO_PENDENTES; i += 1) {
-      await charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 });
-    }
-    const outra = store.seedTable(venue.id, 'Mesa 10');
-    const check2 = await contaAberta(store, outra);
-    await expect(charge({ checkId: check2.id, amountCents: 100, tipCents: 0 })).resolves.toBeTruthy();
   });
 });
 
-describe('o teto AMARRA contra o atacante que ele existe pra parar', () => {
-  /**
-   * A primeira versão só era testada do ponto de vista de quem PAGA: todo caso
-   * esperava cada cobrança antes da próxima. A revisão de segurança de
-   * 2026-09-15 disparou trezentas em paralelo contra um PSP com latência e viu
-   * trezentas criadas e zero recusadas — a janela entre ler e gravar é uma ida
-   * inteira ao adquirente. Estes testes fazem o que o atacante faz.
-   */
-  function mundoLento(latMs) {
-    const store = createMemoryStore();
-    const base = new MockPsp({ webhookSecret: SECRET });
-    const psp = Object.create(base);
-    psp.createPixCharge = async (a) => {
-      await new Promise((r) => setTimeout(r, latMs));
-      return base.createPixCharge(a);
-    };
-    const venue = store.seedVenue({ name: 'Boteco Lento', servicoBp: 1000 });
-    const table = store.seedTable(venue.id, 'Mesa 1');
-    return { store, psp, table, charge: createChargeService({ store, psp }) };
-  }
-
-  test('uma rajada CONCORRENTE não passa do teto', async () => {
-    const { store, table, charge } = mundoLento(40);
+describe('a recusa é uma resposta, não uma frase', () => {
+  test('cheio: 429 com código estável e números crus, e o PSP nem é chamado', async () => {
+    const { store, psp, table } = mundo();
+    let chamadas = 0;
+    const espiao = Object.create(psp);
+    espiao.createPixCharge = async (a) => { chamadas += 1; return psp.createPixCharge(a); };
+    const charge = createChargeService({ store, psp: espiao });
     const check = await contaAberta(store, table);
-    const n = TETO_PENDENTES + 100;
-    const rs = await Promise.allSettled(Array.from({ length: n }, (_, i) =>
-      charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 })));
+    for (let i = 0; i < TETO_PENDENTES; i += 1) await nova(charge, check.id, i);
+    const antes = chamadas;
+    const err = await nova(charge, check.id, 99999).catch((e) => e);
+    expect(err).toMatchObject({ statusCode: 429, code: 'too_many_pending_charges',
+      vars: { limit: TETO_PENDENTES, windowMinutes: 15 } });
+    expect(chamadas).toBe(antes);
+  });
+
+  test('toda chave de teto existe nas três línguas — até a PRÓXIMA chave, não 700 caracteres', () => {
+    // A janela fixa vazava pras entradas vizinhas: apagar o `pt:` de uma chave
+    // deixava as asserções verdes. (Revisão de segurança, LOW-2.)
+    const i18n = ler('apps', 'web', 'src', 'i18n.ts');
+    for (const codigo of ['too_many_pending_charges', 'too_many_pending_loads', 'too_many_pending_loads_venue']) {
+      const ini = i18n.indexOf(`'err.${codigo}'`);
+      expect({ codigo, existe: ini >= 0 }).toEqual({ codigo, existe: true });
+      const fim = i18n.indexOf("\n  '", ini + 1);
+      const bloco = i18n.slice(ini, fim === -1 ? undefined : fim);
+      for (const l of ['en', 'pt', 'es']) expect({ codigo, l, tem: bloco.includes(`${l}:`) }).toEqual({ codigo, l, tem: true });
+    }
+  });
+});
+
+describe('o atacante que o teto existe pra parar', () => {
+  test('rajada CONCORRENTE: exatamente o teto passa', async () => {
+    const { store, table, charge } = mundo({ pspMs: 40 });
+    const check = await contaAberta(store, table);
+    const n = TETO_PENDENTES + 150;
+    const rs = await Promise.allSettled(Array.from({ length: n }, (_, i) => nova(charge, check.id, i)));
     const criadas = rs.filter((r) => r.status === 'fulfilled').length;
     const recusadas = rs.filter((r) => r.status === 'rejected' && r.reason.code === 'too_many_pending_charges').length;
     expect({ criadas, recusadas }).toEqual({ criadas: TETO_PENDENTES, recusadas: n - TETO_PENDENTES });
-    // E o que ficou no banco é o que foi criado — a reserva não vazou.
-    expect(await store.countPendingCharges({ checkId: check.id, windowMs: JANELA_VIVA_MS }))
-      .toBe(TETO_PENDENTES);
+    expect(await pendentes(store, check.id)).toBe(TETO_PENDENTES);
   });
 
-  test('uma cobrança que ESTOURA no PSP devolve a vaga', async () => {
-    // Sem o `finally`, cada falha do adquirente vazaria uma reserva, e uma
-    // noite de instabilidade da Pagar.me trancaria mesas que não criaram nada.
-    const { store, psp, table } = mundo();
+  test('FLUXO com latência no banco e no PSP — a forma que furou a reserva em memória (214, 228)', async () => {
+    const { store, table, charge } = mundo({ pspMs: 60, claimMs: 30 });
     const check = await contaAberta(store, table);
+    const ps = [];
+    for (let i = 0; i < TETO_PENDENTES + 150; i += 1) {
+      const p = nova(charge, check.id, i); p.catch(() => {}); ps.push(p);
+      await sleep(0.5);
+    }
+    const criadas = (await Promise.allSettled(ps)).filter((r) => r.status === 'fulfilled').length;
+    expect(criadas).toBe(TETO_PENDENTES);
+  });
+
+  test('DUAS instâncias sobre o mesmo banco não somam tetos', async () => {
+    // A forma anterior tinha estado de módulo por instância; com a reivindicação
+    // no banco, "instância" não existe pro teto. Dois serviços, um store.
+    const um = mundo({ pspMs: 20 });
+    const outro = createChargeService({ store: um.store, psp: um.psp });
+    const check = await contaAberta(um.store, um.table);
+    const rs = await Promise.allSettled([
+      ...Array.from({ length: 150 }, (_, i) => nova(um.charge, check.id, i)),
+      ...Array.from({ length: 150 }, (_, i) => nova(outro, check.id, 1000 + i)),
+    ]);
+    expect(rs.filter((r) => r.status === 'fulfilled').length).toBe(TETO_PENDENTES);
+  });
+
+  test('pedido INVÁLIDO não ocupa vaga — lixo do wi-fi do salão não tranca a mesa', async () => {
+    const { store, table, charge } = mundo();
+    const check = await contaAberta(store, table);
+    for (let i = 0; i < TETO_PENDENTES + 50; i += 1) {
+      await expect(charge({ checkId: check.id, amountCents: -1 })).rejects.toMatchObject({ statusCode: 400 });
+    }
+    // Se o lixo tivesse ocupado alguma vaga, a última destas seria recusada.
+    for (let i = 0; i < TETO_PENDENTES; i += 1) await expect(nova(charge, check.id, i)).resolves.toBeTruthy();
+  });
+
+  test('PSP que estoura DEVOLVE a vaga — uma noite instável da Pagar.me não tranca mesa', async () => {
+    const { store, psp, table } = mundo();
     let falhas = 0;
     const instavel = Object.create(psp);
     instavel.createPixCharge = async (a) => {
@@ -237,229 +172,270 @@ describe('o teto AMARRA contra o atacante que ele existe pra parar', () => {
       return psp.createPixCharge(a);
     };
     const charge = createChargeService({ store, psp: instavel });
-    for (let i = 0; i < TETO_PENDENTES; i += 1) {
-      await expect(charge({ checkId: check.id, amountCents: 100 + i })).rejects.toThrow('gateway 502');
-    }
-    await expect(charge({ checkId: check.id, amountCents: 9999 })).resolves.toBeTruthy();
+    const check = await contaAberta(store, table);
+    for (let i = 0; i < TETO_PENDENTES; i += 1) await expect(nova(charge, check.id, i)).rejects.toThrow('gateway 502');
+    for (let i = 0; i < TETO_PENDENTES; i += 1) await expect(nova(charge, check.id, 500 + i)).resolves.toBeTruthy();
   });
 
-  test('a contagem do teto NÃO esconde as linhas mais novas', async () => {
-    // O `listPendingCharges` serve a conciliação e tem um limite superior de
-    // idade (`graceMs`) que esconde de propósito o que acabou de nascer. A
-    // contagem do teto é outra pergunta: a linha de agora conta.
+  test('o PSP CRIOU e o registro estourou: a vaga FICA — há um BR Code vivo no adquirente', async () => {
+    // Devolver aqui seria contar uma cobrança viva a menos: o teto mediria a
+    // nossa tabela, não o adquirente.
     const { store, table, charge } = mundo();
     const check = await contaAberta(store, table);
-    await charge({ checkId: check.id, amountCents: 100 });
-    expect(await store.countPendingCharges({ checkId: check.id, windowMs: JANELA_VIVA_MS })).toBe(1);
-    expect((await store.listPendingCharges({ checkId: check.id, graceMs: 20_000 })).length).toBe(0);
+    const orig = store.registerCharge.bind(store);
+    let quebrou = false;
+    store.registerCharge = async (a) => { if (!quebrou) { quebrou = true; throw new Error('db down'); } return orig(a); };
+    await expect(nova(charge, check.id, 0)).rejects.toThrow('db down');
+    let criadas = 0;
+    for (let i = 1; i <= TETO_PENDENTES; i += 1) { try { await nova(charge, check.id, i); criadas += 1; } catch { /* cheio */ } }
+    expect(criadas).toBe(TETO_PENDENTES - 1);
+  });
+
+  test('a janela DESLIZA: passados quinze minutos a mesa volta a ter vaga', async () => {
+    // Janela fixa deixava uma origem atravessar três janelas numa vida de
+    // cobrança. Aqui cada vaga carrega o próprio instante.
+    const { store, table, charge } = mundo();
+    const check = await contaAberta(store, table);
+    const t0 = Date.now();
+    const relogio = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    try {
+      for (let i = 0; i < TETO_PENDENTES; i += 1) await nova(charge, check.id, i);
+      await expect(nova(charge, check.id, 9000)).rejects.toMatchObject({ code: 'too_many_pending_charges' });
+      relogio.mockReturnValue(t0 + JANELA_VIVA_MS - 1000);
+      await expect(nova(charge, check.id, 9001)).rejects.toMatchObject({ code: 'too_many_pending_charges' });
+      relogio.mockReturnValue(t0 + JANELA_VIVA_MS + 1000);
+      await expect(nova(charge, check.id, 9002)).resolves.toBeTruthy();
+    } finally {
+      relogio.mockRestore();
+    }
+  });
+
+  test('ponta a ponta no router: corpos inválidos e depois um cliente de verdade paga', async () => {
+    // A camada por origem da forma anterior contava ANTES da validação: 90
+    // corpos lixo do mesmo IP trancavam quem estava no wi-fi. Sem camada em
+    // memória, este teste existe pra que ela não volte sem ninguém ver.
+    const { route, store } = require('../_app/router');
+    const venue = store.seedVenue({ name: 'Rota', servicoBp: 1000, pspRecipientId: 'rcpt_r' });
+    const table = store.seedTable(venue.id, 'M1');
+    await store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 900000 }]);
+    const srv = http.createServer(route).listen(0);
+    await new Promise((r) => srv.once('listening', r));
+    const porta = srv.address().port;
+    const pagar = (corpo) => fetch(`http://127.0.0.1:${porta}/api/pay`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '189.10.20.30' },
+      body: JSON.stringify({ token: table.qrToken, ...corpo }),
+    });
+    try {
+      for (let i = 0; i < 120; i += 1) expect((await pagar({ amountCents: -1 })).status).toBe(400);
+      const r = await pagar({ amountCents: 4200, tipCents: 0 });
+      expect(r.status).toBe(200);
+    } finally {
+      srv.close();
+    }
+  });
+});
+
+describe('cargas de saldo — por conta e por casa, com códigos diferentes', () => {
+  const TETO_CARGAS = 10;
+  function casa() {
+    const store = createMemoryStore();
+    const psp = new MockPsp({ webhookSecret: SECRET });
+    const house = createHouseService({ store, psp, now: () => new Date().toISOString() });
+    return { store, house };
+  }
+  async function casaAberta(store, house) {
+    const venue = store.seedVenue({ name: 'Bar Casa', servicoBp: 1000, pspRecipientId: 'rcpt_c' });
+    await house.updateConfig(venue.id, { enabled: true, bonusBp: 0, validityDays: 30 });
+    return { venue, table: store.seedTable(venue.id, 'Mesa 1') };
+  }
+  const conta = async (house, table, n) => (await house.openAccount({
+    tableQrToken: table.qrToken, phone: `1198${String(n).padStart(7, '0')}`, name: `C${n}`,
+  })).accountToken;
+
+  test('por CONTA: dez, e a décima primeira leva o código da conta', async () => {
+    const { store, house } = casa();
+    const { table } = await casaAberta(store, house);
+    const t = await conta(house, table, 1);
+    for (let i = 0; i < TETO_CARGAS; i += 1) await house.createLoad({ accountToken: t, amountCents: 10000 + i });
+    await expect(house.createLoad({ accountToken: t, amountCents: 20000 }))
+      .rejects.toMatchObject({ statusCode: 429, code: 'too_many_pending_loads', vars: { limit: TETO_CARGAS } });
+  });
+
+  test('por CASA: contas novas não furam, e a recusa tem código PRÓPRIO', async () => {
+    // Conta de saldo é de graça (telefone sem verificação); por isso o teto
+    // por casa. E quem lê a recusa por casa não tem recarga aberta nenhuma —
+    // a frase da conta ("pague uma das que já gerou") seria remédio impossível.
+    const { store, house } = casa();
+    const { table } = await casaAberta(store, house);
+    let criadas = 0; let recusa = null;
+    for (let c = 0; c < 25 && !recusa; c += 1) {
+      const t = await conta(house, table, c);
+      for (let i = 0; i < TETO_CARGAS && !recusa; i += 1) {
+        try { await house.createLoad({ accountToken: t, amountCents: 10000 + i }); criadas += 1; } catch (e) { recusa = e; }
+      }
+    }
+    expect(criadas).toBe(200);
+    expect(recusa).toMatchObject({ statusCode: 429, code: 'too_many_pending_loads_venue', vars: { limit: 200 } });
+  });
+
+  test('rajada CONCORRENTE de cargas não passa do teto da conta', async () => {
+    const { store, house } = casa();
+    const { table } = await casaAberta(store, house);
+    const t = await conta(house, table, 7);
+    const rs = await Promise.allSettled(Array.from({ length: 40 }, (_, i) =>
+      house.createLoad({ accountToken: t, amountCents: 10000 + i })));
+    expect(rs.filter((r) => r.status === 'fulfilled').length).toBe(TETO_CARGAS);
   });
 });
 
 describe('TODA criação de cobrança passa pelo teto', () => {
   /**
-   * O CENSO DE CHAMADORES, e a primeira versão dele tinha três cegueiras que
-   * se somavam — todas medidas pela revisão de segurança de 2026-09-15
-   * (MEDIUM-2):
-   *
-   *  · lista FIXA de três arquivos. A refatoração que o quebra é a que qualquer
-   *    um chamaria de limpeza: tirar o handler do intent da Stripe do router
-   *    de 2200 linhas pra um módulo próprio. Os dois testes ficavam verdes e o
-   *    teto sumia do trilho Stripe. O `markets.test.js` já tinha um
-   *    caminhador de árvore inteira pra exatamente isto, trezentas linhas
-   *    adiante;
-   *  · o nome do RECEPTOR na regex: `pagarme.`, `adapter.`, `demoPsp.` e
-   *    `psp[creator](` eram invisíveis;
-   *  · o sentinela contava `>= 4` com seis sítios reais — duas de folga, que é
-   *    exatamente o que o trilho Stripe contribui.
-   *
-   * Agora: árvore inteira de `api/`, qualquer receptor, um curinga pra trilho
-   * que ainda não existe (`create*Charge`), e contagem EXATA — sítio novo obriga
-   * a uma decisão, em vez de caber na folga.
+   * O censo de chamadores anda a ÁRVORE INTEIRA de `api/`, casa o nome do
+   * método em QUALQUER forma de chamada (ponto, colchete com aspas, `.call`,
+   * quebra de linha antes do parêntese, desestruturação) e conta EXATO. A
+   * primeira versão lia três arquivos fixos, com o receptor na regex e folga de
+   * dois no sentinela. (Revisão de segurança, MEDIUM-2 e LOW-1.)
    */
   const RAIZ_API = path.join(__dirname, '..');
   const ADAPTADORES = /_lib\/pay\/(mock|pagarme|stripe)-psp\.js$/;
-  const semComentario = (src) => src.split('\n')
+  const semComentario = (src) => src.split('\n').map((l) => l.replace(/\/\*.*?\*\//g, ''))
     .filter((l) => !/^\s*(\/\*|\*|\/\/)/.test(l)).join('\n');
   const arquivos = [];
   (function walk(dir) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       if (['node_modules', '__tests__'].includes(e.name)) continue;
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (e.name.endsWith('.js')) arquivos.push(full);
+      if (e.isDirectory()) walk(full); else if (e.name.endsWith('.js')) arquivos.push(full);
     }
   }(RAIZ_API));
-  // Os adaptadores DEFINEM os métodos; quem os CHAMA precisa do teto.
   const chamadores = arquivos.filter((f) => !ADAPTADORES.test(f.replace(/\\/g, '/')));
-  const CRIA = /\.create[A-Z]\w*Charge\s*\(|\bpsp\s*\[\s*\w+\s*\]\s*\(/;
-
+  /**
+   * O que conta é USO, definido pela forma e não por uma lista de exceções:
+   * acesso por PONTO ao método (chamada, `.call`, `Reflect.apply`, quebra de
+   * linha antes do parêntese), acesso por COLCHETE com o nome entre aspas,
+   * despacho por variável que de fato INVOCA, e desestruturação a partir de um
+   * objeto. Ficam de fora sem regra própria: a chave de objeto que DEFINE o
+   * método (o stub do PSP ausente no router), a sonda `typeof psp[x]` e o nome
+   * solto numa string que escolhe o método. Uma lista de exceções escrita a
+   * partir dos dois primeiros casos achados seria a forma que estas revisões
+   * pegam toda rodada.
+   */
+  const CRIA = new RegExp([
+    String.raw`\.create[A-Z]\w*Charge\b`,
+    String.raw`\[\s*['"]create[A-Z]\w*Charge['"]\s*\]`,
+    String.raw`\b\w*[pP]sp\s*\[\s*\w+\s*\]\s*(?:\(|\.call\b|\.apply\b)`,
+    String.raw`\{[^}]*\bcreate[A-Z]\w*Charge\b[^}]*\}\s*=`,
+  ].join('|'));
   const sitios = [];
   for (const f of chamadores) {
     const linhas = semComentario(fs.readFileSync(f, 'utf8')).split('\n');
     linhas.forEach((l, i) => {
-      if (!CRIA.test(l)) return;
+      if (!CRIA.test(l) || /\bcreateChargeService\b/.test(l)) return;
       const antes = linhas.slice(Math.max(0, i - 60), i).join('\n');
-      sitios.push({
-        onde: `${path.relative(RAIZ_API, f)}:${i + 1}  ${l.trim().slice(0, 50)}`,
-        comTeto: /assertChargeSlot\(|assertLoadSlot\(/.test(antes),
-      });
+      sitios.push({ onde: `${path.relative(RAIZ_API, f)}:${i + 1}  ${l.trim().slice(0, 60)}`,
+        comTeto: /assertChargeSlot\(|assertLoadSlot\(/.test(antes) });
     });
   }
 
-  test('todo sítio que cria cobrança confere vaga antes', () => {
+  test('todo sítio que cria cobrança reivindica vaga antes', () => {
     expect(sitios.filter((x) => !x.comTeto).map((x) => x.onde)).toEqual([]);
   });
 
-  test('o censo acha EXATAMENTE os sítios de hoje — sítio novo é decisão, não folga', () => {
-    // Seis: três na fábrica (Pix, carteira, Bizum), dois no intent da Stripe
-    // (Bizum, carteira), um na carga de saldo. Mudou? Leia o sítio novo antes
-    // de mudar o número.
+  test('o censo acha EXATAMENTE os sítios de hoje', () => {
+    // Três na fábrica (Pix, carteira, Bizum), dois no intent da Stripe, um na
+    // carga de saldo. Mudou? Leia o sítio novo antes de mudar o número.
     expect(sitios.map((x) => x.onde)).toHaveLength(6);
   });
 
-  test('a caminhada é da árvore inteira, não de uma lista de arquivos', () => {
-    // Um arquivo-isca fora dos três conhecidos, com uma cobrança sem teto,
-    // tem que ser VISTO. Sem isto a lista fixa pode voltar em silêncio.
-    const isca = "async function x(psp) { return pagarme.createPixCharge({ a: 1 }); }\n";
-    expect(CRIA.test(isca)).toBe(true);
-    expect(chamadores.length).toBeGreaterThan(10);
+  test('o casador vê as formas que a revisão achou invisíveis', () => {
+    for (const forma of [
+      'await pagarme.createPixCharge({ a: 1 })', "await psp['createPixCharge']({})",
+      'await psp.createPixCharge.call(psp, {})', 'const { createWalletCharge } = psp;',
+      'await stripePsp[metodo]({})', 'await demoPsp[m]({})',
+    ]) expect({ forma, vista: CRIA.test(forma) }).toEqual({ forma, vista: true });
+    // E o que NÃO é uso não pode contar — senão o sentinela exato vira ruído e
+    // alguém o afrouxa. Os quatro vêm do código de hoje.
+    for (const naoUso of [
+      'createPixCharge: indisponivel,', "if (typeof psp[creator] !== 'function') {",
+      "const creator = wallet ? 'createWalletCharge' : rail === 'bizum' ? 'createBizumCharge' : 'createPixCharge';",
+    ]) expect({ naoUso, vista: CRIA.test(naoUso) }).toEqual({ naoUso, vista: false });
     expect(chamadores.some((f) => f.includes(`${path.sep}_lib${path.sep}`))).toBe(true);
   });
 });
 
-/**
- * E O TETO DAS CARGAS DE SALDO.
- *
- * O `/api/house/load` é a mais exposta das três rotas que criam cobrança, e a
- * declaração do censo de saída diz por quê: não passa pela fábrica, então não
- * herda teto de valor nenhum, e não há conta aberta pra limitar o valor —
- * carga de saldo não tem conta. O `chargeRef` dela leva um `randomUUID` DE
- * PROPÓSITO, com um comentário dizendo que duas cargas idênticas são cobranças
- * diferentes: nem nominalmente havia idempotência aqui.
- */
-describe('o teto de cargas de saldo vivas por conta', () => {
-  const { createWebhookHandler } = require('../_lib/pay/webhook-handler');
-  const { createHouseService } = require('../_lib/house/house-service');
+describe('os dois stores e o SQL dizem a mesma coisa', () => {
+  const SQL = ler('supabase', 'migrations', '0033_charge_slots.sql');
+  const SUP = ler('api', '_lib', 'store', 'supabase.js');
+  const MEM = ler('api', '_lib', 'store', 'memory.js');
 
-  function casa() {
-    const store = createMemoryStore();
-    const psp = new MockPsp({ webhookSecret: SECRET });
-    const house = createHouseService({ store, psp, now: () => new Date().toISOString() });
-    createWebhookHandler({
-      loadEvents: store.loadEvents.bind(store),
-      appendEvent: store.appendEvent.bind(store),
-      recordPayment: store.recordPayment.bind(store),
-      findCheckByTxid: store.findCheckByTxid.bind(store),
-      psp,
-      fallback: (p) => house.confirmLoadFromWebhook(p),
-    });
-    return { store, psp, house };
-  }
-
-  async function contaDeSaldo(store, house) {
-    const venue = store.seedVenue({ name: 'Bar Teto', servicoBp: 1000, pspRecipientId: 'rcpt_t' });
-    await house.updateConfig(venue.id, { enabled: true, bonusBp: 1500, validityDays: 30 });
-    const table = store.seedTable(venue.id, 'Mesa 1');
-    const { accountToken } = await house.openAccount({
-      tableQrToken: table.qrToken, phone: '11987654321', name: 'Ana',
-    });
-    return accountToken;
-  }
-
-  const TETO_CARGAS = 10;
-
-  test('deixa passar até o teto e recusa a seguinte, com código estável', async () => {
-    const { store, house } = casa();
-    const accountToken = await contaDeSaldo(store, house);
-    for (let i = 0; i < TETO_CARGAS; i += 1) {
-      await house.createLoad({ accountToken, amountCents: 10000 + i });
+  test('os dois stores implementam a reivindicação e a devolução', () => {
+    for (const m of ['claimSlots', 'releaseSlots']) {
+      expect({ m, memoria: MEM.includes(`async ${m}(`), supabase: SUP.includes(`async ${m}(`) })
+        .toEqual({ m, memoria: true, supabase: true });
     }
-    await expect(house.createLoad({ accountToken, amountCents: 20000 }))
-      .rejects.toMatchObject({ statusCode: 429, code: 'too_many_pending_loads' });
   });
 
-  test('carga CONFIRMADA não ocupa vaga', async () => {
-    const { store, house } = casa();
-    const accountToken = await contaDeSaldo(store, house);
-    const feitas = [];
-    for (let i = 0; i < TETO_CARGAS; i += 1) {
-      feitas.push(await house.createLoad({ accountToken, amountCents: 10000 + i }));
-    }
-    await expect(house.createLoad({ accountToken, amountCents: 30000 }))
-      .rejects.toMatchObject({ code: 'too_many_pending_loads' });
-    await store.confirmHouseLoad({ txid: feitas[0].txid, confirmedAt: new Date().toISOString() });
-    await expect(house.createLoad({ accountToken, amountCents: 30001 })).resolves.toBeTruthy();
+  test('a RPC conta e reserva sob TRAVA, com janela DESLIZANTE, e nasce fechada', () => {
+    expect(SQL).toMatch(/pg_advisory_xact_lock\(/);
+    expect(SQL).toMatch(/created_at >= now\(\) - make_interval\(secs => p_window_seconds\)/);
+    expect(SQL).toMatch(/alter table public\.charge_slots enable row level security/);
+    expect(SQL).toMatch(/revoke all on public\.charge_slots from anon, authenticated/);
+    expect(SQL).toMatch(/revoke all on function public\.claim_slots\(text\[\], integer\[\], integer\) from public, anon, authenticated/);
+    expect(SQL).toMatch(/revoke all on function public\.release_slots\(uuid\) from public, anon, authenticated/);
   });
 
-  test('a JANELA é carregada — carga vencida não ocupa vaga', async () => {
-    /**
-     * Sem viagem no tempo: o `findHouseLoadByTxid` do store em memória devolve
-     * uma CÓPIA (diferente do `getPayment`, que devolve a linha viva), então
-     * envelhecer a linha por fora não é possível — e inventar um acessor de
-     * teste só pra isto seria abrir superfície pra medir uma coisa que a
-     * própria contagem já sabe responder. A janela é medida onde ela mora: uma
-     * janela negativa não alcança carga nenhuma, uma infinita alcança todas. Se
-     * o parâmetro deixar de ser aplicado, os dois números viram iguais.
-     */
-    const { store, house } = casa();
-    const accountToken = await contaDeSaldo(store, house);
-    for (let i = 0; i < TETO_CARGAS; i += 1) {
-      await house.createLoad({ accountToken, amountCents: 10000 + i });
-    }
-    // O id vem do store, não da projeção da carteira: a carteira é a VISTA do
-    // cliente e não promete expor a chave primária.
-    const conta = await store.getHouseAccountByToken(accountToken);
-    const todas = await store.countPendingHouseLoads({ accountId: conta.id, windowMs: Infinity });
-    const nenhuma = await store.countPendingHouseLoads({ accountId: conta.id, windowMs: -1 });
-    expect({ todas, nenhuma }).toEqual({ todas: TETO_CARGAS, nenhuma: 0 });
+  test('os nomes e parâmetros que o store manda são os que a RPC recebe', () => {
+    expect(SUP).toMatch(/rpc\('claim_slots', \{\s*p_keys: keys, p_limits: limits, p_window_seconds:/);
+    expect(SUP).toMatch(/rpc\('release_slots', \{ p_claim_id: claimId \}\)/);
+    expect(SQL).toMatch(/function public\.claim_slots\(\s*p_keys text\[\],\s*p_limits integer\[\],\s*p_window_seconds integer\s*\)/);
+    expect(SQL).toMatch(/function public\.release_slots\(p_claim_id uuid\)/);
   });
 
-  test('o teto POR CASA amarra mesmo com contas novas — conta é de graça', async () => {
-    // `openAccount` aceita qualquer telefone de 10 a 13 dígitos sem
-    // verificação. Um teto só por conta era um teto sobre nada.
-    const { store, house } = casa();
-    const venue = store.seedVenue({ name: 'Bar Casa', servicoBp: 1000, pspRecipientId: 'rcpt_c' });
-    await house.updateConfig(venue.id, { enabled: true, bonusBp: 0, validityDays: 30 });
-    const table = store.seedTable(venue.id, 'Mesa 1');
-    let criadas = 0; let recusa = null;
-    for (let conta = 0; conta < 25 && !recusa; conta += 1) {
-      const { accountToken } = await house.openAccount({
-        tableQrToken: table.qrToken, phone: `1198${String(conta).padStart(7, '0')}`, name: `C${conta}`,
-      });
-      for (let i = 0; i < TETO_CARGAS && !recusa; i += 1) {
-        try { await house.createLoad({ accountToken, amountCents: 10000 + i }); criadas += 1; }
-        catch (e) { recusa = e; }
-      }
-    }
-    expect(criadas).toBe(200);
-    expect(recusa).toMatchObject({ statusCode: 429, code: 'too_many_pending_loads', vars: { limit: 200 } });
-  });
-
-  test('os DOIS stores implementam a contagem — o gêmeo não pode ficar pra trás', () => {
-    // Um teto que só existe no store de memória é um teto que não existe: quem
-    // roda em produção é o Supabase. Mesma disciplina do `store-contract`.
-    const mem = fs.readFileSync(path.join(__dirname, '..', '_lib', 'store', 'memory.js'), 'utf8');
-    const sup = fs.readFileSync(path.join(__dirname, '..', '_lib', 'store', 'supabase.js'), 'utf8');
-    for (const metodo of ['countPendingHouseLoads', 'countPendingCharges']) {
-      expect({ metodo, memoria: mem.includes(`async ${metodo}(`) }).toEqual({ metodo, memoria: true });
-      expect({ metodo, supabase: sup.includes(`async ${metodo}(`) }).toEqual({ metodo, supabase: true });
-    }
-    // O teto por CASA precisa do filtro por venue nos DOIS.
-    expect(mem).toMatch(/countPendingHouseLoads\(\{[^}]*venueId/);
-    expect(sup).toMatch(/countPendingHouseLoads\(\{[^}]*venueId/);
-    // E a janela tem que ser aplicada nos dois, senão um conta vencidas.
-    expect(mem).toMatch(/countPendingHouseLoads[\s\S]{0,600}windowMs/);
-    expect(sup).toMatch(/countPendingHouseLoads[\s\S]{0,600}windowMs/);
+  test('o gêmeo em memória decide como o SQL: para na PRIMEIRA chave cheia, índice base zero', async () => {
+    const s = createMemoryStore();
+    await s.claimSlots({ keys: ['b'], limits: [1], windowMs: 60_000 });
+    const r = await s.claimSlots({ keys: ['a', 'b', 'c'], limits: [5, 1, 5], windowMs: 60_000 });
+    expect(r).toEqual({ claimId: null, fullIndex: 1, counts: [0, 1] });
+    await expect(s.claimSlots({ keys: ['x', 'x'], limits: [1, 1], windowMs: 60_000 })).rejects.toThrow('repetida');
   });
 });
 
-describe('a camada POR ORIGEM está nas duas rotas que cobram conta', () => {
-  // A mesma forma "chamador esquecido": duas rotas, uma regra.
-  const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
-  test.each(['/api/pay', '/api/pay/stripe-intent'])('%s', (rota) => {
-    const ini = ROUTER.indexOf(`url.pathname === '${rota}'`);
-    expect(ini).toBeGreaterThan(0);
-    const fim = ROUTER.indexOf("url.pathname === '", ini + 20);
-    expect(ROUTER.slice(ini, fim)).toMatch(/exigeVagaDaOrigem\(req, view\.check\.id\)/);
+describe('o store Supabase falha FECHADO sem a RPC', () => {
+  /**
+   * A ordem de deploy é MIGRAÇÃO PRIMEIRO. Sem a `claim_slots`, a PostgREST
+   * devolve erro (PGRST202) — e o que o store faz com isso decide se um
+   * deploy fora de ordem vira "ninguém paga" (fechado, alto) ou "todo mundo
+   * cobra sem teto" (aberto, calado). O inegociável #7 escolhe o primeiro: a
+   * guarda que degrada aberta mascarou doze dias de falha na Seatable.
+   */
+  const { createSupabaseStore } = require('../_lib/store/supabase');
+  const comRpc = (resposta) => createSupabaseStore({
+    url: 'http://falso', serviceRoleKey: 'x', client: { rpc: async () => resposta, from: () => ({}) },
+  });
+  const ARGS = { keys: ['check:c1'], limits: [200], windowMs: JANELA_VIVA_MS };
+
+  test('erro da RPC (migração não aplicada) → estoura, não passa', async () => {
+    const s = comRpc({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.claim_slots' } });
+    await expect(s.claimSlots(ARGS)).rejects.toThrow();
+  });
+
+  test('resposta sem `claim_id` → estoura, não passa', async () => {
+    const s = comRpc({ data: { ok: true }, error: null });
+    await expect(s.claimSlots(ARGS)).rejects.toThrow('claim_id');
+  });
+
+  test('cheio e com vaga são lidos como o SQL escreve', async () => {
+    await expect(comRpc({ data: { claim_id: null, full_index: 0, counts: [200] }, error: null }).claimSlots(ARGS))
+      .resolves.toEqual({ claimId: null, fullIndex: 0, counts: [200] });
+    await expect(comRpc({ data: { claim_id: 'u1', full_index: null, counts: [3] }, error: null }).claimSlots(ARGS))
+      .resolves.toEqual({ claimId: 'u1', fullIndex: null, counts: [3] });
+  });
+
+  test('a janela vai em SEGUNDOS pra RPC, que recusa menos de um minuto', async () => {
+    let enviado = null;
+    const s = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x',
+      client: { rpc: async (nome, args) => { enviado = { nome, args }; return { data: { claim_id: 'u', full_index: null, counts: [0] }, error: null }; }, from: () => ({}) } });
+    await s.claimSlots(ARGS);
+    expect(enviado).toEqual({ nome: 'claim_slots', args: { p_keys: ['check:c1'], p_limits: [200], p_window_seconds: 900 } });
   });
 });

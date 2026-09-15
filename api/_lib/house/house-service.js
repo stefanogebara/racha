@@ -43,40 +43,43 @@ const TETO_CARGAS = 10;
  */
 const TETO_CARGAS_POR_CASA = 200;
 
-/** Ver `emVoo` no `create-charge.js`: a mesma reserva, pela mesma razão. */
-const cargasEmVoo = new Map();
-
+/**
+ * Reivindica uma vaga de carga nesta CONTA e nesta CASA de uma vez, e devolve
+ * a função que as devolve se o PSP não chegou a criar a cobrança. Ver
+ * `assertChargeSlot` no `create-charge.js` e a migração 0033: a contagem e a
+ * reserva são uma instrução só no banco, com janela deslizante.
+ *
+ * DOIS CÓDIGOS, porque os remédios são diferentes. Por conta, as recargas
+ * abertas são da própria pessoa e "pague uma delas" é um remédio que ela tem.
+ * Por casa, quem lê não tem nenhuma aberta — dizer "pague uma das que você
+ * gerou" seria nomear um remédio impossível, que é o defeito que a revisão de
+ * compliance de 2026-09-15 já tinha apontado na mesa (MEDIUM-2).
+ */
 async function assertLoadSlot(store, account) {
-  const [daConta, daCasa] = await Promise.all([
-    store.countPendingHouseLoads({ accountId: account.id, windowMs: JANELA_VIVA_MS }),
-    store.countPendingHouseLoads({ venueId: account.venueId, windowMs: JANELA_VIVA_MS }),
-  ]);
-  // Síncrono daqui até a reserva — ver o gêmeo.
-  const vooConta = cargasEmVoo.get(`a:${account.id}`) || 0;
-  const vooCasa = cargasEmVoo.get(`v:${account.venueId}`) || 0;
-  const cheia = daConta + vooConta >= TETO_CARGAS
-    ? { limite: TETO_CARGAS, onde: `conta=${account.id}`, n: daConta + vooConta }
-    : daCasa + vooCasa >= TETO_CARGAS_POR_CASA
-      ? { limite: TETO_CARGAS_POR_CASA, onde: `casa=${account.venueId}`, n: daCasa + vooCasa }
-      : null;
-  if (cheia) {
+  const r = await store.claimSlots({
+    keys: [`account:${account.id}`, `venue:${account.venueId}`],
+    limits: [TETO_CARGAS, TETO_CARGAS_POR_CASA],
+    windowMs: JANELA_VIVA_MS,
+  });
+  if (r.claimId === null) {
+    const porCasa = r.fullIndex === 1;
+    const limite = porCasa ? TETO_CARGAS_POR_CASA : TETO_CARGAS;
     // Ver o gêmeo: guarda que ninguém vê é guarda caracterizado em produção.
-    process.stderr.write(`[teto] cargas vivas ${cheia.onde} ocupadas=${cheia.n} teto=${cheia.limite}\n`);
-    const err = new Error(`too many live pending loads (${cheia.n})`);
+    process.stderr.write(`[teto] cargas vivas ${porCasa ? `casa=${account.venueId}` : `conta=${account.id}`} ocupadas=${r.counts[r.fullIndex]} teto=${limite}\n`);
+    const err = new Error(`too many live pending loads (${r.counts[r.fullIndex]})`);
     err.statusCode = 429;
-    err.code = 'too_many_pending_loads';
-    err.vars = { limit: cheia.limite, windowMinutes: JANELA_VIVA_MS / 60000 };
+    err.code = porCasa ? 'too_many_pending_loads_venue' : 'too_many_pending_loads';
+    err.vars = { limit: limite, windowMinutes: JANELA_VIVA_MS / 60000 };
     throw err;
   }
-  const chaves = [`a:${account.id}`, `v:${account.venueId}`];
-  for (const k of chaves) cargasEmVoo.set(k, (cargasEmVoo.get(k) || 0) + 1);
-  let liberada = false;
-  return function liberar() {
-    if (liberada) return;
-    liberada = true;
-    for (const k of chaves) {
-      const n = (cargasEmVoo.get(k) || 1) - 1;
-      if (n <= 0) cargasEmVoo.delete(k); else cargasEmVoo.set(k, n);
+  let devolvida = false;
+  return async function devolver() {
+    if (devolvida) return;
+    devolvida = true;
+    try {
+      await store.releaseSlots(r.claimId);
+    } catch (e) {
+      process.stderr.write(`[teto] vaga de carga não devolvida claim=${r.claimId}: ${String(e && e.message).slice(0, 80)}\n`);
     }
   };
 }
@@ -316,7 +319,8 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const gate = marketGate(venue.market, { rail: 'pix', amountCents, tipCents: 0 });
     if (gate) throw badRequest(`mercado ${venue.market}: ${gate.code}`, gate.code, gate.vars);
 
-    const liberarCarga = await assertLoadSlot(store, account);
+    const devolverVaga = await assertLoadSlot(store, account);
+    let cargaCriada = false;
     try {
     const bonusCents = quoteBonusCents(amountCents, cfg.bonusBp);
     const charge = await psp.createPixCharge({
@@ -328,6 +332,8 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       recipientId: venue.pspRecipientId, // venue is the issuer — funds go direct
       description: `Saldo ${venue.name}`.slice(0, 40),
     });
+    // BR Code vivo no adquirente: a vaga FICA daqui em diante.
+    cargaCriada = true;
     await store.registerHouseLoad({
       accountId: account.id,
       txid: charge.txid,
@@ -340,7 +346,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       amountCents, bonusCents,
     };
     } finally {
-      liberarCarga();
+      if (!cargaCriada) await devolverVaga();
     }
   }
 

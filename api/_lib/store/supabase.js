@@ -730,33 +730,27 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      * after now-windowMs (past-expiry charges drop out without any write).
      */
     /**
-     * Quantas cobranças desta conta estão VIVAS — pendentes e dentro da janela.
+     * O TETO DE COBRANÇAS VIVAS: conta e reserva numa instrução só, no banco.
+     * Ver `0033_charge_slots.sql` e o gêmeo em `memory.js`.
      *
-     * É a pergunta do TETO, e NÃO é a do `listPendingCharges`. Aquela serve a
-     * conciliação e tem um limite SUPERIOR de idade (`graceMs`, "dá ao webhook
-     * a primeira chance") cuja função é esconder justamente as linhas mais
-     * novas — o contrário do que um teto quer contar. No Supabase isso ainda
-     * compara o relógio do Postgres (`default now()`) com o da função: com o
-     * banco adiantado δ, toda cobrança do último δ sumia do teto, e um atacante
-     * SERIAL, sem concorrência nenhuma, nunca via as próprias cobranças. E
-     * aquela exclui os métodos que confirmam sem gateway por um motivo de
-     * CONCILIAÇÃO; o teto herdava a exclusão sem ninguém ter decidido. Aqui:
-     * limite INFERIOR só, contagem só, método nenhum excluído. Achado pela
-     * revisão de segurança de 2026-09-15 (MEDIUM-1, LOW-4).
+     * O ERRO É CHECADO e ESTOURA (inegociável #7): sem a RPC — migração não
+     * aplicada — a cobrança falha fechado, nunca passa sem teto. A ordem de
+     * deploy é, portanto, MIGRAÇÃO PRIMEIRO.
      */
-    async countPendingCharges({ checkId, windowMs = null } = {}) {
-      if (!checkId) throw new Error('countPendingCharges: checkId');
-      let q = client
-        .from('payments')
-        .select('txid', { count: 'exact', head: true })
-        .eq('check_id', checkId)
-        .eq('status', 'pendente');
-      if (windowMs != null && Number.isFinite(windowMs)) {
-        q = q.gte('created_at', new Date(Date.now() - windowMs).toISOString());
+    async claimSlots({ keys, limits, windowMs } = {}) {
+      const { data, error } = await client.rpc('claim_slots', {
+        p_keys: keys, p_limits: limits, p_window_seconds: Math.round(windowMs / 1000),
+      });
+      throwOn(error, 'claimSlots');
+      if (!data || typeof data !== 'object' || !('claim_id' in data)) {
+        throw new Error('claimSlots: resposta sem claim_id');
       }
-      const { count, error } = await q;
-      throwOn(error, 'countPendingCharges');
-      return count || 0;
+      return { claimId: data.claim_id, fullIndex: data.full_index, counts: data.counts || [] };
+    },
+    async releaseSlots(claimId) {
+      const { data, error } = await client.rpc('release_slots', { p_claim_id: claimId });
+      throwOn(error, 'releaseSlots');
+      return data || 0;
     },
     async listPendingCharges({ checkId = null, graceMs = 0, windowMs = null, limit = 100 } = {}) {
       const now = Date.now();
@@ -1180,24 +1174,6 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         bonus_cents: bonusCents, validity_days: validityDays,
       });
       throwOn(error, 'registerHouseLoad');
-    },
-    /** Ver o gêmeo em `memory.js` e o `assertLoadSlot` no `house-service.js`. */
-    async countPendingHouseLoads({ accountId = null, venueId = null, windowMs = null } = {}) {
-      if (!accountId && !venueId) throw new Error('countPendingHouseLoads: accountId ou venueId');
-      // Por VENUE a casa mora na CONTA, não na carga: o embed `!inner` filtra
-      // pelo `venue_id` de `house_accounts` sem trazer linha nenhuma.
-      let q = client
-        .from('house_loads')
-        .select(venueId ? 'txid, house_accounts!inner(venue_id)' : 'txid', { count: 'exact', head: true })
-        .eq('status', 'pendente');
-      if (accountId) q = q.eq('account_id', accountId);
-      if (venueId) q = q.eq('house_accounts.venue_id', venueId);
-      if (windowMs != null && Number.isFinite(windowMs)) {
-        q = q.gte('created_at', new Date(Date.now() - windowMs).toISOString());
-      }
-      const { count, error } = await q;
-      throwOn(error, 'countPendingHouseLoads');
-      return count || 0;
     },
     async findHouseLoadByTxid(txid) {
       if (!txid) return null;

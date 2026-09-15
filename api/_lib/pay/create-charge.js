@@ -33,165 +33,83 @@ function badRequest(msg, code, vars) {
 }
 
 /**
- * O TETO DE COBRANÇAS PENDENTES VIVAS POR CONTA — o que faltava ao portão.
+ * O TETO DE COBRANÇAS VIVAS POR CONTA — e esta é a TERCEIRA forma dele.
  *
- * O teto de VALOR existe (`amount_over`) e não limita a CONTAGEM: o
- * `remainingCents` é `totalCents - paidCents`, `paidCents` conta evento
- * CONFIRMADO, e o `registerCharge` grava linha pendente sem lançar evento
- * nenhum. Então N cobranças pendentes podem ser cada uma pelo valor INTEIRO que
- * falta. E o `chargeRef`, apesar de determinístico, NÃO é idempotência no
- * adquirente: quem deriva o `txid` dele é o MockPsp; a Pagar.me o recebe como
- * `code`/`metadata` — referência de comerciante — sem cabeçalho de idempotência
- * e com e-mail único por chamada, de propósito. Em produção cada POST idêntico
- * cria um pedido novo e um BR Code vivo novo.
+ * O PROBLEMA. O teto de VALOR existe (`amount_over`) e não limita a CONTAGEM:
+ * o `remainingCents` é `totalCents - paidCents`, `paidCents` conta evento
+ * CONFIRMADO, e o `registerCharge` grava linha pendente sem lançar evento —
+ * então N cobranças pendentes podem ser cada uma pelo valor INTEIRO que falta.
+ * E o `chargeRef`, apesar de determinístico, não é idempotência no adquirente:
+ * quem deriva o `txid` dele é só o MockPsp (por isso o corpo de testes era
+ * cego); a Pagar.me o recebe como referência de comerciante. Um token de mesa
+ * — que viaja em QR fotografado — emitia BR Codes sem limite.
  *
- * Somando: um chamador com um token de mesa — que viaja em QR fotografado e em
- * link compartilhado — emitia BR Codes de 15 minutos sem limite, cada um pelo
- * valor cheio da conta, e a pilha ainda realimentava o
- * `/api/cron/reconcile-pending`, que faz uma chamada ao adquirente por cobrança
- * pendente. Achado pela revisão de segurança de 2026-09-15 (HIGH-4), declarado
- * naquela rodada e fechado nesta.
+ * AS DUAS FORMAS ANTERIORES, ambas medidas ao contrário pela revisão de
+ * segurança de 2026-09-15, e é por isso que esta mora no BANCO:
  *
- * A CONTA DO TETO, e a primeira versão dela era um PALPITE que se descrevia
- * como medida — o defeito que este repositório passou três rodadas removendo da
- * prosa dos outros, cometido aqui.
+ *  · contar pendentes e comparar. Não atômico — a janela entre ler e gravar é
+ *    uma ida inteira ao PSP: trezentos pedidos simultâneos, trezentas
+ *    cobranças, zero recusas. E sessenta cobranças de um centavo trancavam a
+ *    mesa inteira;
+ *  · um balde por ORIGEM na memória da função, mais uma reserva "em voo"
+ *    local. O balde vivia por instância (três instâncias e um IP trancavam a
+ *    mesa), tinha janela de dez minutos contra quinze de vida da cobrança
+ *    (uma origem atravessava três janelas), contava pedido INVÁLIDO (noventa
+ *    corpos lixo do wi-fi do salão trancavam a mesa com zero cobrança criada)
+ *    — e a reserva não era atômica nem dentro da instância.
  *
- * Ela dizia "o pior caso legítimo é uma mesa de dez pessoas em que cada uma erra
- * uma vez: vinte". Mas o produto não afere dez: o passo a passo da divisão vai
- * até VINTE pessoas (`apps/web/src/App.tsx`, `Math.min(20, people + 1)`). Com
- * teto vinte, uma mesa cheia de vinte que divide igual consome as vinte vagas
- * só em primeira tentativa, e a primeira pessoa que precisar de um SEGUNDO
- * código — tirou o serviço, trocou de "por item" pra "igual", a tela dormiu, o
- * wi-fi do salão engoliu o pedido — leva 429 e não consegue pagar a própria
- * conta. Zero folga. Achado pela revisão de compliance de 2026-09-15 (HIGH-1),
- * que foi ler a UI que eu não tinha lido.
+ * ESTA: `store.claimSlots`, que no Postgres é a RPC `claim_slots` (0033) —
+ * contar e reservar numa instrução só, sob trava consultiva, com janela
+ * DESLIZANTE, no único lugar que todas as instâncias compartilham. É chamada
+ * DEPOIS de toda a validação e logo antes do PSP, então pedido inválido não
+ * ocupa vaga. A vaga só volta se o PSP NUNCA criou a cobrança: um BR Code vivo
+ * no adquirente é exatamente o que o teto conta.
  *
- * Agora o número é DERIVADO, e um teste o prende ao passo a passo: se o produto
- * passar a dividir entre trinta, o teste falha e alguém decide de novo.
+ * O NÚMERO. Uma mesa legítima gasta no máximo vinte pessoas (o passo a passo
+ * da divisão para em vinte) vezes três tentativas: sessenta cobranças criadas
+ * em quinze minutos. Duzentos deixa mais que o triplo de folga — toque duplo,
+ * troca de trilho, tirar o serviço — e continua sendo um teto que importa.
  *
- *   · a janela é a validade do Pix, 15 minutos — a mesma do `mock-psp` e do
- *     `expires_in: 900` do Pagar.me. Cobrança vencida não ocupa vaga, senão uma
- *     mesa que tentou algumas vezes ao longo da noite ficava trancada;
- *   · o pior caso legítimo é a mesa CHEIA que o produto permite (vinte) em que
- *     cada pessoa precisa de até três tentativas dentro da mesma janela de
- *     quinze minutos. Três, e não duas, porque a segunda tentativa costuma ser
- *     o próprio conserto (tirar o serviço) e a terceira é a margem de quem
- *     tropeçou no caminho;
- *   · sessenta continua sendo um teto que importa: sem ele o número é
- *     ilimitado, e é o tamanho da pilha que realimenta o
- *     `/api/cron/reconcile-pending`, uma chamada ao adquirente por pendente.
+ * O QUE CONTINUA ABERTO, dito de frente:
  *
- * Por CONTA, não por IP: um salão inteiro é um IP só atrás do NAT do
- * restaurante, e o abuso que importa é contra UMA conta — é ela que tem o
- * token, e é o recebedor daquela casa que paga a conta do tráfego.
+ *  · numa rota de token portador, qualquer recurso por conta é esgotável por
+ *    quem tem o token. Duzentas cobranças VÁLIDAS em quinze minutos e a mesa
+ *    leva 429 até a primeira vencer; o remédio da tela é esperar ou fechar no
+ *    caixa. Separar o atacante da mesa exigiria uma chave de origem guardada
+ *    no banco — IP, ainda que em hash —, e a troca foi não guardar;
+ *  · não é idempotência: pedidos idênticos criam cobranças distintas até o
+ *    teto. Fundir pela FORMA (mesmo valor, mesma gorjeta) seria pior: numa
+ *    divisão igual duas pessoas pedem o mesmo valor ao mesmo tempo, e o mesmo
+ *    BR Code pras duas faria a segunda ser recusada pelo banco depois de a
+ *    nossa tela dizer que deu certo. Idempotência de verdade precisa de chave
+ *    vinda do cliente.
  */
 const JANELA_VIVA_MS = 15 * 60 * 1000;
 /** O máximo de pessoas que o passo a passo da divisão permite. Ver o teste. */
 const MAX_PESSOAS_NA_DIVISAO = 20;
 const TENTATIVAS_POR_PESSOA = 3;
-/**
- * DUAS CAMADAS, porque uma só foi medida ao contrário.
- *
- * A primeira versão tinha UM teto por conta, e a revisão de segurança de
- * 2026-09-15 (HIGH-1, HIGH-2) mediu o que ele fazia contra um atacante de
- * verdade: NÃO parava um script concorrente (300 pedidos simultâneos, 300
- * cobranças criadas, zero recusadas — a janela entre ler e gravar é uma ida
- * inteira ao PSP), e DAVA a um script serial uma negação de serviço: sessenta
- * cobranças de um centavo — R$ 1,83 que ninguém paga — e a mesa inteira
- * levava 429 pra pagar a própria conta. Reproduzido aqui antes de mexer. Antes
- * do teto um atacante gastava o tempo do adquirente; depois dele, podia impedir
- * a mesa de pagar. Numa rota de token portador, qualquer recurso compartilhado
- * por conta é esgotável por quem tem o token — o que se pode fazer é tornar
- * esgotá-lo CARO e limitado, não fingir que é impossível.
- *
- *  · POR ORIGEM (conta × IP), no router: o que uma mesa legítima gasta. É a
- *    derivação de sempre — vinte pessoas, três tentativas — mais metade, porque
- *    ali se contam TENTATIVAS, e os outros portões recusam algumas (o erro mais
- *    comum da mesa é `amount_over`, duas pessoas tocando "pagar" ao mesmo
- *    tempo). Uma mesa inteira atrás do wi-fi do salão é uma origem só, e cabe;
- *  · POR CONTA, aqui: o teto de ESTOQUE, alto o bastante pra que UMA origem não
- *    o encha. Numa janela viva de quinze minutos o balde de dez minutos da
- *    origem pode virar uma vez, então uma origem cria no máximo o dobro do seu
- *    teto; o da conta fica acima disso. Encher a conta passa a exigir várias
- *    origens.
- */
-const TETO_POR_ORIGEM = (MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA * 3) / 2;
 const TETO_PENDENTES = 200;
 
 /**
- * Há vaga pra mais uma cobrança nesta conta?
- *
- * Mora aqui e é EXPORTADA porque há dois sítios que criam cobrança de conta: o
- * `createCharge` e a rota `/api/pay/stripe-intent`, que monta a cobrança
- * sozinha. Um teste estrutural exige que toda chamada de `create*Charge` seja
- * precedida por esta — a forma "chamador esquecido" já custou a validação do
- * `payerLabel` e o portão de mercado do `/api/house/load`.
- *
- * ANTES da chamada ao PSP, sempre: o ponto do teto é não falar com o
- * adquirente. Depois seria contar o estrago.
- *
- * O QUE ESTE TETO NÃO É, dito de frente:
- *
- *  · não é ATÔMICO. Duas requisições simultâneas podem ler dezenove e passar
- *    as duas — o teto é de ESTOQUE, não invariante de dinheiro, e ultrapassar
- *    por duas ou três sob concorrência não perde centavo nenhum. O inegociável
- *    #7 exige RPC atômico pra reivindicação condicional que MOVE dinheiro;
- *    esta não move: ela recusa trabalho. Trocar por RPC custaria uma migração e
- *    um caminho novo no banco pra ganhar precisão que a contenção não precisa;
- *  · não limita o FLUXO, só o estoque. Quem esperar as vivas vencerem abre mais
- *    vinte. O que ele fecha é o tamanho da pilha — que é o que realimenta o
- *    `/api/cron/reconcile-pending`, uma chamada ao adquirente por pendente — e
- *    o número de BR Codes vivos ao mesmo tempo pela conta cheia;
- *  · não é idempotência. Pedidos idênticos continuam criando cobranças
- *    distintas até o teto, porque a Pagar.me não recebe cabeçalho de
- *    idempotência nenhum. Fundir cobranças pela FORMA (mesmo valor, mesma
- *    gorjeta) seria pior: numa divisão igual duas pessoas pedem o mesmo valor
- *    ao mesmo tempo, e devolver a mesma cobrança às duas faria as duas
- *    pensarem que pagaram enquanto só uma cobrança existe — conta subpaga com
- *    dois clientes tranquilos. Idempotência de verdade precisa de chave vinda
- *    do cliente, e é decisão de contrato, não de guarda.
- */
-/**
- * Cobranças entre a conferência e o registro, NESTA instância.
- *
- * É o que faz o teto amarrar contra um script concorrente: a janela entre ler
- * a contagem e gravar a linha é uma ida inteira ao PSP (150 a 800 ms contra a
- * Pagar.me), e todo pedido que chegava nesse intervalo já tinha passado. Com a
- * reserva, a conta é "vivas no banco + em voo aqui", e ler-e-reservar é
- * síncrono — em JS nada intercala entre o `await` que devolveu a contagem e o
- * `set` —, então é atômico DENTRO da instância.
- *
- * O que continua aberto, e está dito: entre instâncias o teto vira
- * `teto × instâncias servindo aquela conta ao mesmo tempo`. Fechar isso exige
- * um RPC que conte e reserve numa instrução só no Postgres — migração nova.
- * O inegociável #7 exige RPC pra reivindicação condicional que MOVE dinheiro;
- * esta recusa trabalho, e a camada por origem já amarra o caso de uma origem só.
- */
-const emVoo = new Map();
-
-/**
- * Há vaga pra mais uma cobrança nesta conta? Se houver, RESERVA e devolve a
- * função que libera — o chamador a chama num `finally`, depois do registro.
+ * Reivindica uma vaga pra uma cobrança nova desta conta e devolve a função que
+ * a DEVOLVE — o chamador a chama só se o PSP não chegou a criar a cobrança.
  *
  * Mora aqui e é EXPORTADA porque há dois sítios que criam cobrança de conta: o
  * `createCharge` e a rota `/api/pay/stripe-intent`, que monta a cobrança
  * sozinha. Um teste estrutural exige que toda criação de cobrança seja
  * precedida por esta — a forma "chamador esquecido" já custou a validação do
  * `payerLabel` e o portão de mercado dessa mesma rota.
- *
- * ANTES da chamada ao PSP, sempre: o ponto do teto é não falar com o
- * adquirente. Depois seria contar o estrago.
  */
 async function assertChargeSlot(store, checkId) {
-  const vivas = await store.countPendingCharges({ checkId, windowMs: JANELA_VIVA_MS });
-  // Síncrono daqui até o `set`. Ver `emVoo`.
-  const ocupadas = vivas + (emVoo.get(checkId) || 0);
-  if (ocupadas >= TETO_PENDENTES) {
+  const r = await store.claimSlots({
+    keys: [`check:${checkId}`], limits: [TETO_PENDENTES], windowMs: JANELA_VIVA_MS,
+  });
+  if (r.claimId === null) {
     // UM GUARDA QUE NINGUÉM VÊ É CARACTERIZADO EM PRODUÇÃO, por um cliente de
-    // pé na mesa. O router só loga status >= 500. Uma linha por recusa, com o
-    // id da conta e mais nada — nome de pagador não entra em log.
-    process.stderr.write(`[teto] cobranças vivas check=${checkId} ocupadas=${ocupadas} teto=${TETO_PENDENTES}\n`);
-    const err = new Error(`too many live pending charges for this check (${ocupadas})`);
+    // pé na mesa. Uma mesa legítima não chega a duzentas: se isto dispara, é
+    // ataque, e a linha tem que existir. Id da conta e mais nada.
+    process.stderr.write(`[teto] cobranças vivas check=${checkId} ocupadas=${r.counts[0]} teto=${TETO_PENDENTES}\n`);
+    const err = new Error(`too many live pending charges for this check (${r.counts[0]})`);
     // 429, não 400: o pedido está bem formado e a resposta é "agora não".
     err.statusCode = 429;
     err.code = 'too_many_pending_charges';
@@ -199,13 +117,17 @@ async function assertChargeSlot(store, checkId) {
     err.vars = { limit: TETO_PENDENTES, windowMinutes: JANELA_VIVA_MS / 60000 };
     throw err;
   }
-  emVoo.set(checkId, (emVoo.get(checkId) || 0) + 1);
-  let liberada = false;
-  return function liberar() {
-    if (liberada) return;
-    liberada = true;
-    const n = (emVoo.get(checkId) || 1) - 1;
-    if (n <= 0) emVoo.delete(checkId); else emVoo.set(checkId, n);
+  let devolvida = false;
+  return async function devolver() {
+    if (devolvida) return;
+    devolvida = true;
+    try {
+      await store.releaseSlots(r.claimId);
+    } catch (e) {
+      // Falhar em DEVOLVER é falhar fechado: a vaga fica ocupada até a janela
+      // passar. Loga e segue — o erro que importa é o do PSP, que já subiu.
+      process.stderr.write(`[teto] vaga não devolvida claim=${r.claimId}: ${String(e && e.message).slice(0, 80)}\n`);
+    }
   };
 }
 
@@ -328,7 +250,8 @@ function createChargeService({ store, psp }) {
         'amount_over', { leftCents: remaining });
     }
 
-    const liberar = await assertChargeSlot(store, checkId);
+    const devolverVaga = await assertChargeSlot(store, checkId);
+    let cobrancaCriada = false;
     try {
     const chargeRef = `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`;
     let charge;
@@ -359,6 +282,10 @@ function createChargeService({ store, psp }) {
       });
     }
 
+    // Daqui em diante existe um BR Code vivo no adquirente, e a vaga FICA —
+    // mesmo que o registro abaixo estoure.
+    cobrancaCriada = true;
+
     await store.registerCharge({
       checkId, txid: charge.txid, amountCents, tipCents, payerLabel,
       method: rail,
@@ -373,15 +300,13 @@ function createChargeService({ store, psp }) {
       wallet: wallet ?? null,
     };
     } finally {
-      // Depois do registro, a linha já está no banco e a reserva sai; se o PSP
-      // ou o registro estourarem, a vaga volta. Entre o registro e esta linha a
-      // cobrança conta duas vezes — do lado de recusar, que é o lado certo.
-      liberar();
+      // A vaga volta SÓ se o adquirente não tem nada. Ver `assertChargeSlot`.
+      if (!cobrancaCriada) await devolverVaga();
     }
   };
 }
 
 module.exports = {
-  createChargeService, assertChargeSlot, TETO_PENDENTES, TETO_POR_ORIGEM, JANELA_VIVA_MS,
+  createChargeService, assertChargeSlot, TETO_PENDENTES, JANELA_VIVA_MS,
   MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
 };

@@ -162,6 +162,10 @@ export default function App() {
   // novo com o valor novo, não um beco sem saída.
   const [error, setError] = useState<string | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
+  // TOQUE DUPLO. O botão só desligava com o total zerado, então dois toques
+  // numa rede lenta mandavam dois POSTs: dois pedidos na Pagar.me e duas vagas
+  // do teto por conta. Revisão de compliance de 2026-09-15 (MEDIUM-4).
+  const [paying, setPaying] = useState(false);
   // A última atualização falhou, mas ainda temos a conta em mãos.
   const [stale, setStale] = useState(false);
 
@@ -374,6 +378,12 @@ export default function App() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  }
+
+  async function onPayOnce() {
+    if (paying) return;
+    setPaying(true);
+    try { await onPay(); } finally { setPaying(false); }
   }
 
   async function onPay() {
@@ -826,13 +836,13 @@ export default function App() {
               />
               </Suspense>
               {!STRIPE_READY && (
-                <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
+                <button className="cta" disabled={totalToPay === 0 || paying} onClick={onPayOnce}>
                   {t('pay.ctaBizum', { amount: brl(totalToPay) })}
                 </button>
               )}
             </>
           ) : (
-            <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
+            <button className="cta" disabled={totalToPay === 0 || paying} onClick={onPayOnce}>
               {t('pay.cta', { amount: brl(totalToPay) })}
             </button>
           )}

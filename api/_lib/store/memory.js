@@ -57,6 +57,7 @@ function createMemoryStore() {
   const houseAccounts = new Map(); // id → { id, venueId, phone, name, accountToken, createdAt }
   const houseByToken = new Map();  // accountToken → accountId
   const houseEvents = new Map();   // accountId → [{seq, type, payload}]
+  const vagas = [];               // teto de cobranças vivas — ver `claimSlots`
   const houseLoads = new Map();    // txid → { txid, accountId, amountCents, bonusCents, validityDays, status }
   // O registro de execução da retenção (migração 0032). Aqui é lista; no
   // Postgres é tabela com prazo próprio de 5 anos.
@@ -339,30 +340,41 @@ function createMemoryStore() {
      * excluded — they confirm inline, never via the gateway.
      */
     /**
-     * Quantas cobranças desta conta estão VIVAS — pendentes e dentro da janela.
+     * O TETO DE COBRANÇAS VIVAS, gêmeo em memória do `claim_slots` (0033).
      *
-     * É a pergunta do TETO, e NÃO é a do `listPendingCharges`. Aquela serve a
-     * conciliação e tem um limite SUPERIOR de idade (`graceMs`, "dá ao webhook
-     * a primeira chance") cuja função é esconder justamente as linhas mais
-     * novas — o contrário do que um teto quer contar. No Supabase isso ainda
-     * compara o relógio do Postgres (`default now()`) com o da função: com o
-     * banco adiantado δ, toda cobrança do último δ sumia do teto, e um atacante
-     * SERIAL, sem concorrência nenhuma, nunca via as próprias cobranças. E
-     * aquela exclui os métodos que confirmam sem gateway por um motivo de
-     * CONCILIAÇÃO; o teto herdava a exclusão sem ninguém ter decidido. Aqui:
-     * limite INFERIOR só, contagem só, método nenhum excluído. Achado pela
-     * revisão de segurança de 2026-09-15 (MEDIUM-1, LOW-4).
+     * Conta e reserva numa passada SÍNCRONA — em JS nada intercala dentro de
+     * uma função sem `await`, e é essa a trava da memória. A janela é
+     * deslizante: cada vaga carrega o próprio instante. Mesma ordem de
+     * decisão do SQL: para na primeira chave cheia e devolve o índice dela.
      */
-    async countPendingCharges({ checkId, windowMs = Infinity } = {}) {
-      if (!checkId) throw new Error('countPendingCharges: checkId');
-      const now = Date.now();
-      let n = 0;
-      for (const p of payments.values()) {
-        if (p.status !== 'pendente' || p.checkId !== checkId) continue;
-        // Idade negativa (relógio adiantado) CONTA: limite inferior só.
-        if (now - Date.parse(p.createdAt) <= windowMs) n += 1;
+    async claimSlots({ keys, limits, windowMs } = {}) {
+      if (!Array.isArray(keys) || !keys.length || !Array.isArray(limits)
+        || keys.length !== limits.length || !(windowMs > 0)) {
+        throw new Error('claimSlots: argumentos inválidos');
       }
-      return n;
+      if (new Set(keys).size !== keys.length) throw new Error('claimSlots: chave repetida');
+      const now = Date.now();
+      for (let i = vagas.length - 1; i >= 0; i -= 1) {
+        const v = vagas[i];
+        if (now - v.createdAt > 86_400_000 || (keys.includes(v.key) && now - v.createdAt > windowMs)) {
+          vagas.splice(i, 1);
+        }
+      }
+      const counts = [];
+      for (let i = 0; i < keys.length; i += 1) {
+        const n = vagas.filter((v) => v.key === keys[i] && now - v.createdAt <= windowMs).length;
+        counts.push(n);
+        if (n >= limits[i]) return { claimId: null, fullIndex: i, counts };
+      }
+      const claimId = require('node:crypto').randomUUID();
+      for (const key of keys) vagas.push({ claimId, key, createdAt: now });
+      return { claimId, fullIndex: null, counts };
+    },
+    /** Devolve as vagas de uma cobrança que o PSP NUNCA criou. Ver 0033. */
+    async releaseSlots(claimId) {
+      const antes = vagas.length;
+      for (let i = vagas.length - 1; i >= 0; i -= 1) if (vagas[i].claimId === claimId) vagas.splice(i, 1);
+      return antes - vagas.length;
     },
     async listPendingCharges({ checkId = null, graceMs = 0, windowMs = Infinity, limit = 100 } = {}) {
       const now = Date.now();
@@ -1044,29 +1056,6 @@ function createMemoryStore() {
         // memória não podia medir a mesma janela. Ver `assertLoadSlot` no `house-service.js`.
         createdAt: new Date().toISOString(),
       });
-    },
-    /**
-     * Quantas cargas de saldo desta conta ainda estão VIVAS — pendentes e
-     * dentro da janela de validade do Pix. Espelha `listPendingCharges`, que é
-     * a mesma pergunta do lado da conta da mesa. Ver `assertLoadSlot` no `house-service.js`.
-     */
-    async countPendingHouseLoads({ accountId = null, venueId = null, windowMs = Infinity } = {}) {
-      // Sem filtro nenhum isto contaria TODAS as cargas do sistema: falharia
-      // fechado, mas calado. Alto é melhor.
-      if (!accountId && !venueId) throw new Error('countPendingHouseLoads: accountId ou venueId');
-      const now = Date.now();
-      return [...houseLoads.values()].filter((l) => {
-        if (l.status !== 'pendente') return false;
-        if (accountId && l.accountId !== accountId) return false;
-        if (venueId) {
-          const conta = houseAccounts.get(l.accountId);
-          if (!conta || conta.venueId !== venueId) return false;
-        }
-        // Linha antiga sem `createdAt` conta como viva: falhar FECHADO é
-        // recusar uma carga a mais, nunca liberar uma janela inteira.
-        const idade = l.createdAt ? now - Date.parse(l.createdAt) : 0;
-        return idade <= windowMs;
-      }).length;
     },
     async findHouseLoadByTxid(txid) {
       const l = houseLoads.get(txid);

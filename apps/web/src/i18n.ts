@@ -427,19 +427,27 @@ export const DICT = {
   // OUTRAS pessoas da mesa: quem lê não tem acesso a nenhum. Pior, se a pessoa
   // acabou de TIRAR o serviço, o código que ainda ocupa vaga é o que carrega os
   // 10%, e a frase empurrava pra ele. Agora a frase nomeia o que quem lê pode
-  // fazer: esperar (o `Retry-After` diz quanto) ou fechar no caixa. Achado pela
+  // fazer: esperar — por quanto tempo vai no `{windowMinutes}`, porque o
+  // cliente não lê o cabeçalho `Retry-After` — ou fechar no caixa. Achado pela
   // revisão de compliance de 2026-09-15 (HIGH-4).
   'err.too_many_pending_charges': {
-    en: 'This table has too many payment codes open at once ({limit}). Wait a few minutes and try again, or ask the staff to close the bill at the till.',
-    pt: 'Esta mesa está com códigos de pagamento demais abertos ao mesmo tempo ({limit}). Espere alguns minutos e tente de novo, ou peça à equipe para fechar no caixa.',
-    es: 'Esta mesa tiene demasiados códigos de pago abiertos a la vez ({limit}). Espera unos minutos e inténtalo de nuevo, o pide al personal que cobre en caja.' },
+    en: 'This table has too many payment codes open at once ({limit}). Wait up to {windowMinutes} minutes and try again, or ask the staff to close the bill at the till.',
+    pt: 'Esta mesa está com códigos de pagamento demais abertos ao mesmo tempo ({limit}). Espere até {windowMinutes} minutos e tente de novo, ou peça à equipe para fechar no caixa.',
+    es: 'Esta mesa tiene demasiados códigos de pago abiertos a la vez ({limit}). Espera hasta {windowMinutes} minutos e inténtalo de nuevo, o pide al personal que cobre en caja.' },
   // Aqui as recargas abertas SÃO da própria pessoa, então "pague uma delas" é
   // um remédio que ela controla — mas continua sendo um valor que ela já
   // descartou, então a espera vem primeiro.
   'err.too_many_pending_loads': {
-    en: 'You have too many top-ups open at once ({limit}). Wait a few minutes, or pay one of the codes you already generated.',
-    pt: 'Você está com recargas demais abertas ao mesmo tempo ({limit}). Espere alguns minutos, ou pague uma das que já gerou.',
-    es: 'Tienes demasiadas recargas abiertas a la vez ({limit}). Espera unos minutos, o paga una de las que ya generaste.' },
+    en: 'You have too many top-ups open at once ({limit}). Wait up to {windowMinutes} minutes, or pay one of the codes you already generated.',
+    pt: 'Você está com recargas demais abertas ao mesmo tempo ({limit}). Espere até {windowMinutes} minutos, ou pague uma das que já gerou.',
+    es: 'Tienes demasiadas recargas abiertas a la vez ({limit}). Espera hasta {windowMinutes} minutos, o paga una de las que ya generaste.' },
+  // O teto POR CASA: quem lê não tem recarga nenhuma aberta, então a frase não
+  // pode mandar pagar uma. E diz o que continua funcionando — a conta da mesa
+  // não passa por aqui. Revisão de compliance de 2026-09-15 (MEDIUM-2).
+  'err.too_many_pending_loads_venue': {
+    en: 'Top-ups are paused at this venue for up to {windowMinutes} minutes. Your balance is safe, and you can still pay the bill.',
+    pt: 'As recargas estão pausadas nesta casa por até {windowMinutes} minutos. Seu saldo está seguro, e você ainda pode pagar a conta.',
+    es: 'Las recargas están en pausa en este local hasta {windowMinutes} minutos. Tu saldo está a salvo, y aún puedes pagar la cuenta.' },
   // O documento do recebedor tem que ser o MESMO que o recibo mostra: um é
   // onde o dinheiro liquida, o outro é o que o cliente lê. Divergir é o
   // comprovante dizer uma coisa e o split fazer outra.
