@@ -25,13 +25,20 @@
 -- janela pra atravessar. E quem chama reivindica DEPOIS da validação e logo
 -- antes do PSP: pedido inválido não ocupa vaga.
 --
--- O QUE ISTO NÃO GUARDA: IP, telefone, nome. As chaves são
--- `check:<uuid>[:<geração do QR>]`, `account:<uuid>`, `venue:<uuid>` e
--- `alerta:check:<uuid>` — a geração é hash de um token aleatório, não o token.
--- O id de conta de saldo é pseudônimo. PRAZO: a contagem olha quinze minutos;
--- a linha fica até a mesma chave ser reivindicada de novo ou até o expurgo
--- diário (`purge_expired_personal_data`, redefinido abaixo, que apaga tudo que
--- passou da janela) — até cerca de 24 horas.
+-- O QUE ISTO NÃO GUARDA: IP, telefone, nome. As chaves, TODAS — a lista
+-- anterior omitia duas (compliance LOW-2 de 7a65e93):
+--  · cobrança e recarga, janela de 15 min: `check:<uuid>:<geração do QR>` (a
+--    geração é hash de um token aleatório, não o token), `account:<uuid>`,
+--    `venue:<uuid>`;
+--  · aviso ao operador, janela de 6 h: `alerta:check:<uuid>:<geração>` e
+--    `alerta:venue:<uuid>`;
+--  · contadores de aviso, janela de 1 dia: `alerta-dia:venue:<uuid>`,
+--    `alerta-dia:global` e `alerta-dia:suprimido`.
+-- O id de conta de saldo é pseudônimo, e é o único dado pessoal aqui. PRAZO:
+-- cada linha carrega a PRÓPRIA janela (`window_seconds`), e o expurgo diário
+-- (`purge_expired_personal_data`, redefinido abaixo) apaga a que passou dela.
+-- As de cobrança e recarga ficam até cerca de 24 horas; as de aviso, que não
+-- carregam dado pessoal (ids de conta da mesa e de casa), até cerca de 48.
 
 create table if not exists public.charge_slots (
   claim_id uuid not null,
@@ -43,6 +50,16 @@ create index if not exists charge_slots_key_created_idx
   on public.charge_slots (slot_key, created_at);
 create index if not exists charge_slots_created_idx
   on public.charge_slots (created_at);
+
+-- A JANELA MORA NA LINHA, e entra por `alter table`, idempotente — a lição da
+-- 0032: num ambiente onde uma versão anterior deste arquivo já rodou, o `create
+-- table if not exists` acima é pulado inteiro, e uma coluna posta dentro dele
+-- sumiria em silêncio. Sem a janela na linha, o expurgo diário só sabia cortar
+-- tudo num prazo fixo, e o prazo fixo de quinze minutos zerava todo dia o
+-- contador DIÁRIO de avisos (revisão de segurança de 7a65e93, L1).
+alter table public.charge_slots
+  add column if not exists window_seconds integer not null default 900
+  check (window_seconds between 60 and 86400);
 
 alter table public.charge_slots enable row level security;
 revoke all on public.charge_slots from anon, authenticated;
@@ -116,8 +133,8 @@ begin
   end loop;
 
   v_claim := gen_random_uuid();
-  insert into charge_slots (claim_id, slot_key)
-    select v_claim, k from unnest(p_keys) k;
+  insert into charge_slots (claim_id, slot_key, window_seconds)
+    select v_claim, k, p_window_seconds from unnest(p_keys) k;
   return jsonb_build_object('claim_id', v_claim, 'full_index', null, 'counts', to_jsonb(v_counts));
 end;
 $$;
@@ -127,9 +144,13 @@ revoke all on function public.claim_slots(text[], integer[], integer) from publi
 comment on function public.claim_slots(text[], integer[], integer) is
   'Conta e reserva vagas de cobrança numa instrução só, sob trava consultiva, janela deslizante. Ver 0033.';
 
--- Devolve a vaga de uma cobrança cujo código pagável NÃO chegou a ninguém — o
--- PSP estourou (inclusive depois de aceitar o pedido, no timeout) ou o registro
--- estourou. A vaga mede códigos pagáveis nas mãos de alguém.
+-- Devolve as vagas de uma reivindicação cujo PSP NUNCA foi chamado — o pedido
+-- foi recusado depois da vaga e antes do adquirente. Depois de chamado, a vaga
+-- FICA, dê certo o resto ou não: o adquirente pode ter criado algo, e uma
+-- devolução que o CHAMADOR provoca (um rótulo que o Postgres recusa guardar)
+-- desligava o teto. Este texto dizia o contrário — que a vaga voltava num
+-- timeout do PSP ou numa falha do registro — e é a cópia que fica no catálogo.
+-- (Segurança HIGH-1 de 2ed7ca4; texto: compliance LOW-1 de 7a65e93.)
 create or replace function public.release_slots(p_claim_id uuid)
 returns integer
 language plpgsql
@@ -148,7 +169,7 @@ $$;
 revoke all on function public.release_slots(uuid) from public, anon, authenticated;
 
 comment on function public.release_slots(uuid) is
-  'Devolve as vagas de uma reivindicação cujo código pagável não chegou a ninguém. Ver 0033.';
+  'Devolve as vagas de uma reivindicação cujo PSP nunca foi chamado. Depois de chamado, a vaga fica. Ver 0033.';
 
 -- O EXPURGO DIÁRIO também varre o livro de vagas. Redefinição EXATA da 0032 com
 -- uma linha a mais (o `delete from public.charge_slots`), porque a faxina da
@@ -233,22 +254,30 @@ begin
   -- A reivindicação só varre o que ela mesma toca — a própria chave, e um lote
   -- limitado de linhas com mais de um dia —, então uma conta FECHADA deixava
   -- as linhas dela até alguém reivindicar de novo, e com o piloto parado elas
-  -- ficariam pra sempre. Este expurgo roda todo dia e pagina se parar.
-  -- Higiene de tabela de controle, como a linha acima: não entra em contagem,
-  -- porque somar faria o número do art. 18 mentir. Revisão de compliance de
-  -- 2026-09-15 (MEDIUM-3).
-  -- PELA JANELA, e com `skip locked`. Pela janela porque nada mais velho que
-  -- quinze minutos é contado — o corte de "um dia" fazia a linha viver até ~48 h
-  -- (expurgo diário × corte de um dia), e o texto prometia "no máximo um dia".
+  -- ficariam pra sempre. (Compliance de 2ed7ca4, MEDIUM-3.)
+  --
+  -- PELA JANELA DE CADA LINHA. O corte fixo de um dia fazia a linha de cobrança
+  -- viver ~48 h; o de quinze minutos que o substituiu zerava, todo dia no
+  -- expurgo, o contador DIÁRIO de avisos — doze linhas de uma hora sumiam e o
+  -- décimo terceiro aviso passava (reproduzido pela revisão de segurança de
+  -- 7a65e93, L1). Cada linha sabe a própria janela, e sai quando passa dela.
+  --
   -- Com `skip locked` porque sem ele este DELETE disputava linhas com a faxina
   -- da própria chave de uma reivindicação: se o Postgres escolhesse o expurgo
   -- como vítima do deadlock, o expurgo de dado pessoal DO DIA inteiro voltava
   -- atrás. Linha travada fica pra quem a trava, ou pro dia seguinte.
-  -- (Compliance M5/L1 e segurança L3, 2026-09-15.)
+  --
+  -- FORA DAS CONTAGENS do registro — e o motivo não é "não é dado de cliente",
+  -- que era o que este texto dizia e o data-map desmente: o id de conta de
+  -- saldo nas chaves `account:` é pseudônimo e É dado pessoal. O registro prova
+  -- que ESTE delete rodou, porque mora na mesma transação; as colunas dele
+  -- contam dado de cliente expurgado por prazo de RETENÇÃO, o número de uma
+  -- resposta do art. 18, e somar a ele linhas de controle que vivem minutos
+  -- faria esse número mentir. (Compliance LOW-7 de 7a65e93.)
   delete from public.charge_slots
    where ctid in (
      select ctid from public.charge_slots
-      where created_at < now() - interval '15 minutes'
+      where created_at < now() - make_interval(secs => window_seconds)
       for update skip locked
    );
 
@@ -265,3 +294,49 @@ begin
   );
 end;
 $$;
+
+
+-- A IMPRESSÃO DIGITAL DESTA MIGRAÇÃO, pro portão de deploy e pro cron.
+--
+-- A sonda anterior do `deploy.mjs` pedia um COMPORTAMENTO — `claim_slots` com
+-- limite nulo recusado com 22023 — que a versão anterior deste arquivo já
+-- tinha. Aplicada a 0033 de 2ed7ca4 sobre a cadeia inteira, a sonda passou e o
+-- expurgo instalado ainda cortava em um dia, sem `skip locked` (reproduzido
+-- pela revisão de segurança de 7a65e93, M2). Um comportamento escolhido a dedo
+-- prova só aquele comportamento. Isto prova o TEXTO: md5 do corpo, do
+-- `security definer` e do `search_path` das três funções, e das colunas do
+-- livro. Um banco com qualquer outra versão responde outro número.
+--
+-- O número esperado mora em `api/_lib/store/impressao-0033.js`, e o
+-- `sql-teto-vivo` o recalcula no Postgres de verdade: editar este arquivo sem
+-- atualizar o número deixa a suíte vermelha, não o deploy verde.
+create or replace function public.charge_slots_fingerprint()
+returns text
+language sql
+stable
+set search_path = public
+as $$
+  select md5(
+    (select string_agg(p.prosrc || '|' || p.prosecdef::text || '|'
+                       || coalesce(array_to_string(p.proconfig, ','), ''),
+                       E'\n' order by f.ordem)
+       from unnest(array[
+              'public.claim_slots(text[],integer[],integer)'::regprocedure,
+              'public.release_slots(uuid)'::regprocedure,
+              'public.purge_expired_personal_data(integer,integer,integer)'::regprocedure
+            ]) with ordinality as f(fn, ordem)
+       join pg_catalog.pg_proc p on p.oid = f.fn)
+    || E'\n' ||
+    (select string_agg(a.attname || ' ' || format_type(a.atttypid, a.atttypmod)
+                       || case when a.attnotnull then ' not null' else '' end,
+                       ',' order by a.attnum)
+       from pg_catalog.pg_attribute a
+      where a.attrelid = 'public.charge_slots'::regclass
+        and a.attnum > 0 and not a.attisdropped)
+  );
+$$;
+
+revoke all on function public.charge_slots_fingerprint() from public, anon, authenticated;
+
+comment on function public.charge_slots_fingerprint() is
+  'md5 do texto das funções do teto e das colunas do livro — o portão de deploy e o cron comparam com api/_lib/store/impressao-0033.js. Ver 0033.';

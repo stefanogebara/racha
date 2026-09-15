@@ -45,7 +45,7 @@ const TETO_CARGAS_POR_CASA = 200;
 
 /**
  * Reivindica uma vaga de carga nesta CONTA e nesta CASA de uma vez, e devolve
- * a função que as devolve se nenhum código pagável chegou a quem pediu. Ver
+ * a função que as devolve se o PSP nem chegou a ser chamado. Ver
  * `assertChargeSlot` no `create-charge.js` e a migração 0033: a contagem e a
  * reserva são uma instrução só no banco, com janela deslizante.
  *

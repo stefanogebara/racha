@@ -139,8 +139,10 @@ const SAIDA_SEM_PORTAO = {
     + 'do QR (`geracaoDoQr`) — uma instrução só no banco (`claimSlots`, RPC '
     + '`claim_slots`), sob trava consultiva, janela deslizante de quinze minutos, '
     + 'DEPOIS da validação e antes do PSP. Se o teto dispara, o '
-    + '`avisarTetoDisparado` pagina o operador depois da recusa sair, uma vez por '
-    + 'conta e janela e com teto diário, deduplicado no banco — e casa de demo '
+    + '`avisarTetoDisparado` pagina o operador depois da recusa sair (e pede à '
+    + 'Vercel, por `waitUntil`, que espere o envio), uma vez por conta e geração '
+    + 'do QR a cada seis horas, no máximo três por casa e doze por dia — com um '
+    + 'aviso de suspensão quando os doze acabam —, deduplicado no banco; casa de demo '
     + 'não pagina, porque o token dela é público; a demo tem limite por origem '
     + '(`rateLimitDemo`). O QUE CONTINUA ABERTO, e a versão anterior desta '
     + 'linha errava o tamanho: (1) com a janela deslizante, quem tem o token e '
@@ -202,10 +204,11 @@ const SAIDA_FORA_DE_ROTA = [
   // A primeira versão deste comentário dizia "não é pager anônimo", e ERA —
   // pela demo, cujo token está no link da landing. Agora: casa de demo não
   // pagina (decidido pela CASA, `isDemoVenue`, não pelo token), deduplicado no
-  // banco por conta e janela, e com teto diário. Roda DEPOIS da recusa.
+  // banco por conta e geração, com teto por casa e por dia. Roda DEPOIS da
+  // recusa, e embrulhado em `depoisDaResposta` (o `waitUntil` da Vercel).
   'async function avisarTetoDisparado(err) {',
   'const r = await notifyFounderReconcile({',
-  'await avisarTetoDisparado(err);',
+  'await depoisDaResposta(avisarTetoDisparado(err));',
   'const charge = createChargeService({ store, psp });',
   'const demoCharge = createChargeService({ store, psp: demoPsp });',
   // As duas leituras de cobrança do `confirmDeps`, o helper que o aplicador de

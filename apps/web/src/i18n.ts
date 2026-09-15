@@ -443,9 +443,9 @@ export const DICT = {
   // O rótulo também é recusado por caractere de controle ou texto mal formado
   // (ver `payerLabelValido`), então a frase não diz só "longo demais".
   'err.payer_label_invalid': {
-    en: 'Please use a shorter name (up to 60 characters), with letters and numbers only.',
-    pt: 'Use um nome mais curto (até 60 caracteres), só com letras e números.',
-    es: 'Usa un nombre más corto (hasta 60 caracteres), solo con letras y números.' },
+    en: 'That name can’t be used — try a shorter one (up to 60 characters).',
+    pt: 'Esse nome não pode ser usado — tente um mais curto (até 60 caracteres).',
+    es: 'Ese nombre no se puede usar — prueba uno más corto (hasta 60 caracteres).' },
   // A demo é pública e cobra a partir de um centavo, então tem limite por
   // origem. Sem prazo na frase — o balde é local e aproximado.
   'err.demo_busy': {
@@ -975,9 +975,9 @@ export const DICT = {
   // fazer, e quem está no meio de um pagamento acompanha a conta PELO token da
   // mesa: girado, a tela vira "conta não encontrada" e ele não vê a
   // confirmação — e pode pagar de novo no caixa. (Compliance, M2.)
-  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately, and anyone paying right now loses their confirmation screen — check the table’s payments here before closing at the till.',
-                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora, e quem está pagando agora perde a tela de confirmação — confira aqui os pagamentos da mesa antes de fechar no caixa.',
-                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante, y quien esté pagando ahora pierde la pantalla de confirmación — revisa aquí los pagos de la mesa antes de cobrar en caja.' },
+  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately, and anyone paying right now loses their confirmation screen. Payments already started with the old code can still arrive for up to 15 minutes — check the table’s payments here before charging at the till, so nobody pays twice.',
+                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora, e quem está pagando agora perde a tela de confirmação. Pagamentos já iniciados com o código antigo ainda podem chegar por até 15 minutos — confira aqui os pagamentos da mesa antes de cobrar no caixa, pra ninguém pagar duas vezes.',
+                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante, y quien esté pagando ahora pierde la pantalla de confirmación. Los pagos ya iniciados con el código antiguo aún pueden llegar durante hasta 15 minutos — revisa aquí los pagos de la mesa antes de cobrar en caja, para que nadie pague dos veces.' },
   'admin.deactivateAsk': { en: 'Deactivate {table}? Its QR stops working.',
                         pt: 'Desativar a {table}? O QR dela para de funcionar.',
                         es: '¿Desactivar {table}? Su QR deja de funcionar.' },

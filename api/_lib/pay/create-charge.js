@@ -150,6 +150,9 @@ async function assertChargeSlot(store, checkId, qrGeneration = undefined) {
     // Pro aviso ao operador (router, `avisarTetoDisparado`). NÃO vai pro
     // corpo: o `errorBody` só serializa `code` e `vars`.
     err.checkId = checkId;
+    // E a geração: o aviso deduplica por conta E geração, então girar o QR e
+    // ver o ataque voltar na geração nova pagina de novo, na hora.
+    err.qrGeneration = qrGeneration || null;
     // Só o limite. SEM `windowMinutes`: com a janela deslizante a espera não
     // tem prazo, e o `windowMinutes` virava `Retry-After: 900` — uma promessa de
     // prazo pelo cabeçalho que a frase da tela já tinha parado de fazer.

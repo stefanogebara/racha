@@ -381,6 +381,13 @@ function createMemoryStore() {
       for (let i = vagas.length - 1; i >= 0; i -= 1) if (vagas[i].claimId === claimId) vagas.splice(i, 1);
       return antes - vagas.length;
     },
+    /**
+     * O gêmeo não tem migração que envelheça: o "esquema" dele é este arquivo.
+     * Devolve a impressão esperada, e o cron compara igual nos dois stores.
+     */
+    async slotsFingerprint() {
+      return require('./impressao-0033').IMPRESSAO_0033;
+    },
     async listPendingCharges({ checkId = null, graceMs = 0, windowMs = Infinity, limit = 100 } = {}) {
       const now = Date.now();
       return [...payments.values()]

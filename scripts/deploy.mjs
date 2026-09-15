@@ -17,6 +17,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import impressao0033 from '../api/_lib/store/impressao-0033.js';
 
 const PROJECT_ID = 'prj_9g4oNf6HoNUnJFAPD53NJ0CH08O1';
 const TEAM_ID = 'team_0OAVq8O0WIyi5FXT8Bgoxvnx';
@@ -127,10 +128,12 @@ process.stdout.write('✓ RACHA_NOTIFY_SECRET configurado em production\n');
 //     Agora o host do `.env` tem de ser o do `SUPABASE_URL` de produção na
 //     Vercel, lido pelo id da variável (só ela é decifrada, não o resto);
 //  2. a versão aplicada é ESTA? A 0033 foi editada no lugar, e um banco com a
-//     versão anterior respondia à mesma sonda — sem `skip locked`, sem a guarda
-//     de limite nulo, sem o expurgo. A sonda agora pede o comportamento que só
-//     esta versão tem: `claim_slots` com limite NULO tem de ser RECUSADA com
-//     22023, e esta versão recusa antes de qualquer trava ou escrita;
+//     versão anterior respondia à mesma sonda. A segunda sonda pedia um
+//     COMPORTAMENTO (limite nulo recusado com 22023) que a versão anterior
+//     também tinha: a revisão de segurança de 7a65e93 aplicou a 0033 velha e a
+//     sonda passou (M2). Agora ela lê a IMPRESSÃO DIGITAL do texto das funções
+//     do teto (`charge_slots_fingerprint`) e exige a de
+//     `api/_lib/store/impressao-0033.js` — que o `sql-teto-vivo` recalcula;
 //  3. e o PUSH só depois das duas — antes, um "deploy ABORTADO" deixava o `main`
 //     remoto já carregando o código que exige a 0033.
 const envLocal = (() => {
@@ -155,19 +158,21 @@ if (envSupa && envSupa.id) {
 }
 if (!hostProducao) aborta('não deu pra ler o SUPABASE_URL de PRODUÇÃO na Vercel — sem ele não dá pra saber se o .env aponta pro banco certo.');
 if (hostProducao !== hostSondado) aborta(`o .env aponta pra ${hostSondado}, mas produção é ${hostProducao}.`);
-const sonda = await fetch(`${SB_URL}/rest/v1/rpc/claim_slots`, {
+const { IMPRESSAO_0033 } = impressao0033;
+const sonda = await fetch(`${SB_URL}/rest/v1/rpc/charge_slots_fingerprint`, {
   method: 'POST',
   headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ p_keys: ['sonda:deploy'], p_limits: [null], p_window_seconds: 900 }),
+  body: '{}',
 }).catch((e) => ({ status: 0, text: async () => String(e && e.message) }));
 const corpoSonda = String(await sonda.text()).trim();
-let codigoSonda = null;
-try { codigoSonda = JSON.parse(corpoSonda).code; } catch { /* corpo não-JSON */ }
-if (sonda.status !== 400 || codigoSonda !== '22023') {
-  aborta(`a migração 0033 ATUAL não está aplicada em ${hostSondado} (claim_slots com limite nulo → ${sonda.status} ${corpoSonda.slice(0, 140)}).\n`
-    + '  Aplique supabase/migrations/0033_charge_slots.sql PRIMEIRO: com o código novo e sem ela, todo pagamento devolve 500.');
+let impressaoSondada = null;
+try { impressaoSondada = JSON.parse(corpoSonda); } catch { /* corpo não-JSON */ }
+if (sonda.status !== 200 || impressaoSondada !== IMPRESSAO_0033) {
+  aborta(`a migração 0033 ATUAL não está aplicada em ${hostSondado} (impressão → ${sonda.status} ${corpoSonda.slice(0, 140)}; esperada "${IMPRESSAO_0033}").\n`
+    + '  Aplique supabase/migrations/0033_charge_slots.sql PRIMEIRO, pelo arquivo (psql -f ou supabase db push): sem ela todo pagamento\n'
+    + '  devolve 500, e com uma versão anterior o expurgo e as guardas são os de antes. Editor que mexe em espaço em branco muda a impressão.');
 }
-process.stdout.write(`✓ migração 0033 atual aplicada em ${hostSondado}, que é o banco de produção\n`);
+process.stdout.write(`✓ migração 0033 atual aplicada em ${hostSondado}, que é o banco de produção (impressão ${IMPRESSAO_0033.slice(0, 8)})\n`);
 
 // O gitSource deploya o que está no GitHub — então garante que o commit local
 // já subiu (evita o tropeço de "commit && deploy" sem push no meio, que deploya

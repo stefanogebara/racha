@@ -752,6 +752,19 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(error, 'releaseSlots');
       return data || 0;
     },
+    /**
+     * A impressão digital da 0033 instalada — ver `charge_slots_fingerprint()`.
+     * Erro checado e resposta conferida: sem a função, ou com uma resposta que
+     * não é texto, ESTOURA — quem compara é o cron, e ele pagina.
+     */
+    async slotsFingerprint() {
+      const { data, error } = await client.rpc('charge_slots_fingerprint');
+      throwOn(error, 'slotsFingerprint');
+      if (typeof data !== 'string' || !/^[0-9a-f]{32}$/.test(data)) {
+        throw new Error('slotsFingerprint: resposta não é um md5');
+      }
+      return data;
+    },
     async listPendingCharges({ checkId = null, graceMs = 0, windowMs = null, limit = 100 } = {}) {
       const now = Date.now();
       let q = client

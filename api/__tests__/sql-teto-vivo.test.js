@@ -226,7 +226,34 @@ d(temPg ? 'o teto no Postgres de verdade (migração 0033)' : 'o teto no Postgre
     expect(Number(Q("select count(*) from retention_runs where kind = 'purge'"))).toBe(antes + 1);
   });
 
+  test('a IMPRESSÃO DIGITAL no banco é a que o código espera — editar a 0033 sem atualizar o número fica VERMELHO', () => {
+    // O portão de deploy e o cron comparam a impressão de produção com este
+    // número. Se ele não fosse recalculado aqui, uma edição da 0033 deixaria o
+    // portão recusando o banco CERTO — ou, pior, alguém copiaria o número de
+    // produção pra cá. (Segurança M2 de 7a65e93.)
+    const { IMPRESSAO_0033 } = require('../_lib/store/impressao-0033');
+    expect(Q('select charge_slots_fingerprint()')).toBe(IMPRESSAO_0033);
+  });
+
+  test('o expurgo respeita a janela DE CADA LINHA — o contador diário de avisos sobrevive a ele', () => {
+    // O corte fixo de quinze minutos zerava o contador diário todo dia no
+    // expurgo: doze linhas de uma hora sumiam e o décimo terceiro aviso
+    // passava. (Reproduzido pela segurança de 7a65e93, L1.)
+    Q("insert into charge_slots(claim_id, slot_key, created_at, window_seconds) select gen_random_uuid(), 'alerta-dia:teste', now() - interval '1 hour', 86400 from generate_series(1, 12)");
+    Q("insert into charge_slots(claim_id, slot_key, created_at, window_seconds) values (gen_random_uuid(), 'check:exp-janela', now() - interval '20 minutes', 900), (gen_random_uuid(), 'alerta:check:exp-6h', now() - interval '7 hours', 21600)");
+    Q('select purge_expired_personal_data(90, 90, 90)');
+    expect(Q("select count(*) from charge_slots where slot_key = 'alerta-dia:teste'")).toBe('12');
+    expect(Q("select count(*) from charge_slots where slot_key in ('check:exp-janela', 'alerta:check:exp-6h')")).toBe('0');
+    expect(JSON.parse(Q("select claim_slots(array['alerta-dia:teste'], array[12], 86400)")).claim_id).toBeNull();
+  });
+
+  test('a reivindicação grava a JANELA dela na linha — é o que o expurgo lê', () => {
+    Q("select claim_slots(array['janela:x'], array[1], 3600)");
+    expect(Q("select window_seconds from charge_slots where slot_key = 'janela:x'")).toBe('3600');
+  });
+
   test('anon e authenticated não executam nem leem', () => {
+    expect(QErr('set role anon; select charge_slots_fingerprint()')).toMatch(/permission denied/);
     expect(QErr("set role anon; select claim_slots(array['check:x'], array[1], 900)")).toMatch(/permission denied/);
     expect(QErr('set role authenticated; select release_slots(gen_random_uuid())')).toMatch(/permission denied/);
     expect(QErr('set role anon; select count(*) from charge_slots')).toMatch(/permission denied/);
