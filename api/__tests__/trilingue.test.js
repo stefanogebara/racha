@@ -75,6 +75,7 @@ describe('a mesma frase nas três línguas dá o mesmo veredito', () => {
       'determinante / sujeito_nominal',
       'evasao_de_folha',
       'gatilho_forma_direcional (quantidade)',
+      'gatilho_forma_direcional (número do verbo)',
       'negadores',
       'separador_de_clausula',
       'separador_de_clausula (prefixo por segmento)',

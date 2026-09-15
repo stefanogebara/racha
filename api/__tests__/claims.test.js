@@ -116,7 +116,33 @@ const reNaoDinheiro = new RegExp(G.substantivo_nao_dinheiro, 'i');
 const reDestAmbiguo = new RegExp(G.destinatario_ambiguo, 'gi');
 /** O cômodo POSSUÍDO — a relação, não a palavra. Ver o gêmeo no Swift. */
 const reAmbiguoPossuido = new RegExp(COMPOR.ambiguo_possuido(G), 'i');
-const reEvasaoLicencia = new RegExp(CENSO.evasao_que_licencia(G), 'i');
+/**
+ * A LICENÇA FICA NA LISTA CURTA, e é a exceção que prova a regra do
+ * `comporCenso`.
+ *
+ * Todas as outras cabeças ganharam a lista longa porque crescer detecção lá é
+ * fail-FECHADO. Esta não: o `comEvasao` não é um interruptor permissivo, é uma
+ * TROCA — cabeça mais frouxa (`reCabeca` em vez de `reCabecaDirecional`) em
+ * troca de antecedente mais ESTRITO (`soGorjetaAntes`, que passa a exigir o
+ * substantivo da gorjeta numa oração anterior em vez de aceitar quantidade).
+ * Ver `_porque_licenca`. Com a lista longa aqui, o censo ficava MAIS FROUXO que
+ * o runtime — medido:
+ *
+ *     Sua parte é R$ 61,00.
+ *     Pro garçom, no Pix do pessoal.
+ *
+ * `pessoal` só existe na lista longa, então o censo acendia a licença, exigia
+ * gorjeta antes, não achava e liberava; o runtime, com a lista curta, não
+ * acendia, caía na cabeça direcional e RECUSAVA. `censo=false, runtime=true` é
+ * a direção que o fabricador chama de proibida e que o `_divergencia_por_desenho`
+ * diz que continua proibida — e é a pior possível, porque o censo é o único
+ * portão sobre o `i18n.ts`, o roteiro impresso do garçom e a landing: a frase
+ * do inegociável #2 ao contrário podia ser ESCRITA na nossa cópia.
+ *
+ * Achado pela revisão de compliance de 2026-09-15 (HIGH-1) — dentro do conserto
+ * do HIGH-1 da rodada anterior.
+ */
+const reEvasaoLicencia = new RegExp(COMPOR.evasao_que_licencia(G), 'i');
 /** Burlar a FOLHA, sem os negadores nus — ver `_porque_evasao_de_folha`. */
 const reEvasaoFolha = new RegExp(G.evasao_de_folha, 'i');
 const rePalavraFuncional = new RegExp(COMPOR.palavra_funcional(G), 'gdi');

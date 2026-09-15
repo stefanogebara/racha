@@ -96,6 +96,14 @@
       "pt": "A gorjeta não fica com a casa, mas vai 100% pro garçom.",
       "en": "The service charge does not stay with the house, but goes 100% to the staff.",
       "es": "El servicio no se queda con la casa, sino que va 100% al personal."
+    },
+    {
+      "peca": "gatilho_forma_direcional (número do verbo)",
+      "recusa": true,
+      "porque": "O EIXO TRILÍNGUE NÃO ALCANÇAVA O NÚMERO DO VERBO porque os doze pares ingleses da grade eram TODOS no singular: eles herdaram o número da frase portuguesa de que foram traduzidos. O ramo inglês tinha `goes?`, que é `goe` mais `s` opcional — o PLURAL `go` não estava lá, e `tips` é plural, que é o número do substantivo pelo qual este guarda existe. Medido: `- 100% goes to the staff.` recusava, `- They all go to the waiters.` passava viva, e o plural espanhol (`van`) recusava. Este trio é plural nas três línguas, que é a única forma de o eixo ver a classe. Achado pela revisão de segurança de 2026-09-15 (HIGH-5).",
+      "pt": "As gorjetas vão 100% pros garçons.",
+      "en": "The tips go 100% to the waiters.",
+      "es": "Las propinas van 100% a los camareros."
     }
   ]
 }

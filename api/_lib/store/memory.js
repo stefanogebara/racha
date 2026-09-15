@@ -10,6 +10,16 @@ const INLINE_METHODS = new Set(['house_account']);
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
 const { documentoPublicavelDaCasa } = require('../br/documento.js');
 const { confirmedMoney } = require('./confirmed-money');
+/**
+ * Erro 400 local — os dois stores precisam do mesmo, e o `http-error.js` só
+ * exporta o mapa de status. Mesma forma do `create-charge.js:25`.
+ */
+function badRequest(msg) {
+  const e = new Error(msg);
+  e.statusCode = 400;
+  return e;
+}
+
 const { disputeCounts } = require('../checks/disputes');
 
 /**
@@ -704,6 +714,19 @@ function createMemoryStore() {
       return false;
     },
     async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel, method = 'pix' }) {
+      // O RÓTULO DO PAGADOR É CONFERIDO AQUI, no único ponto por onde TODA
+      // cobrança passa. A regra existia só no `create-charge`, e o
+      // `/api/pay/stripe-intent` — pública, token de mesa, sem sessão — chama
+      // o `registerCharge` DIRETO: um `payerLabel` de 900 KB, ou um objeto no
+      // lugar de uma string, chegava intacto à coluna que o painel do dono lê
+      // de volta. É a forma "chamador esquecido" que este repositório já
+      // nomeia três vezes, e o conserto é o mesmo das outras: a regra desce
+      // pro sítio que não dá pra contornar, em vez de virar mais um item num
+      // censo de chamadores. Achado pela revisão de segurança de 2026-09-15.
+      if (payerLabel !== null && payerLabel !== undefined
+        && (typeof payerLabel !== 'string' || payerLabel.length > 60)) {
+        throw badRequest('payerLabel must be a string of at most 60 chars');
+      }
       txidToCheck.set(txid, checkId);
       const check = checks.get(checkId);
       const chargeVenue = check ? venues.get(check.venueId) : null;

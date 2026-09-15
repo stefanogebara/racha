@@ -326,6 +326,40 @@ describe('o fabricador mede os DOIS guardas', () => {
       for (const c of F.casos) {
         for (const [v] of injecoes(c.texto)) variantes.push(v);
       }
+      /**
+       * E UMA GRADE, porque amostrar o corpo não mede uma PROPRIEDADE.
+       *
+       * A direção proibida (`censo=false, runtime=true`) estava VIVA e este
+       * teste não a via, porque ele só olha injeções em casos do corpo e
+       * nenhum caso tinha a forma que a abria: a licença de evasão composta
+       * com a lista LONGA acendia no censo, exigia gorjeta na oração anterior,
+       * não achava e liberava — enquanto o runtime, com a lista curta, não
+       * acendia e recusava. Uma frase é uma amostra; o que importa aqui é a
+       * propriedade.
+       *
+       * A grade planta cada destinatário do censo — inclusive os que só ele
+       * conhece, que são exatamente onde os dois guardas podem discordar — nas
+       * molduras em que as cabeças de decisão o consomem. Achado pela revisão
+       * de compliance de 2026-09-15 (HIGH-1).
+       */
+      const destinos = G.substantivo_destinatario.split('|')
+        .map((a) => a.replace(/\(\?<![^)]*\)/g, '').replace(/\(\?![^)]*\)/g, '')
+          .replace(/^\\b/, '').replace(/\\b$/, ''))
+        .filter((a) => /^[a-zà-ÿ][a-zà-ÿ ]*$/.test(a));
+      expect(destinos.length).toBeGreaterThanOrEqual(15);
+      const MOLDURAS = [
+        (d) => `Serviço: 10%\n- 100% pra ${d}`,
+        (d) => `Serviço: 10%\n- 100% ${d}`,
+        (d) => `Sua parte é R$ 61,00.\nPro garçom, no Pix d${d.startsWith('a') ? 'e ' : 'o '}${d}.`,
+        (d) => `Sua parte é R$ 61,00. O resto fica com ${d}.`,
+        (d) => `A gorjeta vai 100% pra ${d}.`,
+      ];
+      // A grade mede SÓ a propriedade de direção, não a igualdade: um
+      // destinatário que só o censo conhece FAZ os dois discordarem na direção
+      // permitida, e é pra isso que ele está na lista longa. O que ela prende é
+      // a direção proibida, que nenhuma amostra do corpo alcançava.
+      const inicioDaGrade = variantes.length;
+      for (const d of destinos) for (const m of MOLDURAS) variantes.push(m(d));
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fabsw-'));
       fs.writeFileSync(path.join(tmp, 'CP.swift'),
         fs.readFileSync(path.join(RAIZ, 'ios', 'Racha', 'Agent', 'ClaimPatterns.swift'), 'utf8'));
@@ -377,10 +411,17 @@ describe('o fabricador mede os DOIS guardas', () => {
         // Runtime MAIS estrito que o censo nunca é por desenho: é o censo
         // liberando algo que o produto pode publicar.
         if (!c && r) { divergiram.push(`${JSON.stringify(variantes[i])}: censo=false runtime=true (direção proibida)`); continue; }
+        if (i >= inicioDaGrade) continue; // grade: só a direção
         if (!declarado(variantes[i])) {
           divergiram.push(`${JSON.stringify(variantes[i])}: censo=${c} runtime=${r}`);
         }
       }
+      // A grade tem que estar MEDINDO: se nenhum dos seus quadros faz os dois
+      // discordarem, ela não alcançou a região em que eles podem discordar.
+      const discordouNaGrade = variantes.slice(inicioDaGrade)
+        .some((v, k) => acusa(v) !== (swift[inicioDaGrade + k] === '1'));
+      expect({ grade: variantes.length - inicioDaGrade, discordou: discordouNaGrade })
+        .toEqual({ grade: variantes.length - inicioDaGrade, discordou: true });
       expect(divergiram.slice(0, 8)).toEqual([]);
       // Gaveta viva: um caso declarado que passou a concordar sai daqui.
       for (const [base, porque] of Object.entries(DECLARADAS)) {
