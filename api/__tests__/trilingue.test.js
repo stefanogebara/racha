@@ -81,8 +81,15 @@ describe('a mesma frase nas três línguas dá o mesmo veredito', () => {
       'substantivo_gorjeta',
     ];
     expect([...new Set(T.trios.map((t) => t.peca))].sort()).toEqual(PECAS_COM_EIXO.sort());
-    // Dois trios com o MESMO nome de peça seriam dois eixos para uma peça e
-    // zero para outra, sem que o conjunto acima percebesse.
+    // Esta linha compara RÓTULOS, não peças: `adversativa_inicial` aparece em
+    // dois rótulos e `separador_de_clausula` em dois, e isso é de propósito —
+    // o par é o que mede a peça (vírgula e travessão; oração e prefixo por
+    // segmento). O que ela garante é que nenhum rótulo aparece duas vezes, ou
+    // seja, que dois trios não estão medindo a MESMA coisa achando que são
+    // dois eixos. A cobertura dupla por peça é desenho, não descuido — e a
+    // primeira versão deste comentário prometia uma garantia que a
+    // normalização não entrega. Apontado pela revisão de compliance de
+    // 2026-09-15 (LOW-5).
     expect(T.trios.map((t) => t.peca).sort()).toEqual(PECAS_COM_EIXO.sort());
     // Toda peça nomeada existe de verdade no desenho: nome que não casa campo
     // nenhum do `claims.json` é eixo que mede uma peça imaginária.

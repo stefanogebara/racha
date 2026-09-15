@@ -173,9 +173,44 @@ const PECAS = (G) => ({
 });
 /** Substitui TODOS os marcadores, do mais longo pro mais curto — senão `PREP`
  *  comeria o começo de `PREPDEST` e o padrão sairia calado e errado. */
-const compor = (G, re) => Object.entries(PECAS(G))
+const comporCom = (pecas, re) => Object.entries(pecas)
   .sort((a, b) => b[0].length - a[0].length)
   .reduce((acc, [nome, valor]) => acc.split(nome).join(valor), re);
+const compor = (G, re) => comporCom(PECAS(G), re);
+
+/**
+ * O MESMO ALFABETO COM A LISTA LONGA DE DESTINATÁRIO.
+ *
+ * `DEST` era a lista de RUNTIME em toda composição — e o censo de build compõe
+ * as mesmas peças. Resultado: as cabeças de decisão (regra 1b e regra 3
+ * inteiras) julgavam com a lista CURTA mesmo do lado do build, e os onze
+ * destinatários de `destinatarios_so_deteccao` só eram alcançáveis pela regra
+ * 1, que exige o substantivo da gorjeta no MESMO segmento. A forma de LISTA —
+ * que é a forma que a regra 3 existe pra pegar, e a forma da afirmação
+ * aposentada — passava:
+ *
+ *     Serviço: 10%
+ *     - 100% pra gente
+ *
+ * `pra gente` é a frase que este arquivo inteiro nasceu pra impedir de voltar à
+ * cópia do produto, e o portão de build não a via. Três textos do `claims.json`
+ * afirmavam o contrário ("a completa só amplia detecção, e ampliar detecção
+ * falha FECHADO") — verdade só pra regra 1. Achado pela revisão de compliance
+ * de 2026-09-15 (HIGH-1).
+ *
+ * A correção é DERIVADA, não enumerada: o mesmo padrão composto duas vezes, uma
+ * com cada lista, em vez de campos `*_censo` escritos à mão — que foi como a
+ * `destino_em_qualquer_lugar` ganhou uma gêmea e como as duas divergiram três
+ * vezes. O guarda Swift continua emitido do lado RUNTIME; só o censo de build
+ * lê o lado longo.
+ */
+const PECAS_CENSO = (G) => ({
+  ...PECAS(G),
+  DEST: G.substantivo_destinatario,
+  EVASAOCAMINHO: G.evasao_de_caminho.replace('DEST', G.substantivo_destinatario),
+});
+const comporCenso = (G, re) => comporCom(PECAS_CENSO(G), re);
+
 const COMPOSTOS = {
   substantivo_gorjeta: (G) => compor(G, comDiminutivo(G.substantivo_gorjeta)),
   gatilho_forma_direcional: (G) => compor(G, expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario_runtime)),
@@ -203,6 +238,23 @@ const COMPOSTOS = {
   ambiguo_possuido: (G) => compor(G, G.ambiguo_possuido),
   anafora_de_dinheiro: (G) => compor(G, G.anafora_de_dinheiro),
 };
+
+/**
+ * Os mesmos padrões com a lista LONGA. Derivados do `COMPOSTOS`, não escritos:
+ * campo novo lá aparece aqui sozinho, e não pode ficar pra trás.
+ *
+ * O `gatilho_forma_direcional` precisa de tratamento próprio porque o
+ * `{DEST}` dele é expandido ANTES da composição, e a expansão leva a lista
+ * explicitamente.
+ */
+const COMPOSTOS_CENSO = Object.fromEntries(Object.keys(COMPOSTOS).map((k) => [
+  k,
+  k === 'gatilho_forma_direcional'
+    ? (G) => comporCenso(G, expandirDest(G.gatilho_forma_direcional, G.substantivo_destinatario))
+    : k === 'substantivo_gorjeta'
+      ? (G) => comporCenso(G, comDiminutivo(G.substantivo_gorjeta))
+      : (G) => comporCenso(G, G[k]),
+]));
 const G = JSON.parse(fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'claims.json'), 'utf8')).gorjeta_destino;
 
 /** Literal de string Swift, com as barras e aspas escapadas. */
@@ -300,8 +352,18 @@ enum ClaimPatterns {
     /// não pra onde vai — e é o texto que o AgentTool ensina ao modelo. Ver
     /// \`_porque_genitivo_descritivo\`.
     static let genitivoDescritivo = ${lit(COMPOSTOS.genitivo_descritivo(G))}
-    /// Enumeração com a POLARIDADE do lado certo: verbo que a lista não
-    /// conhece vira recusa, nunca escape. Ver \`_porque_predicacao\`.
+    /// A POLARIDADE DEPENDE DO SÍTIO, e a versão anterior desta linha dizia
+    /// \"verbo que a lista não conhece vira recusa, nunca escape\" como se
+    /// fosse uma propriedade da lista. Não é. Dos quatro consumidores, três
+    /// falham ABERTO ao crescer a lista — a desqualificação de prefixo do
+    /// \`cabecaValida\`, a \`temPredicacao\` e a herança da coordenação todas
+    /// EXIMEM quando reconhecem um verbo. Só o \`soFuncionalAteONucleo\` (o
+    /// resgate pela negação) fica mais estrito. Então acrescentar verbo aqui
+    /// compra um resgate e paga três exceções, e tem que ser MEDIDO — foi por
+    /// acreditar nesta linha que a gaveta dos falsos positivos prescreveu
+    /// \`settle\`, \`stay\` e \`keep\` de uma vez, sendo que \`keep|keeps|kept\`
+    /// já estavam na lista. Achado pela revisão de compliance de 2026-09-15.
+    /// Ver \`_porque_predicacao\`.
     static let verboFinito = ${lit(G.verbo_finito)}
     /// Relativa, retirada antes do teste de predicação.
     static let relativaQualquer = ${lit(COMPOSTOS.relativa_qualquer(G))}
@@ -325,7 +387,7 @@ enum ClaimPatterns {
 }
 
 const ALVO = path.join(RAIZ, 'ios', 'Racha', 'Agent', 'ClaimPatterns.swift');
-module.exports = { gerar, ALVO, expandirDest, COMPOSTOS, PECAS, comDiminutivo };
+module.exports = { gerar, ALVO, expandirDest, COMPOSTOS, COMPOSTOS_CENSO, PECAS, comDiminutivo };
 if (require.main === module) {
   fs.writeFileSync(ALVO, gerar());
   console.log('gerado', path.relative(RAIZ, ALVO));

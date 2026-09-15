@@ -386,8 +386,10 @@ enum RevisaoDeAfirmacoes {
         let todo = NSRange(location: 0, length: ns.length)
         let dests = destinatario.matches(in: oracao, range: todo).map { $0.range }
         guard !dests.isEmpty else { return false }
-        let gorjetas = gorjeta.matches(in: oracao, range: todo).map { $0.range }
-        let direcionais = direcional.matches(in: oracao, range: todo).map { $0.range }
+        // `gorjetas` e `direcionais` eram varridos aqui e nunca lidos — ver o
+        // gêmeo no claims.test.js. Removidos em 2026-09-15 (LOW-2 da revisão
+        // de compliance): duas varreduras de regex por oração, no guarda que
+        // roda no telefone, pra nada.
         // Separador interno: depois de uma vírgula ou de um "mas", começa outra
         // afirmação — e a negação da primeira não alcança a segunda.
         // E ` e ` TAMBÉM ABRE OUTRA AFIRMAÇÃO. `Não, vai pra equipe.` recusa;
@@ -530,7 +532,6 @@ enum RevisaoDeAfirmacoes {
 
     /// A oração carrega, ELA MESMA, a cláusula do distribuidor?
     private static func temDistribuidor(_ oracao: String) -> Bool {
-        let ns = oracao as NSString
         // TODAS as ocorrências, e a janela olha PRA FRENTE também. Olhava só a
         // primeira e só pra trás, enquanto o censo de build olhava todas e
         // ±30: "A gorjeta pertence à equipe e o restaurante distribui, mas não

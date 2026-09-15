@@ -20,6 +20,14 @@ TMP = sys.argv[1]
 casos = json.load(open('docs/compliance/afirmacoes.fixture.json'))['casos']
 _tri = json.load(open('docs/compliance/trilingue.fixture.json'))['trios']
 casos = casos + [{'texto': t[l], 'recusa': t['recusa']} for t in _tri for l in ('pt', 'en', 'es')]
+# O CORPO É DO CENSO, e o censo é MAIS ESTRITO que o runtime em alguns casos —
+# de propósito, porque as duas listas de destinatário são diferentes (ver
+# `_porque_lista_runtime`). Um caso declarado em `_divergencia_por_desenho`
+# recusa no build e passa aqui, e isso não é peça vermelha: é a decisão de
+# desenho. A direção contrária continua proibida, e quem a mede é o fabricador.
+_claims = json.load(open('docs/compliance/claims.json'))['gorjeta_destino']
+_porDesenho = set(_claims.get('_divergencia_por_desenho', {}))
+casos = [c for c in casos if c['texto'] not in _porDesenho]
 guarda = open('ios/Racha/Agent/RevisaoDeAfirmacoes.swift').read()
 
 # AS DECISÕES MORAM NUM LUGAR SÓ. Esta lista e a do

@@ -200,6 +200,9 @@ function falhasCom(mutado) {
 }
 
 const MORTAS = G._alternativas_mortas || {};
+// Os só-detecção que a cabeça de decisão ainda não alcança, um a um, com o
+// preço de fechar cada um medido. Ver `_so_deteccao_sem_alcance`.
+const SEM_ALCANCE = G._so_deteccao_sem_alcance || {};
 // Alcance e peso são perguntas diferentes, então os perdões também são: um
 // token pode ser ALCANÇÁVEL e não ter caso próprio no corpo, ou ter caso e não
 // ser sondável. Uma gaveta só borraria as duas.
@@ -447,13 +450,17 @@ describe('toda palavra das listas de vocabulário é ALCANÇÁVEL', () => {
     for (const token of alts) {
       const ex = exemplar(token);
       if (ex === null) continue;                 // não é palavra (classe, âncora)
-      // SÓ-DETECÇÃO: os tokens de primeira e segunda pessoa do
-      // `substantivo_destinatario` querem dizer os CLIENTES quando é o
-      // assistente que fala, e por isso não estão na lista de runtime nem
-      // disparam a frase canônica. A exclusão é DERIVADA do
-      // `destinatarios_so_deteccao`, não escrita à mão aqui.
-      if (campo === 'substantivo_destinatario'
-        && (G.destinatarios_so_deteccao || []).some((d) => ex.includes(d))) continue;
+      // SÓ-DETECÇÃO: a exclusão era o `destinatarios_so_deteccao` INTEIRO —
+      // dez tokens pulados com a justificativa de que "não disparam a frase
+      // canônica". A justificativa era falsa e escondia um defeito: esta sonda
+      // roda o CENSO, não o guarda de runtime, e o censo DEVE disparar neles.
+      // O que impedia era estrutural — as cabeças de decisão compunham a lista
+      // CURTA mesmo do lado do build. Consertado isso (ver `comporCenso`),
+      // cinco dos dez passaram a decidir e saíram da exclusão. Os outros cinco
+      // trazem a própria preposição, que a cabeça consome antes de procurar o
+      // destinatário, e estão declarados um a um com o preço medido de fechar
+      // cada um. Achado pela revisão de compliance de 2026-09-15 (HIGH-1).
+      if (campo === 'substantivo_destinatario' && SEM_ALCANCE[ex]) continue;
       const r = VOCABULARIO[campo](ex);
       // Um quadro ou VÁRIOS, e quando são vários os DOIS têm que valer: uma
       // peça que decide por relação precisa da relação certa E da errada.
@@ -476,6 +483,18 @@ describe('toda palavra das listas de vocabulário é ALCANÇÁVEL', () => {
     }
     const naoDeclaradas = mudas.filter((m) => !(SEM_SONDA[campo] || {})[m.split('  →  ')[0]]);
     expect({ campo, naoDeclaradas }).toEqual({ campo, naoDeclaradas: [] });
+    // A gaveta do só-detecção sem alcance também não pode envelhecer: token
+    // que o censo passou a alcançar sai dela, senão ela vira perdão
+    // permanente — a mesma disciplina do `SEM_SONDA` logo abaixo.
+    if (campo === 'substantivo_destinatario') {
+      const alcancados = Object.keys(SEM_ALCANCE).filter((ex) => acusa(`Sobre a gorjeta\n- 100% ${ex}`));
+      expect(alcancados).toEqual([]);
+      for (const [ex, porque] of Object.entries(SEM_ALCANCE)) {
+        expect(`${ex}: ${porque}`).toMatch(/.{120,}/);
+        // E tem que ser um só-detecção de verdade, não um token qualquer.
+        expect((G.destinatarios_so_deteccao || []).some((d) => ex.includes(d))).toBe(true);
+      }
+    }
     // Declaração que envelheceu: token que voltou a ser sondável sai da lista.
     const sondaveis = Object.keys(SEM_SONDA[campo] || {})
       .filter((t) => !mudas.some((m) => m.split('  →  ')[0] === t));
@@ -739,6 +758,31 @@ describe('as duas listas de destinatário são a MESMA lista, mais o que está d
     const mortas = SO_DETECCAO.filter((d) => !CENSO.some((a) => a.includes(d)));
     expect(mortas).toEqual([]);
     expect(G._porque_so_deteccao || '').toMatch(/.{200,}/);
+  });
+
+  test('nenhuma declaração de só-detecção é larga o bastante pra esvaziar a regra', () => {
+    /**
+     * ESTA É A ÚNICA GAVETA DO ARQUIVO SEM PREÇO POR ENTRADA, e a casação é
+     * por `String.includes` sem fronteira nenhuma. Acrescentar `"a"` ao array
+     * isentaria `atendente`, `camarer[oa]s?`, `sal[ãa]o`, `barman`, `copa` — a
+     * direção de IDA viraria vácuo, e os três testes que a cercam continuariam
+     * verdes: a entrada seria "usada", a prosa continuaria com mais de 200
+     * caracteres, e a gaveta teria deixado de significar qualquer coisa.
+     * Apontado pela revisão de compliance de 2026-09-15 (MEDIUM-3).
+     *
+     * O preço por entrada aqui não é prosa — é LARGURA. Uma declaração isenta
+     * a palavra que ela nomeia, não uma família: no máximo duas alternativas
+     * do censo, que é o que as duas entradas legítimas com duas (`para n`
+     * cobrindo `para nós` e `para n[óo]s`; `pessoal` cobrindo `pro pessoal` e
+     * ele mesmo) já custam. A terceira seria uma decisão, não um descuido.
+     */
+    const largas = SO_DETECCAO
+      .map((d) => [d, CENSO.filter((a) => a.includes(d)).length])
+      .filter(([, n]) => n > 2)
+      .map(([d, n]) => `${d} isenta ${n} alternativas`);
+    expect(largas).toEqual([]);
+    // E token curto demais é largura esperando acontecer.
+    expect(SO_DETECCAO.filter((d) => d.length < 4)).toEqual([]);
   });
 });
 

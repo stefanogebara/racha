@@ -351,12 +351,48 @@ describe('o fabricador mede os DOIS guardas', () => {
         '-o', `${tmp}/p`], { timeout: 600000 });
       const swift = execFileSync(`${tmp}/p`, { encoding: 'utf8', maxBuffer: 1 << 26 }).trim();
       expect(swift.length).toBe(variantes.length);
+      /**
+       * IGUALDADE ERA FORTE DEMAIS, e passou a ser falsa por DESENHO.
+       *
+       * As duas listas de destinatário são diferentes de propósito, e o
+       * primeiro caso de corpo com um destinatário só-do-censo (`pro pessoal`)
+       * fez este teste ficar vermelho por estar certo. O que importa não é a
+       * igualdade: é a DIREÇÃO. O censo é o único portão sobre o `i18n.ts`, o
+       * roteiro impresso e a landing — o que ele libera chega ao cliente. O
+       * runtime é o último portão da volta do assistente. Censo MAIS estrito é
+       * a assimetria que este arquivo quer; runtime mais estrito, ou censo
+       * mais frouxo, é defeito.
+       *
+       * Então: divergência só na direção `censo=true, runtime=false`, e só em
+       * variantes de um caso DECLARADO. Achado ao fechar o HIGH-1 da revisão
+       * de compliance de 2026-09-15.
+       */
+      const DECLARADAS = G._divergencia_por_desenho || {};
+      const declarado = (v) => Object.keys(DECLARADAS)
+        .some((base) => injecoes(base).some(([w]) => w === v) || base === v);
       const divergiram = [];
       for (let i = 0; i < variantes.length; i += 1) {
-        if (acusa(variantes[i]) !== (swift[i] === '1')) {
-          divergiram.push(`${JSON.stringify(variantes[i])}: censo=${acusa(variantes[i])} runtime=${swift[i] === '1'}`);
+        const c = acusa(variantes[i]); const r = swift[i] === '1';
+        if (c === r) continue;
+        // Runtime MAIS estrito que o censo nunca é por desenho: é o censo
+        // liberando algo que o produto pode publicar.
+        if (!c && r) { divergiram.push(`${JSON.stringify(variantes[i])}: censo=false runtime=true (direção proibida)`); continue; }
+        if (!declarado(variantes[i])) {
+          divergiram.push(`${JSON.stringify(variantes[i])}: censo=${c} runtime=${r}`);
         }
       }
       expect(divergiram.slice(0, 8)).toEqual([]);
+      // Gaveta viva: um caso declarado que passou a concordar sai daqui.
+      for (const [base, porque] of Object.entries(DECLARADAS)) {
+        expect(`${base}: ${porque}`).toMatch(/.{300,}/);
+        // O `variantes` guarda as INJEÇÕES, não o texto base: a prova de que a
+        // gaveta está viva é que ALGUMA variante dele ainda diverge.
+        const seus = variantes
+          .map((v, i) => [v, i])
+          .filter(([v]) => injecoes(base).some(([w]) => w === v));
+        expect({ base, variantes: seus.length > 0 }).toEqual({ base, variantes: true });
+        const aindaDiverge = seus.some(([v, i]) => acusa(v) !== (swift[i] === '1'));
+        expect({ base, aindaDiverge }).toEqual({ base, aindaDiverge: true });
+      }
     }, 900000);
 });

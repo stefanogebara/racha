@@ -36,16 +36,30 @@ const G = JSON.parse(
   fs.readFileSync(path.join(RAIZ, 'docs', 'compliance', 'claims.json'), 'utf8'),
 ).gorjeta_destino;
 
-const { expandirDest: _exp, COMPOSTOS: COMPOR, PECAS } = require('../../scripts/gen-claim-patterns.js');
+const {
+  expandirDest: _exp, COMPOSTOS: COMPOR, COMPOSTOS_CENSO: CENSO, PECAS,
+} = require('../../scripts/gen-claim-patterns.js');
+/**
+ * AS CABEÇAS DE DECISÃO JULGAM COM A LISTA LONGA — aqui, e só aqui.
+ *
+ * Elas compunham `DEST`, que é a lista de RUNTIME, e por isso as regras 1b e 3
+ * inteiras — a regra que existe pra pegar a forma de LISTA — enxergavam só a
+ * lista curta mesmo neste censo. Os onze destinatários de
+ * `destinatarios_so_deteccao` só chegavam à regra 1, que exige o substantivo da
+ * gorjeta no MESMO segmento, e `Serviço: 10%\n- 100% pra gente` — a afirmação
+ * aposentada, verbatim — passava pelo portão de build escrito pra impedir que
+ * ela volte à nossa cópia. Ver `comporCenso` no gerador e a revisão de
+ * compliance de 2026-09-15 (HIGH-1).
+ */
 const reGorjeta = new RegExp(COMPOR.substantivo_gorjeta(G), 'i');
 /** O que o NEGADOR pode negar — ver `_porque_nucleo_negavel`. */
 const reNegavel = new RegExp(G.nucleo_negavel, 'i');
 const reDestinatario = new RegExp(G.substantivo_destinatario, 'i');
 const reDistribuidor = new RegExp(G.distribuidor_com_sujeito, 'i');
-const reRevoga = new RegExp(COMPOR.revoga_dispensa(G), 'i');
+const reRevoga = new RegExp(CENSO.revoga_dispensa(G), 'i');
 /** Só os negadores; a evasão preposicional pertence à dispensa. */
 const reNegador = new RegExp(COMPOR.negadores(G), 'i');
-const reSuprimeGlobal = new RegExp(COMPOR.gatilho_forma_direcional(G), 'i');
+const reSuprimeGlobal = new RegExp(CENSO.gatilho_forma_direcional(G), 'i');
 const JANELA = G.janela_linhas;
 
 /**
@@ -102,7 +116,7 @@ const reNaoDinheiro = new RegExp(G.substantivo_nao_dinheiro, 'i');
 const reDestAmbiguo = new RegExp(G.destinatario_ambiguo, 'gi');
 /** O cômodo POSSUÍDO — a relação, não a palavra. Ver o gêmeo no Swift. */
 const reAmbiguoPossuido = new RegExp(COMPOR.ambiguo_possuido(G), 'i');
-const reEvasaoLicencia = new RegExp(COMPOR.evasao_que_licencia(G), 'i');
+const reEvasaoLicencia = new RegExp(CENSO.evasao_que_licencia(G), 'i');
 /** Burlar a FOLHA, sem os negadores nus — ver `_porque_evasao_de_folha`. */
 const reEvasaoFolha = new RegExp(G.evasao_de_folha, 'i');
 const rePalavraFuncional = new RegExp(COMPOR.palavra_funcional(G), 'gdi');
@@ -128,17 +142,17 @@ function soFuncionalAteONucleo(vao) {
   }
   return !/[\p{L}\p{N}]/u.test(restante.join(''));
 }
-const reCabecaDirecional = new RegExp(COMPOR.cabeca_direcional(G), 'i');
+const reCabecaDirecional = new RegExp(CENSO.cabeca_direcional(G), 'i');
 /** A cabeça do caminho fraco com preposição GENITIVA. Ver o gêmeo. */
-const reCabecaGenitiva = new RegExp(COMPOR.cabeca_genitiva(G), 'i');
+const reCabecaGenitiva = new RegExp(CENSO.cabeca_genitiva(G), 'i');
 /** A CABEÇA de destino — PREFIXO, não whitelist ancorada. Ver o gêmeo. */
-const reCabeca = new RegExp(COMPOR.cabeca_de_destino(G), 'i');
-const reCabecaForte = new RegExp(COMPOR.cabeca_forte(G), 'i');
+const reCabeca = new RegExp(CENSO.cabeca_de_destino(G), 'i');
+const reCabecaForte = new RegExp(CENSO.cabeca_forte(G), 'i');
 const rePronomeSujeito = new RegExp(G.pronome_sujeito, 'gi');
 const rePrepPronome = new RegExp(COMPOR.preposicao_regendo_pronome(G), 'i');
 const reVerboFinito = new RegExp(G.verbo_finito, 'i');
 const reRelativa = new RegExp(COMPOR.relativa_qualquer(G), 'gi');
-const reGenitivoDescritivo = new RegExp(COMPOR.genitivo_descritivo(G), 'gi');
+const reGenitivoDescritivo = new RegExp(CENSO.genitivo_descritivo(G), 'gi');
 const reSeparadorCorte = new RegExp(G.separador_interno, 'i');
 /** Abertura de cláusula ADVERSATIVA — ver o gêmeo no Swift. */
 const reAdversativa = new RegExp(COMPOR.adversativa_inicial(G), 'i');
@@ -272,8 +286,14 @@ function oracoes(texto) {
 function nega(oracao) {
   const dests = [...oracao.matchAll(new RegExp(reDestinatarioCenso.source, 'gi'))];
   if (!dests.length) return false;
-  const gorjetas = [...oracao.matchAll(new RegExp(reGorjeta.source, 'gi'))];
-  const direcionais = [...oracao.matchAll(new RegExp(reSuprimeGlobal.source, 'gi'))];
+  // `gorjetas` e `direcionais` eram varridos aqui e nunca lidos — sobra da
+  // versão em que a janela do `nega` começava no fim do substantivo da gorjeta
+  // ou dez caracteres antes da forma direcional. A janela virou o PREFIXO
+  // inteiro e as duas varreduras ficaram, uma por oração, nos DOIS gêmeos.
+  // Peça que sobrevive à remoção da própria regra é o defeito que este arquivo
+  // nomeia três vezes; a vassoura que tirou `GORJETANOME`, `MODLONGO` e
+  // `NEGCOLADO` do alfabeto não tinha chegado ao corpo do guarda. Apontado
+  // pela revisão de compliance de 2026-09-15 (LOW-2).
   const seps = [...oracao.matchAll(reSeparador)];
   let anterior = 0;
   for (const d of dests) {
@@ -961,10 +981,16 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
 describe('os falsos positivos declarados ainda são falsos positivos', () => {
   const FP = G._falsos_positivos_conhecidos || {};
 
-  test('a gaveta não está vazia nem é prosa curta', () => {
+  test('toda entrada declara proveniência, razão e a reescrita legal', () => {
     expect(Object.keys(FP).length).toBeGreaterThanOrEqual(2);
-    for (const [frase, porque] of Object.entries(FP)) {
-      expect(`${frase}: ${porque}`).toMatch(/.{200,}/);
+    for (const [frase, e] of Object.entries(FP)) {
+      // PROVENIÊNCIA. A primeira versão desta gaveta trazia uma frase que eu
+      // tinha escrito e descrito como "frase que a nossa própria cópia
+      // escreve" — ela não está em lugar nenhum do repositório. É o mesmo
+      // defeito que o `frases_aposentadas` evita aceitando só linha REAL.
+      // Ou a entrada aponta onde foi observada, ou se declara SINTÉTICA.
+      expect(`${frase}: ${e.origem}`).toMatch(/.{20,}/);
+      expect(`${frase}: ${e.porque}`).toMatch(/.{200,}/);
     }
   });
 
@@ -972,6 +998,24 @@ describe('os falsos positivos declarados ainda são falsos positivos', () => {
     // Recusada AINDA — se passou a passar, o preço deixou de existir e a
     // declaração tem que ser removida, não mantida por inércia.
     expect(acusa(frase)).toBe(true);
+  });
+
+  test.each(Object.keys(FP))('e existe um jeito LEGAL de dizer o mesmo: %s', (frase) => {
+    /**
+     * O QUE SEPARA UM FALSO POSITIVO DE UMA RECUSA CORRETA.
+     *
+     * `expect(acusa(frase)).toBe(true)` sozinho é satisfeito por todo
+     * VERDADEIRO positivo também: alguém podia declarar `A gorjeta vai 100% pro
+     * garçom.` aqui e a gaveta absolveria uma recusa certa como se fosse
+     * defeito. `_porque_reescritas` já escreve a regra que faltava: uma gaveta
+     * que não separa `recusamos algo inocente` de `deixamos passar uma
+     * promessa` absorve um escape por rodada.
+     *
+     * A prova é o PAR: a mesma coisa dita de outro jeito tem que passar. Se
+     * nem a reescrita passa, o que está declarado não é um falso positivo — é
+     * o guarda funcionando. Achado pela revisão de compliance de 2026-09-15.
+     */
+    expect({ frase, legalPassa: acusa(FP[frase].legal) }).toEqual({ frase, legalPassa: false });
   });
 });
 

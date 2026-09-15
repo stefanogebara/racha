@@ -1705,6 +1705,26 @@
       "texto": "The service charge does not stay with the house, but goes 100% to the staff.",
       "recusa": true,
       "porque": "O gêmeo INGLÊS do escape do `va 100% al personal`: a classe de preenchimento do ramo `goes … to` não tinha `%` dentro e não tinha fatia de quantidade, então a forma direcional não casava e a promessa só era pega com o substantivo da gorjeta na mesma oração. Ver o trio `gatilho_forma_direcional (quantidade)` no eixo trilíngue."
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pro pessoal",
+      "recusa": true,
+      "porque": "A FORMA DE LISTA COM UM DESTINATÁRIO QUE SÓ O CENSO CONHECE. As cabeças de decisão — regras 1b e 3 inteiras — compunham `DEST`, que é a lista de RUNTIME, mesmo do lado do build; então os dez destinatários de `destinatarios_so_deteccao` só chegavam à regra 1, que exige o substantivo da gorjeta no MESMO segmento. A forma de lista é exatamente a que a regra 3 existe pra pegar, e é a forma da afirmação aposentada. Achado pela revisão de compliance de 2026-09-15 (HIGH-1); fechado compondo os mesmos padrões duas vezes (`comporCenso`), uma com cada lista, em vez de escrever campos `*_censo` à mão."
+    },
+    {
+      "texto": "Olá, time Pagar.me, a nossa taxa é apenas um recebedor do split.",
+      "recusa": false,
+      "porque": "`time` VIROU `times?` NO CENSO em 2026-09-15, pra fechar o buraco de VOLTA (o runtime reconhecia `os times` e o build não). A revisão de compliance apontou o risco na mesma rodada: `time` é ambíguo em inglês (`at any time`, `lead time`) e em português é vocativo de e-mail — e esta linha é a abertura real do `docs/rfp/README.md`, num documento que também diz `a nossa taxa`, que é metade do gatilho. As duas metades já estão na janela; o que segura é não haver cabeça de destino. O caso prende exatamente isso: é a linha que ficaria vermelha primeiro se alguém afrouxasse a cabeça, e é nossa, não inventada."
+    },
+    {
+      "texto": "Sua parte é R$ 61,00. Alguém leva algo pro salão.",
+      "recusa": false,
+      "porque": "O RAMO ESPANHOL DA FORMA DIRECIONAL NÃO TINHA FRONTEIRA DE PALAVRA: `va` casava dentro de le·VA e `al` dentro de AL·go, e com `salão` de destinatário e `R$ 61,00` de contexto de dinheiro a regra 1b recusava. No runtime o preço é a VOLTA INTEIRA — a resposta some da tela com o valor dentro. É a mesma classe do `\\bmo[çc]a`/`moçada` de um dia antes, um campo ao lado. Achado pela revisão de compliance de 2026-09-15 (LOW-1)."
+    },
+    {
+      "texto": "Três meses para o garçom já se passaram.",
+      "recusa": false,
+      "porque": "O gêmeo do caso acima no ramo `es …`: `es` casava dentro de mes·ES. Mesmo conserto, mesma fronteira, e pinado separado porque é outro ramo da alternância — um conserto que fechasse só o `va` deixaria este vivo."
     }
   ]
 }
