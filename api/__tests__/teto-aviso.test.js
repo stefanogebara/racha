@@ -394,4 +394,34 @@ describe('o aviso de teto disparado, pelo router', () => {
     expect(ultimas(RES, 1)[0]).toContain(`casa ${casas[0].id} · Massa Um`);
     expect(suspensoes() - s0).toBe(0);
   });
+
+  test('o resumo RECUSADO devolve a vaga de suspensão da casa — quando o orçamento abre, ela pagina', async () => {
+    // Guardada, a vaga calava a casa seis horas depois de o orçamento abrir
+    // (segurança LOW-2 de 41d1244). O orçamento global de avisos já está
+    // esgotado pelos testes acima; o de suspensões e o resumo, simulados.
+    const t = await mesaCheia(casa('Libera'), 'LB1');
+    const orig = lojaDoRouter.claimSlots;
+    let orcamentoAberto = false;
+    lojaDoRouter.claimSlots = async (a) => {
+      if (a.keys[0] === 'alerta-dia:suspensoes') {
+        return orcamentoAberto ? { claimId: 'vaga-aberta', fullIndex: null, counts: [0] } : { claimId: null, fullIndex: 0, counts: [12] };
+      }
+      if (a.keys[0] === 'alerta:suprimido:resumo') return { claimId: null, fullIndex: 0, counts: [1] };
+      return orig.call(lojaDoRouter, a);
+    };
+    const relogio = adiantavel();
+    const SUSP = 'AVISOS DE TETO SUSPENSOS';
+    try {
+      const s0 = linhas(SUSP);
+      expect((await pagar(t.qrToken, '10.96.0.1')).status).toBe(429);   // sem orçamento e sem resumo: só log
+      expect(linhas(SUSP) - s0).toBe(0);
+      orcamentoAberto = true;
+      relogio.desloc = 11 * 60 * 1000;                                  // passa o recuo de dez minutos
+      expect((await pagar(t.qrToken, '10.96.0.2')).status).toBe(429);
+      expect(linhas(SUSP) - s0).toBe(1);                                // a vaga da casa tinha voltado
+    } finally {
+      lojaDoRouter.claimSlots = orig;
+      relogio.spy.mockRestore();
+    }
+  });
 });

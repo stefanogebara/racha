@@ -45,8 +45,8 @@ interface PanelData {
        * uma obrigação que a tela anuncia e não sabe endereçar.
        */
       overpaidTxids?: Array<{ txid: string; restituteCents: number }>;
-      /** Pago DEPOIS de a conta fechar, sem excedente — ver `paidAfterClose` no redutor. */
-      paidAfterClose?: Array<{ txid: string; amountCents: number }>;
+      /** Pago DEPOIS de a conta fechar, na parte que a sobra não cobre — ver `paidAfterClose` no redutor. */
+      paidAfterClose?: Array<{ txid: string; amountCents: number; sempreDevido?: boolean }>;
     };
   }>;
   today: {
@@ -93,18 +93,18 @@ export default function Panel() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  // RESPONDER a pergunta do pago-depois-de-fechar: a mesa não pagou no caixa, ou
-  // a devolução foi feita por fora. Grava `PAYMENT_ISSUE_RESOLVED` no txid, com
-  // o porquê, pela rota do dono (`/api/checks/resolve-issue`). (Compliance
-  // MEDIUM-C de 497bf87.)
-  const resolverPagoDepois = useCallback(async (checkId: string, txid: string) => {
-    const nota = window.prompt(t('panel.resolveAsk'));
-    if (!nota || nota.trim().length < 3) return;
+  // RESPONDER a pergunta do pago-depois-de-fechar, com a resposta FIXA "não
+  // pagou no caixa" — escopada, pra não apagar junto a falha de um estorno, e
+  // sem texto livre no razão. Se a mesa pagou no caixa, a resposta NÃO é esta:
+  // é devolver pelo adquirente, e a marca sai sozinha. (Compliance HIGH-1,
+  // MEDIUM-1 e MEDIUM-3 de 41d1244.)
+  const naoPagouNoCaixa = useCallback(async (checkId: string, txid: string) => {
+    if (!window.confirm(t('panel.resolveConfirm'))) return;
     try {
       await authedReq('/api/checks/resolve-issue', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ checkId, txid, note: nota.trim() }),
+        body: JSON.stringify({ checkId, txid, scope: 'paid_after_close' }),
       });
       await refresh();
     } catch (e) {
@@ -235,12 +235,18 @@ export default function Panel() {
                 <span className="owed" style={{ color: 'var(--burgundy)', fontSize: 12 }}>
                   {(c.state.paidAfterClose || []).map((x) => (
                     <em key={x.txid} style={{ display: 'block' }}>
-                      {t('panel.paidAfterClose', { amount: brl(x.amountCents) })}{' '}
-                      <span className="mono" style={{ opacity: 0.75 }}>{x.txid}</span>{' '}
-                      <button className="linklike" style={{ fontSize: 12 }}
-                        onClick={() => void resolverPagoDepois(c.checkId, x.txid)}>
-                        {t('panel.resolveLate')}
-                      </button>
+                      {x.sempreDevido
+                        ? t('panel.duplicateTip', { amount: brl(x.amountCents) })
+                        : t('panel.paidAfterClose', { amount: brl(x.amountCents) })}{' '}
+                      <span className="mono" style={{ opacity: 0.75 }}>{x.txid}</span>
+                      {!x.sempreDevido && (
+                        <>{' '}
+                          <button className="linklike" style={{ fontSize: 12 }}
+                            onClick={() => void naoPagouNoCaixa(c.checkId, x.txid)}>
+                            {t('panel.notPaidAtTill')}
+                          </button>
+                        </>
+                      )}
                     </em>
                   ))}
                 </span>

@@ -791,6 +791,7 @@ test('todo achado com {amount} na frase tem um campo de centavos que o painel l�
     'find.underpayment': 'deltaCents',
     'find.overpayment': 'deltaCents',
     'find.paid_after_close': 'amountCents',
+    'find.paid_after_close_tip': 'amountCents',
   };
   for (const [chave, campo] of Object.entries(comValor)) {
     assert.ok(chave in DICT, `${chave} não está no dicionário`);

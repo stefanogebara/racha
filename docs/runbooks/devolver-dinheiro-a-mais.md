@@ -56,6 +56,34 @@ quem estiver na mesa mostra "Esta conta recebeu R$ X a mais do que pedia".
 4. **Confira que fechou.** Na próxima leitura, `a devolver a clientes` volta a
    zero e o aviso sai da tela do cliente.
 
+## Pagamento que chegou depois de a conta fechar
+
+O Racha não registra o que o caixa recebe. Um Pix iniciado antes de o QR girar,
+ou um cartão ainda em confirmação, pode confirmar DEPOIS de a equipe cobrar a
+mesa no caixa e fechar a conta — e aí a mesa pagou duas vezes. O painel de
+pagamentos (`/painel`, pelo link na lista de mesas do `/admin`) marca a linha
+da mesa: `chegou depois de a conta fechar: R$ X`, com o id da cobrança, e a
+conciliação levanta `paid_after_close`.
+
+1. **Pergunte à mesa, ou confira o caixa.**
+2. **Se a mesa TAMBÉM pagou no caixa: devolva pelo adquirente o valor da marca**
+   (consumo + serviço), como no passo 2 acima. O webhook registra a devolução e
+   a marca sai sozinha. **Não use "não pagou no caixa" pra registrar uma
+   devolução**: o serviço ficaria na base da folha (Lei 13.419/2017) sem ter
+   voltado, e nada no razão diria que o dinheiro voltou. Devolução em dinheiro
+   no caixa não tem registro aqui — por isso o adquirente.
+3. **Se a mesa NÃO pagou no caixa:** "não pagou no caixa" na linha da mesa. O
+   pagamento era legítimo, e a pergunta fica respondida.
+4. **Pagamento em DUPLICIDADE** (a conta já estava paga no Racha): a linha diz
+   `serviço de um pagamento em duplicidade`. O consumo aparece como `a devolver`
+   e o serviço também é a devolver — não há pergunta, e não há botão.
+5. **Sem resposta, a pergunta não some**: depois de 48 horas ela vira
+   `critical` na conciliação, como a dívida de restituição.
+
+**No primeiro deploy com isto**: todo pagamento atrasado ANTIGO, sem resposta,
+aparece como `critical` na primeira conciliação da noite. Avise as casas do
+piloto antes, e responda os antigos pelo painel.
+
 ## Por onde o dinheiro sai
 
 **Do consumo, nunca da gorjeta.** O excedente entra registrado como consumo, e

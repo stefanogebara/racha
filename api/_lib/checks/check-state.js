@@ -223,6 +223,15 @@ function validateEvent(evt, prevState) {
       if (!conhecido) {
         invalid(`PAYMENT_ISSUE_RESOLVED para txid desconhecido ${p.txid}`);
       }
+      // A resposta ESCOPADA do pago-depois-de-fechar só vale onde há pergunta
+      // aberta — e nunca pro serviço de uma duplicidade, que é a devolver de
+      // qualquer jeito (compliance MEDIUM-2 de 41d1244).
+      if (p.scope !== undefined) {
+        if (p.scope !== 'paid_after_close') invalid(`PAYMENT_ISSUE_RESOLVED.scope desconhecido: ${p.scope}`);
+        const entrada = paidAfterClose(prevState).find((x) => x.txid === p.txid);
+        if (!entrada) invalid(`PAYMENT_ISSUE_RESOLVED: ${p.txid} não tem pergunta de pago-depois-de-fechar aberta`);
+        if (entrada.sempreDevido) invalid(`PAYMENT_ISSUE_RESOLVED: o serviço de ${p.txid} é de pagamento em duplicidade — devolva pelo adquirente`);
+      }
       break;
     }
     case 'PAYMENT_ANOMALY': {
@@ -496,20 +505,25 @@ function applyEvent(state, evt, seq = null) {
       return withAnomaly(recompute(cloneState(state)), seq, 'PAYMENT_ANOMALY',
         p.reason, p.txid || null, p.severity || 'high');
     case 'PAYMENT_ISSUE_RESOLVED': {
+      // ESCOPADO: responde SÓ a pergunta do pago-depois-de-fechar — a mesa não
+      // pagou no caixa. Não toca anomalia nenhuma e não acrescenta nenhuma: o
+      // botão do painel escrevia o evento sem escopo e, com ele, apagava junto a
+      // falha de um estorno e o aviso "você tem a receber" do cliente
+      // (compliance HIGH-1 e segurança LOW-4 de 41d1244). O log fica com o evento.
+      if (p.scope === 'paid_after_close') {
+        const next = cloneState(state);
+        if (next.payments[p.txid]) next.payments[p.txid] = { ...next.payments[p.txid], lateResolved: true };
+        return recompute(next);
+      }
       // Tira da PROJEÇÃO as pendências daquele txid. O log fica: a falha do
       // estorno continua lá, com data e valor, e agora com o registro de quem
-      // resolveu e por quê.
+      // resolveu e por quê. NÃO responde a pergunta do pago-depois-de-fechar —
+      // cada resposta limpa só a sua marca.
       const next = cloneState(state);
       const RESOLVIVEIS = new Set(['PAYMENT_REFUND_REVERSED', 'PAYMENT_ANOMALY']);
       next.anomalies = next.anomalies.filter(
         (a) => !(RESOLVIVEIS.has(a.type) && a.txid === p.txid),
       );
-      // E a pergunta do PAGO DEPOIS DE FECHAR daquele txid fica respondida —
-      // ver `paidAfterClose`. Sem isto só um estorno pelo Racha a encerrava, e
-      // uma devolução em dinheiro no caixa não tinha como ser registrada.
-      if (next.payments[p.txid] && next.payments[p.txid].late) {
-        next.payments[p.txid] = { ...next.payments[p.txid], lateResolved: true };
-      }
       return withAnomaly(recompute(next), seq, 'PAYMENT_ISSUE_RESOLVED',
         `pendência de ${p.txid} resolvida: ${p.note}`, p.txid, 'info');
     }
@@ -615,31 +629,42 @@ function lateTxids(state) {
  * O Racha não registra o que o caixa recebe. Um Pix iniciado antes de o QR
  * girar e confirmado depois de a equipe cobrar a mesa no caixa e fechar a conta
  * completa a conta até o total: o razão não vê sobra nenhuma — e a mesa pagou
- * duas vezes. O `late` existia e ninguém fora dos testes o lia. (Compliance
- * HIGH-1 de 40d5c50, CDC art. 42.)
+ * duas vezes. (Compliance HIGH-1 de 40d5c50, CDC art. 42.)
  *
- * O VALOR é o que o consumidor pagou e o excedente não cobre: a parte de
- * consumo que NÃO é excedente, mais o SERVIÇO, cada uma líquida do seu estorno
- * (o estorno sai primeiro do excedente, como no `allocateRestitution`). A
- * primeira versão contava só consumo e só pagamento 100% sem excedente: um Pix
- * de 110 com o serviço pré-marcado aparecia como 100 a devolver, e um que
- * cruzava o total sumia inteiro da marca (compliance HIGH-B e MEDIUM-B,
- * segurança MEDIUM-2 de 497bf87). Estes centavos e os do `overpaidCents` são
- * disjuntos: nada é contado duas vezes.
+ * O VALOR é contado contra a sobra ATUAL da conta, não contra o excedente que
+ * cada pagamento carregava quando entrou: o excedente fica congelado no
+ * pagamento, e a sobra é recalculada. Com o congelado, estornar um pagamento
+ * atrasado sem excedente encolhia a sobra e o excedente do OUTRO continuava fora
+ * da marca — o dinheiro sumia dos dois lugares, e o tamanho dependia da ordem
+ * de chegada (segurança MEDIUM-1 de 41d1244). Agora: o consumo líquido dos
+ * atrasados não respondidos, menos a sobra atual (descontada do mais novo pro
+ * mais velho), mais o SERVIÇO líquido de cada um. Invariante, em qualquer
+ * ordem: soma das marcas + `overpaidCents` = dinheiro atrasado líquido.
  *
- * RESPONDIDO sai: `PAYMENT_ISSUE_RESOLVED` no txid marca `lateResolved` — a mesa
- * não pagou no caixa, ou a devolução foi feita por fora. Sem resposta, a pergunta
- * fica (compliance MEDIUM-C de 497bf87).
+ * `sempreDevido`: quando a sobra cobre o consumo inteiro de um pagamento, ele é
+ * duplicidade — e o serviço dele é a devolver de qualquer jeito, não uma
+ * pergunta sobre o caixa (compliance MEDIUM-2 de 41d1244).
+ *
+ * RESPONDIDO sai: `PAYMENT_ISSUE_RESOLVED` ESCOPADO (`scope: 'paid_after_close'`)
+ * marca `lateResolved` — a mesa não pagou no caixa. Sem resposta, a pergunta fica.
  */
 function paidAfterClose(state) {
   if (!state) return [];
+  const atrasados = Object.entries(state.payments).filter(([, p]) => p.late && !p.lateResolved);
+  const liquido = (p) => Math.max(0, p.amountCents - (p.refundedAmountCents || 0));
+  const pool = atrasados.reduce((soma, [, p]) => soma + liquido(p), 0);
+  let aDescontar = Math.min(Math.max(0, state.overpaidCents || 0), pool);
+  const consumo = new Map();
+  for (const [txid, p] of [...atrasados].reverse()) {
+    const d = Math.min(liquido(p), aDescontar);
+    aDescontar -= d;
+    consumo.set(txid, liquido(p) - d);
+  }
   const out = [];
-  for (const [txid, p] of Object.entries(state.payments)) {
-    if (!p.late || p.lateResolved) continue;
-    const excesso = p.excessCents || 0;
-    const consumo = Math.max(0, (p.amountCents - excesso) - Math.max(0, (p.refundedAmountCents || 0) - excesso));
+  for (const [txid, p] of atrasados) {
+    const c = consumo.get(txid);
     const servico = Math.max(0, (p.tipCents || 0) - (p.refundedTipCents || 0));
-    if (consumo + servico > 0) out.push({ txid, amountCents: consumo + servico });
+    if (c + servico > 0) out.push({ txid, amountCents: c + servico, ...(c === 0 ? { sempreDevido: true } : {}) });
   }
   return out;
 }

@@ -1357,7 +1357,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
             // número morria ali: nenhum painel, nenhuma tela. Ver
             // `overpaid_pending_restitution` na conciliação.
             overpaidCents: state.overpaidCents,
-            // PAGO DEPOIS DE FECHAR, sem excedente — ver `paidAfterClose`. A equipe
+            // PAGO DEPOIS DE FECHAR, na parte que a sobra não cobre — ver `paidAfterClose`. A equipe
             // confere com a mesa se ela também pagou no caixa. (Compliance HIGH-1.)
             paidAfterClose: paidAfterClose(state),
             /**

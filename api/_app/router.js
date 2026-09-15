@@ -1609,23 +1609,31 @@ async function route(req, res) {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.checkId || !b.txid) {
-        return json(res, 400, { success: false, error: 'checkId e txid são obrigatórios', code: 'amount_invalid' });
+        return json(res, 400, { success: false, code: 'resolve_failed' });
       }
       const issueVenue = await store.getVenueForCheck(b.checkId);
       if (!issueVenue) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, issueVenue.id); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
-      const note = String(b.note || '').trim().slice(0, 200);
+      // A resposta ESCOPADA do pago-depois-de-fechar leva texto FIXO, escrito
+      // aqui: o razão é só-de-acréscimo, e texto livre de quem opera o caixa
+      // ("devolvi pro Pedro no Pix 11 9…") ficaria nele pra sempre, sem
+      // ferramenta de apagar (compliance MEDIUM-3 de 41d1244). E ela só limpa a
+      // pergunta do caixa — ver o redutor.
+      const escopo = b.scope === 'paid_after_close' ? 'paid_after_close' : undefined;
+      const note = escopo ? 'a mesa não pagou no caixa' : String(b.note || '').trim().slice(0, 200);
       if (note.length < 3) {
-        return json(res, 400, { success: false, error: 'diga como foi resolvido', code: 'note_required' });
+        return json(res, 400, { success: false, code: 'note_required' });
       }
       try {
         const seq = await appendValidated(store, b.checkId, 'PAYMENT_ISSUE_RESOLVED', {
-          txid: String(b.txid), note, by: user.email || user.id || 'dono',
+          txid: String(b.txid), note, by: user.email || user.id || 'dono', ...(escopo ? { scope: escopo } : {}),
         });
         return json(res, 200, { success: true, data: { seq } });
       } catch (e) {
-        return json(res, e.statusCode || 400, { success: false, error: e.message, code: 'resolve_failed' });
+        // Só o código: a mensagem do validador é texto interno, e o servidor não
+        // manda frase (compliance LOW-6 de 41d1244).
+        return json(res, e.statusCode || 400, { success: false, code: 'resolve_failed' });
       }
     }
 

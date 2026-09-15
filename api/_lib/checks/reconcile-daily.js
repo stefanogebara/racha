@@ -798,9 +798,16 @@ function formatReconcileAlert(report) {
     // pagamento atrasado de um centavo numa conta mais velha nomeava a linha da
     // casa no lugar do prazo de prova de uma disputa (segurança LOW-1 e
     // compliance LOW-A de 497bf87).
-    const naGravidade = (sev) => reais.find((f) => f.severity === sev && f.code !== 'paid_after_close')
+    // E um PRAZO DE DISPUTA vem antes de um pago-depois-de-fechar que envelheceu
+    // pra critical: a disputa perde dinheiro por inação num prazo, a pergunta do
+    // caixa não (compliance LOW-1 de 41d1244).
+    const PERGUNTAS = new Set(['paid_after_close', 'paid_after_close_tip']);
+    const naGravidade = (sev) => reais.find((f) => f.severity === sev && !PERGUNTAS.has(f.code))
       || reais.find((f) => f.severity === sev);
-    const pior = naGravidade('critical')
+    const prazo = reais.find((f) => f.code === 'dispute_evidence_overdue' || f.code === 'dispute_evidence_due');
+    const pior = reais.find((f) => f.severity === 'critical' && !PERGUNTAS.has(f.code))
+      || prazo
+      || naGravidade('critical')
       || naGravidade('high')
       || estouro
       || reais[0];

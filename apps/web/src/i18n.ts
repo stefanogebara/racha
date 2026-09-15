@@ -606,9 +606,14 @@ export const DICT = {
    */
   // Serve pra UM ou pra VÁRIOS: o painel junta os `paid_after_close` num achado
   // só, com a soma (ver `projetarAchados` no router).
-  'find.paid_after_close': { en: '{amount} arrived after the bill was closed — if the table also paid at the till, it is owed back; if not, mark it resolved on the table',
-                        pt: '{amount} chegou depois de a conta fechar — se a mesa também pagou no caixa, é valor a devolver; se não, marque como resolvido na linha da mesa',
-                        es: '{amount} llegó después de cerrar la cuenta — si la mesa también pagó en caja, hay que devolverlo; si no, márcalo como resuelto en la mesa' },
+  'find.paid_after_close': { en: '{amount} arrived after the bill was closed — if the table also paid at the till, it is owed back; if not, mark “did not pay at the till” on the table',
+                        pt: '{amount} chegou depois de a conta fechar — se a mesa também pagou no caixa, é valor a devolver; se não, marque “não pagou no caixa” na linha da mesa',
+                        es: '{amount} llegó después de cerrar la cuenta — si la mesa también pagó en caja, hay que devolverlo; si no, marca «no pagó en caja» en la mesa' },
+  // O SERVIÇO de uma duplicidade: a devolver de qualquer jeito, sem pergunta
+  // sobre o caixa (compliance MEDIUM-2 de 41d1244).
+  'find.paid_after_close_tip': { en: '{amount} of service charge from a duplicate payment arrived after the bill closed — it is owed back',
+                        pt: '{amount} de serviço de um pagamento em duplicidade chegou depois de a conta fechar — é valor a devolver',
+                        es: '{amount} de servicio de un pago duplicado llegó después de cerrar la cuenta — hay que devolverlo' },
   'find.overpaid_pending_restitution': { en: 'received {amount} more than the bill asked — refund pending',
                         pt: 'recebeu {amount} a mais do que a conta pedia — devolução pendente',
                         es: 'ha recibido {amount} de más — devolución pendiente' },
@@ -788,13 +793,18 @@ export const DICT = {
   'panel.paidAfterClose': { en: 'arrived after the bill closed: {amount} — if the table also paid at the till, it is owed back',
                         pt: 'chegou depois de a conta fechar: {amount} — se a mesa também pagou no caixa, é valor a devolver',
                         es: 'llegó después de cerrar la cuenta: {amount} — si la mesa también pagó en caja, hay que devolverlo' },
-  // RESPONDER a pergunta: sem isto ela só se encerrava com um estorno pelo
-  // Racha, e uma devolução em dinheiro no caixa não tinha como ser registrada
-  // (compliance MEDIUM-C de 497bf87).
-  'panel.resolveLate': { en: 'resolved',                        pt: 'resolvido', es: 'resuelto' },
-  'panel.resolveAsk': { en: 'How was it resolved? (e.g. “refunded by Pix”, “the table did not pay at the till”)',
-                        pt: 'Como foi resolvido? (ex.: “devolvido por Pix”, “a mesa não pagou no caixa”)',
-                        es: '¿Cómo se resolvió? (p. ej. «devuelto por Pix», «la mesa no pagó en caja»)' },
+  // RESPONDER a pergunta, com uma resposta FIXA: "não pagou no caixa". A versão
+  // anterior pedia texto livre e sugeria "devolvido por Pix" — e responder isso
+  // apagava junto a falha de um estorno, e a devolução por fora deixava o serviço
+  // na base da folha. Devolução vai pelo adquirente, e a marca sai sozinha
+  // (compliance HIGH-1 e MEDIUM-1 de 41d1244).
+  'panel.notPaidAtTill': { en: 'did not pay at the till',         pt: 'não pagou no caixa', es: 'no pagó en caja' },
+  'panel.resolveConfirm': { en: 'Confirm that this table did NOT also pay at the till? If it did, don’t mark anything: refund this amount through the payment provider — the mark clears by itself.',
+                        pt: 'Confirmar que esta mesa NÃO pagou também no caixa? Se pagou, não marque nada: devolva este valor pelo adquirente — a marca sai sozinha.',
+                        es: '¿Confirmas que esta mesa NO pagó también en caja? Si pagó, no marques nada: devuelve este importe por el adquirente — la marca se quita sola.' },
+  'panel.duplicateTip': { en: 'service charge from a duplicate payment, arrived after the bill closed: {amount} — owed back; refund it through the payment provider',
+                        pt: 'serviço de um pagamento em duplicidade, que chegou depois de a conta fechar: {amount} — a devolver, pelo adquirente',
+                        es: 'servicio de un pago duplicado, llegado después de cerrar la cuenta: {amount} — hay que devolverlo, por el adquirente' },
   'panel.owedBack':   { en: 'owed back: {amount}',               pt: 'a devolver: {amount}', es: 'a devolver: {amount}' },
   'panel.toRefund':   { en: 'to refund to diners',               pt: 'a devolver a clientes', es: 'a devolver a clientes' },
   'panel.receivedToday': { en: 'received today · {n} payments', pt: 'recebido hoje · {n} pagamentos', es: 'recibido hoy · {n} pagos' },

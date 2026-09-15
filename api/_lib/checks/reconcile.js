@@ -114,9 +114,17 @@ function reconcileCheck({ checkId, events, payments }) {
     const row = byTxid.get(x.txid);
     const quando = row ? Date.parse(row.confirmedAt) : NaN;
     const horas = Number.isFinite(quando) ? (agora - quando) / 3600000 : 0;
-    add(horas > 48 ? 'critical' : 'high', 'paid_after_close',
-      `um pagamento de ${x.amountCents}¢ chegou depois de a conta fechar${horas > 48 ? ` há ${Math.floor(horas / 24)} dia(s), sem resposta` : ''} — se a mesa também pagou no caixa, é valor a devolver; senão, marque como resolvido (CDC art. 42)`,
-      { txid: x.txid, amountCents: x.amountCents, ...(row && row.confirmedAt ? { since: row.confirmedAt } : {}) });
+    const velho = horas > 48 ? ` há ${Math.floor(horas / 24)} dia(s), sem resposta` : '';
+    const extra = { txid: x.txid, amountCents: x.amountCents, ...(row && row.confirmedAt ? { since: row.confirmedAt } : {}) };
+    if (x.sempreDevido) {
+      // O serviço de uma DUPLICIDADE: a devolver de qualquer jeito, sem
+      // pergunta (compliance MEDIUM-2 de 41d1244).
+      add(horas > 48 ? 'critical' : 'high', 'paid_after_close_tip',
+        `serviço de ${x.amountCents}¢ de um pagamento em duplicidade chegou depois de a conta fechar${velho} — é valor a devolver, pelo adquirente (CDC art. 42)`, extra);
+    } else {
+      add(horas > 48 ? 'critical' : 'high', 'paid_after_close',
+        `um pagamento de ${x.amountCents}¢ chegou depois de a conta fechar${velho} — se a mesa também pagou no caixa, é valor a devolver; senão, marque "não pagou no caixa" (CDC art. 42)`, extra);
+    }
   }
 
 
