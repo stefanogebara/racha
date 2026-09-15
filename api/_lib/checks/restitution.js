@@ -35,7 +35,28 @@ function autorDoRegistro(user) {
  *
  * `teto`: a soma, limitada ao que o pagamento tem de líquido.
  */
-const NOVENTA_DIAS_MS = 90 * 24 * 60 * 60 * 1000;
+/**
+ * O PRAZO DE CADA TRILHO, em dias, contados da transação original.
+ *
+ *  · Pix: 90 dias — Regulamento do Pix (Res. BCB nº 1/2020, alterada pela Res.
+ *    BCB nº 103/2021): toda devolução tem de ser INICIADA nesse prazo.
+ *  · Cartão: 180 dias, que é o limite do adquirente (Stripe). A versão
+ *    anterior dizia "no cartão o trilho segue aberto por muito mais tempo" e
+ *    não punha prazo NENHUM — então, passados os 180 dias, `trilhoImpossivel`
+ *    era falso pra sempre e a devolução legítima não tinha como ser registrada:
+ *    a marca virava `critical` eterna, o mesmo desfecho da ordem de cliques,
+ *    alcançado pela passagem do tempo (segurança/compliance MEDIUM-3 de
+ *    ec86b37). Um estorno RECUSADO na criação não gera objeto de estorno, logo
+ *    não gera `refund.failed`, logo não havia outra saída.
+ */
+const PRAZO_DO_TRILHO_DIAS = { pix: 90, card: 180 };
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+/** `credit_card` e `card` são o mesmo trilho. */
+function trilhoDoMeio(meio) {
+  if (meio === 'credit_card' || meio === 'card') return 'card';
+  return meio || null;
+}
 
 function tetoDaRestituicao(estado, txid, opcoes = {}) {
   const pg = estado && estado.payments ? estado.payments[txid] : null;
@@ -45,27 +66,62 @@ function tetoDaRestituicao(estado, txid, opcoes = {}) {
     Math.max(0, estado.overpaidCents || 0),
   );
   // O TARDIO SÓ QUANDO O TRILHO É IMPOSSÍVEL: o estorno pelo adquirente falhou
-  // e voltou (`PAYMENT_REFUND_REVERSED` ainda em aberto), ou o Pix passou dos 90
-  // dias da devolução. São as duas situações do passo 6 do runbook — e sem
-  // exigi-las, um dono podia declarar a devolução de um atrasado qualquer e
-  // tirar o serviço da base da folha por atestação, sem o adquirente de
-  // testemunha (segurança MEDIUM-2 e compliance MEDIUM-1 de 3eea5f3; Lei
-  // 13.419 e STJ Tema 1102).
-  const estornoFalhou = (estado.anomalies || [])
-    .some((a) => a && a.type === 'PAYMENT_REFUND_REVERSED' && a.txid === txid);
-  // Só o PIX tem os 90 dias: no cartão, o trilho do adquirente segue aberto por
-  // muito mais tempo, e chamar de impossível o que é só demorado devolveria a
-  // brecha pelo outro lado.
+  // e voltou, ou o prazo do trilho acabou. São as duas situações do passo 6 do
+  // runbook — e sem exigi-las, um dono podia declarar a devolução de um
+  // atrasado qualquer e tirar o serviço da base da folha por atestação, sem o
+  // adquirente de testemunha (segurança MEDIUM-2 e compliance MEDIUM-1 de
+  // 3eea5f3; Lei 13.419 e STJ Tema 1102).
+  //
+  // O ESTORNO QUE FALHOU sai do PAGAMENTO, não da lista de anomalias: a anomalia
+  // é projeção e some quando alguém resolve a pendência — e resolver primeiro
+  // trancava a devolução pra sempre (compliance HIGH-1 de ec86b37).
+  const estornoFalhou = pg.refundReversed === true;
+  // O MEIO vem do RAZÃO; a linha de `payments` é só o reserva, porque ela é
+  // melhor-esforço (MEDIUM-4). A DATA só existe na linha — e não saber a data
+  // não é o mesmo que estar no prazo: quem decide isso é `codigoDaRecusa`.
+  const meio = trilhoDoMeio(pg.method || (opcoes && opcoes.method) || null);
+  const prazoDias = PRAZO_DO_TRILHO_DIAS[meio] || null;
   const quando = Date.parse((opcoes && opcoes.confirmedAt) || '');
-  const foraDoPrazoDoPix = (opcoes && opcoes.method) === 'pix'
-    && Number.isFinite(quando) && (Date.now() - quando) > NOVENTA_DIAS_MS;
-  const trilhoImpossivel = estornoFalhou || foraDoPrazoDoPix;
+  const dataConhecida = Number.isFinite(quando);
+  const foraDoPrazo = prazoDias !== null && dataConhecida
+    && (Date.now() - quando) > prazoDias * DIA_MS;
+  const trilhoImpossivel = estornoFalhou || foraDoPrazo;
+  // POR QUE ele é impossível entra no razão junto com a devolução: uma
+  // auditoria trabalhista tem de distinguir a devolução TESTEMUNHADA pelo
+  // adquirente da que o dono atestou (compliance MEDIUM-5 de ec86b37).
+  const motivo = estornoFalhou ? 'refund_reversed'
+    : (foraDoPrazo ? `${meio}_${prazoDias}d` : null);
   const tardio = trilhoImpossivel
     ? paidAfterClose(estado).filter((x) => x.txid === txid).reduce((soma, x) => soma + x.amountCents, 0)
     : 0;
   const liquido = Math.max(0, pg.amountCents - (pg.refundedAmountCents || 0))
     + Math.max(0, (pg.tipCents || 0) - (pg.refundedTipCents || 0));
-  return { excesso, tardio, trilhoImpossivel, teto: Math.min(liquido, excesso + tardio) };
+  return {
+    excesso, tardio, trilhoImpossivel, motivo, dataConhecida,
+    teto: Math.min(liquido, excesso + tardio),
+  };
+}
+
+/**
+ * A RECUSA, quando não há nada a registrar — e ela tem de dizer QUAL não-há.
+ *
+ * Mora aqui, pura, porque a versão anterior era uma expressão dentro da rota e
+ * o teste dela era uma REGEX CONTRA O FONTE do router — o falso invariante que
+ * este repositório já documenta em `br/documento.js`: um refactor que preserve
+ * a string e inverta a condição passa verde (segurança LOW-3 de ec86b37).
+ *
+ *  · `nothing_to_restitute` — não há marca nem sobra: nada é devido.
+ *  · `payment_age_unknown` — há marca, o trilho pode ter vencido, e a linha do
+ *    pagamento (única fonte da data) não veio. Não sabemos, e dizer "use o
+ *    adquirente" seria mandar a casa a um trilho que pode estar fechado.
+ *  · `use_acquirer_refund` — há marca e o trilho está ABERTO: é por ele.
+ */
+function codigoDaRecusa(estado, txid, limites) {
+  if (!limites || limites.teto > 0) return null;
+  const temMarca = paidAfterClose(estado).some((x) => x.txid === txid);
+  if (!temMarca) return 'nothing_to_restitute';
+  if (!limites.dataConhecida) return 'payment_age_unknown';
+  return 'use_acquirer_refund';
 }
 
 /**
@@ -88,4 +144,4 @@ function payloadDaResolucao(corpo, user) {
   };
 }
 
-module.exports = { autorDoRegistro, tetoDaRestituicao, payloadDaResolucao };
+module.exports = { autorDoRegistro, tetoDaRestituicao, payloadDaResolucao, codigoDaRecusa };

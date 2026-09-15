@@ -86,19 +86,24 @@ conciliação levanta `paid_after_close`.
    `critical` na conciliação, como a dívida de restituição.
 
 6. **Se o estorno pelo adquirente NÃO for possível** — ele falhou e voltou
-   (a conta mostra `estorno FALHOU`), ou é **Pix** e passaram os 90 dias da
-   devolução: devolva por fora (transferência, dinheiro no caixa) e **registre**,
-   com `POST /api/checks/record-restitution` (a conta, a cobrança, o valor e a
-   referência). Só nesses dois casos o teto dessa rota inclui a marca do
-   pago-depois-de-fechar; fora deles ela responde `use_acquirer_refund` e o
-   caminho é o passo 2. No cartão não há prazo de 90 dias: lá o trilho só é
-   impossível se o estorno tiver falhado.
+   (a conta mostra `estorno FALHOU`), ou o **prazo do trilho acabou**: Pix, 90
+   dias da transação (Res. BCB nº 1/2020 c/c nº 103/2021); cartão, 180 dias, que
+   é o limite do adquirente. Aí devolva por fora (transferência, dinheiro no
+   caixa) e **registre**, com `POST /api/checks/record-restitution` (a conta, a
+   cobrança, o valor e a referência). Só nesses casos o teto dessa rota inclui a
+   marca do pago-depois-de-fechar; fora deles ela responde `use_acquirer_refund`
+   e o caminho é o passo 2.
 
    **O registro fecha a marca do pago-depois-de-fechar, não a do estorno que
    falhou.** São duas coisas: o `estorno FALHOU` continua na conta até alguém
    resolver aquela pendência (`POST /api/checks/resolve-issue` sem escopo, com a
    nota de quem resolveu) — é ela que diz ao cliente que ele tem a receber. Feche
    as duas, ou a conta segue vermelha com a dívida já paga.
+
+   A ORDEM não importa mais: o razão guarda que o estorno daquela cobrança
+   falhou, e resolver a pendência não apaga esse fato. (Até a revisão de
+   ec86b37, apagava — e resolver primeiro, que é o natural porque é a marca que
+   o cliente vê, trancava a devolução pra sempre.)
 
    **Na referência, nada do cliente**: nem nome, nem CPF, nem chave Pix — o id
    E2E do Pix, ou "dinheiro no caixa às 21h40". Ela fica num razão que não se
@@ -115,13 +120,19 @@ consumo, e a devolução sai de lá. A gorjeta arrecadada é remuneração do ti
 (Lei 13.419/2017 + STJ Tema 1102) e não é fundo de onde a casa tira dinheiro
 pra restituir — nem por acidente de arredondamento.
 
-**A exceção é o serviço de um pagamento que duplicou o caixa**, e ela é a mesma
+**A exceção é o serviço de um pagamento que duplicou a conta**, e ela é a mesma
 lei pelo outro lado: 10% sobre uma cobrança que não correspondeu a atendimento
 nenhum nunca foi serviço prestado — é do cliente, e volta inteiro da gorjeta.
 Devolver R$ 110 de uma duplicação de R$ 100 + R$ 10 deixa a base da folha menor
-em exatamente R$ 10, não numa fatia proporcional. Só depois desses dois baldes
-o que sobrar vira estorno comum, proporcional. Ver
-`api/_lib/checks/refund-allocation.js`.
+em exatamente R$ 10, não numa fatia proporcional.
+
+**E num pagamento que chegou depois de fechar e ainda não foi respondido, o
+consumo volta ANTES da gorjeta.** Devolver só o principal (R$ 100 de um Pix de
+R$ 100 + R$ 10) devolve R$ 100 de consumo e zero de serviço — a marca fica
+valendo os R$ 10 que ainda não voltaram, visível no painel. Pelo proporcional,
+voltavam R$ 90,91 de consumo e R$ 9,09 de serviço: sobrava consumo pago, a marca
+não fechava, e ficavam R$ 0,91 de serviço na folha sobre um atendimento que
+talvez nunca tenha existido. Ver `api/_lib/checks/refund-allocation.js`.
 
 ## Antes de emitir: o saldo do recebedor
 

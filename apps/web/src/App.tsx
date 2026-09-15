@@ -412,7 +412,15 @@ export default function App() {
                                    taxIdRequired ? cpfDigits : undefined,
                                    primaryRail === 'bizum' ? 'bizum' : 'pix');
       setCharge(result);
-      void refDoPagamento(result.txid).then(setOwnRef);
+      // A MARCA que faz esta tela reconhecer o PRÓPRIO pagamento. Sem
+      // `crypto.subtle` (contexto não-seguro, WebView velha) ela não existe, e
+      // aí NENHUM caminho leva de `pagar` a `pago` numa casa de verdade: a
+      // pessoa paga e a tela continua mostrando o copia-e-cola, o que convida a
+      // pagar de novo (CDC art. 42 § único) e não dá comprovante nenhum
+      // (art. 6º III). O aviso abaixo cobre isso — e o `.catch` existe porque
+      // uma promessa rejeitada aqui deixava `ownRef` nulo em silêncio
+      // (compliance MEDIUM-6 de ec86b37).
+      void refDoPagamento(result.txid).then(setOwnRef).catch(() => setOwnRef(null));
       setStep('pagar');
       setCopied(false);
     } catch (e) {
@@ -524,7 +532,10 @@ export default function App() {
               {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>
           )}
-          {confirmError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{confirmError}</p>}
+          {confirmError && <p className="muted small" style={{ color: 'var(--alerta)' }}>{confirmError}</p>}
+          {/* Este telefone não consegue calcular a própria marca: avisa, em vez
+              de esperar por um ✓ que não vem. */}
+          {ownRef === null && <p className="muted small center">{t('pix.noAutoConfirm')}</p>}
           <button className="linklike" onClick={() => setStep('conta')}>{t('common.back')}</button>
         </section>
       </Shell>

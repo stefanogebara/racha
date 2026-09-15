@@ -100,7 +100,7 @@ function Onboarding() {
         <p className="muted small">
           {t('admin.psplater')}
         </p>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--alerta)' }}>{error}</p>}
         <button className="cta" disabled={busy || !name.trim() || (cnpj !== '' && !cnpjValid)} onClick={submit}>
           {busy ? t('admin.creating') : t('admin.createVenue')}
         </button>
@@ -159,7 +159,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
   admin: VenueAdmin; venueId: string; onPrint: (t: VenueTable) => void; onConfigure: () => void;
 }) {
   const [newLabel, setNewLabel] = useState('');
-  const { t } = useT();
+  const { t, tErr } = useT();
   const { venue, tables, error } = admin;
 
   async function add() { if (await admin.addTable(newLabel)) setNewLabel(''); }
@@ -209,7 +209,11 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
             onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
           <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>
         </div>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        {/* TRADUZIDO: o `useVenueAdmin` grava CÓDIGO de propósito (ele roda
+            acima da árvore do React e não tem idioma), e quem vira palavra é a
+            tela. Sem isto, fechar a conta de uma mesa cuja conta sumiu imprimia
+            `check_not_found` na cara do dono (segurança LOW-3 de ec86b37). */}
+        {error && <p className="muted small" style={{ color: 'var(--alerta)' }}>{tErr(error)}</p>}
         {tables.length === 0 && <p className="muted small">{t('admin.noTables')}</p>}
         {/* `table`, não `t`: o parâmetro chamava-se `t` e sombreava o tradutor,
             então `t('admin.openBill')` chamaria a MESA como função. */}

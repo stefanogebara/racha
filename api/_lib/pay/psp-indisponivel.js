@@ -10,10 +10,18 @@
  * WhatsApp que ele já podia cobrar (segurança MEDIUM-1 e compliance LOW-5 de
  * 3eea5f3).
  *
- * Agora quem recusa é o próprio adaptador. Uma rota nova que fale com o PSP
- * nasce fechada sem ninguém lembrar de acrescentá-la a lista nenhuma — e é isso
- * que o censo em `producao-estrutural.test.js` prende: todo `psp.<método>` que o
- * router chama tem de existir aqui.
+ * Agora quem recusa é o próprio adaptador, e ele é um PROXY: qualquer chave
+ * que não seja `provider`/`motivo` responde a função que estoura. Não há lista
+ * de métodos a manter em dia.
+ *
+ * A primeira versão tinha a lista, guardada por um censo que varria
+ * `psp.<método>(` no código. O censo não enxerga despacho DINÂMICO — e o
+ * `create-charge` usa exatamente isso (`psp[creator](...)`, onde `creator` sai
+ * do trilho). Um trilho novo (`boleto` → `createBoletoCharge`) seria invisível
+ * pro censo, ficaria fora da lista, e o adaptador nasceria ABERTO naquele
+ * método; hoje só não nasce porque OUTRA guarda (`typeof psp[creator] !==
+ * 'function'`) o pega por acaso (segurança LOW-1 de ec86b37). `METODOS` fica
+ * como documentação e como o que o censo confere — não como a fronteira.
  *
  * TUDO estoura, inclusive a leitura. A versão anterior deste arquivo devolvia
  * `null` no `getRecipient` "pra não paginar de quinze em quinze minutos", e
@@ -47,9 +55,13 @@ function pspIndisponivel(motivo) {
     e.code = 'platform_misconfigured';
     throw e;
   };
-  const psp = { provider: 'unconfigured', motivo: String(motivo) };
-  for (const m of METODOS) psp[m] = recusa;
-  return psp;
+  // `currencies` fica FORA do alvo de propósito (ver o cabeçalho): o `get` só
+  // devolve o que o alvo tem, e `currencies` não está lá — então
+  // `Array.isArray(psp.currencies)` segue falso e o portão do `create-charge`
+  // recusa antes de qualquer chamada.
+  return new Proxy({ provider: 'unconfigured', motivo: String(motivo) }, {
+    get: (alvo, chave) => (chave in alvo ? alvo[chave] : recusa),
+  });
 }
 
 /**

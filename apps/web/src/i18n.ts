@@ -333,6 +333,9 @@ export const DICT = {
   'pix.stillValid':   { en: 'no connection — the code below is still valid',
                         pt: 'sem conexão — o código abaixo continua valendo',
                         es: 'sin conexión — el código de abajo sigue siendo válido' },
+  'pix.noAutoConfirm': { en: 'This phone can’t confirm the payment on its own. After paying, ask the staff to check — don’t pay twice.',
+                        pt: 'Este telefone não consegue confirmar o pagamento sozinho. Depois de pagar, confira com a equipe — não pague de novo.',
+                        es: 'Este teléfono no puede confirmar el pago por sí solo. Después de pagar, confírmalo con el personal — no pagues dos veces.' },
   'pix.simulate':     { en: '✓ Simulate bank confirmation (demo)',
                         pt: '✓ Simular confirmação do banco (demo)',
                         es: '✓ Simular confirmación del banco (demo)' },
@@ -622,12 +625,19 @@ export const DICT = {
   'err.nothing_to_restitute': { en: 'This charge owes nothing back. Nothing was recorded.',
                         pt: 'Esta cobrança não deve nada de volta. Nada foi registrado.',
                         es: 'Este cobro no debe nada. No se registró nada.' },
+  // Não dá pra saber a IDADE do pagamento (a linha dele não veio), e a idade é
+  // o que decide se o trilho do adquirente ainda está aberto. Não sabemos — e
+  // dizer "use o adquirente" seria mandar a casa a um trilho que pode estar
+  // fechado (MEDIUM-4 de ec86b37).
+  'err.payment_age_unknown': { en: 'We could not check this charge’s date just now. Try again in a moment.',
+                        pt: 'Não deu pra conferir a data desta cobrança agora. Tente de novo daqui a pouco.',
+                        es: 'No pudimos comprobar la fecha de este cobro ahora. Inténtalo en un momento.' },
   // A recusa que NÃO é "não há dívida": há, e o caminho é o adquirente. Só
   // quando ele é impossível (o estorno falhou, ou o Pix passou dos 90 dias) é
   // que a devolução por fora entra — passo 6 do runbook.
-  'err.use_acquirer_refund': { en: 'Refund this one through the payment provider — the mark clears when the refund lands. Record it here only if the provider refund failed, or it is Pix past 90 days.',
-                        pt: 'Devolva esta pelo adquirente — a marca sai quando o estorno cair. Registre aqui só se o estorno falhou, ou se é Pix depois de 90 dias.',
-                        es: 'Devuelve este por el adquirente — la marca sale cuando llegue la devolución. Regístralo aquí solo si la devolución falló, o si es Pix pasados 90 días.' },
+  'err.use_acquirer_refund': { en: 'Refund this one through the payment provider — the mark clears when the refund lands. Record it here only if the provider refund failed, or the rail’s deadline has passed (Pix 90 days, card 180).',
+                        pt: 'Devolva esta pelo adquirente — a marca sai quando o estorno cair. Registre aqui só se o estorno falhou, ou se o prazo do trilho acabou (Pix 90 dias, cartão 180).',
+                        es: 'Devuelve este por el adquirente — la marca sale cuando llegue la devolución. Regístralo aquí solo si la devolución falló, o si venció el plazo del carril (Pix 90 días, tarjeta 180).' },
   // O que NÃO se sabe: o lançamento pode ter pousado. Mandar tentar de novo às
   // cegas é mandar registrar duas vezes a mesma devolução.
   'err.restitution_unavailable': { en: 'The refund could not be recorded now. Open the bill and check before recording it again.',

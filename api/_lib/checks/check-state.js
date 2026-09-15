@@ -380,6 +380,17 @@ function applyEvent(state, evt, seq = null) {
          */
         excessCents: Math.max(0, p.amountCents - Math.max(0, state.totalCents - state.paidCents)),
         late: state.status === STATUS.FECHADA,
+        /**
+         * O MEIO, que o razão sempre recebeu e o redutor jogava fora.
+         *
+         * Ele decide o prazo do trilho de devolução (Pix, 90 dias; cartão, o do
+         * adquirente) — e quem precisava dele ia buscar na LINHA de `payments`,
+         * a projeção que a própria rota trata como melhor-esforço. Linha não
+         * projetada, ou um 5xx passageiro do Supabase, e um Pix de 200 dias era
+         * mandado de volta pro trilho que o BACEN fechou aos 90 (segurança e
+         * compliance MEDIUM-4 de ec86b37). A fonte é o razão (inegociável #6).
+         */
+        method: typeof p.method === 'string' ? p.method : null,
       };
       /**
        * E o que o adaptador DISSE fica como conferência.
@@ -439,6 +450,19 @@ function applyEvent(state, evt, seq = null) {
       // o telefone dizia "você tem R$ 100 a receber". Um número errado é pior
       // que nenhum: manda a pessoa discutir no caixa por uma quantia que
       // ninguém deve. Achado pela revisão de segurança de 2026-09-08.
+      /**
+       * A MARCA DURÁVEL no pagamento — o fato, não o aviso.
+       *
+       * A anomalia é a PROJEÇÃO: ela existe pra tela do cliente e some quando
+       * alguém resolve a pendência. Mas "o estorno deste pagamento falhou" é um
+       * fato do razão, e era ele que autorizava a devolução por fora. Resolver a
+       * pendência primeiro — a ordem natural, porque é a marca mais barulhenta e
+       * a que o cliente vê — apagava a testemunha e trancava a devolução PRA
+       * SEMPRE, com a recusa mandando usar um trilho que já tinha falhado
+       * (compliance HIGH-1 de ec86b37). Agora a ordem dos cliques não decide
+       * mais nada: o campo fica.
+       */
+      pay.refundReversed = true;
       return withAnomaly(recompute(next), seq, 'PAYMENT_REFUND_REVERSED',
         `estorno de ${p.txid} FALHOU: dinheiro voltou pro restaurante e o cliente ficou sem`,
         p.txid, 'high', amount + tip);
@@ -652,9 +676,17 @@ function lateTxids(state) {
  * mais velho), mais o SERVIÇO líquido de cada um. Invariante, em qualquer
  * ordem: soma das marcas + `overpaidCents` = dinheiro atrasado líquido.
  *
- * `sempreDevido`: quando a sobra cobre o consumo inteiro de um pagamento, ele é
- * duplicidade — e o serviço dele é a devolver de qualquer jeito, não uma
- * pergunta sobre o caixa (compliance MEDIUM-2 de 41d1244).
+ * `sempreDevido`: a parte do pagamento que a SOBRA DA CONTA cobre é duplicidade
+ * — o razão já mostrava a conta quitada e este pagamento entrou por cima — e o
+ * serviço PROPORCIONAL a ela é a devolver de qualquer jeito, não uma pergunta
+ * sobre o caixa (`ceil(servico * d / l)`, a favor de quem pagou). Vale na
+ * duplicidade PARCIAL também; a versão anterior deste texto dizia "consumo
+ * inteiro", que era a regra de antes (compliance MEDIUM-2 de 41d1244, redação
+ * LOW-1 de ec86b37).
+ *
+ * E ATENÇÃO ao que ele NÃO cobre: a mesa que pagou NO CAIXA não produz sobra
+ * nenhuma no razão (o Racha não registra o caixa), então ali `sempreDevido` é
+ * zero e a marca inteira é `pergunta`. Ver `refund-allocation.js`.
  *
  * RESPONDIDO sai: `PAYMENT_ISSUE_RESOLVED` ESCOPADO (`scope: 'paid_after_close'`)
  * marca `lateResolved` — a mesa não pagou no caixa. Sem resposta, a pergunta fica.

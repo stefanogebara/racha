@@ -13,16 +13,29 @@
  *
  *  1. O EXCEDENTE, do consumo. Foi por ali que entrou (ver `parseCharge`), é
  *     por ali que sai.
- *  2. O SERVIÇO DEVIDO de um pagamento atrasado, da gorjeta. Quando a mesa já
- *     havia pagado no caixa, a parte duplicada volta inteira — e os 10% sobre
- *     ela nunca foram serviço prestado a ninguém: são do cliente. Proporcional,
- *     este balde saía errado, e o erro fica na BASE DA FOLHA do garçom (Lei
- *     13.419/2017 e STJ Tema 1102 — o serviço é remuneração, distribuída por
- *     folha). Devolver R$ 110 de uma duplicação de R$ 100 + R$ 10 tem de deixar
- *     a gorjeta menor em exatamente R$ 10.
- *  3. O RESTO é estorno comum, proporcional sobre o que sobrou dos dois
- *     primeiros — a regra de sempre, que devolve junto a fatia de serviço do
- *     que foi estornado.
+ *  2. O SERVIÇO DEVIDO de um pagamento atrasado, da gorjeta, INTEIRO. É o caso
+ *     em que o RAZÃO já mostrava a conta quitada e um atrasado entrou por cima:
+ *     os 10% sobre a parte duplicada nunca foram serviço prestado a ninguém —
+ *     são do cliente. Proporcional, este balde saía errado, e o erro fica na
+ *     BASE DA FOLHA do garçom (Lei 13.419/2017 e STJ Tema 1102 — o serviço é
+ *     remuneração, distribuída por folha). Devolver R$ 110 de uma duplicação de
+ *     R$ 100 + R$ 10 tem de deixar a gorjeta menor em exatamente R$ 10.
+ *
+ *     O texto anterior dizia "quando a mesa já havia pagado no caixa", e isso é
+ *     FALSO sobre o código: o Racha não registra o caixa, então a duplicação de
+ *     caixa não produz sobra nenhuma e este balde fica zerado nela (compliance
+ *     MEDIUM-1 de ec86b37). Quem cuida daquele caso é o balde 3.
+ *  3. O RESTO. Num pagamento ATRASADO ainda sem resposta, sai do CONSUMO
+ *     primeiro e só depois da gorjeta; em qualquer outro, é estorno comum e vai
+ *     proporcional.
+ *
+ *     Por quê: devolver 100 de um atrasado de 100 + 10 pelo proporcional
+ *     devolvia 90,91 de consumo e 9,09 de gorjeta — sobrava consumo pago, a
+ *     marca não fechava, e ficavam 0,91 de serviço na folha sobre um
+ *     atendimento que talvez nunca tenha existido (compliance MEDIUM-2 de
+ *     ec86b37). Consumo primeiro devolve o principal inteiro e deixa a marca
+ *     valendo exatamente o serviço que ainda não voltou — visível no painel, em
+ *     vez de diluído.
  *
  * Compliance MEDIUM-2 de 3eea5f3.
  *
@@ -66,18 +79,34 @@ function alocarDevolucaoDoPagamento(estado, txid, pg, valor) {
     consumo,
   );
   const devido = Math.min(servicoDevidoDoAtrasado(estado, txid), gorjeta);
-  // Sem serviço devido, nada muda: as duas regras antigas, intactas.
-  if (devido === 0) {
+  // Sem serviço devido E fora de um atrasado em aberto, nada muda: as duas
+  // regras antigas, intactas.
+  if (devido === 0 && !atrasadoEmAberto(pg)) {
     return excedente > 0
       ? allocateRestitution(consumo, gorjeta, valor, excedente)
       : allocateRefund(consumo, gorjeta, valor);
   }
+  return tresBaldes(consumo, gorjeta, excedente, devido, valor, atrasadoEmAberto(pg));
+}
+
+/** Atrasado que ainda não foi respondido: o consumo volta antes da gorjeta. */
+function atrasadoEmAberto(pg) {
+  return pg.late === true && pg.lateResolved !== true;
+}
+
+function tresBaldes(consumo, gorjeta, excedente, devido, valor, consumoPrimeiro) {
   const doExcedente = Math.min(valor, excedente);
   let resto = valor - doExcedente;
   const daGorjetaDevida = Math.min(resto, devido);
   resto -= daGorjetaDevida;
   if (resto === 0) return { amountCents: doExcedente, tipCents: daGorjetaDevida };
-  const p = allocateProportional(consumo - doExcedente, gorjeta - daGorjetaDevida, resto);
+  const consumoQueSobra = consumo - doExcedente;
+  const gorjetaQueSobra = gorjeta - daGorjetaDevida;
+  if (consumoPrimeiro) {
+    const doConsumo = Math.min(resto, consumoQueSobra);
+    return { amountCents: doExcedente + doConsumo, tipCents: daGorjetaDevida + (resto - doConsumo) };
+  }
+  const p = allocateProportional(consumoQueSobra, gorjetaQueSobra, resto);
   return { amountCents: doExcedente + p.amountCents, tipCents: daGorjetaDevida + p.tipCents };
 }
 

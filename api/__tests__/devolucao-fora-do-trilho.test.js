@@ -19,8 +19,8 @@
  *     ninguém prestou (compliance MEDIUM-2).
  */
 
-const { reduce } = require('../_lib/checks/check-state');
-const { tetoDaRestituicao } = require('../_lib/checks/restitution');
+const { reduce, paidAfterClose } = require('../_lib/checks/check-state');
+const { tetoDaRestituicao, codigoDaRecusa } = require('../_lib/checks/restitution');
 const { alocarDevolucaoDoPagamento, servicoDevidoDoAtrasado } = require('../_lib/checks/refund-allocation');
 
 const opened = (t) => ({ type: 'OPENED', payload: { totalCents: t } });
@@ -29,6 +29,7 @@ const closed = () => ({ type: 'CLOSED', payload: {} });
 const refunded = (txid, a, tip = 0) => ({ type: 'PAYMENT_REFUNDED', payload: { txid, amountCents: a, tipCents: tip } });
 const revertido = (txid, a, tip = 0) => ({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid, amountCents: a, tipCents: tip } });
 const resolvido = (txid) => ({ type: 'PAYMENT_ISSUE_RESOLVED', payload: { txid, note: 'estorno refeito por fora', by: 'u-1' } });
+const resolvidoEscopado = (txid) => ({ type: 'PAYMENT_ISSUE_RESOLVED', payload: { txid, note: 'a mesa não pagou no caixa', by: 'u-1', scope: 'paid_after_close' } });
 const diasAtras = (d) => new Date(Date.now() - d * 86400000).toISOString();
 
 // A mesa pagou no caixa; o Pix de 100 + 10 de serviço confirma depois.
@@ -41,27 +42,76 @@ describe('o teto da devolução por fora', () => {
       .toEqual({ tardio: 0, teto: 0, impossivel: false });
   });
 
-  test('o estorno que FALHOU e voltou abre o caminho — e fechar aquela pendência o fecha de novo', () => {
+  test('o estorno que FALHOU e voltou abre o caminho — e RESOLVER a pendência não o fecha', () => {
     const falhou = reduce([...ATRASADO, refunded('txC', 10000, 1000), revertido('txC', 10000, 1000)]);
-    expect(tetoDaRestituicao(falhou, 'txC', { confirmedAt: diasAtras(1), method: 'pix' }))
-      .toMatchObject({ trilhoImpossivel: true, tardio: 11000 });
-    // Resolvida a pendência do estorno, a testemunha some junto: o dono que já
-    // devolveu registra ANTES de resolver, não depois.
+    expect(tetoDaRestituicao(falhou, 'txC', { confirmedAt: diasAtras(1) }))
+      .toMatchObject({ trilhoImpossivel: true, tardio: 11000, motivo: 'refund_reversed' });
+
+    /**
+     * A ORDEM DOS CLIQUES NÃO DECIDE MAIS NADA.
+     *
+     * A testemunha vinha da lista de ANOMALIAS, e `PAYMENT_ISSUE_RESOLVED` sem
+     * escopo tira a anomalia da projeção. Quem resolvesse a pendência primeiro —
+     * a ordem natural, porque é a marca que o cliente vê — trancava a devolução
+     * PRA SEMPRE: a rota passava a responder `use_acquirer_refund` sobre um
+     * estorno que já tinha falhado, a marca virava `critical` eterna sobre uma
+     * dívida já paga, e o runbook não dizia uma palavra sobre ordem
+     * (compliance HIGH-1 de ec86b37). Agora o FATO mora no pagamento.
+     */
     const resolvida = reduce([...ATRASADO, refunded('txC', 10000, 1000), revertido('txC', 10000, 1000), resolvido('txC')]);
-    expect(tetoDaRestituicao(resolvida, 'txC', { confirmedAt: diasAtras(1), method: 'pix' }))
-      .toMatchObject({ trilhoImpossivel: false, tardio: 0 });
+    expect(resolvida.anomalies.some((a) => a.type === 'PAYMENT_REFUND_REVERSED')).toBe(false);
+    expect(resolvida.payments.txC.refundReversed).toBe(true);
+    expect(tetoDaRestituicao(resolvida, 'txC', { confirmedAt: diasAtras(1) }))
+      .toMatchObject({ trilhoImpossivel: true, tardio: 11000, motivo: 'refund_reversed' });
   });
 
-  test('o Pix passados 90 dias abre o caminho; o CARTÃO não — lá o trilho não fecha por idade', () => {
+  test('cada trilho tem o SEU prazo: Pix 90 dias, cartão 180', () => {
+    const pix = reduce(ATRASADO);
+    expect(tetoDaRestituicao(pix, 'txC', { confirmedAt: diasAtras(91) }))
+      .toMatchObject({ trilhoImpossivel: true, tardio: 11000, motivo: 'pix_90d' });
+    expect(tetoDaRestituicao(pix, 'txC', { confirmedAt: diasAtras(89) }))
+      .toMatchObject({ trilhoImpossivel: false, tardio: 0, motivo: null });
+
+    // O CARTÃO não tinha prazo NENHUM: passados os 180 dias do adquirente, a
+    // devolução legítima não tinha como ser registrada e a marca virava
+    // `critical` eterna — o mesmo desfecho do HIGH-1, alcançado pelo relógio
+    // (MEDIUM-3 de ec86b37). E um estorno recusado na CRIAÇÃO não gera
+    // `refund.failed`, então não havia outra saída.
+    const cartao = reduce([opened(30000), paid('txA', 20000, 2000), closed(),
+      { type: 'PAYMENT_CONFIRMED', payload: { txid: 'txC', amountCents: 10000, tipCents: 1000, method: 'credit_card' } }]);
+    expect(tetoDaRestituicao(cartao, 'txC', { confirmedAt: diasAtras(181) }))
+      .toMatchObject({ trilhoImpossivel: true, motivo: 'card_180d' });
+    expect(tetoDaRestituicao(cartao, 'txC', { confirmedAt: diasAtras(179) }))
+      .toMatchObject({ trilhoImpossivel: false });
+    // No cartão, 91 dias ainda é trilho ABERTO — o que no Pix já venceu.
+    expect(tetoDaRestituicao(cartao, 'txC', { confirmedAt: diasAtras(91) }))
+      .toMatchObject({ trilhoImpossivel: false });
+  });
+
+  test('o MEIO vem do razão, não da linha de `payments`', () => {
+    // A linha é melhor-esforço (a própria rota a trata assim). Ela some, ou
+    // volta com o meio errado, e um Pix de 200 dias era mandado de volta pro
+    // trilho que o BACEN fechou aos 90 (MEDIUM-4 de ec86b37).
     const st = reduce(ATRASADO);
-    expect(tetoDaRestituicao(st, 'txC', { confirmedAt: diasAtras(91), method: 'pix' }))
-      .toMatchObject({ trilhoImpossivel: true, tardio: 11000 });
-    expect(tetoDaRestituicao(st, 'txC', { confirmedAt: diasAtras(89), method: 'pix' }))
-      .toMatchObject({ trilhoImpossivel: false, tardio: 0 });
-    expect(tetoDaRestituicao(st, 'txC', { confirmedAt: diasAtras(400), method: 'card' }))
-      .toMatchObject({ trilhoImpossivel: false, tardio: 0 });
-    // Sem a linha do pagamento (data perdida), nada de trilho impossível.
-    expect(tetoDaRestituicao(st, 'txC', {})).toMatchObject({ trilhoImpossivel: false, tardio: 0 });
+    expect(st.payments.txC.method).toBe('pix');
+    expect(tetoDaRestituicao(st, 'txC', { confirmedAt: diasAtras(120), method: 'card' }))
+      .toMatchObject({ trilhoImpossivel: true, motivo: 'pix_90d' });
+  });
+
+  test('NÃO SABER a data não é o mesmo que estar no prazo', () => {
+    const st = reduce(ATRASADO);
+    const limites = tetoDaRestituicao(st, 'txC', {});
+    expect(limites).toMatchObject({ trilhoImpossivel: false, tardio: 0, dataConhecida: false });
+    // E a recusa diz QUAL não-há: mandar usar o adquirente seria mandar a casa
+    // a um trilho que pode estar fechado.
+    expect(codigoDaRecusa(st, 'txC', limites)).toBe('payment_age_unknown');
+    expect(codigoDaRecusa(st, 'txC', tetoDaRestituicao(st, 'txC', { confirmedAt: diasAtras(1) })))
+      .toBe('use_acquirer_refund');
+    const semMarca = reduce([opened(10000), paid('t1', 10000)]);
+    expect(codigoDaRecusa(semMarca, 't1', tetoDaRestituicao(semMarca, 't1', { confirmedAt: diasAtras(1) })))
+      .toBe('nothing_to_restitute');
+    // Com teto, não há recusa nenhuma.
+    expect(codigoDaRecusa(st, 'txC', tetoDaRestituicao(st, 'txC', { confirmedAt: diasAtras(91) }))).toBeNull();
   });
 
   test('o EXCEDENTE nunca dependeu do trilho: sobra é sobra, e devolve-se sempre', () => {
@@ -162,15 +212,62 @@ test('banco fora do ar não vira "confira o valor": 500, e a cópia manda CONFER
   const rota = R.slice(i, R.indexOf("url.pathname === '", i + 40));
   expect(rota).toMatch(/if \(!e\.statusCode \|\| e\.statusCode >= 500\) \{/);
   expect(rota).toMatch(/code: 'restitution_unavailable'/);
-  // A recusa que aponta o adquirente, e a condição que a separa de "não deve nada".
-  expect(rota).toMatch(/\? 'use_acquirer_refund' : 'nothing_to_restitute'/);
-  expect(rota).toMatch(/paidAfterClose\(estado\)\.some\(\(x\) => x\.txid === String\(b\.txid\)\)/);
+  /**
+   * A ROTA CHAMA A REGRA, e a regra é testada acima sem HTTP.
+   *
+   * O que estava aqui era uma REGEX contra a expressão da recusa dentro do
+   * router — o falso invariante que este repositório já documenta: um refactor
+   * que preservasse a string e invertesse a condição passava verde (segurança
+   * LOW-3 de ec86b37). O que resta é a FIAÇÃO: que a rota delega.
+   */
+  expect(rota).toMatch(/const recusa = codigoDaRecusa\(estado, String\(b\.txid\), limites\);/);
+  expect(rota).toMatch(/railImpossible: limites\.motivo/);
+
   const i18n = fs.readFileSync(path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
-  for (const chave of ['err.restitution_unavailable', 'err.use_acquirer_refund']) {
+  for (const chave of ['err.restitution_unavailable', 'err.use_acquirer_refund', 'err.payment_age_unknown']) {
     expect(i18n).toContain(`'${chave}'`);
   }
   // A cópia do 500 não pode mandar "tente de novo" seco: repetir às cegas
   // registra a mesma devolução duas vezes.
   const linha = i18n.slice(i18n.indexOf("'err.restitution_unavailable'"));
   expect(linha.slice(0, 400)).toMatch(/check before recording it again/);
+});
+
+describe('o atrasado em aberto devolve o CONSUMO antes da gorjeta', () => {
+  // A mesa pagou no caixa: o razão não vê duplicação nenhuma (não registra o
+  // caixa), então `sempreDevido` é ZERO aqui e quem cuida do caso é este balde.
+  const st = () => reduce(ATRASADO);
+
+  test('devolver só o principal não tira serviço da folha, e a marca fica valendo o serviço', () => {
+    const e = st();
+    const partes = alocarDevolucaoDoPagamento(e, 'txC', e.payments.txC, 10000);
+    // Pelo proporcional saía 9091/909: sobrava consumo pago, a marca não
+    // fechava, e ficavam 91 de serviço na folha (compliance MEDIUM-2 de ec86b37).
+    expect(partes).toEqual({ amountCents: 10000, tipCents: 0 });
+    const depois = reduce([...ATRASADO, refunded('txC', partes.amountCents, partes.tipCents)]);
+    expect(paidAfterClose(depois).filter((x) => x.txid === 'txC'))
+      .toEqual([{ txid: 'txC', amountCents: 1000 }]);
+  });
+
+  test('devolver a marca inteira fecha tudo', () => {
+    const e = st();
+    const partes = alocarDevolucaoDoPagamento(e, 'txC', e.payments.txC, 11000);
+    expect(partes).toEqual({ amountCents: 10000, tipCents: 1000 });
+    const depois = reduce([...ATRASADO, refunded('txC', partes.amountCents, partes.tipCents)]);
+    expect(paidAfterClose(depois).filter((x) => x.txid === 'txC')).toEqual([]);
+  });
+
+  test('RESPONDIDO "não pagou no caixa", volta a ser estorno comum e proporcional', () => {
+    // A pergunta foi respondida: o pagamento é legítimo, e um estorno dele é um
+    // estorno como outro qualquer.
+    const respondido = reduce([...ATRASADO, resolvidoEscopado('txC')]);
+    expect(alocarDevolucaoDoPagamento(respondido, 'txC', respondido.payments.txC, 5500))
+      .toEqual({ amountCents: 5000, tipCents: 500 });
+  });
+
+  test('um pagamento que NÃO é atrasado segue proporcional', () => {
+    const normal = reduce([opened(20000), paid('t1', 10000, 1000)]);
+    expect(alocarDevolucaoDoPagamento(normal, 't1', normal.payments.t1, 5500))
+      .toEqual({ amountCents: 5000, tipCents: 500 });
+  });
 });

@@ -29,7 +29,7 @@ const { normalizarDocumentoDaCasa, decidirDocumentoDoRecebedor, documentoPublica
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
-const { tetoDaRestituicao, payloadDaResolucao, autorDoRegistro } = require('../_lib/checks/restitution');
+const { tetoDaRestituicao, payloadDaResolucao, autorDoRegistro, codigoDaRecusa } = require('../_lib/checks/restitution');
 const { classificarFalhaDoRecebedor, classificarFalhaNaCriacao, temRecebedorReal, podeCriarRecebedor } = require('../_lib/pay/recebedor');
 
 /**
@@ -64,7 +64,20 @@ const { vigiarRetencao } = require('../_lib/checks/retention-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
-const useSupabase = (process.env.RACHA_STORE || '').trim() === 'supabase';
+// AS ENVS, NORMALIZADAS UMA VEZ SÓ — e é a única leitura delas no `api/`.
+//
+// A rodada anterior pôs `.trim()` no PORTÃO e deixou o `buildPsp` comparando
+// cru. Trimar só de um lado faz o portão ser MAIS PERMISSIVO que aquilo que ele
+// guarda, e a fresta falha ABERTA: `RACHA_PSP="pagarme "` (um espaço colado no
+// painel da Vercel) dava portão verde, cron calado, deploy aprovado — e casa de
+// verdade servindo BR Code do mock, que banco nenhum honra. A revisão de
+// segurança de ec86b37 mediu os três casos (CRITICAL-1). É o incidente C1
+// inteiro, de novo, agora com o alarme dizendo que está tudo bem.
+//
+// Uma constante, lida em todo lugar: portão e consumidor não têm como divergir.
+const RACHA_STORE = (process.env.RACHA_STORE || '').trim();
+const RACHA_PSP = (process.env.RACHA_PSP || '').trim();
+const useSupabase = RACHA_STORE === 'supabase';
 const store = useSupabase
   ? require('../_lib/store/supabase').createSupabaseStore()
   : createMemoryStore();
@@ -76,14 +89,27 @@ const store = useSupabase
 // de verdade entregava BR Code de mentira. Nada no código nem no deploy
 // impedia (auditoria de backend C1). Em produção, faltando qualquer um, as rotas
 // de dinheiro recusam com código, e o cron de quinze minutos pagina.
-// É PRODUÇÃO? `VERCEL_ENV` é uma variável de SISTEMA que o projeto pode não
-// expor — e sem ela o portão nunca disparava. Na dúvida (rodando na Vercel sem
-// dizer qual ambiente), trata como produção: falha fechada (segurança LOW-3).
-const EM_PRODUCAO = (process.env.VERCEL_ENV || '').trim() === 'production'
-  || (process.env.VERCEL === '1' && !['preview', 'development'].includes((process.env.VERCEL_ENV || '').trim()));
+// É PRODUÇÃO? PELO SILÊNCIO, SIM.
+//
+// A versão anterior tentava fechar o buraco com `VERCEL === '1'` quando
+// `VERCEL_ENV` faltasse — e as duas variáveis saem da MESMA chave do projeto
+// ("Enable access to System Environment Variables"). Com ela desligada não
+// existe nenhuma das duas, e a cláusula nova nunca podia disparar: ela só era
+// avaliada quando `VERCEL_ENV` já estava lá, caso que a primeira metade já
+// tratava. O buraco que o comentário descrevia continuava aberto, com um
+// guarda escrito em cima dele (segurança HIGH-1 de ec86b37).
+//
+// Agora o ambiente é NOSSO (`RACHA_ENV`, que o `deploy.mjs` exige junto das
+// outras), e o DESCONHECIDO conta como produção: um deploy feito pelo painel,
+// um rollback ou um push que não passe pelo nosso script cai do lado seguro.
+// A única saída do silêncio é o processo dizer que é teste — e um `RACHA_ENV`
+// explícito de produção vence até isso, pra suíte poder exercitar o portão.
+const AMBIENTE = (process.env.VERCEL_ENV || process.env.RACHA_ENV || '').trim();
+const EM_TESTE = !!process.env.JEST_WORKER_ID || process.env.NODE_ENV === 'test';
+const EM_PRODUCAO = AMBIENTE === 'production' || (AMBIENTE === '' && !EM_TESTE);
 const CONFIG_DE_PRODUCAO_FALTANDO = EM_PRODUCAO
   ? [!useSupabase && 'RACHA_STORE=supabase',
-    (process.env.RACHA_PSP || '').trim() !== 'pagarme' && 'RACHA_PSP=pagarme'].filter(Boolean)
+    RACHA_PSP !== 'pagarme' && 'RACHA_PSP=pagarme'].filter(Boolean)
   : [];
 if (CONFIG_DE_PRODUCAO_FALTANDO.length) {
   process.stderr.write(`[config] PRODUÇÃO SEM ${CONFIG_DE_PRODUCAO_FALTANDO.join(' e ')} — rotas de dinheiro em 503\n`);
@@ -104,7 +130,7 @@ const ROTA_DE_DINHEIRO = (caminho) => caminho === '/api/pay' || caminho === '/ap
 // respondem 503 com motivo claro (nunca cai no mock em silêncio — dinheiro
 // real jamais roteia pra um PSP de mentira).
 function buildPsp() {
-  if (process.env.RACHA_PSP === 'pagarme') {
+  if (RACHA_PSP === 'pagarme') {
     return require('../_lib/pay/pagarme-psp').createPagarmePsp({
       secretKey: process.env.PAGARME_SECRET_KEY,
       webhookBasicAuth: process.env.PAGARME_WEBHOOK_AUTH || null,
@@ -114,9 +140,25 @@ function buildPsp() {
 }
 // A escolha do PSP — e o adaptador que recusa — moram em `pay/psp-indisponivel.js`,
 // com o censo que confere que nenhum método chamado aqui fica de fora.
+let motivoDaQuebra = CONFIG_DE_PRODUCAO_FALTANDO.length
+  ? `produção sem ${CONFIG_DE_PRODUCAO_FALTANDO.join(' e ')}` : null;
 const psp = escolherPsp(CONFIG_DE_PRODUCAO_FALTANDO, buildPsp, (err) => {
   process.stderr.write(`[psp] init FALHOU: ${err.message} — rotas de pagamento em 503, leitura segue\n`);
+  motivoDaQuebra = `PSP não configurado (${err.message})`;
 });
+
+/**
+ * A PLATAFORMA ESTÁ QUEBRADA? Pelo RESULTADO, não pela lista de entrada.
+ *
+ * O portão das rotas e o alarme do cron olhavam só `CONFIG_DE_PRODUCAO_FALTANDO`.
+ * Produção com as duas envs certas e uma `PAGARME_SECRET_KEY` malformada (a `pk_`
+ * colada no lugar da `sk_` — o incidente de 2026-07-21) caía no adaptador que
+ * recusa com a lista VAZIA: nenhuma rota fechava pelo portão, o cron não
+ * paginava, e o cliente via `internal` porque o `errorBody` apaga mensagem de
+ * 5xx. Apagão de pagamento sem uma página sequer (segurança MEDIUM-2 de
+ * ec86b37). Quem responde agora é o adaptador que de fato ficou na mão.
+ */
+const PLATAFORMA_QUEBRADA = () => CONFIG_DE_PRODUCAO_FALTANDO.length > 0 || psp.provider === 'unconfigured';
 
 const charge = createChargeService({ store, psp });
 const checkSvc = createCheckService({ store });
@@ -756,7 +798,7 @@ async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   try {
     if (req.method === 'OPTIONS') return json(res, 200, {});
-    if (CONFIG_DE_PRODUCAO_FALTANDO.length && ROTA_DE_DINHEIRO(url.pathname)) {
+    if (PLATAFORMA_QUEBRADA() && ROTA_DE_DINHEIRO(url.pathname)) {
       return json(res, 503, { success: false, code: 'platform_misconfigured' });
     }
 
@@ -1773,12 +1815,16 @@ async function route(req, res) {
       });
       const aDevolver = limites.teto;
       if (aDevolver === 0) {
+        // Qual "não há" é este? A regra mora em `restitution.js` e é testada
+        // sem HTTP (segurança LOW-3 de ec86b37).
+        const recusa = codigoDaRecusa(estado, String(b.txid), limites);
+        // Não saber a idade do pagamento é indisponibilidade, não pedido errado.
+        if (recusa === 'payment_age_unknown') {
+          return json(res, 503, { success: false, code: recusa });
+        }
         return json(res, 400, {
           success: false,
-          // A marca do pago-depois-de-fechar existe, mas o trilho está aberto:
-          // a devolução vai por lá, e a marca cai com o estorno.
-          code: limites.tardio === 0 && limites.excesso === 0 && paidAfterClose(estado).some((x) => x.txid === String(b.txid))
-            ? 'use_acquirer_refund' : 'nothing_to_restitute',
+          code: recusa,
         });
       }
       if (valor > aDevolver) {
@@ -1819,6 +1865,12 @@ async function route(req, res) {
           amountCents: partes.amountCents,
           tipCents: partes.tipCents,
           offRail: true,
+          // POR QUE saiu do trilho — `refund_reversed` (o adquirente é
+          // testemunha) ou `pix_90d`/`card_180d` (só a palavra do dono). Sem
+          // isto, uma auditoria trabalhista lê o razão e não distingue as duas
+          // (compliance MEDIUM-5 de ec86b37). `null` quando a devolução é de
+          // SOBRA, que nunca precisou de trilho impossível.
+          railImpossible: limites.motivo,
           reference: ref,
           by: autorDoRegistro(user),
         });
@@ -2183,6 +2235,17 @@ async function route(req, res) {
         }
       }
       const notified = detail.filter((d) => d.notify === 'sent').length;
+      // TODAS as perguntas ao adquirente falharam? Isso é 503, não sucesso.
+      // Com o adaptador que recusa (produção mal configurada) ou numa queda do
+      // Pagar.me, o cron ficava VERDE no painel da Vercel com `checked` cheio, e
+      // o único sinal era um `detail` que ninguém lê — enquanto o cron irmão,
+      // quarenta linhas abaixo, devolve 503 justamente pra pintar de vermelho
+      // (inegociável #8; segurança MEDIUM-1 de ec86b37).
+      const falharam = detail.filter((d) => d.error).length;
+      if (pending.length > 0 && falharam === pending.length) {
+        process.stderr.write(`[recipient-status] TODAS as ${falharam} consultas falharam\n`);
+        return json(res, 503, { success: false, code: 'psp_unavailable' });
+      }
       return json(res, 200, { success: true, data: { checked: pending.length, notified, detail } });
     }
 
@@ -2267,8 +2330,8 @@ async function route(req, res) {
           }
         }
       }
-      if (CONFIG_DE_PRODUCAO_FALTANDO.length) {
-        process.stderr.write(`[reconcile-pending] produção sem ${CONFIG_DE_PRODUCAO_FALTANDO.join(' e ')}\n`);
+      if (PLATAFORMA_QUEBRADA()) {
+        process.stderr.write(`[reconcile-pending] plataforma quebrada: ${motivoDaQuebra}\n`);
         // UMA VEZ POR HORA, não a cada quinze minutos: noventa e seis páginas
         // por dia no canal do canário ensinam a silenciar o canal (segurança
         // LOW-2 de 3eea5f3). Sem como deduplicar, pagina.
@@ -2279,7 +2342,7 @@ async function route(req, res) {
         } catch { paginarConfig = true; }   // sem como deduplicar, pagina
         if (paginarConfig) {
           const envioDaConfig = await notifyFounderReconcile({
-            mensagem: `PRODUÇÃO SEM ${CONFIG_DE_PRODUCAO_FALTANDO.join(' E ')}: as rotas de pagamento estão recusando (503) em vez de cobrar num modo de demo. Configurar na Vercel e refazer o deploy.`,
+            mensagem: `PLATAFORMA DE PAGAMENTO FORA (${motivoDaQuebra}): as rotas de pagamento estão recusando (503) em vez de cobrar. Configurar na Vercel e refazer o deploy.`,
             venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
           });
           if (envioDaConfig && envioDaConfig.ok === false && vagaDaConfig) {
@@ -2690,4 +2753,4 @@ async function route(req, res) {
 // `registraMissDeCheck` e `clientIp` saem pro teste: a garantia que importa —
 // a resposta do 404 é SEMPRE a mesma, e o primeiro hop do XFF não é confiável —
 // é de COMPORTAMENTO, e censo de fonte não prova comportamento.
-module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp };
+module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, psp, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp };
