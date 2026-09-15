@@ -24,7 +24,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MockPsp } = require('../_lib/pay/mock-psp');
-const { createChargeService, assertChargeSlot, TETO_PENDENTES, JANELA_VIVA_MS } = require('../_lib/pay/create-charge');
+const {
+  createChargeService, assertChargeSlot, TETO_PENDENTES, JANELA_VIVA_MS,
+  MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
+} = require('../_lib/pay/create-charge');
 const { createMemoryStore } = require('../_lib/store/memory');
 
 const SECRET = 'test-webhook-secret-0123456789';
@@ -44,9 +47,38 @@ async function contaAberta(store, table) {
 }
 
 describe('o teto de cobranças pendentes vivas por conta', () => {
-  test('o teto e a janela são os números que a prosa diz', () => {
-    expect(TETO_PENDENTES).toBe(20);
+  test('o teto é DERIVADO do passo a passo da divisão, não escolhido', () => {
+    /**
+     * A PRIMEIRA VERSÃO DESTE NÚMERO ERA UM PALPITE que se descrevia como
+     * medida: "o pior caso legítimo é uma mesa de dez pessoas". O produto
+     * afere VINTE — o passo a passo da divisão para em `Math.min(20, …)` —,
+     * e com teto vinte uma mesa cheia consumia todas as vagas em primeira
+     * tentativa. A primeira pessoa que precisasse de um segundo código (tirou
+     * o serviço, a tela dormiu, o wi-fi engoliu o pedido) não conseguia pagar
+     * a própria conta. Achado pela revisão de compliance de 2026-09-15.
+     *
+     * Este teste PRENDE a derivação à UI: se o passo a passo passar a dividir
+     * entre trinta, ele falha e alguém decide o teto de novo, em vez de
+     * descobrir na mesa.
+     */
+    const app = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'App.tsx'), 'utf8');
+    const m = /Math\.min\((\d+), people \+ 1\)/.exec(app);
+    expect({ achou: !!m }).toEqual({ achou: true });
+    expect(Number(m[1])).toBe(MAX_PESSOAS_NA_DIVISAO);
+    expect(TETO_PENDENTES).toBe(MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA);
     expect(JANELA_VIVA_MS).toBe(15 * 60 * 1000);
+  });
+
+  test('a mesa CHEIA que o produto permite cabe, com folga de tentativas', async () => {
+    // O caso que a revisão achou: vinte pessoas, divisão igual, todas pagam.
+    // Nenhuma pode levar 429 na primeira tentativa, nem na segunda.
+    const { store, table, charge } = mundo();
+    const check = await contaAberta(store, table);
+    for (let i = 0; i < MAX_PESSOAS_NA_DIVISAO * 2; i += 1) {
+      await expect(charge({ checkId: check.id, amountCents: 100 + i, tipCents: 0 }))
+        .resolves.toBeTruthy();
+    }
   });
 
   test('deixa passar até o teto e recusa a seguinte, com código estável', async () => {
@@ -154,7 +186,12 @@ describe('TODA criação de cobrança passa pelo teto', () => {
     .filter((l) => !/^\s*(\/\*|\*|\/\/)/.test(l)).join('\n');
 
   test('todo sítio que chama create*Charge confere vaga antes', () => {
-    const CRIA = /\b(?:psp|stripePsp)\.create(?:Pix|Wallet|Bizum)Charge\s*\(/;
+    // LARGO DE PROPÓSITO: qualquer receptor (`psp`, `stripePsp`, `demoPsp`,
+    // `this.psp`), qualquer caixa, e também o despacho dinâmico `psp[x](`, que
+    // o `markets.test.js` já teve de defender. Um censo preso a DOIS nomes de
+    // receptor é a forma "lista escrita a partir do achado".
+    // Achado pela revisão de compliance de 2026-09-15 (LOW-1).
+    const CRIA = /create(?:Pix|Wallet|Bizum)Charge\s*\(|\bpsp\s*\[[^\]]+\]\s*\(/i;
     const alvos = { 'router.js': ROUTER, 'create-charge.js': FABRICA, 'house-service.js': CASA };
     const semTeto = [];
     for (const [nome, src] of Object.entries(alvos)) {
@@ -164,7 +201,7 @@ describe('TODA criação de cobrança passa pelo teto', () => {
         // A vaga é conferida ANTES, na mesma função: janela generosa de 60
         // linhas acima, que é mais que qualquer corpo de rota daqui.
         const antes = linhas.slice(Math.max(0, i - 60), i).join('\n');
-        if (!/assertChargeSlot\(|countPendingHouseLoads\(/.test(antes)) {
+        if (!/assertChargeSlot\(|assertLoadSlot\(/.test(antes)) {
           semTeto.push(`${nome}:${i + 1}  ${linhas[i].trim().slice(0, 50)}`);
         }
       }
@@ -173,7 +210,7 @@ describe('TODA criação de cobrança passa pelo teto', () => {
   });
 
   test('a enumeração ACHA os sítios — censo que não vê nada dá ✓ calado', () => {
-    const CRIA = /\b(?:psp|stripePsp)\.create(?:Pix|Wallet|Bizum)Charge\s*\(/g;
+    const CRIA = /create(?:Pix|Wallet|Bizum)Charge\s*\(/gi;
     const total = [ROUTER, FABRICA, CASA]
       .map((s) => (semComentario(s).match(CRIA) || []).length)
       .reduce((a, b) => a + b, 0);
@@ -220,10 +257,12 @@ describe('o teto de cargas de saldo vivas por conta', () => {
     return accountToken;
   }
 
-  test('deixa passar até cinco e recusa a sexta, com código estável', async () => {
+  const TETO_CARGAS = 10;
+
+  test('deixa passar até o teto e recusa a seguinte, com código estável', async () => {
     const { store, house } = casa();
     const accountToken = await contaDeSaldo(store, house);
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < TETO_CARGAS; i += 1) {
       await house.createLoad({ accountToken, amountCents: 10000 + i });
     }
     await expect(house.createLoad({ accountToken, amountCents: 20000 }))
@@ -234,7 +273,7 @@ describe('o teto de cargas de saldo vivas por conta', () => {
     const { store, house } = casa();
     const accountToken = await contaDeSaldo(store, house);
     const feitas = [];
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < TETO_CARGAS; i += 1) {
       feitas.push(await house.createLoad({ accountToken, amountCents: 10000 + i }));
     }
     await expect(house.createLoad({ accountToken, amountCents: 30000 }))
@@ -255,7 +294,7 @@ describe('o teto de cargas de saldo vivas por conta', () => {
      */
     const { store, house } = casa();
     const accountToken = await contaDeSaldo(store, house);
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < TETO_CARGAS; i += 1) {
       await house.createLoad({ accountToken, amountCents: 10000 + i });
     }
     // O id vem do store, não da projeção da carteira: a carteira é a VISTA do
@@ -263,7 +302,7 @@ describe('o teto de cargas de saldo vivas por conta', () => {
     const conta = await store.getHouseAccountByToken(accountToken);
     const todas = await store.countPendingHouseLoads({ accountId: conta.id, windowMs: Infinity });
     const nenhuma = await store.countPendingHouseLoads({ accountId: conta.id, windowMs: -1 });
-    expect({ todas, nenhuma }).toEqual({ todas: 5, nenhuma: 0 });
+    expect({ todas, nenhuma }).toEqual({ todas: TETO_CARGAS, nenhuma: 0 });
   });
 
   test('os DOIS stores implementam a contagem — o gêmeo não pode ficar pra trás', () => {

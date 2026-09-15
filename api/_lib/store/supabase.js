@@ -1152,7 +1152,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       });
       throwOn(error, 'registerHouseLoad');
     },
-    /** Ver o gêmeo em `memory.js` e `assertLoadSlot`. */
+    /** Ver o gêmeo em `memory.js` e o `assertLoadSlot` no `house-service.js`. */
     async countPendingHouseLoads({ accountId, windowMs = null } = {}) {
       let q = client
         .from('house_loads')

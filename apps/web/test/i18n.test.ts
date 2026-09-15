@@ -898,3 +898,46 @@ test('nenhuma tela põe o texto CRU do erro no estado — o servidor manda códi
   }
   assert.deepEqual(ofensores, [], `\n${ofensores.join('\n')}\n`);
 });
+
+/**
+ * O CENSO DE MARCADORES — todo `{x}` de uma chave de erro tem que ser servido.
+ *
+ * Duas vezes o mesmo defeito: uma chave de erro ganha um marcador novo, os dois
+ * mapeadores de `vars` continuam servindo o trio de dinheiro (`left`, `min`,
+ * `max`), e o `fill` — que deixa marcador desconhecido VERBATIM — põe `{max}`,
+ * e depois `{limit}`, na tela de pagamento. A segunda vez foi o teto de
+ * cobranças vivas: a mensagem que diz ao cliente o que fazer chegava dizendo
+ * "({limit} em {windowMinutes} min)". Achado pela revisão de compliance de
+ * 2026-09-15 (HIGH-3).
+ *
+ * O censo lê os DOIS mapeadores como fonte da verdade: marcador que nenhum
+ * deles serve é marcador que vai chegar literal a alguém.
+ */
+test('todo marcador de toda chave err.* é servido pelos DOIS mapeadores', () => {
+  const src = (f: string) => readFileSync(join(import.meta.dirname, '..', 'src', f), 'utf8');
+  /** As chaves servidas por um mapeador de `vars`, lidas do próprio código. */
+  const servidos = (texto: string): Set<string> => {
+    // `err.vars ?` no App.tsx e `err?.vars ?` no lang.tsx — o encadeamento
+    // opcional é ortografia, não identidade, e ancorar na literal cegava o
+    // censo num dos dois lados (medido: zero servidos, ✓ sobre nada).
+    const m = /err\??\.vars \?/.exec(texto);
+    const bloco = m ? texto.slice(m.index, m.index + 1400) : '';
+    return new Set([...bloco.matchAll(/^\s*([a-zA-Z][a-zA-Z0-9]*):/gm)].map((m) => m[1]));
+  };
+  const deApp = servidos(src('App.tsx'));
+  const deLang = servidos(src('lang.tsx'));
+  // O censo tem que ACHAR os mapeadores: zero servidos daria ✓ sobre nada.
+  assert.ok(deApp.size >= 3, `App.tsx: ${[...deApp]}`);
+  assert.ok(deLang.size >= 3, `lang.tsx: ${[...deLang]}`);
+
+  const i18n = src('i18n.ts');
+  const orfaos: string[] = [];
+  for (const m of i18n.matchAll(/'(err\.[a-z_0-9.]+)':\s*\{([\s\S]{0,700}?)\n\s{2}'/g)) {
+    const [, chave, corpo] = m;
+    for (const ph of new Set([...corpo.matchAll(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g)].map((x) => x[1]))) {
+      if (!deApp.has(ph)) orfaos.push(`${chave}: {${ph}} não servido pelo App.tsx`);
+      if (!deLang.has(ph)) orfaos.push(`${chave}: {${ph}} não servido pelo lang.tsx`);
+    }
+  }
+  assert.deepEqual(orfaos, []);
+});

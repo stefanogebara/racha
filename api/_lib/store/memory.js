@@ -1015,14 +1015,14 @@ function createMemoryStore() {
         txid, accountId, amountCents, bonusCents, validityDays, status: 'pendente',
         // `createdAt` existe pro TETO de cargas vivas — a coluna já existia no
         // Postgres (`house_loads.created_at`) e faltava aqui, então o gêmeo em
-        // memória não podia medir a mesma janela. Ver `assertLoadSlot`.
+        // memória não podia medir a mesma janela. Ver `assertLoadSlot` no `house-service.js`.
         createdAt: new Date().toISOString(),
       });
     },
     /**
      * Quantas cargas de saldo desta conta ainda estão VIVAS — pendentes e
      * dentro da janela de validade do Pix. Espelha `listPendingCharges`, que é
-     * a mesma pergunta do lado da conta da mesa. Ver `assertLoadSlot`.
+     * a mesma pergunta do lado da conta da mesa. Ver `assertLoadSlot` no `house-service.js`.
      */
     async countPendingHouseLoads({ accountId, windowMs = Infinity } = {}) {
       const now = Date.now();

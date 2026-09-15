@@ -4,7 +4,38 @@
 // lá, não de um número repetido aqui: duas janelas que deviam ser uma já
 // divergiram neste repositório por um acento e por um `\b`.
 const { JANELA_VIVA_MS } = require('../pay/create-charge');
-const TETO_CARGAS = 5;
+const TETO_CARGAS = 10;
+
+/**
+ * Há vaga pra mais uma carga de saldo nesta conta?
+ *
+ * TEM NOME PRÓPRIO, como o `assertChargeSlot`, por dois motivos: a prosa dos
+ * dois stores já apontava pra um `assertLoadSlot` que não existia — o defeito
+ * que este repositório passou rodadas removendo, cometido no commit que o
+ * removia —, e um censo estrutural que procura um SÍMBOLO é mais honesto que
+ * um que procura a chamada de contagem.
+ *
+ * Dez, e não cinco. O `Wallet.tsx` cunha uma cobrança por toque: os atalhos de
+ * R$ 50 / 100 / 200 mais um valor digitado já são quatro, e a quinta tentativa
+ * de verdade batia no teto. E aqui o remédio "pague uma das abertas" é pior que
+ * na mesa: as abertas são todas da própria pessoa, e são valores que ela já
+ * descartou. Achado pela revisão de compliance de 2026-09-15 (MEDIUM-2).
+ *
+ * ANTES da chamada ao PSP, como o gêmeo: o ponto é não falar com o adquirente.
+ */
+async function assertLoadSlot(store, accountId) {
+  const vivas = await store.countPendingHouseLoads({
+    accountId, windowMs: JANELA_VIVA_MS,
+  });
+  if (vivas < TETO_CARGAS) return;
+  // Ver o gêmeo: guarda que ninguém vê é guarda caracterizado em produção.
+  process.stderr.write(`[teto] cargas vivas conta=${accountId} vivas=${vivas} teto=${TETO_CARGAS}\n`);
+  const err = new Error(`too many live pending loads for this account (${vivas})`);
+  err.statusCode = 429;
+  err.code = 'too_many_pending_loads';
+  err.vars = { limit: TETO_CARGAS, windowMinutes: JANELA_VIVA_MS / 60000 };
+  throw err;
+}
 
 /**
  * House Accounts — saldo da casa. Orchestrates the account ledger, the check
@@ -241,32 +272,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const gate = marketGate(venue.market, { rail: 'pix', amountCents, tipCents: 0 });
     if (gate) throw badRequest(`mercado ${venue.market}: ${gate.code}`, gate.code, gate.vars);
 
-    /**
-     * O TETO DE CARGAS VIVAS, e ANTES da chamada ao adquirente.
-     *
-     * Esta é a MAIS exposta das três rotas que criam cobrança, e a declaração
-     * do censo de saída diz por quê: não passa pela fábrica de cobrança, então
-     * não herda teto de valor nenhum, e não há conta aberta pra limitar o valor
-     * — carga de saldo não tem conta. O `chargeRef` daqui leva um `randomUUID`
-     * de propósito ("duas cargas idênticas são cobranças DIFERENTES"), então
-     * nem nominalmente havia idempotência.
-     *
-     * A conta: carregar saldo é UM ato deliberado. Cinco cargas vivas na mesma
-     * janela de 15 minutos já cobre quem errou o valor, desistiu e voltou — o
-     * teto da conta da mesa é vinte porque lá há uma mesa inteira de gente, e
-     * aqui há uma pessoa. Fechado na mesma rodada que o teto da mesa, pela
-     * revisão de segurança de 2026-09-15.
-     */
-    const vivas = await store.countPendingHouseLoads({
-      accountId: account.id, windowMs: JANELA_VIVA_MS,
-    });
-    if (vivas >= TETO_CARGAS) {
-      const err = new Error(`too many live pending loads for this account (${vivas})`);
-      err.statusCode = 429;
-      err.code = 'too_many_pending_loads';
-      err.vars = { limit: TETO_CARGAS, windowMinutes: JANELA_VIVA_MS / 60000 };
-      throw err;
-    }
+    await assertLoadSlot(store, account.id);
 
     const bonusCents = quoteBonusCents(amountCents, cfg.bonusBp);
     const charge = await psp.createPixCharge({

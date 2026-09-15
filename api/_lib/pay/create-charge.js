@@ -52,25 +52,44 @@ function badRequest(msg, code, vars) {
  * pendente. Achado pela revisão de segurança de 2026-09-15 (HIGH-4), declarado
  * naquela rodada e fechado nesta.
  *
- * A CONTA DO TETO, escrita como a do `registraMissDeCheck`, porque um número
- * sem aritmética é um número que alguém vai afrouxar sem medir:
+ * A CONTA DO TETO, e a primeira versão dela era um PALPITE que se descrevia
+ * como medida — o defeito que este repositório passou três rodadas removendo da
+ * prosa dos outros, cometido aqui.
+ *
+ * Ela dizia "o pior caso legítimo é uma mesa de dez pessoas em que cada uma erra
+ * uma vez: vinte". Mas o produto não afere dez: o passo a passo da divisão vai
+ * até VINTE pessoas (`apps/web/src/App.tsx`, `Math.min(20, people + 1)`). Com
+ * teto vinte, uma mesa cheia de vinte que divide igual consome as vinte vagas
+ * só em primeira tentativa, e a primeira pessoa que precisar de um SEGUNDO
+ * código — tirou o serviço, trocou de "por item" pra "igual", a tela dormiu, o
+ * wi-fi do salão engoliu o pedido — leva 429 e não consegue pagar a própria
+ * conta. Zero folga. Achado pela revisão de compliance de 2026-09-15 (HIGH-1),
+ * que foi ler a UI que eu não tinha lido.
+ *
+ * Agora o número é DERIVADO, e um teste o prende ao passo a passo: se o produto
+ * passar a dividir entre trinta, o teste falha e alguém decide de novo.
  *
  *   · a janela é a validade do Pix, 15 minutos — a mesma do `mock-psp` e do
- *     `expires_in: 900` do Pagar.me. Cobrança vencida não conta, senão uma mesa
- *     que tentou algumas vezes ao longo da noite ficava trancada;
- *   · o pior caso LEGÍTIMO dentro de 15 minutos é uma mesa de dez pessoas em
- *     que cada uma erra uma vez (QR expirou, abriu o app errado, voltou): vinte
- *     cobranças vivas. Vinte é isso, não um palpite;
- *   · acima disso não é uma mesa. É o mesmo raciocínio do limite de taxa que a
- *     `/api/check` NÃO tem: o que não pode é fechar a conta na cara do segundo
- *     cliente, e vinte não fecha.
+ *     `expires_in: 900` do Pagar.me. Cobrança vencida não ocupa vaga, senão uma
+ *     mesa que tentou algumas vezes ao longo da noite ficava trancada;
+ *   · o pior caso legítimo é a mesa CHEIA que o produto permite (vinte) em que
+ *     cada pessoa precisa de até três tentativas dentro da mesma janela de
+ *     quinze minutos. Três, e não duas, porque a segunda tentativa costuma ser
+ *     o próprio conserto (tirar o serviço) e a terceira é a margem de quem
+ *     tropeçou no caminho;
+ *   · sessenta continua sendo um teto que importa: sem ele o número é
+ *     ilimitado, e é o tamanho da pilha que realimenta o
+ *     `/api/cron/reconcile-pending`, uma chamada ao adquirente por pendente.
  *
  * Por CONTA, não por IP: um salão inteiro é um IP só atrás do NAT do
  * restaurante, e o abuso que importa é contra UMA conta — é ela que tem o
  * token, e é o recebedor daquela casa que paga a conta do tráfego.
  */
 const JANELA_VIVA_MS = 15 * 60 * 1000;
-const TETO_PENDENTES = 20;
+/** O máximo de pessoas que o passo a passo da divisão permite. Ver o teste. */
+const MAX_PESSOAS_NA_DIVISAO = 20;
+const TENTATIVAS_POR_PESSOA = 3;
+const TETO_PENDENTES = MAX_PESSOAS_NA_DIVISAO * TENTATIVAS_POR_PESSOA;
 
 /**
  * Há vaga pra mais uma cobrança nesta conta?
@@ -113,6 +132,12 @@ async function assertChargeSlot(store, checkId) {
     limit: TETO_PENDENTES + 1,
   });
   if (vivas.length >= TETO_PENDENTES) {
+    // UM GUARDA QUE NINGUÉM VÊ É CARACTERIZADO EM PRODUÇÃO, por um cliente de
+    // pé na mesa. O router só loga status >= 500, então uma recusa 429 saía
+    // muda: se isto começar a disparar em mesa de verdade, a casa vive "o app
+    // não deixa pagar" e nós não vemos nada. Uma linha por recusa, com o id da
+    // conta e mais nada — nome de pagador não entra em log.
+    process.stderr.write(`[teto] cobranças vivas check=${checkId} vivas=${vivas.length} teto=${TETO_PENDENTES}\n`);
     const err = new Error(`too many live pending charges for this check (${vivas.length})`);
     // 429, não 400: o pedido está bem formado e a resposta é "agora não".
     err.statusCode = 429;
@@ -291,4 +316,5 @@ function createChargeService({ store, psp }) {
 
 module.exports = {
   createChargeService, assertChargeSlot, TETO_PENDENTES, JANELA_VIVA_MS,
+  MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
 };

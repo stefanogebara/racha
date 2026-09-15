@@ -247,13 +247,28 @@ if (AUTH_SUPABASE_URL && AUTH_SUPABASE_KEY) {
 /** Ordem de gravidade — pra cortar os achados pelo topo, não pela chegada. */
 const RANK = { critical: 3, high: 2, info: 1 };
 
-function json(res, status, body) {
+function json(res, status, body, extra = null) {
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'content-type,x-racha-signature',
+    ...(extra || {}),
   });
   res.end(JSON.stringify(body));
+}
+
+/**
+ * `Retry-After` quando a resposta é "agora não".
+ *
+ * Esperar é o ÚNICO remédio que está na mão de quem lê a recusa do teto — os
+ * outros códigos abertos estão no telefone das outras pessoas da mesa. Uma
+ * recusa que não diz por quanto tempo transforma "espere" em "tente de novo
+ * pra sempre". Achado pela revisão de compliance de 2026-09-15 (MEDIUM-3).
+ */
+function cabecalhoDeEspera(err) {
+  const min = err && err.vars && Number(err.vars.windowMinutes);
+  if (!Number.isFinite(min) || min <= 0) return null;
+  return { 'Retry-After': String(Math.ceil(min * 60)) };
 }
 
 async function guardUser(req, res) {
@@ -704,7 +719,17 @@ async function route(req, res) {
             vars: mapped === 'amount_under_min' ? { minCents: lim.minCents } : { maxCents: lim.maxCents },
           });
         }
-        return json(res, e.statusCode || 502, { success: false, error: e.message });
+        // CÓDIGO E `vars`, NÃO A FRASE INTERNA. Esta linha devolvia só
+        // `e.message`, e o `errorBody` — que existe pra isto e diz no próprio
+        // docblock que "com CÓDIGO a mensagem interna NÃO viaja" — nunca era
+        // alcançado, porque esta rota tem catch próprio. O resultado, medido:
+        // um cliente pagando no cartão em São Paulo, ou no Bizum em Madri,
+        // lia `too many live pending charges for this check (20)` na tela de
+        // pagamento — inglês interno, com a contagem de cobranças vivas dos
+        // OUTROS na mesa. A chave `err.too_many_pending_charges` que o commit
+        // do teto acrescentou não disparava em trilho nenhum além do Pix.
+        // Achado pela revisão de compliance de 2026-09-15 (HIGH-2).
+        return json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e));
       }
     }
 
@@ -1177,7 +1202,17 @@ async function route(req, res) {
         });
         return json(res, 200, { success: true, data: { accountId, onboardingUrl: link.url } });
       } catch (e) {
-        return json(res, e.statusCode || 502, { success: false, error: e.message });
+        // CÓDIGO E `vars`, NÃO A FRASE INTERNA. Esta linha devolvia só
+        // `e.message`, e o `errorBody` — que existe pra isto e diz no próprio
+        // docblock que "com CÓDIGO a mensagem interna NÃO viaja" — nunca era
+        // alcançado, porque esta rota tem catch próprio. O resultado, medido:
+        // um cliente pagando no cartão em São Paulo, ou no Bizum em Madri,
+        // lia `too many live pending charges for this check (20)` na tela de
+        // pagamento — inglês interno, com a contagem de cobranças vivas dos
+        // OUTROS na mesa. A chave `err.too_many_pending_charges` que o commit
+        // do teto acrescentou não disparava em trilho nenhum além do Pix.
+        // Achado pela revisão de compliance de 2026-09-15 (HIGH-2).
+        return json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e));
       }
     }
     if (req.method === 'GET' && url.pathname === '/api/psp/stripe-connect') {
@@ -2192,7 +2227,15 @@ async function route(req, res) {
     if (status >= 500) {
       process.stderr.write(`[500] ${url.pathname} ${String(err && err.message).slice(0, 300)}\n`);
     }
-    return json(res, status, errorBody(err, status));
+    // O `Retry-After` sai TAMBÉM daqui, e este é o caminho que importa: as duas
+    // rotas que de fato devolvem 429 — `/api/pay` e `/api/house/load` — não têm
+    // catch próprio e saem por este. A primeira versão do cabeçalho foi parar
+    // nos dois sítios que TÊM catch local, e num deles é código inalcançável
+    // (a rota de account-link nunca levanta erro com `windowMinutes`). O
+    // remédio pra "uma recusa que não diz por quanto tempo" estava vivo em zero
+    // dos dois caminhos que recusam. Achado pela revisão de segurança de
+    // 2026-09-15 (MEDIUM-4).
+    return json(res, status, errorBody(err, status), cabecalhoDeEspera(err));
   }
 }
 

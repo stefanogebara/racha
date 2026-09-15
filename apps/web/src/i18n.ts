@@ -422,14 +422,24 @@ export const DICT = {
   // mensagem diz o que FAZER — esperar um QR vencer ou pagar um dos abertos —
   // porque um teto que só diz "não" numa mesa com a conta na mão é uma tela
   // sem saída.
+  // O REMÉDIO TEM QUE ESTAR NA MÃO DE QUEM LÊ. A primeira versão desta frase
+  // dizia "pague um deles" — e os outros códigos abertos estão no telefone das
+  // OUTRAS pessoas da mesa: quem lê não tem acesso a nenhum. Pior, se a pessoa
+  // acabou de TIRAR o serviço, o código que ainda ocupa vaga é o que carrega os
+  // 10%, e a frase empurrava pra ele. Agora a frase nomeia o que quem lê pode
+  // fazer: esperar (o `Retry-After` diz quanto) ou fechar no caixa. Achado pela
+  // revisão de compliance de 2026-09-15 (HIGH-4).
   'err.too_many_pending_charges': {
-    en: 'Too many payment codes open for this table ({limit} in {windowMinutes} min). Pay one of them, or wait for one to expire.',
-    pt: 'Códigos de pagamento demais abertos nesta mesa ({limit} em {windowMinutes} min). Pague um deles, ou espere um vencer.',
-    es: 'Demasiados códigos de pago abiertos en esta mesa ({limit} en {windowMinutes} min). Paga uno, o espera a que caduque.' },
+    en: 'This table has too many payment codes open at once ({limit}). Wait a few minutes and try again, or ask the staff to close the bill at the till.',
+    pt: 'Esta mesa está com códigos de pagamento demais abertos ao mesmo tempo ({limit}). Espere alguns minutos e tente de novo, ou peça à equipe para fechar no caixa.',
+    es: 'Esta mesa tiene demasiados códigos de pago abiertos a la vez ({limit}). Espera unos minutos e inténtalo de nuevo, o pide al personal que cobre en caja.' },
+  // Aqui as recargas abertas SÃO da própria pessoa, então "pague uma delas" é
+  // um remédio que ela controla — mas continua sendo um valor que ela já
+  // descartou, então a espera vem primeiro.
   'err.too_many_pending_loads': {
-    en: 'Too many top-ups open on this balance ({limit} in {windowMinutes} min). Pay one of them, or wait for one to expire.',
-    pt: 'Recargas demais abertas neste saldo ({limit} em {windowMinutes} min). Pague uma delas, ou espere uma vencer.',
-    es: 'Demasiadas recargas abiertas en este saldo ({limit} en {windowMinutes} min). Paga una, o espera a que caduque.' },
+    en: 'You have too many top-ups open at once ({limit}). Wait a few minutes, or pay one of the codes you already generated.',
+    pt: 'Você está com recargas demais abertas ao mesmo tempo ({limit}). Espere alguns minutos, ou pague uma das que já gerou.',
+    es: 'Tienes demasiadas recargas abiertas a la vez ({limit}). Espera unos minutos, o paga una de las que ya generaste.' },
   // O documento do recebedor tem que ser o MESMO que o recibo mostra: um é
   // onde o dinheiro liquida, o outro é o que o cliente lê. Divergir é o
   // comprovante dizer uma coisa e o split fazer outra.

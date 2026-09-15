@@ -411,6 +411,14 @@ export default function App() {
           left: brl(Number(err.vars.leftCents ?? 0)),
           min: brl(Number(err.vars.minCents ?? 0)),
           max: brl(Number(err.vars.maxCents ?? 0)),
+          // `limit` e `windowMinutes` NÃO são dinheiro — são contagem e
+          // minutos. Faltavam aqui, e o resultado era o teto de cobranças
+          // chegando com `{limit}` e `{windowMinutes}` LITERAIS na tela, que é
+          // a mesma regressão que o comentário acima já registra pro `{max}`.
+          // Um censo de marcadores agora impede a terceira. Achado pela
+          // revisão de compliance de 2026-09-15 (HIGH-3).
+          limit: String(err.vars.limit ?? ''),
+          windowMinutes: String(err.vars.windowMinutes ?? ''),
         } : undefined));
       void refresh();
     }
