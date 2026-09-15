@@ -301,46 +301,50 @@ function cabecalhoDeEspera(err) {
  *    por hora e gastava os avisos do dia em três horas (as duas revisões de
  *    7a65e93). Pela geração porque girar o QR é o remédio: se o ataque volta na
  *    geração nova, isso é notícia, e pagina na hora;
- *  · no máximo TRÊS por casa por dia e DOZE no total. Sem o teto por casa, um
- *    token só esgotava os doze e calava todas as outras casas; e quando os doze
- *    acabam sai UM aviso dizendo que acabaram — antes, dali em diante o único
- *    rastro era uma linha de stderr (#8: canário vermelho pagina, não só
- *    registra). Os contadores diários são linhas de um dia no livro, e o
- *    expurgo respeita a janela de cada linha (0033);
- *  · se a ponte falhar, as vagas de alerta VOLTAM, cada uma no seu `try`, e
- *    esta instância espera um minuto antes de tentar de novo — sem o recuo,
- *    cada 429 seguinte custava duas RPCs e oito segundos de ponte;
- *  · o atalho local diz "não tente antes de": um minuto enquanto tenta ou
- *    depois de uma falha, seis horas só depois de um envio que saiu. Antes ele
- *    era marcado ANTES das reivindicações e valia quinze minutos, e um erro de
- *    RPC calava a conta nesta instância pelo quarto de hora inteiro;
+ *  · no máximo TRÊS por casa por dia E POR TIPO — mesa e recarga têm orçamentos
+ *    separados — e DOZE no total. Com um orçamento só por casa, um QR de mesa
+ *    abria carteiras, gastava os três da casa em "RECARGAS PAUSADAS… a conta da
+ *    mesa não é afetada" e então trancava a mesa, que ia só pro log
+ *    (compliance MEDIUM-A de 3a10835);
+ *  · orçamento cheio NUNCA é só log (#8): sai um aviso de SUSPENSÃO — da casa ou
+ *    global —, repetido a cada seis horas enquanto houver disparo contido. E a
+ *    vaga de deduplicação da conta VOLTA quando o orçamento recusa, pra que ela
+ *    pagine assim que houver orçamento (segurança L-B de 3a10835);
+ *  · toda vaga de alerta tomada VOLTA se o envio não sair — a ponte recusou OU
+ *    uma reivindicação seguinte estourou —, cada uma no seu `try`, e esta
+ *    instância recua: um minuto depois de falha, dez com o orçamento cheio, seis
+ *    horas só depois de um envio que saiu (compliance LOW-A de 3a10835);
  *  · nomeia a CASA e a MESA, e avisa o custo do remédio. Nome e rótulo são
- *    TEXTO DO DONO indo pro pager crítico do fundador: passam por uma lista de
- *    caracteres permitidos e vêm DEPOIS dos ids (segurança L3 de 7a65e93);
- *  · roda DEPOIS da resposta, e a Vercel só espera o que alguém pede que ela
- *    espere — ver `depoisDaResposta`.
+ *    TEXTO DO DONO indo pro pager crítico do fundador — ver `rotuloDoAviso`;
+ *  · roda DEPOIS da resposta só quando a Vercel promete esperar — ver
+ *    `responderEAvisar`.
  *
  * Pelo canal de alerta crítico do fundador, e não pelo de evento de dinheiro:
  * aquele rejeita `kind` desconhecido, e um evento próprio teria de ser aceito do
  * lado da Olímpia, na ponte — mudança em outro sistema que daqui não dá pra
- * verificar. Nunca lança: roda DEPOIS da recusa, que já saiu.
+ * verificar. Nunca lança.
  */
 const ALERTAS_DE_TETO_POR_DIA = 12;
 const ALERTAS_POR_CASA_POR_DIA = 3;
 const JANELA_DO_AVISO_MS = 6 * 60 * 60 * 1000;
 const RECUO_DO_AVISO_MS = 60 * 1000;
+const RECUO_COM_ORCAMENTO_CHEIO_MS = 10 * 60 * 1000;
 const UM_DIA_MS = 24 * 60 * 60 * 1000;
 const alertasRecentes = new Map(); // chave → "não tente antes de"; atalho local, não decisão
 
 /**
- * TEXTO DO DONO no pager do fundador: só letras, números, espaço e `'&()#-`,
- * quarenta caracteres. Sem link (`.`, `/` e `:` saem), sem quebra de linha,
- * sem um "clique aqui" com cara de sistema. O que se confere são os ids, que
- * vêm antes. (Segurança L3 de 7a65e93.)
+ * TEXTO DO DONO no pager do fundador. Só letras LATINAS (texto de casa é
+ * português ou espanhol), dígitos ASCII, espaço e `'&()#-`, depois de NFC, e
+ * quarenta caracteres; o `'?'` vem DEPOIS da limpeza. A primeira versão
+ * aceitava qualquer letra, marca ou dígito do Unicode, e uma varredura de
+ * pontos de código achou o que passava: letras INVISÍVEIS (os preenchedores do
+ * hangul — um nome só deles saía não vazio e em branco), seletores de variação,
+ * enxurrada de marcas, e sósias de ponto e barra ("evil٠comノpix"). O que se
+ * confere são os ids, que vêm antes. (Segurança L3 de 7a65e93, L-C de 3a10835.)
  */
 function rotuloDoAviso(v) {
   const limpo = String(v == null ? '' : v).normalize('NFC')
-    .replace(/[^\p{L}\p{M}\p{N} '&()#-]/gu, ' ').replace(/\s+/g, ' ').trim();
+    .replace(/[^\p{Script=Latin}0-9 '&()#-]/gu, ' ').replace(/\s+/g, ' ').trim();
   return [...limpo].slice(0, 40).join('').trim() || '?';
 }
 
@@ -353,30 +357,60 @@ async function devolverVagaDeAviso(claimId) {
 }
 
 /**
- * O QUE RODA DEPOIS DA RESPOSTA TEM DE PEDIR PRA VIVER.
- *
- * A recusa sai primeiro e o aviso depois — esperar o aviso segurava o 429 até
- * oito segundos. Mas na Vercel a função pode ser congelada assim que a
- * resposta termina: sem `waitUntil`, as reivindicações de alerta já gravadas
- * ficavam e o envio não saía — a conta calada por horas, um aviso do dia gasto,
- * e nada dizendo isso. As duas revisões de 7a65e93 acharam (segurança M1,
- * compliance M2). O `waitUntil` pede à plataforma que espere a promessa; o
- * `return` deixa o chamador esperar também, que é como o teste — e qualquer
- * runtime sem `waitUntil` — vê o aviso inteiro.
+ * O QUE RODA DEPOIS DA RESPOSTA TEM DE PEDIR PRA VIVER. Na Vercel a função pode
+ * ser congelada assim que a resposta termina; o `waitUntil` pede à plataforma
+ * que espere a promessa, e o `return` deixa o chamador esperar também. (As duas
+ * revisões de 7a65e93: segurança M1, compliance M2.)
  */
 function depoisDaResposta(promessa) {
   waitUntil(promessa);
   return promessa;
 }
 
+/**
+ * A VERCEL PROMETE ESPERAR? Ela publica o contexto da requisição — o `waitUntil`
+ * dela — num símbolo global, e é dele que o `@vercel/functions` lê: sem ele, o
+ * `waitUntil` do pacote não faz NADA, calado (`get-context.js` do pacote). Fora
+ * da Vercel o processo não congela na resposta, e esperar depois é seguro.
+ */
+function esperaDisponivel() {
+  if (!process.env.VERCEL) return true;
+  const ctx = globalThis[Symbol.for('@vercel/request-context')]?.get?.();
+  return Boolean(ctx && typeof ctx.waitUntil === 'function');
+}
+
+/**
+ * RESPONDE E AVISA, na ordem que entrega os dois. Com a espera garantida, a
+ * recusa sai primeiro (esperar o aviso segurava o 429 até oito segundos) e o
+ * aviso vive depois dela. SEM ela, na Vercel, "depois da resposta" é "talvez
+ * nunca": o aviso vem ANTES, e uma linha diz por quê — lento e entregue vence
+ * rápido e calado. Nada mostrava se o `waitUntil` roda em produção; esta linha
+ * mostra quando ele não roda. (Segurança L-A de 3a10835.)
+ */
+let semEsperaAvisado = false;
+async function responderEAvisar(enviar, err) {
+  if (!esperaDisponivel()) {
+    if (!semEsperaAvisado) {
+      semEsperaAvisado = true;
+      process.stderr.write('[teto] SEM waitUntil na Vercel: o aviso sai ANTES da resposta\n');
+    }
+    await avisarTetoDisparado(err);
+    enviar();
+    return;
+  }
+  enviar();
+  await depoisDaResposta(avisarTetoDisparado(err));
+}
+
 async function avisarTetoDisparado(err) {
   if (!err) return;
+  const tomadas = [];   // toda vaga de alerta reivindicada nesta chamada — volta se o envio não sair
   try {
-    let chave;
+    let chave; let tipo;
     if (err.code === 'too_many_pending_charges' && err.checkId) {
-      chave = `alerta:check:${err.checkId}:${err.qrGeneration || '-'}`;
+      chave = `alerta:check:${err.checkId}:${err.qrGeneration || '-'}`; tipo = 'mesa';
     } else if (err.code === 'too_many_pending_loads_venue' && err.venueId) {
-      chave = `alerta:venue:${err.venueId}`;
+      chave = `alerta:venue:${err.venueId}`; tipo = 'recarga';
     } else {
       return;
     }
@@ -384,46 +418,58 @@ async function avisarTetoDisparado(err) {
     if ((alertasRecentes.get(chave) || 0) > agora) return;
     if (alertasRecentes.size > 5000) alertasRecentes.clear();
     alertasRecentes.set(chave, agora + RECUO_DO_AVISO_MS);
-    const venue = err.code === 'too_many_pending_charges'
+    const venue = tipo === 'mesa'
       ? await store.getVenueForCheck(err.checkId)
       : await store.getVenue(err.venueId);
     if (isDemoVenue(venue)) return;
-    const aviso = await store.claimSlots({ keys: [chave], limits: [1], windowMs: JANELA_DO_AVISO_MS });
+    const tomar = async (keys, limits, windowMs) => {
+      const r = await store.claimSlots({ keys, limits, windowMs });
+      if (r.claimId !== null) tomadas.push(r.claimId);
+      return r;
+    };
+    const aviso = await tomar([chave], [1], JANELA_DO_AVISO_MS);
     if (aviso.claimId === null) return;
     const casaId = (venue && venue.id) || err.venueId || 'sem-casa';
-    const doDia = await store.claimSlots({
-      keys: [`alerta-dia:venue:${casaId}`, 'alerta-dia:global'],
-      limits: [ALERTAS_POR_CASA_POR_DIA, ALERTAS_DE_TETO_POR_DIA], windowMs: UM_DIA_MS,
-    });
+    const doDia = await tomar([`alerta-dia:venue:${casaId}:${tipo}`, 'alerta-dia:global'],
+      [ALERTAS_POR_CASA_POR_DIA, ALERTAS_DE_TETO_POR_DIA], UM_DIA_MS);
     // `nomeDaCasa`, e não o nome curto: um teste estrutural do app web acha a
     // emissão de `acceptsWallet` pela PRIMEIRA declaração da variável curta no
     // router, e a busca é por substring — este helper, mais acima, a sequestrava.
     const nomeDaCasa = rotuloDoAviso((venue && venue.name) || err.venueName);
-    let mensagem; let vagas;
+    const rotuloDaMesa = rotuloDoAviso(err.tableLabel);
+    let mensagem; let recuoAposEnvio = JANELA_DO_AVISO_MS;
     if (doDia.claimId !== null) {
-      vagas = [aviso.claimId, doDia.claimId];
-      mensagem = err.code === 'too_many_pending_charges'
-        ? `TETO DE COBRANÇAS DISPAROU — conta ${err.checkId} · casa ${nomeDaCasa} · mesa ${rotuloDoAviso(err.tableLabel)}. Uma mesa legítima não chega a este número: provável script usando o QR dessa mesa. Remédio: girar o QR dessa mesa no painel — a geração nova tem teto próprio e o atacante perde o token. ANTES de girar: quem está no meio de um pagamento perde a tela de confirmação (o QR antigo para de responder), e cobranças abertas com o código antigo ainda podem cair por até 15 minutos — confira no painel os pagamentos da mesa antes de cobrar no caixa, pra não cobrar duas vezes. Até lá, a mesa paga no caixa.`
+      mensagem = tipo === 'mesa'
+        ? `TETO DE COBRANÇAS DISPAROU — conta ${err.checkId} · casa ${nomeDaCasa} · mesa ${rotuloDaMesa}. Uma mesa legítima não chega a este número: provável script usando o QR dessa mesa. Remédio: girar o QR dessa mesa no painel — a geração nova tem teto próprio e o atacante perde o token. ANTES de girar: quem está no meio de um pagamento perde a tela de confirmação (o QR antigo para de responder), e cobranças abertas com o código antigo ainda podem cair por até 15 minutos e só aparecem no painel depois de confirmadas — antes de cobrar no caixa, espere esses 15 minutos ou pergunte na mesa se alguém já pagou; o que cair depois aparece no painel como valor a devolver. Enquanto a mesa estiver travada, ela paga no caixa.`
         : `RECARGAS PAUSADAS — casa ${casaId} · ${nomeDaCasa}: o teto de recargas da casa encheu, provável geração de contas de saldo em massa. A conta da mesa não é afetada.`;
-    } else if (doDia.fullIndex === 0) {
-      process.stderr.write(`[teto] aviso contido pelo teto da casa (${ALERTAS_POR_CASA_POR_DIA}/dia) — ${chave}\n`);
-      return;
     } else {
-      process.stderr.write(`[teto] aviso contido pelo teto diário (${ALERTAS_DE_TETO_POR_DIA}) — ${chave}\n`);
-      const suprimido = await store.claimSlots({ keys: ['alerta-dia:suprimido'], limits: [1], windowMs: UM_DIA_MS });
-      if (suprimido.claimId === null) return;
-      vagas = [aviso.claimId, suprimido.claimId];
-      mensagem = `AVISOS DE TETO SUSPENSOS: ${ALERTAS_DE_TETO_POR_DIA} avisos em 24 horas, e mais nenhum sai por aqui até o mais velho completar um dia. Os disparos seguintes só aparecem nos logs da função, nas linhas "[teto]" (o de agora: ${chave}). Um volume assim é ataque em várias mesas ou casas ao mesmo tempo.`;
+      // ORÇAMENTO CHEIO. A vaga da conta VOLTA — senão ela ficava calada seis
+      // horas depois de o orçamento abrir — e esta instância recua dez minutos.
+      await devolverVagaDeAviso(aviso.claimId);
+      tomadas.splice(tomadas.indexOf(aviso.claimId), 1);
+      alertasRecentes.set(chave, agora + RECUO_COM_ORCAMENTO_CHEIO_MS);
+      recuoAposEnvio = RECUO_COM_ORCAMENTO_CHEIO_MS;
+      const daCasa = doDia.fullIndex === 0;
+      process.stderr.write(`[teto] aviso contido pelo orçamento ${daCasa ? `da casa (${ALERTAS_POR_CASA_POR_DIA}/dia de ${tipo})` : `global (${ALERTAS_DE_TETO_POR_DIA}/dia)`} — ${chave}\n`);
+      const suspensao = await tomar([daCasa ? `alerta:suprimido:venue:${casaId}` : 'alerta:suprimido:global'], [1], JANELA_DO_AVISO_MS);
+      if (suspensao.claimId === null) return;
+      mensagem = daCasa
+        ? `AVISOS DA CASA SUSPENSOS — casa ${casaId} · ${nomeDaCasa}: ${ALERTAS_POR_CASA_POR_DIA} avisos de ${tipo} em 24 horas, e o teto disparou de novo${tipo === 'mesa' ? ` (conta ${err.checkId} · mesa ${rotuloDaMesa})` : ''}. Os próximos desta casa só aparecem nos logs da função, nas linhas "[teto]", e este aviso se repete a cada seis horas enquanto houver disparo contido. Mais de três mesas travadas numa casa num dia: girar no painel o QR de cada uma.`
+        : `AVISOS DE TETO SUSPENSOS: ${ALERTAS_DE_TETO_POR_DIA} avisos em 24 horas, e o teto disparou de novo. Os disparos seguintes só aparecem nos logs da função, nas linhas "[teto]" (o de agora: ${chave}), e este aviso se repete a cada seis horas enquanto houver disparo contido. Um volume assim é ataque em várias mesas ou casas ao mesmo tempo.`;
     }
     const r = await notifyFounderReconcile({
       mensagem, venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
     });
     if (r && r.ok === false) {
-      for (const v of vagas) await devolverVagaDeAviso(v);
-      return;   // o recuo curto fica: esta instância tenta de novo daqui a um minuto
+      for (const v of tomadas) await devolverVagaDeAviso(v);
+      alertasRecentes.set(chave, agora + RECUO_DO_AVISO_MS);   // tenta de novo daqui a um minuto
+      return;
     }
-    alertasRecentes.set(chave, agora + JANELA_DO_AVISO_MS);
+    alertasRecentes.set(chave, agora + recuoAposEnvio);
   } catch (e) {
+    // Uma reivindicação SEGUINTE estourou: as anteriores voltam, senão a conta
+    // ficava calada as seis horas da janela. (Compliance LOW-A de 3a10835.)
+    for (const v of tomadas) await devolverVagaDeAviso(v);
     process.stderr.write(`[teto] aviso ao operador não saiu: ${String(e && e.message).slice(0, 80)}\n`);
   }
 }
@@ -925,11 +971,8 @@ async function route(req, res) {
         if (e && e.code === 'too_many_pending_charges') {
           e.venueName = view.venue && view.venue.name; e.tableLabel = view.table && view.table.label;
         }
-        // A RECUSA SAI PRIMEIRO, o aviso depois: esperar o aviso segurava o 429
-        // até oito segundos (o prazo da ponte). (Segurança stand-in, LOW-2.) E
-        // o aviso pede à Vercel que espere por ele — ver `depoisDaResposta`.
-        json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e));
-        await depoisDaResposta(avisarTetoDisparado(e));
+        // A recusa e o aviso, na ordem que entrega os dois — ver `responderEAvisar`.
+        await responderEAvisar(() => json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e)), e);
         return;
       } finally {
         // A vaga volta SÓ se a Stripe nem foi chamada — ver `assertChargeSlot`.
@@ -2052,19 +2095,41 @@ async function route(req, res) {
       // 7a65e93). Sem a função, todo pagamento devolve 500; com outra versão,
       // os pagamentos passam e o expurgo e as guardas são os de antes. Pagina a
       // cada quinze minutos enquanto for verdade.
+      // DUAS sondas antes de chamar de erro: uma falha passageira da PostgREST
+      // paginava "ninguém consegue pagar". E a DIVERGÊNCIA pagina uma vez por
+      // hora por valor, não a cada quinze minutos — noventa e seis páginas por
+      // dia no canal do canário de conciliação ensinam a silenciar o canal
+      // (#8). O ERRO não deduplica: pode ser "ninguém paga", e o banco que
+      // deduplicaria é o que falhou. (Segurança L-D e compliance LOW-D de 3a10835.)
       let impressao = null; let erroDaSonda = null;
-      try { impressao = await store.slotsFingerprint(); } catch (e) { erroDaSonda = e; }
+      for (let tentativa = 0; tentativa < 2; tentativa += 1) {
+        try {
+          impressao = await store.slotsFingerprint(); erroDaSonda = null; break;
+        } catch (e) {
+          erroDaSonda = e;
+          if (tentativa === 0) await new Promise((ok) => setTimeout(ok, 1000));
+        }
+      }
       if (impressao !== IMPRESSAO_0033) {
         const detalhe = erroDaSonda
           ? `erro: ${String(erroDaSonda && erroDaSonda.message).slice(0, 160)}`
           : `impressão ${String(impressao).slice(0, 32)}, esperada ${IMPRESSAO_0033}`;
         process.stderr.write(`[reconcile-pending] a 0033 em produção não é a deste código — ${detalhe}\n`);
-        await notifyFounderReconcile({
-          mensagem: erroDaSonda
-            ? `A SONDA DO TETO FALHOU em produção — se a migração 0033 não estiver aplicada, NINGUÉM CONSEGUE PAGAR: todo /api/pay, /api/pay/stripe-intent e /api/house/load devolve 500. Aplicar supabase/migrations/0033_charge_slots.sql. ${detalhe}`
-            : `A 0033 EM PRODUÇÃO NÃO É A DESTE DEPLOY: as funções do teto instaladas diferem das que o código espera (${detalhe}). Os pagamentos passam, mas o expurgo e as guardas são os de outra versão. Reaplicar supabase/migrations/0033_charge_slots.sql pelo arquivo (psql -f ou supabase db push) — um editor que mexe em espaço em branco também muda a impressão.`,
-          venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
-        });
+        let paginar = true;
+        if (!erroDaSonda) {
+          try {
+            const r = await store.claimSlots({ keys: [`alerta:impressao:${String(impressao).slice(0, 32)}`], limits: [1], windowMs: 60 * 60 * 1000 });
+            paginar = r.claimId !== null;
+          } catch { paginar = true; }   // sem como deduplicar, pagina
+        }
+        if (paginar) {
+          await notifyFounderReconcile({
+            mensagem: erroDaSonda
+              ? `A SONDA DO TETO FALHOU DUAS VEZES em produção — se a migração 0033 não estiver aplicada, NINGUÉM CONSEGUE PAGAR: todo /api/pay, /api/pay/stripe-intent e /api/house/load devolve 500. Aplicar supabase/migrations/0033_charge_slots.sql com psql -f. ${detalhe}`
+              : `A 0033 EM PRODUÇÃO NÃO É A DESTE DEPLOY: as funções do teto instaladas diferem das que o código espera (${detalhe}). Os pagamentos passam, mas o expurgo e as guardas são os de outra versão. Reaplicar supabase/migrations/0033_charge_slots.sql pelo arquivo, com psql -f — o supabase db push pula uma versão já registrada, e esta migração foi editada no lugar; um editor que mexe em espaço em branco também muda a impressão. Este aviso se repete a cada hora enquanto for verdade.`,
+            venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+          });
+        }
       }
       // ?hours= amplia a janela pra uma varredura profunda manual (curar um
       // straggler antigo); sem ele, usa a janela padrão do reconciliador.
@@ -2456,13 +2521,12 @@ async function route(req, res) {
     // remédio pra "uma recusa que não diz por quanto tempo" estava vivo em zero
     // dos dois caminhos que recusam. Achado pela revisão de segurança de
     // 2026-09-15 (MEDIUM-4).
-    // A recusa sai primeiro, o aviso depois — ver o catch do intent da Stripe.
-    json(res, status, errorBody(err, status), cabecalhoDeEspera(err));
-    await depoisDaResposta(avisarTetoDisparado(err));
+    // A recusa e o aviso, na ordem que entrega os dois — ver `responderEAvisar`.
+    await responderEAvisar(() => json(res, status, errorBody(err, status), cabecalhoDeEspera(err)), err);
   }
 }
 
 // `registraMissDeCheck` e `clientIp` saem pro teste: a garantia que importa —
 // a resposta do 404 é SEMPRE a mesma, e o primeiro hop do XFF não é confiável —
 // é de COMPORTAMENTO, e censo de fonte não prova comportamento.
-module.exports = { route, store, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp };
+module.exports = { rotuloDoAviso, avisarTetoDisparado, route, store, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp };

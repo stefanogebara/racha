@@ -1,0 +1,4 @@
+# As migrações em LF, sempre: a impressão digital da 0033 (charge_slots_fingerprint)
+# é o md5 do TEXTO das funções, e um checkout com CRLF a mudava — o portão de
+# deploy recusava o banco certo, e o cron paginava. (Segurança L-D de 3a10835.)
+supabase/migrations/*.sql text eol=lf

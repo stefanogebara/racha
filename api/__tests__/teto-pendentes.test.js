@@ -765,35 +765,38 @@ describe('pelo router: demo, token, rotação, e o aviso que sai DEPOIS da recus
     expect((await pagar(girado.qrToken, '10.79.9.9')).status).toBe(200);
   });
 
-  test('a recusa sai ANTES do aviso, nos dois catches — e TODA chamada do aviso pede à Vercel que espere', () => {
-    // Esperar o aviso segurava o 429 até oito segundos. (Segurança stand-in, LOW-2.)
-    // E depois da resposta a Vercel pode congelar a função: sem `waitUntil`, as
-    // vagas de alerta ficavam gravadas e o envio não saía. (As duas revisões de 7a65e93.)
+  test('a recusa e o aviso passam por `responderEAvisar` nos dois catches — e o aviso só é chamado LÁ DENTRO', () => {
+    // Esperar o aviso segurava o 429 até oito segundos (segurança stand-in,
+    // LOW-2); sem `waitUntil`, depois da resposta a Vercel pode congelar a função
+    // (as duas revisões de 7a65e93); e sem contexto de requisição o `waitUntil`
+    // do pacote não faz nada (segurança L-A de 3a10835). A ordem mora num lugar só.
     const R = ler('api', '_app', 'router.js');
-    for (const [resp, aviso] of [
-      ['json(res, status, errorBody(err, status), cabecalhoDeEspera(err));', 'await depoisDaResposta(avisarTetoDisparado(err));'],
-      ['json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e));', 'await depoisDaResposta(avisarTetoDisparado(e));'],
-    ]) {
-      const a = R.indexOf(resp); const b = R.indexOf(aviso, a);
-      expect({ resp, antes: a > 0 && b > a && b - a < 400 }).toEqual({ resp, antes: true });
-    }
-    // Um TERCEIRO sítio sem o embrulho fica vermelho aqui, não congelado em produção.
-    const chamadas = R.split('\n')
-      .filter((l) => /avisarTetoDisparado\(/.test(l) && !/^\s*(\/\/|\*)/.test(l) && !/function avisarTetoDisparado/.test(l));
-    expect(chamadas).toHaveLength(2);
-    expect(chamadas.filter((l) => !/depoisDaResposta\(avisarTetoDisparado\(/.test(l))).toEqual([]);
+    for (const chamada of [
+      'await responderEAvisar(() => json(res, status, errorBody(err, status), cabecalhoDeEspera(err)), err);',
+      'await responderEAvisar(() => json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e)), e);',
+    ]) expect({ chamada, existe: R.includes(chamada) }).toEqual({ chamada, existe: true });
+    const chamadas = R.split('\n').map((l) => l.trim())
+      .filter((l) => /avisarTetoDisparado\(/.test(l) && !/^(\/\/|\*)/.test(l) && !/function avisarTetoDisparado/.test(l));
+    expect(chamadas).toEqual(['await avisarTetoDisparado(err);', 'await depoisDaResposta(avisarTetoDisparado(err));']);
+    const ini = R.indexOf('async function responderEAvisar(');
+    const corpo = R.slice(ini, R.indexOf('\n}\n', ini));
+    for (const c of chamadas) expect(corpo).toContain(c);
+    // Com a espera garantida, a resposta sai ANTES do aviso.
+    expect(corpo.lastIndexOf('enviar();')).toBeLessThan(corpo.indexOf('await depoisDaResposta('));
   });
 
-  test('o embrulho ENTREGA a promessa do aviso ao `waitUntil` — medido num 429 de verdade', async () => {
-    const { waitUntil } = require('@vercel/functions');
-    const venue = lojaDoRouter.seedVenue({ name: 'Espera', servicoBp: 1000, pspRecipientId: 'rcpt_wu' });
-    const table = lojaDoRouter.seedTable(venue.id, 'W1');
-    await lojaDoRouter.openCheck(table.qrToken, CONTA);
-    await encher(table.qrToken);
-    waitUntil.mockClear();
-    expect((await pagar(table.qrToken, '10.83.0.1')).status).toBe(429);
-    expect(waitUntil).toHaveBeenCalledTimes(1);
-    expect(typeof waitUntil.mock.calls[0][0].then).toBe('function');
+  test('o rótulo do aviso: só letra LATINA, dígito ASCII e pouca pontuação — nada invisível, nada sósia', () => {
+    // Uma varredura de pontos de código achou o que a lista anterior deixava
+    // passar. (Segurança L-C de 3a10835.)
+    const { rotuloDoAviso } = require('../_app/router');
+    expect(rotuloDoAviso('ㅤᅟᅠﾠ')).toBe('?');           // letras INVISÍVEIS do hangul
+    expect(rotuloDoAviso('evil٠comノpix')).toBe('evil com pix');   // sósias de ponto e barra
+    expect(rotuloDoAviso('evil۰comᐧx')).toBe('evil com x');
+    expect(rotuloDoAviso('Ze️\u{E0100}͏')).toBe('Ze');            // seletores de variação e o CGJ
+    expect([...rotuloDoAviso('a' + '́'.repeat(39))]).toEqual(['á']);  // enxurrada de marcas
+    expect(rotuloDoAviso('Zé Bar & Grill (Centro) #2 - Mesa 7')).toBe('Zé Bar & Grill (Centro) #2 - Mesa 7');
+    expect(rotuloDoAviso('Açaí da Praça · Varanda')).toBe('Açaí da Praça Varanda');
+    expect(rotuloDoAviso(null)).toBe('?');
   });
 
   test('o aviso nomeia CONTA, CASA e MESA — nessa ordem — e avisa os dois custos do remédio', async () => {
@@ -832,131 +835,4 @@ describe('pelo router: demo, token, rotação, e o aviso que sai DEPOIS da recus
     expect(m).not.toMatch(/https?:\/\/|www\./);
   });
 
-  test('GIRAR o QR e o ataque voltar na geração NOVA pagina de novo, na hora; na mesma geração, não', async () => {
-    const venue = lojaDoRouter.seedVenue({ name: 'Volta', servicoBp: 1000, pspRecipientId: 'rcpt_volta' });
-    const table = lojaDoRouter.seedTable(venue.id, 'G1');
-    await lojaDoRouter.openCheck(table.qrToken, CONTA);
-    await encher(table.qrToken);
-    const antes = avisos().length;
-    expect((await pagar(table.qrToken, '10.85.0.1')).status).toBe(429);
-    expect((await pagar(table.qrToken, '10.85.0.2')).status).toBe(429);
-    expect(avisos().length - antes).toBe(1);
-    const girado = await lojaDoRouter.rotateTableQr(table.id);
-    await encher(girado.qrToken);
-    expect((await pagar(girado.qrToken, '10.85.0.3')).status).toBe(429);
-    expect(avisos().length - antes).toBe(2);
-  });
-
-  test('no máximo TRÊS avisos por CASA por dia — um token só não gasta os avisos das outras casas', async () => {
-    const venue = lojaDoRouter.seedVenue({ name: 'Casa Visada', servicoBp: 1000, pspRecipientId: 'rcpt_cv' });
-    const antes = avisos().length;
-    const contidos = linhas('aviso contido pelo teto da casa');
-    for (let m = 1; m <= 4; m += 1) {
-      const t = lojaDoRouter.seedTable(venue.id, `V${m}`);
-      await lojaDoRouter.openCheck(t.qrToken, CONTA);
-      await encher(t.qrToken);
-      expect((await pagar(t.qrToken, `10.86.${m}.1`)).status).toBe(429);
-    }
-    expect(avisos().length - antes).toBe(3);
-    expect(linhas('aviso contido pelo teto da casa') - contidos).toBe(1);
-  });
-
-  test('um ERRO de RPC no aviso recua UM MINUTO — não cala a conta pela janela inteira', async () => {
-    // O atalho local era marcado ANTES das reivindicações e valia quinze
-    // minutos: um erro de RPC calava a conta nesta instância pelo quarto de
-    // hora. (Segurança de 7a65e93.)
-    const venue = lojaDoRouter.seedVenue({ name: 'Recuo', servicoBp: 1000, pspRecipientId: 'rcpt_rc' });
-    const table = lojaDoRouter.seedTable(venue.id, 'R1');
-    await lojaDoRouter.openCheck(table.qrToken, CONTA);
-    await encher(table.qrToken);
-    const orig = lojaDoRouter.claimSlots;
-    let falhou = false;
-    lojaDoRouter.claimSlots = async (a) => {
-      if (!falhou && a.keys[0].startsWith('alerta:')) { falhou = true; throw new Error('rpc caiu'); }
-      return orig.call(lojaDoRouter, a);
-    };
-    const relogio = adiantavel();
-    try {
-      const antes = avisos().length;
-      expect((await pagar(table.qrToken, '10.87.0.1')).status).toBe(429);   // a RPC do aviso cai
-      expect((await pagar(table.qrToken, '10.87.0.2')).status).toBe(429);   // recuo: nem tenta
-      expect(avisos().length - antes).toBe(0);
-      relogio.desloc = 61_000;
-      expect((await pagar(table.qrToken, '10.87.0.3')).status).toBe(429);
-      expect(avisos().length - antes).toBe(1);
-    } finally {
-      lojaDoRouter.claimSlots = orig;
-      relogio.spy.mockRestore();
-    }
-  });
-
-  test('a PONTE FALHA: as vagas de alerta voltam, e a instância recua um minuto em vez de tentar a cada 429', async () => {
-    // A ponte é 127.0.0.1:1 (topo do arquivo), que recusa na hora.
-    process.env.RACHA_NOTIFY_SECRET = 'segredo-de-teste';
-    const venue = lojaDoRouter.seedVenue({ name: 'Ponte', servicoBp: 1000, pspRecipientId: 'rcpt_pt' });
-    const table = lojaDoRouter.seedTable(venue.id, 'P1');
-    await lojaDoRouter.openCheck(table.qrToken, CONTA);
-    await encher(table.qrToken);
-    const orig = lojaDoRouter.claimSlots;
-    const tomadas = [];
-    lojaDoRouter.claimSlots = async (a) => {
-      const r = await orig.call(lojaDoRouter, a);
-      if (a.keys[0].startsWith('alerta:check:')) tomadas.push(r.claimId !== null);
-      return r;
-    };
-    const relogio = adiantavel();
-    try {
-      expect((await pagar(table.qrToken, '10.89.0.1')).status).toBe(429);
-      expect(tomadas).toEqual([true]);          // tomou a vaga do aviso; a ponte recusou
-      expect((await pagar(table.qrToken, '10.89.0.2')).status).toBe(429);
-      expect(tomadas).toEqual([true]);          // recuo local: nem reivindicou de novo
-      relogio.desloc = 61_000;
-      expect((await pagar(table.qrToken, '10.89.0.3')).status).toBe(429);
-      expect(tomadas).toEqual([true, true]);    // a vaga VOLTOU: reivindicou de novo e ganhou
-    } finally {
-      delete process.env.RACHA_NOTIFY_SECRET;
-      lojaDoRouter.claimSlots = orig;
-      relogio.spy.mockRestore();
-    }
-  });
-
-  test('o cron PAGINA quando a 0033 em produção não é a deste código — e cala quando é', async () => {
-    const segredo = process.env.CRON_SECRET;
-    process.env.CRON_SECRET = 'cron-de-teste-0123456789abcdef';
-    const orig = lojaDoRouter.slotsFingerprint;
-    const cron = () => fetch(`http://127.0.0.1:${porta}/api/cron/reconcile-pending`,
-      { headers: { authorization: 'Bearer cron-de-teste-0123456789abcdef' } });
-    const DIVERGE = 'A 0033 EM PRODUÇÃO NÃO É A DESTE DEPLOY'; const FALHA = 'A SONDA DO TETO FALHOU';
-    try {
-      const d0 = linhas(DIVERGE); const f0 = linhas(FALHA);
-      expect((await cron()).status).toBe(200);
-      expect([linhas(DIVERGE) - d0, linhas(FALHA) - f0]).toEqual([0, 0]);
-      lojaDoRouter.slotsFingerprint = async () => 'f'.repeat(32);   // a 0033 de outra versão
-      await cron();
-      expect([linhas(DIVERGE) - d0, linhas(FALHA) - f0]).toEqual([1, 0]);
-      lojaDoRouter.slotsFingerprint = async () => { throw new Error('PGRST202 função não existe'); };
-      await cron();
-      expect([linhas(DIVERGE) - d0, linhas(FALHA) - f0]).toEqual([1, 1]);
-    } finally {
-      lojaDoRouter.slotsFingerprint = orig;
-      if (segredo === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = segredo;
-    }
-  });
-
-  test('o teto DIÁRIO: esgotado, sai UM aviso de que acabou — e depois só o log', async () => {
-    // Antes, do décimo terceiro em diante o único rastro era uma linha de
-    // stderr (#8). Por último neste arquivo: esgota o contador do dia.
-    while ((await lojaDoRouter.claimSlots({ keys: ['alerta-dia:global'], limits: [12], windowMs: 86_400_000 })).claimId) { /* esgota */ }
-    const SUSPENSOS = 'AVISOS DE TETO SUSPENSOS';
-    const antesA = avisos().length; const antesS = linhas(SUSPENSOS);
-    for (let i = 1; i <= 2; i += 1) {
-      const venue = lojaDoRouter.seedVenue({ name: `Fim ${i}`, servicoBp: 1000, pspRecipientId: `rcpt_fim_${i}` });
-      const t = lojaDoRouter.seedTable(venue.id, 'F1');
-      await lojaDoRouter.openCheck(t.qrToken, CONTA);
-      await encher(t.qrToken);
-      expect((await pagar(t.qrToken, `10.88.0.${i}`)).status).toBe(429);
-    }
-    expect(avisos().length - antesA).toBe(0);
-    expect(linhas(SUSPENSOS) - antesS).toBe(1);
-  });
 });

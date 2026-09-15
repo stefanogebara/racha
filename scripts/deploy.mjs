@@ -169,8 +169,9 @@ let impressaoSondada = null;
 try { impressaoSondada = JSON.parse(corpoSonda); } catch { /* corpo não-JSON */ }
 if (sonda.status !== 200 || impressaoSondada !== IMPRESSAO_0033) {
   aborta(`a migração 0033 ATUAL não está aplicada em ${hostSondado} (impressão → ${sonda.status} ${corpoSonda.slice(0, 140)}; esperada "${IMPRESSAO_0033}").\n`
-    + '  Aplique supabase/migrations/0033_charge_slots.sql PRIMEIRO, pelo arquivo (psql -f ou supabase db push): sem ela todo pagamento\n'
-    + '  devolve 500, e com uma versão anterior o expurgo e as guardas são os de antes. Editor que mexe em espaço em branco muda a impressão.');
+    + '  Aplique supabase/migrations/0033_charge_slots.sql PRIMEIRO, pelo arquivo, com psql -f — o supabase db push pula uma versão já\n'
+    + '  registrada, e esta migração foi editada no lugar. Sem ela todo pagamento devolve 500; com uma versão anterior o expurgo e as\n'
+    + '  guardas são os de antes. Editor que mexe em espaço em branco muda a impressão (o .gitattributes fixa LF nas migrações).');
 }
 process.stdout.write(`✓ migração 0033 atual aplicada em ${hostSondado}, que é o banco de produção (impressão ${IMPRESSAO_0033.slice(0, 8)})\n`);
 

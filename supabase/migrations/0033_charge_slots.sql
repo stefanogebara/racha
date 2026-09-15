@@ -30,15 +30,20 @@
 --  · cobrança e recarga, janela de 15 min: `check:<uuid>:<geração do QR>` (a
 --    geração é hash de um token aleatório, não o token), `account:<uuid>`,
 --    `venue:<uuid>`;
---  · aviso ao operador, janela de 6 h: `alerta:check:<uuid>:<geração>` e
---    `alerta:venue:<uuid>`;
---  · contadores de aviso, janela de 1 dia: `alerta-dia:venue:<uuid>`,
---    `alerta-dia:global` e `alerta-dia:suprimido`.
--- O id de conta de saldo é pseudônimo, e é o único dado pessoal aqui. PRAZO:
--- cada linha carrega a PRÓPRIA janela (`window_seconds`), e o expurgo diário
--- (`purge_expired_personal_data`, redefinido abaixo) apaga a que passou dela.
--- As de cobrança e recarga ficam até cerca de 24 horas; as de aviso, que não
--- carregam dado pessoal (ids de conta da mesa e de casa), até cerca de 48.
+--  · aviso ao operador, janela de 6 h: `alerta:check:<uuid>:<geração>`,
+--    `alerta:venue:<uuid>`, e os de suspensão `alerta:suprimido:venue:<uuid>` e
+--    `alerta:suprimido:global`; o da impressão da 0033, janela de 1 h:
+--    `alerta:impressao:<md5>`;
+--  · contadores de aviso, janela de 1 dia: `alerta-dia:venue:<uuid>:mesa`,
+--    `alerta-dia:venue:<uuid>:recarga` e `alerta-dia:global`.
+-- Dado pessoal aqui, PSEUDÔNIMO: o id de conta de saldo, e o id de conta da mesa
+-- — este resolve pros pagamentos dela e, por uns meses, pro rótulo de quem pagou,
+-- o mesmo critério que faz do `txid` dado pessoal em `retencao.md` (a versão
+-- anterior deste texto dizia que as linhas de aviso não carregavam dado pessoal;
+-- compliance LOW-C de 3a10835). PRAZO: cada linha carrega a PRÓPRIA janela
+-- (`window_seconds`), e o expurgo diário (`purge_expired_personal_data`,
+-- redefinido abaixo) apaga a que passou dela: as de cobrança e recarga ficam até
+-- cerca de 24 horas, as de aviso até cerca de 48.
 
 create table if not exists public.charge_slots (
   claim_id uuid not null,

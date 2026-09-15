@@ -208,7 +208,12 @@ const SAIDA_FORA_DE_ROTA = [
   // recusa, e embrulhado em `depoisDaResposta` (o `waitUntil` da Vercel).
   'async function avisarTetoDisparado(err) {',
   'const r = await notifyFounderReconcile({',
+  // O `responderEAvisar`: a definição, as duas ordens (com e sem `waitUntil`),
+  // e a chamada no catch geral.
+  'async function responderEAvisar(enviar, err) {',
+  'await avisarTetoDisparado(err);',
   'await depoisDaResposta(avisarTetoDisparado(err));',
+  'await responderEAvisar(() => json(res, status, errorBody(err, status), cabecalhoDeEspera(err)), err);',
   'const charge = createChargeService({ store, psp });',
   'const demoCharge = createChargeService({ store, psp: demoPsp });',
   // As duas leituras de cobrança do `confirmDeps`, o helper que o aplicador de
@@ -349,6 +354,8 @@ describe('cron: quem escreve não degrada aberta', () => {
     'notifyOwnerRecipientStatus', 'notifyFounderActivationRadar', 'notifyPreviaBeacon',
     'notifyFounderReconcile', 'notifyFounderMoneyEvent', 'avisarEventoDeDinheiro',
     'handleNonLedgerMoneyEvent', 'writeBackToPos', 'fetch', 'avisarTetoDisparado',
+    // Quem responde E avisa: a rota que o chama alcança o pager.
+    'responderEAvisar',
   ];
 
   /**
