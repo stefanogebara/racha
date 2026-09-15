@@ -68,7 +68,7 @@ conciliação levanta `paid_after_close`.
 1. **Pergunte à mesa, ou confira o caixa.**
 2. **Se a mesa TAMBÉM pagou no caixa: devolva pelo adquirente o valor da marca**
    (consumo + serviço), como no passo 2 acima. O webhook registra a devolução e
-   a marca sai sozinha. **Não use "não pagou no caixa" pra registrar uma
+   a marca diminui no valor devolvido (se a cobrança também mostra `a devolver`, o estorno sai PRIMEIRO dessa sobra — confira as duas linhas). **Não use "não pagou no caixa" pra registrar uma
    devolução**: o serviço ficaria na base da folha (Lei 13.419/2017) sem ter
    voltado, e nada no razão diria que o dinheiro voltou. Devolução em dinheiro
    no caixa não tem registro aqui — por isso o adquirente.
@@ -79,6 +79,13 @@ conciliação levanta `paid_after_close`.
    e o serviço também é a devolver — não há pergunta, e não há botão.
 5. **Sem resposta, a pergunta não some**: depois de 48 horas ela vira
    `critical` na conciliação, como a dívida de restituição.
+
+6. **Se o estorno pelo adquirente NÃO for possível** — ele falhou e voltou, ou o
+   Pix passou dos 90 dias da devolução: devolva por fora e **registre**, com
+   `POST /api/checks/record-restitution` (a conta, a cobrança, o valor e a
+   referência). O teto dessa rota inclui a marca do pago-depois-de-fechar. **Na
+   referência, nada do cliente**: nem nome, nem CPF, nem chave Pix — o id E2E do
+   Pix, ou "dinheiro no caixa às 21h40". Ela fica num razão que não se apaga.
 
 **No primeiro deploy com isto**: todo pagamento atrasado ANTIGO, sem resposta,
 aparece como `critical` na primeira conciliação da noite. Avise as casas do

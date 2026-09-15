@@ -98,8 +98,13 @@ export default function Panel() {
   // sem texto livre no razão. Se a mesa pagou no caixa, a resposta NÃO é esta:
   // é devolver pelo adquirente, e a marca sai sozinha. (Compliance HIGH-1,
   // MEDIUM-1 e MEDIUM-3 de 41d1244.)
+  // Um clique por vez: dois cliques escreviam duas respostas, e a segunda virava
+  // uma marca que nada limpava (compliance LOW-A de 57c0d2e).
+  const [respondendo, setRespondendo] = useState<string | null>(null);
   const naoPagouNoCaixa = useCallback(async (checkId: string, txid: string) => {
+    if (respondendo) return;
     if (!window.confirm(t('panel.resolveConfirm'))) return;
+    setRespondendo(txid);
     try {
       await authedReq('/api/checks/resolve-issue', {
         method: 'POST',
@@ -109,8 +114,10 @@ export default function Panel() {
       await refresh();
     } catch (e) {
       window.alert(tErr(e));
+    } finally {
+      setRespondendo(null);
     }
-  }, [t, refresh, tErr]);
+  }, [t, refresh, tErr, respondendo]);
 
   if (error) return <main className="shell wide"><p className="muted center">{error}</p></main>;
   if (!data) return <main className="shell wide"><p className="muted center">{t('panel.loading')}</p></main>;
@@ -234,7 +241,7 @@ export default function Panel() {
               {(c.state.paidAfterClose || []).length > 0 && (
                 <span className="owed" style={{ color: 'var(--burgundy)', fontSize: 12 }}>
                   {(c.state.paidAfterClose || []).map((x) => (
-                    <em key={x.txid} style={{ display: 'block' }}>
+                    <em key={`${x.txid}:${x.sempreDevido ? 'devido' : 'pergunta'}`} style={{ display: 'block' }}>
                       {x.sempreDevido
                         ? t('panel.duplicateTip', { amount: brl(x.amountCents) })
                         : t('panel.paidAfterClose', { amount: brl(x.amountCents) })}{' '}
@@ -242,6 +249,7 @@ export default function Panel() {
                       {!x.sempreDevido && (
                         <>{' '}
                           <button className="linklike" style={{ fontSize: 12 }}
+                            disabled={respondendo !== null}
                             onClick={() => void naoPagouNoCaixa(c.checkId, x.txid)}>
                             {t('panel.notPaidAtTill')}
                           </button>

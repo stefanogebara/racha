@@ -29,6 +29,7 @@ const { normalizarDocumentoDaCasa, decidirDocumentoDoRecebedor, documentoPublica
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
+const { tetoDaRestituicao, payloadDaResolucao, autorDoRegistro } = require('../_lib/checks/restitution');
 const { allocateRestitution, allocateRefund } = require('../_lib/checks/split-engine');
 
 /**
@@ -78,6 +79,22 @@ const useSupabase = process.env.RACHA_STORE === 'supabase';
 const store = useSupabase
   ? require('../_lib/store/supabase').createSupabaseStore()
   : createMemoryStore();
+
+// PRODUÇÃO NÃO COBRA EM MODO DE DEMO. Sem `RACHA_STORE=supabase` o store é o
+// mapa em memória de UMA instância: a cobrança Pix de verdade seria gravada
+// numa instância e o webhook, noutra, receberia "txid desconhecido" — o
+// dinheiro chegava na casa e o razão nunca sabia. Sem `RACHA_PSP=pagarme`, casa
+// de verdade entregava BR Code de mentira. Nada no código nem no deploy
+// impedia (auditoria de backend C1). Em produção, faltando qualquer um, as rotas
+// de dinheiro recusam com código, e o cron de quinze minutos pagina.
+const CONFIG_DE_PRODUCAO_FALTANDO = process.env.VERCEL_ENV === 'production'
+  ? [!useSupabase && 'RACHA_STORE=supabase', process.env.RACHA_PSP !== 'pagarme' && 'RACHA_PSP=pagarme'].filter(Boolean)
+  : [];
+if (CONFIG_DE_PRODUCAO_FALTANDO.length) {
+  process.stderr.write(`[config] PRODUÇÃO SEM ${CONFIG_DE_PRODUCAO_FALTANDO.join(' e ')} — rotas de dinheiro em 503\n`);
+}
+const ROTA_DE_DINHEIRO = (caminho) => caminho === '/api/pay' || caminho === '/api/pay/stripe-intent'
+  || caminho === '/api/house/load' || caminho === '/api/house/redeem' || caminho.startsWith('/api/webhooks/');
 
 // PSP real por env (RACHA_PSP=pagarme + PAGARME_SECRET_KEY); mock é o
 // default — demo e testes seguem idênticos. Stable webhook secret in prod
@@ -260,15 +277,21 @@ const RANK = { critical: 3, high: 2, info: 1 };
  * 497bf87). Só código e centavos saem — ver o comentário na rota do painel.
  */
 const PRIMEIRO_NA_GRAVIDADE = { dispute_evidence_overdue: 3, dispute_evidence_due: 2 };
+const JUNTAR_NO_PAINEL = ['paid_after_close', 'paid_after_close_tip'];
 function projetarAchados(findings) {
-  const pagos = findings.filter((f) => f.code === 'paid_after_close');
-  const juntos = pagos.length <= 1 ? pagos : [{
-    severity: pagos.some((f) => f.severity === 'critical') ? 'critical' : 'high',
-    code: 'paid_after_close',
-    amountCents: pagos.reduce((soma, f) => soma + (f.amountCents || 0), 0),
-    count: pagos.length,
-  }];
-  return [...findings.filter((f) => f.code !== 'paid_after_close'), ...juntos]
+  // Os DOIS códigos do pago-depois-de-fechar se juntam, cada um no seu grupo:
+  // depois de 48 h, cinco `paid_after_close_tip` critical enchiam as vagas e
+  // escondiam um prazo de disputa (compliance LOW-D de 57c0d2e).
+  const juntar = (code) => {
+    const grupo = findings.filter((f) => f.code === code);
+    return grupo.length <= 1 ? grupo : [{
+      severity: grupo.some((f) => f.severity === 'critical') ? 'critical' : 'high',
+      code,
+      amountCents: grupo.reduce((soma, f) => soma + (f.amountCents || 0), 0),
+      count: grupo.length,
+    }];
+  };
+  return [...findings.filter((f) => !JUNTAR_NO_PAINEL.includes(f.code)), ...JUNTAR_NO_PAINEL.flatMap(juntar)]
     .sort((a, b) => ((RANK[b.severity] || 0) - (RANK[a.severity] || 0))
       || ((PRIMEIRO_NA_GRAVIDADE[b.code] || 0) - (PRIMEIRO_NA_GRAVIDADE[a.code] || 0)))
     .slice(0, 5)
@@ -751,6 +774,9 @@ async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   try {
     if (req.method === 'OPTIONS') return json(res, 200, {});
+    if (CONFIG_DE_PRODUCAO_FALTANDO.length && ROTA_DE_DINHEIRO(url.pathname)) {
+      return json(res, 503, { success: false, code: 'platform_misconfigured' });
+    }
 
     // --- diner (public) ------------------------------------------------------
     if (req.method === 'GET' && url.pathname === '/api/check') {
@@ -1415,7 +1441,15 @@ async function route(req, res) {
         idempotencyKey: b.idempotencyKey ?? null,
       });
       await writeBackToPos(data.checkId);
-      return json(res, 200, { success: true, data });
+      // O ESTADO DA CONTA sai pela projeção pública, como no `/api/check`. Saía
+      // cru: txids reais, motivo e prazo de disputa e as notas livres do dono
+      // ("reembolsei o Pedro no Pix 11 9…") pra quem tivesse uma carteira com a
+      // carga mínima e o QR da mesa (auditoria de backend H2).
+      const conta = data && data.check;
+      return json(res, 200, {
+        success: true,
+        data: conta && conta.state ? { ...data, check: { ...conta, state: publicCheckState(conta.state) } } : data,
+      });
     }
 
     // --- recebimento (PSP recipient) — o passo com latência do onboarding ----
@@ -1612,28 +1646,30 @@ async function route(req, res) {
         return json(res, 400, { success: false, code: 'resolve_failed' });
       }
       const issueVenue = await store.getVenueForCheck(b.checkId);
-      if (!issueVenue) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (!issueVenue) return json(res, 404, { success: false, code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, issueVenue.id); }
-      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
-      // A resposta ESCOPADA do pago-depois-de-fechar leva texto FIXO, escrito
-      // aqui: o razão é só-de-acréscimo, e texto livre de quem opera o caixa
-      // ("devolvi pro Pedro no Pix 11 9…") ficaria nele pra sempre, sem
-      // ferramenta de apagar (compliance MEDIUM-3 de 41d1244). E ela só limpa a
-      // pergunta do caixa — ver o redutor.
-      const escopo = b.scope === 'paid_after_close' ? 'paid_after_close' : undefined;
-      const note = escopo ? 'a mesa não pagou no caixa' : String(b.note || '').trim().slice(0, 200);
-      if (note.length < 3) {
+      catch (e) { return json(res, e.statusCode || 403, { success: false, code: 'forbidden' }); }
+      // O PAYLOAD sai de `payloadDaResolucao` (`_lib/checks/restitution.js`):
+      // resposta escopada com texto fixo, e o autor pelo id, não pelo e-mail.
+      // Mora lá pra ser testado — esta rota era o único escritor da resposta
+      // escopada, e tirar o `scope` daqui não quebrava teste nenhum
+      // (segurança LOW-1 de 57c0d2e).
+      const payload = payloadDaResolucao(b, user);
+      if (payload.note.length < 3) {
         return json(res, 400, { success: false, code: 'note_required' });
       }
       try {
-        const seq = await appendValidated(store, b.checkId, 'PAYMENT_ISSUE_RESOLVED', {
-          txid: String(b.txid), note, by: user.email || user.id || 'dono', ...(escopo ? { scope: escopo } : {}),
-        });
+        const seq = await appendValidated(store, b.checkId, 'PAYMENT_ISSUE_RESOLVED', payload);
         return json(res, 200, { success: true, data: { seq } });
       } catch (e) {
-        // Só o código: a mensagem do validador é texto interno, e o servidor não
-        // manda frase (compliance LOW-6 de 41d1244).
-        return json(res, e.statusCode || 400, { success: false, code: 'resolve_failed' });
+        // Só o código: a mensagem do validador é texto interno. E uma falha do
+        // BANCO não é erro de quem chamou: sai 500 e fica no log, em vez de um
+        // 400 que parecia culpa do cliente (compliance LOW-E de 57c0d2e).
+        if (!e.statusCode || e.statusCode >= 500) {
+          process.stderr.write(`[resolve-issue] falhou: ${String(e && e.message).slice(0, 160)}\n`);
+          return json(res, 500, { success: false, code: 'resolve_failed' });
+        }
+        return json(res, e.statusCode, { success: false, code: 'resolve_failed' });
       }
     }
 
@@ -1658,25 +1694,25 @@ async function route(req, res) {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.checkId || !b.txid) {
-        return json(res, 400, { success: false, error: 'checkId e txid são obrigatórios', code: 'amount_invalid' });
+        return json(res, 400, { success: false, code: 'amount_invalid' });
       }
       const restVenue = await store.getVenueForCheck(b.checkId);
-      if (!restVenue) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (!restVenue) return json(res, 404, { success: false, code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, restVenue.id); }
-      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, code: 'forbidden' }); }
       const valor = b.amountCents;
       if (!Number.isSafeInteger(valor) || valor <= 0) {
-        return json(res, 400, { success: false, error: 'amountCents inválido', code: 'amount_invalid' });
+        return json(res, 400, { success: false, code: 'amount_invalid' });
       }
       // A REFERÊNCIA não é enfeite: é o que prova a devolução se o cliente
       // abrir um MED depois, e o que evita a casa pagar duas vezes.
       const ref = String(b.reference || '').trim().slice(0, 120);
       if (ref.length < 3) {
-        return json(res, 400, { success: false, error: 'informe a referência da devolução', code: 'reference_required' });
+        return json(res, 400, { success: false, code: 'reference_required' });
       }
       const estado = reduce(await store.loadEvents(b.checkId));
       const pg = estado && estado.payments[String(b.txid)];
-      if (!pg) return json(res, 404, { success: false, error: 'pagamento desconhecido', code: 'txid_unknown' });
+      if (!pg) return json(res, 404, { success: false, code: 'txid_unknown' });
       /**
        * O TETO é o que este pagamento DEVE, não o que ele tem.
        *
@@ -1714,20 +1750,21 @@ async function route(req, res) {
        *
        * Achado pela revisão de compliance de 2026-09-09 (R-1).
        */
-      const aDevolver = Math.min(
-        Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-        Math.max(0, estado.overpaidCents || 0),
-      );
+      // O teto sai de `tetoDaRestituicao` (`_lib/checks/restitution.js`): o
+      // excedente devido — a regra acima — E a marca do pago-depois-de-fechar
+      // deste pagamento. Sem ela, um atrasado cujo estorno falhou, ou um Pix além
+      // dos 90 dias da devolução, não tinha jeito verdadeiro de fechar
+      // (compliance MEDIUM-A de 57c0d2e).
+      const aDevolver = tetoDaRestituicao(estado, String(b.txid)).teto;
       if (aDevolver === 0) {
         return json(res, 400, {
           success: false, code: 'nothing_to_restitute',
-          error: 'este pagamento não tem excedente a restituir — use o estorno pelo adquirente',
         });
       }
       if (valor > aDevolver) {
         return json(res, 400, {
           success: false, code: 'amount_over',
-          error: 'valor acima do excedente deste pagamento', vars: { leftCents: aDevolver },
+          vars: { leftCents: aDevolver },
         });
       }
       /**
@@ -1763,7 +1800,7 @@ async function route(req, res) {
           tipCents: partes.tipCents,
           offRail: true,
           reference: ref,
-          by: user.email || user.id || 'dono',
+          by: autorDoRegistro(user),
         });
         var partesGravadas = partes;
       } catch (e) {
@@ -2202,6 +2239,13 @@ async function route(req, res) {
             try { await store.releaseSlots(vagaDoAviso); } catch { /* fica: a janela é de uma hora */ }
           }
         }
+      }
+      if (CONFIG_DE_PRODUCAO_FALTANDO.length) {
+        process.stderr.write(`[reconcile-pending] produção sem ${CONFIG_DE_PRODUCAO_FALTANDO.join(' e ')}\n`);
+        await notifyFounderReconcile({
+          mensagem: `PRODUÇÃO SEM ${CONFIG_DE_PRODUCAO_FALTANDO.join(' E ')}: as rotas de pagamento estão recusando (503) em vez de cobrar num modo de demo. Configurar na Vercel e refazer o deploy.`,
+          venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+        });
       }
       // ?hours= amplia a janela pra uma varredura profunda manual (curar um
       // straggler antigo); sem ele, usa a janela padrão do reconciliador.

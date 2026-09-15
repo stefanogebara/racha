@@ -542,6 +542,9 @@ describe('os dois stores e o SQL dizem a mesma coisa', () => {
     expect({ sonda: sonda > 0, segredo: segredo > 0, host: host > 0 }).toEqual({ sonda: true, segredo: true, host: true });
     expect(Math.max(sonda, segredo, host)).toBeLessThan(push);
     expect(push).toBeLessThan(DEPLOY.indexOf('/v13/deployments?teamId='));
+    // E a loja e o adquirente de verdade, antes do push (auditoria de backend C1).
+    const loja = DEPLOY.indexOf("['RACHA_STORE', 'supabase']");
+    expect({ loja: loja > 0 && loja < push, psp: DEPLOY.includes("['RACHA_PSP', 'pagarme']") }).toEqual({ loja: true, psp: true });
     // Só a versão ATUAL tem esta impressão — o TEXTO das funções, não um
     // comportamento escolhido a dedo que a versão anterior também tinha: a
     // sonda do limite nulo passou sobre a 0033 velha (segurança M2 de 7a65e93).

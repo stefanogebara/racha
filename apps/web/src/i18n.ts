@@ -251,6 +251,13 @@ export const DICT = {
   'bizum.waiting':    { en: 'Waiting for your bank… It takes a few seconds.',
                         pt: 'Esperando seu banco… Leva alguns segundos.',
                         es: 'Esperando a tu banco… Tarda unos segundos.' },
+  // Produção sem a configuração de dinheiro (loja de verdade, adquirente de
+  // verdade): as rotas de pagamento recusam em vez de cobrar num modo de demo
+  // (auditoria de backend C1).
+  'err.platform_misconfigured': { en: 'Payments are unavailable at this restaurant right now — please pay at the till.',
+                        pt: 'Os pagamentos estão indisponíveis nesta casa agora — pague no caixa, por favor.',
+                        es: 'Los pagos no están disponibles en este local ahora — paga en caja, por favor.' },
+  'err.forbidden':    { en: 'You don’t have access to this restaurant.', pt: 'Você não tem acesso a esta casa.', es: 'No tienes acceso a este local.' },
   'err.amount_under_min': { en: 'The minimum for this payment method is {min}.',
                         pt: 'O mínimo para este meio de pagamento é {min}.',
                         es: 'El mínimo para este método de pago es {min}.' },
@@ -799,9 +806,11 @@ export const DICT = {
   // na base da folha. Devolução vai pelo adquirente, e a marca sai sozinha
   // (compliance HIGH-1 e MEDIUM-1 de 41d1244).
   'panel.notPaidAtTill': { en: 'did not pay at the till',         pt: 'não pagou no caixa', es: 'no pagó en caja' },
-  'panel.resolveConfirm': { en: 'Confirm that this table did NOT also pay at the till? If it did, don’t mark anything: refund this amount through the payment provider — the mark clears by itself.',
-                        pt: 'Confirmar que esta mesa NÃO pagou também no caixa? Se pagou, não marque nada: devolva este valor pelo adquirente — a marca sai sozinha.',
-                        es: '¿Confirmas que esta mesa NO pagó también en caja? Si pagó, no marques nada: devuelve este importe por el adquirente — la marca se quita sola.' },
+  // "A marca sai sozinha" não era verdade quando a cobrança também tem sobra: o
+  // estorno sai PRIMEIRO da sobra (compliance LOW-C de 57c0d2e).
+  'panel.resolveConfirm': { en: 'Confirm that this table did NOT also pay at the till? If it did, don’t mark anything: refund this amount through the payment provider — when the refund lands, the mark goes down by what was refunded.',
+                        pt: 'Confirmar que esta mesa NÃO pagou também no caixa? Se pagou, não marque nada: devolva este valor pelo adquirente — quando o estorno cair, a marca diminui no valor devolvido.',
+                        es: '¿Confirmas que esta mesa NO pagó también en caja? Si pagó, no marques nada: devuelve este importe por el adquirente — cuando llegue la devolución, la marca baja en lo devuelto.' },
   'panel.duplicateTip': { en: 'service charge from a duplicate payment, arrived after the bill closed: {amount} — owed back; refund it through the payment provider',
                         pt: 'serviço de um pagamento em duplicidade, que chegou depois de a conta fechar: {amount} — a devolver, pelo adquirente',
                         es: 'servicio de un pago duplicado, llegado después de cerrar la cuenta: {amount} — hay que devolverlo, por el adquirente' },

@@ -117,7 +117,9 @@ const EVENT_TYPES = Object.freeze([
    * O log continua íntegro: a falha do estorno fica lá com data e valor. O que
    * muda é a projeção parar de acusar.
    *
-   * Quem dispara é o dono, pelo painel. Registra QUEM e POR QUÊ, porque
+   * Quem dispara é o dono, pela rota `resolve-issue` — chamada à mão: nenhuma
+   * tela a usa pra falha de estorno (a tela só manda a resposta escopada do
+   * pago-depois-de-fechar). Registra QUEM e POR QUÊ, porque
    * "resolvido" sem autor é uma marca que qualquer um pode apagar.
    */
   'PAYMENT_ISSUE_RESOLVED',
@@ -228,9 +230,11 @@ function validateEvent(evt, prevState) {
       // qualquer jeito (compliance MEDIUM-2 de 41d1244).
       if (p.scope !== undefined) {
         if (p.scope !== 'paid_after_close') invalid(`PAYMENT_ISSUE_RESOLVED.scope desconhecido: ${p.scope}`);
-        const entrada = paidAfterClose(prevState).find((x) => x.txid === p.txid);
-        if (!entrada) invalid(`PAYMENT_ISSUE_RESOLVED: ${p.txid} não tem pergunta de pago-depois-de-fechar aberta`);
-        if (entrada.sempreDevido) invalid(`PAYMENT_ISSUE_RESOLVED: o serviço de ${p.txid} é de pagamento em duplicidade — devolva pelo adquirente`);
+        const entradas = paidAfterClose(prevState).filter((x) => x.txid === p.txid);
+        if (!entradas.some((x) => !x.sempreDevido)) {
+          if (entradas.length) invalid(`PAYMENT_ISSUE_RESOLVED: o que resta de ${p.txid} é serviço de pagamento em duplicidade — devolva pelo adquirente`);
+          invalid(`PAYMENT_ISSUE_RESOLVED: ${p.txid} não tem pergunta de pago-depois-de-fechar aberta`);
+        }
       }
       break;
     }
@@ -317,7 +321,14 @@ function applyEvent(state, evt, seq = null) {
           anomalies: [{ seq, type: evt && evt.type, reason: err.message }],
         };
       }
-      return withAnomaly(state, seq, evt && evt.type, err.message);
+      // A resposta ESCOPADA que chegou depois de a pergunta fechar — uma corrida
+      // com o estorno do adquirente, ou dois cliques — não é defeito de
+      // dinheiro: é informação. Como `high` e sem txid, virava uma marca que
+      // nada limpava (segurança LOW-2 e compliance LOW-A de 57c0d2e).
+      const respostaTardia = evt && evt.type === 'PAYMENT_ISSUE_RESOLVED'
+        && evt.payload && evt.payload.scope === 'paid_after_close';
+      return withAnomaly(state, seq, evt && evt.type, err.message,
+        respostaTardia ? (evt.payload.txid || null) : null, respostaTardia ? 'info' : 'high');
     }
     throw err; // programmer errors stay loud
   }
@@ -650,21 +661,34 @@ function lateTxids(state) {
  */
 function paidAfterClose(state) {
   if (!state) return [];
-  const atrasados = Object.entries(state.payments).filter(([, p]) => p.late && !p.lateResolved);
+  // TODOS os atrasados entram no rateio da sobra — os respondidos também. A
+  // resposta de uma linha não mexe mais no valor das irmãs, e a parte do serviço
+  // que corresponde à duplicidade continua devida depois da resposta (segurança
+  // MEDIUM-1 e compliance MEDIUM-C de 57c0d2e).
+  const atrasados = Object.entries(state.payments).filter(([, p]) => p.late);
   const liquido = (p) => Math.max(0, p.amountCents - (p.refundedAmountCents || 0));
   const pool = atrasados.reduce((soma, [, p]) => soma + liquido(p), 0);
   let aDescontar = Math.min(Math.max(0, state.overpaidCents || 0), pool);
-  const consumo = new Map();
+  const duplicado = new Map();
   for (const [txid, p] of [...atrasados].reverse()) {
     const d = Math.min(liquido(p), aDescontar);
     aDescontar -= d;
-    consumo.set(txid, liquido(p) - d);
+    duplicado.set(txid, d);
   }
   const out = [];
   for (const [txid, p] of atrasados) {
-    const c = consumo.get(txid);
+    const l = liquido(p);
+    const d = duplicado.get(txid);
     const servico = Math.max(0, (p.tipCents || 0) - (p.refundedTipCents || 0));
-    if (c + servico > 0) out.push({ txid, amountCents: c + servico, ...(c === 0 ? { sempreDevido: true } : {}) });
+    // O serviço ACOMPANHA o consumo: a fração dele que corresponde à parte
+    // duplicada é devida de qualquer jeito, arredondada a favor de quem pagou.
+    // A versão anterior só marcava "devido" quando a duplicidade era EXATA — um
+    // estorno de um centavo numa irmã e a resposta honesta apagava o serviço
+    // inteiro.
+    const servicoDevido = l > 0 ? Math.min(servico, Math.ceil((servico * d) / l)) : 0;
+    const pergunta = (l - d) + (servico - servicoDevido);
+    if (!p.lateResolved && pergunta > 0) out.push({ txid, amountCents: pergunta });
+    if (servicoDevido > 0) out.push({ txid, amountCents: servicoDevido, sempreDevido: true });
   }
   return out;
 }

@@ -112,6 +112,26 @@ if (!(envs.envs || []).some((e) => e.key === 'RACHA_NOTIFY_SECRET' && (e.target 
 }
 process.stdout.write('✓ RACHA_NOTIFY_SECRET configurado em production\n');
 
+// A LOJA E O ADQUIRENTE DE VERDADE. Sem `RACHA_STORE=supabase` a produção grava
+// no mapa em memória de uma instância; sem `RACHA_PSP=pagarme`, casa de verdade
+// recebe BR Code de mentira (auditoria de backend C1). A API recusa as rotas de
+// dinheiro nos dois casos — e o deploy nem começa. Os valores não são segredo:
+// dá pra dizer qual está errado.
+for (const [chave, esperado] of [['RACHA_STORE', 'supabase'], ['RACHA_PSP', 'pagarme']]) {
+  const env = (envs.envs || []).find((e) => e.key === chave && (e.target || []).includes('production'));
+  let valor = null;
+  if (env && env.id) {
+    const det = await fetch(`https://api.vercel.com/v1/projects/${PROJECT_ID}/env/${env.id}?teamId=${TEAM_ID}`, { headers })
+      .then((r) => r.json()).catch(() => ({}));
+    valor = det && typeof det.value === 'string' ? det.value.trim() : null;
+  }
+  if (valor !== esperado) {
+    process.stderr.write(`\n✗ ${chave} em production está ${valor === null ? 'AUSENTE' : `"${valor}"`}, e precisa ser "${esperado}" — deploy ABORTADO.\n`);
+    process.exit(1);
+  }
+  process.stdout.write(`✓ ${chave}=${esperado} em production\n`);
+}
+
 // O CANÁRIO DO ESQUEMA — "migração primeiro" deixa de ser uma frase.
 //
 // O teto de cobranças mora numa RPC (`claim_slots`, migração 0033) e o store

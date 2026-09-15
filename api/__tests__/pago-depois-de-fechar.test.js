@@ -20,6 +20,7 @@ const path = require('node:path');
 const { reduce, paidAfterClose, validateEvent } = require('../_lib/checks/check-state');
 const { reconcileCheck } = require('../_lib/checks/reconcile');
 const { formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
+const { tetoDaRestituicao, payloadDaResolucao, autorDoRegistro } = require('../_lib/checks/restitution');
 const { createMemoryStore } = require('../_lib/store/memory');
 
 const opened = (t) => ({ type: 'OPENED', payload: { totalCents: t } });
@@ -172,7 +173,57 @@ describe('pago depois de fechar — o caso calado', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', '_lib', 'store', 'supabase.js'), 'utf8');
     const i = src.indexOf('async getPanelView');
     const corpo = src.slice(i, src.indexOf('\n    async ', i + 10));
-    expect(corpo).toContain('paidAfterClose: paidAfterClose(state),');
+    // No COMEÇO da linha, sem `//`: um casamento de texto passava com a linha
+    // comentada (segurança LOW-3 de 57c0d2e).
+    expect(corpo).toMatch(/^\s*paidAfterClose: paidAfterClose\(state\),/m);
+  });
+
+  test('duplicidade PARCIAL: o serviço da parte duplicada fica devido — um centavo de estorno na irmã não o apaga', () => {
+    // Só a duplicidade EXATA marcava o serviço como devido: um estorno de um
+    // centavo numa irmã e a resposta honesta ("não pagou no caixa") apagava os
+    // 10 inteiros (segurança MEDIUM-1 e compliance MEDIUM-C de 57c0d2e).
+    const comCentavo = [opened(20000), paid('txA', 10000), paid('txB', 10000), closed(), paid('txC', 10000, 1000), refunded('txA', 1)];
+    const doC = (st) => paidAfterClose(st).filter((x) => x.txid === 'txC');
+    expect(doC(reduce(comCentavo))).toEqual([{ txid: 'txC', amountCents: 1 }, { txid: 'txC', amountCents: 1000, sempreDevido: true }]);
+    expect(doC(reduce([...comCentavo, resolvido('txC')]))).toEqual([{ txid: 'txC', amountCents: 1000, sempreDevido: true }]);
+  });
+
+  test('PROPRIEDADE: uma resposta aceita tira EXATAMENTE a pergunta daquele pagamento — nem o devido, nem as irmãs', () => {
+    // Antes, responder uma linha mexia no valor das irmãs, e a resposta podia
+    // levar o serviço devido junto. Trezentas contas geradas (gerador de 32
+    // bits exatos), cada pergunta aberta respondida uma de cada vez.
+    let semente = 11;
+    const rnd = (n) => { semente = (Math.imul(semente, 1664525) + 1013904223) >>> 0; return semente % n; };
+    let respostas = 0;
+    for (let caso = 0; caso < 300; caso += 1) {
+      const total = 1000 + rnd(50000);
+      const antes = rnd(3) === 0 ? [paid('pre', 500 + rnd(total))] : [];
+      const atrasados = Array.from({ length: 1 + rnd(4) }, (_, i) => ({ txid: `a${i}`, a: 100 + rnd(30000), tip: rnd(3000) }));
+      const ev = [opened(total), ...antes, closed(), ...atrasados.map((x) => paid(x.txid, x.a, x.tip))];
+      for (const x of atrasados) {
+        if (rnd(2) === 0) {
+          const r = rnd(x.a + 1); const rt = rnd(x.tip + 1);
+          if (r + rt > 0) ev.push(refunded(x.txid, r, rt));
+        }
+      }
+      const marcasAntes = paidAfterClose(reduce(ev));
+      for (const x of marcasAntes.filter((e) => !e.sempreDevido)) {
+        const depois = paidAfterClose(reduce([...ev, resolvido(x.txid)]));
+        const esperado = marcasAntes.filter((e) => !(e.txid === x.txid && !e.sempreDevido));
+        expect({ caso, txid: x.txid, depois }).toEqual({ caso, txid: x.txid, depois: esperado });
+        respostas += 1;
+      }
+    }
+    // O gerador EXERCITA: a lição do gerador degenerado que não separava nada.
+    expect(respostas).toBeGreaterThan(100);
+  });
+
+  test('uma resposta TARDIA — a pergunta já fechou — vira informação, não uma marca vermelha sem dono', () => {
+    // Uma corrida com o estorno do adquirente, ou dois cliques: a resposta chega
+    // quando não há mais pergunta. Era `high` sem txid, que nada limpava
+    // (segurança LOW-2 e compliance LOW-A de 57c0d2e).
+    const st = reduce([...MESA, refunded('txC', 10000), resolvido('txC')]);
+    expect(st.anomalies.find((a) => a.type === 'PAYMENT_ISSUE_RESOLVED')).toMatchObject({ severity: 'info', txid: 'txC' });
   });
 
   test('com EXCEDENTE inteiro quem grita é o overpaid — não dois achados pro mesmo dinheiro', () => {
@@ -261,5 +312,49 @@ describe('o que o dono vê primeiro — nem o painel nem o alerta da noite são 
     });
     expect(msg).toMatch(/prazo de prova da disputa/);
     expect(msg).not.toMatch(/chegou depois de a conta fechar/);
+  });
+});
+
+describe('as regras puras das duas rotas do dono — testadas sem HTTP', () => {
+  test('o teto da devolução REGISTRADA inclui a marca do pago-depois-de-fechar', () => {
+    // Sem ela, um atrasado cujo estorno falhou, ou um Pix além dos 90 dias, não
+    // tinha jeito verdadeiro de fechar (compliance MEDIUM-A de 57c0d2e).
+    const st = reduce(MESA);
+    expect(tetoDaRestituicao(st, 'txC')).toEqual({ excesso: 0, tardio: 10000, teto: 10000 });
+    expect(tetoDaRestituicao(st, 'txA')).toEqual({ excesso: 0, tardio: 0, teto: 0 });
+    const dup = reduce([opened(20000), paid('txA', 10000), paid('txB', 10000), closed(), paid('txC', 10000, 1000)]);
+    expect(tetoDaRestituicao(dup, 'txC')).toEqual({ excesso: 10000, tardio: 1000, teto: 11000 });
+    expect(tetoDaRestituicao(dup, 'nenhum')).toBeNull();
+  });
+
+  test('a resposta escopada grava texto FIXO e o autor pelo ID — o que o cliente mandar não entra', () => {
+    // A rota era o único escritor da resposta escopada e nada a testava: tirar
+    // o `scope` dela deixava tudo verde (segurança LOW-1 de 57c0d2e). E o autor
+    // pelo e-mail num razão que não se apaga (compliance LOW-F).
+    const dono = { id: 'u-1', email: 'dono@exemplo.com' };
+    expect(payloadDaResolucao({ txid: 'tx1', scope: 'paid_after_close', note: 'devolvi pro Pedro 11 9999' }, dono))
+      .toEqual({ txid: 'tx1', note: 'a mesa não pagou no caixa', by: 'u-1', scope: 'paid_after_close' });
+    expect(payloadDaResolucao({ txid: 'tx1', note: '  reembolsado por fora  ' }, dono))
+      .toEqual({ txid: 'tx1', note: 'reembolsado por fora', by: 'u-1' });
+    expect(payloadDaResolucao({ txid: 'tx1', scope: 'outro' }, dono).scope).toBeUndefined();
+    expect(autorDoRegistro({ email: 'dono@exemplo.com' })).toBe('dono');
+  });
+
+  test('as rotas usam as regras puras — e não as reescrevem', () => {
+    const R = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+    const trecho = (rota) => { const i = R.indexOf(`url.pathname === '${rota}'`); return R.slice(i, R.indexOf("url.pathname === '", i + 40)); };
+    expect(trecho('/api/checks/resolve-issue')).toMatch(/const payload = payloadDaResolucao\(b, user\);/);
+    expect(trecho('/api/checks/resolve-issue')).toMatch(/appendValidated\(store, b\.checkId, 'PAYMENT_ISSUE_RESOLVED', payload\)/);
+    expect(trecho('/api/checks/record-restitution')).toMatch(/tetoDaRestituicao\(estado, String\(b\.txid\)\)\.teto/);
+    expect(trecho('/api/checks/record-restitution')).toMatch(/by: autorDoRegistro\(user\)/);
+  });
+
+  test('os dois códigos do pago-depois-de-fechar se juntam no painel — o serviço critical não expulsa o prazo', () => {
+    // (Compliance LOW-D de 57c0d2e.)
+    const { projetarAchados } = require('../_app/router');
+    const servicos = [1, 2, 3, 4, 5].map((i) => ({ severity: 'critical', code: 'paid_after_close_tip', txid: `s${i}`, amountCents: i }));
+    const saida = projetarAchados([...servicos, { severity: 'high', code: 'dispute_evidence_due', txid: 'd1' }]);
+    expect(saida.map((f) => f.code)).toEqual(['paid_after_close_tip', 'dispute_evidence_due']);
+    expect(saida[0]).toEqual({ severity: 'critical', code: 'paid_after_close_tip', amountCents: 15, count: 5 });
   });
 });
