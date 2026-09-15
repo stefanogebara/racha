@@ -230,6 +230,19 @@ describe('o portão e o adaptador leem o MESMO valor', () => {
     expect(await pagarResponde(mod)).toBe(503);
   });
 
+  test('`NODE_ENV=test` NÃO derruba a produção — escape de teste não é campo de painel', async () => {
+    /**
+     * Com a lista de recusa, o `EM_TESTE` passou a poder tirar da produção
+     * QUALQUER grafia que não fosse `production` exata. `JEST_WORKER_ID` é a
+     * suíte que põe e ninguém mais; `NODE_ENV` é um campo que uma pessoa digita
+     * num painel — e as duas mãos juntas (`RACHA_ENV=prod` + `NODE_ENV=test`)
+     * reabriam o incidente C1 (segurança LOW-1 de 41b188a).
+     */
+    const { mod } = bootar({ RACHA_ENV: 'prod', NODE_ENV: 'test' });
+    expect(await pagarResponde(mod)).toBe(503);
+    expect(mod.psp.provider).toBe('unconfigured');
+  });
+
   test('preview e development seguem fora do portão, e a suíte também', async () => {
     expect(await pagarResponde(bootar({ RACHA_ENV: 'preview' }).mod)).not.toBe(503);
     expect(await pagarResponde(bootar({ VERCEL_ENV: 'development' }).mod)).not.toBe(503);

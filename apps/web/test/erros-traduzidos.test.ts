@@ -28,6 +28,19 @@ const semComentario = (fonte: string) => fonte
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/^\s*\/\/.*$/gm, '');
 
+/**
+ * OS NOMES DOS ESTADOS DE ERRO, DERIVADOS DO ARQUIVO — uma definição só.
+ *
+ * A primeira versão do censo enumerava quatro (`error|erro|payError|
+ * confirmError`) e a árvore tem mais: `loadError`, `submitError`. Quem
+ * "consertasse" o `AdminRecipient` com `{tErr(loadError)}` reproduzia o
+ * parágrafo vermelho VAZIO do painel com o censo verde (segurança LOW-2 de
+ * 41b188a). Fica aqui, e não dentro do teste, porque uma cópia da regra dentro
+ * do teste que a confere prova a cópia, não a regra.
+ */
+export const estadosDeErro = (fonte: string): string[] =>
+  [...fonte.matchAll(/const \[(\w+), set\w+\] = useState<string \| null>/g)].map((m) => m[1]);
+
 function fontes(dir: string, saida: string[] = []): string[] {
   for (const nome of readdirSync(dir, { withFileTypes: true })) {
     const cheio = join(dir, nome.name);
@@ -41,11 +54,19 @@ test('ninguém aplica tErr/tError a um estado de erro já traduzido', () => {
   const culpados: string[] = [];
   for (const f of fontes(SRC)) {
     const fonte = semComentario(readFileSync(f, 'utf8'));
-    // `tErr(error)`, `tErr(err)`, `tError(lang, error, error)` — o argumento é
-    // o ESTADO, não a exceção de um catch.
-    for (const m of fonte.matchAll(/\bt(?:Err|rErr|Error)\(\s*(?:lang\s*,\s*)?(error|erro|payError|confirmError)\b/g)) {
-      culpados.push(`${f.slice(SRC.length + 1)}: ${m[0]}`);
-    }
+    /**
+     * OS NOMES SAEM DO ARQUIVO, não de uma lista minha.
+     *
+     * A primeira versão enumerava quatro (`error|erro|payError|confirmError`) e
+     * a árvore tem mais: `loadError`, `submitError`, `err`. Quem "consertasse" o
+     * `AdminRecipient` com `{tErr(loadError)}` reproduzia o parágrafo vermelho
+     * VAZIO do painel com o censo verde (segurança LOW-2 de 41b188a). Agora todo
+     * `useState<string | null>` do próprio arquivo entra na busca.
+     */
+    const estados = estadosDeErro(fonte);
+    if (!estados.length) continue;
+    const alvo = new RegExp(`\\bt(?:Err|rErr|Error)\\(\\s*(?:lang\\s*,\\s*)?(${estados.join('|')})\\b`, 'g');
+    for (const m of fonte.matchAll(alvo)) culpados.push(`${f.slice(SRC.length + 1)}: ${m[0]}`);
   }
   assert.deepEqual(culpados, []);
 });
@@ -83,4 +104,18 @@ test('a marca do pagamento é limpa ANTES de cada cobrança nova', () => {
   assert.ok(inicio > -1, 'a limpeza da marca sumiu');
   assert.ok(inicio < criacao, 'a marca velha tem que sair ANTES de a cobrança nova existir');
   assert.ok(criacao < marcaNova && marcaNova < vaiPraPagar, 'a marca nova vem antes da tela de pagar');
+});
+
+test('os nomes dos estados de erro saem do ARQUIVO, não de uma lista minha', () => {
+  /**
+   * A primeira versão enumerava quatro nomes, e a árvore tem mais — quem
+   * "consertasse" o `AdminRecipient` com `{tErr(loadError)}` reproduzia o
+   * parágrafo vermelho VAZIO com o censo verde (segurança LOW-2 de 41b188a).
+   * Aqui a derivação é medida num arquivo que tem estados que a lista antiga não
+   * conhecia.
+   */
+  const fonte = semComentario(readFileSync(join(SRC, 'AdminRecipient.tsx'), 'utf8'));
+  const estados = estadosDeErro(fonte);
+  assert.ok(estados.includes('loadError'), 'a derivação perdeu loadError');
+  assert.ok(estados.includes('submitError'), 'a derivação perdeu submitError');
 });

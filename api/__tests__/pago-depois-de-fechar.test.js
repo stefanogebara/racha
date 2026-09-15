@@ -95,6 +95,32 @@ describe('pago depois de fechar — o caso calado', () => {
     expect(achados(reconcileCheck({ checkId: 'c1', events: MESA, payments: linhas(null) }))).toHaveLength(1);
   });
 
+  test('sem a LINHA do pagamento, o relógio das 48 h corre pelo razão', () => {
+    /**
+     * Ele lia só a linha de `payments`, e sem ela `horas` virava 0: a marca
+     * ficava `high` PRA SEMPRE e nunca subia pra `critical` — a dívida com o
+     * consumidor parava de subir de tom exatamente quando a projeção falhava,
+     * que é o cenário que o conserto da data foi escrito pra fechar
+     * (compliance MEDIUM-3 de 41b188a).
+     */
+    const comData = (at, ev) => ({ ...ev, created_at: at });
+    const velhoNoRazao = [
+      comData(horasAtras(8 * 24), opened(30000)),
+      comData(horasAtras(8 * 24), paid('txA', 10000)),
+      comData(horasAtras(8 * 24), paid('txB', 10000)),
+      comData(horasAtras(8 * 24), closed()),
+      comData(horasAtras(8 * 24), paid('txC', 10000)),
+    ];
+    const semLinhas = achados(reconcileCheck({ checkId: 'c1', events: velhoNoRazao, payments: [] }));
+    expect(semLinhas).toHaveLength(1);
+    expect(semLinhas[0].severity).toBe('critical');
+
+    // E a MAIS ANTIGA das duas fontes manda: linha recente, razão velho.
+    const linhaNova = linhas(horasAtras(1)).map((l) => ({ ...l }));
+    const misto = achados(reconcileCheck({ checkId: 'c1', events: velhoNoRazao, payments: linhaNova }));
+    expect(misto[0].severity).toBe('critical');
+  });
+
   test('INVARIANTE: marcas + sobra = dinheiro atrasado líquido, em qualquer ordem e com qualquer estorno de irmão', () => {
     // O excedente CONGELADO no pagamento fazia o valor depender da ordem de
     // chegada depois do estorno de um irmão: 200 ou 250 do que eram 250
@@ -123,6 +149,25 @@ describe('pago depois de fechar — o caso calado', () => {
         if (rnd(2) === 0) {
           const r = rnd(x.a + 1); const rt = rnd(x.tip + 1);
           if (r + rt > 0) ev.push(refunded(x.txid, r, rt));
+        }
+      }
+      /**
+       * E O PAGAMENTO DE ANTES DO FECHO também é estornado às vezes.
+       *
+       * O gerador só mexia nos ATRASADOS, e por isso nunca produzia o caso em
+       * que a duplicidade some porque o IRMÃO foi devolvido — o atrasado vira o
+       * pagador exato e legítimo da conta. Ali um serviço GANHO aparecia como
+       * "devolver de qualquer jeito", `critical` pra sempre, e o runbook mandava
+       * a casa pagar ao cliente o que ele não tinha a receber (segurança HIGH-1
+       * de 41b188a). O estorno que FALHA entra junto: ele devolve dinheiro à
+       * conta depois do fecho e pode CRIAR duplicidade onde não havia
+       * (compliance HIGH-1 da mesma rodada).
+       */
+      if (antes.length && rnd(3) === 0) {
+        const valor = 1 + rnd(antes[0].payload.amountCents);
+        ev.push(refunded('pre', valor, 0));
+        if (rnd(4) === 0) {
+          ev.push({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid: 'pre', amountCents: valor, tipCents: 0 } });
         }
       }
       const st = reduce(ev);
@@ -204,6 +249,25 @@ describe('pago depois de fechar — o caso calado', () => {
         if (rnd(2) === 0) {
           const r = rnd(x.a + 1); const rt = rnd(x.tip + 1);
           if (r + rt > 0) ev.push(refunded(x.txid, r, rt));
+        }
+      }
+      /**
+       * E O PAGAMENTO DE ANTES DO FECHO também é estornado às vezes.
+       *
+       * O gerador só mexia nos ATRASADOS, e por isso nunca produzia o caso em
+       * que a duplicidade some porque o IRMÃO foi devolvido — o atrasado vira o
+       * pagador exato e legítimo da conta. Ali um serviço GANHO aparecia como
+       * "devolver de qualquer jeito", `critical` pra sempre, e o runbook mandava
+       * a casa pagar ao cliente o que ele não tinha a receber (segurança HIGH-1
+       * de 41b188a). O estorno que FALHA entra junto: ele devolve dinheiro à
+       * conta depois do fecho e pode CRIAR duplicidade onde não havia
+       * (compliance HIGH-1 da mesma rodada).
+       */
+      if (antes.length && rnd(3) === 0) {
+        const valor = 1 + rnd(antes[0].payload.amountCents);
+        ev.push(refunded('pre', valor, 0));
+        if (rnd(4) === 0) {
+          ev.push({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid: 'pre', amountCents: valor, tipCents: 0 } });
         }
       }
       const marcasAntes = paidAfterClose(reduce(ev));

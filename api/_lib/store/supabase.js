@@ -1,5 +1,7 @@
 'use strict';
 
+const { nomeDaRestricao } = require('./pg-erro');
+
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
 const { documentoPublicavelDaCasa } = require('../br/documento.js');
 const { confirmedMoney } = require('./confirmed-money');
@@ -89,9 +91,8 @@ function throwOn(error, op) {
   // código: quem decide o que ele prova é o classificador. Sem isto, QUALQUER
   // unicidade virava "já registrado" — inclusive a `(check_id, seq)` do razão,
   // que significaria o oposto (compliance LOW-1 de d7f2683).
-  const texto = `${error.message || ''} ${error.details || ''}`;
-  const achado = texto.match(/unique constraint "([a-z0-9_]+)"/i);
-  if (achado) e.pgConstraint = achado[1];
+  const nome = nomeDaRestricao(`${error.message || ''} ${error.details || ''}`);
+  if (nome) e.pgConstraint = nome;
   throw e;
 }
 

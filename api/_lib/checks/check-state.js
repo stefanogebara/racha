@@ -762,15 +762,39 @@ function paidAfterClose(state) {
      */
     const base = Math.max(0, p.amountCents || 0);
     const duplicadoOriginal = Math.min(Math.max(0, p.excessCents || 0), base);
-    const devidoOriginal = base > 0
-      ? Math.ceil(((p.tipCents || 0) * duplicadoOriginal) / base) : 0;
-    const servicoDevido = Math.max(0, Math.min(
-      servico,
-      devidoOriginal - (p.refundedTipCents || 0),
-      // Nunca mais do que a fatia do que AINDA está pago, quando a duplicidade
-      // do momento é maior que a original (a conta encolheu depois).
-      Math.max(devidoOriginal, l > 0 ? Math.ceil((servico * d) / l) : 0),
-    ));
+    /**
+     * A DUPLICIDADE VIGENTE: o que a conta não precisa deste pagamento AGORA,
+     * mais a parte duplicada que ele mesmo já devolveu — porque ela aconteceu, e
+     * os 10% sobre ela continuam sendo do cliente até voltarem.
+     *
+     * As duas revisões de 41b188a chegaram aqui por caminhos opostos, e nenhuma
+     * das duas fórmulas propostas servia sozinha:
+     *
+     *  · pela ORIGINAL (`excessCents` de quando o pagamento entrou), o serviço
+     *    sobrevivia ao estorno do principal — mas um pagamento que VIRA
+     *    duplicado depois (um estorno que falha e devolve dinheiro à conta
+     *    depois do fecho) ficava com `excessCents` zero e o serviço dele caía
+     *    como pergunta, com botão: um clique apagava R$ 6,00 do cliente
+     *    (compliance HIGH-1);
+     *  · pelo momento (`d / l`), bastava estornar o pagamento IRMÃO pra que um
+     *    serviço legitimamente ganho virasse "devolver de qualquer jeito",
+     *    `critical` pra sempre, e o runbook mandasse a casa pagar ao cliente um
+     *    dinheiro que ele não tem a receber — tirando 10% da base da folha
+     *    (segurança HIGH-1).
+     *
+     * `d` responde a primeira: ele acompanha a sobra VIVA, então a duplicidade
+     * que nasce depois entra e a que deixa de existir sai. O `min(devolvido,
+     * duplicadoOriginal)` responde a segunda: só a devolução DESTE pagamento, e
+     * só até onde ele era duplicado, é somada de volta.
+     */
+    const dupVigente = Math.min(
+      base,
+      d + Math.min(Math.max(0, p.refundedAmountCents || 0), duplicadoOriginal),
+    );
+    const devidoBruto = base > 0 ? Math.ceil(((p.tipCents || 0) * dupVigente) / base) : 0;
+    // O que já voltou de gorjeta abate: a marca não pede de volta o que a casa
+    // já devolveu.
+    const servicoDevido = Math.max(0, Math.min(servico, devidoBruto - (p.refundedTipCents || 0)));
     const pergunta = (l - d) + (servico - servicoDevido);
     if (!p.lateResolved && pergunta > 0) out.push({ txid, amountCents: pergunta });
     if (servicoDevido > 0) out.push({ txid, amountCents: servicoDevido, sempreDevido: true });

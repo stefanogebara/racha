@@ -125,7 +125,13 @@ conciliação levanta `paid_after_close`.
 
    | resposta | o que aconteceu | o que fazer |
    |---|---|---|
-   | `200 {duplicate: true, recorded: {...}}` | esta referência já estava registrada | nada — confira em `recorded` se o valor é o que você quis |
+   | `200 {seq, amountCents, tipCents}` | registrado | confira no painel que a marca caiu |
+   | `200 {duplicate: true, recorded: {...}}` | esta referência já estava registrada | nada — confira em `recorded` se o valor é o que você quis; se vier `null`, confira a conta no painel |
+   | `400 amount_invalid` | faltou `checkId`/`txid`, ou o valor não é inteiro positivo | confira o corpo do pedido |
+   | `404 check_not_found` | não existe conta com esse `checkId` | confira o id |
+   | `403 forbidden` | esta conta não é de uma casa sua | confira o id |
+   | `404 txid_unknown` | essa cobrança não é desta conta | confira o `txid` — é o erro de digitação mais comum |
+   | `400 restitution_failed` | o razão recusou o lançamento | confira valor e cobrança |
    | `409 restitution_conflict` | a conta mudou no meio; **nada foi gravado** | recarregue, confira o teto, registre de novo |
    | `400 use_acquirer_refund` | o trilho do adquirente ainda está aberto | devolva por lá (passo 2) |
    | `400 nothing_to_restitute` | esta cobrança não deve nada de volta | confira se é a cobrança certa |

@@ -88,9 +88,21 @@ function tetoDaRestituicao(estado, txid, opcoes = {}) {
   const prazoDias = Object.prototype.hasOwnProperty.call(PRAZO_DO_TRILHO_DIAS, meio)
     ? PRAZO_DO_TRILHO_DIAS[meio] : null;
   const prazoConhecido = prazoDias !== null;
-  // A DATA do razão primeiro; a linha de `payments` é reserva (ela cobre os
-  // pagamentos gravados antes de o razão passar a carregar `created_at`).
-  const quando = Date.parse(pg.confirmedAt || (opcoes && opcoes.confirmedAt) || '');
+  /**
+   * A DATA, pela MAIS ANTIGA das duas fontes.
+   *
+   * O razão carrega o `created_at` do evento (imutável) e a linha de `payments`
+   * carrega o `confirmed_at`, que o reparo preserva com `coalesce` e por isso
+   * pode ser ANTERIOR — a conciliação que confirma um pagamento tarde grava o
+   * evento hoje sobre um dinheiro que entrou semana passada. Os 90 dias do Pix
+   * correm da TRANSAÇÃO (Res. BCB nº 1/2020 c/c 103/2021), então a mais antiga é
+   * a mais próxima da verdade — e é a que fecha o trilho mais cedo, que é o lado
+   * seguro: fechar cedo custa uma devolução pelo adquirente; abrir tarde
+   * autoriza atestação sem testemunha.
+   */
+  const candidatas = [Date.parse(pg.confirmedAt || ''), Date.parse((opcoes && opcoes.confirmedAt) || '')]
+    .filter((n) => Number.isFinite(n));
+  const quando = candidatas.length ? Math.min(...candidatas) : NaN;
   const dataConhecida = Number.isFinite(quando);
   const foraDoPrazo = prazoDias !== null && dataConhecida
     && (Date.now() - quando) > prazoDias * DIA_MS;
@@ -98,11 +110,25 @@ function tetoDaRestituicao(estado, txid, opcoes = {}) {
   // POR QUE ele é impossível entra no razão junto com a devolução: uma
   // auditoria trabalhista tem de distinguir a devolução TESTEMUNHADA pelo
   // adquirente da que o dono atestou (compliance MEDIUM-5 de ec86b37).
-  const motivo = estornoFalhou ? 'refund_reversed'
-    : (foraDoPrazo ? `${meio}_${prazoDias}d` : null);
-  const tardio = trilhoImpossivel
-    ? paidAfterClose(estado).filter((x) => x.txid === txid).reduce((soma, x) => soma + x.amountCents, 0)
-    : 0;
+  // O PRAZO vencido fecha o trilho INTEIRO; o estorno que falhou vale só o que
+  // ele deixou de devolver.
+  const motivo = foraDoPrazo ? `${meio}_${prazoDias}d`
+    : (estornoFalhou ? 'refund_reversed' : null);
+  const marca = paidAfterClose(estado)
+    .filter((x) => x.txid === txid)
+    .reduce((soma, x) => soma + x.amountCents, 0);
+  /**
+   * E A TESTEMUNHA TEM TAMANHO.
+   *
+   * `reversedOpenCents` ganhou valor na rodada passada, mas quem o lia ainda o
+   * tratava como sim/não: dez centavos de estorno que falharam autorizavam o
+   * dono a declarar a marca INTEIRA como devolvida por fora — R$ 109,10 de
+   * atestação em cima de dez centavos de testemunha do adquirente, com o trilho
+   * do Pix aberto pro resto (compliance HIGH-2 e segurança MEDIUM-1 de
+   * 41b188a). O teto agora vale o que o adquirente de fato deixou de devolver.
+   */
+  const tardio = foraDoPrazo ? marca
+    : (estornoFalhou ? Math.min(marca, Math.max(0, pg.reversedOpenCents || 0)) : 0);
   const liquido = Math.max(0, pg.amountCents - (pg.refundedAmountCents || 0))
     + Math.max(0, (pg.tipCents || 0) - (pg.refundedTipCents || 0));
   return {

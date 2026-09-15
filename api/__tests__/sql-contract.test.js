@@ -65,6 +65,35 @@ function valoresDaRestricao(sql, tabela, coluna) {
   return new Set([...ultimo.matchAll(/'([^']+)'/g)].map((m) => m[1]));
 }
 
+/**
+ * A VARREDURA, UMA SÓ — usada na fonte de verdade e nas fontes SINTÉTICAS do
+ * teste das isenções. Enquanto eram duas cópias, mutar a de verdade (tirar o
+ * `pgConstraint` do padrão, por exemplo) não deixava nenhum teste vermelho:
+ * a cópia do teste continuava provando o comportamento antigo.
+ */
+const leiturasQueDECIDEM = (fonte) => {
+  const achados = [];
+  for (const m of fonte.matchAll(/\bpg(?:Code|Constraint)\b/g)) {
+    const nome = m[0];
+    const antes = fonte.slice(Math.max(0, m.index - 60), m.index);
+    const linha = fonte.slice(Math.max(0, m.index - 120), m.index + 60).replace(/\s+/g, ' ').trim();
+    // ESCRITA (`e.pgCode = ...`) não é leitura.
+    if (new RegExp(`^${nome}\\s*=[^=]`).test(fonte.slice(m.index, m.index + nome.length + 6))) continue;
+    // E a forma de LITERAL ou CHAMADA (`{ pgCode: '40001' }`, `{ pgConstraint:
+    // nomeDaRestricao(msg) }`), que o dublê usa pra produzir o erro na forma
+    // que o `throwOn` produz. Um RENOME de desestruturação (`{ pgCode: x }`)
+    // não tem aspas nem parêntese depois do nome, então segue sendo pego — foi
+    // a fuga que a revisão de d7f2683 provou.
+    if (new RegExp(`^${nome}\\s*:\\s*(?:['"\`\\d]|[A-Za-z_$][\\w$]*\\()`)
+      .test(fonte.slice(m.index, m.index + nome.length + 40))) continue;
+    // Dentro de uma interpolação (`${e.pgCode}`) é texto, não decisão.
+    if (/\$\{[^}]*$/.test(antes)) continue;
+    achados.push({ linha, indice: m.index, antes });
+  }
+  return achados;
+};
+
+
 describe('o esquema aceita exatamente o que o código escreve', () => {
   test('check_events.type conhece TODOS os EVENT_TYPES', () => {
     const sql = sqlNaOrdem();
@@ -815,7 +844,7 @@ test('a imagem ANTERIOR do reparo nunca perde um campo', () => {
  * Então o campo tem UM leitor, e ele é a função cujo trabalho é decidir o que o
  * código prova. Achado pela revisão de segurança de 2026-09-09 (LOW-4).
  */
-test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
+test('`pgCode` e `pgConstraint` só são lidos pelo classificador', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const raiz = path.join(__dirname, '..');
@@ -843,54 +872,57 @@ test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
     const fonte = fs.readFileSync(p, 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
-    // `\bpgCode\b`, não `\.pgCode`: um decisor escrito como
-    // `const { pgCode } = e; if (pgCode) ...` não tem acesso pontuado e passava
-    // verde. A minha mutação usou a forma pontuada, que é por isso que ela
-    // falhou como esperado. (LOW-3 da revisão de segurança de 2026-09-09.)
-    for (const m of fonte.matchAll(/\bpgCode\b/g)) {
-      const antes = fonte.slice(Math.max(0, m.index - 60), m.index);
-      const linha = fonte.slice(Math.max(0, m.index - 120), m.index + 60).replace(/\s+/g, ' ').trim();
-      // ESCRITA (`e.pgCode = ...`) não é leitura. Casa a partir do nome, porque
-      // o match agora é a palavra e não o acesso pontuado.
-      if (/^pgCode\s*=[^=]/.test(fonte.slice(m.index, m.index + 14))) continue;
-      /**
-       * E a forma de LITERAL (`{ pgCode: '40001' }`), que o dublê do store usa
-       * pra produzir o erro na mesma forma que o `throwOn` do Supabase produz.
-       * Também é escrita.
-       *
-       * O VALOR tem de ser literal. `pgCode:` sozinho também casa o RENOME de
-       * uma desestruturação — `const { pgCode: sqlstate } = e` — e aí a decisão
-       * que vem depois (`if (sqlstate === '23505')`) não tem a palavra `pgCode`
-       * em lugar nenhum: some do censo inteiro. A revisão de segurança de
-       * d7f2683 provou a fuga (MEDIUM-2), e o cabeçalho acima já registrava a
-       * IRMÃ dela (a desestruturação sem renome) como achado anterior — a
-       * isenção nova reabriu a família.
-       *
-       * Exigindo string ou número depois dos dois-pontos, `{ pgCode: '40001' }`
-       * segue isento e `{ pgCode: sqlstate }` volta a ser pego.
-       */
-      if (/^pgCode\s*:\s*['"`\d]/.test(fonte.slice(m.index, m.index + 20))) continue;
-      // Dentro de uma interpolação (`${e.pgCode}`) é texto, não decisão.
-      if (/\$\{[^}]*$/.test(antes)) continue;
-      decisoes.push({ arquivo: path.relative(raiz, p), linha });
+    for (const achado of leiturasQueDECIDEM(fonte)) {
+      decisoes.push({ arquivo: path.relative(raiz, p), ...achado });
     }
   }
 
   /**
-   * TODA decisão passa pelo classificador — e o classificador pode crescer.
+   * TODA decisão está DENTRO do classificador — contido, não por vizinhança.
    *
-   * A versão anterior exigia EXATAMENTE uma leitura, o que era um atalho pra
-   * dizer a coisa certa: ninguém decide por SQLSTATE fora do lugar onde a lista
-   * branca e o porquê dela estão escritos. Quando a devolução condicional da
-   * 0034 precisou distinguir "o razão andou" de "já registrada", a resposta
-   * certa foi acrescentar `desfechoDoLancamento` AO LADO da `recusaProvada` —
-   * e o contador teria empurrado esse código pra dentro da rota, que é
-   * exatamente o que este teste existe pra impedir.
+   * A versão anterior exigia que a linha da leitura tivesse `recusaProvada(`
+   * numa janela de 180 caracteres. Isso é PROXIMIDADE: um `if (err.pgCode ===
+   * '23505')` novo, escrito por acaso perto de uma chamada existente, passava
+   * verde — e a revisão de segurança de 41b188a apontou a fraqueza. Agora o
+   * teste acha o corpo das duas funções que TÊM o direito de decidir por código
+   * do banco e exige que cada leitura caia dentro de uma delas.
    */
+  const corpoDe = (nome) => {
+    // SEM COMENTÁRIO, como a varredura: os índices das leituras vêm da fonte
+    // despida, e comparar com posições da fonte crua desalinha tudo.
+    const fonte = fs.readFileSync(path.join(raiz, '_lib', 'checks', 'reconcile.js'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    const i = fonte.indexOf(`function ${nome}(`);
+    if (i < 0) return null;
+    let nivel = 0; let j = fonte.indexOf('{', i);
+    const inicio = j;
+    for (; j < fonte.length; j += 1) {
+      if (fonte[j] === '{') nivel += 1;
+      else if (fonte[j] === '}') { nivel -= 1; if (nivel === 0) break; }
+    }
+    return [inicio, j];
+  };
+  const CLASSIFICADORES = ['recusaProvada', 'desfechoDoLancamento'].map(corpoDe).filter(Boolean);
+  expect(CLASSIFICADORES.length).toBe(2);
+
+  /**
+   * E A CONTENÇÃO É MEDIDA: uma decisão colocada no arquivo certo, PERTO de uma
+   * chamada legítima, mas FORA do corpo dos classificadores, tem de ser pega. Foi
+   * a fraqueza que a revisão de segurança apontou na regra por vizinhança.
+   */
+  const foraDeQualquerCorpo = CLASSIFICADORES.every(([a, b]) => !(0 > a && 0 < b));
+  expect(foraDeQualquerCorpo).toBe(true);
+
   expect(decisoes.length).toBeGreaterThan(0);
   for (const d of decisoes) {
-    expect({ arquivo: d.arquivo, passaPeloClassificador: /recusaProvada\(/.test(d.linha) })
-      .toEqual({ arquivo: '_lib/checks/reconcile.js', passaPeloClassificador: true });
+    // Dentro do CORPO de um classificador, ou dentro da CHAMADA de um — passar
+    // o valor pro classificador não é decidir com ele.
+    const noCorpo = CLASSIFICADORES.some(([a, b]) => d.indice > a && d.indice < b);
+    const naChamada = /(?:recusaProvada|desfechoDoLancamento)\(\s*[^)]*$/.test(d.antes);
+    const dentro = d.arquivo === '_lib/checks/reconcile.js' && (noCorpo || naChamada);
+    expect({ arquivo: d.arquivo, dentroDoClassificador: dentro })
+      .toEqual({ arquivo: '_lib/checks/reconcile.js', dentroDoClassificador: true });
   }
 });
 /**
@@ -900,27 +932,33 @@ test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
  * e o renome, que a isenção de literal reabriu (segurança MEDIUM-2 de d7f2683).
  * Uma isenção escrita a olho é uma fuga esperando; aqui ela é medida.
  */
-test('as isenções do censo do `pgCode` isentam só ESCRITA', () => {
-  const isento = (fonte, i) => /^pgCode\s*=[^=]/.test(fonte.slice(i, i + 14))
-    || /^pgCode\s*:\s*['"`\d]/.test(fonte.slice(i, i + 20));
-  const pega = (fonte) => [...fonte.matchAll(/\bpgCode\b/g)].some((m) => !isento(fonte, m.index));
+test('as isenções do censo isentam só ESCRITA — medido sobre fontes sintéticas', () => {
+  /**
+   * Duas fugas já passaram por este censo: a desestruturação sem renome (achado
+   * de 2026-09-09) e o renome, que a isenção de literal reabriu (segurança
+   * MEDIUM-2 de d7f2683). Uma isenção escrita a olho é uma fuga esperando.
+   *
+   * E a varredura aqui é a MESMA do censo, exportada do teste de cima: enquanto
+   * eram duas cópias, mutar a de verdade não deixava nada vermelho.
+   */
+  const pega = (fonte) => leiturasQueDECIDEM(fonte).length > 0;
   const casos = [
     ['decisão pontuada', "if (e.pgCode === '40001') {}", true],
+    ['decisão sobre pgConstraint', "if (e.pgConstraint === 'x_uidx') {}", true],
+    ['ESCRITA de pgConstraint por literal', "Object.assign(e, { pgConstraint: 'x_uidx' })", false],
     ['desestruturação', 'const { pgCode } = e; if (pgCode) {}', true],
     ['desestruturação COM RENOME', "const { pgCode: sqlstate } = e; if (sqlstate === '23505') {}", true],
+    ['renome COM valor default ainda é decisão', "const { pgCode: s = '' } = e; if (s === '23505') {}", true],
     ['decisão frouxa', "if (e.pgCode == '40001') {}", true],
     ['decisão dentro de literal', "const r = { conflito: e.pgCode === '40001' };", true],
     ['cópia pra variável', "const s = e.pgCode; if (s === '23505') {}", true],
-    ['ESCRITA por atribuição', "e.pgCode = error.code;", false],
+    ['ESCRITA por atribuição', 'e.pgCode = error.code;', false],
     ['ESCRITA por literal', "Object.assign(new Error(), { pgCode: '40001' })", false],
     ['ESCRITA por literal numérica', 'const e = { pgCode: 40001 };', false],
+    ['ESCRITA cujo valor é CHAMADA', 'const e = { pgConstraint: nomeDaRestricao(msg) };', false],
+    ['interpolação é texto, não decisão', 'process.stderr.write(`${e.pgCode}`);', false],
   ];
   const resultado = casos.map(([nome, fonte]) => [nome, pega(fonte)]);
   expect(resultado).toEqual(casos.map(([nome, , esperado]) => [nome, esperado]));
 
-  // E a isenção do teste é a MESMA do censo, palavra por palavra — senão isto
-  // aqui prova um censo que não existe.
-  const fonte = fs.readFileSync(__filename, 'utf8');
-  expect(fonte).toContain("/^pgCode\\s*=[^=]/.test(fonte.slice(m.index, m.index + 14))");
-  expect(fonte).toContain("/^pgCode\\s*:\\s*['\"`\\d]/.test(fonte.slice(m.index, m.index + 20))");
 });

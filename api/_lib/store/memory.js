@@ -1,5 +1,7 @@
 'use strict';
 
+const { nomeDaRestricao, mensagemDeUnicidade } = require('./pg-erro');
+
 /**
  * Métodos que confirmam INLINE, sem webhook de gateway — e por isso ficam fora
  * da reconciliação ativa. Todo o resto entra, inclusive trilhos que ainda não
@@ -702,9 +704,11 @@ function createMemoryStore() {
       if (chave && log.some((e) => chaveDaDevolucaoForaDoTrilho(e.type, e.payload) === chave)) {
         throw Object.assign(
           new Error('memory store appendEventIfUnchanged: devolução fora do trilho já registrada'),
-          // O NOME do índice também: é por ele que o classificador distingue
-          // "já registrada" de qualquer outra unicidade violada.
-          { pgCode: '23505', pgConstraint: 'check_events_offrail_refund_uidx' },
+          // Pelo MESMO extrator da produção: o dublê escreve a mensagem que o
+          // Postgres escreveria e deixa o parser tirar o nome dela. Receber o
+          // nome de bandeja deixava o ramo de falha da extração sem teste
+          // nenhum (segurança LOW-3 de 41b188a).
+          { pgCode: '23505', pgConstraint: nomeDaRestricao(mensagemDeUnicidade('check_events_offrail_refund_uidx')) },
         );
       }
       return this.appendEvent(checkId, type, payload, pspEventId);
@@ -1213,7 +1217,14 @@ function createMemoryStore() {
         const e = new Error('excede o que falta pagar'); e.statusCode = 409; throw e;
       }
       const seq = log.length + 1;
-      log.push({ seq, type: 'PAYMENT_CONFIRMED', payload: { txid, amountCents, tipCents: 0, method: 'house_account' } });
+      // `created_at` aqui também: no Postgres a coluna tem `default now()`, e o
+      // dublê sem ela devolvia `confirmedAt: null` onde a produção devolve data
+      // — dublê MENOS informado que o banco é a inversão do defeito que a rodada
+      // passada consertou no outro sentido (segurança LOW-5 de 41b188a).
+      log.push({
+        seq, type: 'PAYMENT_CONFIRMED', created_at: new Date().toISOString(),
+        payload: { txid, amountCents, tipCents: 0, method: 'house_account' },
+      });
       return seq;
     },
     async refundHousePrincipal({ accountId, amountCents, nowIso }) {

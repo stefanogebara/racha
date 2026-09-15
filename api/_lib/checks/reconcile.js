@@ -112,7 +112,20 @@ function reconcileCheck({ checkId, events, payments }) {
   // alerta por WhatsApp (compliance LOW-C de 497bf87).
   for (const x of paidAfterClose(state)) {
     const row = byTxid.get(x.txid);
-    const quando = row ? Date.parse(row.confirmedAt) : NaN;
+    /**
+     * O RELÓGIO DAS 48 H SAI DO RAZÃO, com a linha de reserva.
+     *
+     * Ele lia só a linha de `payments` — e sem ela `horas` virava 0, então a
+     * marca ficava `high` PRA SEMPRE e nunca subia pra `critical`: a dívida com
+     * o consumidor parava de subir de tom exatamente quando a projeção falhava
+     * (compliance MEDIUM-3 de 41b188a). O razão passou a carregar a data do
+     * evento; entre as duas, vale a MAIS ANTIGA — quem está devendo há mais
+     * tempo é o que interessa, e errar pra mais é gritar cedo, não tarde.
+     */
+    const doRazao = Date.parse((state.payments[x.txid] || {}).confirmedAt || '');
+    const daLinha = row ? Date.parse(row.confirmedAt) : NaN;
+    const candidatas = [doRazao, daLinha].filter((n) => Number.isFinite(n));
+    const quando = candidatas.length ? Math.min(...candidatas) : NaN;
     const horas = Number.isFinite(quando) ? (agora - quando) / 3600000 : 0;
     const velho = horas > 48 ? ` há ${Math.floor(horas / 24)} dia(s), sem resposta` : '';
     const extra = { txid: x.txid, amountCents: x.amountCents, ...(row && row.confirmedAt ? { since: row.confirmedAt } : {}) };

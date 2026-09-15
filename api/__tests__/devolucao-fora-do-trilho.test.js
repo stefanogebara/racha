@@ -136,6 +136,30 @@ describe('o teto da devolução por fora', () => {
     expect(codigoDaRecusa(st, 'txC', tetoDaRestituicao(st, 'txC', { confirmedAt: diasAtras(91) }))).toBeNull();
   });
 
+  test('a testemunha do estorno que falhou vale O TAMANHO dela, não a marca inteira', () => {
+    /**
+     * `reversedOpenCents` ganhou valor, mas quem o lia tratava como sim/não:
+     * dez centavos de estorno que falharam autorizavam o dono a declarar a marca
+     * INTEIRA como devolvida por fora — R$ 109,10 de atestação em cima de dez
+     * centavos de testemunha, com o trilho do Pix aberto pro resto (compliance
+     * HIGH-2 e segurança MEDIUM-1 de 41b188a).
+     */
+    const dez = reduce([...ATRASADO, refunded('txC', 10, 0), revertido('txC', 10, 0)]);
+    expect(dez.payments.txC.reversedOpenCents).toBe(10);
+    expect(tetoDaRestituicao(dez, 'txC', { confirmedAt: diasAtras(1) }))
+      .toMatchObject({ trilhoImpossivel: true, motivo: 'refund_reversed', tardio: 10, teto: 10 });
+
+    // A reversão INTEIRA destrava a marca inteira, que é o caso do runbook.
+    const tudo = reduce([...ATRASADO, refunded('txC', 10000, 1000), revertido('txC', 10000, 1000)]);
+    expect(tetoDaRestituicao(tudo, 'txC', { confirmedAt: diasAtras(1) }))
+      .toMatchObject({ tardio: 11000, teto: 11000 });
+
+    // E o PRAZO vencido continua valendo a marca inteira — ali não há testemunha
+    // parcial: o trilho fechou pra tudo.
+    expect(tetoDaRestituicao(reduce(ATRASADO), 'txC', { confirmedAt: diasAtras(91) }))
+      .toMatchObject({ motivo: 'pix_90d', tardio: 11000, teto: 11000 });
+  });
+
   test('o EXCEDENTE nunca dependeu do trilho: sobra é sobra, e devolve-se sempre', () => {
     // Conta de 300, um pagamento de 350: 50 de sobra, e nenhum atraso.
     const st = reduce([opened(30000), paid('tx1', 35000)]);
@@ -346,6 +370,53 @@ describe('o serviço DEVIDO sobrevive ao estorno do principal', () => {
       .toContainEqual({ txid: 'txC', amountCents: 200, sempreDevido: true });
     expect(paidAfterClose(reduce([...parcial, refunded('txC', 0, 500)])))
       .not.toContainEqual(expect.objectContaining({ sempreDevido: true }));
+  });
+
+  test('estornar o IRMÃO não transforma serviço GANHO em dívida', () => {
+    /**
+     * A duplicidade tem de sumir quando ela deixa de existir por um motivo que
+     * não é este pagamento ter voltado. E. paga 60, o caixa cobra os 40 que
+     * faltam, a conta fecha; o Pix de A (100 + 10) confirma depois, então A tem
+     * 60 de duplicidade e 6 de serviço devido. Aí E é estornado: A vira o
+     * pagador EXATO e legítimo da conta inteira, e não deve mais nada.
+     *
+     * Pela fórmula que olhava só a duplicidade ORIGINAL, os 6 continuavam
+     * marcados "devolver de qualquer jeito" — sem botão que os dispense,
+     * `critical` pra sempre na conciliação, e passados 90 dias a rota de
+     * devolução ainda entregava teto pra pagá-los: o runbook mandando a casa
+     * devolver ao cliente um dinheiro que ele não tem a receber, e tirando 10%
+     * da base da folha (segurança HIGH-1 de 41b188a).
+     */
+    const irmao = [opened(10000), paid('E', 6000), closed(), paid('A', 10000, 1000)];
+    expect(paidAfterClose(reduce(irmao)))
+      .toEqual([{ txid: 'A', amountCents: 4400 }, { txid: 'A', amountCents: 600, sempreDevido: true }]);
+
+    const semIrmao = reduce([...irmao, refunded('E', 6000, 0)]);
+    expect(semIrmao.overpaidCents).toBe(0);
+    expect(paidAfterClose(semIrmao)).toEqual([{ txid: 'A', amountCents: 11000 }]);
+    // E a pergunta que sobra PODE ser respondida — é a pergunta do caixa.
+    expect(() => validateEvent({
+      type: 'PAYMENT_ISSUE_RESOLVED',
+      payload: { txid: 'A', note: 'a mesa não pagou no caixa', by: 'u-1', scope: 'paid_after_close' },
+    }, semIrmao)).not.toThrow();
+  });
+
+  test('um estorno que FALHA depois do fecho CRIA duplicidade — e o serviço dela é devido', () => {
+    // `ADJUSTED` é recusado depois do fecho, mas `PAYMENT_REFUND_REVERSED` sobe
+    // `paidCents` e dá no mesmo: o atrasado passa a estar duplicado sem nunca
+    // ter tido `excessCents` (compliance HIGH-1 de 41b188a).
+    const base = [opened(10000), paid('txA', 10000), refunded('txA', 6000, 0), closed(), paid('txC', 6000, 600)];
+    expect(reduce(base).payments.txC.excessCents).toBe(0);
+    expect(paidAfterClose(reduce(base))).toEqual([{ txid: 'txC', amountCents: 6600 }]);
+
+    const revertido2 = reduce([...base, revertido('txA', 6000, 0)]);
+    expect(revertido2.overpaidCents).toBe(6000);
+    expect(paidAfterClose(revertido2)).toEqual([{ txid: 'txC', amountCents: 600, sempreDevido: true }]);
+    // E agora o botão não pode apagá-lo.
+    expect(() => validateEvent({
+      type: 'PAYMENT_ISSUE_RESOLVED',
+      payload: { txid: 'txC', note: 'a mesa não pagou no caixa', by: 'u-1', scope: 'paid_after_close' },
+    }, revertido2)).toThrow(/duplicidade/);
   });
 
   test('a mesa que pagou NO CAIXA continua sem `sempreDevido` — o razão não vê o caixa', () => {

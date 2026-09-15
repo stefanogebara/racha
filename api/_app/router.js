@@ -105,7 +105,12 @@ const store = useSupabase
 // A única saída do silêncio é o processo dizer que é teste — e um `RACHA_ENV`
 // explícito de produção vence até isso, pra suíte poder exercitar o portão.
 const AMBIENTE = (process.env.VERCEL_ENV || process.env.RACHA_ENV || '').trim();
-const EM_TESTE = !!process.env.JEST_WORKER_ID || process.env.NODE_ENV === 'test';
+// SÓ o `JEST_WORKER_ID`, que é a suíte que põe e ninguém mais. `NODE_ENV` é um
+// campo que uma pessoa digita num painel — e com a lista de recusa, ele passou a
+// poder derrubar a produção pra QUALQUER grafia que não seja `production`
+// exata. Escape de teste não pode estar ao alcance de quem configura a produção
+// (segurança LOW-1 de 41b188a).
+const EM_TESTE = !!process.env.JEST_WORKER_ID;
 /**
  * SÓ SAI DA PRODUÇÃO QUEM DIZ, COM UMA DAS DUAS PALAVRAS.
  *
@@ -1791,8 +1796,20 @@ async function route(req, res) {
        * `.trim().slice(120)` anterior conseguia até CRIAR esse caso, cortando
        * no meio do espaço (segurança LOW-1 de d7f2683). Colapsando o branco
        * antes, os dois lados passam a ver a mesma string.
+       *
+       * `NFC` e corte por PONTO DE CÓDIGO pelo mesmo motivo: `slice(120)` corta
+       * no meio de um par substituto, e `jsonb` recusa substituto solitário
+       * (22P05) — a referência ficaria impossível de registrar pra sempre.
+       *
+       * O QUE FICA: o dobramento de caixa é feito dos dois lados
+       * (`toLowerCase()` do JS contra `lower()` do Postgres) e eles divergem em
+       * grego (sigma final) — o dublê agrupa onde o banco não agrupa. Pra
+       * referência brasileira ou espanhola (id E2E do Pix, texto latino) as duas
+       * concordam; fechar isso de vez pede uma coluna de CHAVE guardada, que é
+       * mudança de esquema e vai com a próxima migração.
        */
-      const ref = String(b.reference || '').replace(/\s+/g, ' ').trim().slice(0, 120).trim();
+      const ref = [...String(b.reference || '').normalize('NFC').replace(/\s+/g, ' ').trim()]
+        .slice(0, 120).join('').trim();
       if (ref.length < 3) {
         return json(res, 400, { success: false, code: 'reference_required' });
       }
