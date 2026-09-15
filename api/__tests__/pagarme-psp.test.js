@@ -258,6 +258,21 @@ describe('pagarme adapter', () => {
       .rejects.toThrow(/obrigatórios/);
   });
 
+  test('createRecipient: o CNPJ ALFANUMÉRICO chega com as letras, em maiúsculas', async () => {
+    // Desde julho de 2026 (IN RFB 2.229/2024) o CNPJ novo tem letras nas doze
+    // primeiras posições; `\D` as apagava e o recebedor saía com um documento
+    // que não é o da casa (auditoria de onboarding, C1).
+    const { impl, calls } = stubFetch([{ match: '/recipients', method: 'POST', reply: { id: 're_alfa', status: 'registration' } }]);
+    const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+    await psp.createRecipient({
+      name: 'Bar Novo', email: 'x@y.com', document: '12.abc.345/01de-35',
+      bank: { code: '260', agencia: '0001', conta: '00544596', contaDv: '6' },
+    });
+    const body = calls[0].body;
+    expect({ document: body.document, type: body.type, holder: body.default_bank_account.holder_document })
+      .toEqual({ document: '12ABC34501DE35', type: 'company', holder: '12ABC34501DE35' });
+  });
+
   test('getRecipient: status da análise (id real re_); id inválido → null sem chamada', async () => {
     const { impl, calls } = stubFetch([{ match: '/recipients/re_a', method: 'GET', reply: { id: 're_a', status: 'active', name: 'Bar' } }]);
     const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });

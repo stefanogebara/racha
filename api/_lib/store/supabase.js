@@ -141,6 +141,49 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     { auth: { persistSession: false } },
   );
 
+  /**
+
+   * As contas FECHADAS entre estas, em leituras por lote de 200 — o evento
+
+   * CLOSED é o que faz o redutor dizer `fechada` (é o único caminho até ela).
+
+   *
+
+   * A versão anterior repassava o razão INTEIRO de cada conta que a casa já
+
+   * teve, uma leitura por conta, em série: a cada carga do /admin, do /qrs e
+
+   * depois de cada ação numa mesa. Mil contas a ~120 ms por ida são os 120 s do
+
+   * `maxDuration`, e o admin parava de carregar semanas depois de a casa
+
+   * começar (auditoria de onboarding C2, auditoria de backend H3).
+
+   */
+
+  async function idsDeContasFechadas(ids) {
+
+    const fechadas = new Set();
+
+    for (let i = 0; i < ids.length; i += 200) {
+
+      const { data, error } = await client
+
+        .from('check_events').select('check_id')
+
+        .eq('type', 'CLOSED').in('check_id', ids.slice(i, i + 200));
+
+      throwOn(error, 'idsDeContasFechadas');
+
+      for (const r of data || []) fechadas.add(r.check_id);
+
+    }
+
+    return fechadas;
+
+  }
+
+
   async function loadEvents(checkId) {
     if (!isUuid(checkId)) return []; // malformed id → empty log → "not found"
     const { data, error } = await client
@@ -309,11 +352,12 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .select('id, table_id')
         .eq('venue_id', venueId);
       throwOn(cErr, 'listTables.checks');
+      // As FECHADAS numa leitura por lote, não o razão de cada conta: ver
+      // `idsDeContasFechadas`.
+      const fechadas = await idsDeContasFechadas((allChecks || []).map((c) => c.id));
       const openByTable = new Set();
       for (const c of allChecks || []) {
-        if (openByTable.has(c.table_id)) continue;
-        const state = reduce(await loadEvents(c.id));
-        if (state.status !== 'fechada') openByTable.add(c.table_id);
+        if (!fechadas.has(c.id)) openByTable.add(c.table_id);
       }
       return (tabs || [])
         .map((t) => ({
@@ -358,10 +402,10 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         const { data: checkRows, error: cErr } = await client
           .from('checks').select('id').eq('table_id', tableId);
         throwOn(cErr, 'setTableActive.checks');
-        for (const c of checkRows || []) {
-          if (reduce(await loadEvents(c.id)).status !== 'fechada') {
-            throw new Error('table has an open check — close it before deactivating');
-          }
+        // As fechadas numa leitura por lote — ver `idsDeContasFechadas`.
+        const fechadas = await idsDeContasFechadas((checkRows || []).map((c) => c.id));
+        if ((checkRows || []).some((c) => !fechadas.has(c.id))) {
+          throw new Error('table has an open check — close it before deactivating');
         }
       }
       const { data, error } = await client

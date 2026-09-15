@@ -1,5 +1,7 @@
 'use strict';
 
+const { isDemoVenue } = require('../demo');
+
 // A janela é a MESMA da conta da mesa — validade do Pix, 15 minutos — e vem de
 // lá, não de um número repetido aqui: duas janelas que deviam ser uma já
 // divergiram neste repositório por um acento e por um `\b`.
@@ -275,7 +277,10 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       : [];
     const cfg = venue ? venueHouseConfig(venue) : { bonusBp: 0, validityDays: 90 };
     return {
-      venue: { name: venue ? venue.name : '?' },
+      // `demo`: a carteira só mostra o botão de SIMULAR a confirmação do banco na
+      // casa de demonstração — aparecia pra todo cliente de verdade (auditorias
+      // de fluxo H2 e de UI H3). A decisão é a da casa, a mesma do `isDemoVenue`.
+      venue: { name: venue ? venue.name : '?', demo: isDemoVenue(venue) },
       // The load screen must disclose the bonus validity BEFORE money moves
       // (CDC art. 31 — review finding): the frontend renders these.
       config: { bonusBp: cfg.bonusBp, validityDays: cfg.validityDays },

@@ -35,19 +35,37 @@ function autorDoRegistro(user) {
  *
  * `teto`: a soma, limitada ao que o pagamento tem de líquido.
  */
-function tetoDaRestituicao(estado, txid) {
+const NOVENTA_DIAS_MS = 90 * 24 * 60 * 60 * 1000;
+
+function tetoDaRestituicao(estado, txid, opcoes = {}) {
   const pg = estado && estado.payments ? estado.payments[txid] : null;
   if (!pg) return null;
   const excesso = Math.min(
     Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
     Math.max(0, estado.overpaidCents || 0),
   );
-  const tardio = paidAfterClose(estado)
-    .filter((x) => x.txid === txid)
-    .reduce((soma, x) => soma + x.amountCents, 0);
+  // O TARDIO SÓ QUANDO O TRILHO É IMPOSSÍVEL: o estorno pelo adquirente falhou
+  // e voltou (`PAYMENT_REFUND_REVERSED` ainda em aberto), ou o Pix passou dos 90
+  // dias da devolução. São as duas situações do passo 6 do runbook — e sem
+  // exigi-las, um dono podia declarar a devolução de um atrasado qualquer e
+  // tirar o serviço da base da folha por atestação, sem o adquirente de
+  // testemunha (segurança MEDIUM-2 e compliance MEDIUM-1 de 3eea5f3; Lei
+  // 13.419 e STJ Tema 1102).
+  const estornoFalhou = (estado.anomalies || [])
+    .some((a) => a && a.type === 'PAYMENT_REFUND_REVERSED' && a.txid === txid);
+  // Só o PIX tem os 90 dias: no cartão, o trilho do adquirente segue aberto por
+  // muito mais tempo, e chamar de impossível o que é só demorado devolveria a
+  // brecha pelo outro lado.
+  const quando = Date.parse((opcoes && opcoes.confirmedAt) || '');
+  const foraDoPrazoDoPix = (opcoes && opcoes.method) === 'pix'
+    && Number.isFinite(quando) && (Date.now() - quando) > NOVENTA_DIAS_MS;
+  const trilhoImpossivel = estornoFalhou || foraDoPrazoDoPix;
+  const tardio = trilhoImpossivel
+    ? paidAfterClose(estado).filter((x) => x.txid === txid).reduce((soma, x) => soma + x.amountCents, 0)
+    : 0;
   const liquido = Math.max(0, pg.amountCents - (pg.refundedAmountCents || 0))
     + Math.max(0, (pg.tipCents || 0) - (pg.refundedTipCents || 0));
-  return { excesso, tardio, teto: Math.min(liquido, excesso + tardio) };
+  return { excesso, tardio, trilhoImpossivel, teto: Math.min(liquido, excesso + tardio) };
 }
 
 /**

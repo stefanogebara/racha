@@ -28,17 +28,35 @@ export function isValidCPF(input: string): boolean {
   return calc(9) === Number(d[9]) && calc(10) === Number(d[10]);
 }
 
-/** CNPJ: 14 dígitos + os dois dígitos verificadores conferem. */
+/**
+ * O documento como o campo o guarda: maiúsculas, só `[0-9A-Z]`, no máximo 14.
+ *
+ * Desde julho de 2026 (IN RFB 2.229/2024) o CNPJ novo é ALFANUMÉRICO: doze
+ * posições de `0-9A-Z` e dois dígitos verificadores. O campo tirava as letras
+ * enquanto a pessoa digitava, e toda casa com CNPJ emitido depois disso não
+ * conseguia se cadastrar (auditoria de onboarding, C1). CPF não tem letra, e o
+ * CPF continua sendo só dígitos na conferência.
+ */
+export function normalizarDocumento(s: string): string {
+  return String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 14);
+}
+
+/**
+ * CNPJ numérico OU alfanumérico: os mesmos pesos e o mesmo módulo 11, com o
+ * valor de cada posição = código do caractere − 48 (`0`..`9` seguem 0..9, `A`
+ * vale 17). Mesma conta do servidor (`api/_lib/br/documento.js`).
+ */
 export function isValidCNPJ(input: string): boolean {
-  const d = onlyDigits(input);
-  if (d.length !== 14) return false;
-  if (/^(\d)\1{13}$/.test(d)) return false;
+  const d = String(input || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (!/^[0-9A-Z]{12}\d{2}$/.test(d)) return false;
+  if (/^(.)\1{13}$/.test(d)) return false;
+  const valor = (c: string) => c.charCodeAt(0) - 48;
   const calc = (len: number) => {
     const weights = len === 12
       ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
       : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
     let sum = 0;
-    for (let i = 0; i < len; i++) sum += Number(d[i]) * weights[i];
+    for (let i = 0; i < len; i++) sum += valor(d[i]) * weights[i];
     const r = sum % 11;
     return r < 2 ? 0 : 11 - r;
   };
@@ -47,11 +65,11 @@ export function isValidCNPJ(input: string): boolean {
 
 export type DocKind = 'cpf' | 'cnpj' | null;
 
-/** 11 dígitos → cpf, 14 → cnpj, senão null (ainda incompleto/ inválido de tamanho). */
+/** 11 dígitos → cpf (CPF não tem letra), 14 caracteres → cnpj, senão null. */
 export function docKind(input: string): DocKind {
-  const n = onlyDigits(input).length;
-  if (n === 11) return 'cpf';
-  if (n === 14) return 'cnpj';
+  const s = String(input || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (/^\d{11}$/.test(s)) return 'cpf';
+  if (s.length === 14) return 'cnpj';
   return null;
 }
 
@@ -60,9 +78,19 @@ export function isValidCpfCnpj(input: string): boolean {
   return k === 'cpf' ? isValidCPF(input) : k === 'cnpj' ? isValidCNPJ(input) : false;
 }
 
-/** Máscara de exibição: 000.000.000-00 (CPF) ou 00.000.000/0000-00 (CNPJ). */
+/**
+ * Máscara de exibição: 000.000.000-00 (CPF) ou 00.000.000/0000-00 (CNPJ — as
+ * doze primeiras posições podem ser letra). Com letra, é CNPJ desde o início.
+ */
 export function maskCpfCnpj(input: string): string {
-  const d = onlyDigits(input).slice(0, 14);
+  const d = normalizarDocumento(input);
+  if (/[A-Z]/.test(d)) {
+    return d
+      .replace(/^(\w{2})(\w)/, '$1.$2')
+      .replace(/^(\w{2})\.(\w{3})(\w)/, '$1.$2.$3')
+      .replace(/\.(\w{3})(\w)/, '.$1/$2')
+      .replace(/(\w{4})(\w)/, '$1-$2');
+  }
   if (d.length <= 11) {
     return d
       .replace(/^(\d{3})(\d)/, '$1.$2')
@@ -131,7 +159,10 @@ export function formatTaxId(raw: string | null | undefined, market?: string): st
   // ALÉM do documento, e o que carrega ressalva não pode sair vestido de
   // documento conferido.
   const canonico = limpo.replace(/[.\-/\s]/g, '');
-  if (!/^\d{11}$|^\d{14}$/.test(canonico)) return limpo;
+  // O CNPJ alfanumérico (desde julho de 2026) também é documento: doze posições
+  // de letra ou dígito e dois dígitos no fim. Uma ressalva com letras continua
+  // voltando crua, porque não tem esse formato.
+  if (!/^\d{11}$|^[0-9A-Za-z]{12}\d{2}$/.test(canonico)) return limpo;
   return maskCpfCnpj(canonico);
 }
 

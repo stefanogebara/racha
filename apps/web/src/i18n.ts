@@ -254,6 +254,24 @@ export const DICT = {
   // Produção sem a configuração de dinheiro (loja de verdade, adquirente de
   // verdade): as rotas de pagamento recusam em vez de cobrar num modo de demo
   // (auditoria de backend C1).
+  // O RECEBEDOR — pra onde o dinheiro da casa liquida. Falha do adquirente não
+  // é "recebedor inexistente", e trocar o recebedor é explícito (auditoria de
+  // onboarding, C3).
+  'err.recipient_not_found': { en: 'The payout account registered for this restaurant no longer exists at the payment provider — create a new one below.',
+                        pt: 'O recebedor cadastrado não existe mais no adquirente — crie um novo abaixo.',
+                        es: 'La cuenta de cobro registrada ya no existe en el adquirente — crea una nueva abajo.' },
+  'err.psp_unavailable': { en: 'The payment provider didn’t answer right now — nothing was changed. Try again in a minute.',
+                        pt: 'O adquirente não respondeu agora — nada foi alterado. Tente de novo em um minuto.',
+                        es: 'El adquirente no respondió ahora — no se cambió nada. Inténtalo de nuevo en un minuto.' },
+  'err.recipient_exists': { en: 'This restaurant already has a payout account. Replacing it has to be explicit — reload the page.',
+                        pt: 'Esta casa já tem um recebedor. Trocá-lo tem que ser explícito — recarregue a página.',
+                        es: 'Este local ya tiene una cuenta de cobro. Sustituirla tiene que ser explícito — recarga la página.' },
+  'err.psp_recipient_rejected': { en: 'The payment provider refused these bank details — check the bank, branch and account.',
+                        pt: 'O adquirente recusou esses dados bancários — confira banco, agência e conta.',
+                        es: 'El adquirente rechazó estos datos bancarios — revisa el banco, la sucursal y la cuenta.' },
+  'err.recipient_fields_invalid': { en: 'Fill in the bank details before sending.',
+                        pt: 'Preencha os dados bancários antes de enviar.',
+                        es: 'Rellena los datos bancarios antes de enviar.' },
   'err.platform_misconfigured': { en: 'Payments are unavailable at this restaurant right now — please pay at the till.',
                         pt: 'Os pagamentos estão indisponíveis nesta casa agora — pague no caixa, por favor.',
                         es: 'Los pagos no están disponibles en este local ahora — paga en caja, por favor.' },
@@ -302,6 +320,11 @@ export const DICT = {
   'wallet.payAmount': { en: 'Pay {amount}',                     pt: 'Pagar {amount}', es: 'Pagar {amount}' },
   'wallet.cancel':    { en: 'cancel',                           pt: 'cancelar', es: 'cancelar' },
   'pix.copy':         { en: 'Copy Pix code',                   pt: 'Copiar código Pix', es: 'Copiar código Pix' },
+  // A cópia automática falhou (navegador embutido, sem HTTPS, sem permissão):
+  // o código está inteiro na tela, e segurar o dedo copia (auditoria de UI, C1).
+  'pix.copyFailed':   { en: 'Couldn’t copy automatically — press and hold the code above, then choose Copy.',
+                        pt: 'Não deu pra copiar sozinho — segure o dedo no código acima e escolha Copiar.',
+                        es: 'No se pudo copiar automáticamente — mantén pulsado el código de arriba y elige Copiar.' },
   'pix.copied':       { en: 'Code copied ✓',                   pt: 'Código copiado ✓', es: 'Código copiado ✓' },
   'pix.how':          { en: 'Open your bank app, choose Pix copy-and-paste and paste the code.',
                         pt: 'Abra o app do seu banco, escolha Pix copia-e-cola e cole o código.',
@@ -596,9 +619,20 @@ export const DICT = {
   'err.restitution_failed': { en: 'Could not record the refund. Check the amount and try again.',
                         pt: 'Não foi possível registrar a devolução. Confira o valor e tente de novo.',
                         es: 'No se pudo registrar la devolución. Revisa el importe e inténtalo de nuevo.' },
-  'err.nothing_to_restitute': { en: 'This charge has no excess to give back. Use a refund through the acquirer instead.',
-                        pt: 'Esta cobrança não tem excedente a restituir. Use o estorno pelo adquirente.',
-                        es: 'Este cobro no tiene exceso que devolver. Usa la devolución por el adquirente.' },
+  'err.nothing_to_restitute': { en: 'This charge owes nothing back. Nothing was recorded.',
+                        pt: 'Esta cobrança não deve nada de volta. Nada foi registrado.',
+                        es: 'Este cobro no debe nada. No se registró nada.' },
+  // A recusa que NÃO é "não há dívida": há, e o caminho é o adquirente. Só
+  // quando ele é impossível (o estorno falhou, ou o Pix passou dos 90 dias) é
+  // que a devolução por fora entra — passo 6 do runbook.
+  'err.use_acquirer_refund': { en: 'Refund this one through the payment provider — the mark clears when the refund lands. Record it here only if the provider refund failed, or it is Pix past 90 days.',
+                        pt: 'Devolva esta pelo adquirente — a marca sai quando o estorno cair. Registre aqui só se o estorno falhou, ou se é Pix depois de 90 dias.',
+                        es: 'Devuelve este por el adquirente — la marca sale cuando llegue la devolución. Regístralo aquí solo si la devolución falló, o si es Pix pasados 90 días.' },
+  // O que NÃO se sabe: o lançamento pode ter pousado. Mandar tentar de novo às
+  // cegas é mandar registrar duas vezes a mesma devolução.
+  'err.restitution_unavailable': { en: 'The refund could not be recorded now. Open the bill and check before recording it again.',
+                        pt: 'Não deu pra registrar a devolução agora. Abra a conta e confira antes de registrar de novo.',
+                        es: 'No se pudo registrar la devolución ahora. Abre la cuenta y comprueba antes de registrarla otra vez.' },
   'err.txid_unknown': { en: 'That charge is not on this bill.',
                         pt: 'Essa cobrança não é desta conta.',
                         es: 'Ese cobro no es de esta cuenta.' },
@@ -808,9 +842,12 @@ export const DICT = {
   'panel.notPaidAtTill': { en: 'did not pay at the till',         pt: 'não pagou no caixa', es: 'no pagó en caja' },
   // "A marca sai sozinha" não era verdade quando a cobrança também tem sobra: o
   // estorno sai PRIMEIRO da sobra (compliance LOW-C de 57c0d2e).
-  'panel.resolveConfirm': { en: 'Confirm that this table did NOT also pay at the till? If it did, don’t mark anything: refund this amount through the payment provider — when the refund lands, the mark goes down by what was refunded.',
-                        pt: 'Confirmar que esta mesa NÃO pagou também no caixa? Se pagou, não marque nada: devolva este valor pelo adquirente — quando o estorno cair, a marca diminui no valor devolvido.',
-                        es: '¿Confirmas que esta mesa NO pagó también en caja? Si pagó, no marques nada: devuelve este importe por el adquirente — cuando llegue la devolución, la marca baja en lo devuelto.' },
+  // E o que a resposta NÃO é: ela não registra devolução nenhuma. Quem clica
+  // aqui está afirmando que o pagamento era legítimo — não que devolveu
+  // (compliance LOW de 3eea5f3).
+  'panel.resolveConfirm': { en: 'Confirm that this table did NOT also pay at the till? This records no refund — it only answers the question. If the table did pay at the till, don’t mark anything: refund this amount through the payment provider, and the mark goes down by what was refunded.',
+                        pt: 'Confirmar que esta mesa NÃO pagou também no caixa? Isto não registra devolução nenhuma — só responde a pergunta. Se a mesa pagou no caixa, não marque nada: devolva este valor pelo adquirente, e a marca diminui no valor devolvido.',
+                        es: '¿Confirmas que esta mesa NO pagó también en caja? Esto no registra ninguna devolución — solo responde la pregunta. Si la mesa pagó en caja, no marques nada: devuelve este importe por el adquirente, y la marca baja en lo devuelto.' },
   'panel.duplicateTip': { en: 'service charge from a duplicate payment, arrived after the bill closed: {amount} — owed back; refund it through the payment provider',
                         pt: 'serviço de um pagamento em duplicidade, que chegou depois de a conta fechar: {amount} — a devolver, pelo adquirente',
                         es: 'servicio de un pago duplicado, llegado después de cerrar la cuenta: {amount} — hay que devolverlo, por el adquirente' },
@@ -986,8 +1023,10 @@ export const DICT = {
   'admin.city':       { en: 'City (optional)',                 pt: 'Cidade (opcional)', es: 'Ciudad (opcional)' },
   'admin.cnpjField':  { en: 'CNPJ (optional)',                 pt: 'CNPJ (opcional)', es: 'CIF/NIF (opcional)' },
   'admin.cnpjOk':     { en: 'CNPJ valid ✓',                    pt: 'CNPJ válido ✓', es: 'CIF/NIF válido ✓' },
-  'admin.cnpjBad':    { en: 'CNPJ incomplete or invalid — check all 14 digits.',
-                        pt: 'CNPJ incompleto ou inválido — confira os 14 dígitos.',
+  // CATORZE CARACTERES, não dígitos: o CNPJ alfanumérico (desde julho de 2026)
+  // tem letras nas doze primeiras posições (auditoria de onboarding, C1).
+  'admin.cnpjBad':    { en: 'CNPJ incomplete or invalid — check all 14 characters.',
+                        pt: 'CNPJ incompleto ou inválido — confira os 14 caracteres.',
                         es: 'Documento incompleto o no válido — revisa los dígitos.' },
   'admin.less':       { en: 'less',                            pt: 'menos', es: 'menos' },
   'admin.more':       { en: 'more',                            pt: 'mais', es: 'más' },
@@ -1277,9 +1316,11 @@ export const DICT = {
   'rcpt.marketplaceHint': { en: 'The Pagar.me account is not in marketplace mode yet — sales has to enable it (already requested).',
                         pt: 'A conta Pagar.me ainda não está em modo marketplace — o comercial precisa habilitar (pedido já feito).',
                         es: 'La cuenta de Pagar.me todavía no está en modo marketplace — el equipo comercial tiene que habilitarlo (ya solicitado).' },
-  'rcpt.docIncomplete': { en: 'A CNPJ has 14 digits — some are still missing.',
-                        pt: 'O CNPJ tem 14 dígitos — ainda faltam alguns.',
-                        es: 'El CIF tiene 9 caracteres — todavía faltan.' },
+  // Este campo só aceita CNPJ brasileiro: o "CIF de 9 caracteres" em espanhol
+  // descrevia outro formulário (auditoria de onboarding, M2).
+  'rcpt.docIncomplete': { en: 'A CNPJ has 14 characters (letters and numbers, since 2026) — some are still missing.',
+                        pt: 'O CNPJ tem 14 caracteres (letras e números, desde 2026) — ainda faltam alguns.',
+                        es: 'El CNPJ tiene 14 caracteres (letras y números, desde 2026) — todavía faltan.' },
   'rcpt.docDvBad':    { en: 'The check digits do not match — check the number.',
                         pt: 'Os dígitos verificadores não batem — confira o número.',
                         es: 'Los dígitos de control no coinciden — revisa el número.' },
@@ -1338,8 +1379,8 @@ export const DICT = {
   'rcpt.docOnReceipt': { en: 'This is also the document shown on the diner’s receipt.',
                         pt: 'Este é também o documento que aparece no comprovante do cliente.',
                         es: 'Es también el documento que aparece en el recibo del cliente.' },
-  'rcpt.docHint':     { en: 'The restaurant’s CNPJ, 14 digits. An individual’s CPF cannot receive here: the service charge is payroll, and payroll needs a company.',
-                        pt: 'O CNPJ do restaurante, 14 dígitos. CPF de pessoa física não recebe aqui: o serviço é remuneração que passa pela folha, e folha exige empresa.',
+  'rcpt.docHint':     { en: 'The restaurant’s CNPJ, 14 characters. An individual’s CPF cannot receive here: the service charge is payroll, and payroll needs a company.',
+                        pt: 'O CNPJ do restaurante, 14 caracteres. CPF de pessoa física não recebe aqui: o serviço é remuneração que passa pela folha, e folha exige empresa.',
                         es: 'El CIF del restaurante. Un documento personal no puede recibir aquí: el servicio es remuneración por nómina, y la nómina exige empresa.' },
   'rcpt.emailLabel':  { en: 'Restaurant e-mail',               pt: 'E-mail do restaurante', es: 'Correo del restaurante' },
   'rcpt.emailBad':    { en: 'Invalid e-mail — check the format.', pt: 'E-mail inválido — confira o formato.', es: 'Correo no válido — revisa el formato.' },

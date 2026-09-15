@@ -1,6 +1,5 @@
 
 import { LangToggle, useT } from './lang';
-import { tError } from './i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
@@ -10,7 +9,7 @@ import AdminSetup from './AdminSetup';
 import SetupWizard from './SetupWizard';
 import { type Venue, type VenueTable } from './api';
 import { authedReq as req, signOut } from './auth';
-import { isValidCNPJ, maskCpfCnpj, onlyDigits } from './br';
+import { isValidCNPJ, maskCpfCnpj, normalizarDocumento } from './br';
 import { setupComplete, useVenueAdmin, type VenueAdmin } from './useVenueAdmin';
 
 /**
@@ -29,7 +28,7 @@ export default function Admin() {
 
 // ---------------------------------------------------------------- onboarding
 function Onboarding() {
-  const { t, lang, tErr } = useT();
+  const { t, tErr } = useT();
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
   const [cnpj, setCnpj] = useState('');
@@ -81,9 +80,10 @@ function Onboarding() {
         <p className="label">{mine.length > 0 ? t('admin.registerAnother') : t('admin.registerFirst')}</p>
         <input className="namefield" placeholder={t('admin.venueName')} value={name} onChange={(e) => setName(e.target.value)} />
         <input className="namefield" placeholder={t('admin.city')} value={city} onChange={(e) => setCity(e.target.value)} />
-        <input className="namefield" inputMode="numeric" placeholder={t('admin.cnpjField')} value={maskCpfCnpj(cnpj)}
+        <input className="namefield" inputMode="text" autoCapitalize="characters" autoComplete="off"
+          placeholder={t('admin.cnpjField')} value={maskCpfCnpj(cnpj)}
           style={cnpj && !cnpjValid ? { borderColor: 'var(--burgundy)' } : undefined}
-          onChange={(e) => setCnpj(onlyDigits(e.target.value).slice(0, 14))} />
+          onChange={(e) => setCnpj(normalizarDocumento(e.target.value))} />
         {cnpj !== '' && (
           <span className="small" style={{ color: cnpjValid ? 'var(--emerald)' : 'var(--burgundy)' }}>
             {cnpjValid ? t('admin.cnpjOk') : t('admin.cnpjBad')}
@@ -100,7 +100,7 @@ function Onboarding() {
         <p className="muted small">
           {t('admin.psplater')}
         </p>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{tError(lang, error, error)}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
         <button className="cta" disabled={busy || !name.trim() || (cnpj !== '' && !cnpjValid)} onClick={submit}>
           {busy ? t('admin.creating') : t('admin.createVenue')}
         </button>
@@ -159,7 +159,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
   admin: VenueAdmin; venueId: string; onPrint: (t: VenueTable) => void; onConfigure: () => void;
 }) {
   const [newLabel, setNewLabel] = useState('');
-  const { t, lang } = useT();
+  const { t } = useT();
   const { venue, tables, error } = admin;
 
   async function add() { if (await admin.addTable(newLabel)) setNewLabel(''); }
@@ -209,7 +209,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
             onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
           <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>
         </div>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{tError(lang, error, error)}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
         {tables.length === 0 && <p className="muted small">{t('admin.noTables')}</p>}
         {/* `table`, não `t`: o parâmetro chamava-se `t` e sombreava o tradutor,
             então `t('admin.openBill')` chamaria a MESA como função. */}

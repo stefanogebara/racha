@@ -30,6 +30,11 @@
     {
       "doc": "12345678909",
       "tipo": "cpf"
+    },
+    {
+      "doc": "12ABC34501DE35",
+      "tipo": "cnpj",
+      "nota": "CNPJ ALFANUMÉRICO, o exemplo da Receita (IN RFB 2.229/2024, em vigor desde julho de 2026): doze posições de 0-9A-Z e dois dígitos verificadores, cada posição valendo o código do caractere menos 48. O validador tirava as letras e toda casa nova ficava sem cadastro (auditoria de onboarding, C1)."
     }
   ],
   "_sobre_validos": "São documentos VÁLIDOS, o que não quer dizer aceitáveis em qualquer campo. `isValidCpfCnpj` aceita os dois tipos de propósito: o documento do RECEBEDOR pode ser um CPF (pessoa física recebe). O documento da CASA não pode — ver `documento_da_casa`. A primeira versão desta seção foi lida como 'CPF serve de documento de casa', e as três camadas passaram a tratá-lo assim.",
@@ -69,6 +74,14 @@
     {
       "doc": "",
       "porque": "vazio"
+    },
+    {
+      "doc": "12ABC34501DE36",
+      "porque": "o alfanumérico com o segundo dígito verificador trocado — a conta com letras tem que recusar como a numérica"
+    },
+    {
+      "doc": "12ABC34501DEAB",
+      "porque": "letra nas posições do dígito verificador: o DV do CNPJ alfanumérico é sempre NUMÉRICO"
     }
   ],
   "documento_da_casa": {
@@ -215,6 +228,20 @@
         "market": "es",
         "ok": false,
         "nota": "DNI outra vez, explícito: pessoa física não é documento de casa"
+      },
+      {
+        "entrada": "12.ABC.345/01DE-35",
+        "market": "br",
+        "ok": true,
+        "valor": "12ABC34501DE35",
+        "nota": "alfanumérico com a pontuação canônica: aceito, e guardado sem pontuação"
+      },
+      {
+        "entrada": "12.abc.345/01de-35",
+        "market": "br",
+        "ok": true,
+        "valor": "12ABC34501DE35",
+        "nota": "colado em minúsculas: guardado em MAIÚSCULAS — senão a comparação com o documento do recebedor divergiria pra sempre"
       }
     ]
   },
@@ -266,6 +293,13 @@
         "mostra": true,
         "sai": "B12345678",
         "nota": "o dia em que showsVenueTaxId('es') virar true: a regra dos catorze dígitos é BRASILEIRA e apagaria um NIF perfeito"
+      },
+      {
+        "market": "br",
+        "valor": "12ABC34501DE35",
+        "mostra": true,
+        "sai": "12ABC34501DE35",
+        "nota": "o alfanumérico sai no recibo como qualquer CNPJ conferido"
       }
     ]
   },

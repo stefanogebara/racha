@@ -275,6 +275,9 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   border: 1px solid var(--linha2); border-radius: var(--rad-s); padding: 14px;
   word-break: break-all; text-align: left;
 }
+/* O código Pix INTEIRO e selecionável num toque: quando a cópia automática
+   falha (navegador embutido), segurar o dedo precisa pegar o código todo. */
+.codebox.selectable { user-select: all; -webkit-user-select: all; word-break: break-all; }
 
 .paid { align-items: center; text-align: center; gap: 16px; padding: 44px 22px; background: var(--branco); }
 .paidmark {

@@ -30,34 +30,23 @@ const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
 const { tetoDaRestituicao, payloadDaResolucao, autorDoRegistro } = require('../_lib/checks/restitution');
-const { allocateRestitution, allocateRefund } = require('../_lib/checks/split-engine');
+const { classificarFalhaDoRecebedor, classificarFalhaNaCriacao, temRecebedorReal, podeCriarRecebedor } = require('../_lib/pay/recebedor');
 
 /**
- * O rateio de uma restituição registrada à mão — pelo MESMO motor do webhook.
- *
- * Não é uma segunda regra de dinheiro: é a de sempre. O excedente daquele
- * pagamento sai do consumo (foi por ali que entrou), e o que passa dele é
- * estorno comum e vai proporcional.
+ * O rateio de uma devolução registrada à mão é o MESMO do estorno que vem do
+ * PSP: `checks/refund-allocation.js`, três baldes. Não é uma segunda regra de
+ * dinheiro — e quando era uma cópia, as duas divergiram.
  */
-function alocarRestituicaoManual(pg, valor) {
-  const consumo = pg.amountCents - pg.refundedAmountCents;
-  const gorjeta = pg.tipCents - pg.refundedTipCents;
-  const excedente = Math.min(
-    Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-    Math.max(0, consumo),
-  );
-  return excedente > 0
-    ? allocateRestitution(consumo, gorjeta, valor, excedente)
-    : allocateRefund(consumo, gorjeta, valor);
-}
+const { alocarDevolucaoDoPagamento } = require('../_lib/checks/refund-allocation');
 const { createNonLedgerHandler, needsRetry, SEM_ALARDE } = require('../_lib/pay/non-ledger');
 const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
-const { reduce, remainingCents } = require('../_lib/checks/check-state');
+const { reduce, remainingCents, paidAfterClose } = require('../_lib/checks/check-state');
 const {
   createChargeService, assertChargeSlot, geracaoDoQr, payerLabelValido, JANELA_VIVA_MS,
 } = require('../_lib/pay/create-charge');
+const { escolherPsp } = require('../_lib/pay/psp-indisponivel');
 const { errorStatus, errorBody } = require('../_lib/http-error');
 const { readBody } = require('../_lib/read-body');
 const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
@@ -75,7 +64,7 @@ const { vigiarRetencao } = require('../_lib/checks/retention-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 
-const useSupabase = process.env.RACHA_STORE === 'supabase';
+const useSupabase = (process.env.RACHA_STORE || '').trim() === 'supabase';
 const store = useSupabase
   ? require('../_lib/store/supabase').createSupabaseStore()
   : createMemoryStore();
@@ -87,14 +76,21 @@ const store = useSupabase
 // de verdade entregava BR Code de mentira. Nada no código nem no deploy
 // impedia (auditoria de backend C1). Em produção, faltando qualquer um, as rotas
 // de dinheiro recusam com código, e o cron de quinze minutos pagina.
-const CONFIG_DE_PRODUCAO_FALTANDO = process.env.VERCEL_ENV === 'production'
-  ? [!useSupabase && 'RACHA_STORE=supabase', process.env.RACHA_PSP !== 'pagarme' && 'RACHA_PSP=pagarme'].filter(Boolean)
+// É PRODUÇÃO? `VERCEL_ENV` é uma variável de SISTEMA que o projeto pode não
+// expor — e sem ela o portão nunca disparava. Na dúvida (rodando na Vercel sem
+// dizer qual ambiente), trata como produção: falha fechada (segurança LOW-3).
+const EM_PRODUCAO = (process.env.VERCEL_ENV || '').trim() === 'production'
+  || (process.env.VERCEL === '1' && !['preview', 'development'].includes((process.env.VERCEL_ENV || '').trim()));
+const CONFIG_DE_PRODUCAO_FALTANDO = EM_PRODUCAO
+  ? [!useSupabase && 'RACHA_STORE=supabase',
+    (process.env.RACHA_PSP || '').trim() !== 'pagarme' && 'RACHA_PSP=pagarme'].filter(Boolean)
   : [];
 if (CONFIG_DE_PRODUCAO_FALTANDO.length) {
   process.stderr.write(`[config] PRODUÇÃO SEM ${CONFIG_DE_PRODUCAO_FALTANDO.join(' e ')} — rotas de dinheiro em 503\n`);
 }
 const ROTA_DE_DINHEIRO = (caminho) => caminho === '/api/pay' || caminho === '/api/pay/stripe-intent'
-  || caminho === '/api/house/load' || caminho === '/api/house/redeem' || caminho.startsWith('/api/webhooks/');
+  || caminho === '/api/house/load' || caminho === '/api/house/redeem'
+  || caminho === '/api/dev/confirm' || caminho.startsWith('/api/webhooks/');
 
 // PSP real por env (RACHA_PSP=pagarme + PAGARME_SECRET_KEY); mock é o
 // default — demo e testes seguem idênticos. Stable webhook secret in prod
@@ -116,26 +112,12 @@ function buildPsp() {
   }
   return new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 }
-let psp;
-try {
-  psp = buildPsp();
-} catch (err) {
+// A escolha do PSP — e o adaptador que recusa — moram em `pay/psp-indisponivel.js`,
+// com o censo que confere que nenhum método chamado aqui fica de fora.
+const psp = escolherPsp(CONFIG_DE_PRODUCAO_FALTANDO, buildPsp, (err) => {
   process.stderr.write(`[psp] init FALHOU: ${err.message} — rotas de pagamento em 503, leitura segue\n`);
-  const indisponivel = () => {
-    const e = new Error(`pagamento indisponível: PSP não configurado (${err.message})`);
-    e.statusCode = 503;
-    throw e;
-  };
-  psp = {
-    provider: 'unconfigured',
-    createPixCharge: indisponivel,
-    createWalletCharge: indisponivel,
-    createRecipient: indisponivel,
-    verifyAndParseWebhook: indisponivel,
-    getRecipient: async () => null,
-    getRecipientBalance: async () => null,
-  };
-}
+});
+
 const charge = createChargeService({ store, psp });
 const checkSvc = createCheckService({ store });
 const houseSvc = createHouseService({ store, psp });
@@ -1459,11 +1441,22 @@ async function route(req, res) {
       try { await auth.requireVenueOwner(user, venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const venue = await store.getVenue(venueId);
-      if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
-      if (!venue.pspRecipientId || !/^r[ep]_/.test(venue.pspRecipientId)) {
+      if (!venue) return json(res, 404, { success: false, code: 'venue_not_found' });
+      if (!temRecebedorReal(venue)) {
         return json(res, 200, { success: true, data: { recipientId: venue.pspRecipientId || null, status: null } });
       }
-      const info = psp.getRecipient ? await psp.getRecipient(venue.pspRecipientId) : null;
+      // UMA FALHA DO ADQUIRENTE NÃO É "RECEBEDOR INEXISTENTE" — ver
+      // `_lib/pay/recebedor.js`. Sem este `try`, um 404 e um timeout saíam
+      // iguais, e a tela mandava criar um recebedor novo por cima do ativo
+      // (auditoria de onboarding, C3).
+      let info = null;
+      try {
+        info = psp.getRecipient ? await psp.getRecipient(venue.pspRecipientId) : null;
+      } catch (e) {
+        const falha = classificarFalhaDoRecebedor(e);
+        process.stderr.write(`[recebedor] leitura falhou venue=${venueId} http=${e && e.httpStatus}: ${String(e && e.message).slice(0, 120)}\n`);
+        return json(res, falha.status, { success: false, code: falha.code });
+      }
       return json(res, 200, { success: true, data: info || { recipientId: venue.pspRecipientId, status: 'desconhecido' } });
     }
     // Saldo do recebedor — a prova do repasse do split ("quanto já caiu").
@@ -1497,9 +1490,24 @@ async function route(req, res) {
       if (!venueDoRecebedor) return json(res, 404, { success: false, code: 'venue_not_found' });
       const docRec = decidirDocumentoDoRecebedor({ enviado: b.document, venue: venueDoRecebedor });
       if (!docRec.ok) return json(res, 400, { success: false, code: docRec.code });
-      const r = await psp.createRecipient({
-        name: b.name, email: b.email ?? null, document: docRec.valor, bank: b.bank,
-      });
+      // SUBSTITUIR o recebedor de verdade exige pedido EXPLÍCITO (`replace:
+      // true`) — ver `podeCriarRecebedor`. E a falha do adquirente sai com
+      // código, não com o texto do gateway.
+      const criacao = podeCriarRecebedor(venueDoRecebedor, b);
+      if (!criacao.ok) return json(res, criacao.status, { success: false, code: criacao.code });
+      let r;
+      try {
+        r = await psp.createRecipient({
+          name: b.name, email: b.email ?? null, document: docRec.valor, bank: b.bank,
+        });
+      } catch (e) {
+        const falha = classificarFalhaNaCriacao(e);
+        process.stderr.write(`[recebedor] criação falhou venue=${b.venueId} http=${e && e.httpStatus}: ${String(e && e.message).slice(0, 160)}\n`);
+        return json(res, falha.status, { success: false, code: falha.code });
+      }
+      if (criacao.substitui) {
+        process.stderr.write(`[recebedor] SUBSTITUÍDO venue=${b.venueId}: ${venueDoRecebedor.pspRecipientId} → ${r.recipientId}\n`);
+      }
       // Persiste o status inicial (registration) + os contatos do dono pro aviso
       // de KYC: o mesmo e-mail do form + o WhatsApp opcional (a Olímpia entrega).
       await store.setVenueRecipient(b.venueId, r.recipientId, {
@@ -1687,8 +1695,9 @@ async function route(req, res) {
      *
      * É `PAYMENT_REFUNDED` mesmo, e não um tipo novo: o dinheiro VOLTOU. O que
      * muda é o meio, e o meio fica no evento (`offRail` + a referência), pra
-     * uma auditoria distinguir depois. O rateio passa pelo mesmo
-     * `allocateRestitution` — o excedente sai do consumo, nunca da gorjeta.
+     * uma auditoria distinguir depois. O rateio passa pela mesma
+     * `alocarDevolucaoDoPagamento` do estorno do PSP — o excedente sai do
+     * consumo, e o serviço devido de um atrasado sai da gorjeta, inteiro.
      */
     if (req.method === 'POST' && url.pathname === '/api/checks/record-restitution') {
       const user = await guardUser(req, res); if (!user) return;
@@ -1755,10 +1764,21 @@ async function route(req, res) {
       // deste pagamento. Sem ela, um atrasado cujo estorno falhou, ou um Pix além
       // dos 90 dias da devolução, não tinha jeito verdadeiro de fechar
       // (compliance MEDIUM-A de 57c0d2e).
-      const aDevolver = tetoDaRestituicao(estado, String(b.txid)).teto;
+      // A DATA da confirmação decide o prazo do Pix (90 dias) — ver
+      // `tetoDaRestituicao`.
+      const linhaDoPagamento = await store.getPayment(String(b.txid)).catch(() => null);
+      const limites = tetoDaRestituicao(estado, String(b.txid), {
+        confirmedAt: linhaDoPagamento && linhaDoPagamento.confirmedAt,
+        method: linhaDoPagamento && linhaDoPagamento.method,
+      });
+      const aDevolver = limites.teto;
       if (aDevolver === 0) {
         return json(res, 400, {
-          success: false, code: 'nothing_to_restitute',
+          success: false,
+          // A marca do pago-depois-de-fechar existe, mas o trilho está aberto:
+          // a devolução vai por lá, e a marca cai com o estorno.
+          code: limites.tardio === 0 && limites.excesso === 0 && paidAfterClose(estado).some((x) => x.txid === String(b.txid))
+            ? 'use_acquirer_refund' : 'nothing_to_restitute',
         });
       }
       if (valor > aDevolver) {
@@ -1793,7 +1813,7 @@ async function route(req, res) {
        */
       let seq;
       try {
-        const partes = alocarRestituicaoManual(pg, valor);
+        const partes = alocarDevolucaoDoPagamento(estado, String(b.txid), pg, valor);
         seq = await appendValidated(store, b.checkId, 'PAYMENT_REFUNDED', {
           txid: String(b.txid),
           amountCents: partes.amountCents,
@@ -1804,9 +1824,16 @@ async function route(req, res) {
         });
         var partesGravadas = partes;
       } catch (e) {
-        // AQUI sim é falha: o razão não recebeu nada.
+        // AQUI sim é falha: o razão não recebeu nada. E o MESMO ponto do
+        // `resolve-issue` (compliance LOW-E de 57c0d2e, agora aqui): banco fora
+        // do ar não é erro de quem chamou. Um 400 dizendo "confira o valor"
+        // manda conferir um valor que estava certo — e some com a única pista
+        // de que a devolução pode não ter sido registrada.
         process.stderr.write(`[restituicao] lançamento recusado: ${String(e.message).slice(0, 160)}\n`);
-        return json(res, e.statusCode || 400, { success: false, code: 'restitution_failed' });
+        if (!e.statusCode || e.statusCode >= 500) {
+          return json(res, 500, { success: false, code: 'restitution_unavailable' });
+        }
+        return json(res, e.statusCode, { success: false, code: 'restitution_failed' });
       }
 
       /**
@@ -2242,10 +2269,28 @@ async function route(req, res) {
       }
       if (CONFIG_DE_PRODUCAO_FALTANDO.length) {
         process.stderr.write(`[reconcile-pending] produção sem ${CONFIG_DE_PRODUCAO_FALTANDO.join(' e ')}\n`);
-        await notifyFounderReconcile({
-          mensagem: `PRODUÇÃO SEM ${CONFIG_DE_PRODUCAO_FALTANDO.join(' E ')}: as rotas de pagamento estão recusando (503) em vez de cobrar num modo de demo. Configurar na Vercel e refazer o deploy.`,
-          venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
-        });
+        // UMA VEZ POR HORA, não a cada quinze minutos: noventa e seis páginas
+        // por dia no canal do canário ensinam a silenciar o canal (segurança
+        // LOW-2 de 3eea5f3). Sem como deduplicar, pagina.
+        let vagaDaConfig = null; let paginarConfig = true;
+        try {
+          const r = await store.claimSlots({ keys: ['alerta:config-producao'], limits: [1], windowMs: 60 * 60 * 1000 });
+          vagaDaConfig = r.claimId; paginarConfig = r.claimId !== null;
+        } catch { paginarConfig = true; }   // sem como deduplicar, pagina
+        if (paginarConfig) {
+          const envioDaConfig = await notifyFounderReconcile({
+            mensagem: `PRODUÇÃO SEM ${CONFIG_DE_PRODUCAO_FALTANDO.join(' E ')}: as rotas de pagamento estão recusando (503) em vez de cobrar num modo de demo. Configurar na Vercel e refazer o deploy.`,
+            venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+          });
+          if (envioDaConfig && envioDaConfig.ok === false && vagaDaConfig) {
+            try { await store.releaseSlots(vagaDaConfig); } catch { /* fica a hora */ }
+          }
+        }
+        // E NÃO VARRE. Com o adaptador recusando, a varredura só produziria
+        // erro por cobrança — e o 503 pinta o cron de vermelho no painel da
+        // Vercel, que é um segundo sinal independente do aviso ao fundador
+        // (inegociável #8: canário vermelho pagina, não só registra).
+        return json(res, 503, { success: false, code: 'platform_misconfigured' });
       }
       // ?hours= amplia a janela pra uma varredura profunda manual (curar um
       // straggler antigo); sem ele, usa a janela padrão do reconciliador.

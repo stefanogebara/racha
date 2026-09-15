@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 /**
  * O estado da conta como o TELEFONE DA MESA pode vê-lo.
  *
@@ -31,6 +33,23 @@
  * @param {object} state estado reduzido (check-state.js)
  * @returns {object} o subconjunto público
  */
+/**
+ * A MARCA do pagamento pra quem o criou: sha256 do txid, doze hex.
+ *
+ * O telefone de quem pagou avançava pro ✓ quando o `paidCents` da MESA subia —
+ * qualquer pagamento servia. Quatro amigos, quatro Pix; a Ana paga, o telefone
+ * do Bruno diz "Pagamento confirmado — você pagou R$ 55", o Pix dele segue em
+ * aberto, e ele vai embora (auditoria de fluxo, CRITICAL-1). Agora o telefone
+ * compara ESTA marca com a da própria cobrança (`apps/web/src/pagamento-ref.ts`,
+ * mesma conta) e só avança quando a dele cai.
+ *
+ * O id do adquirente continua fora: doze hex de um hash não levam de volta a
+ * ele, e não servem pra nada além de "este é o meu".
+ */
+function refDoPagamento(txid) {
+  return crypto.createHash('sha256').update(String(txid)).digest('hex').slice(0, 12);
+}
+
 function publicCheckState(state) {
   if (!state || typeof state !== 'object') return state;
   const pagamentos = state.payments && typeof state.payments === 'object' ? state.payments : {};
@@ -56,7 +75,8 @@ function publicCheckState(state) {
      *
      * Ordinal pela ordem do razão: estável entre leituras, e não diz nada.
      */
-    payments: Object.fromEntries(Object.entries(pagamentos).map(([, p], i) => [`p${i + 1}`, {
+    payments: Object.fromEntries(Object.entries(pagamentos).map(([txid, p], i) => [`p${i + 1}`, {
+      ref: refDoPagamento(txid),
       amountCents: p.amountCents,
       tipCents: p.tipCents,
       refundedAmountCents: p.refundedAmountCents,

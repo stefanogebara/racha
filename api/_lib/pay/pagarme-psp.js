@@ -377,16 +377,21 @@ function createPagarmePsp({
      */
     async createRecipient({ name, email, document, type = 'individual', bank }) {
       if (!name || !document || !bank) throw new TypeError('createRecipient: name, document e bank são obrigatórios');
-      const digits = String(document).replace(/\D/g, '');
+      // O DOCUMENTO com as letras: o CNPJ alfanumérico (IN RFB 2.229/2024, desde
+      // julho de 2026) tem letras nas doze primeiras posições, e `\D` as
+      // apagava — o recebedor saía com um documento que não é o da casa
+      // (auditoria de onboarding, C1). A aceitação do alfanumérico pelo
+      // Pagar.me precisa ser confirmada numa chamada de sandbox.
+      const doc = String(document).toUpperCase().replace(/[^0-9A-Z]/g, '');
       const body = {
         name: String(name).slice(0, 128),
         email: email || undefined,
-        document: digits,
-        type: digits.length === 14 ? 'company' : (type || 'individual'),
+        document: doc,
+        type: doc.length === 14 ? 'company' : (type || 'individual'),
         default_bank_account: {
           holder_name: String(bank.holderName || name).slice(0, 30),
-          holder_type: digits.length === 14 ? 'company' : 'individual',
-          holder_document: digits,
+          holder_type: doc.length === 14 ? 'company' : 'individual',
+          holder_document: doc,
           bank: String(bank.code),
           branch_number: String(bank.agencia),
           ...(bank.agenciaDv ? { branch_check_digit: String(bank.agenciaDv) } : {}),

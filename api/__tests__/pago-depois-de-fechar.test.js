@@ -316,14 +316,21 @@ describe('o que o dono vê primeiro — nem o painel nem o alerta da noite são 
 });
 
 describe('as regras puras das duas rotas do dono — testadas sem HTTP', () => {
-  test('o teto da devolução REGISTRADA inclui a marca do pago-depois-de-fechar', () => {
-    // Sem ela, um atrasado cujo estorno falhou, ou um Pix além dos 90 dias, não
-    // tinha jeito verdadeiro de fechar (compliance MEDIUM-A de 57c0d2e).
+  test('o teto da devolução REGISTRADA alcança a marca do pago-depois-de-fechar — só com o trilho impossível', () => {
+    // Sem alcançá-la, um atrasado cujo estorno falhou, ou um Pix além dos 90
+    // dias, não tinha jeito verdadeiro de fechar (compliance MEDIUM-A de
+    // 57c0d2e). Alcançando-a SEMPRE, virava um jeito de tirar serviço da folha
+    // por atestação (segurança MEDIUM-2 de 3eea5f3) — ver
+    // `devolucao-fora-do-trilho.test.js`.
     const st = reduce(MESA);
-    expect(tetoDaRestituicao(st, 'txC')).toEqual({ excesso: 0, tardio: 10000, teto: 10000 });
-    expect(tetoDaRestituicao(st, 'txA')).toEqual({ excesso: 0, tardio: 0, teto: 0 });
+    const velho = { confirmedAt: new Date(Date.now() - 91 * 86400000).toISOString(), method: 'pix' };
+    expect(tetoDaRestituicao(st, 'txC', velho)).toMatchObject({ excesso: 0, tardio: 10000, teto: 10000 });
+    expect(tetoDaRestituicao(st, 'txC')).toMatchObject({ tardio: 0, teto: 0 });
+    expect(tetoDaRestituicao(st, 'txA', velho)).toMatchObject({ excesso: 0, tardio: 0, teto: 0 });
     const dup = reduce([opened(20000), paid('txA', 10000), paid('txB', 10000), closed(), paid('txC', 10000, 1000)]);
-    expect(tetoDaRestituicao(dup, 'txC')).toEqual({ excesso: 10000, tardio: 1000, teto: 11000 });
+    expect(tetoDaRestituicao(dup, 'txC', velho)).toMatchObject({ excesso: 10000, tardio: 1000, teto: 11000 });
+    // O EXCEDENTE não depende do trilho: sobra devolve-se sempre.
+    expect(tetoDaRestituicao(dup, 'txC')).toMatchObject({ excesso: 10000, tardio: 0, teto: 10000 });
     expect(tetoDaRestituicao(dup, 'nenhum')).toBeNull();
   });
 
@@ -345,7 +352,10 @@ describe('as regras puras das duas rotas do dono — testadas sem HTTP', () => {
     const trecho = (rota) => { const i = R.indexOf(`url.pathname === '${rota}'`); return R.slice(i, R.indexOf("url.pathname === '", i + 40)); };
     expect(trecho('/api/checks/resolve-issue')).toMatch(/const payload = payloadDaResolucao\(b, user\);/);
     expect(trecho('/api/checks/resolve-issue')).toMatch(/appendValidated\(store, b\.checkId, 'PAYMENT_ISSUE_RESOLVED', payload\)/);
-    expect(trecho('/api/checks/record-restitution')).toMatch(/tetoDaRestituicao\(estado, String\(b\.txid\)\)\.teto/);
+    expect(trecho('/api/checks/record-restitution')).toMatch(/const limites = tetoDaRestituicao\(estado, String\(b\.txid\), \{/);
+    // O trilho impossível se decide pela LINHA do pagamento: data e meio.
+    expect(trecho('/api/checks/record-restitution')).toMatch(/confirmedAt: linhaDoPagamento && linhaDoPagamento\.confirmedAt/);
+    expect(trecho('/api/checks/record-restitution')).toMatch(/method: linhaDoPagamento && linhaDoPagamento\.method/);
     expect(trecho('/api/checks/record-restitution')).toMatch(/by: autorDoRegistro\(user\)/);
   });
 

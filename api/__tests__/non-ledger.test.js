@@ -210,7 +210,13 @@ describe('a leitura PÚBLICA da conta é uma lista branca', () => {
     });
     // A chave é um ordinal da conta, não o id do adquirente.
     expect(Object.keys(publico.payments)).toEqual(['p1']);
+    // `ref` entrou DE PROPÓSITO, e a lista branca continua branca: é o sha256 do
+    // txid em doze hex — deixa o telefone reconhecer a PRÓPRIA cobrança sem
+    // conhecer o id de ninguém (o ✓ confirmava o pagamento de outra pessoa da
+    // mesa; auditoria de fluxo, CRITICAL-1). O teste de cima segue exigindo que
+    // `pi_1` não apareça.
     expect(publico.payments.p1).toEqual({
+      ref: require('node:crypto').createHash('sha256').update('pi_1').digest('hex').slice(0, 12),
       amountCents: 3000, tipCents: 300, refundedAmountCents: 0, refundedTipCents: 0, late: false,
     });
   });

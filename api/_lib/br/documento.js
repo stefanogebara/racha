@@ -34,27 +34,46 @@ function isValidCPF(input) {
   return calc(9) === Number(d[9]) && calc(10) === Number(d[10]);
 }
 
+/**
+ * O CNPJ normalizado: maiúsculas, só `[0-9A-Z]`.
+ *
+ * Desde julho de 2026 (IN RFB 2.229/2024) o CNPJ novo é ALFANUMÉRICO: doze
+ * posições de `0-9A-Z` e dois dígitos verificadores numéricos. Todo lugar daqui
+ * tirava as letras (`\D`), e toda casa com CNPJ emitido depois disso ficava
+ * sem conseguir se cadastrar (auditoria de onboarding, C1).
+ */
+function normalizarCnpj(s) {
+  return String(s == null ? '' : s).toUpperCase().replace(/[^0-9A-Z]/g, '');
+}
+
+/**
+ * CNPJ numérico OU alfanumérico. Os mesmos pesos e o mesmo módulo 11; o valor
+ * de cada posição é o código do caractere menos 48 — `0`..`9` continuam 0..9,
+ * `A` vale 17 (a regra da Receita, que faz o CNPJ numérico de sempre sair
+ * igual).
+ */
 function isValidCNPJ(input) {
-  const d = onlyDigits(input);
-  if (d.length !== 14) return false;
-  if (/^(\d)\1{13}$/.test(d)) return false;
+  const d = normalizarCnpj(input);
+  if (!/^[0-9A-Z]{12}\d{2}$/.test(d)) return false;
+  if (/^(.)\1{13}$/.test(d)) return false;
+  const valor = (c) => c.charCodeAt(0) - 48;
   const calc = (len) => {
     const pesos = len === 12
       ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
       : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
     let sum = 0;
-    for (let i = 0; i < len; i++) sum += Number(d[i]) * pesos[i];
+    for (let i = 0; i < len; i++) sum += valor(d[i]) * pesos[i];
     const r = sum % 11;
     return r < 2 ? 0 : 11 - r;
   };
   return calc(12) === Number(d[12]) && calc(13) === Number(d[13]);
 }
 
-/** 11 dígitos → cpf, 14 → cnpj, senão null. */
+/** 11 dígitos → cpf (CPF não tem letra), 14 caracteres → cnpj, senão null. */
 function docKind(input) {
-  const n = onlyDigits(input).length;
-  if (n === 11) return 'cpf';
-  if (n === 14) return 'cnpj';
+  const s = normalizarCnpj(input);
+  if (/^\d{11}$/.test(s)) return 'cpf';
+  if (s.length === 14) return 'cnpj';
   return null;
 }
 
@@ -137,11 +156,14 @@ function normalizarDocumentoDaCasa(bruto, market = 'br') {
   // `CNPJ em analise 11222333000181` passava por ele: a ressalva sumia e o
   // número era aceito como conferido. Escrever a validação em cima de um
   // extrator é validar outra coisa que não o que o usuário mandou.
-  if (!/^[\d.\-/\s]+$/.test(texto)) return { ok: false, code: 'tax_id_invalid' };
+  // Letras entram agora — o CNPJ alfanumérico — e a ressalva continua barrada:
+  // `CNPJ em analise 11222333000181` normaliza pra 27 caracteres, que não é
+  // documento nenhum.
+  if (!/^[0-9A-Za-z.\-/\s]+$/.test(texto)) return { ok: false, code: 'tax_id_invalid' };
   // CNPJ, não "CPF ou CNPJ": ver o cabeçalho.
   if (docKind(texto) !== 'cnpj') return { ok: false, code: 'tax_id_invalid' };
   if (!isValidCNPJ(texto)) return { ok: false, code: 'tax_id_invalid' };
-  return { ok: true, valor: onlyDigits(texto) };
+  return { ok: true, valor: normalizarCnpj(texto) };
 }
 
 /**
@@ -179,11 +201,11 @@ function documentoPublicavelDaCasa(marketCode, valor, mostraNesteMercado) {
     // esta função também decide se a gorjeta corre. Um predicado, dois usos.
     return /^[ABCDEFGHJNPQRSUVW]\d{7}[A-Z0-9]$|^[XYZ]\d{7}[A-Z]$/.test(nif) ? nif : null;
   }
-  const digitos = onlyDigits(texto);
-  // Confere o DOCUMENTO, não a forma da string: catorze dígitos que não passam
-  // no verificador não são um CNPJ, e pontuar isso no recibo é dar autoridade
-  // a um número que ninguém checou.
-  return isValidCNPJ(digitos) ? digitos : null;
+  const cnpj = normalizarCnpj(texto);
+  // Confere o DOCUMENTO, não a forma da string: catorze caracteres que não
+  // passam no verificador não são um CNPJ, e pontuar isso no recibo é dar
+  // autoridade a um número que ninguém checou.
+  return isValidCNPJ(cnpj) ? cnpj : null;
 }
 
 /**
@@ -233,6 +255,6 @@ function decidirDocumentoDoRecebedor({ enviado, venue }) {
 }
 
 module.exports = {
-  onlyDigits, isValidCPF, isValidCNPJ, docKind, isValidCpfCnpj,
+  onlyDigits, normalizarCnpj, isValidCPF, isValidCNPJ, docKind, isValidCpfCnpj,
   normalizarDocumentoDaCasa, documentoPublicavelDaCasa, decidirDocumentoDoRecebedor,
 };

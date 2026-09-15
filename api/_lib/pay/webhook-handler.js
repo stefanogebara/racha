@@ -25,7 +25,8 @@
 
 const { reduce, validateEvent, EventValidationError } = require('../checks/check-state');
 const { maskPixPayload } = require('./mask');
-const { allocateRefund, allocateRestitution } = require('../checks/split-engine');
+const { allocateRefund } = require('../checks/split-engine');
+const { alocarDevolucaoDoPagamento } = require('../checks/refund-allocation');
 
 /**
  * Fold a verified+parsed PSP charge into the check ledger. Pure orchestration
@@ -46,46 +47,16 @@ const { allocateRefund, allocateRestitution } = require('../checks/split-engine'
  * @returns {Promise<{status:'appended'|'duplicate'|'divergent_appended'|'rejected', checkId?:string, seq?:number, reason?:string}>}
  */
 /**
- * O rateio de uma devolução, considerando o EXCEDENTE da conta.
- *
- * Se a conta recebeu mais do que pedia, a primeira parte do que volta é
- * RESTITUIÇÃO de excedente e sai toda do consumo — foi por ali que entrou (ver
- * `allocateRestitution`). Sem excedente, é estorno comum e vai proporcional.
+ * O rateio de uma devolução. A regra inteira — e o porquê de cada balde — mora
+ * em `checks/refund-allocation.js`, compartilhada com a devolução que o dono
+ * registra fora do trilho. Eram duas cópias da mesma conta, e uma delas não
+ * conhecia o serviço devido do pago-depois-de-fechar.
  */
-/**
- * O rateio de uma devolução, considerando o EXCEDENTE deste pagamento.
- *
- * Se parte do que este pagamento trouxe era sobra, a primeira parte do que
- * volta é RESTITUIÇÃO e sai toda do consumo — foi por ali que entrou (ver
- * `allocateRestitution`). O resto é estorno comum e vai proporcional.
- *
- * O excedente é DERIVADO pelo redutor (ver `PAYMENT_CONFIRMED`), então aqui
- * ele nunca falta: a reserva histórica que existia neste lugar era código
- * morto, porque o redutor já normalizava o campo antes dela poder olhar.
- *
- * Quanto ainda falta restituir sai por subtração, e é exato por construção: o
- * excedente sai do consumo PRIMEIRO, então os primeiros `refundedAmountCents`
- * centavos devolvidos foram exatamente ele. Nada de teto pela sobra da CONTA —
- * ela é reduzida por qualquer coisa que mexa no total, e um teto assim vazava
- * entre pagadores: compensar a dívida de um com o crédito de outro não existe
- * (CC art. 876).
- *
- * A conta que ENCOLHEU depois de paga (`ADJUSTED` pra baixo) também produz
- * sobra, e nela nenhum pagamento tem excedente — corretamente: ninguém pagou a
- * mais, a conta diminuiu. Aí o estorno é comum e proporcional, o que devolve
- * junto a fatia de serviço do item que saiu.
- */
-function alocarDevolucao(state, pay, delta) {
-  void state;
-  const consumo = pay.amountCents - pay.refundedAmountCents;
-  const gorjeta = pay.tipCents - pay.refundedTipCents;
-  const excedente = Math.min(
-    Math.max(0, (pay.excessCents || 0) - (pay.refundedAmountCents || 0)),
-    Math.max(0, consumo),
-  );
-  return excedente > 0
-    ? allocateRestitution(consumo, gorjeta, delta, excedente)
-    : allocateRefund(consumo, gorjeta, delta);
+function alocarDevolucao(state, txid, pay, delta) {
+  // A regra mora em `refund-allocation.js` — a mesma que a devolução fora do
+  // trilho usa. O `state` deixou de ser ignorado: é dele que sai o serviço
+  // DEVIDO de um pagamento atrasado (balde 2).
+  return alocarDevolucaoDoPagamento(state, txid, pay, delta);
 }
 
 
@@ -327,7 +298,7 @@ async function applyConfirmedPayment(parsed, deps) {
     // deixá-la nos livros como paga mentiria pra folha — mas o excedente nunca
     // foi gorjeta nem receita, e não pode virar desconto na folha por ordem de
     // subtração.
-    refundAllocated = alocarDevolucao(state, pay, parsed.refundDeltaCents);
+    refundAllocated = alocarDevolucao(state, parsed.txid, pay, parsed.refundDeltaCents);
   }
   if (type === 'PAYMENT_REFUNDED' && Number.isSafeInteger(parsed.cumulativeRefundedCents)) {
     const pay = state && state.payments[parsed.txid];
@@ -351,7 +322,7 @@ async function applyConfirmedPayment(parsed, deps) {
         reason: `refund ${parsed.cumulativeRefundedCents} exceeds paid ${paidTotal} for txid ${parsed.txid}`,
       };
     }
-    refundAllocated = alocarDevolucao(state, pay, delta);
+    refundAllocated = alocarDevolucao(state, parsed.txid, pay, delta);
   }
 
   const payload = type === 'PAYMENT_DISPUTE_CLOSED' ? {

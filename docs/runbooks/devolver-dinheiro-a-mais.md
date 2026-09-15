@@ -70,8 +70,13 @@ conciliação levanta `paid_after_close`.
    (consumo + serviço), como no passo 2 acima. O webhook registra a devolução e
    a marca diminui no valor devolvido (se a cobrança também mostra `a devolver`, o estorno sai PRIMEIRO dessa sobra — confira as duas linhas). **Não use "não pagou no caixa" pra registrar uma
    devolução**: o serviço ficaria na base da folha (Lei 13.419/2017) sem ter
-   voltado, e nada no razão diria que o dinheiro voltou. Devolução em dinheiro
-   no caixa não tem registro aqui — por isso o adquirente.
+   voltado, e nada no razão diria que o dinheiro voltou.
+
+   Enquanto o estorno pelo adquirente for possível, é por ele que se devolve, e
+   a rota de registro por fora **recusa** (`use_acquirer_refund`). Ela existe só
+   pro caso do passo 6, e o motivo é que o adquirente é a testemunha: sem ele, a
+   única prova de que o dinheiro voltou seria a palavra de quem opera o caixa —
+   sobre um valor que sai da base da folha do time.
 3. **Se a mesa NÃO pagou no caixa:** "não pagou no caixa" na linha da mesa. O
    pagamento era legítimo, e a pergunta fica respondida.
 4. **Pagamento em DUPLICIDADE** (a conta já estava paga no Racha): a linha diz
@@ -80,12 +85,24 @@ conciliação levanta `paid_after_close`.
 5. **Sem resposta, a pergunta não some**: depois de 48 horas ela vira
    `critical` na conciliação, como a dívida de restituição.
 
-6. **Se o estorno pelo adquirente NÃO for possível** — ele falhou e voltou, ou o
-   Pix passou dos 90 dias da devolução: devolva por fora e **registre**, com
-   `POST /api/checks/record-restitution` (a conta, a cobrança, o valor e a
-   referência). O teto dessa rota inclui a marca do pago-depois-de-fechar. **Na
-   referência, nada do cliente**: nem nome, nem CPF, nem chave Pix — o id E2E do
-   Pix, ou "dinheiro no caixa às 21h40". Ela fica num razão que não se apaga.
+6. **Se o estorno pelo adquirente NÃO for possível** — ele falhou e voltou
+   (a conta mostra `estorno FALHOU`), ou é **Pix** e passaram os 90 dias da
+   devolução: devolva por fora (transferência, dinheiro no caixa) e **registre**,
+   com `POST /api/checks/record-restitution` (a conta, a cobrança, o valor e a
+   referência). Só nesses dois casos o teto dessa rota inclui a marca do
+   pago-depois-de-fechar; fora deles ela responde `use_acquirer_refund` e o
+   caminho é o passo 2. No cartão não há prazo de 90 dias: lá o trilho só é
+   impossível se o estorno tiver falhado.
+
+   **O registro fecha a marca do pago-depois-de-fechar, não a do estorno que
+   falhou.** São duas coisas: o `estorno FALHOU` continua na conta até alguém
+   resolver aquela pendência (`POST /api/checks/resolve-issue` sem escopo, com a
+   nota de quem resolveu) — é ela que diz ao cliente que ele tem a receber. Feche
+   as duas, ou a conta segue vermelha com a dívida já paga.
+
+   **Na referência, nada do cliente**: nem nome, nem CPF, nem chave Pix — o id
+   E2E do Pix, ou "dinheiro no caixa às 21h40". Ela fica num razão que não se
+   apaga.
 
 **No primeiro deploy com isto**: todo pagamento atrasado ANTIGO, sem resposta,
 aparece como `critical` na primeira conciliação da noite. Avise as casas do
@@ -93,11 +110,18 @@ piloto antes, e responda os antigos pelo painel.
 
 ## Por onde o dinheiro sai
 
-**Do consumo, nunca da gorjeta.** O excedente entra registrado como consumo, e
-a devolução sai de lá. A gorjeta arrecadada é remuneração do time (Lei
-13.419/2017 + STJ Tema 1102) e não é fundo de onde a casa tira dinheiro pra
-restituir — nem por acidente de arredondamento. Ver `allocateRestitution` em
-`api/_lib/checks/split-engine.js`.
+**O excedente sai do consumo, nunca da gorjeta.** Ele entra registrado como
+consumo, e a devolução sai de lá. A gorjeta arrecadada é remuneração do time
+(Lei 13.419/2017 + STJ Tema 1102) e não é fundo de onde a casa tira dinheiro
+pra restituir — nem por acidente de arredondamento.
+
+**A exceção é o serviço de um pagamento que duplicou o caixa**, e ela é a mesma
+lei pelo outro lado: 10% sobre uma cobrança que não correspondeu a atendimento
+nenhum nunca foi serviço prestado — é do cliente, e volta inteiro da gorjeta.
+Devolver R$ 110 de uma duplicação de R$ 100 + R$ 10 deixa a base da folha menor
+em exatamente R$ 10, não numa fatia proporcional. Só depois desses dois baldes
+o que sobrar vira estorno comum, proporcional. Ver
+`api/_lib/checks/refund-allocation.js`.
 
 ## Antes de emitir: o saldo do recebedor
 

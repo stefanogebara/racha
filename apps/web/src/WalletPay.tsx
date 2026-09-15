@@ -212,6 +212,12 @@ export default function WalletButtons({
     );
   }
 
+  // Os botões de DEMONSTRAÇÃO só na casa de demonstração. Em qualquer outra —
+  // casa sem recebedor de verdade, build sem as chaves — o componente caía aqui e
+  // mostrava Apple Pay e Google Pay que abriam uma folha "simulação (demo)" com
+  // "•••• 4242" pra um cliente de verdade (auditoria de UI, C2).
+  if (!simulated) return null;
+
   // Ordem por plataforma no demo: Apple primeiro em iOS/macOS.
   const isApple = typeof (window as unknown as { ApplePaySession?: unknown }).ApplePaySession !== 'undefined'
     || /iPhone|iPad|Macintosh/.test(navigator.userAgent);
