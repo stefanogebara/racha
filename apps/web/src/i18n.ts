@@ -417,19 +417,6 @@ export const DICT = {
                             pt: 'Valor acima do que falta ({left}).',
                         es: 'El importe supera lo que falta ({left}).' },
   'err.tax_id_invalid': { en: 'Check the document number.', pt: 'Confira o número do documento.', es: 'Revisa el número del documento.' },
-  // TETO DE COBRANÇAS VIVAS. O servidor manda `{limit}` e `{windowMinutes}`
-  // crus; quem escreve a frase é o cliente, que sabe o idioma de quem lê. A
-  // mensagem diz o que FAZER — esperar um QR vencer ou pagar um dos abertos —
-  // porque um teto que só diz "não" numa mesa com a conta na mão é uma tela
-  // sem saída.
-  // O REMÉDIO TEM QUE ESTAR NA MÃO DE QUEM LÊ. A primeira versão desta frase
-  // dizia "pague um deles" — e os outros códigos abertos estão no telefone das
-  // OUTRAS pessoas da mesa: quem lê não tem acesso a nenhum. Pior, se a pessoa
-  // acabou de TIRAR o serviço, o código que ainda ocupa vaga é o que carrega os
-  // 10%, e a frase empurrava pra ele. Agora a frase nomeia o que quem lê pode
-  // fazer: esperar — por quanto tempo vai no `{windowMinutes}`, porque o
-  // cliente não lê o cabeçalho `Retry-After` — ou fechar no caixa. Achado pela
-  // revisão de compliance de 2026-09-15 (HIGH-4).
   // SEM PRAZO PROMETIDO. A frase anterior dizia "espere até {windowMinutes}
   // minutos", e as duas revisões de 2026-09-15 mediram que é falso: um script
   // que repõe cada vaga ao vencer tranca a mesa enquanto rodar. O que funciona
@@ -453,10 +440,18 @@ export const DICT = {
     en: 'Top-ups are paused at this venue for now. Your balance is safe, and you can still pay the bill.',
     pt: 'As recargas estão pausadas nesta casa por enquanto. Seu saldo está seguro, e você ainda pode pagar a conta.',
     es: 'Las recargas están en pausa en este local por ahora. Tu saldo está a salvo, y aún puedes pagar la cuenta.' },
+  // O rótulo também é recusado por caractere de controle ou texto mal formado
+  // (ver `payerLabelValido`), então a frase não diz só "longo demais".
   'err.payer_label_invalid': {
-    en: 'The name is too long — use up to 60 characters.',
-    pt: 'O nome está longo demais — use até 60 caracteres.',
-    es: 'El nombre es demasiado largo — usa hasta 60 caracteres.' },
+    en: 'Please use a shorter name (up to 60 characters), with letters and numbers only.',
+    pt: 'Use um nome mais curto (até 60 caracteres), só com letras e números.',
+    es: 'Usa un nombre más corto (hasta 60 caracteres), solo con letras y números.' },
+  // A demo é pública e cobra a partir de um centavo, então tem limite por
+  // origem. Sem prazo na frase — o balde é local e aproximado.
+  'err.demo_busy': {
+    en: 'The demo is busy right now — please try again in a few minutes.',
+    pt: 'A demonstração está movimentada agora — tente de novo em alguns minutos.',
+    es: 'La demostración está muy concurrida ahora — inténtalo de nuevo en unos minutos.' },
   // O documento do recebedor tem que ser o MESMO que o recibo mostra: um é
   // onde o dinheiro liquida, o outro é o que o cliente lê. Divergir é o
   // comprovante dizer uma coisa e o split fazer outra.
@@ -976,9 +971,13 @@ export const DICT = {
   // Os três diálogos IRREVERSÍVEIS do dono. Ficaram em português cru até
   // 2026-09-10 porque a detecção do censo é uma lista de palavras escrita à
   // mão, e nem "girar", nem "desativar", nem "reembolsar" estavam nela.
-  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately.',
-                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora.',
-                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante.' },
+  // O CUSTO DO REMÉDIO, dito antes. Girar o QR é o que o aviso de teto manda
+  // fazer, e quem está no meio de um pagamento acompanha a conta PELO token da
+  // mesa: girado, a tela vira "conta não encontrada" e ele não vê a
+  // confirmação — e pode pagar de novo no caixa. (Compliance, M2.)
+  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately, and anyone paying right now loses their confirmation screen — check the table’s payments here before closing at the till.',
+                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora, e quem está pagando agora perde a tela de confirmação — confira aqui os pagamentos da mesa antes de fechar no caixa.',
+                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante, y quien esté pagando ahora pierde la pantalla de confirmación — revisa aquí los pagos de la mesa antes de cobrar en caja.' },
   'admin.deactivateAsk': { en: 'Deactivate {table}? Its QR stops working.',
                         pt: 'Desativar a {table}? O QR dela para de funcionar.',
                         es: '¿Desactivar {table}? Su QR deja de funcionar.' },

@@ -203,7 +203,7 @@ const reconciler = createChargeReconciler({
 // quebrar (o recebedor de teste não existe em live). Aqui ele roda sempre num
 // MockPsp próprio e se auto-confirma — independente de RACHA_PSP/live. É a única
 // venue cujo dinheiro é fake por design.
-const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck } = require('../_lib/demo');
+const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck, isDemoVenue } = require('../_lib/demo');
 const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || DEMO_TOKEN;
 const demoPsp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 const demoCharge = createChargeService({ store, psp: demoPsp });
@@ -260,12 +260,15 @@ function json(res, status, body, extra = null) {
 }
 
 /**
- * `Retry-After` quando a resposta é "agora não".
+ * `Retry-After` quando a espera TEM prazo — e só aí.
  *
- * Esperar é o ÚNICO remédio que está na mão de quem lê a recusa do teto — os
- * outros códigos abertos estão no telefone das outras pessoas da mesa. Uma
- * recusa que não diz por quanto tempo transforma "espere" em "tente de novo
- * pra sempre". Achado pela revisão de compliance de 2026-09-15 (MEDIUM-3).
+ * O cabeçalho sai de `vars.windowMinutes`, e só a recusa por CONTA de recarga o
+ * manda: aquele balde só o dono da carteira enche, então quinze minutos é
+ * verdade. A recusa do teto da mesa e a do teto de recargas da CASA não mandam,
+ * porque ali quem tem o token repõe cada vaga ao vencer e a espera não tem fim —
+ * a primeira versão deste docblock dizia que esperar era "o ÚNICO remédio", e o
+ * cabeçalho prometia pelo protocolo o prazo que a tela já não prometia.
+ * (Compliance, L2.)
  */
 function cabecalhoDeEspera(err) {
   const min = err && err.vars && Number(err.vars.windowMinutes);
@@ -277,32 +280,82 @@ function cabecalhoDeEspera(err) {
  * O TETO DISPAROU — alguém que pode agir tem que ficar sabendo, uma vez.
  *
  * Uma mesa legítima não chega ao teto (a conta está no `create-charge.js`), então
- * um 429 dele é ataque — e a única marca era uma linha `[teto]` no log da Vercel.
- * O dono tem o remédio (girar o QR, que agora começa um balde novo), mas não
- * sabia que precisava usá-lo. As duas revisões de 2026-09-15 pediram isto.
+ * um 429 dele é ataque; e o remédio do dono (girar o QR, que começa um balde
+ * novo) só existe se alguém souber. O mesmo pro teto de recargas da CASA.
  *
- * DEDUPLICADO NO BANCO, não em estado de módulo: a mesma reivindicação atômica
- * do teto, numa chave de alerta com limite um por janela. Estado de módulo
- * seria um aviso por instância — a lição do `CRON_SECRET`. E não é um pager
- * anônimo: dispara só pra quem tem o token da mesa E encheu o teto dela.
+ * O QUE A PRIMEIRA VERSÃO DIZIA E NÃO ERA VERDADE: "não é um pager anônimo".
+ * Era — pela DEMO. O token dela está no link da landing, ela cobra a partir de
+ * um centavo e se confirma sozinha: duzentas cobranças de um centavo paginavam
+ * o fundador, e o `/api/demo/reset` abria uma conta nova — e uma chave de alerta
+ * nova — pra paginar de novo. Reproduzido; achado pelas duas revisões de
+ * 2026-09-15. Agora:
  *
- * Pelo canal de alerta crítico do fundador (`notifyFounderReconcile`), e não
- * pelo de evento de dinheiro: aquele rejeita `kind` desconhecido, e um `kind`
- * novo teria de ser aceito também do lado da Olímpia, na ponte — mudança em
- * outro sistema que daqui não dá pra verificar. Nunca lança: o aviso é
- * acessório à recusa, e a recusa tem que sair de qualquer jeito.
+ *  · casa de DEMO não pagina. A decisão sai da CASA (`isDemoVenue`: casa de
+ *    teste E recebedor mock, os dois), não do token do corpo — o token da demo
+ *    é uma env, e um erro de digitação apontando pra mesa de verdade calaria os
+ *    alertas DELA;
+ *  · deduplicado NO BANCO, uma vez por conta (ou casa) por janela, e com um teto
+ *    GLOBAL por dia — o volume é limitado por mais mesas que alguém ataque, e o
+ *    canal é o mesmo do canário da conciliação (inegociável #8), que não pode
+ *    virar ruído;
+ *  · se a ponte falhar, as vagas de alerta VOLTAM: tomada a vaga antes do envio,
+ *    uma falha calava a janela inteira;
+ *  · um atalho local evita uma segunda reivindicação no banco a cada 429
+ *    seguinte — quem decide continua sendo o banco;
+ *  · nomeia a CASA e a MESA, e avisa o custo do remédio: quem está no meio de um
+ *    pagamento perde a tela de confirmação quando o QR gira.
+ *
+ * Pelo canal de alerta crítico do fundador, e não pelo de evento de dinheiro:
+ * aquele rejeita `kind` desconhecido, e um evento próprio teria de ser aceito do
+ * lado da Olímpia, na ponte — mudança em outro sistema que daqui não dá pra
+ * verificar. Nunca lança: roda DEPOIS da recusa, que já saiu.
  */
+const ALERTAS_DE_TETO_POR_DIA = 12;
+const alertasRecentes = new Map(); // chave → instante; atalho local, não decisão
 async function avisarTetoDisparado(err) {
-  if (!err || err.code !== 'too_many_pending_charges' || !err.checkId) return;
+  if (!err) return;
   try {
-    const r = await store.claimSlots({
-      keys: [`alerta:check:${err.checkId}`], limits: [1], windowMs: JANELA_VIVA_MS,
+    let chave; let venue;
+    if (err.code === 'too_many_pending_charges' && err.checkId) {
+      chave = `alerta:check:${err.checkId}`;
+      venue = await store.getVenueForCheck(err.checkId);
+    } else if (err.code === 'too_many_pending_loads_venue' && err.venueId) {
+      chave = `alerta:venue:${err.venueId}`;
+      venue = await store.getVenue(err.venueId);
+    } else {
+      return;
+    }
+    if (isDemoVenue(venue)) return;
+    const agora = Date.now();
+    if ((alertasRecentes.get(chave) || 0) > agora - JANELA_VIVA_MS) return;
+    if (alertasRecentes.size > 5000) alertasRecentes.clear();
+    alertasRecentes.set(chave, agora);
+    const daConta = await store.claimSlots({ keys: [chave], limits: [1], windowMs: JANELA_VIVA_MS });
+    if (daConta.claimId === null) return;
+    const doDia = await store.claimSlots({
+      keys: ['alerta:teto:dia'], limits: [ALERTAS_DE_TETO_POR_DIA], windowMs: 86_400_000,
     });
-    if (r.claimId === null) return;
-    await notifyFounderReconcile({
-      mensagem: `TETO DE COBRANÇAS DISPAROU na conta ${err.checkId}. Uma mesa legítima não chega a este número: provável script usando o QR da mesa. Remédio: girar o QR daquela mesa no painel — a geração nova tem teto próprio e o atacante perde o token. Até lá a mesa paga no caixa.`,
-      venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+    if (doDia.claimId === null) {
+      process.stderr.write(`[teto] aviso contido pelo teto diário (${ALERTAS_DE_TETO_POR_DIA}) — ${chave}\n`);
+      return;
+    }
+    // `nomeDaCasa`, e não o nome curto: um teste estrutural do app web acha a
+    // emissão de `acceptsWallet` pela PRIMEIRA declaração da variável curta no
+    // router, e este helper, mais acima no arquivo, sequestrava a âncora. (Este
+    // comentário também não pode repetir a declaração literal: a busca da âncora
+    // é por substring e não pula comentário — foi o que o sequestrou de novo.)
+    const nomeDaCasa = (venue && venue.name) || err.venueName || '?';
+    const mensagem = err.code === 'too_many_pending_charges'
+      ? `TETO DE COBRANÇAS DISPAROU — ${nomeDaCasa} · ${err.tableLabel || 'mesa ?'} (conta ${err.checkId}). Uma mesa legítima não chega a este número: provável script usando o QR dessa mesa. Remédio: girar o QR dessa mesa no painel — a geração nova tem teto próprio e o atacante perde o token. ANTES de girar: quem está no meio de um pagamento perde a tela de confirmação (o QR antigo para de responder); confira no painel os pagamentos da mesa. Até lá, a mesa paga no caixa.`
+      : `RECARGAS PAUSADAS — ${nomeDaCasa}: o teto de recargas da casa encheu, provável geração de contas de saldo em massa. A conta da mesa não é afetada.`;
+    const r = await notifyFounderReconcile({
+      mensagem, venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
     });
+    if (r && r.ok === false) {
+      await store.releaseSlots(daConta.claimId);
+      await store.releaseSlots(doDia.claimId);
+      alertasRecentes.delete(chave);
+    }
   } catch (e) {
     process.stderr.write(`[teto] aviso ao operador não saiu: ${String(e && e.message).slice(0, 80)}\n`);
   }
@@ -607,11 +660,21 @@ async function route(req, res) {
     }
     if (req.method === 'POST' && url.pathname === '/api/pay') {
       const body = JSON.parse(await readBody(req) || '{}');
-      const view = await store.getCheckByQrToken(body.token || '');
+      // TOKEN É STRING. Um `["<tok>"]` a PostgREST resolve (ela monta o filtro com
+      // interpolação) e o `Map` do gêmeo não — então os testes não viam: o pedido
+      // achava a mesa em produção, a geração do QR saía nula e o teto caía na
+      // chave sem geração, um SEGUNDO balde; na demo, desligava o `isDemo`.
+      // (Segurança stand-in, LOW-1.)
+      if (typeof body.token !== 'string') return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      const view = await store.getCheckByQrToken(body.token);
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
       // pelo PSP real — dinheiro fake mesmo com o app em live.
-      const isDemo = (body.token || '') === DEMO_TABLE_TOKEN;
+      const isDemo = body.token === DEMO_TABLE_TOKEN;
+      // A DEMO É PÚBLICA — o token está no link da landing — e cobra a partir de
+      // um centavo. Sem limite, qualquer um enchia o teto dela e deixava a
+      // demonstração de vendas respondendo 429. (Compliance e segurança, HIGH.)
+      if (isDemo && !rateLimitDemo(req)) return json(res, 429, { success: false, code: 'demo_busy' });
       // O trilho pedido, e nada de conferir mercado AQUI: quem confere é o
       // `marketGate` dentro do `create-charge`, que é o portão de dinheiro
       // compartilhado — e os dois serviços (`charge` e `demoCharge`) saem da
@@ -624,23 +687,33 @@ async function route(req, res) {
       // `market_not_live`. A cópia existia só porque o catch geral perdia o
       // `code`; agora não perde.
       const payRail = body.rail === 'bizum' ? 'bizum' : 'pix';
-      const result = await (isDemo ? demoCharge : charge)({
-        checkId: view.check.id, amountCents: body.amountCents,
-        // O teto conta por conta E pela geração do QR — ver `geracaoDoQr`.
-        qrGeneration: geracaoDoQr(body.token || ''),
-        tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null, rail: payRail,
-        // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
-        wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
-        // CPF. O gateway exige `customer.document` no PIX TAMBÉM, não só em
-        // cartão: a doc do Pagar.me lista name/email/document/phones como
-        // obrigatórios pra criar a cobrança Pix (docs.pagar.me/reference/pix-2,
-        // conferido 2026-09-07). O comentário antigo dizia "em cartão" e fez a
-        // exigência parecer coleta excessiva numa revisão — é o mínimo pra
-        // emitir a cobrança, que é a base legal do art. 6º III da LGPD
-        // (necessidade, execução de contrato). O app não guarda o número:
-        // `registerCharge` não persiste, e webhook com CPF passa por maskTaxId.
-        payerDocument: body.payerDocument ?? null,
-      });
+      let result;
+      try {
+        result = await (isDemo ? demoCharge : charge)({
+          checkId: view.check.id, amountCents: body.amountCents,
+          // O teto conta por conta E pela geração do QR — ver `geracaoDoQr`.
+          qrGeneration: geracaoDoQr(body.token || ''),
+          tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null, rail: payRail,
+          // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
+          wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
+          // CPF. O gateway exige `customer.document` no PIX TAMBÉM, não só em
+          // cartão: a doc do Pagar.me lista name/email/document/phones como
+          // obrigatórios pra criar a cobrança Pix (docs.pagar.me/reference/pix-2,
+          // conferido 2026-09-07). O comentário antigo dizia "em cartão" e fez a
+          // exigência parecer coleta excessiva numa revisão — é o mínimo pra
+          // emitir a cobrança, que é a base legal do art. 6º III da LGPD
+          // (necessidade, execução de contrato). O app não guarda o número:
+          // `registerCharge` não persiste, e webhook com CPF passa por maskTaxId.
+          payerDocument: body.payerDocument ?? null,
+        });
+      } catch (e) {
+        // O aviso ao operador nomeia a CASA e a MESA — só um UUID obrigava a uma
+        // consulta e um telefonema. (Compliance, M3.)
+        if (e && e.code === 'too_many_pending_charges') {
+          e.venueName = view.venue && view.venue.name; e.tableLabel = view.table && view.table.label;
+        }
+        throw e;
+      }
       // O demo se auto-paga: sem Simulador nem webhook externo em live, o próprio
       // MockPsp assina a confirmação e o handler do demo credita o ledger — a
       // "conta de mentira" fecha na hora, sem tocar dinheiro real.
@@ -667,8 +740,9 @@ async function route(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/pay/stripe-intent') {
       if (!stripePsp) return json(res, 503, { success: false, error: 'cartão/Apple Pay indisponível — Stripe não configurado' });
       const b = JSON.parse(await readBody(req) || '{}');
-      if ((b.token || '') === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, error: 'a demo não usa cartão' });
-      const view = await store.getCheckByQrToken(b.token || '');
+      if (typeof b.token !== 'string') return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (b.token === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, error: 'a demo não usa cartão' });
+      const view = await store.getCheckByQrToken(b.token);
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       const venue = await store.getVenueForCheck(view.check.id);
       if (!venue || !venue.stripeAccountId || !/^acct_/.test(venue.stripeAccountId)) {
@@ -717,7 +791,7 @@ async function route(req, res) {
         return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
       }
       let devolverVaga = null;
-      let cobrancaCriada = false;
+      let pspChamado = false;
       try {
         // O TETO DE PENDENTES VIVAS, e ANTES da chamada ao adquirente. Esta
         // rota monta a cobrança sozinha — não passa pela fábrica —, então o
@@ -725,8 +799,10 @@ async function route(req, res) {
         // "chamador esquecido" que já custou o portão de mercado e a validação
         // do `payerLabel` nesta exata rota; um teste estrutural exige o
         // emparelhamento. Ver `assertChargeSlot`.
-        devolverVaga = await assertChargeSlot(store, view.check.id, geracaoDoQr(b.token || ''));
+        devolverVaga = await assertChargeSlot(store, view.check.id, geracaoDoQr(b.token));
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
+        // Daqui em diante a Stripe pode ter criado um intent: a vaga fica.
+        pspChamado = true;
         const charge = rail === 'bizum'
           ? await stripePsp.createBizumCharge({
             chargeRef, amountCents, tipCents,
@@ -750,8 +826,6 @@ async function route(req, res) {
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
         // logo acima já gravava 'bizum' certo, e a resposta dizia 'card' —
         // duas verdades sobre a mesma cobrança, e a tela lê a errada.
-        // Só aqui um código pagável chega ao cliente, e só daqui a vaga fica.
-        cobrancaCriada = true;
         return json(res, 200, { success: true, data: { txid: charge.txid, clientSecret: charge.clientSecret, amountCents, tipCents, method: rail === 'bizum' ? 'bizum' : 'card' } });
       } catch (e) {
         // A Stripe recusa fora dos limites do esquema com os SEUS códigos e uma
@@ -780,11 +854,17 @@ async function route(req, res) {
         // OUTROS na mesa. A chave `err.too_many_pending_charges` que o commit
         // do teto acrescentou não disparava em trilho nenhum além do Pix.
         // Achado pela revisão de compliance de 2026-09-15 (HIGH-2).
+        if (e && e.code === 'too_many_pending_charges') {
+          e.venueName = view.venue && view.venue.name; e.tableLabel = view.table && view.table.label;
+        }
+        // A RECUSA SAI PRIMEIRO, o aviso depois: esperar o aviso segurava o 429
+        // até oito segundos (o prazo da ponte). (Segurança stand-in, LOW-2.)
+        json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e));
         await avisarTetoDisparado(e);
-        return json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e));
+        return;
       } finally {
-        // A vaga volta se nenhum código pagável chegou ao cliente — ver `assertChargeSlot`.
-        if (devolverVaga && !cobrancaCriada) await devolverVaga();
+        // A vaga volta SÓ se a Stripe nem foi chamada — ver `assertChargeSlot`.
+        if (devolverVaga && !pspChamado) await devolverVaga();
       }
     }
 
@@ -1895,6 +1975,20 @@ async function route(req, res) {
       if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
         return json(res, 401, { success: false, error: 'unauthorized' });
       }
+      // O CANÁRIO DO TETO EM PRODUÇÃO. O `deploy.mjs` barra a ordem errada, mas
+      // não vê um deploy que não passe por ele, nem uma migração revertida
+      // depois. Sem a RPC do teto, TODO pagamento devolve 500 — então isto
+      // sonda a cada quinze minutos e pagina enquanto for verdade.
+      // (Compliance e segurança, 2026-09-15.)
+      try {
+        await store.releaseSlots('00000000-0000-0000-0000-000000000000');
+      } catch (e) {
+        process.stderr.write(`[reconcile-pending] RPC do teto AUSENTE: ${String(e && e.message).slice(0, 120)}\n`);
+        await notifyFounderReconcile({
+          mensagem: `NINGUÉM CONSEGUE PAGAR: a RPC do teto de cobranças (migração 0033) não responde em produção — todo /api/pay, /api/pay/stripe-intent e /api/house/load devolve 500. Aplicar supabase/migrations/0033_charge_slots.sql. Erro: ${String(e && e.message).slice(0, 160)}`,
+          venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+        });
+      }
       // ?hours= amplia a janela pra uma varredura profunda manual (curar um
       // straggler antigo); sem ele, usa a janela padrão do reconciliador.
       const hours = Number(url.searchParams.get('hours'));
@@ -2285,8 +2379,9 @@ async function route(req, res) {
     // remédio pra "uma recusa que não diz por quanto tempo" estava vivo em zero
     // dos dois caminhos que recusam. Achado pela revisão de segurança de
     // 2026-09-15 (MEDIUM-4).
+    // A recusa sai primeiro, o aviso depois — ver o catch do intent da Stripe.
+    json(res, status, errorBody(err, status), cabecalhoDeEspera(err));
     await avisarTetoDisparado(err);
-    return json(res, status, errorBody(err, status), cabecalhoDeEspera(err));
   }
 }
 

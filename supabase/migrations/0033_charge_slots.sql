@@ -28,9 +28,10 @@
 -- O QUE ISTO NÃO GUARDA: IP, telefone, nome. As chaves são
 -- `check:<uuid>[:<geração do QR>]`, `account:<uuid>`, `venue:<uuid>` e
 -- `alerta:check:<uuid>` — a geração é hash de um token aleatório, não o token.
--- O id de conta de saldo é pseudônimo. PRAZO: linhas passam da janela até a
--- mesma chave ser reivindicada de novo, ou até o expurgo diário
--- (`purge_expired_personal_data`, redefinido abaixo) — no máximo um dia.
+-- O id de conta de saldo é pseudônimo. PRAZO: a contagem olha quinze minutos;
+-- a linha fica até a mesma chave ser reivindicada de novo ou até o expurgo
+-- diário (`purge_expired_personal_data`, redefinido abaixo, que apaga tudo que
+-- passou da janela) — até cerca de 24 horas.
 
 create table if not exists public.charge_slots (
   claim_id uuid not null,
@@ -236,8 +237,20 @@ begin
   -- Higiene de tabela de controle, como a linha acima: não entra em contagem,
   -- porque somar faria o número do art. 18 mentir. Revisão de compliance de
   -- 2026-09-15 (MEDIUM-3).
+  -- PELA JANELA, e com `skip locked`. Pela janela porque nada mais velho que
+  -- quinze minutos é contado — o corte de "um dia" fazia a linha viver até ~48 h
+  -- (expurgo diário × corte de um dia), e o texto prometia "no máximo um dia".
+  -- Com `skip locked` porque sem ele este DELETE disputava linhas com a faxina
+  -- da própria chave de uma reivindicação: se o Postgres escolhesse o expurgo
+  -- como vítima do deadlock, o expurgo de dado pessoal DO DIA inteiro voltava
+  -- atrás. Linha travada fica pra quem a trava, ou pro dia seguinte.
+  -- (Compliance M5/L1 e segurança L3, 2026-09-15.)
   delete from public.charge_slots
-   where created_at < now() - interval '1 day';
+   where ctid in (
+     select ctid from public.charge_slots
+      where created_at < now() - interval '15 minutes'
+      for update skip locked
+   );
 
   -- A LINHA DO REGISTRO, na mesma transacao. Se o expurgo reverter, o registro
   -- reverte junto — e e por isso que ela mora aqui e nao no chamador.

@@ -62,11 +62,19 @@ function badRequest(msg, code, vars) {
  * contar e reservar numa instrução só, sob trava consultiva, com janela
  * DESLIZANTE, no único lugar que todas as instâncias compartilham. É chamada
  * DEPOIS de toda a validação e logo antes do PSP, então pedido inválido não
- * ocupa vaga. A vaga fica quando um código PAGÁVEL chega ao cliente, e volta em
- * todos os outros casos — inclusive o PSP que estourou depois de aceitar o
- * pedido (o timeout de 15 s da Pagar.me) e o registro que estourou depois do
- * PSP: em nenhum deles alguém segura um código que dá pra pagar. Isto é, a
- * vaga mede códigos pagáveis nas mãos de alguém, que é o que o teto limita.
+ * ocupa vaga. E a vaga FICA a partir do momento em que o PSP é chamado — dê
+ * certo o resto ou não. Ela só volta quando o PSP nem chegou a ser chamado.
+ *
+ * A regra da rodada anterior era "a vaga fica quando um código pagável chega ao
+ * cliente", e ela era furável por construção: quem decide se o registro dá certo
+ * depois do PSP é o CHAMADOR. Um rótulo com um NUL passa a validação em JS, o
+ * Postgres recusa guardar, o registro estoura — e a vaga voltava, com o
+ * PaymentIntent já criado na Stripe. Mil pedidos, mil e uma cobranças no
+ * adquirente, zero 429 (revisão de segurança stand-in, 2026-09-15, HIGH-1). A
+ * pergunta certa não é "o cliente recebeu um código?", é "o adquirente PODE ter
+ * criado algo?" — e depois de chamado, pode: no timeout, no 5xx, na falha do
+ * registro. O preço: um pedido legítimo que o PSP recusa gasta uma vaga por
+ * quinze minutos. Uma mesa legítima gasta sessenta de duzentas.
  *
  * É um teto de RITMO DE CRIAÇÃO, não de cobranças "vivas": conta as criadas nos
  * últimos quinze minutos, inclusive as já pagas, e os intents da Stripe que
@@ -108,7 +116,7 @@ const TETO_PENDENTES = 200;
 
 /**
  * Reivindica uma vaga pra uma cobrança nova desta conta e devolve a função que
- * a DEVOLVE — o chamador a chama se nenhum código pagável chegou ao cliente.
+ * a DEVOLVE — o chamador a chama SÓ se o PSP nem chegou a ser chamado.
  *
  * Mora aqui e é EXPORTADA porque há dois sítios que criam cobrança de conta: o
  * `createCharge` e a rota `/api/pay/stripe-intent`, que monta a cobrança
@@ -116,8 +124,16 @@ const TETO_PENDENTES = 200;
  * precedida por esta — a forma "chamador esquecido" já custou a validação do
  * `payerLabel` e o portão de mercado dessa mesma rota.
  */
-async function assertChargeSlot(store, checkId, qrGeneration = null) {
-  // Por conta E pela geração do QR — ver `geracaoDoQr`.
+async function assertChargeSlot(store, checkId, qrGeneration = undefined) {
+  // Por conta E pela geração do QR — ver `geracaoDoQr`. Geração NULA é token
+  // que não era string (um array que a PostgREST resolve e o `Map` do gêmeo em
+  // memória não): cair na chave sem geração daria a esse pedido um SEGUNDO
+  // balde. Recusa em vez de cair. (Segurança stand-in, LOW-1.) `undefined` —
+  // quem nem passou geração — é chamador de biblioteca, e fica na chave simples.
+  if (qrGeneration === null) {
+    const e = new Error('assertChargeSlot: token de mesa inválido'); e.statusCode = 404; e.code = 'check_not_found';
+    throw e;
+  }
   const chave = qrGeneration ? `check:${checkId}:${qrGeneration}` : `check:${checkId}`;
   const r = await store.claimSlots({
     keys: [chave], limits: [TETO_PENDENTES], windowMs: JANELA_VIVA_MS,
@@ -134,8 +150,11 @@ async function assertChargeSlot(store, checkId, qrGeneration = null) {
     // Pro aviso ao operador (router, `avisarTetoDisparado`). NÃO vai pro
     // corpo: o `errorBody` só serializa `code` e `vars`.
     err.checkId = checkId;
-    // Números crus — quem formata é o cliente.
-    err.vars = { limit: TETO_PENDENTES, windowMinutes: JANELA_VIVA_MS / 60000 };
+    // Só o limite. SEM `windowMinutes`: com a janela deslizante a espera não
+    // tem prazo, e o `windowMinutes` virava `Retry-After: 900` — uma promessa de
+    // prazo pelo cabeçalho que a frase da tela já tinha parado de fazer.
+    // (Compliance, L2.)
+    err.vars = { limit: TETO_PENDENTES };
     throw err;
   }
   let devolvida = false;
@@ -176,7 +195,16 @@ function geracaoDoQr(token) {
  * órfão (revisão de compliance de 2026-09-15, MEDIUM-1).
  */
 function payerLabelValido(v) {
-  return v === null || v === undefined || (typeof v === 'string' && v.length <= 60);
+  if (v === null || v === undefined) return true;
+  // Caractere de controle e UTF-16 mal formado também saem. Não é estética: o
+  // Postgres recusa guardar um NUL (22P05) ou um surrogate solto (22P02), e o
+  // store em memória aceita os dois. Com a regra de devolução da rodada
+  // anterior — a vaga voltava quando o registro falhava —, um rótulo com um NUL
+  // fazia TODO pedido criar um PaymentIntent na Stripe, estourar no registro e
+  // devolver a vaga: mil pedidos, mil e uma cobranças no adquirente, zero 429.
+  // Medido pela revisão de segurança (stand-in) de 2026-09-15, HIGH-1.
+  return typeof v === 'string' && v.length <= 60
+    && !/[\u0000-\u001f\u007f]/.test(v) && v.isWellFormed();
 }
 
 const WALLETS = Object.freeze(['apple_pay', 'google_pay']);
@@ -189,7 +217,7 @@ function createChargeService({ store, psp }) {
    * @param {'pix'|'apple_pay'|'google_pay'} [args.wallet]  omitted → Pix.
    * @param {string} [args.paymentToken]  wallet-sheet token (required for wallets)
    */
-  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null, payerDocument = null, rail: requestedRail = 'pix', qrGeneration = null }) {
+  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null, payerDocument = null, rail: requestedRail = 'pix', qrGeneration = undefined }) {
     if (typeof checkId !== 'string' || !checkId) throw badRequest('checkId required');
     // Documento do pagador. Exigido no Pix (o gateway pede `customer.document`)
     // e ausente no Bizum, onde quem autentica é o banco do pagador.
@@ -208,7 +236,9 @@ function createChargeService({ store, psp }) {
     if (!Number.isSafeInteger(tipCents) || tipCents < 0) throw badRequest('tipCents must be a non-negative integer');
     if (amountCents + tipCents === 0) throw badRequest('zero-value charge');
     if (!payerLabelValido(payerLabel)) {
-      throw badRequest('payerLabel must be a string of at most 60 chars');
+      // Com CÓDIGO: sem ele o `errorBody` devolvia a frase interna em inglês, e a
+      // mesma regra respondia diferente conforme o trilho. (Compliance, M1.)
+      throw badRequest('payerLabel must be a string of at most 60 chars', 'payer_label_invalid');
     }
     if (wallet !== null && !WALLETS.includes(wallet)) throw badRequest(`carteira desconhecida: ${wallet}`);
 
@@ -299,10 +329,13 @@ function createChargeService({ store, psp }) {
     }
 
     const devolverVaga = await assertChargeSlot(store, checkId, qrGeneration);
-    let cobrancaCriada = false;
+    let pspChamado = false;
     try {
     const chargeRef = `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`;
     let charge;
+    // A PARTIR DAQUI O ADQUIRENTE PODE TER CRIADO ALGO, e a vaga fica — dê o
+    // resto certo ou não. Ver `assertChargeSlot`.
+    pspChamado = true;
     if (wallet) {
       // Apple/Google Pay = tokenized CARD charge. Same money gates as Pix;
       // tips ride along exactly the same (Lei 13.419 tracking downstream).
@@ -335,8 +368,6 @@ function createChargeService({ store, psp }) {
       method: rail,
     });
 
-    // SÓ AQUI um código pagável chega a quem pediu, e só daqui a vaga fica.
-    cobrancaCriada = true;
     return {
       txid: charge.txid,
       copiaECola: charge.copiaECola ?? null, // wallets have no BR Code
@@ -346,8 +377,8 @@ function createChargeService({ store, psp }) {
       wallet: wallet ?? null,
     };
     } finally {
-      // A vaga volta se nenhum código pagável chegou ao cliente — ver `assertChargeSlot`.
-      if (!cobrancaCriada) await devolverVaga();
+      // A vaga volta SÓ se o PSP nem chegou a ser chamado. Ver `assertChargeSlot`.
+      if (!pspChamado) await devolverVaga();
     }
   };
 }

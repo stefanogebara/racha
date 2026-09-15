@@ -139,8 +139,10 @@ const SAIDA_SEM_PORTAO = {
     + 'do QR (`geracaoDoQr`) — uma instrução só no banco (`claimSlots`, RPC '
     + '`claim_slots`), sob trava consultiva, janela deslizante de quinze minutos, '
     + 'DEPOIS da validação e antes do PSP. Se o teto dispara, o '
-    + '`avisarTetoDisparado` pagina o operador, uma vez por conta e janela, '
-    + 'deduplicado no banco. O QUE CONTINUA ABERTO, e a versão anterior desta '
+    + '`avisarTetoDisparado` pagina o operador depois da recusa sair, uma vez por '
+    + 'conta e janela e com teto diário, deduplicado no banco — e casa de demo '
+    + 'não pagina, porque o token dela é público; a demo tem limite por origem '
+    + '(`rateLimitDemo`). O QUE CONTINUA ABERTO, e a versão anterior desta '
     + 'linha errava o tamanho: (1) com a janela deslizante, quem tem o token e '
     + 'repõe cada vaga ao vencer tranca a mesa por TEMPO INDETERMINADO — até o '
     + 'dono girar o QR, que corta o token e começa um balde novo na hora; até '
@@ -159,9 +161,9 @@ const SAIDA_SEM_PORTAO = {
     + '`assertChargeSlot` (com um censo estrutural exigindo-a antes de toda '
     + 'criação de cobrança) e `payerLabelValido`, conferido ANTES da vaga e '
     + 'antes da Stripe — conferido só no registro, um rótulo longo gastava uma '
-    + 'vaga e deixava um intent órfão. A vaga fica só quando o código pagável '
-    + 'chega ao cliente. Recusa pelo `errorBody` com `Retry-After`, e o mesmo '
-    + '`avisarTetoDisparado`. Valem as três ressalvas da rota irmã.'
+    + 'vaga e deixava um intent órfão. A vaga fica assim que a Stripe é chamada. Recusa pelo `errorBody`, SEM '
+    + '`Retry-After` — a espera não tem prazo —, e o mesmo `avisarTetoDisparado`. '
+    + 'Valem as três ressalvas da rota irmã.'
   ),
   '/api/house/load': (
     'CARGA DE SALDO DA CASA: também cria cobrança, e é a menos gateada das três '
@@ -197,10 +199,12 @@ const SAIDA_FORA_DE_ROTA = [
   "} = require('../_lib/pay/create-charge');",
   // O AVISO AO OPERADOR quando o teto dispara: a definição, a única chamada de
   // saída dele, e a chamada no catch geral — por onde sai o 429 do `/api/pay`.
-  // Deduplicado no banco (uma vez por conta e janela), e só alcançável com o
-  // token da mesa E o teto cheio: não é pager anônimo. Ver o docblock.
+  // A primeira versão deste comentário dizia "não é pager anônimo", e ERA —
+  // pela demo, cujo token está no link da landing. Agora: casa de demo não
+  // pagina (decidido pela CASA, `isDemoVenue`, não pelo token), deduplicado no
+  // banco por conta e janela, e com teto diário. Roda DEPOIS da recusa.
   'async function avisarTetoDisparado(err) {',
-  'await notifyFounderReconcile({',
+  'const r = await notifyFounderReconcile({',
   'await avisarTetoDisparado(err);',
   'const charge = createChargeService({ store, psp });',
   'const demoCharge = createChargeService({ store, psp: demoPsp });',

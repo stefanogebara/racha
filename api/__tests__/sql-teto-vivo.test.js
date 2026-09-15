@@ -10,7 +10,8 @@
  * o gêmeo em memória. Uma trava consultiva que não trava, uma janela que não
  * desliza, uma revogação que não revoga — nada disso aparece lendo.
  *
- * Então este teste sobe um Postgres descartável, aplica a 0033 e afirma o que
+ * Então este teste sobe um Postgres descartável, aplica TODAS as migrações (com
+ * um esqueleto do esquema `auth` da Supabase) e afirma o que
  * tem que ser verdade: contagem e reserva atômicas sob concorrência, ordem de
  * trava sem deadlock, janela deslizante com faxina, tudo-ou-nada com duas
  * chaves, argumentos inválidos recusados, `anon` e `authenticated` barrados.
@@ -70,9 +71,25 @@ d(temPg ? 'o teto no Postgres de verdade (migração 0033)' : 'o teto no Postgre
       } catch { /* porta ocupada: tenta outra */ }
     }
     if (!porta) throw new Error('não subiu o Postgres descartável');
-    // Os papéis que a Supabase cria e que a migração revoga.
+    // Os papéis que a Supabase cria e que as migrações revogam.
     Q('create role anon; create role authenticated; create role service_role;');
-    execFileSync('psql', [...psqlArgs('select 1').slice(0, -2), '-f', MIGRACAO], { stdio: 'pipe' });
+    // E um ESQUELETO do esquema `auth`, que a Supabase provê e o Postgres puro
+    // não tem — a 0003 já o referencia. Com ele, TODAS as migrações aplicam em
+    // ordem, e este arquivo passa a exercitar a CADEIA de verdade — inclusive o
+    // expurgo diário redefinido na 0033, que nenhum teste tinha rodado (as duas
+    // revisões de 2026-09-15 apontaram: PL/pgSQL não resolve tabela na criação,
+    // então um expurgo quebrado carregava sem erro).
+    Q(`create schema auth;
+       create table auth.users (id uuid primary key default gen_random_uuid(), email text);
+       create function auth.uid() returns uuid language sql stable as 'select null::uuid';
+       create function auth.role() returns text language sql stable as 'select ''service_role''::text';
+       create function auth.jwt() returns jsonb language sql stable as 'select ''{}''::jsonb';`);
+    const dirMig = path.join(__dirname, '..', '..', 'supabase', 'migrations');
+    for (const f of fs.readdirSync(dirMig).filter((x) => x.endsWith('.sql')).sort()) {
+      // A 0033 pode ser trocada por um MUTANTE (`MIGRACAO_0033`) — prova de mutação.
+      const arq = f === '0033_charge_slots.sql' ? MIGRACAO : path.join(dirMig, f);
+      execFileSync('psql', [...psqlArgs('select 1').slice(0, -2), '-f', arq], { stdio: 'pipe' });
+    }
   });
 
   afterAll(() => {
@@ -194,6 +211,19 @@ d(temPg ? 'o teto no Postgres de verdade (migração 0033)' : 'o teto no Postgre
     const m = await mem.claimSlots({ keys: ['q0', 'q1'], limits: [5, 1], windowMs: 900000 });
     expect({ claimId: m.claimId, fullIndex: m.fullIndex, counts: m.counts })
       .toEqual({ claimId: sql.claim_id, fullIndex: sql.full_index, counts: sql.counts });
+  });
+
+  test('o EXPURGO DIÁRIO de verdade varre o livro pela JANELA, e grava o registro', () => {
+    // O corte era "um dia" e o expurgo roda uma vez por dia: a linha vivia até
+    // ~48 h enquanto o texto prometia "no máximo um dia". Pela janela, nada que
+    // passou dos quinze minutos sobra. (Compliance, M5.)
+    Q("insert into charge_slots(claim_id, slot_key, created_at) values (gen_random_uuid(), 'check:exp-velha', now() - interval '20 minutes'), (gen_random_uuid(), 'check:exp-nova', now())");
+    const antes = Number(Q("select count(*) from retention_runs where kind = 'purge'"));
+    Q('select purge_expired_personal_data(90, 90, 90)');
+    expect(Q("select count(*) from charge_slots where slot_key = 'check:exp-velha'")).toBe('0');
+    expect(Q("select count(*) from charge_slots where slot_key = 'check:exp-nova'")).toBe('1');
+    // E o registro do art. 6º X sai na mesma transação.
+    expect(Number(Q("select count(*) from retention_runs where kind = 'purge'"))).toBe(antes + 1);
   });
 
   test('anon e authenticated não executam nem leem', () => {

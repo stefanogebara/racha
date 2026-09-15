@@ -49,27 +49,35 @@ const TETO_CARGAS_POR_CASA = 200;
  * `assertChargeSlot` no `create-charge.js` e a migração 0033: a contagem e a
  * reserva são uma instrução só no banco, com janela deslizante.
  *
- * DOIS CÓDIGOS, porque os remédios são diferentes. Por conta, as recargas
- * abertas são da própria pessoa e "pague uma delas" é um remédio que ela tem.
- * Por casa, quem lê não tem nenhuma aberta — dizer "pague uma das que você
- * gerou" seria nomear um remédio impossível, que é o defeito que a revisão de
- * compliance de 2026-09-15 já tinha apontado na mesa (MEDIUM-2).
+ * DOIS CÓDIGOS, porque os prazos são diferentes. Por CONTA, quem enche o balde
+ * é o próprio dono da carteira (o token é dele), então a espera tem prazo e ele
+ * vai na frase. Por CASA, contas de saldo são de graça e quem as gera pode manter
+ * o balde cheio: sem prazo. A versão anterior deste texto chamava "pague uma
+ * delas" de remédio da conta — não é: a carteira não lista recarga pendente,
+ * voltar descarta o código, e pagar não libera vaga. (Compliance, L3.)
+ *
+ * A CHAVE DA CASA VEM PRIMEIRO: com os dois baldes cheios, a recusa que sai é a
+ * sem prazo. Na ordem inversa a pessoa lia "tente em até 15 minutos", esperava, e
+ * recebia a recusa da casa. (Compliance, L4.)
  */
 async function assertLoadSlot(store, account) {
   const r = await store.claimSlots({
-    keys: [`account:${account.id}`, `venue:${account.venueId}`],
-    limits: [TETO_CARGAS, TETO_CARGAS_POR_CASA],
+    keys: [`venue:${account.venueId}`, `account:${account.id}`],
+    limits: [TETO_CARGAS_POR_CASA, TETO_CARGAS],
     windowMs: JANELA_VIVA_MS,
   });
   if (r.claimId === null) {
-    const porCasa = r.fullIndex === 1;
+    const porCasa = r.fullIndex === 0;
     const limite = porCasa ? TETO_CARGAS_POR_CASA : TETO_CARGAS;
     // Ver o gêmeo: guarda que ninguém vê é guarda caracterizado em produção.
     process.stderr.write(`[teto] cargas vivas ${porCasa ? `casa=${account.venueId}` : `conta=${account.id}`} ocupadas=${r.counts[r.fullIndex]} teto=${limite}\n`);
     const err = new Error(`too many live pending loads (${r.counts[r.fullIndex]})`);
     err.statusCode = 429;
     err.code = porCasa ? 'too_many_pending_loads_venue' : 'too_many_pending_loads';
-    err.vars = { limit: limite, windowMinutes: JANELA_VIVA_MS / 60000 };
+    // Prazo só por conta — ver o docblock. E a casa vai no erro pro aviso ao
+    // operador (`avisarTetoDisparado`), nunca pro corpo.
+    err.vars = porCasa ? { limit: limite } : { limit: limite, windowMinutes: JANELA_VIVA_MS / 60000 };
+    if (porCasa) err.venueId = account.venueId;
     throw err;
   }
   let devolvida = false;
@@ -320,9 +328,12 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     if (gate) throw badRequest(`mercado ${venue.market}: ${gate.code}`, gate.code, gate.vars);
 
     const devolverVaga = await assertLoadSlot(store, account);
-    let cargaCriada = false;
+    let pspChamado = false;
     try {
     const bonusCents = quoteBonusCents(amountCents, cfg.bonusBp);
+    // Daqui em diante o adquirente pode ter criado algo: a vaga fica. Ver
+    // `assertChargeSlot` no `create-charge.js` — a regra anterior era furável.
+    pspChamado = true;
     const charge = await psp.createPixCharge({
       // Random nonce: two identical loads are DIFFERENT charges (the mock PSP
       // derives txid from chargeRef; a deterministic ref would collide).
@@ -339,15 +350,12 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       bonusCents,                       // quoted NOW; webhook applies this, not live config
       validityDays: cfg.validityDays,   // snapshot too
     });
-    // Só aqui um código pagável chega a quem pediu, e só daqui a vaga fica —
-    // ver `assertChargeSlot` no `create-charge.js`.
-    cargaCriada = true;
     return {
       txid: charge.txid, copiaECola: charge.copiaECola, expiresAt: charge.expiresAt,
       amountCents, bonusCents,
     };
     } finally {
-      if (!cargaCriada) await devolverVaga();
+      if (!pspChamado) await devolverVaga();
     }
   }
 
