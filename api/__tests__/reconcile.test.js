@@ -438,3 +438,34 @@ describe('a testemunha AGREGADA: serviço cobrado que nunca chega', () => {
     expect(r.severity).toBe('high');
   });
 });
+
+test('a conta com sobra e serviço em mais de um pagamento ganha um AVISO', () => {
+  /**
+   * `sempreDevido` está todo atrás de `late`: duas pessoas pagando a conta
+   * inteira ANTES de ela fechar produzem sobra cujo SERVIÇO nunca vira devido, e
+   * o painel diz "a devolver R$ 100,00" quando são R$ 110,00. Deduzir o serviço
+   * do excedente tiraria da folha o serviço de quem só digitou um número maior
+   * no app do banco — por isso a regra não existe e existe o aviso (compliance
+   * MEDIUM-1 de 089e8a2; ver a decisão registrada).
+   */
+  const { reconcileCheck } = require('../_lib/checks/reconcile');
+  const ev = (type, payload) => ({ type, payload });
+  const duas = [
+    ev('OPENED', { totalCents: 10000 }),
+    ev('PAYMENT_CONFIRMED', { txid: 'ana', amountCents: 10000, tipCents: 1000, method: 'pix' }),
+    ev('PAYMENT_CONFIRMED', { txid: 'bruno', amountCents: 10000, tipCents: 1000, method: 'pix' }),
+  ];
+  const achados = reconcileCheck({ checkId: 'c1', events: duas, payments: [] }).findings;
+  const aviso = achados.find((f) => f.code === 'overpaid_tip_check');
+  expect(aviso).toBeTruthy();
+  expect(aviso.severity).toBe('info');
+  expect(achados.some((f) => f.code === 'overpaid_pending_restitution')).toBe(true);
+
+  // Um pagador só que digitou a mais NÃO ganha o aviso: ali o serviço foi dele.
+  const um = [
+    ev('OPENED', { totalCents: 10000 }),
+    ev('PAYMENT_CONFIRMED', { txid: 'ana', amountCents: 14000, tipCents: 1000, method: 'pix' }),
+  ];
+  expect(reconcileCheck({ checkId: 'c2', events: um, payments: [] }).findings
+    .some((f) => f.code === 'overpaid_tip_check')).toBe(false);
+});

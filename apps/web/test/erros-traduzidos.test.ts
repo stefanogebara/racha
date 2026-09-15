@@ -39,7 +39,40 @@ const semComentario = (fonte: string) => fonte
  * do teste que a confere prova a cópia, não a regra.
  */
 export const estadosDeErro = (fonte: string): string[] =>
-  [...fonte.matchAll(/const \[(\w+), set\w+\] = useState<string \| null>/g)].map((m) => m[1]);
+  [...fonte.matchAll(/const \[(\w+), set\w+\] = useState<string(?:\s*\|\s*null)?>/g)].map((m) => m[1]);
+
+/**
+ * Onde o tradutor MORA. Dispensa por NOME, com motivo — não por silêncio: um
+ * arquivo que some do censo por não ter estado reconhecível é o censo perdendo
+ * uma tela, e foi assim que as duas telas de pagamento ficaram de fora.
+ */
+const ONDE_O_TRADUTOR_MORA = ['i18n.ts', 'lang.tsx'];
+
+/** Quem chama o tradutor de erro — é nessas telas que o censo TEM de valer. */
+export const chamaTradutorDeErro = (fonte: string): boolean => /\bt(?:Err|rErr|Error)\(/.test(fonte);
+
+/**
+ * A VARREDURA, UMA SÓ — usada na árvore de verdade e nas fontes SINTÉTICAS do
+ * teste. Enquanto a regra vivia dentro do teste que a confere, mutar a de
+ * verdade não deixava nada vermelho: a cópia continuava provando o comportamento
+ * antigo. Devolve os dois tipos de buraco: quem traduz duas vezes, e quem some
+ * do censo por não declarar estado reconhecível.
+ */
+export function varrer(arquivos: Array<[string, string]>) {
+  const culpados: string[] = [];
+  const semEstado: string[] = [];
+  for (const [nome, cru] of arquivos) {
+    const fonte = semComentario(cru);
+    const estados = estadosDeErro(fonte);
+    if (!estados.length) {
+      if (chamaTradutorDeErro(fonte) && !ONDE_O_TRADUTOR_MORA.includes(nome)) semEstado.push(nome);
+      continue;
+    }
+    const alvo = new RegExp(`\\bt(?:Err|rErr|Error)\\(\\s*(?:lang\\s*,\\s*)?(${estados.join('|')})\\b`, 'g');
+    for (const m of fonte.matchAll(alvo)) culpados.push(`${nome}: ${m[0]}`);
+  }
+  return { culpados, semEstado };
+}
 
 function fontes(dir: string, saida: string[] = []): string[] {
   for (const nome of readdirSync(dir, { withFileTypes: true })) {
@@ -51,24 +84,13 @@ function fontes(dir: string, saida: string[] = []): string[] {
 }
 
 test('ninguém aplica tErr/tError a um estado de erro já traduzido', () => {
-  const culpados: string[] = [];
-  for (const f of fontes(SRC)) {
-    const fonte = semComentario(readFileSync(f, 'utf8'));
-    /**
-     * OS NOMES SAEM DO ARQUIVO, não de uma lista minha.
-     *
-     * A primeira versão enumerava quatro (`error|erro|payError|confirmError`) e
-     * a árvore tem mais: `loadError`, `submitError`, `err`. Quem "consertasse" o
-     * `AdminRecipient` com `{tErr(loadError)}` reproduzia o parágrafo vermelho
-     * VAZIO do painel com o censo verde (segurança LOW-2 de 41b188a). Agora todo
-     * `useState<string | null>` do próprio arquivo entra na busca.
-     */
-    const estados = estadosDeErro(fonte);
-    if (!estados.length) continue;
-    const alvo = new RegExp(`\\bt(?:Err|rErr|Error)\\(\\s*(?:lang\\s*,\\s*)?(${estados.join('|')})\\b`, 'g');
-    for (const m of fonte.matchAll(alvo)) culpados.push(`${f.slice(SRC.length + 1)}: ${m[0]}`);
-  }
+  const pares = fontes(SRC).map((f) => [f.slice(SRC.length + 1), readFileSync(f, 'utf8')] as [string, string]);
+  const { culpados, semEstado } = varrer(pares);
   assert.deepEqual(culpados, []);
+  // E nenhum arquivo que traduz erro fica FORA do censo por não ter estado
+  // reconhecível — silêncio aqui é o censo perdendo uma tela inteira.
+  assert.deepEqual(semEstado, []);
+
 });
 
 test('o único código cru do hook do painel virou frase na ORIGEM', () => {
@@ -118,4 +140,29 @@ test('os nomes dos estados de erro saem do ARQUIVO, não de uma lista minha', ()
   const estados = estadosDeErro(fonte);
   assert.ok(estados.includes('loadError'), 'a derivação perdeu loadError');
   assert.ok(estados.includes('submitError'), 'a derivação perdeu submitError');
+});
+
+test('o censo pega os dois buracos — medido sobre fontes sintéticas', () => {
+  /**
+   * Os dois defeitos que ele existe pra pegar, plantados: traduzir o que já é
+   * frase (o parágrafo vermelho VAZIO do painel) e a tela que some do censo por
+   * declarar `useState<string>` em vez de `useState<string | null>` — que era o
+   * caso das DUAS telas de pagamento (segurança HIGH-2 de d7f2683 e LOW-3 de
+   * 089e8a2).
+   */
+  const traduzDuasVezes = `const [error, setError] = useState<string | null>(null);
+    return <p>{tErr(error)}</p>;`;
+  const semEstadoReconhecivel = 'return <p>{tErr(qualquerCoisa)}</p>;';
+  const estadoSemBarraNull = `const [error, setError] = useState<string>('');
+    return <p>{tErr(error)}</p>;`;
+  const limpo = `const [error, setError] = useState<string | null>(null);
+    catch (e) { setError(tErr(e)); }
+    return <p>{error}</p>;`;
+
+  assert.deepEqual(varrer([['Tela.tsx', traduzDuasVezes]]).culpados, ['Tela.tsx: tErr(error']);
+  assert.deepEqual(varrer([['Tela.tsx', semEstadoReconhecivel]]).semEstado, ['Tela.tsx']);
+  assert.deepEqual(varrer([['Pagar.tsx', estadoSemBarraNull]]).culpados, ['Pagar.tsx: tErr(error']);
+  assert.deepEqual(varrer([['Limpa.tsx', limpo]]), { culpados: [], semEstado: [] });
+  // E o arquivo onde o tradutor MORA é dispensado por nome, não por silêncio.
+  assert.deepEqual(varrer([['i18n.ts', semEstadoReconhecivel]]).semEstado, []);
 });

@@ -844,6 +844,53 @@ test('a imagem ANTERIOR do reparo nunca perde um campo', () => {
  * Então o campo tem UM leitor, e ele é a função cujo trabalho é decidir o que o
  * código prova. Achado pela revisão de segurança de 2026-09-09 (LOW-4).
  */
+/**
+ * O JULGAMENTO — separado da varredura pra poder ser medido sobre uma fonte
+ * PLANTADA. Enquanto ele só rodava contra o `reconcile.js` de verdade, onde todo
+ * leitor já está no lugar certo, afrouxar a contenção (`noCorpo = true`) não
+ * deixava nada vermelho: não havia violação no repositório pra ele deixar
+ * passar. Um guarda que só é exercitado por código que o obedece não foi
+ * exercitado.
+ */
+function foraDoClassificador(fonteDoClassificador, decisoes) {
+  const corpo = (nome) => {
+    const i = fonteDoClassificador.indexOf(`function ${nome}(`);
+    if (i < 0) return null;
+    let nivel = 0; let j = fonteDoClassificador.indexOf('{', i);
+    const inicio = j;
+    for (; j < fonteDoClassificador.length; j += 1) {
+      if (fonteDoClassificador[j] === '{') nivel += 1;
+      else if (fonteDoClassificador[j] === '}') { nivel -= 1; if (nivel === 0) break; }
+    }
+    return [inicio, j];
+  };
+  const corpos = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega'].map(corpo).filter(Boolean);
+  const naChamada = (antes) => /(?:recusaProvada|desfechoDoLancamento|podeSerReentrega)\(\s*(?:err|e)?\s*(?:&&\s*(?:err|e))?\s*\.?$/.test(antes);
+  return {
+    corpos,
+    fora: decisoes.filter((d) => !(d.arquivo === '_lib/checks/reconcile.js'
+      && (corpos.some(([a, b]) => d.indice > a && d.indice < b) || naChamada(d.antes)))),
+  };
+}
+
+test('o julgamento da CONTENÇÃO pega uma decisão plantada fora do classificador', () => {
+  const fonte = [
+    'function recusaProvada(codigo) {',
+    "  return codigo === '40001';",
+    '}',
+    'function desfechoDoLancamento(err) {',
+    "  if (err.pgCode === '23505') return 'duplicado';",   // DENTRO: legítimo
+    '}',
+    'function podeSerReentrega(err) { return err.pgCode === \'23505\'; }',
+    "function outraCoisa(err) { if (err.pgCode === '40001') return 'x'; }", // FORA: proibido
+  ].join('\n');
+  const achados = leiturasQueDECIDEM(fonte)
+    .map((a) => ({ ...a, arquivo: '_lib/checks/reconcile.js' }));
+  expect(achados.length).toBe(3);
+  const { fora } = foraDoClassificador(fonte, achados);
+  expect(fora.map((d) => d.linha.includes('outraCoisa'))).toEqual([true]);
+});
+
 test('`pgCode` e `pgConstraint` só são lidos pelo classificador', () => {
   const fs = require('node:fs');
   const path = require('node:path');
@@ -903,23 +950,38 @@ test('`pgCode` e `pgConstraint` só são lidos pelo classificador', () => {
     }
     return [inicio, j];
   };
-  const CLASSIFICADORES = ['recusaProvada', 'desfechoDoLancamento'].map(corpoDe).filter(Boolean);
-  expect(CLASSIFICADORES.length).toBe(2);
+  const NOMES = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega'];
+  const CLASSIFICADORES = NOMES.map(corpoDe).filter(Boolean);
+  expect(CLASSIFICADORES.length).toBe(NOMES.length);
 
   /**
-   * E A CONTENÇÃO É MEDIDA: uma decisão colocada no arquivo certo, PERTO de uma
-   * chamada legítima, mas FORA do corpo dos classificadores, tem de ser pega. Foi
-   * a fraqueza que a revisão de segurança apontou na regra por vizinhança.
+   * E A CONTENÇÃO É MEDIDA DE VERDADE.
+   *
+   * O que estava aqui era `CLASSIFICADORES.every(([a, b]) => !(0 > a && 0 < b))`
+   * — e `a` é o índice de uma chave que existe, sempre positivo, então a
+   * expressão era a CONSTANTE `true`. Um guarda que não pode disparar, escrito
+   * no mesmo commit que fecha um achado sobre guardas que não disparam
+   * (segurança LOW-1 de 089e8a2). Agora a sonda usa dois pontos concretos.
    */
-  const foraDeQualquerCorpo = CLASSIFICADORES.every(([a, b]) => !(0 > a && 0 < b));
-  expect(foraDeQualquerCorpo).toBe(true);
+  const dentroDe = (indice) => CLASSIFICADORES.some(([a, b]) => indice > a && indice < b);
+  const [primeiroA, primeiroB] = CLASSIFICADORES[0];
+  expect(dentroDe(Math.floor((primeiroA + primeiroB) / 2))).toBe(true);   // no meio de um corpo
+  expect(dentroDe(0)).toBe(false);                                        // topo do arquivo
+  expect(dentroDe(Math.max(...CLASSIFICADORES.map(([, b]) => b)) + 1)).toBe(false); // depois do último
 
   expect(decisoes.length).toBeGreaterThan(0);
   for (const d of decisoes) {
     // Dentro do CORPO de um classificador, ou dentro da CHAMADA de um — passar
     // o valor pro classificador não é decidir com ele.
     const noCorpo = CLASSIFICADORES.some(([a, b]) => d.indice > a && d.indice < b);
-    const naChamada = /(?:recusaProvada|desfechoDoLancamento)\(\s*[^)]*$/.test(d.antes);
+    /**
+     * PASSAR o valor pro classificador não é decidir com ele — mas só quando o
+     * que se passa é o valor CRU. `recusaProvada(e.pgCode === '23505' ? … : …)`
+     * é uma decisão por SQLSTATE escrita dentro do argumento, e o `[^)]*`
+     * anterior a engolia (segurança LOW-2 de 089e8a2).
+     */
+    const naChamada = /(?:recusaProvada|desfechoDoLancamento|podeSerReentrega)\(\s*(?:err|e)?\s*(?:&&\s*(?:err|e))?\s*\.?$/
+      .test(d.antes);
     const dentro = d.arquivo === '_lib/checks/reconcile.js' && (noCorpo || naChamada);
     expect({ arquivo: d.arquivo, dentroDoClassificador: dentro })
       .toEqual({ arquivo: '_lib/checks/reconcile.js', dentroDoClassificador: true });

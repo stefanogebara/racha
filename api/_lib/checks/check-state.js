@@ -719,6 +719,94 @@ function lateTxids(state) {
  * RESPONDIDO sai: `PAYMENT_ISSUE_RESOLVED` ESCOPADO (`scope: 'paid_after_close'`)
  * marca `lateResolved` — a mesa não pagou no caixa. Sem resposta, a pergunta fica.
  */
+/**
+ * QUANTO A CONTA NÃO PRECISOU de cada pagamento atrasado, em centavos de
+ * CONSUMO BRUTO — a medida de duplicidade que não evapora quando o principal é
+ * devolvido.
+ *
+ * As três rodadas de revisão mediram três buracos, e todos eram o mesmo: a
+ * duplicidade estava sendo lida de um número que congela (`excessCents`, de
+ * quando o pagamento entrou) ou que some (`d`, a fatia da sobra VIVA, que vira
+ * zero quando o líquido vira zero).
+ *
+ *  · congelado: um pagamento que VIRA duplicado depois — um estorno que falha
+ *    devolve dinheiro à conta depois do fecho — tinha excedente zero, e o
+ *    serviço dele caía como pergunta com botão (compliance HIGH-1 de 41b188a);
+ *  · vivo: devolvido o principal, `d` zera e o serviço devido sumia junto
+ *    (compliance HIGH-1 de d7f2683); e a lembrança que eu somei pra consertar
+ *    isso era limitada pelo congelado, que é zero justamente na população que
+ *    ela existia pra cobrir — então a MESMA dupla de fatos em ordem trocada dava
+ *    R$ 6,00 de diferença (segurança HIGH-1 de 089e8a2).
+ *
+ * Aqui a pergunta é outra, e não depende de ordem nem de estorno: quanto do
+ * consumo deste pagamento a conta PRECISOU? O que os outros pagamentos já
+ * cobrem (líquido) atende a conta primeiro; os atrasados cobrem o que faltar, do
+ * MAIS VELHO pro mais novo — quem chegou por último é quem duplicou. O que
+ * sobra do bruto de cada um é o que não foi preciso, tenha voltado ou não.
+ *
+ * E a mesa que pagou NO CAIXA continua sem duplicidade nenhuma, corretamente: o
+ * razão não registra o caixa, então a conta "precisou" daquele pagamento.
+ */
+function naoNecessarioDosAtrasados(state) {
+  const fora = new Map();
+  if (!state) return fora;
+  const atrasados = Object.entries(state.payments).filter(([, p]) => p.late);
+  const liquido = (p) => Math.max(0, p.amountCents - (p.refundedAmountCents || 0));
+  const doResto = Object.entries(state.payments)
+    .filter(([, p]) => !p.late)
+    .reduce((soma, [, p]) => soma + liquido(p), 0);
+  let falta = Math.max(0, (state.totalCents || 0) - doResto);
+  // Do MAIS VELHO pro mais novo: a ordem de `Object.entries` é a de inserção, e
+  // o redutor insere na ordem do razão.
+  for (const [txid, p] of atrasados) {
+    // BRUTO pra medir ESTE, LÍQUIDO pra descontar o que ele cobre.
+    //
+    // O bruto é o que faz a duplicidade sobreviver à devolução do principal. Mas
+    // quem COBRE a conta é o que ainda está lá: descontando o bruto dos outros,
+    // um atrasado que já devolveu quase tudo "consumia" a necessidade da conta e
+    // empurrava a duplicidade pro seguinte — que passava a dever serviço sobre
+    // dinheiro que a conta precisava. Medido pela propriedade 2 da suíte.
+    const bruto = Math.max(0, p.amountCents || 0);
+    fora.set(txid, Math.max(0, bruto - falta));
+    falta -= Math.min(liquido(p), falta);
+  }
+  return fora;
+}
+
+/**
+ * A SOBRA QUE CADA PAGAMENTO AINDA DEVE — por txid, em centavos.
+ *
+ * É a resposta para "qual cobrança eu estorno, e de quanto?", e havia QUATRO
+ * lugares respondendo isso por conta própria, todos pelo excedente CONGELADO: o
+ * teto da devolução por fora, o `overpaidTxids` dos dois stores (a linha que o
+ * painel desenha embaixo da mesa) e o relógio da conciliação. Na duplicidade que
+ * nasce DEPOIS — um estorno que falha e devolve dinheiro à conta — o congelado é
+ * zero, e o resultado era: o painel mostrando "a devolver R$ 60,00" sem nenhuma
+ * cobrança embaixo (com o runbook mandando devolver "pelo valor ao lado da
+ * cobrança"), o teto saindo R$ 6,00 para uma dívida de R$ 66,00, e a dívida
+ * envelhecendo pela data errada (compliance HIGH-1 de 089e8a2).
+ *
+ * Aqui os dois se juntam: o congelado responde pelo pagamento que entrou com
+ * excedente (o cliente digitou um número maior no app do banco), e o vivo — o
+ * que a conta não precisou, menos o que já voltou — responde pelo atrasado que
+ * duplicou. Limitado ao líquido do pagamento e à sobra ATUAL da conta, que é o
+ * que a casa de fato tem a mais.
+ */
+function sobraPorPagamento(state) {
+  const out = new Map();
+  if (!state) return out;
+  const naoNecessario = naoNecessarioDosAtrasados(state);
+  const teto = Math.max(0, state.overpaidCents || 0);
+  for (const [txid, p] of Object.entries(state.payments)) {
+    const devolvido = Math.max(0, p.refundedAmountCents || 0);
+    const liquido = Math.max(0, (p.amountCents || 0) - devolvido);
+    const congelado = Math.max(0, (p.excessCents || 0) - devolvido);
+    const vivo = p.late ? Math.max(0, (naoNecessario.get(txid) || 0) - devolvido) : 0;
+    out.set(txid, Math.min(liquido, Math.max(congelado, vivo), teto));
+  }
+  return out;
+}
+
 function paidAfterClose(state) {
   if (!state) return [];
   // TODOS os atrasados entram no rateio da sobra — os respondidos também. A
@@ -735,6 +823,7 @@ function paidAfterClose(state) {
     aDescontar -= d;
     duplicado.set(txid, d);
   }
+  const naoNecessario = naoNecessarioDosAtrasados(state);
   const out = [];
   for (const [txid, p] of atrasados) {
     const l = liquido(p);
@@ -761,39 +850,11 @@ function paidAfterClose(state) {
      * termo `servicoDevido` se cancela entre a pergunta e a marca.
      */
     const base = Math.max(0, p.amountCents || 0);
-    const duplicadoOriginal = Math.min(Math.max(0, p.excessCents || 0), base);
-    /**
-     * A DUPLICIDADE VIGENTE: o que a conta não precisa deste pagamento AGORA,
-     * mais a parte duplicada que ele mesmo já devolveu — porque ela aconteceu, e
-     * os 10% sobre ela continuam sendo do cliente até voltarem.
-     *
-     * As duas revisões de 41b188a chegaram aqui por caminhos opostos, e nenhuma
-     * das duas fórmulas propostas servia sozinha:
-     *
-     *  · pela ORIGINAL (`excessCents` de quando o pagamento entrou), o serviço
-     *    sobrevivia ao estorno do principal — mas um pagamento que VIRA
-     *    duplicado depois (um estorno que falha e devolve dinheiro à conta
-     *    depois do fecho) ficava com `excessCents` zero e o serviço dele caía
-     *    como pergunta, com botão: um clique apagava R$ 6,00 do cliente
-     *    (compliance HIGH-1);
-     *  · pelo momento (`d / l`), bastava estornar o pagamento IRMÃO pra que um
-     *    serviço legitimamente ganho virasse "devolver de qualquer jeito",
-     *    `critical` pra sempre, e o runbook mandasse a casa pagar ao cliente um
-     *    dinheiro que ele não tem a receber — tirando 10% da base da folha
-     *    (segurança HIGH-1).
-     *
-     * `d` responde a primeira: ele acompanha a sobra VIVA, então a duplicidade
-     * que nasce depois entra e a que deixa de existir sai. O `min(devolvido,
-     * duplicadoOriginal)` responde a segunda: só a devolução DESTE pagamento, e
-     * só até onde ele era duplicado, é somada de volta.
-     */
-    const dupVigente = Math.min(
-      base,
-      d + Math.min(Math.max(0, p.refundedAmountCents || 0), duplicadoOriginal),
-    );
-    const devidoBruto = base > 0 ? Math.ceil(((p.tipCents || 0) * dupVigente) / base) : 0;
+    // O que a conta NÃO PRECISOU deste pagamento — ver `naoNecessarioDosAtrasados`.
+    const naoPreciso = naoNecessario.get(txid) || 0;
+    const devidoBruto = base > 0 ? Math.ceil(((p.tipCents || 0) * naoPreciso) / base) : 0;
     // O que já voltou de gorjeta abate: a marca não pede de volta o que a casa
-    // já devolveu.
+    // já devolveu. E nunca mais do que ainda há de gorjeta.
     const servicoDevido = Math.max(0, Math.min(servico, devidoBruto - (p.refundedTipCents || 0)));
     const pergunta = (l - d) + (servico - servicoDevido);
     if (!p.lateResolved && pergunta > 0) out.push({ txid, amountCents: pergunta });
@@ -805,5 +866,6 @@ function paidAfterClose(state) {
 module.exports = {
   ANOMALY_SEVERITIES,
   STATUS, EVENT_TYPES, EventValidationError,
-  reduce, applyEvent, validateEvent, remainingCents, lateTxids, paidAfterClose, initialState,
+  reduce, applyEvent, validateEvent, remainingCents, lateTxids, paidAfterClose,
+  naoNecessarioDosAtrasados, sobraPorPagamento, initialState,
 };

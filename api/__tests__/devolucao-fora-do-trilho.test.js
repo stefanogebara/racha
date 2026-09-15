@@ -19,7 +19,7 @@
  *     ninguém prestou (compliance MEDIUM-2).
  */
 
-const { reduce, paidAfterClose, validateEvent } = require('../_lib/checks/check-state');
+const { reduce, paidAfterClose, validateEvent, sobraPorPagamento } = require('../_lib/checks/check-state');
 const { tetoDaRestituicao, codigoDaRecusa } = require('../_lib/checks/restitution');
 const { alocarDevolucaoDoPagamento, servicoDevidoDoAtrasado } = require('../_lib/checks/refund-allocation');
 
@@ -490,4 +490,78 @@ describe('a DATA que decide o prazo vem do razão', () => {
     expect(semTeto).toMatchObject({ teto: 0, prazoConhecido: false, dataConhecida: true });
     expect(codigoDaRecusa(completa, 'b2', semTeto)).toBe('payment_age_unknown');
   });
+});
+
+describe('a duplicidade que nasce DEPOIS tem endereço e teto', () => {
+  /**
+   * O `paidAfterClose` passou a enxergar a duplicidade viva, e outros quatro
+   * lugares continuaram lendo o excedente CONGELADO — que é zero justamente
+   * nessa população. O resultado: o painel mostrando "a devolver" sem nenhuma
+   * cobrança embaixo (com o runbook mandando devolver "pelo valor ao lado da
+   * cobrança"), e o teto saindo R$ 6,00 pra uma dívida de R$ 66,00 (compliance
+   * HIGH-1 de 089e8a2).
+   */
+  const nasceDepois = [
+    opened(10000), paid('txA', 10000), refunded('txA', 6000, 0), closed(),
+    paid('txC', 6000, 600), revertido('txA', 6000, 0),
+  ];
+
+  test('a SOBRA aponta a cobrança certa, mesmo com excedente congelado zero', () => {
+    const st = reduce(nasceDepois);
+    expect(st.payments.txC.excessCents).toBe(0);
+    expect(st.overpaidCents).toBe(6000);
+    expect([...sobraPorPagamento(st)].filter(([, c]) => c > 0)).toEqual([['txC', 6000]]);
+  });
+
+  test('e o teto cobre a dívida INTEIRA quando o estorno falha', () => {
+    const comFalha = reduce([...nasceDepois,
+      refunded('txC', 6000, 600), revertido('txC', 6000, 600)]);
+    expect(tetoDaRestituicao(comFalha, 'txC', { confirmedAt: diasAtras(1) }))
+      .toMatchObject({ excesso: 6000, tardio: 600, teto: 6600 });
+  });
+
+  test('o cliente que só digitou um número maior não muda de comportamento', () => {
+    // O excedente sobre a PRÓPRIA cobrança continua vindo do congelado.
+    const digitou = reduce([opened(10000), paid('t1', 14000, 1000)]);
+    expect([...sobraPorPagamento(digitou)]).toEqual([['t1', 4000]]);
+    expect(tetoDaRestituicao(digitou, 't1', {}).teto).toBe(4000);
+  });
+});
+
+test('a testemunha do estorno que falhou vale num pagamento NÃO atrasado', () => {
+  /**
+   * `marca` só existe pra atrasado. Num pagamento pontual cujo estorno falhou —
+   * reclamação legítima, a casa devolve na mão — o teto era zero e a rota
+   * respondia `nothing_to_restitute`: sobrava resolver a pendência, que limpa a
+   * anomalia sem mover dinheiro, e os R$ 10 de serviço ficavam na base da folha
+   * sobre dinheiro que voltou ao cliente (compliance MEDIUM-2 de 089e8a2).
+   */
+  const pontual = reduce([opened(11000), paid('t1', 10000, 1000),
+    refunded('t1', 10000, 1000), revertido('t1', 10000, 1000)]);
+  expect(paidAfterClose(pontual)).toEqual([]);          // não é atrasado: não há marca
+  expect(pontual.payments.t1.reversedOpenCents).toBe(11000);
+  expect(tetoDaRestituicao(pontual, 't1', { confirmedAt: diasAtras(1) }))
+    .toMatchObject({ trilhoImpossivel: true, motivo: 'refund_reversed', teto: 11000 });
+
+  // E uma reversão PARCIAL vale só o tamanho dela.
+  const parcial = reduce([opened(11000), paid('t1', 10000, 1000),
+    refunded('t1', 10000, 1000), revertido('t1', 10, 0)]);
+  expect(tetoDaRestituicao(parcial, 't1', { confirmedAt: diasAtras(1) })).toMatchObject({ teto: 10 });
+});
+
+test('o motivo grava os DOIS quando os dois valem, e o tamanho da testemunha', () => {
+  // A precedência sozinha escrevia `pix_90d` ("só a palavra do dono") sobre um
+  // estorno que o adquirente comprovadamente não entregou — perdendo justo a
+  // distinção que o campo existe pra guardar (segurança LOW-4 de 089e8a2).
+  const velhoEFalho = reduce([...ATRASADO, refunded('txC', 10, 0), revertido('txC', 10, 0)]);
+  const limites = tetoDaRestituicao(velhoEFalho, 'txC', { confirmedAt: diasAtras(200) });
+  expect(limites.motivo).toBe('refund_reversed+pix_90d');
+  expect(limites.revertidoEmAberto).toBe(10);
+  // Só o prazo: um motivo só.
+  expect(tetoDaRestituicao(reduce(ATRASADO), 'txC', { confirmedAt: diasAtras(200) }).motivo).toBe('pix_90d');
+
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const R = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+  expect(R).toMatch(/reversedOpenCents: limites\.revertidoEmAberto/);
 });

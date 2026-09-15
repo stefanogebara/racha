@@ -57,7 +57,7 @@ const { montarRadar } = require('../_lib/activation/radar');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
-const { reconcileVenue, reconcileVenueHouse, desfechoDoLancamento } = require('../_lib/checks/reconcile');
+const { reconcileVenue, reconcileVenueHouse, desfechoDoLancamento, podeSerReentrega } = require('../_lib/checks/reconcile');
 const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
   formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
 const { vigiarRetencao } = require('../_lib/checks/retention-watch');
@@ -1945,6 +1945,7 @@ async function route(req, res) {
           // (compliance MEDIUM-5 de ec86b37). `null` quando a devolução é de
           // SOBRA, que nunca precisou de trilho impossível.
           railImpossible: limites.motivo,
+          ...(limites.revertidoEmAberto ? { reversedOpenCents: limites.revertidoEmAberto } : {}),
           reference: ref,
           by: autorDoRegistro(user),
         }, null, seqEsperado);
@@ -1959,20 +1960,37 @@ async function route(req, res) {
           process.stderr.write(`[restituicao] conflito: o razão de ${b.checkId} mudou\n`);
           return json(res, 409, { success: false, code: 'restitution_conflict' });
         }
-        // JÁ REGISTRADA: mesma conta, mesma cobrança, mesma referência. Um
-        // retry merece a resposta da primeira vez, não um segundo lançamento.
-        if (desfecho === 'duplicado') {
-          process.stderr.write(`[restituicao] reentrega da mesma referência em ${b.checkId}\n`);
-          // O QUE JÁ ESTÁ NO RAZÃO, não só "ok". Quem repetiu com o valor
-          // trocado por engano precisa ver que o registrado é outro número —
-          // senão lê sucesso e vai embora (compliance LOW-2 de d7f2683).
+        /**
+         * JÁ REGISTRADA? Quem responde é o RAZÃO, não o nome da restrição.
+         *
+         * A classificação por SQLSTATE + nome de índice é corroboração; o nome
+         * vem de uma mensagem LOCALIZÁVEL (`lc_messages` é config de projeto),
+         * e sem inglês o extrator devolve nulo, o desfecho vira `recusado` e a
+         * rota dizia ao operador que o razão não recebeu nada — sobre uma
+         * devolução que ESTÁ lá. Ele então troca a referência ("pix e2e123 (2)"),
+         * ganha uma chave nova, e um SEGUNDO lançamento entra: `paidCents` cai
+         * duas vezes, a conta paga volta a `parcial` e a casa paga o cliente de
+         * novo (segurança MEDIUM-1 de 089e8a2). Numa chave de idempotência de
+         * movimento manual de dinheiro, "recusado" não é o lado conservador.
+         *
+         * Então: em QUALQUER 23505, procura no razão. Achou, é reentrega.
+         */
+        const mesmaReferencia = (evento) => evento.type === 'PAYMENT_REFUNDED'
+          && evento.payload && evento.payload.offRail === true
+          && String(evento.payload.txid) === String(b.txid)
+          && String(evento.payload.reference || '').replace(/\s+/g, ' ').trim().toLowerCase() === ref.toLowerCase();
+        if (desfecho === 'duplicado' || podeSerReentrega(e)) {
           const jaGravado = (await store.loadEvents(b.checkId).catch(() => []))
-            .filter((e) => e.type === 'PAYMENT_REFUNDED' && e.payload && e.payload.offRail === true
-              && String(e.payload.txid) === String(b.txid)
-              && String(e.payload.reference || '').replace(/\s+/g, ' ').trim().toLowerCase() === ref.toLowerCase())
-            .map((e) => ({ seq: e.seq, amountCents: e.payload.amountCents, tipCents: e.payload.tipCents }))
+            .filter(mesmaReferencia)
+            // O QUE JÁ ESTÁ NO RAZÃO, não só "ok": quem repetiu com o valor
+            // trocado por engano precisa ver que o registrado é outro número
+            // (compliance LOW-2 de d7f2683).
+            .map((evento) => ({ seq: evento.seq, amountCents: evento.payload.amountCents, tipCents: evento.payload.tipCents }))
             .pop() || null;
-          return json(res, 200, { success: true, data: { duplicate: true, recorded: jaGravado } });
+          if (jaGravado || desfecho === 'duplicado') {
+            process.stderr.write(`[restituicao] reentrega da mesma referência em ${b.checkId}\n`);
+            return json(res, 200, { success: true, data: { duplicate: true, recorded: jaGravado } });
+          }
         }
         // AQUI sim é falha: o razão não recebeu nada. E o MESMO ponto do
         // `resolve-issue` (compliance LOW-E de 57c0d2e, agora aqui): banco fora

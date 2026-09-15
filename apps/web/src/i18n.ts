@@ -673,6 +673,13 @@ export const DICT = {
   'find.overpaid_pending_restitution': { en: 'received {amount} more than the bill asked — refund pending',
                         pt: 'recebeu {amount} a mais do que a conta pedia — devolução pendente',
                         es: 'ha recibido {amount} de más — devolución pendiente' },
+  // O AVISO da duplicidade ANTES do fecho: a conta tem sobra e mais de um
+  // pagamento trouxe serviço. Não afirma dívida — pede conferência, porque
+  // deduzir o serviço do excedente tiraria da folha o de quem só digitou um
+  // número maior no app do banco (ver a decisão de 2026-09-15).
+  'find.overpaid_tip_check': { en: 'the bill has surplus and more than one payment carried a service charge — check whether service was charged on the duplicated part',
+                        pt: 'a conta tem sobra e mais de um pagamento trouxe serviço — confira se há serviço cobrado sobre a parte duplicada',
+                        es: 'la cuenta tiene excedente y más de un pago trajo servicio — comprueba si se cobró servicio sobre la parte duplicada' },
   'find.ledger_drift':{ en: 'the two money records disagree by {amount}',
                         pt: 'os dois registros de dinheiro divergem em {amount}',
                         es: 'los dos registros de dinero difieren en {amount}' },

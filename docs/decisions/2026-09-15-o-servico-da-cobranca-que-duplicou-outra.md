@@ -49,15 +49,30 @@ contra o que já estava coberto. A linha de `payments` guarda os dois pares
 o razão é a fonte (inegociável #6): derivar autorização de uma projeção é
 exatamente o que a revisão de d7f2683 mandou desfazer na data do trilho.
 
-## O gatilho
+## O gatilho, com prazo
 
-**O dia em que o `PAYMENT_CONFIRMED` carregar o valor PEDIDO da cobrança.** Com
-`requestedAmountCents` no payload, o redutor distingue as duas situações sem
-adivinhar: excedente sobre a PRÓPRIA cobrança (o cliente digitou mais) é consumo
-puro; cobrança cujo pedido já estava coberto por outra é duplicidade, e o
-serviço dela é devido de qualquer jeito, como no `sempreDevido` tardio.
+**O dia em que o `PAYMENT_CONFIRMED` carregar o valor PEDIDO da cobrança**, e no
+mais tardar **a próxima migração que toque o payload de evento** — o que vier
+primeiro. Com `requestedAmountCents` no payload, o redutor distingue as duas
+situações sem adivinhar: excedente sobre a PRÓPRIA cobrança (o cliente digitou
+mais) é consumo puro; cobrança cujo pedido já estava coberto por outra é
+duplicidade, e o serviço dela é devido de qualquer jeito, como no `sempreDevido`
+do atrasado.
 
-Até lá, o que existe é isto escrito, e a conciliação continuando a apontar o
-consumo. Fica registrado em vez de virar código agora porque a regra errada
-custa mais que a ausência dela: ela tiraria da folha dinheiro de garçom sobre
-atendimento prestado, e o CLT art. 462 não deixa descontar isso depois.
+Um gatilho sem data é como adiamento vira permanente, e a revisão de compliance
+de 089e8a2 cobrou isso: fica amarrado a um marco que já está no caminho, não a
+uma condição que ninguém está obrigado a produzir.
+
+## O que existe ENQUANTO ISSO
+
+A conciliação levanta um achado **`info`** quando a conta tem sobra e mais de um
+pagamento trouxe serviço: *"confira se há serviço cobrado sobre a parte
+duplicada"*. Não é autorização derivada de projeção — não move dinheiro, não
+mexe em teto, não pode produzir o falso positivo que este documento teme. É só o
+aviso que faltava: sem ele o operador segue o runbook, devolve o consumo, fecha o
+achado, e os 10% ficam na folha sem ninguém saber (compliance MEDIUM-1 de
+089e8a2).
+
+Fica registrado em vez de virar regra agora porque a regra errada custa mais que
+a ausência dela: ela tiraria da folha dinheiro de garçom sobre atendimento
+prestado, e o CLT art. 462 não deixa descontar isso depois.

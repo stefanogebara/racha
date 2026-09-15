@@ -34,7 +34,7 @@ const { disputeCounts } = require('../checks/disputes');
  */
 
 const crypto = require('crypto');
-const { reduce, paidAfterClose } = require('../checks/check-state');
+const { reduce, paidAfterClose, sobraPorPagamento } = require('../checks/check-state');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
 const { isTerminalRecipientStatus } = require('../recipient-status');
@@ -551,11 +551,12 @@ function createMemoryStore() {
              * leitura pública segue com ordinal.
              */
             ...(state.overpaidCents > 0 ? {
-              overpaidTxids: Object.entries(state.payments)
-                .map(([txid, pg]) => ({
-                  txid,
-                  restituteCents: Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-                }))
+              // PELA REGRA ÚNICA do redutor: o excedente cru é zero na
+              // duplicidade que nasce depois, e o painel mostrava "a devolver"
+              // sem nenhuma cobrança embaixo — com o runbook mandando devolver
+              // "pelo valor ao lado da cobrança" (compliance HIGH-1 de 089e8a2).
+              overpaidTxids: [...sobraPorPagamento(state).entries()]
+                .map(([txid, restituteCents]) => ({ txid, restituteCents }))
                 .filter((x) => x.restituteCents > 0),
             } : {}),
               // Disputas por CONTAGEM: é a taxa de chargeback que o

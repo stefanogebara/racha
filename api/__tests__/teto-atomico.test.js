@@ -128,8 +128,11 @@ test('a rota usa o lançamento condicional, e a leitura que autoriza é a mesma'
   // da lista branca (censo em `sql-contract`).
   expect(rota).toMatch(/const desfecho = desfechoDoLancamento\(e\);/);
   expect(rota).toMatch(/desfecho === 'conflito'/);
-  expect(rota).toMatch(/desfecho === 'duplicado'/);
+  expect(rota).toMatch(/desfecho === 'duplicado' \|\| podeSerReentrega\(e\)/);
   expect(rota).not.toMatch(/pgCode/);
+  // A rota só olha o SQLSTATE pra decidir PROCURAR no razão; quem classifica
+  // segue sendo o `desfechoDoLancamento` (segurança MEDIUM-1 de 089e8a2).
+  expect(rota).toMatch(/const jaGravado = \(await store\.loadEvents/);
 });
 
 test('só o NOSSO índice significa "já registrada" — outra unicidade é recusa', () => {

@@ -270,6 +270,63 @@ describe('pago depois de fechar — o caso calado', () => {
           ev.push({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid: 'pre', amountCents: valor, tipCents: 0 } });
         }
       }
+      /**
+       * O QUE OS TRÊS ACHADOS DESTA SÉRIE TINHAM EM COMUM — e a monotonia que
+       * eu quase escrevi no lugar.
+       *
+       * A revisão de segurança pediu "se o devido era positivo e nenhuma gorjeta
+       * voltou, continua positivo". Escrevi, e ela ficou vermelha num caso
+       * legítimo: estornar o pagamento de ANTES do fecho faz a conta precisar
+       * MAIS dos atrasados, então a parte não necessária deles encolhe — que é
+       * exatamente o comportamento que a mesma revisão exigiu no achado do
+       * irmão. Monotonia é falsa aqui.
+       *
+       * O que é verdade, e é do que os três achados tratam, não depende da
+       * fórmula:
+       *
+       *  1. se a conta está INTEIRAMENTE coberta sem este pagamento, todo o
+       *     serviço que ainda resta nele é `sempreDevido` — não sobra nada
+       *     clicável, porque não há pergunta a fazer sobre o caixa;
+       *  2. se a conta PRECISA dele por inteiro, nada nele é `sempreDevido` —
+       *     senão um serviço ganho vira dívida.
+       */
+      for (const x of atrasados) {
+        for (let corte = 1; corte <= ev.length; corte += 1) {
+          const st2 = reduce(ev.slice(0, corte));
+          const pg = st2.payments[x.txid];
+          if (!pg) continue;
+          const liquidoDe = (q) => Math.max(0, q.amountCents - (q.refundedAmountCents || 0));
+          const doResto = Object.entries(st2.payments)
+            .filter(([t]) => t !== x.txid)
+            .reduce((soma, [, q]) => soma + liquidoDe(q), 0);
+          // O que a conta tem de quem NÃO chegou atrasado. É esta a cobertura
+          // que decide se os atrasados foram precisos: entre atrasados, a
+          // convenção é que o mais VELHO cobre e o mais novo duplica, então
+          // "coberta sem este" não vale como premissa quando quem cobre é outro
+          // atrasado — os dois não podem ser o redundante ao mesmo tempo.
+          const dosNaoAtrasados = Object.values(st2.payments)
+            .filter((q) => !q.late).reduce((soma, q) => soma + liquidoDe(q), 0);
+          const servico = Math.max(0, (pg.tipCents || 0) - (pg.refundedTipCents || 0));
+          const marcas = paidAfterClose(st2).filter((m) => m.txid === x.txid);
+          const devido = marcas.filter((m) => m.sempreDevido).reduce((soma, m) => soma + m.amountCents, 0);
+          const pergunta = marcas.filter((m) => !m.sempreDevido).reduce((soma, m) => soma + m.amountCents, 0);
+
+          if (dosNaoAtrasados >= st2.totalCents && servico > 0 && !pg.lateResolved) {
+            // 1. coberta sem ele: o serviço inteiro é devido, e a pergunta não
+            // carrega nada de serviço (ela vale, no máximo, o consumo líquido).
+            expect({ caso, txid: x.txid, corte, devido, sobrouServicoClicavel: pergunta > liquidoDe(pg) })
+              .toEqual({ caso, txid: x.txid, corte, devido: servico, sobrouServicoClicavel: false });
+          }
+          // Pelo BRUTO, que é a base da regra: o que já voltou continua
+          // contando como duplicidade (é o que faz o serviço sobreviver ao
+          // estorno do principal), então a premissa "precisou dele todo" tem de
+          // olhar o mesmo número.
+          if (doResto + Math.max(0, pg.amountCents || 0) <= st2.totalCents) {
+            // 2. a conta precisa dele por inteiro: nada é "devido de qualquer jeito".
+            expect({ caso, txid: x.txid, corte, devido }).toEqual({ caso, txid: x.txid, corte, devido: 0 });
+          }
+        }
+      }
       const marcasAntes = paidAfterClose(reduce(ev));
       for (const x of marcasAntes.filter((e) => !e.sempreDevido)) {
         const depois = paidAfterClose(reduce([...ev, resolvido(x.txid)]));

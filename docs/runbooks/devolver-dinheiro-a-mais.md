@@ -151,6 +151,12 @@ consumo, e a devolução sai de lá. A gorjeta arrecadada é remuneração do ti
 (Lei 13.419/2017 + STJ Tema 1102) e não é fundo de onde a casa tira dinheiro
 pra restituir — nem por acidente de arredondamento.
 
+**Isto vale pra duplicidade DEPOIS do fecho.** A de antes — duas pessoas pagando
+a conta inteira com segundos de diferença — ainda não tem regra automática, e o
+porquê está em
+[`docs/decisions/2026-09-15-o-servico-da-cobranca-que-duplicou-outra.md`](../decisions/2026-09-15-o-servico-da-cobranca-que-duplicou-outra.md).
+Ali a conciliação avisa (`overpaid_tip_check`) e a conferência é sua.
+
 **A exceção é o serviço de um pagamento que duplicou a conta**, e ela é a mesma
 lei pelo outro lado: 10% sobre uma cobrança que não correspondeu a atendimento
 nenhum nunca foi serviço prestado — é do cliente, e volta inteiro da gorjeta.

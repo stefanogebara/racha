@@ -10,7 +10,7 @@
  * do painel apagar a falha de um estorno (segurança LOW-1 de 57c0d2e).
  */
 
-const { paidAfterClose } = require('./check-state');
+const { paidAfterClose, sobraPorPagamento } = require('./check-state');
 
 /**
  * Quem registrou: o ID do usuário, não o e-mail. O razão é só-de-acréscimo e
@@ -61,10 +61,11 @@ function trilhoDoMeio(meio) {
 function tetoDaRestituicao(estado, txid, opcoes = {}) {
   const pg = estado && estado.payments ? estado.payments[txid] : null;
   if (!pg) return null;
-  const excesso = Math.min(
-    Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-    Math.max(0, estado.overpaidCents || 0),
-  );
+  // A SOBRA DESTE PAGAMENTO, pela regra única do redutor — congelada pra quem
+  // entrou com excedente, VIVA pro atrasado que duplicou. Lida aqui do
+  // `excessCents` cru, ela era zero justamente na duplicidade que nasce depois:
+  // teto de R$ 6,00 pra uma dívida de R$ 66,00 (compliance HIGH-1 de 089e8a2).
+  const excesso = sobraPorPagamento(estado).get(txid) || 0;
   // O TARDIO SÓ QUANDO O TRILHO É IMPOSSÍVEL: o estorno pelo adquirente falhou
   // e voltou, ou o prazo do trilho acabou. São as duas situações do passo 6 do
   // runbook — e sem exigi-las, um dono podia declarar a devolução de um
@@ -112,8 +113,14 @@ function tetoDaRestituicao(estado, txid, opcoes = {}) {
   // adquirente da que o dono atestou (compliance MEDIUM-5 de ec86b37).
   // O PRAZO vencido fecha o trilho INTEIRO; o estorno que falhou vale só o que
   // ele deixou de devolver.
-  const motivo = foraDoPrazo ? `${meio}_${prazoDias}d`
-    : (estornoFalhou ? 'refund_reversed' : null);
+  /**
+   * O MOTIVO grava os DOIS quando os dois valem. A precedência sozinha
+   * escrevia `pix_90d` ("só a palavra do dono") sobre um estorno que o
+   * adquirente comprovadamente não entregou — perdendo justo a distinção que o
+   * campo existe pra guardar (segurança LOW-4 de 089e8a2).
+   */
+  const motivo = [estornoFalhou && 'refund_reversed', foraDoPrazo && `${meio}_${prazoDias}d`]
+    .filter(Boolean).join('+') || null;
   const marca = paidAfterClose(estado)
     .filter((x) => x.txid === txid)
     .reduce((soma, x) => soma + x.amountCents, 0);
@@ -127,13 +134,40 @@ function tetoDaRestituicao(estado, txid, opcoes = {}) {
    * do Pix aberto pro resto (compliance HIGH-2 e segurança MEDIUM-1 de
    * 41b188a). O teto agora vale o que o adquirente de fato deixou de devolver.
    */
+  const revertidoEmAberto = Math.max(0, pg.reversedOpenCents || 0);
+  /**
+   * E A TESTEMUNHA NÃO É UM CONCEITO DE ATRASADO.
+   *
+   * `marca` só existe pra pagamento que chegou depois do fecho. Num pagamento
+   * pontual cujo estorno FALHOU — reclamação legítima, a casa devolve os R$ 110
+   * na mão — a marca é zero, o teto era zero, e a rota respondia
+   * `nothing_to_restitute`: sobrava resolver a pendência, que limpa a anomalia
+   * sem mover dinheiro. O razão seguia com os R$ 110 recebidos e os R$ 10 de
+   * serviço na base da folha sobre dinheiro que voltou ao cliente (compliance
+   * MEDIUM-2 de 089e8a2). O tamanho continua sendo o da testemunha; o que
+   * deixou de limitar é a lateralidade, que não tem a ver com o fato.
+   */
+  // O que a MARCA autoriza: o prazo vencido fecha o trilho pra tudo; o estorno
+  // que falhou vale o que ele deixou de devolver.
   const tardio = foraDoPrazo ? marca
-    : (estornoFalhou ? Math.min(marca, Math.max(0, pg.reversedOpenCents || 0)) : 0);
+    : (estornoFalhou ? Math.min(marca, revertidoEmAberto) : 0);
+  /**
+   * E o que a TESTEMUNHA autoriza SOZINHA, sem passar pela marca — que é um
+   * conceito de atrasado e não existe num pagamento pontual. Os dois descrevem o
+   * mesmo dinheiro quando ambos valem, então entram por `max`, nunca somados:
+   * somar contava a mesma duplicidade duas vezes e só não estourava porque o
+   * líquido aparava (achado ao escrever o teste desta rodada).
+   */
+  const daTestemunha = estornoFalhou ? revertidoEmAberto : 0;
   const liquido = Math.max(0, pg.amountCents - (pg.refundedAmountCents || 0))
     + Math.max(0, (pg.tipCents || 0) - (pg.refundedTipCents || 0));
   return {
     excesso, tardio, trilhoImpossivel, motivo, dataConhecida, prazoConhecido,
-    teto: Math.min(liquido, excesso + tardio),
+    // O TAMANHO da testemunha entra no razão junto com o motivo: sem ele, uma
+    // auditoria lê `refund_reversed` e não sabe que parte daquela devolução
+    // tinha testemunha e parte não.
+    ...(revertidoEmAberto > 0 ? { revertidoEmAberto } : {}),
+    teto: Math.min(liquido, Math.max(excesso + tardio, daTestemunha)),
   };
 }
 

@@ -17,7 +17,7 @@
  * and merely log `info`.
  */
 
-const { reduce, paidAfterClose } = require('./check-state');
+const { reduce, paidAfterClose, sobraPorPagamento } = require('./check-state');
 const houseState = require('../house/account-state');
 
 /**
@@ -175,15 +175,48 @@ function reconcileCheck({ checkId, events, payments }) {
     // quem lê a ignorar — o mesmo desgaste que este achado quer evitar. Quem
     // sabe de excedente é o RAZÃO (`state.payments[txid].excessCents`); a
     // linha só tem a data.
-    const comSobra = new Set(Object.entries((state && state.payments) || {})
-      .filter(([, pg]) => ((pg.excessCents || 0) - (pg.refundedAmountCents || 0)) > 0)
+    const comSobra = new Set([...sobraPorPagamento(state).entries()]
+      .filter(([, centavos]) => centavos > 0)
       .map(([txid]) => txid));
     const candidatas = comSobra.size > 0
       ? rows.filter((r) => r && comSobra.has(r.txid))
       : rows;
-    const datas = candidatas.map((r) => r && r.confirmedAt).filter(Boolean).sort();
-    const abertaDesde = datas[0] || null;
+    /**
+     * A DATA, do razão e da linha — a mais antiga das duas, como no achado
+     * irmão trinta linhas acima.
+     *
+     * Este aqui continuava lendo só a linha, e com ela ausente `horas` virava 0:
+     * a dívida de restituição — a que o runbook cita como a que PRECISA escalar
+     * — ficava `high` pra sempre (compliance MEDIUM-3 de 089e8a2, a segunda
+     * metade do MEDIUM-3 anterior). E o comentário acima, que dizia que o razão
+     * não guarda hora, virou falso quando o `loadEvents` passou a trazer
+     * `created_at`.
+     */
+    const doRazaoPorTxid = (txid) => Date.parse(((state.payments || {})[txid] || {}).confirmedAt || '');
+    const datas = [
+      ...candidatas.map((r) => r && r.confirmedAt).filter(Boolean).map((d) => Date.parse(d)),
+      ...[...comSobra].map(doRazaoPorTxid),
+    ].filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+    const abertaDesde = datas.length ? new Date(datas[0]).toISOString() : null;
     const horas = abertaDesde ? (Date.now() - Date.parse(abertaDesde)) / 3600000 : 0;
+    /**
+     * E O AVISO da duplicidade ANTES do fecho.
+     *
+     * `sempreDevido` está todo atrás de `late`: duas pessoas pagando a conta
+     * inteira ANTES de ela fechar produzem sobra cujo SERVIÇO nunca vira devido,
+     * e o painel diz "a devolver R$ 100,00" quando são R$ 110,00. Deduzir o
+     * serviço do excedente tiraria da folha o serviço de quem só digitou um
+     * número maior no app do banco — por isso a regra não existe, e por isso
+     * existe este aviso: ele não move dinheiro nem teto (compliance MEDIUM-1 de
+     * 089e8a2; ver `docs/decisions/2026-09-15-o-servico-da-cobranca-que-duplicou-outra.md`).
+     */
+    const comServico = Object.values(state.payments || {})
+      .filter((pg) => ((pg.tipCents || 0) - (pg.refundedTipCents || 0)) > 0).length;
+    if (comServico > 1) {
+      add('info', 'overpaid_tip_check',
+        'a conta tem sobra e mais de um pagamento trouxe serviço — confira se há serviço cobrado sobre a parte duplicada',
+        { overpaidCents: state.overpaidCents });
+    }
     add(horas > 48 ? 'critical' : 'high', 'overpaid_pending_restitution',
       `conta recebeu ${state.overpaidCents}¢ a mais do que devia — restituição pendente`
       + `${horas > 48 ? ` há ${Math.floor(horas / 24)} dia(s)` : ''} (CC art. 876)`,
@@ -597,6 +630,24 @@ function desfechoDoLancamento(err) {
     return err.pgConstraint === INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO ? 'duplicado' : 'recusado';
   }
   return 'recusado';
+}
+
+/**
+ * PODE SER REENTREGA? — a pergunta mais fraca que a `desfechoDoLancamento`.
+ *
+ * `desfechoDoLancamento` só diz `duplicado` com o NOME do índice, e o nome vem
+ * de uma mensagem localizável: sem inglês, ele volta nulo e a resposta vira
+ * `recusado`. Pra uma chave de idempotência de dinheiro movido à mão, "recusado"
+ * não é o lado conservador — o operador que já devolveu lê que nada foi gravado
+ * e registra de novo com outra referência (segurança MEDIUM-1 de 089e8a2).
+ *
+ * Então existe esta segunda pergunta, mais larga: "vale a pena PROCURAR no
+ * razão?". Ela não conclui nada sozinha — quem conclui é o razão. Mora aqui, e
+ * não na rota, porque decisão por SQLSTATE mora num lugar só (o censo do
+ * `sql-contract` prende isso).
+ */
+function podeSerReentrega(err) {
+  return (err && err.pgCode) === '23505';
 }
 
 function resumoDoReparo(pia = {}) {
@@ -1275,4 +1326,4 @@ async function reconcileVenueHouse(store, venueId) {
 
 module.exports = {
   acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, recusaProvada,
-  desfechoDoLancamento, INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+  desfechoDoLancamento, podeSerReentrega, INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
