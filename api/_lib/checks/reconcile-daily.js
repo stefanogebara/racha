@@ -794,8 +794,14 @@ function formatReconcileAlert(report) {
     // O ESTOURO vem antes de um `info`: sem `critical`/`high` de verdade, uma
     // corrida perdida virava manchete de uma casa cujo dinheiro não pôde ser
     // conferido. `info` é o último recurso, não o penúltimo.
-    const pior = reais.find((f) => f.severity === 'critical')
-      || reais.find((f) => f.severity === 'high')
+    // E, na mesma gravidade, o que NÃO é `paid_after_close` primeiro: um
+    // pagamento atrasado de um centavo numa conta mais velha nomeava a linha da
+    // casa no lugar do prazo de prova de uma disputa (segurança LOW-1 e
+    // compliance LOW-A de 497bf87).
+    const naGravidade = (sev) => reais.find((f) => f.severity === sev && f.code !== 'paid_after_close')
+      || reais.find((f) => f.severity === sev);
+    const pior = naGravidade('critical')
+      || naGravidade('high')
       || estouro
       || reais[0];
     const drift = v.driftCents ? ` · drift ${(v.driftCents / 100).toFixed(2).replace('.', ',')}` : '';

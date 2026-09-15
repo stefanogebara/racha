@@ -189,9 +189,17 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
       <section className="panel" id="mesas" style={{ scrollMarginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <p className="label">{t('admin.tablesN', { n: tables.length })}</p>
-          <a className="linklike" style={{ textDecoration: 'none' }} href={`/qrs?v=${encodeURIComponent(venueId)}`}>
-            {t('admin.printQrs')}
-          </a>
+          <span style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            {/* O PAINEL DE PAGAMENTOS: é pra lá que a pergunta de girar o QR e a de
+                fechar a conta mandam a equipe olhar, e daqui não havia caminho até
+                ele (compliance HIGH-A de 497bf87). */}
+            <a className="linklike" style={{ textDecoration: 'none' }} href={`/painel?v=${encodeURIComponent(venueId)}`}>
+              {t('admin.openPanel')}
+            </a>
+            <a className="linklike" style={{ textDecoration: 'none' }} href={`/qrs?v=${encodeURIComponent(venueId)}`}>
+              {t('admin.printQrs')}
+            </a>
+          </span>
         </div>
         <p className="muted small">
           {t('admin.tablesHelp', { training: t('admin.training') })}

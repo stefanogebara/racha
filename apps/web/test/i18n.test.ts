@@ -829,9 +829,10 @@ test('a rota do painel MANDA os centavos que o painel formata', async () => {
   assert.ok(campos.length >= 4, `cadeia curta demais: ${campos.join(', ')}`);
 
   // A projeção da rota, onde os achados são mapeados.
-  const i = router.indexOf('findings: [...r.findings]');
-  assert.ok(i > 0, 'não achei a projeção dos achados na rota');
-  const projecao = router.slice(i, i + 1200);
+  // A projeção mora em `projetarAchados`, e a rota chama a função.
+  const i = router.indexOf('function projetarAchados(');
+  assert.ok(i > 0 && router.includes('findings: projetarAchados(r.findings)'), 'não achei a projeção dos achados na rota');
+  const projecao = router.slice(i, i + 2400);
   const faltando = campos.filter((c) => !projecao.includes(c));
   assert.deepEqual(faltando, [], `campos que o painel lê e a rota não manda:\n${faltando.join('\n')}`);
 });

@@ -93,6 +93,25 @@ export default function Panel() {
     return () => clearInterval(id);
   }, [refresh]);
 
+  // RESPONDER a pergunta do pago-depois-de-fechar: a mesa não pagou no caixa, ou
+  // a devolução foi feita por fora. Grava `PAYMENT_ISSUE_RESOLVED` no txid, com
+  // o porquê, pela rota do dono (`/api/checks/resolve-issue`). (Compliance
+  // MEDIUM-C de 497bf87.)
+  const resolverPagoDepois = useCallback(async (checkId: string, txid: string) => {
+    const nota = window.prompt(t('panel.resolveAsk'));
+    if (!nota || nota.trim().length < 3) return;
+    try {
+      await authedReq('/api/checks/resolve-issue', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ checkId, txid, note: nota.trim() }),
+      });
+      await refresh();
+    } catch (e) {
+      window.alert(tErr(e));
+    }
+  }, [t, refresh, tErr]);
+
   if (error) return <main className="shell wide"><p className="muted center">{error}</p></main>;
   if (!data) return <main className="shell wide"><p className="muted center">{t('panel.loading')}</p></main>;
 
@@ -217,7 +236,11 @@ export default function Panel() {
                   {(c.state.paidAfterClose || []).map((x) => (
                     <em key={x.txid} style={{ display: 'block' }}>
                       {t('panel.paidAfterClose', { amount: brl(x.amountCents) })}{' '}
-                      <span className="mono" style={{ opacity: 0.75 }}>{x.txid}</span>
+                      <span className="mono" style={{ opacity: 0.75 }}>{x.txid}</span>{' '}
+                      <button className="linklike" style={{ fontSize: 12 }}
+                        onClick={() => void resolverPagoDepois(c.checkId, x.txid)}>
+                        {t('panel.resolveLate')}
+                      </button>
                     </em>
                   ))}
                 </span>

@@ -251,6 +251,39 @@ if (AUTH_SUPABASE_URL && AUTH_SUPABASE_KEY) {
 /** Ordem de gravidade — pra cortar os achados pelo topo, não pela chegada. */
 const RANK = { critical: 3, high: 2, info: 1 };
 
+/**
+ * OS ACHADOS QUE O PAINEL MOSTRA: por gravidade e, dentro da mesma gravidade,
+ * o que tem PRAZO primeiro — um `dispute_evidence_due` perde dinheiro por
+ * inação. E os `paid_after_close` viram UM (a soma, e quantos): cinco
+ * pagamentos de um centavo depois de fechar enchiam as cinco vagas e
+ * escondiam o prazo de uma disputa (segurança LOW-1 e compliance LOW-A de
+ * 497bf87). Só código e centavos saem — ver o comentário na rota do painel.
+ */
+const PRIMEIRO_NA_GRAVIDADE = { dispute_evidence_overdue: 3, dispute_evidence_due: 2 };
+function projetarAchados(findings) {
+  const pagos = findings.filter((f) => f.code === 'paid_after_close');
+  const juntos = pagos.length <= 1 ? pagos : [{
+    severity: pagos.some((f) => f.severity === 'critical') ? 'critical' : 'high',
+    code: 'paid_after_close',
+    amountCents: pagos.reduce((soma, f) => soma + (f.amountCents || 0), 0),
+    count: pagos.length,
+  }];
+  return [...findings.filter((f) => f.code !== 'paid_after_close'), ...juntos]
+    .sort((a, b) => ((RANK[b.severity] || 0) - (RANK[a.severity] || 0))
+      || ((PRIMEIRO_NA_GRAVIDADE[b.code] || 0) - (PRIMEIRO_NA_GRAVIDADE[a.code] || 0)))
+    .slice(0, 5)
+    .map((f) => ({
+      severity: f.severity, code: f.code,
+      ...(f.overpaidCents !== undefined ? { overpaidCents: f.overpaidCents } : {}),
+      ...(f.deltaCents !== undefined ? { deltaCents: f.deltaCents } : {}),
+      ...(f.driftCents !== undefined ? { driftCents: f.driftCents } : {}),
+      ...(f.amountCents !== undefined ? { amountCents: f.amountCents } : {}),
+      ...(f.txid ? { txid: f.txid } : {}),
+      ...(f.chargeId ? { chargeId: f.chargeId } : {}),
+      ...(f.count ? { count: f.count } : {}),
+    }));
+}
+
 function json(res, status, body, extra = null) {
   res.writeHead(status, {
     'Content-Type': 'application/json',
@@ -330,6 +363,8 @@ const JANELA_DO_AVISO_MS = 6 * 60 * 60 * 1000;
 const RECUO_DO_AVISO_MS = 60 * 1000;
 const RECUO_COM_ORCAMENTO_CHEIO_MS = 10 * 60 * 1000;
 const UM_DIA_MS = 24 * 60 * 60 * 1000;
+// Teto GLOBAL de avisos de suspensão por dia — ver o bloco da suspensão.
+const SUSPENSOES_POR_DIA = 12;
 const alertasRecentes = new Map(); // chave → "não tente antes de"; atalho local, não decisão
 
 /**
@@ -445,7 +480,7 @@ async function avisarTetoDisparado(err) {
     let mensagem; let recuoAposEnvio = JANELA_DO_AVISO_MS;
     if (doDia.claimId !== null) {
       mensagem = tipo === 'mesa'
-        ? `TETO DE COBRANÇAS DISPAROU — conta ${err.checkId} · casa ${nomeDaCasa} · mesa ${rotuloDaMesa}. Uma mesa legítima não chega a este número: provável script usando o QR dessa mesa. Remédio: girar o QR dessa mesa no painel — a geração nova tem teto próprio e o atacante perde o token. ANTES de girar: quem está no meio de um pagamento perde a tela de confirmação (o QR antigo para de responder), e cobranças abertas com o código antigo ainda podem cair — Pix por até 15 minutos, cartão ainda em confirmação talvez depois — e só aparecem no painel depois de confirmadas: antes de cobrar no caixa, espere esses 15 minutos ou pergunte na mesa se alguém já pagou. Pagamento que cair depois de a conta fechar fica marcado na mesa, no painel; se a mesa também pagou no caixa, é valor a devolver. Enquanto a mesa estiver travada, ela paga no caixa.`
+        ? `TETO DE COBRANÇAS DISPAROU — conta ${err.checkId} · casa ${nomeDaCasa} · mesa ${rotuloDaMesa}. Uma mesa legítima não chega a este número: provável script usando o QR dessa mesa. Remédio: girar o QR dessa mesa no painel — a geração nova tem teto próprio e o atacante perde o token. ANTES de girar: quem está no meio de um pagamento perde a tela de confirmação (o QR antigo para de responder), e cobranças abertas com o código antigo ainda podem cair — Pix por até 15 minutos, cartão ainda em confirmação talvez depois — e só aparecem no painel depois de confirmadas: antes de cobrar no caixa, espere esses 15 minutos ou pergunte na mesa se alguém já pagou. Feche a conta no Racha ANTES de cobrar o resto no caixa: pagamento que cair depois de a conta fechar fica marcado na mesa, no painel de pagamentos (/painel); se a mesa também pagou no caixa, é valor a devolver; se não, marque como resolvido. Enquanto a mesa estiver travada, ela paga no caixa.`
         : `RECARGAS PAUSADAS — casa ${casaId} · ${nomeDaCasa}: o teto de recargas da casa encheu, provável geração de contas de saldo em massa. A conta da mesa não é afetada.`;
     } else {
       // ORÇAMENTO CHEIO. A vaga da conta VOLTA — senão ela ficava calada seis
@@ -464,11 +499,29 @@ async function avisarTetoDisparado(err) {
       // (compliance MEDIUM-1 e segurança LOW-4 de 40d5c50).
       const suspensao = await tomar([`alerta:suprimido:venue:${casaId}:${tipo}`], [1], JANELA_DO_AVISO_MS);
       if (suspensao.claimId === null) return;
+      // E um orçamento GLOBAL de suspensões. Por casa e tipo sem nada acima,
+      // vinte casas criadas por quem se cadastra davam 160 páginas por dia no
+      // canal do canário de conciliação (segurança MEDIUM-1 e compliance
+      // MEDIUM-D de 497bf87). Esgotado, sai UM resumo a cada seis horas — ainda
+      // nomeando a casa de agora — e o resto vai pro log.
+      const doDiaSusp = await tomar(['alerta-dia:suspensoes'], [SUSPENSOES_POR_DIA], UM_DIA_MS);
+      let resumo = false;
+      if (doDiaSusp.claimId === null) {
+        const doResumo = await tomar(['alerta:suprimido:resumo'], [1], JANELA_DO_AVISO_MS);
+        if (doResumo.claimId === null) {
+          process.stderr.write(`[teto] suspensão contida pelo orçamento de suspensões (${SUSPENSOES_POR_DIA}/dia) — ${chave}\n`);
+          for (const v of tomadas) await devolverVagaDeAviso(v);
+          return;
+        }
+        resumo = true;
+      }
       const oQue = tipo === 'mesa' ? `conta ${err.checkId} · mesa ${rotuloDaMesa}` : 'recargas';
       const remedio = tipo === 'mesa'
         ? 'Remédio: girar no painel o QR de cada mesa travada; até lá, ela paga no caixa.'
         : 'As recargas da casa seguem pausadas; a conta da mesa não é afetada, e não há QR a girar.';
-      mensagem = daCasa
+      mensagem = resumo
+        ? `SUSPENSÕES EM MASSA — ${SUSPENSOES_POR_DIA} casas ou tipos de aviso já foram suspensos em 24 horas, e mais nenhuma suspensão por casa sai por aqui até a mais velha completar um dia. A de agora: casa ${casaId} · ${nomeDaCasa} (${oQue}). As outras aparecem nos logs da função, nas linhas "[teto]", e este resumo se repete a cada seis horas enquanto houver suspensão contida. Um volume assim é ataque coordenado, provavelmente com casas criadas pra isso.`
+        : daCasa
         ? `AVISOS DA CASA SUSPENSOS — casa ${casaId} · ${nomeDaCasa}: ${ALERTAS_POR_CASA_POR_DIA} avisos de ${tipo} em 24 horas, e o teto disparou de novo (${oQue}). ${remedio} Os próximos desta casa só aparecem nos logs da função, nas linhas "[teto]", e este aviso se repete a cada seis horas enquanto houver disparo contido.`
         : `AVISOS DE TETO SUSPENSOS — casa ${casaId} · ${nomeDaCasa}: o orçamento GLOBAL de ${ALERTAS_DE_TETO_POR_DIA} avisos por dia acabou, e o teto desta casa disparou (${oQue}). ${remedio} Um volume assim é ataque em várias mesas ou casas ao mesmo tempo; os disparos contidos aparecem nos logs, nas linhas "[teto]", e este aviso se repete a cada seis horas por casa enquanto houver disparo contido.`;
     }
@@ -1798,18 +1851,7 @@ async function route(req, res) {
            * não o renderiza mais. Achado pela revisão de segurança de
            * 2026-09-08.
            */
-          findings: [...r.findings]
-            .sort((a, b) => (RANK[b.severity] || 0) - (RANK[a.severity] || 0))
-            .slice(0, 5)
-            .map((f) => ({
-              severity: f.severity, code: f.code,
-              ...(f.overpaidCents !== undefined ? { overpaidCents: f.overpaidCents } : {}),
-              ...(f.deltaCents !== undefined ? { deltaCents: f.deltaCents } : {}),
-              ...(f.driftCents !== undefined ? { driftCents: f.driftCents } : {}),
-              ...(f.amountCents !== undefined ? { amountCents: f.amountCents } : {}),
-              ...(f.txid ? { txid: f.txid } : {}),
-              ...(f.chargeId ? { chargeId: f.chargeId } : {}),
-            })),
+          findings: projetarAchados(r.findings),
           at: new Date().toISOString(),
         };
         panelReconcileStore(venueId, recon);
@@ -2551,4 +2593,4 @@ async function route(req, res) {
 // `registraMissDeCheck` e `clientIp` saem pro teste: a garantia que importa —
 // a resposta do 404 é SEMPRE a mesma, e o primeiro hop do XFF não é confiável —
 // é de COMPORTAMENTO, e censo de fonte não prova comportamento.
-module.exports = { rotuloDoAviso, avisarTetoDisparado, route, store, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp };
+module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp };

@@ -504,6 +504,12 @@ function applyEvent(state, evt, seq = null) {
       next.anomalies = next.anomalies.filter(
         (a) => !(RESOLVIVEIS.has(a.type) && a.txid === p.txid),
       );
+      // E a pergunta do PAGO DEPOIS DE FECHAR daquele txid fica respondida —
+      // ver `paidAfterClose`. Sem isto só um estorno pelo Racha a encerrava, e
+      // uma devolução em dinheiro no caixa não tinha como ser registrada.
+      if (next.payments[p.txid] && next.payments[p.txid].late) {
+        next.payments[p.txid] = { ...next.payments[p.txid], lateResolved: true };
+      }
       return withAnomaly(recompute(next), seq, 'PAYMENT_ISSUE_RESOLVED',
         `pendência de ${p.txid} resolvida: ${p.note}`, p.txid, 'info');
     }
@@ -604,21 +610,38 @@ function lateTxids(state) {
 }
 
 /**
- * PAGO DEPOIS DE FECHAR, e sem excedente — o caso CALADO.
+ * PAGO DEPOIS DE FECHAR — a parte que o `overpaidCents` NÃO vê.
  *
  * O Racha não registra o que o caixa recebe. Um Pix iniciado antes de o QR
  * girar e confirmado depois de a equipe cobrar a mesa no caixa e fechar a conta
- * completa a conta até o total: excedente zero, nada a devolver no razão — e a
- * mesa pagou duas vezes. Com excedente, `overpaidCents` já grita; este é o que
- * não gritava. O `late` existia e ninguém fora dos testes o lia. Uma regra, lida
- * pela conciliação e pelos dois stores. (Compliance HIGH-1 de 40d5c50, CDC art. 42.)
+ * completa a conta até o total: o razão não vê sobra nenhuma — e a mesa pagou
+ * duas vezes. O `late` existia e ninguém fora dos testes o lia. (Compliance
+ * HIGH-1 de 40d5c50, CDC art. 42.)
+ *
+ * O VALOR é o que o consumidor pagou e o excedente não cobre: a parte de
+ * consumo que NÃO é excedente, mais o SERVIÇO, cada uma líquida do seu estorno
+ * (o estorno sai primeiro do excedente, como no `allocateRestitution`). A
+ * primeira versão contava só consumo e só pagamento 100% sem excedente: um Pix
+ * de 110 com o serviço pré-marcado aparecia como 100 a devolver, e um que
+ * cruzava o total sumia inteiro da marca (compliance HIGH-B e MEDIUM-B,
+ * segurança MEDIUM-2 de 497bf87). Estes centavos e os do `overpaidCents` são
+ * disjuntos: nada é contado duas vezes.
+ *
+ * RESPONDIDO sai: `PAYMENT_ISSUE_RESOLVED` no txid marca `lateResolved` — a mesa
+ * não pagou no caixa, ou a devolução foi feita por fora. Sem resposta, a pergunta
+ * fica (compliance MEDIUM-C de 497bf87).
  */
 function paidAfterClose(state) {
   if (!state) return [];
-  return Object.entries(state.payments)
-    .filter(([, p]) => p.late && !((p.excessCents || 0) > 0))
-    .map(([txid, p]) => ({ txid, amountCents: p.amountCents - (p.refundedAmountCents || 0) }))
-    .filter((x) => x.amountCents > 0);
+  const out = [];
+  for (const [txid, p] of Object.entries(state.payments)) {
+    if (!p.late || p.lateResolved) continue;
+    const excesso = p.excessCents || 0;
+    const consumo = Math.max(0, (p.amountCents - excesso) - Math.max(0, (p.refundedAmountCents || 0) - excesso));
+    const servico = Math.max(0, (p.tipCents || 0) - (p.refundedTipCents || 0));
+    if (consumo + servico > 0) out.push({ txid, amountCents: consumo + servico });
+  }
+  return out;
 }
 
 module.exports = {

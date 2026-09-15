@@ -604,9 +604,11 @@ export const DICT = {
    * tela do CLIENTE ganhou esse tratamento (`NOTICE_KEY`); a do dono era o
    * chamador esquecido. Achado pela revisão de segurança de 2026-09-08.
    */
-  'find.paid_after_close': { en: 'a payment of {amount} arrived after the bill closed — if the table also paid at the till, it is owed back',
-                        pt: 'um pagamento de {amount} chegou depois de a conta fechar — se a mesa também pagou no caixa, é valor a devolver',
-                        es: 'un pago de {amount} llegó después de cerrar la cuenta — si la mesa también pagó en caja, hay que devolverlo' },
+  // Serve pra UM ou pra VÁRIOS: o painel junta os `paid_after_close` num achado
+  // só, com a soma (ver `projetarAchados` no router).
+  'find.paid_after_close': { en: '{amount} arrived after the bill was closed — if the table also paid at the till, it is owed back; if not, mark it resolved on the table',
+                        pt: '{amount} chegou depois de a conta fechar — se a mesa também pagou no caixa, é valor a devolver; se não, marque como resolvido na linha da mesa',
+                        es: '{amount} llegó después de cerrar la cuenta — si la mesa también pagó en caja, hay que devolverlo; si no, márcalo como resuelto en la mesa' },
   'find.overpaid_pending_restitution': { en: 'received {amount} more than the bill asked — refund pending',
                         pt: 'recebeu {amount} a mais do que a conta pedia — devolução pendente',
                         es: 'ha recibido {amount} de más — devolución pendiente' },
@@ -786,6 +788,13 @@ export const DICT = {
   'panel.paidAfterClose': { en: 'arrived after the bill closed: {amount} — if the table also paid at the till, it is owed back',
                         pt: 'chegou depois de a conta fechar: {amount} — se a mesa também pagou no caixa, é valor a devolver',
                         es: 'llegó después de cerrar la cuenta: {amount} — si la mesa también pagó en caja, hay que devolverlo' },
+  // RESPONDER a pergunta: sem isto ela só se encerrava com um estorno pelo
+  // Racha, e uma devolução em dinheiro no caixa não tinha como ser registrada
+  // (compliance MEDIUM-C de 497bf87).
+  'panel.resolveLate': { en: 'resolved',                        pt: 'resolvido', es: 'resuelto' },
+  'panel.resolveAsk': { en: 'How was it resolved? (e.g. “refunded by Pix”, “the table did not pay at the till”)',
+                        pt: 'Como foi resolvido? (ex.: “devolvido por Pix”, “a mesa não pagou no caixa”)',
+                        es: '¿Cómo se resolvió? (p. ej. «devuelto por Pix», «la mesa no pagó en caja»)' },
   'panel.owedBack':   { en: 'owed back: {amount}',               pt: 'a devolver: {amount}', es: 'a devolver: {amount}' },
   'panel.toRefund':   { en: 'to refund to diners',               pt: 'a devolver a clientes', es: 'a devolver a clientes' },
   'panel.receivedToday': { en: 'received today · {n} payments', pt: 'recebido hoje · {n} pagamentos', es: 'recibido hoy · {n} pagos' },
@@ -987,9 +996,14 @@ export const DICT = {
   // depois de fechar é marcado na linha da mesa (`panel.paidAfterClose`) e vira
   // achado da conciliação. E o prazo de 15 minutos é do Pix: um cartão em
   // confirmação pode chegar depois. (Compliance HIGH-1 e LOW-3 de 40d5c50.)
-  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately, and anyone paying right now loses their confirmation screen. Payments already started with the old code can still arrive — a Pix for up to 15 minutes, a card still confirming possibly later — and they only show here once confirmed. Before charging at the till, wait those 15 minutes or ask the table whether anyone already paid. A payment that arrives after the bill is closed is marked on its table here: if the table also paid at the till, it is owed back.',
-                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora, e quem está pagando agora perde a tela de confirmação. Pagamentos já iniciados com o código antigo ainda podem chegar — um Pix por até 15 minutos, um cartão ainda em confirmação talvez depois — e só aparecem aqui depois de confirmados. Antes de cobrar no caixa, espere esses 15 minutos ou pergunte na mesa se alguém já pagou. Pagamento que chegar depois de a conta fechar fica marcado na mesa, aqui: se a mesa também pagou no caixa, é valor a devolver.',
-                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante, y quien esté pagando ahora pierde la pantalla de confirmación. Los pagos ya iniciados con el código antiguo aún pueden llegar — un Pix durante hasta 15 minutos, una tarjeta aún en confirmación quizá después — y solo aparecen aquí una vez confirmados. Antes de cobrar en caja, espera esos 15 minutos o pregunta en la mesa si alguien ya pagó. Un pago que llegue después de cerrar la cuenta queda marcado en su mesa, aquí: si la mesa también pagó en caja, hay que devolverlo.' },
+  // E a versão seguinte dizia "aqui" — mas esta pergunta abre no `/admin`, e a
+  // marca só existe no `/painel`, sem link entre os dois (compliance HIGH-A de
+  // 497bf87). Agora ela NOMEIA a tela, e manda fechar a conta no Racha antes de
+  // cobrar no caixa: pagamento que cai entre o caixa e o fechamento só completa
+  // a conta, e fica invisível (MEDIUM-A).
+  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately, and anyone paying right now loses their confirmation screen. Payments already started with the old code can still arrive — a Pix for up to 15 minutes, a card still confirming possibly later — and they only show up once confirmed. Before charging at the till, wait those 15 minutes or ask the table whether anyone already paid, and close the bill in Racha first. A payment that arrives after the bill is closed is marked on its table in the payments panel (/painel): if the table also paid at the till, it is owed back.',
+                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora, e quem está pagando agora perde a tela de confirmação. Pagamentos já iniciados com o código antigo ainda podem chegar — um Pix por até 15 minutos, um cartão ainda em confirmação talvez depois — e só aparecem depois de confirmados. Antes de cobrar no caixa, espere esses 15 minutos ou pergunte na mesa se alguém já pagou, e feche a conta no Racha primeiro. Pagamento que chegar depois de a conta fechar fica marcado na mesa, no painel de pagamentos (/painel): se a mesa também pagou no caixa, é valor a devolver.',
+                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante, y quien esté pagando ahora pierde la pantalla de confirmación. Los pagos ya iniciados con el código antiguo aún pueden llegar — un Pix durante hasta 15 minutos, una tarjeta aún en confirmación quizá después — y solo aparecen una vez confirmados. Antes de cobrar en caja, espera esos 15 minutos o pregunta en la mesa si alguien ya pagó, y cierra la cuenta en Racha primero. Un pago que llegue después de cerrar la cuenta queda marcado en su mesa, en el panel de pagos (/painel): si la mesa también pagó en caja, hay que devolverlo.' },
   'admin.deactivateAsk': { en: 'Deactivate {table}? Its QR stops working.',
                         pt: 'Desativar a {table}? O QR dela para de funcionar.',
                         es: '¿Desactivar {table}? Su QR deja de funcionar.' },
@@ -999,8 +1013,12 @@ export const DICT = {
   'admin.openCheckPrompt': { en: 'Open a check on {table}\n\nCheck total ({symbol}):',
                         pt: 'Abrir conta na {table}\n\nTotal da conta ({symbol}):',
                         es: 'Abrir cuenta en {table}\n\nTotal de la cuenta ({symbol}):' },
-  'admin.closeCheckConfirm': { en: 'Close the check for {table}?',
-                        pt: 'Fechar a conta da {table}?', es: '¿Cerrar la cuenta de {table}?' },
+  // Fechar ANTES de cobrar no caixa: o Racha não registra o caixa, e um
+  // pagamento que cai entre a cobrança no caixa e o fechamento só completa a
+  // conta. Depois de fechar, ele fica marcado. (Compliance MEDIUM-A de 497bf87.)
+  'admin.closeCheckConfirm': { en: 'Close the check for {table}? Close it here BEFORE charging the rest at the till: a payment that arrives after closing is marked on the table in the payments panel (/painel), and if the table also paid at the till, it is owed back.',
+                        pt: 'Fechar a conta da {table}? Feche aqui ANTES de cobrar o resto no caixa: pagamento que chegar depois de fechar fica marcado na mesa, no painel de pagamentos (/painel), e se a mesa também pagou no caixa, é valor a devolver.',
+                        es: '¿Cerrar la cuenta de {table}? Ciérrala aquí ANTES de cobrar el resto en caja: un pago que llegue después de cerrar queda marcado en la mesa, en el panel de pagos (/painel), y si la mesa también pagó en caja, hay que devolverlo.' },
   'admin.totalInvalid': { en: 'Enter a valid total.',           pt: 'Informe um total válido.', es: 'Introduce un total válido.' },
   'admin.loading':    { en: 'loading…',                        pt: 'carregando…', es: 'cargando…' },
   'wallet.loading':   { en: 'loading your wallet…',           pt: 'carregando sua carteira…', es: 'cargando tu cartera…' },
@@ -1012,6 +1030,7 @@ export const DICT = {
                         es: 'El acceso no está configurado (define VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY).' },
   'admin.tablesN':    { en: 'Tables ({n})',                    pt: 'Mesas ({n})', es: 'Mesas ({n})' },
   'admin.printQrs':   { en: '🖨 Print QRs',                    pt: '🖨 Imprimir QRs', es: '🖨 Imprimir QR' },
+  'admin.openPanel':  { en: '💳 Payments panel',               pt: '💳 Painel de pagamentos', es: '💳 Panel de pagos' },
   'admin.tablesHelp': { en: 'Register each table under the name it has on the floor (“Table 12”, “Bar 3”). Then mark one as {training} so the staff can practise without dirtying the numbers.',
                         pt: 'Cadastre cada mesa com o nome que ela tem no salão (“Mesa 12”, “Balcão 3”). Depois marque uma como {training} pra equipe praticar sem sujar os números.',
                         es: 'Registra cada mesa con el nombre que tiene en la sala (“Mesa 12”, “Barra 3”). Luego marca una como {training} para que el equipo practique sin ensuciar los números.' },

@@ -376,4 +376,22 @@ describe('o aviso de teto disparado, pelo router', () => {
     expect((await pagar(t.qrToken, '10.88.0.9')).status).toBe(429);
     expect(linhas(SUSP) - s0).toBe(2);
   });
+
+  test('o orçamento de SUSPENSÕES esgotado: sai UM resumo, nomeando a casa de agora — e depois, só log', async () => {
+    // Por casa e tipo sem teto acima, vinte casas criadas por quem se cadastra
+    // davam 160 páginas por dia (segurança MEDIUM-1 e compliance MEDIUM-D de
+    // 497bf87). Depois do teste do orçamento global: ele já está esgotado.
+    while ((await lojaDoRouter.claimSlots({ keys: ['alerta-dia:suspensoes'], limits: [12], windowMs: DIA })).claimId) { /* esgota */ }
+    const RES = 'SUSPENSÕES EM MASSA';
+    const suspensoes = () => linhas('AVISOS DE TETO SUSPENSOS') + linhas('AVISOS DA CASA SUSPENSOS');
+    const r0 = linhas(RES); const s0 = suspensoes();
+    const casas = [casa('Massa Um'), casa('Massa Dois')];
+    for (const [i, venue] of casas.entries()) {
+      const t = await mesaCheia(venue, 'M1');
+      expect((await pagar(t.qrToken, `10.95.0.${i + 1}`)).status).toBe(429);
+    }
+    expect(linhas(RES) - r0).toBe(1);
+    expect(ultimas(RES, 1)[0]).toContain(`casa ${casas[0].id} · Massa Um`);
+    expect(suspensoes() - s0).toBe(0);
+  });
 });
