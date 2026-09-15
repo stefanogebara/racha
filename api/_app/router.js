@@ -57,7 +57,7 @@ const { montarRadar } = require('../_lib/activation/radar');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
-const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
+const { reconcileVenue, reconcileVenueHouse, desfechoDoLancamento } = require('../_lib/checks/reconcile');
 const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
   formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
 const { vigiarRetencao } = require('../_lib/checks/retention-watch');
@@ -1761,7 +1761,12 @@ async function route(req, res) {
       if (ref.length < 3) {
         return json(res, 400, { success: false, code: 'reference_required' });
       }
-      const estado = reduce(await store.loadEvents(b.checkId));
+      // O RAZÃO QUE VAI SER CONFERIDO, e o `seq` em que ele estava. É esta
+      // leitura — e não outra — que autoriza o lançamento lá embaixo: o
+      // `appendEventIfUnchanged` recusa se o razão tiver andado no meio.
+      const eventosAntes = await store.loadEvents(b.checkId);
+      const seqEsperado = eventosAntes.length ? eventosAntes[eventosAntes.length - 1].seq : 0;
+      const estado = reduce(eventosAntes);
       const pg = estado && estado.payments[String(b.txid)];
       if (!pg) return json(res, 404, { success: false, code: 'txid_unknown' });
       /**
@@ -1857,6 +1862,23 @@ async function route(req, res) {
        * é o dono durável que faltava.
        * Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
        */
+      /**
+       * E O LANÇAMENTO É CONDICIONAL (migração 0034).
+       *
+       * O teto era LIDO e depois GRAVADO, sem nada entre as duas coisas. A
+       * revisão de segurança de ec86b37 mediu contra o store: duas chamadas
+       * simultâneas, cada uma no teto de R$ 50, gravaram R$ 100 contra um
+       * direito de R$ 50 — `paidCents` abaixo do total, a conta PAGA voltando a
+       * 'parcial', o telefone de quem já pagou dizendo que a mesa deve, e uma
+       * cobrança nova podendo sair contra quem não deve nada (CDC art. 42).
+       * Idêntico com um `curl` repetido, porque a rota é operada à mão pelo
+       * runbook e não tinha chave de idempotência.
+       *
+       * Agora conferir e gravar são um passo só, e o erro é CHECADO
+       * (inegociável #7): `40001` = o razão mudou, refaça a conta; `23505` = esta
+       * mesma devolução (conta + cobrança + referência) já está registrada, e aí
+       * a resposta é a MESMA da primeira vez, que é o que um retry merece.
+       */
       let seq;
       try {
         const partes = alocarDevolucaoDoPagamento(estado, String(b.txid), pg, valor);
@@ -1873,9 +1895,24 @@ async function route(req, res) {
           railImpossible: limites.motivo,
           reference: ref,
           by: autorDoRegistro(user),
-        });
+        }, null, seqEsperado);
         var partesGravadas = partes;
       } catch (e) {
+        // QUEM CLASSIFICA SQLSTATE é o `desfechoDoLancamento`, junto da lista
+        // branca e do motivo dela — nunca esta rota (censo em `sql-contract`).
+        const desfecho = desfechoDoLancamento(e);
+        // O RAZÃO ANDOU entre a conta e o lançamento: nada foi gravado, e a
+        // conta que autorizou o valor não vale mais.
+        if (desfecho === 'conflito') {
+          process.stderr.write(`[restituicao] conflito: o razão de ${b.checkId} mudou\n`);
+          return json(res, 409, { success: false, code: 'restitution_conflict' });
+        }
+        // JÁ REGISTRADA: mesma conta, mesma cobrança, mesma referência. Um
+        // retry merece a resposta da primeira vez, não um segundo lançamento.
+        if (desfecho === 'duplicado') {
+          process.stderr.write(`[restituicao] reentrega da mesma referência em ${b.checkId}\n`);
+          return json(res, 200, { success: true, data: { duplicate: true } });
+        }
         // AQUI sim é falha: o razão não recebeu nada. E o MESMO ponto do
         // `resolve-issue` (compliance LOW-E de 57c0d2e, agora aqui): banco fora
         // do ar não é erro de quem chamou. Um 400 dizendo "confira o valor"

@@ -625,6 +625,11 @@ export const DICT = {
   'err.nothing_to_restitute': { en: 'This charge owes nothing back. Nothing was recorded.',
                         pt: 'Esta cobrança não deve nada de volta. Nada foi registrado.',
                         es: 'Este cobro no debe nada. No se registró nada.' },
+  // Duas mãos na mesma conta. Nada foi gravado — a conta que autorizou o valor
+  // não vale mais, e refazer é o certo (migração 0034).
+  'err.restitution_conflict': { en: 'This bill changed while you were recording. Nothing was saved — reload and check the amount again.',
+                        pt: 'Esta conta mudou enquanto você registrava. Nada foi salvo — recarregue e confira o valor de novo.',
+                        es: 'Esta cuenta cambió mientras registrabas. No se guardó nada — recarga y revisa el importe otra vez.' },
   // Não dá pra saber a IDADE do pagamento (a linha dele não veio), e a idade é
   // o que decide se o trilho do adquirente ainda está aberto. Não sabemos — e
   // dizer "use o adquirente" seria mandar a casa a um trilho que pode estar

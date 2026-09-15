@@ -37,6 +37,16 @@ const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
 const { isTerminalRecipientStatus } = require('../recipient-status');
 
+/**
+ * A CHAVE do índice único parcial da 0034 — a mesma normalização do SQL
+ * (`lower(btrim(...))`): "PIX E2E123" e "pix e2e123 " são o mesmo comprovante.
+ */
+function chaveDaDevolucaoForaDoTrilho(type, payload) {
+  if (type !== 'PAYMENT_REFUNDED' || !payload || payload.offRail !== true) return null;
+  const ref = String(payload.reference == null ? '' : payload.reference).trim().toLowerCase();
+  return `${payload.txid}\u0000${ref}`;
+}
+
 function createMemoryStore() {
   const venues = new Map();
   const tables = new Map();   // qrToken → { id, venueId, label, qrToken }
@@ -661,6 +671,37 @@ function createMemoryStore() {
      *   que três tipos de evento chegaram a produção recusados por um CHECK
      *   que nenhum teste lia.
      */
+    /**
+     * COMPARE-AND-APPEND (migração 0034): só grava se o razão daquela conta
+     * ainda estiver no `seq` que o chamador viu.
+     *
+     * O dublê precisa ser tão restritivo quanto o banco — inclusive o ÍNDICE
+     * ÚNICO parcial das devoluções fora do trilho, porque um dublê que aceita
+     * o que o Postgres recusa é armadilha, não dublê. Os erros saem com
+     * `pgCode`, na mesma forma que o `throwOn` do Supabase produz.
+     */
+    async appendEventIfUnchanged(checkId, type, payload, pspEventId = null, expectedSeq = null) {
+      if (!Number.isInteger(expectedSeq) || expectedSeq < 0) {
+        throw Object.assign(new Error('memory store appendEventIfUnchanged: expected_seq obrigatório'), { pgCode: '22023' });
+      }
+      if (!events.has(checkId)) throw new Error('unknown check');
+      const log = events.get(checkId);
+      const atual = log.length ? log[log.length - 1].seq : 0;
+      if (atual !== expectedSeq) {
+        throw Object.assign(
+          new Error(`memory store appendEventIfUnchanged: o razão mudou (esperado ${expectedSeq}, atual ${atual})`),
+          { pgCode: '40001' },
+        );
+      }
+      const chave = chaveDaDevolucaoForaDoTrilho(type, payload);
+      if (chave && log.some((e) => chaveDaDevolucaoForaDoTrilho(e.type, e.payload) === chave)) {
+        throw Object.assign(
+          new Error('memory store appendEventIfUnchanged: devolução fora do trilho já registrada'),
+          { pgCode: '23505' },
+        );
+      }
+      return this.appendEvent(checkId, type, payload, pspEventId);
+    },
     async appendEvent(checkId, type, payload, pspEventId = null) {
       if (!events.has(checkId)) throw new Error('unknown check');
       if (pspEventId != null) {

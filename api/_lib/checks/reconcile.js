@@ -554,6 +554,30 @@ function recusaProvada(codigo) {
   return RECUSA_DETERMINISTICA.some((re) => re.test(codigo));
 }
 
+/**
+ * O DESFECHO de um lançamento CONDICIONAL (migração 0034), classificado AQUI.
+ *
+ * A rota da devolução por fora precisa distinguir três coisas: "o razão andou"
+ * (40001), "esta devolução já estava registrada" (23505 do índice único
+ * parcial) e "não sei". Ela poderia olhar o `pgCode` sozinha — e era assim que
+ * estava — mas então passariam a existir DOIS lugares decidindo por SQLSTATE, e
+ * o segundo não teria a lista branca nem o motivo dela escritos ao lado. O
+ * `PGRST116` viaja num 2xx DEPOIS de um commit; quem decide por código sem esse
+ * contexto acaba dizendo "o banco recusou" sobre uma escrita que aconteceu.
+ *
+ * Então a decisão mora junto da `recusaProvada`, que é a dona do assunto: o que
+ * ela não prova como recusa determinística volta como `indefinido`, e quem
+ * chama trata como "pode ter escrito" — a direção conservadora, que no caminho
+ * da devolução significa mandar CONFERIR antes de repetir.
+ */
+function desfechoDoLancamento(err) {
+  const codigo = err && err.pgCode;
+  if (!recusaProvada(codigo)) return 'indefinido';
+  if (codigo === '40001') return 'conflito';
+  if (codigo === '23505') return 'duplicado';
+  return 'recusado';
+}
+
 function resumoDoReparo(pia = {}) {
   const reparados = pia.repaired || [];
   const corridas = pia.raced || [];
@@ -1229,4 +1253,5 @@ async function reconcileVenueHouse(store, venueId) {
 }
 
 module.exports = {
-  acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, recusaProvada, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+  acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, recusaProvada,
+  desfechoDoLancamento, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };

@@ -109,6 +109,17 @@ conciliação levanta `paid_after_close`.
    E2E do Pix, ou "dinheiro no caixa às 21h40". Ela fica num razão que não se
    apaga.
 
+   **A referência também é a chave contra a repetição.** Registrar o MESMO
+   comprovante duas vezes na mesma cobrança não cria um segundo lançamento: a
+   segunda chamada responde a mesma coisa que a primeira. Então, se a chamada
+   der timeout, REPITA com a mesma referência — é seguro. O que não se pode é
+   repetir com uma referência nova pra "garantir": aí são duas devoluções.
+
+   E se a conta tiver mudado enquanto você registrava (outro estorno caiu, um
+   pagamento atrasado chegou), a resposta é `restitution_conflict` e **nada foi
+   gravado** — recarregue a conta e confira o valor de novo, porque o teto pode
+   ter mudado junto.
+
 **No primeiro deploy com isto**: todo pagamento atrasado ANTIGO, sem resposta,
 aparece como `critical` na primeira conciliação da noite. Avise as casas do
 piloto antes, e responda os antigos pelo painel.

@@ -301,8 +301,19 @@ describe('redefinir uma função não pode APAGAR o que outra migração acresce
     const sql = sqlNaOrdem();
     const faltando = [];
     for (const { funcao, precisa } of INVARIANTES) {
+      /**
+       * POR FRONTEIRA DE IDENTIFICADOR, não por prefixo.
+       *
+       * `append_check_event_if_unchanged` (migração 0034) COMEÇA com
+       * `append_check_event`, então a busca por prefixo passou a achá-la como se
+       * fosse a última redefinição da outra — e acusou que a definição tinha
+       * "perdido" o bloco de cache do status, que nunca esteve lá porque é outra
+       * função. Um guarda que acusa o inocente é tão ruim quanto um que absolve
+       * o culpado: da segunda vez ninguém lê. É o MESMO erro de prefixo que o
+       * censo de crons já tinha cometido (ver `cron-fail-closed`).
+       */
       const defs = [...sql.matchAll(
-        new RegExp(`create or replace function public\\.${funcao}[\\s\\S]*?\\$\\$;`, 'g'),
+        new RegExp(`create or replace function public\\.${funcao}(?![a-z0-9_])[\\s\\S]*?\\$\\$;`, 'g'),
       )];
       if (!defs.length) { faltando.push(`${funcao}: nenhuma definição`); continue; }
       const ultima = defs[defs.length - 1][0];
@@ -842,14 +853,32 @@ test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
       // ESCRITA (`e.pgCode = ...`) não é leitura. Casa a partir do nome, porque
       // o match agora é a palavra e não o acesso pontuado.
       if (/^pgCode\s*=[^=]/.test(fonte.slice(m.index, m.index + 14))) continue;
+      // E a forma de LITERAL (`{ pgCode: '40001' }`), que o dublê do store usa
+      // pra produzir o erro na mesma forma que o `throwOn` do Supabase produz.
+      // Também é escrita. Uma DECISÃO escrita dentro de um literal
+      // (`{ conflito: pgCode === '40001' }`) não tem os dois-pontos logo depois
+      // do nome, então continua sendo pega.
+      if (/^pgCode\s*:/.test(fonte.slice(m.index, m.index + 14))) continue;
       // Dentro de uma interpolação (`${e.pgCode}`) é texto, não decisão.
       if (/\$\{[^}]*$/.test(antes)) continue;
       decisoes.push({ arquivo: path.relative(raiz, p), linha });
     }
   }
 
-  // Toda DECISÃO passa pelo classificador, e só há uma.
-  expect(decisoes.length).toBe(1);
-  expect(decisoes[0].arquivo).toBe('_lib/checks/reconcile.js');
-  expect(decisoes[0].linha).toMatch(/recusaProvada\(/);
+  /**
+   * TODA decisão passa pelo classificador — e o classificador pode crescer.
+   *
+   * A versão anterior exigia EXATAMENTE uma leitura, o que era um atalho pra
+   * dizer a coisa certa: ninguém decide por SQLSTATE fora do lugar onde a lista
+   * branca e o porquê dela estão escritos. Quando a devolução condicional da
+   * 0034 precisou distinguir "o razão andou" de "já registrada", a resposta
+   * certa foi acrescentar `desfechoDoLancamento` AO LADO da `recusaProvada` —
+   * e o contador teria empurrado esse código pra dentro da rota, que é
+   * exatamente o que este teste existe pra impedir.
+   */
+  expect(decisoes.length).toBeGreaterThan(0);
+  for (const d of decisoes) {
+    expect({ arquivo: d.arquivo, passaPeloClassificador: /recusaProvada\(/.test(d.linha) })
+      .toEqual({ arquivo: '_lib/checks/reconcile.js', passaPeloClassificador: true });
+  }
 });

@@ -571,6 +571,21 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      *   lock e devolve `seq` negativo quando já aplicou (migração 0018) — é o
      *   que fecha a corrida entre duas entregas simultâneas do mesmo evento.
      */
+    /**
+     * COMPARE-AND-APPEND (migração 0034). O RPC confere o último `seq` DENTRO
+     * da trava e recusa com 40001 quando o razão mudou; o índice único parcial
+     * recusa com 23505 a mesma devolução fora do trilho registrada duas vezes.
+     * Os dois códigos chegam no `pgCode` pelo `throwOn` — e são CHECADOS pela
+     * rota (inegociável #7).
+     */
+    async appendEventIfUnchanged(checkId, type, payload, pspEventId = null, expectedSeq = null) {
+      const { data, error } = await client.rpc('append_check_event_if_unchanged', {
+        p_check_id: checkId, p_type: type, p_payload: payload,
+        p_psp_event_id: pspEventId, p_expected_seq: expectedSeq,
+      });
+      throwOn(error, 'appendEventIfUnchanged');
+      return data;
+    },
     async appendEvent(checkId, type, payload, pspEventId = null) {
       const { data, error } = await client.rpc('append_check_event', {
         p_check_id: checkId, p_type: type, p_payload: payload, p_psp_event_id: pspEventId,
