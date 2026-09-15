@@ -1690,6 +1690,21 @@
       "texto": "100% pro garçom — o restaurante distribui pela folha de pagamento.",
       "recusa": true,
       "porque": "A mesma decisão com travessão no lugar da vírgula: a cláusula do distribuidor vira ORAÇÃO separada e continua sem resgatar a promessa da anterior."
+    },
+    {
+      "texto": "El servicio no se queda con la casa, sino que va 100% al personal.",
+      "recusa": true,
+      "porque": "`sino` É O ADVERSATIVO ESPANHOL, e é a única razão de ele estar nas duas listas de separador. Sem caso nenhum no corpo, ele não tinha peso medido em direção nenhuma: nem provava que serve, nem que custa. Aqui a oração anterior é negada (`no se queda con la casa`) e a promessa proibida vem DEPOIS do `sino` — se ele deixar de separar, a negação da primeira oração dispensa a segunda e a afirmação escapa."
+    },
+    {
+      "texto": "O sino da cozinha toca quando o prato sai, e a gorjeta de 10% vai 100% pro garçom.",
+      "recusa": true,
+      "porque": "E `sino` É TAMBÉM UM SUBSTANTIVO PORTUGUÊS — o sino da cozinha, que toca quando o prato fica pronto. Apontado pela revisão de segurança de 2026-09-15 (LOW-3). Aqui ele parte a frase num ponto onde não há separação de oração nenhuma, antes da promessa; o caso prende a direção que dói, que é a de ESCAPE por janela cortada cedo demais. Medido antes de mexer no padrão: com `sino` solto nas duas listas, este caso RECUSA — a ambiguidade existe e hoje não custa nada, e o par de casos é o que faz um conserto futuro ser medido nas duas línguas em vez de numa só."
+    },
+    {
+      "texto": "The service charge does not stay with the house, but goes 100% to the staff.",
+      "recusa": true,
+      "porque": "O gêmeo INGLÊS do escape do `va 100% al personal`: a classe de preenchimento do ramo `goes … to` não tinha `%` dentro e não tinha fatia de quantidade, então a forma direcional não casava e a promessa só era pega com o substantivo da gorjeta na mesma oração. Ver o trio `gatilho_forma_direcional (quantidade)` no eixo trilíngue."
     }
   ]
 }

@@ -661,3 +661,161 @@ describe('as formas DERIVADAS pelo gerador também são medidas', () => {
     expect(mudas).toEqual([]);
   });
 });
+
+/**
+ * AS DUAS PONTAS DA MESMA LISTA — a relação que o `_porque_lista_runtime`
+ * descreve em prosa desde que as listas se separaram, e que prometia, por
+ * escrito, "ver o novo teste `toda palavra do censo existe no runtime ou está
+ * declarada"'. Esse teste não existia. Achado pela revisão de compliance de
+ * 2026-09-15 (MEDIUM-2).
+ *
+ * A prosa não é decoração aqui: a lista do CENSO é mais longa de propósito
+ * (`pra gente` na boca de um garçom é a equipe; na conversa do assistente com
+ * quem janta é a MESA), e foi divergindo num commit — quinze tokens de um lado,
+ * zero do outro. O que faltava era a igualdade escrita como conta:
+ *
+ *     censo == runtime ∪ destinatarios_so_deteccao
+ *
+ * NAS DUAS DIREÇÕES, que é o ponto: a direção de volta é a que ninguém olha, e
+ * é onde morava o `\btime\b` — o runtime reconhecia `os times` e o censo de
+ * build não, então cópia NOSSA podia dizer "100% pros times" e passar pelo
+ * portão que existe justamente pra impedir que ela seja escrita. Fechado
+ * levando o censo a `\btimes?\b` em vez de abrir uma gaveta pro desvio: gaveta
+ * aqui seria declarar um buraco, não explicá-lo.
+ */
+describe('as duas listas de destinatário são a MESMA lista, mais o que está declarado', () => {
+  // Só o nível de topo: as duas listas são alternâncias planas, e o único
+  // grupo (`quem … serve`) é uma alternativa só, inteira.
+  const topo = (re) => {
+    const out = []; let nivel = 0; let classe = false; let ini = 0;
+    for (let i = 0; i < re.length; i += 1) {
+      const c = re[i];
+      if (c === '\\') { i += 1; continue; }
+      if (classe) { if (c === ']') classe = false; continue; }
+      if (c === '[') { classe = true; continue; }
+      if (c === '(') { nivel += 1; continue; }
+      if (c === ')') { nivel -= 1; continue; }
+      if (c === '|' && nivel === 0) { out.push(re.slice(ini, i)); ini = i + 1; }
+    }
+    out.push(re.slice(ini));
+    return out;
+  };
+  // Fronteira e lookahead são ORTOGRAFIA da alternativa, não identidade dela:
+  // `\bmo[çc]o(?![0-9A-Za-zÀ-ÿ])` e `\bmo[çc]o` são a mesma palavra com
+  // cuidados diferentes, e comparar sem normalizar mediria o cuidado.
+  const nu = (a) => a
+    .replace(/\(\?![^)]*\)$/, '')
+    .replace(/^\\b/, '')
+    .replace(/\\b$/, '');
+  const CENSO = topo(G.substantivo_destinatario).map(nu);
+  const RUNTIME = topo(G.substantivo_destinatario_runtime).map(nu);
+  const SO_DETECCAO = G.destinatarios_so_deteccao || [];
+
+  test('as duas listas têm conteúdo pra comparar', () => {
+    expect(CENSO.length).toBeGreaterThanOrEqual(25);
+    expect(RUNTIME.length).toBeGreaterThanOrEqual(20);
+    expect(SO_DETECCAO.length).toBeGreaterThanOrEqual(5);
+  });
+
+  test('IDA: toda palavra do censo está no runtime, ou está declarada só-detecção', () => {
+    // `destinatarios_so_deteccao` guarda pedaços (`para n` cobre `para nós` e
+    // `para n[óo]s`), então a relação é de conteúdo, não de igualdade.
+    const orfas = CENSO.filter((a) => !RUNTIME.includes(a))
+      .filter((a) => !SO_DETECCAO.some((d) => a.includes(d)));
+    expect(orfas).toEqual([]);
+  });
+
+  test('VOLTA: toda palavra do runtime está no censo', () => {
+    // A direção que não tem gaveta, de propósito. Runtime que reconhece o que
+    // o censo não reconhece é um buraco no portão de escrita: a frase proibida
+    // pode ser ESCRITA por nós, passar pelo build, e só ser barrada no cliente
+    // — tarde demais, e só na volta do assistente, nunca na cópia estática.
+    const orfas = RUNTIME.filter((a) => !CENSO.includes(a));
+    expect(orfas).toEqual([]);
+  });
+
+  test('toda declaração de só-detecção é USADA por alguma palavra do censo', () => {
+    // Gaveta com entrada morta vira gaveta que aceita qualquer coisa.
+    const mortas = SO_DETECCAO.filter((d) => !CENSO.some((a) => a.includes(d)));
+    expect(mortas).toEqual([]);
+    expect(G._porque_so_deteccao || '').toMatch(/.{200,}/);
+  });
+});
+
+/**
+ * A ALTERNATIVA REPETIDA — o que nenhum dos nove instrumentos podia ver.
+ *
+ * O censo de peso apaga cada alternativa e mede o corpo. Uma alternativa
+ * DUPLICADA nunca muda veredito nenhum quando apagada, porque a gêmea continua
+ * lá — então o instrumento que existe pra achar peça morta classifica as duas
+ * como... mortas, e a gaveta `_alternativas_mortas` as absolve. O teste de
+ * sombra tem o mesmo cego: uma alternativa é a sombra perfeita da outra. Nove
+ * instrumentos, e nenhum deles podia dizer "isto está escrito duas vezes".
+ *
+ * Medido: `troquinho` duas vezes no `substantivo_gorjeta`, `este|esta` duas no
+ * `determinante`, `entre` duas na regência, `pedido`/`bandeja` duas no
+ * `substantivo_nao_dinheiro`, e DOZE repetições no `verbo_finito` — as
+ * sublistas pt/es/en foram concatenadas e os verbos que existem em mais de uma
+ * língua entraram uma vez por língua. Nenhuma delas muda comportamento; todas
+ * envenenam a medição, porque a segunda cópia é eternamente inalcançável e
+ * qualquer instrumento que a examine vai concluir que ela não serve pra nada.
+ *
+ * Achado pela revisão de segurança de 2026-09-15 (LOW-2).
+ */
+describe('nenhuma alternância repete uma alternativa', () => {
+  const spans = (re) => {
+    const pilha = []; const g = []; let classe = false;
+    for (let i = 0; i < re.length; i += 1) {
+      const c = re[i];
+      if (c === '\\') { i += 1; continue; }
+      if (classe) { if (c === ']') classe = false; continue; }
+      if (c === '[') { classe = true; continue; }
+      if (c === '(') { pilha.push(i); continue; }
+      if (c === ')' && pilha.length) g.push([pilha.pop() + 1, i]);
+    }
+    g.push([0, re.length]);
+    // O `?:` do grupo não-capturante (e o `?!`/`?<=` de um lookaround) ficam
+    // DENTRO do vão e grudam na primeira alternativa: `?:comanda` deixava de
+    // ser igual a `comanda` e a duplicata sobrevivia ao teste escrito pra
+    // achá-la. Foi assim que `comanda` continuou duas vezes no
+    // `substantivo_nao_dinheiro` depois da primeira varredura.
+    return g.map(([de, ate]) => {
+      const m = /^\?(?::|=|!|<=|<!|<[A-Za-z][0-9A-Za-z]*>)/.exec(re.slice(de, ate));
+      return [de + (m ? m[0].length : 0), ate];
+    });
+  };
+  const alts = (re, de, ate) => {
+    const out = []; let nivel = 0; let classe = false; let ini = de;
+    for (let i = de; i < ate; i += 1) {
+      const c = re[i];
+      if (c === '\\') { i += 1; continue; }
+      if (classe) { if (c === ']') classe = false; continue; }
+      if (c === '[') { classe = true; continue; }
+      if (c === '(') { nivel += 1; continue; }
+      if (c === ')') { nivel -= 1; continue; }
+      if (c === '|' && nivel === 0) { out.push(re.slice(ini, i)); ini = i + 1; }
+    }
+    out.push(re.slice(ini, ate));
+    return out;
+  };
+  const campos = Object.keys(G)
+    .filter((k) => !k.startsWith('_') && typeof G[k] === 'string')
+    .filter((k) => !['guarda', 'porque', 'frase_sancionada'].includes(k));
+
+  test('há campos pra varrer', () => {
+    expect(campos.length).toBeGreaterThanOrEqual(30);
+  });
+
+  test.each(campos)('%s', (campo) => {
+    const re = G[campo];
+    const repetidas = [];
+    for (const [de, ate] of spans(re)) {
+      const lista = alts(re, de, ate);
+      if (lista.length < 2) continue;
+      const contagem = new Map();
+      for (const a of lista) contagem.set(a, (contagem.get(a) || 0) + 1);
+      for (const [a, n] of contagem) if (n > 1) repetidas.push(`${a} ×${n}`);
+    }
+    expect({ campo, repetidas: [...new Set(repetidas)] }).toEqual({ campo, repetidas: [] });
+  });
+});

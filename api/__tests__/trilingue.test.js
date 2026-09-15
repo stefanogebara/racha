@@ -49,8 +49,48 @@ describe('a mesma frase nas três línguas dá o mesmo veredito', () => {
       expect(`${t.peca}: ${t.porque}`).toMatch(/.{120,}/);
       for (const l of ['pt', 'en', 'es']) expect(typeof t[l]).toBe('string');
     }
-    // As três línguas do produto, e o `es` está construído e desligado — o que
-    // não o dispensa do guarda: o censo governa o texto dele hoje.
-    expect(T.trios.length).toBeGreaterThanOrEqual(8);
+  });
+
+  /**
+   * O PISO ERA `>= 8`, E PISO NÃO É COBERTURA.
+   *
+   * Um piso diz que existem oito trios; não diz QUAIS. Com ele, apagar o trio
+   * do `evasao_de_folha` e duplicar o do `adverbio` passava verde: a contagem
+   * não muda, e a peça que só esse trio prende fica sem eixo trilíngue nenhum.
+   * É a mesma forma do piso `>= 18` da forma direcional — medir quantidade
+   * quando o que importa é identidade.
+   *
+   * Então a asserção é sobre o CONJUNTO. Trio novo obriga a escrever o nome
+   * dele aqui, que é o momento em que alguém pergunta "essa peça já não estava
+   * coberta?"; trio removido falha alto. Achado pela revisão de compliance de
+   * 2026-09-15 (MEDIUM-3).
+   */
+  test('o conjunto de peças com eixo trilíngue é exatamente este', () => {
+    const PECAS_COM_EIXO = [
+      'adversativa_inicial (travessão)',
+      'adversativa_inicial / revoga_dispensa',
+      'adverbio',
+      'cabeca_forte',
+      'destino_em_qualquer_lugar + cabeca_genitiva',
+      'determinante / sujeito_nominal',
+      'evasao_de_folha',
+      'gatilho_forma_direcional (quantidade)',
+      'negadores',
+      'separador_de_clausula',
+      'separador_de_clausula (prefixo por segmento)',
+      'substantivo_gorjeta',
+    ];
+    expect([...new Set(T.trios.map((t) => t.peca))].sort()).toEqual(PECAS_COM_EIXO.sort());
+    // Dois trios com o MESMO nome de peça seriam dois eixos para uma peça e
+    // zero para outra, sem que o conjunto acima percebesse.
+    expect(T.trios.map((t) => t.peca).sort()).toEqual(PECAS_COM_EIXO.sort());
+    // Toda peça nomeada existe de verdade no desenho: nome que não casa campo
+    // nenhum do `claims.json` é eixo que mede uma peça imaginária.
+    const G = JSON.parse(fs.readFileSync(
+      path.join(RAIZ, 'docs', 'compliance', 'claims.json'), 'utf8')).gorjeta_destino;
+    const inexistentes = PECAS_COM_EIXO
+      .flatMap((n) => n.split(/[/+]/).map((x) => x.trim().replace(/\s*\(.*\)$/, '')))
+      .filter((n) => !(n in G));
+    expect(inexistentes).toEqual([]);
   });
 });

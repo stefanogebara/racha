@@ -888,6 +888,91 @@ describe('o guarda de runtime usa os MESMOS padrões do censo', () => {
     const orfaos = emitidos.filter((n) => !guarda.includes('ClaimPatterns.' + n));
     expect(orfaos).toEqual([]);
   });
+
+  /**
+   * E A TERCEIRA VOLTA: uma PEÇA definida e nunca USADA.
+   *
+   * O `PECAS` é o alfabeto da composição, e os dois testes acima o usam como
+   * ORÁCULO — o `RESIDUO` é construído a partir das chaves dele. Oráculo não é
+   * medido por ninguém: uma chave que nenhum campo cita fica ali, engorda a
+   * alternância do `RESIDUO`, e o dia em que o nome dela aparecer como palavra
+   * dentro de um padrão qualquer ela passa a exigir composição de um campo que
+   * não compõe nada. Medido na primeira execução: `GORJETANOME`, `MODLONGO` e
+   * `NEGCOLADO` estavam no alfabeto sem UM consumidor — sobras de padrões
+   * reescritos, três nomes a mais no oráculo que governa os outros dois testes.
+   *
+   * Achado pela revisão de compliance de 2026-09-15 (MEDIUM-4).
+   */
+  test('toda PEÇA do alfabeto de composição é consumida por algum padrão', () => {
+    const pecas = PECAS(G);
+    const crus = Object.keys(G)
+      .filter((k) => !k.startsWith('_') && typeof G[k] === 'string')
+      .map((k) => G[k]).join('\n');
+    // Do nome mais longo pro mais curto, retirando cada ocorrência: senão
+    // `PREPDEST` no texto contaria como uso de `PREP`, que é a mesma
+    // substituição parcial que o `compor` ordena pra evitar.
+    let resto = crus;
+    const usadas = new Set();
+    for (const nome of Object.keys(pecas).sort((a, b) => b.length - a.length)) {
+      if (resto.includes(nome)) { usadas.add(nome); resto = resto.split(nome).join(''); }
+    }
+    const mortas = Object.keys(pecas).filter((n) => !usadas.has(n));
+    expect(mortas).toEqual([]);
+  });
+
+  test('nenhuma PEÇA é sinônimo exato de outra', () => {
+    // `DEST` e `DESTRUNTIME` são a MESMA lista sob dois nomes, e isso é
+    // deliberado: os padrões antigos dizem `DEST` e os novos dizem qual das
+    // duas listas querem. Declarado aqui porque um par novo não é.
+    const IGUAIS_DE_PROPOSITO = [['DEST', 'DESTRUNTIME']];
+    const pecas = PECAS(G);
+    const nomes = Object.keys(pecas);
+    const pares = [];
+    for (let i = 0; i < nomes.length; i += 1) {
+      for (let j = i + 1; j < nomes.length; j += 1) {
+        if (pecas[nomes[i]] === pecas[nomes[j]]) pares.push([nomes[i], nomes[j]].sort());
+      }
+    }
+    const declarados = IGUAIS_DE_PROPOSITO.map((p) => [...p].sort().join('+'));
+    expect(pares.map((p) => p.join('+')).filter((p) => !declarados.includes(p))).toEqual([]);
+    // Declaração morta é declaração que passa a isentar o próximo par.
+    expect(declarados.filter((d) => !pares.some((p) => p.join('+') === d))).toEqual([]);
+  });
+});
+
+/**
+ * OS FALSOS POSITIVOS QUE A GENTE CONHECE E ESCOLHEU PAGAR.
+ *
+ * A lista de destinatário falha FECHADO por desenho: token a mais custa falso
+ * positivo, nunca escape. Isso é a decisão certa e não é de graça, e o preço
+ * vinha sendo pago em prosa — um parágrafo de `_porque` dizendo "esta frase
+ * vira recusa", sem nada que o verificasse. Prosa não mede: a frase muda, o
+ * parágrafo fica, e a declaração passa a descrever um preço que já não existe
+ * (ou a esconder um que cresceu).
+ *
+ * Aqui cada frase é EXECUTADA. Ela tem que estar recusada HOJE — do contrário a
+ * entrada é ficção, e uma gaveta com entrada morta vira perdão permanente. E
+ * quando alguém consertar uma delas, este teste falha alto e a entrada sai da
+ * gaveta pela porta da frente, em vez de apodrecer nela.
+ *
+ * Escrito junto com o `_porque_personal`, na revisão de segurança de
+ * 2026-09-15 (LOW-1).
+ */
+describe('os falsos positivos declarados ainda são falsos positivos', () => {
+  const FP = G._falsos_positivos_conhecidos || {};
+
+  test('a gaveta não está vazia nem é prosa curta', () => {
+    expect(Object.keys(FP).length).toBeGreaterThanOrEqual(2);
+    for (const [frase, porque] of Object.entries(FP)) {
+      expect(`${frase}: ${porque}`).toMatch(/.{200,}/);
+    }
+  });
+
+  test.each(Object.keys(FP))('ainda recusa: %s', (frase) => {
+    // Recusada AINDA — se passou a passar, o preço deixou de existir e a
+    // declaração tem que ser removida, não mantida por inércia.
+    expect(acusa(frase)).toBe(true);
+  });
 });
 
 describe('as duas listas de destinatário não podem crescer em separado', () => {

@@ -88,6 +88,14 @@
       "pt": "Serviço: 10%\n- o restaurante distribui à equipe sem passar pela folha",
       "en": "Service charge: 10%\n- the restaurant distributes to the staff not through payroll",
       "es": "Servicio: 10%\n- el restaurante distribuye al personal no por nómina"
+    },
+    {
+      "peca": "gatilho_forma_direcional (quantidade)",
+      "recusa": true,
+      "porque": "A FORMA DIRECIONAL TINHA TRÊS RAMOS E UM SÓ ENDURECIDO. O ramo português passou rodadas ganhando tolerância a quantidade — casa de preenchimento com `%` dentro (`[0-9A-Za-zÀ-ÿ_%-]`) e fatias de `quantidade_consumida` entre o verbo e a preposição. Os ramos `goes … to` e `va … al` nasceram sem nenhuma das duas: `%` não estava na classe de preenchimento deles, então `goes 100% to the staff` e `va 100% al personal` NÃO casavam a forma, e a promessa só era pega quando o substantivo da gorjeta estava na MESMA oração. Numa segunda oração — que é o que uma adversativa faz — as duas línguas escapavam. Medido: `The tip, but goes 100% to the staff.` e `El servicio no se queda con la casa, sino que va 100% al personal.` passavam vivas, e o equivalente português recusava. O mais perverso é a direção: ACRESCENTAR o `100%` fazia a frase escapar, porque sem ele a oração caía noutra regra. Achado ao escrever os casos de corpo do `sino` (LOW-3 da revisão de segurança de 2026-09-15) — a ambiguidade apontada não custava nada, e o caso escrito pra medi-la abriu isto.",
+      "pt": "A gorjeta não fica com a casa, mas vai 100% pro garçom.",
+      "en": "The service charge does not stay with the house, but goes 100% to the staff.",
+      "es": "El servicio no se queda con la casa, sino que va 100% al personal."
     }
   ]
 }

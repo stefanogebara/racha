@@ -134,6 +134,14 @@ const comDiminutivo = (lista) => {
  * escrito duas vezes, porque o censo de build importa daqui: escrita à mão nos
  * dois lados, esta é exatamente a peça que já divergiu três vezes.
  */
+/**
+ * O ALFABETO DA COMPOSIÇÃO. Toda chave aqui é MEDIDA: `claims.test.js` exige
+ * que cada uma seja citada por algum padrão do `claims.json` e que nenhuma
+ * seja sinônimo exata de outra sem declaração. `GORJETANOME`, `MODLONGO` e
+ * `NEGCOLADO` estavam aqui sem nenhum consumidor — sobraram de padrões
+ * reescritos, e engordavam a alternância do `RESIDUO`, que é o oráculo de
+ * "campo composto sem composição declarada". Removidas em 2026-09-15.
+ */
 const PECAS = (G) => ({
   MARCADOR: G.marcador_de_lista.replace(/^\^/, '').replace(/\$$/, ''),
   QUANT_C: G.quantidade_consumida,
@@ -142,7 +150,6 @@ const PECAS = (G) => ({
   EVASAOCAMINHO: G.evasao_de_caminho.replace('DEST', G.substantivo_destinatario_runtime),
   PREP: G.preposicao_de_destino,
   ART: G.artigo_de_destino,
-  GORJETANOME: G.substantivo_gorjeta,
   QUANTIANOME: comDiminutivo(G.nome_de_quantia),
   NEGAVEL: G.nucleo_negavel,
   SEPCLAUSULA: G.separador_de_clausula,
@@ -150,10 +157,8 @@ const PECAS = (G) => ({
   DESTCENSO: G.substantivo_destinatario,
   PRONOME: G.pronome_sujeito.replace(/^\(\?:\^\|\[\^0-9A-Za-zÀ-ÿ\]\)\(/, '').replace(/\)\(\?=\[\^0-9A-Za-zÀ-ÿ\]\|\$\)$/, ''),
   MODSEMART: G.modificador_sem_artigo,
-  MODLONGO: G.modificador_longo,
   MOD: G.modificador_de_destino,
   DEST: G.substantivo_destinatario_runtime,
-  NEGCOLADO: G.negador_colado,
   VERBOESP: G.verbo_espanhol,
   VERBOS: G.verbo_finito.replace(/^\(\?:\^\|\[\^0-9A-Za-zÀ-ÿ\]\)\(/, '').replace(/\)\(\?=\[\^0-9A-Za-zÀ-ÿ\]\|\$\)$/, ''),
   ENFASE: G.enfase_markdown,

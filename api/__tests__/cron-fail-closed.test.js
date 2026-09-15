@@ -68,15 +68,52 @@ const SAIDA_SEM_PORTAO = {
     'TELEMETRIA DE PROSPECÇÃO, e ela TEM que ser pública: quem a dispara é o '
     + '`sendBeacon` do navegador de um prospecto abrindo o link da Olímpia, que por '
     + 'definição não tem sessão. O que está bounded e escrito: (a) limite de taxa da '
-    + 'demo, 30 por janela por IP; (b) o corpo aceito é DOIS campos — um `event` de '
-    + 'lista fechada (`opened`/`paid`) e um `pl` de 40 a 400 caracteres —, e nada '
-    + 'disso é lido como instrução nem escrito no nosso banco; (c) a rota NÃO devolve '
-    + 'nada do outro lado, então não vira oráculo de token válido. O que ela não '
-    + 'impede, e está dito: quem já tem um link de prospecção válido pode forjar '
-    + 'evento PARA AQUELE LINK, e isso suja o radar de vendas — não o dinheiro, não '
-    + 'o cliente na mesa, não dado pessoal. A validação do `pl` é da ponte, que é '
-    + 'quem o emitiu; aqui ele é repassado, nunca confiado. Achado pelo censo de '
-    + 'saída ao varrer o router inteiro, 2026-09-14.'
+    + 'demo, 30 por janela de 10 min por IP; (b) o corpo aceito é DOIS campos — um '
+    + '`event` de lista FECHADA (`opened`/`paid`) e um `pl` que é só CONFERIDO NO '
+    + 'TAMANHO (40 a 400 caracteres, conteúdo livre) —, e nada disso é lido como '
+    + 'instrução; (c) a rota devolve 200 fixo, sem repassar nada do outro lado, '
+    + 'então não vira oráculo de token válido PELO CORPO. O que ela não impede, e '
+    + 'está dito por inteiro: (1) o `pl` segue server-side pro `/api/previa-event` '
+    + 'da Olímpia e É ESCRITO na linha do tempo de prospecção de lá — não é um '
+    + 'no-op, é gravação num sistema nosso, e quem já tem um link de prospecção '
+    + 'válido pode forjar evento PARA AQUELE LINK e sujar o radar de vendas; (2) o '
+    + '`fetch` é AGUARDADO com prazo de 4s, então o tempo de resposta desta rota '
+    + 'mede a ponte — é um oráculo de LATÊNCIA, mesmo com o corpo mudo, e também '
+    + 'uma amplificação: 30 requisições por IP por janela viram 30 chamadas '
+    + 'server-side e até 120 segundos-função por IP; (3) o próprio limite é fraco '
+    + 'por construção — `openBuckets` é estado de MÓDULO numa função serverless '
+    + '(cada instância fria tem o seu), `clientIp` confia no `x-real-ip` quando '
+    + 'presente, e o `clear()` de contenção de memória zera os baldes de TODO '
+    + 'mundo aos 10 mil. O que NÃO está exposto em nenhum desses caminhos: '
+    + 'dinheiro, o cliente na mesa, dado pessoal do diner. A validação do `pl` é '
+    + 'da ponte, que é quem o emitiu; aqui ele é repassado, nunca confiado. '
+    + 'Achado pelo censo de saída ao varrer o router inteiro (2026-09-14) e '
+    + 'corrigido nos três pontos acima pela revisão de segurança de 2026-09-15.'
+  ),
+  '/api/check': (
+    'A LEITURA PÚBLICA DA CONTA, e as duas chamadas de saída que ela dispara são '
+    + 'de CURA, não de efeito: quando o estado derivado do razão diverge da linha '
+    + 'de `payments`, a rota chama `reconciler.reconcile({ checkId })` (que fala '
+    + 'com o PSP pra reconferir a cobrança) e `writeBackToPos(checkId)` (que '
+    + 'empurra o pago pro POS). Não tem portão porque não PODE ter: quem lê é o '
+    + 'telefone do cliente na mesa, sem login, com um token de mesa — e o '
+    + 'inegociável #9 diz browser-only, sem download e sem login. E não tem limite '
+    + 'de taxa por decisão medida, escrita na própria função `rateLimitCheck`: o '
+    + 'telefone consulta a cada 4s, um salão inteiro é UM ip atrás do NAT do '
+    + 'restaurante, e o limite fecharia a conta na cara do segundo cliente. O que '
+    + 'segura o abuso, e é ESTRANGULAMENTO, não sorte: o `shouldReconcileNow(checkId)` '
+    + 'limita a chamada por conta, o ramo inteiro só existe quando ainda se deve '
+    + 'dinheiro (`paidCents < totalCents`) — conta sã não chama nada — e o '
+    + '`writeBackToPos` só sai quando o `reconcile` confirmou alguma coisa '
+    + '(`r.confirmed > 0`). O teto real do abuso é um chamador com token de mesa '
+    + 'válido e conta em aberto forçando um `reconcile` a cada 10 segundos pro '
+    + 'adquirente daquele restaurante — com a mesma ressalva do beacon escrita por '
+    + 'inteiro: `reconcileThrottle` é `Map` de MÓDULO numa função serverless, então '
+    + 'cada instância fria tem o seu e o `clear()` de contenção de memória zera o de '
+    + 'todas as contas aos 5 mil. Declarado, não descoberto: era exatamente o '
+    + 'que a v2 deste censo não via, porque procurava `fetch(` e `notify*(` e '
+    + 'saída por ADAPTADOR não casa nenhum dos dois. Achado pela revisão de '
+    + 'segurança de 2026-09-15.'
   ),
 };
 
@@ -161,39 +198,116 @@ describe('cron: quem escreve não degrada aberta', () => {
   });
 
   /**
-   * E O CENSO DE SAÍDA VALE PRO ROUTER INTEIRO, não só pros crons.
+   * O CENSO DE SAÍDA, POR SUPERFÍCIE — e é a terceira versão dele.
    *
-   * A versão anterior só olhava dentro do ramo `if (!process.env.CRON_SECRET)`,
-   * porque foi escrita a partir do achado que a criou — a mesma forma que a
-   * revisão de compliance nomeou três rodadas seguidas. Uma rota que não é
-   * cron e manda coisa pra fora sem autenticação nenhuma era invisível por
-   * construção, e havia uma: `/api/demo/beacon`.
+   * A v1 só olhava dentro do ramo `if (!process.env.CRON_SECRET)`, porque foi
+   * escrita a partir do achado que a criou; uma rota que não é cron e manda
+   * coisa pra fora sem autenticação era invisível por construção, e havia uma
+   * (`/api/demo/beacon`). A v2 passou a varrer o router inteiro procurando
+   * `notify*(` e `await fetch(` — e a mesma forma se repetiu um nível acima: a
+   * lista de EXPRESSÕES veio dos dois achados que a criaram. A revisão de
+   * segurança de 2026-09-15 mostrou cinco formas que ela não vê e duas
+   * chamadas VIVAS que ela não via:
    *
-   * A regra: toda chamada de saída (`notify*`, `fetch`) mora numa rota que tem
-   * portão de autenticação, ou está declarada aqui com o motivo escrito.
+   *  · `fetch` sem `await` — `void fetch(x)`, `fetch(x).catch(…)`,
+   *    `Promise.all([fetch(a)])`. E fire-and-forget é exatamente como a próxima
+   *    telemetria vai ser escrita.
+   *  · saída através de ADAPTADOR: `reconciler.reconcile` fala com o PSP,
+   *    `writeBackToPos` fala com o POS, `psp.getCharge` fala com o gateway. É
+   *    onde TODO o tráfego de dinheiro mora, e nenhuma dessas casa `fetch(`.
+   *  · `/api/check` — pública, sem autenticação e deliberadamente sem limite de
+   *    taxa (a aritmética está escrita no próprio router) — chama as duas
+   *    primeiras. Um chamador com um token de mesa válido e uma conta em aberto
+   *    dirige tráfego pra adquirente e pro POS.
+   *  · seis call sites de aviso de dinheiro (`avisarEventoDeDinheiro`,
+   *    `handleNonLedgerMoneyEvent`) sobre os quais a v2 não afirmava nada.
+   *
+   * Então a pergunta inverte, como o `SO_LEEM` já faz neste arquivo: enumera-se
+   * a SUPERFÍCIE de saída — os nomes que alcançam a rede — e exige-se que toda
+   * rota que chega a um deles esteja num portão ou declarada. Nome novo de
+   * saída entra na lista ou o censo não o vê; é a mesma troca que o `SO_LEEM`
+   * fez, e ela é honesta porque a lista é curta e mora ao lado do código.
    */
-  test('toda chamada de SAÍDA está atrás de um portão, ou declarada', () => {
+  const SUPERFICIE_DE_SAIDA = [
+    'notifyOwnerRecipientStatus', 'notifyFounderActivationRadar', 'notifyPreviaBeacon',
+    'notifyFounderReconcile', 'notifyFounderMoneyEvent', 'avisarEventoDeDinheiro',
+    'handleNonLedgerMoneyEvent', 'writeBackToPos', 'fetch',
+    'reconciler.reconcile', 'psp.getCharge', 'stripePsp.getCharge',
+  ];
+
+  // `fetch` é nome da PLATAFORMA, não símbolo do repositório: hoje o router não
+  // o chama direto (toda saída passa por `_lib/notify.js` ou por um adaptador),
+  // e é justamente por isso que ele fica na lista — o dia em que alguém escrever
+  // `void fetch(...)` aqui, o censo já está olhando. Os outros nomes são do
+  // repositório e têm que existir: lista que não descreve o código de hoje é
+  // lista que passa calada.
+  const UNIVERSAIS = new Set(['fetch']);
+
+  test('a superfície de saída declarada ainda existe no router', () => {
+    const perdidos = SUPERFICIE_DE_SAIDA
+      .filter((n) => !UNIVERSAIS.has(n))
+      .filter((n) => !SRC.includes(`${n}(`));
+    expect(perdidos).toEqual([]);
+  });
+
+  test('toda rota que alcança a superfície de SAÍDA tem portão, ou é declarada', () => {
     const fonte = SRC.split('\n');
-    const ROTA = /url\.pathname === '([^']+)'/;
-    const SAIDA = /notify[A-Za-z]*\(|await fetch\(/;
-    const PORTAO = /segredoConfere\(|requireOwner|exigeDono|sessaoDoDono|assinatura|verifySignature/;
-    const comentario = (l) => /^\s*(\*|\/\/)/.test(l);
+    // Fronteira de rota: qualquer comparação de `url.pathname`, não só `===`.
+    const ROTA = /url\.pathname (?:===|\.startsWith\(|\.endsWith\(|\.match\()\s*'([^']+)'/;
+    // O portão não é só sessão: num webhook ele é a VERIFICAÇÃO DE ASSINATURA
+    // (`handleWebhook` chama `psp.verifyAndParseWebhook`, que ESTOURA em
+    // assinatura ruim, antes de qualquer write-back), na `/api/house/redeem` é o
+    // `accountToken` portador (o serviço resolve e 404 se não existir), e na
+    // `/api/dev/confirm` é o `DEMO_MODE` na própria linha da rota. Limite
+    // conhecido e dito: isto vê o portão APARECER antes da saída, não vê ele
+    // RODAR — a forma "portão opcional" (`if (cfg) { ...checa... }`) passa. É o
+    // preço de um censo textual; o que ele compra é que portão nenhum pode
+    // sumir em silêncio.
+    const PORTAO = new RegExp([
+      'segredoConfere\\(', 'requireOwner', 'exigeDono', 'sessaoDoDono', 'assinatura',
+      'verifySignature', 'verifyAndParseWebhook', 'handleWebhook\\(', 'accountToken',
+      'DEMO_MODE',
+    ].join('|'));
+    // `/**` é início de bloco de comentário e a v2 o lia como código.
+    const comentario = (l) => /^\s*(\/\*|\*|\/\/)/.test(l);
+    const saida = new RegExp(`(?:${SUPERFICIE_DE_SAIDA
+      .map((n) => n.replace('.', '\\.')).join('|')})\\s*\\(`);
     let rota = null; let temPortao = false;
     const soltas = [];
     for (const l of fonte) {
       const m = ROTA.exec(l);
       if (m) { rota = m[1]; temPortao = false; }
-      if (rota && PORTAO.test(l) && !comentario(l)) temPortao = true;
-      if (rota && SAIDA.test(l) && !comentario(l) && !temPortao) soltas.push(rota);
+      if (comentario(l)) continue;
+      if (rota && PORTAO.test(l)) temPortao = true;
+      if (rota && saida.test(l) && !temPortao) soltas.push(rota);
     }
-    const declaradas = SAIDA_SEM_PORTAO;
-    expect([...new Set(soltas)].filter((r) => !declaradas[r])).toEqual([]);
-    // A gaveta tem a disciplina das dispensas: motivo escrito, e entrada que
-    // deixou de ser necessária cai aqui em vez de envelhecer calada.
-    for (const [r, porque] of Object.entries(declaradas)) {
+    expect([...new Set(soltas)].filter((r) => !SAIDA_SEM_PORTAO[r])).toEqual([]);
+    for (const [r, porque] of Object.entries(SAIDA_SEM_PORTAO)) {
       expect(`${r}: ${porque}`).toMatch(/.{200,}/);
       expect(soltas).toContain(r);
     }
+  });
+
+  test('o censo cobre TODA função que deploya, não só o router', () => {
+    // O censo lê um arquivo só. Isso está certo enquanto o router for o único
+    // lugar com rota; deixa de estar no minuto em que alguém criar
+    // `api/webhook2.js`. Pelas regras de NFT da Vercel, todo arquivo em `api/`
+    // que não começa com `_` vira função — então a enumeração é do diretório, e
+    // o que se exige é que nenhum outro deles fale com a rede por conta própria.
+    const dir = path.join(__dirname, '..');
+    const funcoes = fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.js') && !f.startsWith('_'));
+    expect(funcoes).toContain('index.js'); // sanidade: a enumeração acha algo
+    const saida = new RegExp(`(?:${SUPERFICIE_DE_SAIDA
+      .map((n) => n.replace('.', '\\.')).join('|')})\\s*\\(`);
+    const faladores = funcoes.filter((f) => {
+      const src = fs.readFileSync(path.join(dir, f), 'utf8')
+        .split('\n').filter((l) => !/^\s*(\/\*|\*|\/\/)/.test(l)).join('\n');
+      return saida.test(src);
+    });
+    // `index.js` só delega pro router; qualquer outro nome aqui é rota nova
+    // fora do alcance do censo, e o censo tem que aprender a lê-la antes.
+    expect(faladores).toEqual([]);
   });
 
   test('nenhuma rota de cron que escreve cai num limite de taxa como alternativa', () => {
