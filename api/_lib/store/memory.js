@@ -348,8 +348,13 @@ function createMemoryStore() {
      * decisão do SQL: para na primeira chave cheia e devolve o índice dela.
      */
     async claimSlots({ keys, limits, windowMs } = {}) {
+      // AS MESMAS RECUSAS DO SQL. O gêmeo aceitava limite nulo (e o tratava como
+      // cheio, ao contrário do SQL, que o tratava como infinito) e janela de um
+      // segundo, que o SQL recusa. Revisão de segurança de 2026-09-15 (LOW-1).
       if (!Array.isArray(keys) || !keys.length || !Array.isArray(limits)
-        || keys.length !== limits.length || !(windowMs > 0)) {
+        || keys.length !== limits.length
+        || !limits.every((n) => Number.isSafeInteger(n) && n > 0)
+        || !Number.isFinite(windowMs) || windowMs < 60_000 || windowMs > 86_400_000) {
         throw new Error('claimSlots: argumentos inválidos');
       }
       if (new Set(keys).size !== keys.length) throw new Error('claimSlots: chave repetida');

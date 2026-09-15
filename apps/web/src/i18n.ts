@@ -430,24 +430,33 @@ export const DICT = {
   // fazer: esperar — por quanto tempo vai no `{windowMinutes}`, porque o
   // cliente não lê o cabeçalho `Retry-After` — ou fechar no caixa. Achado pela
   // revisão de compliance de 2026-09-15 (HIGH-4).
+  // SEM PRAZO PROMETIDO. A frase anterior dizia "espere até {windowMinutes}
+  // minutos", e as duas revisões de 2026-09-15 mediram que é falso: um script
+  // que repõe cada vaga ao vencer tranca a mesa enquanto rodar. O que funciona
+  // SEMPRE é o caixa, e é ele que a frase nomeia.
   'err.too_many_pending_charges': {
-    en: 'This table has too many payment codes open at once ({limit}). Wait up to {windowMinutes} minutes and try again, or ask the staff to close the bill at the till.',
-    pt: 'Esta mesa está com códigos de pagamento demais abertos ao mesmo tempo ({limit}). Espere até {windowMinutes} minutos e tente de novo, ou peça à equipe para fechar no caixa.',
-    es: 'Esta mesa tiene demasiados códigos de pago abiertos a la vez ({limit}). Espera hasta {windowMinutes} minutos e inténtalo de nuevo, o pide al personal que cobre en caja.' },
-  // Aqui as recargas abertas SÃO da própria pessoa, então "pague uma delas" é
-  // um remédio que ela controla — mas continua sendo um valor que ela já
-  // descartou, então a espera vem primeiro.
+    en: 'This table can’t take another payment code right now ({limit} were created recently). Try again later, or ask the staff to close the bill at the till.',
+    pt: 'Esta mesa não aceita mais um código de pagamento agora ({limit} foram criados há pouco). Tente mais tarde, ou peça à equipe para fechar no caixa.',
+    es: 'Esta mesa no admite otro código de pago ahora ({limit} se crearon hace poco). Inténtalo más tarde, o pide al personal que cobre en caja.' },
+  // Por conta: quem enche este balde é a própria pessoa (o token da carteira é
+  // dela), então o prazo é verdadeiro aqui. O "pague uma das que já gerou"
+  // saiu: a carteira não lista recarga pendente e voltar descarta o código, e
+  // pagar não libera vaga — era um remédio que não existe. Revisão de
+  // compliance de 2026-09-15 (MEDIUM-2).
   'err.too_many_pending_loads': {
-    en: 'You have too many top-ups open at once ({limit}). Wait up to {windowMinutes} minutes, or pay one of the codes you already generated.',
-    pt: 'Você está com recargas demais abertas ao mesmo tempo ({limit}). Espere até {windowMinutes} minutos, ou pague uma das que já gerou.',
-    es: 'Tienes demasiadas recargas abiertas a la vez ({limit}). Espera hasta {windowMinutes} minutos, o paga una de las que ya generaste.' },
-  // O teto POR CASA: quem lê não tem recarga nenhuma aberta, então a frase não
-  // pode mandar pagar uma. E diz o que continua funcionando — a conta da mesa
-  // não passa por aqui. Revisão de compliance de 2026-09-15 (MEDIUM-2).
+    en: 'Too many top-ups were started on this balance recently ({limit}). Try again in up to {windowMinutes} minutes.',
+    pt: 'Recargas demais foram iniciadas neste saldo há pouco ({limit}). Tente de novo em até {windowMinutes} minutos.',
+    es: 'Se iniciaron demasiadas recargas en este saldo hace poco ({limit}). Inténtalo de nuevo en hasta {windowMinutes} minutos.' },
+  // Por casa: sem prazo, pelo mesmo motivo da mesa — contas de saldo são de
+  // graça, e quem as gera pode manter o balde cheio.
   'err.too_many_pending_loads_venue': {
-    en: 'Top-ups are paused at this venue for up to {windowMinutes} minutes. Your balance is safe, and you can still pay the bill.',
-    pt: 'As recargas estão pausadas nesta casa por até {windowMinutes} minutos. Seu saldo está seguro, e você ainda pode pagar a conta.',
-    es: 'Las recargas están en pausa en este local hasta {windowMinutes} minutos. Tu saldo está a salvo, y aún puedes pagar la cuenta.' },
+    en: 'Top-ups are paused at this venue for now. Your balance is safe, and you can still pay the bill.',
+    pt: 'As recargas estão pausadas nesta casa por enquanto. Seu saldo está seguro, e você ainda pode pagar a conta.',
+    es: 'Las recargas están en pausa en este local por ahora. Tu saldo está a salvo, y aún puedes pagar la cuenta.' },
+  'err.payer_label_invalid': {
+    en: 'The name is too long — use up to 60 characters.',
+    pt: 'O nome está longo demais — use até 60 caracteres.',
+    es: 'El nombre es demasiado largo — usa hasta 60 caracteres.' },
   // O documento do recebedor tem que ser o MESMO que o recibo mostra: um é
   // onde o dinheiro liquida, o outro é o que o cliente lê. Divergir é o
   // comprovante dizer uma coisa e o split fazer outra.

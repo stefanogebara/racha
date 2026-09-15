@@ -45,7 +45,7 @@ const TETO_CARGAS_POR_CASA = 200;
 
 /**
  * Reivindica uma vaga de carga nesta CONTA e nesta CASA de uma vez, e devolve
- * a função que as devolve se o PSP não chegou a criar a cobrança. Ver
+ * a função que as devolve se nenhum código pagável chegou a quem pediu. Ver
  * `assertChargeSlot` no `create-charge.js` e a migração 0033: a contagem e a
  * reserva são uma instrução só no banco, com janela deslizante.
  *
@@ -332,8 +332,6 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       recipientId: venue.pspRecipientId, // venue is the issuer — funds go direct
       description: `Saldo ${venue.name}`.slice(0, 40),
     });
-    // BR Code vivo no adquirente: a vaga FICA daqui em diante.
-    cargaCriada = true;
     await store.registerHouseLoad({
       accountId: account.id,
       txid: charge.txid,
@@ -341,6 +339,9 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       bonusCents,                       // quoted NOW; webhook applies this, not live config
       validityDays: cfg.validityDays,   // snapshot too
     });
+    // Só aqui um código pagável chega a quem pediu, e só daqui a vaga fica —
+    // ver `assertChargeSlot` no `create-charge.js`.
+    cargaCriada = true;
     return {
       txid: charge.txid, copiaECola: charge.copiaECola, expiresAt: charge.expiresAt,
       amountCents, bonusCents,

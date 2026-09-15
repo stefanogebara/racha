@@ -54,7 +54,9 @@ const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents } = require('../_lib/checks/check-state');
-const { createChargeService, assertChargeSlot } = require('../_lib/pay/create-charge');
+const {
+  createChargeService, assertChargeSlot, geracaoDoQr, payerLabelValido, JANELA_VIVA_MS,
+} = require('../_lib/pay/create-charge');
 const { errorStatus, errorBody } = require('../_lib/http-error');
 const { readBody } = require('../_lib/read-body');
 const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
@@ -269,6 +271,41 @@ function cabecalhoDeEspera(err) {
   const min = err && err.vars && Number(err.vars.windowMinutes);
   if (!Number.isFinite(min) || min <= 0) return null;
   return { 'Retry-After': String(Math.ceil(min * 60)) };
+}
+
+/**
+ * O TETO DISPAROU — alguém que pode agir tem que ficar sabendo, uma vez.
+ *
+ * Uma mesa legítima não chega ao teto (a conta está no `create-charge.js`), então
+ * um 429 dele é ataque — e a única marca era uma linha `[teto]` no log da Vercel.
+ * O dono tem o remédio (girar o QR, que agora começa um balde novo), mas não
+ * sabia que precisava usá-lo. As duas revisões de 2026-09-15 pediram isto.
+ *
+ * DEDUPLICADO NO BANCO, não em estado de módulo: a mesma reivindicação atômica
+ * do teto, numa chave de alerta com limite um por janela. Estado de módulo
+ * seria um aviso por instância — a lição do `CRON_SECRET`. E não é um pager
+ * anônimo: dispara só pra quem tem o token da mesa E encheu o teto dela.
+ *
+ * Pelo canal de alerta crítico do fundador (`notifyFounderReconcile`), e não
+ * pelo de evento de dinheiro: aquele rejeita `kind` desconhecido, e um `kind`
+ * novo teria de ser aceito também do lado da Olímpia, na ponte — mudança em
+ * outro sistema que daqui não dá pra verificar. Nunca lança: o aviso é
+ * acessório à recusa, e a recusa tem que sair de qualquer jeito.
+ */
+async function avisarTetoDisparado(err) {
+  if (!err || err.code !== 'too_many_pending_charges' || !err.checkId) return;
+  try {
+    const r = await store.claimSlots({
+      keys: [`alerta:check:${err.checkId}`], limits: [1], windowMs: JANELA_VIVA_MS,
+    });
+    if (r.claimId === null) return;
+    await notifyFounderReconcile({
+      mensagem: `TETO DE COBRANÇAS DISPAROU na conta ${err.checkId}. Uma mesa legítima não chega a este número: provável script usando o QR da mesa. Remédio: girar o QR daquela mesa no painel — a geração nova tem teto próprio e o atacante perde o token. Até lá a mesa paga no caixa.`,
+      venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+    });
+  } catch (e) {
+    process.stderr.write(`[teto] aviso ao operador não saiu: ${String(e && e.message).slice(0, 80)}\n`);
+  }
 }
 
 async function guardUser(req, res) {
@@ -589,6 +626,8 @@ async function route(req, res) {
       const payRail = body.rail === 'bizum' ? 'bizum' : 'pix';
       const result = await (isDemo ? demoCharge : charge)({
         checkId: view.check.id, amountCents: body.amountCents,
+        // O teto conta por conta E pela geração do QR — ver `geracaoDoQr`.
+        qrGeneration: geracaoDoQr(body.token || ''),
         tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null, rail: payRail,
         // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
         wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
@@ -640,6 +679,14 @@ async function route(req, res) {
       if (!Number.isSafeInteger(amountCents) || amountCents < 0) return json(res, 400, { success: false, error: 'amountCents inválido', code: 'amount_invalid' });
       if (!Number.isSafeInteger(tipCents) || tipCents < 0) return json(res, 400, { success: false, error: 'tipCents inválido' });
       if (amountCents + tipCents === 0) return json(res, 400, { success: false, error: 'cobrança de valor zero', code: 'zero_charge' });
+      // O RÓTULO É CONFERIDO ANTES DA VAGA E ANTES DA STRIPE. Só o
+      // `registerCharge` conferia, e ele roda DEPOIS de a Stripe criar o
+      // intent: um rótulo de 61 caracteres gastava uma vaga do teto e deixava
+      // um PaymentIntent que o `payments` não conhece. Mesma regra da fábrica,
+      // mesma função. Revisão de compliance de 2026-09-15 (MEDIUM-1).
+      if (!payerLabelValido(b.payerLabel)) {
+        return json(res, 400, { success: false, error: 'payerLabel inválido', code: 'payer_label_invalid' });
+      }
       const state = reduce(await store.loadEvents(view.check.id));
       if (!state || state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada', code: 'check_closed' });
       const remaining = remainingCents(state);
@@ -678,7 +725,7 @@ async function route(req, res) {
         // "chamador esquecido" que já custou o portão de mercado e a validação
         // do `payerLabel` nesta exata rota; um teste estrutural exige o
         // emparelhamento. Ver `assertChargeSlot`.
-        devolverVaga = await assertChargeSlot(store, view.check.id);
+        devolverVaga = await assertChargeSlot(store, view.check.id, geracaoDoQr(b.token || ''));
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
         const charge = rail === 'bizum'
           ? await stripePsp.createBizumCharge({
@@ -693,8 +740,6 @@ async function route(req, res) {
             // no `create-charge`, e o padrão do adaptador cobria os dois.
             currency: pspCurrency(venue.market),
           });
-        // BR Code vivo no adquirente: a vaga FICA daqui em diante.
-        cobrancaCriada = true;
         await store.registerCharge({
           checkId: view.check.id, txid: charge.txid, amountCents, tipCents,
           // Bizum NÃO é cartão: rotular errado aqui contamina o painel, a
@@ -705,6 +750,8 @@ async function route(req, res) {
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
         // logo acima já gravava 'bizum' certo, e a resposta dizia 'card' —
         // duas verdades sobre a mesma cobrança, e a tela lê a errada.
+        // Só aqui um código pagável chega ao cliente, e só daqui a vaga fica.
+        cobrancaCriada = true;
         return json(res, 200, { success: true, data: { txid: charge.txid, clientSecret: charge.clientSecret, amountCents, tipCents, method: rail === 'bizum' ? 'bizum' : 'card' } });
       } catch (e) {
         // A Stripe recusa fora dos limites do esquema com os SEUS códigos e uma
@@ -733,9 +780,10 @@ async function route(req, res) {
         // OUTROS na mesa. A chave `err.too_many_pending_charges` que o commit
         // do teto acrescentou não disparava em trilho nenhum além do Pix.
         // Achado pela revisão de compliance de 2026-09-15 (HIGH-2).
+        await avisarTetoDisparado(e);
         return json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e));
       } finally {
-        // A vaga volta SÓ se o adquirente não tem nada — ver `assertChargeSlot`.
+        // A vaga volta se nenhum código pagável chegou ao cliente — ver `assertChargeSlot`.
         if (devolverVaga && !cobrancaCriada) await devolverVaga();
       }
     }
@@ -2237,6 +2285,7 @@ async function route(req, res) {
     // remédio pra "uma recusa que não diz por quanto tempo" estava vivo em zero
     // dos dois caminhos que recusam. Achado pela revisão de segurança de
     // 2026-09-15 (MEDIUM-4).
+    await avisarTetoDisparado(err);
     return json(res, status, errorBody(err, status), cabecalhoDeEspera(err));
   }
 }

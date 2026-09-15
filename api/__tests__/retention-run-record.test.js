@@ -55,7 +55,15 @@ function corpoDaFuncao(sql, nome) {
 
 const PURGE = ultimaQueMenciona('create or replace function public.purge_expired_personal_data');
 const ERASE = ultimaQueMenciona('create or replace function public.erase_payment_label');
-const TABELA = ultimaQueMenciona('public.retention_runs');
+// A AGULHA DA TABELA É A FORMA DE DDL, não qualquer menção. Uma função que
+// lê ou escreve a tabela não é a migração da tabela: a 0033 redefine o
+// `purge_expired_personal_data` (que faz `delete from` e `insert into
+// public.retention_runs`) e, com a agulha solta, o teste passou a buscar o RLS
+// e as restrições da tabela num arquivo que não tem DDL nenhum dela. `table
+// public.retention_runs` casa `create table`, `alter table` e `comment on
+// table` — o que é da tabela — e não o DML de uma função.
+const AGULHA_TABELA = 'table public.retention_runs';
+const TABELA = ultimaQueMenciona(AGULHA_TABELA);
 const SQL = PURGE.texto;
 const ROUTER = fs.readFileSync(path.join(RAIZ, 'api', '_app', 'router.js'), 'utf8');
 
@@ -121,7 +129,9 @@ describe('o expurgo deixa registro, e o registro é vigiado', () => {
     for (const [nome, achado, agulha] of [
       ['purge', PURGE, 'create or replace function public.purge_expired_personal_data'],
       ['erase', ERASE, 'create or replace function public.erase_payment_label'],
-      ['tabela', TABELA, 'public.retention_runs'],
+      // A mesma agulha da busca, senão os dois concordam no arquivo errado —
+      // que é como este teste passou verde enquanto os outros dois quebravam.
+      ['tabela', TABELA, AGULHA_TABELA],
     ]) {
       const candidatas = todas.filter((f) => fs.readFileSync(path.join(dir, f), 'utf8').includes(agulha));
       expect([nome, achado.arquivo]).toEqual([nome, candidatas[candidatas.length - 1]]);

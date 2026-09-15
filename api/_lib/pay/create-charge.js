@@ -62,8 +62,15 @@ function badRequest(msg, code, vars) {
  * contar e reservar numa instrução só, sob trava consultiva, com janela
  * DESLIZANTE, no único lugar que todas as instâncias compartilham. É chamada
  * DEPOIS de toda a validação e logo antes do PSP, então pedido inválido não
- * ocupa vaga. A vaga só volta se o PSP NUNCA criou a cobrança: um BR Code vivo
- * no adquirente é exatamente o que o teto conta.
+ * ocupa vaga. A vaga fica quando um código PAGÁVEL chega ao cliente, e volta em
+ * todos os outros casos — inclusive o PSP que estourou depois de aceitar o
+ * pedido (o timeout de 15 s da Pagar.me) e o registro que estourou depois do
+ * PSP: em nenhum deles alguém segura um código que dá pra pagar. Isto é, a
+ * vaga mede códigos pagáveis nas mãos de alguém, que é o que o teto limita.
+ *
+ * É um teto de RITMO DE CRIAÇÃO, não de cobranças "vivas": conta as criadas nos
+ * últimos quinze minutos, inclusive as já pagas, e os intents da Stripe que
+ * vivem mais que isso saem da conta aos quinze. (Revisão de compliance, LOW-2.)
  *
  * O NÚMERO. Uma mesa legítima gasta no máximo vinte pessoas (o passo a passo
  * da divisão para em vinte) vezes três tentativas: sessenta cobranças criadas
@@ -73,10 +80,19 @@ function badRequest(msg, code, vars) {
  * O QUE CONTINUA ABERTO, dito de frente:
  *
  *  · numa rota de token portador, qualquer recurso por conta é esgotável por
- *    quem tem o token. Duzentas cobranças VÁLIDAS em quinze minutos e a mesa
- *    leva 429 até a primeira vencer; o remédio da tela é esperar ou fechar no
- *    caixa. Separar o atacante da mesa exigiria uma chave de origem guardada
- *    no banco — IP, ainda que em hash —, e a troca foi não guardar;
+ *    quem tem o token — e com a janela deslizante, por TEMPO INDETERMINADO: um
+ *    script que repõe cada vaga ao vencer (a de um centavo basta) tranca a mesa
+ *    enquanto rodar. A primeira versão desta prosa, a da tela e a do censo de
+ *    saída diziam "até quinze minutos", e as duas revisões de 2026-09-15
+ *    mediram que era falso. O que existe contra isso: a chave leva a GERAÇÃO
+ *    do QR (`geracaoDoQr`), então girar o QR da mesa corta o token do atacante
+ *    E começa um balde novo na hora; e o primeiro 429 de cada conta PAGINA o
+ *    operador, uma vez por janela (`avisarTetoDisparado` no router). A tela não
+ *    promete prazo: diz pra tentar mais tarde ou fechar no caixa, que sempre
+ *    funciona. Separar o atacante da mesa por ORIGEM exigiria guardar uma chave
+ *    de rede no banco, e ela não funcionaria onde importa: no wi-fi do salão o
+ *    atacante e a mesa são o mesmo NAT, e no NAT das operadoras móveis um IP
+ *    novo sai no modo avião (revisão de compliance);
  *  · não é idempotência: pedidos idênticos criam cobranças distintas até o
  *    teto. Fundir pela FORMA (mesmo valor, mesma gorjeta) seria pior: numa
  *    divisão igual duas pessoas pedem o mesmo valor ao mesmo tempo, e o mesmo
@@ -92,7 +108,7 @@ const TETO_PENDENTES = 200;
 
 /**
  * Reivindica uma vaga pra uma cobrança nova desta conta e devolve a função que
- * a DEVOLVE — o chamador a chama só se o PSP não chegou a criar a cobrança.
+ * a DEVOLVE — o chamador a chama se nenhum código pagável chegou ao cliente.
  *
  * Mora aqui e é EXPORTADA porque há dois sítios que criam cobrança de conta: o
  * `createCharge` e a rota `/api/pay/stripe-intent`, que monta a cobrança
@@ -100,9 +116,11 @@ const TETO_PENDENTES = 200;
  * precedida por esta — a forma "chamador esquecido" já custou a validação do
  * `payerLabel` e o portão de mercado dessa mesma rota.
  */
-async function assertChargeSlot(store, checkId) {
+async function assertChargeSlot(store, checkId, qrGeneration = null) {
+  // Por conta E pela geração do QR — ver `geracaoDoQr`.
+  const chave = qrGeneration ? `check:${checkId}:${qrGeneration}` : `check:${checkId}`;
   const r = await store.claimSlots({
-    keys: [`check:${checkId}`], limits: [TETO_PENDENTES], windowMs: JANELA_VIVA_MS,
+    keys: [chave], limits: [TETO_PENDENTES], windowMs: JANELA_VIVA_MS,
   });
   if (r.claimId === null) {
     // UM GUARDA QUE NINGUÉM VÊ É CARACTERIZADO EM PRODUÇÃO, por um cliente de
@@ -113,6 +131,9 @@ async function assertChargeSlot(store, checkId) {
     // 429, não 400: o pedido está bem formado e a resposta é "agora não".
     err.statusCode = 429;
     err.code = 'too_many_pending_charges';
+    // Pro aviso ao operador (router, `avisarTetoDisparado`). NÃO vai pro
+    // corpo: o `errorBody` só serializa `code` e `vars`.
+    err.checkId = checkId;
     // Números crus — quem formata é o cliente.
     err.vars = { limit: TETO_PENDENTES, windowMinutes: JANELA_VIVA_MS / 60000 };
     throw err;
@@ -131,6 +152,33 @@ async function assertChargeSlot(store, checkId) {
   };
 }
 
+/**
+ * A GERAÇÃO DO QR DA MESA — a chave que faz o giro do QR ser um remédio.
+ *
+ * O teto é esgotável por quem tem o token da mesa, e com a janela deslizante
+ * um script que repõe cada vaga ao vencer tranca a mesa pelo tempo que quiser
+ * (as duas revisões de 2026-09-15 mediram). O dono já tem o remédio certo —
+ * girar o QR (`/api/tables/rotate`) corta o token do atacante —, mas a conta
+ * continuava a mesma e as duzentas vagas dele continuavam ocupando o balde.
+ * Com a geração na chave, o QR novo começa um balde novo NA HORA, e o atacante
+ * sem o token novo não alcança ele. Hash de um token aleatório de alta
+ * entropia: não volta a ser o token.
+ */
+function geracaoDoQr(token) {
+  if (typeof token !== 'string' || !token) return null;
+  return require('node:crypto').createHash('sha256').update(token).digest('hex').slice(0, 16);
+}
+
+/**
+ * O rótulo do pagador: string de até 60, ou ausente. UM sítio, chamado pelos
+ * dois caminhos que cobram — a rota do intent da Stripe conferia só depois de a
+ * Stripe já ter criado o intent, gastando uma vaga e deixando um PaymentIntent
+ * órfão (revisão de compliance de 2026-09-15, MEDIUM-1).
+ */
+function payerLabelValido(v) {
+  return v === null || v === undefined || (typeof v === 'string' && v.length <= 60);
+}
+
 const WALLETS = Object.freeze(['apple_pay', 'google_pay']);
 
 function createChargeService({ store, psp }) {
@@ -141,7 +189,7 @@ function createChargeService({ store, psp }) {
    * @param {'pix'|'apple_pay'|'google_pay'} [args.wallet]  omitted → Pix.
    * @param {string} [args.paymentToken]  wallet-sheet token (required for wallets)
    */
-  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null, payerDocument = null, rail: requestedRail = 'pix' }) {
+  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null, payerDocument = null, rail: requestedRail = 'pix', qrGeneration = null }) {
     if (typeof checkId !== 'string' || !checkId) throw badRequest('checkId required');
     // Documento do pagador. Exigido no Pix (o gateway pede `customer.document`)
     // e ausente no Bizum, onde quem autentica é o banco do pagador.
@@ -159,7 +207,7 @@ function createChargeService({ store, psp }) {
     if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw badRequest('amountCents must be a non-negative integer');
     if (!Number.isSafeInteger(tipCents) || tipCents < 0) throw badRequest('tipCents must be a non-negative integer');
     if (amountCents + tipCents === 0) throw badRequest('zero-value charge');
-    if (payerLabel !== null && (typeof payerLabel !== 'string' || payerLabel.length > 60)) {
+    if (!payerLabelValido(payerLabel)) {
       throw badRequest('payerLabel must be a string of at most 60 chars');
     }
     if (wallet !== null && !WALLETS.includes(wallet)) throw badRequest(`carteira desconhecida: ${wallet}`);
@@ -250,7 +298,7 @@ function createChargeService({ store, psp }) {
         'amount_over', { leftCents: remaining });
     }
 
-    const devolverVaga = await assertChargeSlot(store, checkId);
+    const devolverVaga = await assertChargeSlot(store, checkId, qrGeneration);
     let cobrancaCriada = false;
     try {
     const chargeRef = `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`;
@@ -282,15 +330,13 @@ function createChargeService({ store, psp }) {
       });
     }
 
-    // Daqui em diante existe um BR Code vivo no adquirente, e a vaga FICA —
-    // mesmo que o registro abaixo estoure.
-    cobrancaCriada = true;
-
     await store.registerCharge({
       checkId, txid: charge.txid, amountCents, tipCents, payerLabel,
       method: rail,
     });
 
+    // SÓ AQUI um código pagável chega a quem pediu, e só daqui a vaga fica.
+    cobrancaCriada = true;
     return {
       txid: charge.txid,
       copiaECola: charge.copiaECola ?? null, // wallets have no BR Code
@@ -300,13 +346,13 @@ function createChargeService({ store, psp }) {
       wallet: wallet ?? null,
     };
     } finally {
-      // A vaga volta SÓ se o adquirente não tem nada. Ver `assertChargeSlot`.
+      // A vaga volta se nenhum código pagável chegou ao cliente — ver `assertChargeSlot`.
       if (!cobrancaCriada) await devolverVaga();
     }
   };
 }
 
 module.exports = {
-  createChargeService, assertChargeSlot, TETO_PENDENTES, JANELA_VIVA_MS,
-  MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
+  createChargeService, assertChargeSlot, geracaoDoQr, payerLabelValido,
+  TETO_PENDENTES, JANELA_VIVA_MS, MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
 };

@@ -177,18 +177,19 @@ describe('o atacante que o teto existe pra parar', () => {
     for (let i = 0; i < TETO_PENDENTES; i += 1) await expect(nova(charge, check.id, 500 + i)).resolves.toBeTruthy();
   });
 
-  test('o PSP CRIOU e o registro estourou: a vaga FICA — há um BR Code vivo no adquirente', async () => {
-    // Devolver aqui seria contar uma cobrança viva a menos: o teto mediria a
-    // nossa tabela, não o adquirente.
+  test('o registro estourou depois do PSP: a vaga VOLTA — nenhum código pagável chegou a ninguém', async () => {
+    // A primeira versão guardava a vaga aqui ("há um BR Code vivo no
+    // adquirente"). A revisão de segurança de 2026-09-15 mostrou a
+    // incoerência: no timeout de 15 s da Pagar.me a cobrança também pode
+    // existir lá, e ali a vaga voltava. O que a vaga mede é código pagável nas
+    // mãos de alguém — e aqui ninguém recebeu nada.
     const { store, table, charge } = mundo();
     const check = await contaAberta(store, table);
     const orig = store.registerCharge.bind(store);
     let quebrou = false;
     store.registerCharge = async (a) => { if (!quebrou) { quebrou = true; throw new Error('db down'); } return orig(a); };
     await expect(nova(charge, check.id, 0)).rejects.toThrow('db down');
-    let criadas = 0;
-    for (let i = 1; i <= TETO_PENDENTES; i += 1) { try { await nova(charge, check.id, i); criadas += 1; } catch { /* cheio */ } }
-    expect(criadas).toBe(TETO_PENDENTES - 1);
+    for (let i = 1; i <= TETO_PENDENTES; i += 1) await expect(nova(charge, check.id, i)).resolves.toBeTruthy();
   });
 
   test('a janela DESLIZA: passados quinze minutos a mesa volta a ter vaga', async () => {
@@ -208,6 +209,76 @@ describe('o atacante que o teto existe pra parar', () => {
     } finally {
       relogio.mockRestore();
     }
+  });
+
+  test('GIRAR O QR começa um balde novo NA HORA — o remédio do dono funciona', async () => {
+    const { store, table, charge } = mundo();
+    const check = await contaAberta(store, table);
+    for (let i = 0; i < TETO_PENDENTES; i += 1) {
+      await charge({ checkId: check.id, amountCents: 100 + i, qrGeneration: 'geracao-a' });
+    }
+    await expect(charge({ checkId: check.id, amountCents: 9000, qrGeneration: 'geracao-a' }))
+      .rejects.toMatchObject({ code: 'too_many_pending_charges' });
+    await expect(charge({ checkId: check.id, amountCents: 9001, qrGeneration: 'geracao-b' })).resolves.toBeTruthy();
+  });
+
+  test('ATAQUE SUSTENTADO: quem repõe cada vaga tranca a mesa por muito mais que quinze minutos', async () => {
+    /**
+     * O RESÍDUO, MEDIDO — e é por isso que a tela não promete prazo. A frase
+     * anterior dizia "espere até 15 minutos", o censo de saída também, e as
+     * duas revisões de 2026-09-15 mostraram que um script que retoma cada vaga
+     * no instante em que ela vence mantém o balde cheio pelo tempo que quiser.
+     * Aqui o atacante espalha duzentas cobranças numa janela e repõe uma a cada
+     * 4,5 s; o cliente tenta a cada passo, por 45 minutos, e não passa nenhuma
+     * vez. Girar o QR resolve na hora.
+     */
+    const { store, table, charge } = mundo();
+    const check = await contaAberta(store, table);
+    const t0 = Date.now();
+    const relogio = jest.spyOn(Date, 'now');
+    const PASSO = 4500;
+    let v = 0;
+    try {
+      for (let k = 0; k < TETO_PENDENTES; k += 1) {
+        relogio.mockReturnValue(t0 + k * PASSO);
+        await charge({ checkId: check.id, amountCents: 100 + (v += 1), qrGeneration: 'a' });
+      }
+      // O SCRIPT RETOMA TODA VAGA QUE VENCEU — tenta até ser recusado — e o
+      // cliente chega no mesmo instante, depois dele: o script é mais rápido
+      // que a pessoa. A primeira versão desta simulação dava ao atacante UM
+      // pedido por passo, a +1 ms, e as reposições dele venciam exatamente no
+      // +2 ms do cliente uma janela depois; deixava vagas que um script de
+      // verdade não deixa, e o cliente "passava" 200 vezes. Era o teste
+      // medindo o próprio relógio, não o ataque.
+      let clientePassou = 0;
+      for (let k = TETO_PENDENTES; k < TETO_PENDENTES + 600; k += 1) {
+        relogio.mockReturnValue(t0 + k * PASSO);
+        for (let tentativa = 0; tentativa < TETO_PENDENTES; tentativa += 1) {
+          const pegou = await charge({ checkId: check.id, amountCents: 100 + (v += 1), qrGeneration: 'a' })
+            .then(() => true, () => false);
+          if (!pegou) break;
+        }
+        if (await charge({ checkId: check.id, amountCents: 4200 + (v += 1), qrGeneration: 'a' }).then(() => true, () => false)) clientePassou += 1;
+      }
+      expect({ minutos: Math.round((600 * PASSO) / 60000), clientePassou }).toEqual({ minutos: 45, clientePassou: 0 });
+      // O remédio: o QR girado.
+      await expect(charge({ checkId: check.id, amountCents: 99999, qrGeneration: 'b' })).resolves.toBeTruthy();
+    } finally {
+      relogio.mockRestore();
+    }
+  });
+
+  test('o intent da Stripe confere o rótulo ANTES da vaga e ANTES da Stripe', () => {
+    // Só o `registerCharge` conferia, depois de a Stripe criar o intent: um
+    // rótulo longo gastava uma vaga e deixava um PaymentIntent órfão.
+    // (Revisão de compliance de 2026-09-15, MEDIUM-1.)
+    const ROUTER = ler('api', '_app', 'router.js');
+    const ini = ROUTER.indexOf("url.pathname === '/api/pay/stripe-intent'");
+    const rota = ROUTER.slice(ini, ROUTER.indexOf("url.pathname === '", ini + 30));
+    const rotulo = rota.indexOf('payerLabelValido(b.payerLabel)');
+    expect({ rotulo: rotulo > 0, antesDaVaga: rotulo < rota.indexOf('assertChargeSlot('),
+      antesDaStripe: rotulo < rota.search(/stripePsp\.create[A-Z]/) })
+      .toEqual({ rotulo: true, antesDaVaga: true, antesDaStripe: true });
   });
 
   test('ponta a ponta no router: corpos inválidos e depois um cliente de verdade paga', async () => {
@@ -354,7 +425,7 @@ describe('TODA criação de cobrança passa pelo teto', () => {
       'await stripePsp[metodo]({})', 'await demoPsp[m]({})',
     ]) expect({ forma, vista: CRIA.test(forma) }).toEqual({ forma, vista: true });
     // E o que NÃO é uso não pode contar — senão o sentinela exato vira ruído e
-    // alguém o afrouxa. Os quatro vêm do código de hoje.
+    // alguém o afrouxa. Os três vêm do código de hoje.
     for (const naoUso of [
       'createPixCharge: indisponivel,', "if (typeof psp[creator] !== 'function') {",
       "const creator = wallet ? 'createWalletCharge' : rail === 'bizum' ? 'createBizumCharge' : 'createPixCharge';",
@@ -364,7 +435,10 @@ describe('TODA criação de cobrança passa pelo teto', () => {
 });
 
 describe('os dois stores e o SQL dizem a mesma coisa', () => {
-  const SQL = ler('supabase', 'migrations', '0033_charge_slots.sql');
+  // SEM COMENTÁRIO: com a trava comentada (`-- perform pg_advisory…`) a regex
+  // ainda casava, e os 26 testes ficavam verdes sobre uma RPC sem trava.
+  // (Revisão de segurança de 2026-09-15, MEDIUM-1.)
+  const SQL = ler('supabase', 'migrations', '0033_charge_slots.sql').replace(/--[^\n]*/g, '');
   const SUP = ler('api', '_lib', 'store', 'supabase.js');
   const MEM = ler('api', '_lib', 'store', 'memory.js');
 
@@ -377,11 +451,26 @@ describe('os dois stores e o SQL dizem a mesma coisa', () => {
 
   test('a RPC conta e reserva sob TRAVA, com janela DESLIZANTE, e nasce fechada', () => {
     expect(SQL).toMatch(/pg_advisory_xact_lock\(/);
+    // A faxina cruzada fechava ciclo de trava sem isto (364 deadlocks medidos).
+    expect(SQL).toMatch(/limit 500\s+for update skip locked/);
+    // Limite nulo concedia sem fim (`v_n >= null` é null).
+    expect(SQL).toMatch(/array_position\(p_limits, null\) is not null/);
+    // E o expurgo diário varre o livro.
+    expect(SQL).toMatch(/function public\.purge_expired_personal_data[\s\S]*delete from public\.charge_slots/);
     expect(SQL).toMatch(/created_at >= now\(\) - make_interval\(secs => p_window_seconds\)/);
     expect(SQL).toMatch(/alter table public\.charge_slots enable row level security/);
     expect(SQL).toMatch(/revoke all on public\.charge_slots from anon, authenticated/);
     expect(SQL).toMatch(/revoke all on function public\.claim_slots\(text\[\], integer\[\], integer\) from public, anon, authenticated/);
     expect(SQL).toMatch(/revoke all on function public\.release_slots\(uuid\) from public, anon, authenticated/);
+  });
+
+  test('o deploy sonda a migração ANTES de publicar, e aborta sem ela', () => {
+    // "Migração primeiro" era uma frase num commit. (As duas revisões.)
+    const DEPLOY = ler('scripts', 'deploy.mjs');
+    const sonda = DEPLOY.indexOf('/rest/v1/rpc/release_slots');
+    expect(sonda).toBeGreaterThan(0);
+    expect(sonda).toBeLessThan(DEPLOY.indexOf('/v13/deployments?teamId='));
+    expect(DEPLOY).toMatch(/corpoSonda !== '0'[\s\S]{0,600}process\.exit\(1\)/);
   });
 
   test('os nomes e parâmetros que o store manda são os que a RPC recebe', () => {
@@ -437,5 +526,64 @@ describe('o store Supabase falha FECHADO sem a RPC', () => {
       client: { rpc: async (nome, args) => { enviado = { nome, args }; return { data: { claim_id: 'u', full_index: null, counts: [0] }, error: null }; }, from: () => ({}) } });
     await s.claimSlots(ARGS);
     expect(enviado).toEqual({ nome: 'claim_slots', args: { p_keys: ['check:c1'], p_limits: [200], p_window_seconds: 900 } });
+  });
+});
+
+describe('o teto disparado PAGINA o operador — uma vez por conta e janela', () => {
+  test('três recusas seguidas, um aviso só, e a recusa sai do mesmo jeito', async () => {
+    // Uma mesa legítima não chega ao teto: o 429 dele é ataque, e o remédio
+    // (girar o QR) só existe se alguém souber. Deduplicado NO BANCO — estado de
+    // módulo daria um aviso por instância.
+    const segredo = process.env.RACHA_NOTIFY_SECRET;
+    delete process.env.RACHA_NOTIFY_SECRET;   // sem ponte: o aviso vai pro stderr
+    const { route, store } = require('../_app/router');
+    const venue = store.seedVenue({ name: 'Alerta', servicoBp: 1000, pspRecipientId: 'rcpt_al' });
+    const table = store.seedTable(venue.id, 'M1');
+    await store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 900000 }]);
+    const srv = http.createServer(route).listen(0);
+    await new Promise((r) => srv.once('listening', r));
+    const porta = srv.address().port;
+    let v = 0;
+    const pagar = () => fetch(`http://127.0.0.1:${porta}/api/pay`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: table.qrToken, amountCents: 100 + (v += 1), tipCents: 0 }),
+    });
+    const avisos = () => process.stderr.write.mock.calls
+      .filter(([t]) => String(t).includes('TETO DE COBRANÇAS DISPAROU')).length;
+    try {
+      for (let i = 0; i < TETO_PENDENTES; i += 1) expect((await pagar()).status).toBe(200);
+      const antes = avisos();
+      for (let i = 0; i < 3; i += 1) expect((await pagar()).status).toBe(429);
+      expect(avisos() - antes).toBe(1);
+    } finally {
+      srv.close();
+      if (segredo !== undefined) process.env.RACHA_NOTIFY_SECRET = segredo;
+    }
+  });
+});
+
+describe('dentro dos adaptadores: só os três métodos criam cobrança no adquirente', () => {
+  /**
+   * O censo de chamadores reconhece a criação de cobrança pelo NOME do método
+   * e pula os adaptadores. Um método novo — o "link de checkout de cartão" que
+   * o CLAUDE.md lista na interface do PSP — que postasse `/orders` seria
+   * invisível, e o chamador dele também. (Revisão de segurança, LOW-2.)
+   */
+  test('toda criação no adquirente mora num create(Pix|Wallet|Bizum)Charge — quatro, exatas', () => {
+    const achados = [];
+    for (const arq of ['pagarme-psp.js', 'stripe-psp.js']) {
+      const linhas = ler('api', '_lib', 'pay', arq).split('\n');
+      linhas.forEach((l, i) => {
+        if (!/api\('POST', '\/orders'|paymentIntents\.create\(|checkout\.sessions\.create\(|\bcharges\.create\(/.test(l)) return;
+        let metodo = null;
+        for (let k = i; k >= 0 && !metodo; k -= 1) {
+          const m = /^\s*async\s+(\w+)\s*\(/.exec(linhas[k]);
+          if (m) metodo = m[1];
+        }
+        achados.push(`${arq}:${i + 1} ${metodo}`);
+      });
+    }
+    expect(achados.filter((a) => !/ create(Pix|Wallet|Bizum)Charge$/.test(a))).toEqual([]);
+    expect(achados).toHaveLength(4);
   });
 });

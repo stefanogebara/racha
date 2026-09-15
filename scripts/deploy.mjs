@@ -107,6 +107,51 @@ if (!temCronSecret) {
 }
 process.stdout.write('✓ CRON_SECRET configurado em production\n');
 
+// O CANÁRIO DO ESQUEMA — "migração primeiro" deixa de ser uma frase.
+//
+// O teto de cobranças mora numa RPC (`claim_slots`, migração 0033) e o store
+// falha FECHADO sem ela: com o código novo no ar e a 0033 não aplicada, todo
+// `/api/pay`, `/api/pay/stripe-intent` e `/api/house/load` devolve 500 e
+// NINGUÉM PAGA. Isso está certo — degradar aberto foi o que mascarou doze dias
+// de falha na Seatable (inegociável #7) —, mas quem ouvia a falha era o
+// restaurante com uma mesa que não fecha. A única coisa que impunha a ordem
+// era a mensagem de um commit. As duas revisões de 2026-09-15 pediram isto.
+//
+// A sonda é `release_slots` com um id que não existe: não escreve nada e
+// devolve 0. Qualquer outra resposta — função ausente (PGRST202), 404,
+// credencial errada — ABORTA antes do deploy, igual ao canário do
+// `CRON_SECRET` logo acima. Ela lê o projeto do `.env` (mesmo caminho do
+// `scripts/preflight-live.mjs`) e IMPRIME o host sondado: se o `.env` apontar
+// pra outro projeto que não o de produção, é aqui que dá pra ver.
+const envLocal = (() => {
+  try {
+    return Object.fromEntries(fs.readFileSync(path.join(repoRoot, '.env'), 'utf8').split(/\r?\n/)
+      .filter((l) => /^[A-Z_][A-Z0-9_]*=/.test(l))
+      .map((l) => { const i = l.indexOf('='); return [l.slice(0, i), l.slice(i + 1).trim().replace(/^['"]|['"]$/g, '')]; }));
+  } catch { return {}; }
+})();
+const SB_URL = process.env.SUPABASE_URL || envLocal.SUPABASE_URL;
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || envLocal.SUPABASE_SERVICE_ROLE_KEY;
+if (!SB_URL || !SB_KEY) {
+  process.stderr.write('\n✗ sem SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (ambiente ou .env) — não dá pra conferir\n'
+    + '  que a migração 0033 está aplicada. Deploy ABORTADO: com o código novo e sem a RPC, ninguém paga.\n');
+  process.exit(1);
+}
+const sonda = await fetch(`${SB_URL}/rest/v1/rpc/release_slots`, {
+  method: 'POST',
+  headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ p_claim_id: '00000000-0000-0000-0000-000000000000' }),
+}).catch((e) => ({ ok: false, status: 0, text: async () => String(e && e.message) }));
+const corpoSonda = String(await sonda.text()).trim();
+const hostSondado = (() => { try { return new URL(SB_URL).host; } catch { return SB_URL; } })();
+if (!sonda.ok || corpoSonda !== '0') {
+  process.stderr.write(`\n✗ migração 0033 NÃO está aplicada em ${hostSondado} (release_slots → ${sonda.status} ${corpoSonda.slice(0, 160)}).\n`
+    + '  Deploy ABORTADO. Aplique supabase/migrations/0033_charge_slots.sql PRIMEIRO:\n'
+    + '  com o código novo e sem a RPC, todo pagamento devolve 500.\n');
+  process.exit(1);
+}
+process.stdout.write(`✓ migração 0033 aplicada em ${hostSondado} (release_slots responde 0)\n`);
+
 const createRes = await fetch(`https://api.vercel.com/v13/deployments?teamId=${TEAM_ID}&skipAutoDetectionConfirmation=1`, {
   method: 'POST',
   headers: { ...headers, 'Content-Type': 'application/json' },

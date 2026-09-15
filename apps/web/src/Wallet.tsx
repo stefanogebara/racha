@@ -46,6 +46,9 @@ function WalletView({ accountToken }: { accountToken: string }) {
   const [charge, setCharge] = useState<HouseLoadResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // TOQUE DUPLO na recarga gastava duas das vagas da conta — o mesmo defeito do
+  // botão de pagar, consertado só lá. Revisão de compliance de 2026-09-15.
+  const [busy, setBusy] = useState(false);
   const [demoGone, setDemoGone] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -69,7 +72,8 @@ function WalletView({ accountToken }: { accountToken: string }) {
   const amountCents = chip ?? parseBrlToCents(custom);
 
   async function onLoad() {
-    if (amountCents == null || amountCents === 0) return;
+    if (amountCents == null || amountCents === 0 || busy) return;
+    setBusy(true);
     setError(null);
     try {
       const c = await api.houseLoad(accountToken, amountCents);
@@ -77,6 +81,8 @@ function WalletView({ accountToken }: { accountToken: string }) {
       setCopied(false);
     } catch (e) {
       setError(tErr(e));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -208,7 +214,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
           />
         </div>
         {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
-        <button className="cta" disabled={amountCents == null || amountCents === 0} onClick={onLoad}>
+        <button className="cta" disabled={amountCents == null || amountCents === 0 || busy} onClick={onLoad}>
           {t('wallet.doTopUp', { amount: brl(amountCents ?? 0) })}
         </button>
         <p className="muted small">

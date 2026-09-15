@@ -135,35 +135,33 @@ const SAIDA_SEM_PORTAO = {
     + 'telefone do cliente na mesa, com um token de mesa e sem login '
     + '(inegociável #9). O que a segura: `getCheckByQrToken` exige token de mesa '
     + 'com conta ABERTA; o `marketGate` fecha o trilho fora do mercado ligado; e '
-    + 'o `assertChargeSlot` reivindica uma vaga no teto de cobranças vivas por '
-    + 'conta — uma instrução só no banco (`claimSlots`, RPC `claim_slots`), sob '
-    + 'trava consultiva, janela deslizante de quinze minutos, DEPOIS da '
-    + 'validação e antes do PSP. É a terceira forma do teto: a primeira contava '
-    + 'e comparava (não atômica: trezentos simultâneos passavam) e a segunda '
-    + 'guardava um balde por origem na memória da função (por instância, com '
-    + 'borda de janela, contando pedido inválido) — as duas medidas ao contrário '
-    + 'pela revisão de segurança de 2026-09-15. O QUE CONTINUA ABERTO: (1) numa '
-    + 'rota de token portador todo recurso por conta é esgotável por quem tem o '
-    + 'token: duzentas cobranças VÁLIDAS em quinze minutos e a mesa espera ou '
-    + 'fecha no caixa. Separar o atacante da mesa exigiria guardar uma chave de '
-    + 'origem (IP em hash) no banco, e a troca foi não guardar; (2) não há '
-    + 'idempotência no adquirente — só o MockPsp colapsa repetição, derivando o '
-    + '`txid` do `chargeRef`; (3) a consequência real de uma enxurrada na '
-    + 'conciliação é FOME: o `listPendingCharges` ordena da mais velha pra mais '
-    + 'nova num lote fixo, e uma pilha de ataque empurra as legítimas recentes '
-    + 'pra fora da varredura. O teto limita o tamanho dessa pilha, não a elimina.'
+    + 'o `assertChargeSlot` reivindica uma vaga no teto por conta E pela geração '
+    + 'do QR (`geracaoDoQr`) — uma instrução só no banco (`claimSlots`, RPC '
+    + '`claim_slots`), sob trava consultiva, janela deslizante de quinze minutos, '
+    + 'DEPOIS da validação e antes do PSP. Se o teto dispara, o '
+    + '`avisarTetoDisparado` pagina o operador, uma vez por conta e janela, '
+    + 'deduplicado no banco. O QUE CONTINUA ABERTO, e a versão anterior desta '
+    + 'linha errava o tamanho: (1) com a janela deslizante, quem tem o token e '
+    + 'repõe cada vaga ao vencer tranca a mesa por TEMPO INDETERMINADO — até o '
+    + 'dono girar o QR, que corta o token e começa um balde novo na hora; até '
+    + 'lá a mesa paga no caixa, e a tela não promete prazo (as duas revisões de '
+    + '2026-09-15); (2) não há idempotência no adquirente — só o MockPsp colapsa '
+    + 'repetição, derivando o `txid` do `chargeRef`; (3) a consequência real de '
+    + 'uma enxurrada na conciliação é FOME: o `listPendingCharges` ordena da mais '
+    + 'velha pra mais nova num lote fixo, e uma pilha de ataque empurra as '
+    + 'legítimas recentes pra fora da varredura. O teto limita a pilha.'
   ),
   '/api/pay/stripe-intent': (
     'O MESMO, no trilho da Stripe (Bizum e carteira), montando a cobrança em '
     + 'linha sem passar pela fábrica — a forma "regra copiada em dois lugares" '
     + 'que já custou a esta rota o portão de mercado e a validação do '
-    + '`payerLabel`. Por isso o teto é uma função (`assertChargeSlot`) chamada '
-    + 'nos dois sítios, com um censo estrutural exigindo-a antes de toda '
-    + 'criação de cobrança, em vez de uma terceira cópia da regra. A vaga só '
-    + 'volta se o PSP não criou a cobrança. A forma do ERRO também é a mesma: '
-    + 'esta rota tinha catch próprio que devolvia a frase interna sem código, e '
-    + 'sai pelo `errorBody` com `Retry-After`. Valem as três ressalvas da rota '
-    + 'irmã.'
+    + '`payerLabel`. Por isso as regras são funções chamadas nos dois sítios: '
+    + '`assertChargeSlot` (com um censo estrutural exigindo-a antes de toda '
+    + 'criação de cobrança) e `payerLabelValido`, conferido ANTES da vaga e '
+    + 'antes da Stripe — conferido só no registro, um rótulo longo gastava uma '
+    + 'vaga e deixava um intent órfão. A vaga fica só quando o código pagável '
+    + 'chega ao cliente. Recusa pelo `errorBody` com `Retry-After`, e o mesmo '
+    + '`avisarTetoDisparado`. Valem as três ressalvas da rota irmã.'
   ),
   '/api/house/load': (
     'CARGA DE SALDO DA CASA: também cria cobrança, e é a menos gateada das três '
@@ -175,10 +173,10 @@ const SAIDA_SEM_PORTAO = {
     + '`assertLoadSlot` reivindica vaga por CONTA (dez) e por CASA (duzentas) '
     + 'numa instrução só — o teto por casa porque um teto só por conta num '
     + 'endpoint em que contas são geradas é um teto sobre nada. O preço, dito: '
-    + 'vinte contas pausam as recargas daquela casa por até quinze minutos, com '
-    + 'código e frase próprios, e a conta da mesa não é afetada. O `chargeRef` '
-    + 'daqui leva um `randomUUID` de propósito, então não há idempotência nem '
-    + 'nominal.'
+    + 'quem gera contas pode manter as recargas daquela casa pausadas enquanto '
+    + 'quiser, com código e frase próprios que não prometem prazo, e a conta da '
+    + 'mesa não é afetada. O `chargeRef` daqui leva um `randomUUID` de '
+    + 'propósito, então não há idempotência nem nominal.'
   ),
 };
 
@@ -195,7 +193,15 @@ const SAIDA_FORA_DE_ROTA = [
   //
   // A FÁBRICA dos dois serviços de cobrança. Elas não chamam nada: constroem o
   // serviço que as rotas chamam, e as rotas estão declaradas ou gateadas.
-  "const { createChargeService, assertChargeSlot } = require('../_lib/pay/create-charge');",
+  // O `require` da fábrica: o caminho `create-charge` casa o singleton `charge`.
+  "} = require('../_lib/pay/create-charge');",
+  // O AVISO AO OPERADOR quando o teto dispara: a definição, a única chamada de
+  // saída dele, e a chamada no catch geral — por onde sai o 429 do `/api/pay`.
+  // Deduplicado no banco (uma vez por conta e janela), e só alcançável com o
+  // token da mesa E o teto cheio: não é pager anônimo. Ver o docblock.
+  'async function avisarTetoDisparado(err) {',
+  'await notifyFounderReconcile({',
+  'await avisarTetoDisparado(err);',
   'const charge = createChargeService({ store, psp });',
   'const demoCharge = createChargeService({ store, psp: demoPsp });',
   // As duas leituras de cobrança do `confirmDeps`, o helper que o aplicador de
@@ -335,7 +341,7 @@ describe('cron: quem escreve não degrada aberta', () => {
   const SUPERFICIE_DE_SAIDA = [
     'notifyOwnerRecipientStatus', 'notifyFounderActivationRadar', 'notifyPreviaBeacon',
     'notifyFounderReconcile', 'notifyFounderMoneyEvent', 'avisarEventoDeDinheiro',
-    'handleNonLedgerMoneyEvent', 'writeBackToPos', 'fetch',
+    'handleNonLedgerMoneyEvent', 'writeBackToPos', 'fetch', 'avisarTetoDisparado',
   ];
 
   /**
