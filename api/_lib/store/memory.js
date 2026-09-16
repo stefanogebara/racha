@@ -819,7 +819,13 @@ function createMemoryStore() {
     },
     /** Só pra teste/inspeção: a lista de órfãos deste store. */
     async listOrphanMoneyEvents() { return [...orphanEvents]; },
-    async listOpenOrphanMoneyEvents() { return orphanEvents.filter((o) => !o.resolvedAt); },
+    async listOpenOrphanMoneyEvents() {
+      // `orderCode` na mesma forma do store de produção — ele vem dentro do
+      // `payload` e a leitura o eleva, senão os dois stores descrevem órfãos
+      // diferentes.
+      return orphanEvents.filter((o) => !o.resolvedAt)
+        .map((o) => ({ ...o, orderCode: (o.payload && o.payload.orderCode) || null }));
+    },
 
     /**
      * Ver a migração 0023: só escreve se a linha ainda estiver como foi lida.
@@ -898,6 +904,28 @@ function createMemoryStore() {
       const rotulo = rotuloDoPagador(payerLabel);
       if (!rotulo.ok) throw badRequest('payerLabel must be a string of at most 60 chars');
       payerLabel = rotulo.valor;
+      /**
+       * `payments.txid` É ÚNICO NO BANCO (0001), e este dublê não recusava.
+       *
+       * Um segundo `registerCharge` com o mesmo txid SOBRESCREVIA a linha —
+       * medido: uma cobrança já confirmada voltava a `pendente`, perdendo
+       * `confirmedAt` e `confirmedAmountCents`. É exatamente a janela que a nova
+       * tentativa de escrita abriu (o webhook confirma enquanto a primeira ida
+       * de 10 s ainda está no ar), e em produção o `payments_txid_key` a fecha.
+       *
+       * Este arquivo já enuncia a regra sobre outro método — "o duplo tem que
+       * recusar o que o banco recusa, senão a corrida que ele deveria demonstrar
+       * passa verde aqui e falha lá" — e ela não tinha sido aplicada aqui. Sem
+       * isto, o ramo "unicidade na segunda tentativa é sucesso" do
+       * `create-charge` era inexercitável por dublê nenhum. Achado pela quarta
+       * revisão de segurança de 2026-09-16 (MEDIUM-4).
+       */
+      if (payments.has(txid)) {
+        throw Object.assign(
+          new Error(`memory store registerCharge: ${mensagemDeUnicidade('payments_txid_key')}`),
+          { pgCode: '23505', pgConstraint: 'payments_txid_key' },
+        );
+      }
       txidToCheck.set(txid, checkId);
       const check = checks.get(checkId);
       const chargeVenue = check ? venues.get(check.venueId) : null;

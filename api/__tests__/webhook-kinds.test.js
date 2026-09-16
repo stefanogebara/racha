@@ -175,11 +175,38 @@ test('a rota do Stripe conhece exatamente as mesmas espécies que o portão', ()
     .map((f) => path.join(__dirname, '..', '_lib', 'pay', f))
     .filter((f) => fs.existsSync(f))
     .map((f) => fs.readFileSync(f, 'utf8')).join('\n');
-  const emitidosPorAdaptador = new Set(
-    [...adaptadores.matchAll(/kind:\s*'([a-z_]+)'/g)].map((m) => m[1]),
-  );
+  /**
+   * A DERIVAÇÃO TEM QUE VER A EMISSÃO POR TERNÁRIO.
+   *
+   * A primeira versão casava só `kind: '…'` LITERAL, e o `stripe-psp.js` emite
+   * uma delas assim:
+   *
+   *     kind: r.status === 'failed' ? 'refund_failed' : 'refund_progress',
+   *
+   * Então o `refund_progress` era classificado como "derivado do tratador" e
+   * PERDIA a exigência de estar nomeado na rota da Stripe — uma guarda que eu
+   * afrouxei sem querer ao consertar outra coisa. A revisão plantou o mutante
+   * (tirar `parsed.kind === 'refund_progress'` do despacho) e mediu: censo
+   * antigo VERMELHO, censo novo VERDE. Em produção esse kind cairia no
+   * aplicador, que não tem evento pra ele, e a rota estouraria 500 → a Stripe
+   * reenvia → endpoint desabilitado → toda confirmação daquele trilho perdida.
+   *
+   * Agora casa qualquer literal citada num adaptador junto de `kind`, ternário
+   * incluído — e o teste abaixo prova que `refund_progress` está entre elas.
+   * Achado pela quarta revisão de segurança de 2026-09-16 (MEDIUM-3).
+   */
+  const emitidosPorAdaptador = new Set([
+    ...[...adaptadores.matchAll(/kind:\s*'([a-z_]+)'/g)].map((m) => m[1]),
+    // `kind: <cond> ? 'a' : 'b'` — as duas pontas do ternário.
+    ...[...adaptadores.matchAll(/kind:[^,\n]*\?\s*'([a-z_]+)'\s*:\s*'([a-z_]+)'/g)]
+      .flatMap((m) => [m[1], m[2]]),
+  ]);
   // O censo tem que ENXERGAR os adaptadores: zero emitidos absolveria tudo.
   expect(emitidosPorAdaptador.size).toBeGreaterThanOrEqual(5);
+  // E tem que enxergar A EMISSÃO POR TERNÁRIO especificamente: sem esta linha,
+  // a regressão que a revisão plantou volta em silêncio.
+  expect([...emitidosPorAdaptador]).toContain('refund_progress');
+  expect([...emitidosPorAdaptador]).toContain('refund_failed');
 
   const faltando = [...NON_LEDGER_KINDS]
     .filter((k) => emitidosPorAdaptador.has(k))

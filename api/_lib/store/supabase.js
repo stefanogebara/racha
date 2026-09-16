@@ -925,7 +925,11 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     async listOpenOrphanMoneyEvents(limit = 50) {
       const { data, error } = await client
         .from('orphan_money_events')
-        .select('id, at, kind, psp, event_type, txid, amount_cents')
+        // `payload` entra porque é nele que viaja o `orderCode` — o endereço da
+        // conta. Sem ele, o aviso diário dizia "sumiu dinheiro" e não dizia de
+        // qual mesa, e o procedimento mandava consultar um campo que a leitura
+        // nem trazia.
+        .select('id, at, kind, psp, event_type, txid, amount_cents, payload')
         .is('resolved_at', null)
         .order('at', { ascending: false })
         .limit(limit);
@@ -933,6 +937,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       return (data || []).map((o) => ({
         id: o.id, at: o.at, kind: o.kind, psp: o.psp,
         eventType: o.event_type, txid: o.txid, amountCents: o.amount_cents,
+        orderCode: (o.payload && o.payload.orderCode) || null,
       }));
     },
 

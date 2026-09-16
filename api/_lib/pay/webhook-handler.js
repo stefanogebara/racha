@@ -111,7 +111,26 @@ async function applyConfirmedPayment(parsed, deps) {
           // esconde dois valores atrás de um"), e a regra é boa. O status cru do
           // adquirente já viaja no `raw.raw`, que é o corpo mascarado que vai
           // pro `orphan_money_events`.
-          amountCents: (parsed.amountCents || 0) + (parsed.tipCents || 0) + (parsed.excessCents || 0),
+          /**
+           * O QUE CHEGOU — e o excedente NÃO entra duas vezes.
+           *
+           * O `parseCharge` já soma o excedente dentro de `amountCents`
+           * (`amountCents: partes.amountCents + excedente`) e ainda o reporta
+           * à parte em `excessCents`, porque a devolução precisa saber de qual
+           * pagamento ele veio. Somar os três contava o excedente duas vezes:
+           * medido numa conta de R$ 50,00 paga com R$ 60,00, o órfão dizia
+           * 7000¢ para 6000¢ que de fato entraram.
+           *
+           * O próprio adaptador escreve a invariante, e é ela que dá a conta
+           * certa: `partes.amountCents + excedente + partes.tipCents ===
+           * recebido`, ou seja **`amountCents + tipCents`**.
+           *
+           * Um número errado é pior que nenhum aqui: esta linha é o ÚNICO
+           * registro que existe desse dinheiro (inegociável #5), e ela vai pro
+           * aviso do fundador. Achado pela quarta revisão de segurança de
+           * 2026-09-16 (HIGH-1).
+           */
+          amountCents: (parsed.amountCents || 0) + (parsed.tipCents || 0),
           // O `code` do pedido carrega o `checkId`: é ele que torna o órfão
           // RESOLVÍVEL em vez de só visível.
           orderCode: parsed.orderCode || null,

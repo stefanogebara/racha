@@ -106,6 +106,16 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
     const amountCents = Math.max(0, totalCents - tipCents);
     return {
       txid: pi.id,
+      /**
+       * O MESMO `orderCode` do rail da Pagar.me — o dado sempre esteve aqui.
+       *
+       * `createWalletCharge` grava `metadata.charge_ref`, que é o mesmo
+       * `<checkId>:<n>:<n>:<n>`. O conserto do órfão passou pelo adaptador da
+       * Pagar.me e esqueceu este — num commit cujo censo central é sobre os dois
+       * rails divergirem. Baixo hoje só porque a Espanha está desligada.
+       * Achado pela quarta revisão de segurança de 2026-09-16 (LOW-2).
+       */
+      orderCode: (pi.metadata && pi.metadata.charge_ref) || null,
       status: pi.status,
       paid: pi.status === 'succeeded',
       /**

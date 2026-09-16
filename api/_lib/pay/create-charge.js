@@ -16,6 +16,7 @@ const { marketGate, pspCurrency } = require('../markets');
  */
 
 const { reduce, remainingCents } = require('../checks/check-state');
+const { linhaJaGravada, recusaProvadaDoErro } = require('../checks/reconcile');
 
 /**
  * `code` opcional porque o servidor NÃO manda texto de tela (CLAUDE.md): quem
@@ -441,18 +442,54 @@ function createChargeService({ store, psp }) {
     try {
       await gravarLinha();
     } catch (primeiraFalha) {
+      /**
+       * SÓ REPETE O QUE PODE DAR CERTO NA SEGUNDA.
+       *
+       * A nova tentativa existe pro prazo estourado, que é transitório. Uma
+       * recusa PROVADA — CHECK violado, grant revogado, coluna que não existe —
+       * é determinística: repetir só dobra a espera e a carga contra um banco
+       * que já está mal. E esta rota é pública (token de mesa, sem sessão), com
+       * `registerCharge` fazendo duas idas de 10 s: sem este corte, o pior caso
+       * ia de 20 s pra 40 s por requisição, numa superfície que qualquer um com
+       * uma foto do QR alcança. Achado pela quarta revisão de segurança de
+       * 2026-09-16 (MEDIUM-1).
+       *
+       * Quem decide o que é recusa provada é o classificador, pelo mesmo motivo
+       * de sempre: decisão por SQLSTATE mora num lugar só.
+       */
+      if (recusaProvadaDoErro(primeiraFalha)) throw primeiraFalha;
       try {
         await gravarLinha();
       } catch (segundaFalha) {
-        if (!/duplicate|unique|23505/i.test(String(segundaFalha.message))) {
+        // Pelo CLASSIFICADOR, não lendo o SQLSTATE aqui: decisão por código do
+        // Postgres mora num lugar só (censo do `sql-contract`).
+        if (!linhaJaGravada(segundaFalha)) {
           process.stderr.write(
             `[cobranca] LINHA NAO GRAVADA apos cobrar txid=${charge.txid} check=${checkId} `
-            + `rail=${rail}: ${String(segundaFalha.message).slice(0, 160)}\n`,
+            + `rail=${rail} wallet=${wallet || 'nao'}: ${String(segundaFalha.message).slice(0, 160)}\n`,
           );
-          const e = new Error('charge created at the acquirer but not recorded');
+          /**
+           * DOIS DESFECHOS, porque só UM trilho move dinheiro aqui.
+           *
+           * `createWalletCharge` CAPTURA o cartão dentro da chamada; o Pix e o
+           * Bizum só criam uma cobrança que o pagador ainda vai autorizar no app
+           * do banco dele. Um código só, para os três, dizia a quem pagou por
+           * Pix que "seu cartão pode já ter sido cobrado" — não há cartão, nada
+           * foi cobrado, e a conta nunca vai atualizar sozinha. Alarme falso no
+           * trilho principal do Brasil, e com o botão de pagar ainda vivo ao
+           * lado (CDC art. 6º III e art. 31). Achado pela quarta revisão de
+           * compliance de 2026-09-16 (HIGH-1).
+           *
+           * No Pix, "tente de novo" é a resposta CERTA — e é por isso que os
+           * dois códigos existem em vez de uma frase mais vaga que servisse aos
+           * dois.
+           */
+          const capturou = Boolean(wallet);
+          const e = new Error(capturou
+            ? 'charge captured at the acquirer but not recorded'
+            : 'charge could not be created');
           e.statusCode = 502;
-          // O cliente traduz. A frase NÃO manda tentar de novo.
-          e.code = 'charge_maybe_captured';
+          e.code = capturou ? 'charge_maybe_captured' : 'charge_not_started';
           e.txid = charge.txid;
           throw e;
         }

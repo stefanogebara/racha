@@ -250,8 +250,23 @@ test('todo trilho de terceiro exige bandeira por casa, e o servidor só a emite 
   //    parte, a bandeira existiria e não significaria nada.
   // Da resolução da casa até a emissão da bandeira — não uma janela de N
   // caracteres, que muda de significado quando alguém move uma linha.
-  const emissao = router.slice(router.indexOf('const casa ='), router.indexOf('acceptsWallet: true'));
+  //    SEM COMENTÁRIO antes de medir: o limite de tamanho é um guarda contra a
+  //    fatia perder o sentido, e a PROSA que documenta a emissão o estourava —
+  //    é a terceira vez neste repositório que um censo é enganado pelo texto que
+  //    explica o próprio conserto. Mede-se o código.
+  const semComentario = (t: string) => t
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\/.*$/gm, '');
+  const emissao = semComentario(
+    router.slice(router.indexOf('const casa ='), router.indexOf('acceptsWallet: true')),
+  );
   assert.ok(emissao.length > 0 && emissao.length < 2000, 'a emissão de acceptsWallet mudou de forma');
+  //    E ela exige o INTERRUPTOR, não só o recebedor. Sem isto, a primeira casa
+  //    cadastrada com recebedor de verdade ganhava Google Pay como efeito
+  //    colateral do cadastro — e a decisão de adiar o `capture: false` se apoia
+  //    em "nenhuma casa tem o trilho ligado" (segurança HIGH-4 de 2026-09-16).
+  assert.match(emissao, /carteiraLiberada\(/,
+    'acceptsWallet voltou a depender só do recebedor — o trilho se liga sozinho no cadastro');
   // A MESMA forma que o resto do repositório usa pra recebedor (`pagarme-psp`,
   // `setupComplete`). Fixar `re_` aqui congelava uma cópia divergente.
   assert.match(emissao, /\^r\[ep\]_/, 'acceptsWallet sai sem exigir recebedor real, na forma canônica');

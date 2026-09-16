@@ -103,8 +103,28 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
         process.stderr.write(`[webhook] busca do check falhou pra ${txid}: ${String(e.message).slice(0, 120)}\n`);
       }
     }
+    /**
+     * `money_without_check` NUNCA vira anomalia numa conta.
+     *
+     * O tratador procura a conta DE NOVO, depois de o aplicador já ter concluído
+     * que ela não existe. Entre as duas buscas cabe a segunda tentativa de
+     * gravar a linha — e ela costuma ganhar, porque o webhook do cartão chega
+     * segundos depois da captura. Aí `found` vira verdadeiro e este ramo
+     * pendurava um `PAYMENT_ANOMALY` **critical** ("evento de dinheiro que o
+     * razão não sabe lançar") numa conta cujo pagamento está prestes a ser
+     * confirmado normalmente: a casa fica vermelha na conciliação por um
+     * pagamento que está bem, e só um humano tira. Canário gritando lobo é o
+     * modo de falha do próprio #8.
+     *
+     * Pulando o apêndice, `persisted` fica falso e o `needsRetry` devolve 503 —
+     * o adquirente reenvia, o aplicador acha a conta que agora existe, e o
+     * pagamento entra no razão pelo caminho normal. O desfecho certo sai de não
+     * fazer nada, que é o melhor tipo. Achado pela quarta revisão de segurança
+     * de 2026-09-16 (MEDIUM-2).
+     */
+    const semContaPorDefinicao = kind === 'money_without_check';
     let persisted = false;
-    if (found && !quieto) {
+    if (found && !quieto && !semContaPorDefinicao) {
       try {
         await append(store, found.id, 'PAYMENT_ANOMALY', {
           txid,
@@ -157,7 +177,27 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
               Number(result.raw.raw.paid_amount) || Number(result.raw.raw.amount)
             )) ?? null,
           // MASCARADO: o corpo cru do PSP traz documento do pagador.
-          payload: maskPixPayload(result.raw && result.raw.raw ? result.raw.raw : result.raw),
+          /**
+           * O `orderCode` VIAJA POR FORA DO MASCARADOR.
+           *
+           * `maskPixPayload` é lista de PERMISSÃO de escalares e derruba tudo o
+           * que não está nela — inclusive isto, que é irmão do corpo do PSP e
+           * não campo dele. O commit anterior jurava que o órfão carregava o
+           * endereço da conta, e o runbook mandava consultar
+           * `payload->>'orderCode'`: medido, o payload salvo era `{}` e a
+           * consulta devolvia NULL sempre. Promessa em três artefatos, zero em
+           * produção (compliance HIGH-2 de 2026-09-16).
+           *
+           * Mesclado DEPOIS da máscara, e de propósito: ele é
+           * `<checkId>:<n>:<n>:<n>` — chave interna e três inteiros, sem dado
+           * pessoal — então acrescentá-lo à lista de permissão do mascarador
+           * afrouxaria um controle de segurança pra carregar um campo que não
+           * vem do PSP. Aqui ele é explícito e auditável numa linha.
+           */
+          payload: {
+            ...maskPixPayload(result.raw && result.raw.raw ? result.raw.raw : result.raw),
+            ...(result.raw && result.raw.orderCode ? { orderCode: result.raw.orderCode } : {}),
+          },
         });
         persisted = true;
       } catch (e) {

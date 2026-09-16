@@ -33,8 +33,47 @@ function errorStatus(err) {
  * @param {Error & {code?: string, vars?: object}} err
  * @param {number} status
  */
+/**
+ * OS CÓDIGOS QUE ATRAVESSAM UM 5xx — por nome, e com o motivo.
+ *
+ * A regra de cima existe por uma razão boa: num 5xx a mensagem é NOSSA e
+ * costuma nomear internos (o adquirente da casa, a env que falta, o erro cru do
+ * Postgres), então ela não viaja. Só que ela engolia o CÓDIGO junto, e há
+ * desfechos de 5xx em que o código é a única coisa que diz ao cliente o que
+ * fazer — e em que "tente de novo" é a resposta ERRADA.
+ *
+ * Foi o que aconteceu com o `charge_maybe_captured`: um 502 com código próprio,
+ * escrito pra desarmar o botão do Google Pay sobre um cartão que pode já ter
+ * sido cobrado, chegava ao cliente como `internal` → "algo deu errado, tente de
+ * novo" → botão armado. O conserto inteiro era código morto, e o teste não viu
+ * porque afirmava o erro LANÇADO e nunca a resposta da rota. Achado pela quarta
+ * revisão de compliance de 2026-09-16 (CRITICAL-1).
+ *
+ * O repositório já tinha o sintoma: o `platform_misconfigured` é emitido com
+ * `json(res, 503, …)` à mão em dois lugares, contornando esta função —
+ * justamente porque ela o comeria. Uma lista de permissão nomeada é o que
+ * generaliza esse contorno em vez de multiplicá-lo.
+ *
+ * O que entra aqui: código NOSSO, sem detalhe interno, cuja ausência muda o que
+ * o cliente faz. Não a mensagem — a mensagem continua sem viajar.
+ */
+const CODIGOS_QUE_ATRAVESSAM_5XX = new Set([
+  // O cartão pode já ter sido capturado: a tela desarma o botão e diz pra não
+  // pagar de novo. Sem o código, ela convida à segunda cobrança (CDC art. 42).
+  'charge_maybe_captured',
+  // A cobrança NÃO chegou a ser criada: nada saiu, e aqui "tente de novo" é a
+  // resposta certa — o oposto do de cima, e é por isso que são dois códigos.
+  'charge_not_started',
+  // O login não respondeu. Sem o código o cliente trata como 401 e desloga o
+  // dono no meio do turno.
+  'auth_unavailable',
+]);
+
 function errorBody(err, status = errorStatus(err)) {
   if (status >= 500) {
+    if (err && CODIGOS_QUE_ATRAVESSAM_5XX.has(err.code)) {
+      return { success: false, error: 'erro interno', code: err.code };
+    }
     return { success: false, error: 'erro interno', code: 'internal' };
   }
   // Com CÓDIGO, a mensagem interna NÃO viaja.
@@ -61,4 +100,4 @@ function errorBody(err, status = errorStatus(err)) {
   return { success: false, error: (err && err.message) || 'erro' };
 }
 
-module.exports = { errorStatus, errorBody };
+module.exports = { errorStatus, errorBody, CODIGOS_QUE_ATRAVESSAM_5XX };

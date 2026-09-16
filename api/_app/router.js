@@ -392,6 +392,20 @@ function projetarAchados(findings) {
 }
 
 /**
+ * A LISTA DE CASAS COM CARTEIRA LIBERADA — vazia por padrão.
+ *
+ * Lida a cada chamada, e não uma vez no boot: uma instância quente da Vercel
+ * viveria com a lista velha depois de a env mudar, e "liguei e não ligou" é o
+ * jeito de alguém desistir do interruptor e tirar o interruptor.
+ */
+function carteiraLiberada(venueId) {
+  const cru = String(process.env.RACHA_WALLET_VENUES || '').trim();
+  if (!cru) return false;
+  if (cru === '*') return true;   // escape explícito, pra staging
+  return cru.split(',').map((x) => x.trim()).filter(Boolean).includes(String(venueId));
+}
+
+/**
  * A RESPOSTA A PARTIR DO DESFECHO DO APLICADOR — num lugar só.
  *
  * Quatro sítios faziam `result.status === 'rejected' ? 409 : 200` à mão, e
@@ -989,7 +1003,28 @@ async function route(req, res) {
       // casa legada `rp_` cobrando normalmente e sem carteira — falha fechada,
       // então não era buraco, mas é a forma "cópia divergente" que aparece
       // depois como "o Google Pay parou de funcionar num restaurante só".
-      if (casa && /^r[ep]_/.test(casa.pspRecipientId || '')) {
+      /**
+       * A CARTEIRA PRECISA DE UM INTERRUPTOR, e não só de um recebedor.
+       *
+       * Isto ligava o Google Pay pra qualquer casa com recebedor de verdade —
+       * ou seja, a primeira casa-piloto cadastrada num build com as chaves da
+       * Pagar.me ganhava o trilho de carteira como EFEITO COLATERAL do
+       * cadastro, sem decisão e sem aviso.
+       *
+       * Isso importa porque a decisão de adiar o `capture: false`
+       * (`docs/decisions/2026-09-16-capturar-antes-de-gravar.md`) se apoia em
+       * "hoje o trilho não está no ar em casa nenhuma" — e o gatilho que devia
+       * forçar a inversão era exatamente o evento que se satisfazia sozinho. Um
+       * gatilho que depende de alguém lembrar é um desejo; este arquivo já foi
+       * queimado por isso duas vezes. Achado pela quarta revisão de compliance
+       * de 2026-09-16 (HIGH-4).
+       *
+       * `RACHA_WALLET_VENUES` é lista de ids separados por vírgula, e AUSENTE
+       * quer dizer nenhuma. Não é uma coluna porque DDL em produção é outro
+       * portão; quando a carteira for de verdade, isto vira
+       * `venues.wallet_enabled` e este comentário some.
+       */
+      if (casa && /^r[ep]_/.test(casa.pspRecipientId || '') && carteiraLiberada(casa.id)) {
         data = { ...data, venue: { ...data.venue, acceptsWallet: true } };
       }
       // O estado sai PROJETADO. `/api/check` é público — quem tem o QR da mesa
@@ -3036,4 +3071,4 @@ async function route(req, res) {
 // `registraMissDeCheck` e `clientIp` saem pro teste: a garantia que importa —
 // a resposta do 404 é SEMPRE a mesma, e o primeiro hop do XFF não é confiável —
 // é de COMPORTAMENTO, e censo de fonte não prova comportamento.
-module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, psp, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp };
+module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, psp, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp, carteiraLiberada };

@@ -889,6 +889,39 @@ function podeSerReentrega(err) {
   return (err && err.pgCode) === '23505';
 }
 
+/**
+ * A LINHA JÁ ESTÁ LÁ — a outra pergunta que um `23505` responde.
+ *
+ * Mesmo SQLSTATE, outra pergunta: o `podeSerReentrega` fala da reentrega de um
+ * webhook; esta fala da SEGUNDA tentativa de gravar a linha de cobrança, quando
+ * a primeira escreveu e só a resposta se perdeu. Nesse caso a unicidade é
+ * SUCESSO, não erro.
+ *
+ * Mora aqui e não no `create-charge` porque decisão por SQLSTATE mora num lugar
+ * só — o censo do `sql-contract` prende isso, e foi ele que pegou a versão que
+ * lia `pgCode` direto na fábrica de cobrança. A versão ANTES dessa era pior:
+ * `/duplicate|unique|23505/` contra a mensagem, que é a decisão por substring
+ * atravessando módulo que o inegociável #7 manda desconfiar.
+ */
+function linhaJaGravada(err) {
+  return (err && err.pgCode) === '23505';
+}
+
+/**
+ * O MESMO `recusaProvada`, mas recebendo o ERRO em vez do código.
+ *
+ * O censo do `sql-contract` isenta a leitura de `pgCode` só DENTRO deste
+ * arquivo — e com razão: "passa o código pro classificador" ainda obriga o
+ * chamador a saber que a decisão se chama `pgCode`, e é assim que a segunda
+ * cópia da regra nasce. De fora, passa-se o erro inteiro e pronto.
+ *
+ * (Os chamadores antigos continuam usando `recusaProvada(e.pgCode)` de dentro
+ * deste módulo; esta é a porta pra quem está fora dele.)
+ */
+function recusaProvadaDoErro(err) {
+  return recusaProvada(err && err.pgCode);
+}
+
 function resumoDoReparo(pia = {}) {
   const reparados = pia.repaired || [];
   const corridas = pia.raced || [];
@@ -1565,4 +1598,4 @@ async function reconcileVenueHouse(store, venueId) {
 
 module.exports = {
   acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, recusaProvada,
-  desfechoDoLancamento, podeSerReentrega, INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+  desfechoDoLancamento, podeSerReentrega, linhaJaGravada, recusaProvadaDoErro, INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };

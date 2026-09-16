@@ -773,6 +773,20 @@ export const DICT = {
     pt: 'Seu cartão pode já ter sido cobrado, mas não conseguimos registrar. Não pague de novo — espere a conta atualizar e fale com o balcão se ela não atualizar.',
     es: 'Puede que tu tarjeta ya se haya cobrado, pero no pudimos registrarlo. No pagues otra vez — espera a que la cuenta se actualice y habla con el personal si no lo hace.',
   },
+  /**
+   * A COBRANÇA NEM CHEGOU A SER CRIADA — e aqui "tente de novo" é o certo.
+   *
+   * O par do `charge_maybe_captured` acima. No Pix e no Bizum nada é capturado
+   * na criação: o pagador ainda vai autorizar no app do banco dele. Dizer a
+   * essa pessoa que "seu cartão pode já ter sido cobrado" é alarme falso no
+   * trilho principal do Brasil — não há cartão, nada saiu, e a conta não vai
+   * atualizar sozinha. Dois códigos porque as duas respostas são opostas.
+   */
+  'err.charge_not_started': {
+    en: 'We could not start the payment. Nothing was charged — try again.',
+    pt: 'Não conseguimos iniciar o pagamento. Nada foi cobrado — tente de novo.',
+    es: 'No pudimos iniciar el pago. No se cobró nada — inténtalo de nuevo.',
+  },
   'err.restitution_unavailable': { en: 'The refund could not be recorded now. Open the bill and check before recording it again.',
                         pt: 'Não deu pra registrar a devolução agora. Abra a conta e confira antes de registrar de novo.',
                         es: 'No se pudo registrar la devolución ahora. Abre la cuenta y comprueba antes de registrarla otra vez.' },

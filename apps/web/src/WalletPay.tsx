@@ -220,6 +220,9 @@ export default function WalletButtons({
       setSheet(null);
     } catch (e) {
       setError(asMessage(t, tErr, e));
+      // Na demo o dinheiro é de mentira, mas o estado é lido pelo MESMO botão
+      // quando o build é real — deixar o `set` aqui e a leitura só lá era um
+      // estado posto em dois lugares e lido em um (LOW-3 da quarta revisão).
       if ((e as { code?: string }).code === 'charge_maybe_captured') setTravado(true);
     } finally {
       setBusy(false);
@@ -282,7 +285,7 @@ export default function WalletButtons({
             key={w}
             type="button"
             className={`walletbtn ${w === 'apple_pay' ? 'apple' : 'gpay'}`}
-            disabled={disabled}
+            disabled={disabled || travado}
             onClick={() => { setError(null); setSheet(w); }}
           >
             {w === 'apple_pay' ? ' Pay' : 'G Pay'}

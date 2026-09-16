@@ -41,9 +41,21 @@ where kind = 'money_without_check' and resolved_at is null
 order by at desc;
 ```
 
-Se `orderCode` estiver nulo (adquirente que não devolve o pedido, ou evento
-antigo), o caminho é o painel do adquirente: procure o `txid` e leia o `code` do
-pedido lá.
+Se `orderCode` estiver nulo (adquirente que não devolve o pedido, ou linha
+gravada antes de 2026-09-16), o caminho é o painel do adquirente: procure o
+`txid` e leia o `code` do pedido lá.
+
+> **Este campo já foi uma promessa vazia.** A primeira versão deste documento
+> mandava consultar `payload->>'orderCode'` quando o campo NÃO era gravado — o
+> `maskPixPayload` é lista de permissão e o derrubava, e o payload salvo era
+> `{}`. Uma revisão mediu e acusou. Hoje ele é gravado explicitamente, fora do
+> mascarador, e o aviso diário do fundador imprime valor e conta na mesma linha.
+
+O aviso do fundador traz os três de uma vez:
+
+```
+1 evento(s) de dinheiro SEM conta correspondente: money_without_check ch_orfa 6000¢ conta 11111111-…
+```
 
 ## O que fazer
 

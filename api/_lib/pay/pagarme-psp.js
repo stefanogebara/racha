@@ -153,6 +153,16 @@ function parseCharge(charge, eventId = null) {
      * do adquirente pra descobrir a mesa.
      */
     orderCode: (charge.order && charge.order.code) || null,
+    /**
+     * O TIPO DO EVENTO, que ninguém preenchia.
+     *
+     * `money_without_check` grava `event_type` a partir daqui, e ele saía SEMPRE
+     * nulo — então o operador não distinguia um `charge.paid` de um
+     * `charge.overpaid` sem abrir o painel do adquirente, que é justamente o
+     * passo que o registro existe pra poupar. Achado pela quarta revisão de
+     * segurança de 2026-09-16 (LOW-1).
+     */
+    type: charge.status ? `charge.${charge.status}` : null,
     // O id do evento vem de FORA: a conciliação lê a cobrança pela API e não
     // tem evento nenhum (null, e o índice parcial da 0018 ignora nulos), o
     // webhook tem. O campo existe nos dois pra ninguém esquecer de passá-lo.

@@ -792,8 +792,22 @@ function formatReconcileAlert(report) {
     : '';
   const linhaOrfaos = orfaos > 0
     ? `\n\n${orfaos} evento(s) de dinheiro SEM conta correspondente: `
+      /**
+       * O VALOR e o ENDEREÇO, além do tipo e do txid.
+       *
+       * A linha dizia `money_without_check ch_x` e mais nada: quem lesse o aviso
+       * às quatro da manhã não sabia QUANTO nem de QUAL mesa, e tinha que abrir
+       * o painel do adquirente pra descobrir as duas coisas. O `orderCode`
+       * começa com o `checkId`, então o primeiro campo dele é o endereço.
+       * Achado pela quarta revisão de compliance de 2026-09-16 (HIGH-2).
+       */
       + (report.orphans || []).slice(0, 5)
-        .map((o) => `${o.kind}${o.txid ? ` ${o.txid}` : ''}`).join(', ')
+        .map((o) => [
+          o.kind,
+          o.txid || null,
+          Number.isFinite(o.amountCents) ? `${o.amountCents}¢` : null,
+          o.orderCode ? `conta ${String(o.orderCode).split(':')[0]}` : null,
+        ].filter(Boolean).join(' ')).join(', ')
     : '';
   if (report.venuesRed === 0) {
     return `Conciliação ${report.at.slice(0, 10)}: restaurantes ok.${linhaOrfaos}${linhaReparos}${linhaPlataforma}`;

@@ -58,13 +58,40 @@ Fazer meia inversão seria pior que nenhuma: uma autorização que ninguém capt
 
 ## O gatilho
 
-**Antes de a carteira (Google Pay) servir uma casa que cobra de verdade.** Não é
-uma data nem uma métrica: é um evento de produto, e quem o aciona sabe que o
-aciona — hoje o trilho de carteira não está no ar em casa nenhuma.
+**Antes de a carteira (Google Pay) servir uma casa que cobra de verdade.**
+
+A primeira versão desta página dizia que isso era "um evento de produto, e quem
+o aciona sabe que o aciona". Era falso, e uma revisão mediu: o `acceptsWallet`
+era verdadeiro para QUALQUER casa com recebedor de verdade, então a primeira
+casa-piloto cadastrada num build com as chaves ganhava Google Pay como efeito
+colateral do cadastro. **O gatilho que devia forçar a inversão se satisfazia
+sozinho** — a forma de "guarda que depende de alguém lembrar" que este
+repositório já pagou pra aprender duas vezes.
+
+Agora existe interruptor: `RACHA_WALLET_VENUES`, lista de ids separados por
+vírgula, **ausente quer dizer nenhuma**. Ligar a carteira numa casa passou a ser
+um ato — e é esse ato que dispara esta decisão. Quando a carteira for de
+verdade, isto vira `venues.wallet_enabled` (coluna, não env).
 
 Enquanto não estiver, o que segura é o de cima: o cliente não é convidado a
-pagar duas vezes, e o órfão é contado no aviso diário do fundador com o endereço
-da conta junto.
+pagar duas vezes, e o órfão vai pro aviso diário do fundador com o VALOR e o
+endereço da conta na mesma linha.
+
+(Isto também já foi promessa vazia: o `orderCode` não era gravado, e o aviso
+dizia só o tipo e o txid. As duas coisas foram consertadas depois de uma revisão
+medir; ver o runbook.)
+
+## O que ficou ABERTO, e não foi consertado aqui
+
+- **Dinheiro que SAI pra um txid desconhecido continua 409.** O argumento "um
+  409 não guarda nada" vale igual pro estorno e pra disputa perdida, e hoje só o
+  que ENTRA vira órfão registrável. A assimetria foi herdada, não decidida.
+- **Não há caminho automático de volta**: recriar a linha a partir do órfão é
+  trabalho manual de banco (o runbook diz isso em voz alta).
+- **A ponte de avisos ainda não aceita `money_without_check`** — ela deploya de
+  outro repositório. Até lá o alerta do mesmo dia é recusado e o fundador só
+  sabe pela conciliação da madrugada. O evento fica durável aqui de qualquer
+  jeito, porque o reenvio depende do registro e não do aviso.
 
 ## O que eu mediria antes de projetar a inversão
 

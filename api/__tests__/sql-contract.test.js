@@ -1254,8 +1254,33 @@ function foraDoClassificador(fonteDoClassificador, decisoes) {
     }
     return [inicio, j];
   };
-  const corpos = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega'].map(corpo).filter(Boolean);
-  const naChamada = (antes) => /(?:recusaProvada|desfechoDoLancamento|podeSerReentrega)\(\s*(?:err|e)?\s*(?:&&\s*(?:err|e))?\s*\.?$/.test(antes);
+  /**
+   * OS PREDICADOS DO CLASSIFICADOR, por nome.
+   *
+   * `linhaJaGravada` entrou em 2026-09-16: mesmo `23505` do `podeSerReentrega`,
+   * outra pergunta — "a linha de cobrança já está lá?", pra segunda tentativa
+   * de gravar depois de o adquirente já ter cobrado. Ela nasceu DENTRO do
+   * `create-charge` (lendo `pgCode` na fábrica) e este censo a expulsou pra cá,
+   * que é exatamente o serviço dele.
+   *
+   * A lista é escrita à mão de propósito: acrescentar um predicado que decide
+   * por SQLSTATE é uma decisão, e uma lista derivada deixaria ela acontecer sem
+   * ninguém olhar.
+   */
+  const corpos = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega', 'linhaJaGravada',
+    'recusaProvadaDoErro']
+    .map(corpo).filter(Boolean);
+  /**
+   * "O `pgCode` é ARGUMENTO de um predicado do classificador" — com qualquer
+   * nome de variável.
+   *
+   * Isto casava só `err` e `e`. Um `catch (primeiraFalha)` — nome melhor, num
+   * bloco que tem duas falhas distintas pra nomear — passava a ser acusado
+   * mesmo entregando a leitura ao classificador, que é exatamente o que a regra
+   * pede. A regra é sobre ONDE a decisão mora, não sobre como o autor chamou a
+   * variável; um censo preso a nomes empurra o código pra nomes piores.
+   */
+  const naChamada = (antes) => /(?:recusaProvada|desfechoDoLancamento|podeSerReentrega|linhaJaGravada)\(\s*(?:[A-Za-z_$][\w$]*)?\s*(?:&&\s*[A-Za-z_$][\w$]*)?\s*\.?$/.test(antes);
   return {
     corpos,
     fora: decisoes.filter((d) => !(d.arquivo === '_lib/checks/reconcile.js'
@@ -1360,7 +1385,13 @@ test('`pgCode` e `pgConstraint` só são lidos pelo classificador', () => {
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
   const { corpos, fora } = foraDoClassificador(fonteDoClassificador, decisoes);
-  expect(corpos.length).toBe(3);
+  // CINCO predicados desde 2026-09-16 (`linhaJaGravada` e `recusaProvadaDoErro`). O número é
+  // fixo de propósito: se um deles for renomeado ou apagado, o `corpo()` devolve
+  // null, o corpo dele deixa de ser isento, e todas as leituras de `pgCode` lá
+  // dentro passariam a ser acusadas — o censo acusaria o inocente em vez de
+  // absolver o culpado, que é a direção certa de falhar, mas só se alguém
+  // perceber. Este número é o que faz perceber.
+  expect(corpos.length).toBe(5);
   expect(decisoes.length).toBeGreaterThan(0);
   expect(fora.map((d) => `${d.arquivo}: ${d.linha}`)).toEqual([]);
 });
