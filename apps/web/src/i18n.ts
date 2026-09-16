@@ -223,13 +223,50 @@ export const DICT = {
   // segunda metade, fazendo as duas coisas mal.
   'payer.name':       { en: 'Your name (optional)',            pt: 'Seu nome (opcional)', es: 'Tu nombre (opcional)' },
   'payer.namePlaceholder': { en: 'e.g. Ana',                   pt: 'ex.: Ana', es: 'p. ej. Ana' },
-  'payer.cpf':        { en: 'Your CPF (required to pay)',      pt: 'Seu CPF (obrigatório pra pagar)', es: 'Tu CPF (obligatorio para pagar)' },
+  // OS DOIS TRILHOS QUE O EXIGEM, nomeados. A versão anterior dizia só "Pix", e
+  // o comentário que a justificava dizia que "o botão do Pix é o único que o CPF
+  // destrava" — falso: o botão do Google Pay também é travado por ele
+  // (`WalletPay`), e ficava cinza SEM MENSAGEM, que é o modo de falha que esta
+  // tela já tinha consertado pro Pix ("ficava cinza em silêncio e parecia
+  // quebrado"). Quem exige é a Pagar.me, nos dois; a Stripe não exige em nenhum.
+  'payer.cpf':        { en: 'Your CPF (required for Pix and Google Pay)', pt: 'Seu CPF (obrigatório pra Pix e Google Pay)', es: 'Tu CPF (obligatorio para Pix y Google Pay)' },
   // O que o CPF é fica AQUI e não no placeholder: glosado no rótulo, o campo
   // truncava em "Your CPF, the Brazilian tax ID (required to" num telefone de
   // 430px — e um rótulo cortado explica menos que um curto. Visto no navegador.
-  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. The payment provider asks for it to issue the charge — it goes to them, not to the restaurant, and Racha does not store it.',
-                        pt: 'O provedor de pagamento pede o CPF pra emitir a cobrança. Vai pra ele, não pro restaurante, e a Racha não guarda.',
-                        es: 'El CPF es el número fiscal brasileño. El proveedor de pago lo pide para emitir el cobro — va para él, no para el restaurante, y Racha no lo guarda.' },
+  /**
+   * QUEM PEDE O CPF É O PIX, e a frase dizia "o provedor de pagamento" — no
+   * singular, como se fosse um só.
+   *
+   * Quem exige é o GATEWAY, e cada um exige de um jeito. No Pix e no Google Pay
+   * a Pagar.me pede `customer.document` pra emitir a cobrança, e o documento VAI
+   * pra ela (`pagarme-psp.js`: `baseOrder` → `document`). Na Stripe, não: o
+   * adaptador recebe o campo e o DESCARTA (`void payerDocument`), de propósito e
+   * por minimização, porque ela não exige documento.
+   *
+   * A redação de ontem dizia "vai pro provedor de pagamento", no singular — e
+   * era falsa na Stripe. A correção de hoje trocou por "no cartão ele não é
+   * enviado a lugar nenhum", e ficou PIOR: o cartão da Pagar.me (Google Pay)
+   * manda, então a frase passou a NEGAR um destino que existe. Negar é a direção
+   * mais grave num aviso de transparência (LGPD art. 6º III e art. 9º).
+   *
+   * A CONDICIONAL TEM QUE ESTAR NA TELA, não só aqui no comentário.
+   *
+   * A versão anterior desta frase dizia "o provedor de pagamento do restaurante
+   * EXIGE o CPF" — sem condição —, e eu justifiquei aqui escrevendo "que é
+   * sempre verdade quando ele pede". A condicional ficou no comentário e a tela
+   * afirmou incondicionalmente: quem paga por Apple Pay numa casa brasileira lê
+   * que o provedor exige, digita, e o número viaja até o nosso servidor pra ser
+   * descartado (LGPD art. 6º III e art. 9º; compliance MEDIUM-1 da rodada
+   * catorze). A frase agora diz NO PIX, que é onde a exigência existe, e diz o
+   * que acontece nos outros trilhos em vez de calar.
+   *
+   * O conserto completo — o campo sumir quando o trilho não usa o documento — é
+   * de produto e continua na fila. O que não podia esperar é a tela afirmar uma
+   * exigência que, naquele caminho, não existe.
+   */
+  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. On Pix and Google Pay the payment provider requires it to issue the charge, and it goes to the provider — never to the restaurant, and Racha does not store it. On card it is not requested by the provider.',
+                        pt: 'No Pix e no Google Pay, o provedor de pagamento exige o CPF pra emitir a cobrança, e ele vai pra esse provedor — nunca pro restaurante, e a Racha não guarda. No cartão, o provedor não pede.',
+                        es: 'Con Pix y Google Pay, el proveedor de pago exige el CPF para emitir el cobro, y va para ese proveedor — nunca para el restaurante, y Racha no lo guarda. Con tarjeta, el proveedor no lo pide.' },
   // "11 digitos" era a regra INTEIRA que a tela conferia, e nao e a regra: o
   // digito verificador tambem e conferido aqui agora, entao a frase tem que
   // cobrir o caso "onze digitos que nao fecham" — senao a pessoa conta os
@@ -696,6 +733,43 @@ export const DICT = {
   'find.overpaid_tip_check': { en: 'the bill has surplus and more than one payment carried a service charge — check whether service was charged on the duplicated part',
                         pt: 'a conta tem sobra e mais de um pagamento trouxe serviço — confira se há serviço cobrado sobre a parte duplicada',
                         es: 'la cuenta tiene excedente y más de un pago trajo servicio — comprueba si se cobró servicio sobre la parte duplicada' },
+  /**
+   * A CONTA QUE VOLTOU A COBRAR. Quem lê isto é quem decide se pede o resto à
+   * mesa — então a frase tem que dizer NÃO PEÇA, e não só descrever o estado.
+   *
+   * Uma devolução pelo painel do adquirente é rateada entre consumo e serviço, e
+   * a parte do consumo abate o pago sem mexer no total: a conta volta de `paga`
+   * pra `parcial` e o telefone da mesa mostra saldo e o botão de pagar outra vez
+   * (CDC art. 42; compliance HIGH-3 da rodada dez).
+   */
+  'find.reopened_by_refund': { en: 'this bill was settled and a refund reopened it — the table now sees {amount} “still owed” and a pay button. Close the bill or adjust the total down; do not ask the table for the difference',
+                        pt: 'esta conta estava quitada e uma devolução a reabriu — a mesa está vendo {amount} “faltando” e o botão de pagar. Feche a conta ou ajuste o total para baixo; não peça a diferença à mesa',
+                        es: 'esta cuenta estaba saldada y una devolución la reabrió — la mesa ve {amount} «pendiente» y el botón de pagar. Cierra la cuenta o ajusta el total a la baja; no pidas la diferencia a la mesa' },
+  /**
+   * DOIS NÚMEROS, porque são duas coisas — e a versão de uma frase só afirmava
+   * que eram a mesma.
+   *
+   * `{amount}` é o que a MESA vê faltando; `{refundable}` é a parte que veio de
+   * DEVOLUÇÃO, que é o que o dono pode dar baixa. O resto é chargeback: dívida
+   * que a casa perdeu de verdade, e apagá-la dos livros é apagar um prejuízo.
+   * Com um número só, o dono ajustava pelo menor e a mesa continuava vendo o
+   * maior, com o botão de pagar ligado (CDC art. 42 § único).
+   */
+  /**
+   * E A TERCEIRA: o buraco é TODO chargeback, e não há o que ajustar.
+   *
+   * É o estado depois de o dono fazer o que a frase do caso misto manda. Sem uma
+   * frase própria, ela dizia "dos quais R$ 0,00 vieram de devolução — ajuste na
+   * parte devolvida": metade da instrução vira no-op, e quem repetir o gesto de
+   * ontem apaga dos livros um prejuízo real. Aqui só sobra a ação verdadeira, e
+   * o art. 42 não é citado: nesta parcela a dívida NÃO está quitada.
+   */
+  'find.reopened_by_chargeback': { en: 'this bill was settled and the table still sees {amount} “still owed” with a pay button — and that whole gap is a chargeback the house lost. There is nothing to adjust down; writing it off would erase a real loss. Close the bill.',
+                        pt: 'esta conta estava quitada e a mesa ainda vê {amount} “faltando” com o botão de pagar — e esse buraco é TODO de chargeback, que a casa perdeu. Não há nada a ajustar; apagá-lo dos livros seria apagar um prejuízo. Feche a conta.',
+                        es: 'esta cuenta estaba saldada y la mesa aún ve {amount} «pendiente» con el botón de pagar — y ese hueco es TODO contracargo, que el local perdió. No hay nada que ajustar; borrarlo sería borrar una pérdida real. Cierra la cuenta.' },
+  'find.reopened_by_refund_mixed': { en: 'this bill was settled and a refund reopened it — the table now sees {amount} “still owed” and a pay button, of which {refundable} came from a refund; the rest is a chargeback the house actually lost. Close the bill or adjust the total down by the refunded part; do not ask the table for the difference',
+                        pt: 'esta conta estava quitada e uma devolução a reabriu — a mesa está vendo {amount} “faltando” e o botão de pagar, dos quais {refundable} vieram de devolução; o resto é chargeback, que a casa perdeu mesmo. Feche a conta ou ajuste o total para baixo na parte devolvida; não peça a diferença à mesa',
+                        es: 'esta cuenta estaba saldada y una devolución la reabrió — la mesa ve {amount} «pendiente» y el botón de pagar, de los cuales {refundable} vinieron de una devolución; el resto es un contracargo que el local sí perdió. Cierra la cuenta o ajusta el total a la baja por la parte devuelta; no pidas la diferencia a la mesa' },
   'find.ledger_drift':{ en: 'the two money records disagree by {amount}',
                         pt: 'os dois registros de dinheiro divergem em {amount}',
                         es: 'los dos registros de dinero difieren en {amount}' },
@@ -826,10 +900,13 @@ export const DICT = {
   'find.test_venue_with_live_recipient': { en: 'venues flagged as test have real payout accounts — they can receive real money and no reconciliation runs on them',
                         pt: 'casas marcadas como teste têm conta de repasse de verdade — elas podem receber dinheiro real e nenhuma conciliação roda nelas',
                         es: 'locales marcados como prueba tienen cuentas de abono reales — pueden recibir dinero real y ninguna conciliación se ejecuta sobre ellos' },
-  // NÃO É "AINDA": essa cobrança nunca passou por adquirente nenhum.
-  'find.charge_not_from_acquirer': { en: 'this charge did not go through the acquirer, so there is no settlement record to check — its destination cannot be verified here',
-                        pt: 'esta cobrança não passou pelo adquirente, então não há registro de repasse a conferir — o destino dela não é conferível por aqui',
-                        es: 'este cobro no pasó por el adquirente, así que no hay registro de abono que revisar — su destino no se puede verificar aquí' },
+  // "ESTE adquirente", e não "o adquirente". A frase anterior afirmava que a
+  // cobrança não passou por adquirente NENHUM — falso pra uma cobrança de outro
+  // trilho, que passou por um, só não por este. A perna de conciliação é de um
+  // adquirente só, e é isso que ela sabe dizer.
+  'find.charge_not_from_acquirer': { en: 'this charge did not go through this acquirer — either it is on another rail or it never went through one; either way there is no settlement record to check here',
+                        pt: 'esta cobrança não passou por este adquirente — ou é de outro trilho, ou nunca passou por adquirente nenhum; de todo jeito não há registro de repasse a conferir aqui',
+                        es: 'este cobro no pasó por este adquirente — o es de otra vía, o nunca pasó por ninguno; en cualquier caso no hay registro de abono que revisar aquí' },
   'find.payables_venue_shape_unknown': { en: 'the reconciliation was handed an incomplete venue record — nothing can be asserted about where this venue\u2019s money goes',
                         pt: 'a conciliação recebeu um registro de casa incompleto — não dá pra afirmar nada sobre o destino do dinheiro dela',
                         es: 'la conciliación recibió un registro de local incompleto — no se puede afirmar nada sobre el destino de su dinero' },
@@ -1300,9 +1377,25 @@ export const DICT = {
   // Sem nomear o trilho local: "além do Pix" numa tela espanhola é errado, e o
   // que importa nesta frase é o mesmo nos dois mercados — cartão e carteiras,
   // dinheiro direto na conta da casa, dados bancários na página da Stripe.
-  'stripe.blurb':     { en: 'Accept card, Apple Pay and Google Pay as well. The money lands straight in the restaurant’s account, with no custody by us. You connect a Stripe account and fill in the details on Stripe’s own secure page — the bank details never pass through Racha.',
-                        pt: 'Aceitar cartão, Apple Pay e Google Pay também. O dinheiro cai direto na conta do restaurante, sem custódia nossa. Você conecta uma conta Stripe e faz o cadastro na página segura da Stripe — os dados bancários não passam pela Racha.',
-                        es: 'Acepta tarjeta, Apple Pay y Google Pay también. El dinero cae directo en la cuenta del restaurante, sin custodia por nuestra parte. Conectas una cuenta de Stripe y rellenas los datos en su propia página segura — los datos bancarios nunca pasan por Racha.' },
+  /**
+   * "SEM CUSTÓDIA NOSSA" ERA FALSO NESTE TRILHO, e estava escrito na tela dele.
+   *
+   * O cartão é uma DESTINATION CHARGE (`stripe-psp.js`: `transfer_data.destination`):
+   * a cobrança nasce na plataforma e a Stripe transfere pra conta conectada do
+   * restaurante. Não é conta-bolsão e a Racha não saca nem retém — mas o
+   * dinheiro do cliente TRANSITA pela plataforma, e é isso que o inegociável #4
+   * governa. O próprio adaptador diz as duas coisas em comentários opostos: um
+   * afirma "liquida na conta do restaurante, não na plataforma" e outro, duzentas
+   * linhas abaixo, fala de "dinheiro parado no saldo da PLATAFORMA, que é
+   * território do inegociável #4". A copy seguiu o errado.
+   *
+   * A frase nova diz o que acontece. Quem precisa da diferença — um contador, um
+   * advogado de pagamentos — precisa dela exata; quem não precisa lê "a conta é
+   * sua" e segue.
+   */
+  'stripe.blurb':     { en: 'Accept card, Apple Pay and Google Pay as well. Payouts go to the restaurant’s own Stripe account — Racha never holds a pooled account and never withdraws from yours, though a card charge does pass through our Stripe platform before Stripe transfers it to you. You connect a Stripe account and fill in the details on Stripe’s own secure page — the bank details never pass through Racha.',
+                        pt: 'Aceitar cartão, Apple Pay e Google Pay também. O repasse vai para a conta Stripe do próprio restaurante — a Racha não tem conta-bolsão e nunca saca da sua, embora a cobrança no cartão passe pela nossa plataforma Stripe antes de a Stripe transferir para você. Você conecta uma conta Stripe e faz o cadastro na página segura da Stripe — os dados bancários não passam pela Racha.',
+                        es: 'Acepta tarjeta, Apple Pay y Google Pay también. El abono va a la cuenta de Stripe del propio restaurante — Racha no tiene cuenta ómnibus y nunca retira de la tuya, aunque el cobro con tarjeta pasa por nuestra plataforma de Stripe antes de que Stripe te lo transfiera. Conectas una cuenta de Stripe y rellenas los datos en su propia página segura — los datos bancarios nunca pasan por Racha.' },
   'wiz.t2subEs':      { en: 'Where the money from the bills lands. You connect a Stripe account and enter the IBAN and KYC details on Stripe’s page; the bank details never pass through Racha.',
                         pt: 'Onde o dinheiro das comandas cai. Você conecta uma conta Stripe e preenche IBAN e KYC na página deles; os dados bancários não passam pela Racha.',
                         es: 'Donde cae el dinero de las cuentas. Conectas una cuenta de Stripe e introduces el IBAN y los datos de KYC en su página; los datos bancarios nunca pasan por Racha.' },
@@ -1543,7 +1636,13 @@ export const DICT = {
   'land.forVenues': { en: 'I run a restaurant',               pt: 'Tenho um restaurante', es: 'Tengo un restaurante' },
   'land.proof1':    { en: 'Pix settles to the restaurant’s own account', pt: 'O Pix cai na conta do próprio restaurante', es: 'El pago cae en la cuenta del propio restaurante' },
   'land.proof2':    { en: 'Service charge optional, tracked for payroll', pt: 'Serviço opcional, rastreado pra folha', es: 'Servicio opcional, registrado para la nómina' },
-  'land.proof3':    { en: 'We never hold your money',           pt: 'A gente nunca segura o seu dinheiro', es: 'Nunca retenemos tu dinero' },
+  // "NUNCA SEGURAMOS" sem qualificação era o chamador esquecido da correção do
+  // `stripe.blurb`: no cartão a cobrança TRANSITA pelo saldo da plataforma antes
+  // da transferência, e na Espanha isso vale pra 100% do volume (Bizum e cartão
+  // são destination charges). Oferta que vincula (CDC arts. 30 e 37), e terreno
+  // do inegociável #4. A frase nova afirma o que é verdade nos dois trilhos: a
+  // conta é do restaurante, e a Racha não tem conta-bolsão nem saca dela.
+  'land.proof3':    { en: 'No pooled account, no withdrawals by us',  pt: 'Sem conta-bolsão, sem saque nosso', es: 'Sin cuenta ómnibus, sin retiros nuestros' },
   'land.menuLabel': { en: 'Every line gets its block',          pt: 'Cada linha tem seu bloco', es: 'Cada línea tiene su grabado' },
   'land.menuSub':   { en: 'Fourteen woodcuts, carved in one pass, one for each thing a bar bill prints.',
                       pt: 'Catorze xilogravuras, entalhadas de uma vez, uma pra cada coisa que uma conta de bar imprime.',
@@ -1575,9 +1674,9 @@ export const DICT = {
   'land.house4':    { en: 'Prepaid house balance turns loyalty into cash up front.', pt: 'Saldo da casa pré-pago transforma fidelidade em caixa antecipado.', es: 'El saldo prepago de la casa convierte fidelidad en caja por adelantado.' },
 
   'land.nav':      { en: 'For restaurants',                pt: 'Para restaurantes', es: 'Para restaurantes' },
-  'land.house0':   { en: 'Pix lands in the restaurant’s own account. We never hold the money.',
-                     pt: 'O Pix cai na conta do próprio restaurante. A gente nunca segura o dinheiro.',
-                        es: 'El pago cae en la cuenta del propio restaurante. Nunca retenemos el dinero.' },
+  'land.house0':   { en: 'The money lands in the restaurant’s own account. Racha has no pooled account and never withdraws from yours.',
+                     pt: 'O dinheiro cai na conta do próprio restaurante. A Racha não tem conta-bolsão e nunca saca da sua.',
+                        es: 'El dinero cae en la cuenta del propio restaurante. Racha no tiene cuenta ómnibus y nunca retira de la tuya.' },
 
   'land.proofTitle': { en: 'To the cent. Always.',            pt: 'Ao centavo. Sempre.', es: 'Al céntimo. Siempre.' },
   'land.proofSub':   { en: 'Every split sums back to the bill exactly. When the cents don’t divide, the remainder goes to one share — never rounded away, never invented.',
@@ -1592,6 +1691,71 @@ export const DICT = {
 } satisfies Record<string, Trio>;
 
 export type Key = keyof typeof DICT;
+
+/**
+ * Achado da conciliação → frase, no idioma do leitor.
+ *
+ * Mapa com genérico, nunca ternário: um código novo tem que sair como código, e
+ * não como a frase do vizinho. Os centavos vêm crus do servidor e são formatados
+ * aqui, onde se sabe quem está lendo. (Este bloco ficou pra trás no `Panel.tsx`
+ * quando a função mudou de casa, e passou a descrever a função vizinha —
+ * segurança LOW-1 da rodada quinze.)
+ *
+ * A REGRA, fora do componente.
+ *
+ * Ela vivia dentro do `Panel.tsx`, e por isso não dava pra chamar de um teste:
+ * o runner do app é `node --test` sobre TypeScript, que não transforma JSX. O
+ * teste de cruzamento escrito pra rodada treze acabou RE-IMPLEMENTANDO a cadeia
+ * (`overpaidCents ?? deltaCents`) — dois elementos de quatro — em vez de passar
+ * por aqui. Medido: com a cadeia real reordenada pra incluir `refundableCents`,
+ * o painel passava a imprimir R$ 20,00 onde a mesa vê R$ 130,00 (o achado da
+ * rodada treze, verbatim) e a suíte inteira ficava verde. Uma cópia da regra não
+ * é a regra (segurança MEDIUM-1 da rodada catorze).
+ *
+ * Num módulo `.ts` puro, o teste chama a MESMA função que a tela chama.
+ */
+export function textoDoAchado(
+  f: {
+    code: string;
+    overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
+    // A SEGUNDA quantia de um achado, quando ele tem duas. O `reopened_by_refund`
+    // com chargeback no meio tem: o que a mesa VÊ e o que o dono pode dar BAIXA.
+    // Sem ela, a frase teria que escolher um dos dois e mentir sobre o outro.
+    refundableCents?: number;
+  },
+  t: (k: Key, v?: Record<string, string | number>) => string,
+  brl: (c: number) => string,
+): string {
+  const chave = `find.${f.code}` as Key;
+  // `amountCents` entra na cadeia: é o campo do `custody_leak` (quanto foi pra
+  // fora da subconta da casa). Sem ele, a frase saía com "{amount}" literal na
+  // tela — que é pior que não ter frase.
+  const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents ?? f.amountCents;
+  const vars = valor !== undefined
+    ? {
+      amount: brl(Math.abs(valor)),
+      /**
+       * SEM `Math.abs` no segundo número.
+       *
+       * O `{amount}` usa valor absoluto porque `driftCents` é uma diferença com
+       * sinal e o sinal já está na frase. Este não: `refundableCents` é "quanto
+       * dá pra dar baixa", e negativo é BUG do servidor. `Math.abs` era o
+       * mascarador clássico de erro de sinal — com o teto do servidor removido,
+       * −8000 virava "R$ 80,00 vieram de devolução" num buraco de R$ 30,00, e
+       * ajustar por esse número apagaria dos livros R$ 50,00 de prejuízo real.
+       * O cliente é o último lugar que pode recusar (segurança MEDIUM-2 da
+       * rodada quinze).
+       */
+      ...(f.refundableCents !== undefined
+        ? { refundable: brl(Math.max(0, f.refundableCents)) } : {}),
+    }
+    : undefined;
+  // Pergunta, não exceção: `t()` de chave desconhecida estoura num
+  // `undefined[lang]`, e depender disso é depender de um acidente.
+  if (!(chave in DICT)) return t('find.other', { code: f.code });
+  return t(chave, vars);
+}
+
 
 
 /**

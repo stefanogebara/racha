@@ -100,6 +100,18 @@ conciliação levanta `paid_after_close`.
    nota de quem resolveu) — é ela que diz ao cliente que ele tem a receber. Feche
    as duas, ou a conta segue vermelha com a dívida já paga.
 
+   **Na NOTA dessa resolução, nada do cliente** — a mesma regra da referência,
+   três parágrafos abaixo, e é aqui que ela é mais fácil de esquecer: o campo é
+   texto livre e o exemplo que sai sozinho da cabeça de quem resolve é
+   "reembolsei o Pedro no Pix 11 98765-4321". Escreva o que aconteceu, não quem:
+   "dinheiro no caixa às 21h40", "estorno refeito e confirmado". A nota vai pro
+   razão, que é só-de-acréscimo: **a purga de retenção (migração 0031) cobre
+   `payments` e `check_views` e NÃO cobre `check_events`**, então o que entrar
+   ali não tem caminho de eliminação hoje (LGPD art. 6º III e art. 18, V). A
+   lacuna já está registrada em
+   [`docs/compliance/retencao.md`](../compliance/retencao.md) — o que faltava era
+   o aviso aqui, no passo em que alguém realmente digita a frase.
+
    A ORDEM não importa mais: o razão guarda que o estorno daquela cobrança
    falhou, e resolver a pendência não apaga esse fato. (Até a revisão de
    ec86b37, apagava — e resolver primeiro, que é o natural porque é a marca que
@@ -154,6 +166,81 @@ nomeado, com o porquê e o gatilho, em
 Enquanto isso, o erro sobra na base de cálculo da folha que o restaurante
 distribui (nunca falta) — mas avise o time de produto quando acontecer, porque é
 o caso que decide o gatilho.
+
+### E a conta VOLTA A COBRAR. Não peça o resto à mesa.
+
+O rateio não abate só a gorjeta: ele abate o **consumo** também, e o total da
+conta não muda. Numa conta de R$ 100,00 + R$ 10,00 de serviço, devolver os
+R$ 10,00 de serviço deixa a conta assim:
+
+| antes | depois |
+| --- | --- |
+| `paga` · pago R$ 100,00 de R$ 100,00 | `parcial` · pago R$ 90,91 de R$ 100,00 |
+
+O telefone de quem está na mesa volta a mostrar **"faltam R$ 9,09"** e o botão de
+pagar — e o QR da mesa é o mesmo, então qualquer pessoa daquela mesa recarrega e
+vê. Uma mesa que já pagou tudo.
+
+**O que fazer, na hora:**
+
+1. **Feche a mesa no painel.** É um toque, e é o caminho que existe na tela:
+   o botão de fechar a conta manda `POST /api/checks/close`. Isso tira o botão
+   de pagar do telefone de quem está na mesa.
+2. **Se a mesa ainda vai consumir**, feche não — ajuste o total para baixo no
+   valor devolvido do consumo (R$ 9,09 no exemplo). **Isto ainda não tem botão**:
+   é chamada de API, com a sua sessão de dono.
+
+   **Mande os ITENS, não só o total.** O ajuste substitui a lista de itens da
+   conta pelo que você mandar; mandando só `totalCents`, a conta inteira vira uma
+   linha só chamada "Total da conta" — e quem está com o telefone na mesa perde o
+   detalhamento E perde o racha POR ITEM, numa mesa que ainda vai pedir. Consertar
+   um problema de transparência quebrando outro não vale (CDC art. 6º III).
+
+   **Item de valor negativo NÃO é aceito** — não existe linha de "desconto". O
+   desconto entra REDUZINDO uma linha que já está lá. No exemplo desta seção a
+   conta era R$ 100,00 e o consumo devolvido foi R$ 9,09, então o total novo é
+   R$ 90,91 (`9091`), e a conta abaixo fecha nesse número:
+
+   ```bash
+   # As mesmas linhas de antes, com a primeira reduzida em 909 (8990 → 8081).
+   # 8081 + 1010 = 9091, que é o total novo.
+   curl -X POST https://<host>/api/checks/adjust \
+     -H 'authorization: Bearer <seu token de sessão>' \
+     -H 'content-type: application/json' \
+     -d '{"checkId":"<uuid da conta>","items":[
+           {"id":"i1","name":"Picanha na chapa","priceCents":8081},
+           {"id":"i2","name":"Chopp artesanal (2x)","priceCents":1010}
+         ]}'
+   ```
+
+   O total novo é a SOMA dos itens — o campo `totalCents` só é lido quando não
+   vêm itens, e é por isso que mandar só ele apaga o detalhamento. Respostas:
+   `200` com o estado novo; `400 item N: valor inválido` se alguma linha vier
+   negativa; `400 a conta não pode ser zero` se a soma der zero; `403` se a
+   sessão não for do dono daquela casa.
+
+   Se a mesa **não** vai consumir mais, prefira o passo 1: fechar é um toque e
+   não mexe no detalhamento.
+3. **O que dizer para quem está com o telefone na mão**, enquanto isso não
+   acontece: *"esta conta já está paga — o valor que aparece é a devolução que
+   acabamos de fazer, e o sistema atualiza em instantes. Não pague de novo."*
+   Ela pode estar olhando a tela agora, e o remédio acima é assíncrono
+   (CDC art. 6º III).
+4. **Nunca peça o resto à mesa.** Isso é cobrança de dívida já quitada
+   (CDC art. 42); se alguém pagar, a casa deve de volta em dobro, mais o serviço
+   que entrou junto — e nasce um excedente para você devolver de novo.
+5. Se ninguém agiu e a conta ficou aberta, a conciliação avisa: o achado
+   **`reopened_by_refund`**, severidade `high`, traz o número que a mesa está
+   vendo. Se a conta também sofreu CHARGEBACK, o código é
+   **`reopened_by_refund_mixed`** e ele traz DOIS números: o que a mesa vê e a
+   parte que veio de devolução — ajuste só por essa parte. O resto é prejuízo da
+   casa, e apagá-lo dos livros é apagar o prejuízo.
+
+**Isto não é do serviço.** Vale para QUALQUER devolução pelo painel do
+adquirente que toque o consumo — item errado, cortesia, engano de valor. O único
+caso que não reabre a conta é a devolução de EXCEDENTE, porque ali o pagamento
+entrou acima do total e o abate só consome a sobra. É por isso que a instrução lá
+em cima manda devolver **pelo excedente** e não pelo total do pagamento.
 
 ## Por onde o dinheiro sai
 

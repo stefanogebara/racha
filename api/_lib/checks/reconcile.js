@@ -17,7 +17,9 @@
  * and merely log `info`.
  */
 
-const { reduce, paidAfterClose, sobraPorPagamento } = require('./check-state');
+const {
+  reduce, paidAfterClose, sobraPorPagamento, estornoDoTrilho, marcadoComoDisputa,
+} = require('./check-state');
 const houseState = require('../house/account-state');
 
 /**
@@ -140,6 +142,243 @@ function reconcileCheck({ checkId, events, payments }) {
     }
   }
 
+
+  /**
+   * A DÍVIDA DO RAZÃO JÁ GRAVADO — e por que NÃO há varredura pra ela.
+   *
+   * A marca de procedência da disputa (`deDisputa`) vem do KIND e resolve o
+   * futuro. Os `PAYMENT_REFUNDED` de disputa gravados ANTES dela não têm marca
+   * nenhuma, e entram no acumulado do trilho como se fossem estorno do
+   * adquirente.
+   *
+   * Eu escrevi aqui uma varredura que os nomeava por `payload.method ===
+   * 'dispute'`. Ela NÃO PODE DISPARAR: `method` só é gravado no payload de
+   * `PAYMENT_CONFIRMED` (ver o construtor em `webhook-handler.js`), nunca no de
+   * `PAYMENT_REFUNDED`. O único teste que ela tinha montava o evento à mão com o
+   * campo — provava o redator, não o buraco (compliance MEDIUM-B da rodada
+   * treze). Saiu.
+   *
+   * E não há substituto: nenhum campo do razão antigo distingue um estorno de
+   * disputa de um estorno do adquirente. É exatamente por isso que a marca
+   * precisou ser acrescentada. O que dá pra afirmar é o tamanho da população, e
+   * ele foi MEDIDO em produção antes de mexer no teto (a consulta está ao lado
+   * da guarda, em `check-state.js`): `disputa_sem_marca = 0`. Zero linhas, zero
+   * alcance. Se um dia não for zero, a resposta é uma migração de backfill a
+   * partir da coluna `kind` da linha de `payments` — não um achado que não
+   * consegue ver o que procura.
+   */
+
+  /**
+   * A CONTA QUE VOLTOU A COBRAR — quitada, e cobrando de novo.  /**
+   * A CONTA QUE VOLTOU A COBRAR — quitada, e cobrando de novo.
+   *
+   * Um estorno pelo painel do adquirente é rateado entre consumo e serviço
+   * (`allocateRefund`), e a parte do CONSUMO abate `paidCents`. O
+   * `totalCents` não se mexe. Então uma mesa que pagou tudo e recebeu de volta
+   * só o serviço — R$ 10,00 numa conta de R$ 100,00 — volta de `paga` pra
+   * `parcial` com R$ 9,09 "faltando", e o telefone de quem está na mesa mostra
+   * o botão de pagar outra vez, num QR que qualquer um daquela mesa recarrega.
+   *
+   * Isso é cobrança de dívida já quitada (CDC art. 42, com a repetição em dobro
+   * do parágrafo único se alguém pagar) e informação errada sobre o que se deve
+   * (CDC art. 6º III). E é silencioso: as duas projeções concordam, porque as
+   * duas derivam do mesmo razão.
+   *
+   * O runbook já avisava disto no caso do estorno TOTAL ("devolver o pagamento
+   * inteiro reabre a conta e a mesa é cobrada de novo") e a mesma mecânica valia
+   * pro parcial, cem linhas abaixo, sem uma palavra. O remédio operacional é
+   * fechar a conta ou lançar um `ADJUSTED` pra baixo no valor devolvido — e
+   * NUNCA pedir o resto à mesa. Achado pela revisão de compliance da rodada dez.
+   *
+   * `high`, não `critical`, e não `info`. Não se perdeu dinheiro: perdeu-se a
+   * verdade da tela. E não é "alerta que dispara em comportamento correto" — a
+   * devolução é correta, deixar a conta reaberta depois dela é que não é, e o
+   * achado some no instante em que alguém fecha ou ajusta. É a mesma forma do
+   * `overpaid_pending_restitution`: uma operação começada e não terminada.
+   *
+   * ISTO VALE PRA QUALQUER DEVOLUÇÃO que toque o consumo — pelo painel do
+   * adquirente ou registrada pelo dono no caixa (`offRail`). Quem re-cobra a
+   * mesa é a aritmética, não a procedência; separar as duas seria escolher um
+   * cliente pra proteger.
+   */
+  /**
+   * `parcial` OU `aberta` — e o `aberta` é o caso MÁXIMO.
+   *
+   * `recompute` manda `paidCents === 0` pra `aberta`, não pra `parcial`. Então a
+   * devolução INTEIRA — justamente a que o runbook já avisava ("devolver o
+   * pagamento inteiro reabre a conta e a mesa é cobrada de novo") — caía fora do
+   * detector: ele gritava por R$ 9,09 e calava por R$ 100,00, com `ok: true` e
+   * zero achados. Medido (segurança MEDIUM-1 da rodada onze).
+   *
+   * O `entrou >= totalCents` abaixo é o que impede o falso positivo: uma conta
+   * que nunca foi paga também está `aberta`, e essa não entra.
+   */
+  if (state && (state.status === 'parcial' || state.status === 'aberta')) {
+    const eventos = Array.isArray(events) ? events : [];
+    /**
+     * CHARGEBACK NÃO É DEVOLUÇÃO — e a diferença aqui é a frase inteira.
+     *
+     * `dispute_lost` também vira `PAYMENT_REFUNDED` (é dinheiro saindo), mas
+     * numa disputa a dívida NÃO está quitada: a rede levou o dinheiro de volta.
+     * Dizer ao operador que é dívida quitada, citar o art. 42 e mandar lançar
+     * ajuste para baixo seria instruir a apagar dos livros um prejuízo real — e
+     * sumir com o rastro contábil dele junto.
+     *
+     * É o mesmo predicado do `candidatoDeEstorno` no `reversal-match`, pela
+     * mesma razão, e por pouco ele não ficou só lá (compliance MEDIUM-2 da
+     * rodada onze).
+     */
+    /**
+     * DEVOLUÇÃO é o que passou pelo trilho ou o que o DONO devolveu no caixa —
+     * as duas reabrem a conta e re-cobram a mesa. CHARGEBACK não: ali a dívida
+     * não está quitada, a rede levou o dinheiro, e mandar "fechar ou ajustar
+     * para baixo, não peça o resto à mesa" seria instruir a apagar dos livros um
+     * prejuízo real (compliance MEDIUM-2 da rodada onze).
+     */
+    const houveEstorno = eventos.some((e) => estornoDoTrilho(e)
+      || (e.type === 'PAYMENT_REFUNDED' && e.payload && e.payload.offRail === true));
+    // NÃO há teste de `ADJUSTED` aqui, de propósito. Um ajuste para baixo que
+    // fecha a diferença devolve a conta pra `paga` e o `if` acima já não entra;
+    // um ajuste que fecha SÓ PARTE dela deixa saldo na tela da mesa, e aí o
+    // achado tem que sair. Um `!houveAjuste` faria as duas coisas erradas de
+    // uma vez: seria inalcançável no primeiro caso e daria perdão no segundo.
+    // (Medido: com o `!houveAjuste` no lugar, apagá-lo não quebrava teste
+    // nenhum — guarda que nunca dispara.)
+    /**
+     * Quanto ENTROU, antes de qualquer devolução. Se isso já cobria a conta, ela
+     * esteve quitada — e o que a reabriu foi a devolução, não uma falta.
+     *
+     * Sai do REDUTOR, não da soma dos payloads. O caminho `divergent_appended`
+     * grava de propósito um SEGUNDO `PAYMENT_CONFIRMED` para o mesmo `txid`
+     * quando o adquirente reapresenta o pagamento com valor divergente; o
+     * redutor é idempotente por txid e uma soma crua não é. Somando os payloads,
+     * uma conta de R$ 200,00 com um pagamento de R$ 100,00 reapresentado dava
+     * "entrou 20000¢ de 20000¢" — e o achado mandava NÃO COBRAR R$ 100,00 que a
+     * mesa de fato deve (compliance MEDIUM-3 da rodada onze).
+     */
+    const entrou = Object.values(state.payments || {})
+      .reduce((acc, pg) => acc + (Number(pg.amountCents) || 0), 0);
+    /**
+     * O QUE A DISPUTA TIROU NÃO ENTRA NA CONTA DO ACHADO.
+     *
+     * `houveEstorno` é um `some`: basta UM estorno do trilho pra o achado
+     * nascer, e o buraco na conta pode ser majoritariamente CHARGEBACK. Numa
+     * conta de R$ 200,00 com chargeback de R$ 110,00 e um estorno legítimo de
+     * R$ 20,00, o achado saía com R$ 120,00 e a frase "não peça o resto à mesa"
+     * — instruindo a apagar dos livros R$ 110,00 de prejuízo real. É palavra por
+     * palavra o que o parágrafo acima chama de errado, no caso MISTO
+     * (compliance MEDIUM-B da rodada doze).
+     *
+     * Então a parte disputada sai da conta, e o achado só sai se ainda sobrar
+     * buraco causado por DEVOLUÇÃO.
+     */
+    /**
+     * SÓ A DISPUTA, e SÓ O BALDE DO CONSUMO.
+     *
+     * Duas armadilhas aqui, e eu caí na primeira. A conta era
+     * `refundedAmount − refundedPeloTrilhoAmount` — e o acumulado do trilho
+     * exclui TRÊS coisas: disputa, disputa sem `dp_`, e a devolução que o DONO
+     * registrou no caixa (`offRail`). A diferença, então, não é "o que a
+     * disputa levou": é disputa MAIS devolução por fora. Com o nome errado, a
+     * aritmética seguiu o nome.
+     *
+     * O efeito é o pior possível, e é exatamente o caminho que o runbook manda o
+     * operador seguir: o estorno falha, o dono devolve R$ 20,00 em dinheiro no
+     * caixa e registra — e aí `porDevolucao` dá ZERO e o achado NÃO SAI. O
+     * telefone da mesa mostra R$ 20,00 "faltando" e o botão de pagar, numa conta
+     * quitada cujo dinheiro já voltou em espécie. Cobrança de dívida extinta
+     * (CDC art. 42), com o único controle que existe pra ela apagado justamente
+     * na classe de devolução mais comum (compliance HIGH-1 da rodada treze).
+     *
+     * E contradizia o parágrafo três linhas acima, que diz que a devolução do
+     * dono conta como devolução "porque quem re-cobra a mesa é a aritmética, não
+     * a procedência".
+     *
+     * Agora a conta é dos EVENTOS de disputa, direto — sem passar por uma
+     * diferença que carrega o que não devia. Só o balde do consumo, porque o
+     * buraco que a mesa vê é `total − paid` e a gorjeta não entra em `paidCents`.
+     */
+    const porDisputa = eventos.reduce((acc, e) => (
+      marcadoComoDisputa(e) ? acc + (Number(e.payload.amountCents) || 0) : acc), 0);
+    const buraco = state.totalCents - state.paidCents;
+    // `Math.max(0, …)`: depois de um ajuste para baixo o buraco encolhe e a parte
+    // devolvível pode ficar negativa. Zero é o que ela é — não há mais nada a
+    // ajustar —, e negativo na tela do dono seria um número inventado.
+    const porDevolucao = Math.max(0, buraco - Math.max(0, porDisputa));
+    /**
+     * SEM `porDevolucao > 0` NO PORTÃO — ele apagava o achado no instante em que
+     * o dono fazia o que o próprio achado manda.
+     *
+     * `porDisputa` é uma soma fixa sobre os eventos de disputa; `buraco` encolhe
+     * a cada `ADJUSTED`. Então, assim que o dono ajusta o total "na parte
+     * devolvida" — a instrução literal da frase —, `porDevolucao` zera e o achado
+     * SOME, com o buraco do chargeback ainda na tela da mesa e o botão de pagar
+     * ligado. Medido ponta a ponta: conta de R$ 200,00, chargeback de R$ 110,00,
+     * estorno de R$ 20,00; antes do ajuste sai `high`, depois do ajuste sai
+     * NENHUM achado, com R$ 110,00 ainda cobráveis (CDC art. 42 § único).
+     *
+     * E contradizia o parágrafo vinte linhas acima, que diz com todas as letras
+     * que "um ajuste que fecha SÓ PARTE dela deixa saldo na tela da mesa, e aí o
+     * achado tem que sair". A guarda que eu acrescentei na rodada doze derrubava
+     * a propriedade que o comentário ao lado afirma (segurança HIGH-2 da rodada
+     * catorze).
+     *
+     * A separação entre "o que a mesa vê" e "o que dá pra dar baixa" é de
+     * APRESENTAÇÃO, e já está inteira nos dois campos e nas duas frases. O portão
+     * não precisava dela.
+     */
+    if (houveEstorno && entrou >= state.totalCents && state.totalCents > 0) {
+      /**
+       * `deltaCents` É O BURACO — o número que a MESA está vendo.
+       *
+       * Ele é o campo que a cadeia do painel lê
+       * (`overpaidCents ?? deltaCents ?? driftCents ?? amountCents`), e a frase
+       * que o dono lê diz "a mesa está vendo {amount} faltando". Quando eu pus
+       * ali a parte devolvível, a frase passou a afirmar que dois números
+       * diferentes eram o mesmo: numa conta com chargeback de R$ 110 e estorno
+       * de R$ 20, o painel dizia "a mesa está vendo R$ 20,00" e a mesa estava
+       * vendo R$ 130,00. O dono ajusta R$ 20, fecha o caixa, e quem senta ali
+       * paga R$ 110 que a rede já levou — dívida inexistente, com repetição do
+       * indébito (CDC art. 42 § único; segurança HIGH-1 da rodada treze).
+       *
+       * A parte devolvível continua existindo, com nome próprio e frase própria:
+       * quando há chargeback no meio, o código do achado muda, e a outra frase
+       * nomeia os dois números.
+       */
+      /**
+       * TRÊS FRASES, porque são três situações — e a do meio vira instrução
+       * impossível se não se separar a terceira.
+       *
+       * Depois que o dono ajusta "na parte devolvida", o achado continua saindo
+       * (é a propriedade que o portão acima defende) — mas `porDevolucao` é
+       * ZERO. A frase do caso misto passava a dizer "dos quais R$ 0,00 vieram de
+       * devolução […] ajuste o total para baixo na parte devolvida": a segunda
+       * metade do remédio é um no-op, e quem repetisse o gesto de ontem apagaria
+       * dos livros prejuízo REAL de chargeback — precisamente o que o parágrafo
+       * acima diz que não se pode instruir (compliance MEDIUM-3 da rodada
+       * quinze).
+       *
+       * E a citação do art. 42 sai do caso "só chargeback": ali a dívida não
+       * está quitada, e o artigo não alcança essa parcela. "Feche a conta"
+       * continua sendo a ação verdadeira, e vira a única.
+       */
+      const misto = porDisputa > 0;
+      const soChargeback = misto && porDevolucao === 0;
+      const codigo = soChargeback ? 'reopened_by_chargeback'
+        : (misto ? 'reopened_by_refund_mixed' : 'reopened_by_refund');
+      add('high', codigo,
+        `esta conta foi quitada (entrou ${entrou}¢ de ${state.totalCents}¢) e o telefone da mesa mostra `
+        + `${buraco}¢ "faltando" e o botão de pagar`
+        + (soChargeback
+          ? `, e esse buraco é TODO de chargeback — não há nada a ajustar, e apagá-lo dos livros seria `
+            + `apagar um prejuízo. Feche a conta.`
+          : (misto
+            ? `, dos quais ${porDevolucao}¢ vieram de devolução (o resto é chargeback, que a casa perdeu mesmo). `
+              + `Feche a conta ou ajuste o total para baixo NA PARTE DEVOLVIDA; não peça essa parte à mesa (CDC art. 42)`
+            : `. Feche a conta ou lance um ajuste para baixo; não peça o resto à mesa (CDC art. 42)`)),
+        { deltaCents: buraco, refundableCents: porDevolucao, entrouCents: entrou });
+    }
+  }
 
   /**
    * DINHEIRO A MAIS na conta é uma DÍVIDA da casa, e ela tem que aparecer.

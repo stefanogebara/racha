@@ -200,9 +200,22 @@ export default function App() {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(() => new Set());
   const [servicoOn, setServicoOn] = useState(true);
   const [payerLabel, setPayerLabel] = useState('');
-  // CPF do pagador: o adquirente exige o documento do customer em TODO
-  // método (Pix e cartão) — padrão de checkout brasileiro. Um campo só,
-  // compartilhado com o Google Pay.
+  /**
+   * CPF do pagador. QUEM EXIGE É O GATEWAY, e cada um exige de um jeito.
+   *
+   * Este comentário dizia "o adquirente exige o documento do customer em TODO
+   * método (Pix e cartão) — padrão de checkout brasileiro". É falso, e é falso
+   * contra outro arquivo deste repositório: o adaptador da Stripe RECEBE o campo
+   * e o descarta, com oito linhas explicando a minimização. A Pagar.me exige
+   * (Pix e Google Pay); a Stripe não.
+   *
+   * A crença escrita aqui produziu duas redações erradas do aviso ao cliente em
+   * rodadas seguidas — uma afirmando um destino que não existia, outra negando
+   * um que existia. É o lugar onde alguém lê antes de escrever a terceira
+   * (compliance MEDIUM-2 da rodada catorze).
+   *
+   * Um campo só, compartilhado com o Google Pay.
+   */
   const [cpf, setCpf] = useState('');
   const cpfDigits = cpf.replace(/\D/g, '');
   /**
@@ -910,7 +923,11 @@ export default function App() {
               num bar, é também o motivo de alguém desistir de pagar. O destino
               é verdade conferida: `create-charge.js` manda pro PSP e o
               `registerCharge` NÃO guarda; webhook que traz CPF passa pelo
-              `maskTaxId`. */}
+              descarte — a máscara do webhook é lista de PERMISSÃO de escalares e
+              o documento vem aninhado, então ele não tem caminho pro banco.
+              (Aqui dizia "passa pelo `maskTaxId`", e esse ramo foi apagado da
+              máscara: o resultado é mais forte, a frase é que apontava pra um
+              controle inexistente.) */}
           {taxIdRequired && <p className="muted small" id="cpf-why">{t('payer.cpfWhy')}</p>}
 
           {payError && (

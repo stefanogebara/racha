@@ -756,16 +756,11 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
     expect(chamadas.length).toBe(9);
     /**
      * Os testes de reentrega que guardam cada chamada. `jaEncerrada` é uma
-     * disputa já fechada — reentrega também, só que dita por outro nome.
+     * disputa já fechada — reentrega também, só que dita por outro nome; e
+     * `casamento.decisao === 'reentrega'` é a decisão do `reversal-match`, que
+     * cobre as duas formas de reentrega da reversão (por `re_` e por contagem).
      */
-    /**
-     * As duas DUPLICATAS novas da reversão (53c9ff0), nomeadas aqui porque é
-     * isto que o censo cobra: `refundId === parsed.refundId` é a segunda entrega
-     * da mesma falha identificada pelo `re_`; `algumConsumido` é a mesma coisa
-     * sem identidade — todo candidato daquele valor já foi revertido e nenhum
-     * sobrou, que só acontece em reentrega.
-     */
-    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada|algumConsumido/;
+    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada|decisao === 'reentrega'|jaEstornado === 0/;
     const semGuarda = [];
     for (const idx of chamadas) {
       // O trecho antes da chamada, até o `if` que a guarda.
@@ -774,6 +769,261 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
     }
     expect(semGuarda).toEqual([]);
   }
+});
+
+/**
+ * TODA SAÍDA QUE NÃO RECUSA OU APENDE OU RECONCILIA — MEDIDO, não lido.
+ *
+ * A primeira versão deste censo lia o fonte: pegava cada `return { status: … }`
+ * e procurava `repairRowFromLedger|appendEvent` numa janela de 900 bytes antes
+ * dele. A revisão de segurança derrubou nos dois eixos: (1) o ajudante `gritar`
+ * tem um `await appendEvent(` que satisfazia a janela de TODA saída do bloco da
+ * reversão — um `duplicate` novo sem reparo nenhum passava verde; (2) a regex
+ * `return \{ status:` não casa retorno em duas linhas, e já existem dois assim.
+ * Proximidade não é fluxo de controle, e contar bytes não é analisar código.
+ *
+ * Então o censo deixou de ler e passou a MEDIR: cada desfecho é produzido de
+ * verdade, com dependências instrumentadas, e a pergunta é feita ao
+ * comportamento — esta entrega mexeu no razão ou reconciliou a linha?
+ *
+ * E continua sendo CENSO porque a lista de desfechos vem do FONTE: um `status`
+ * novo que ninguém exercitou aqui quebra o teste, em vez de passar despercebido.
+ *
+ * O LIMITE, COM NÚMERO. A primeira versão deste cabeçalho dizia que só escapava
+ * "uma saída nova atrás de uma condição inalcançável" — o que soa a resíduo
+ * exótico. A revisão de segurança MEDIU: dos 20 sítios de `return { status: … }`
+ * dentro de `applyConfirmedPayment`, os cenários abaixo alcançam **8**. Os 12
+ * mudos não são inalcançáveis: são caminhos de produção que estes cenários não
+ * constroem — inclusive o `duplicate` da idempotência do append (`seq < 0`), que
+ * é o que fecha a corrida entre duas entregas simultâneas do mesmo `evt_`.
+ *
+ * Nada disso é conserto de uma linha: cobrir 20 sítios pede 20 arranjos, e
+ * alguns só existem em corrida. O que ESTE teste pode fazer é (a) pegar o
+ * mutante alcançável, que pega, e (b) não deixar o número crescer calado — o
+ * teste ao lado fixa a contagem de sítios, então um sítio novo obriga alguém a
+ * decidir se escreve o cenário ou assume a dívida por escrito.
+ *
+ * "8 de 20" é uma frase que ninguém confunde com completude. "condição
+ * inalcançável" era.
+ */
+describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () => {
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { createMemoryStore } = require('../_lib/store/memory');
+
+  /** Roda um cenário com deps instrumentadas e devolve o que ele FEZ. */
+  async function correr(montar) {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Censo', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+    const mesa = await store.seedTable(venue.id, 'Mesa 1');
+    const conta = await store.openCheck(mesa.qrToken, [{ id: 'i', name: 'Prato', priceCents: 10000 }]);
+    let apendou = false;
+    /**
+     * "RECONCILIOU" é ter PERGUNTADO à linha, não ter escrito nela.
+     *
+     * A primeira versão instrumentava `repairPaymentRow`, e ele só é chamado
+     * quando há divergência — numa linha que já converge, `repairRowFromLedger`
+     * sai antes. Medindo a escrita, quatro caminhos que reconciliam
+     * corretamente apareciam como mudos. O que se quer afirmar é que a entrega
+     * CONFRONTOU a linha com o razão, e o sinal disso é o `getPayment`, que é a
+     * primeira coisa que `repairRowFromLedger` faz e ninguém mais chama daqui.
+     */
+    let reparou = false;
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: async (...a) => { apendou = true; return store.appendEvent(...a); },
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: async (...a) => { reparou = true; return store.getPayment(...a); },
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    const entregar = (p) => applyConfirmedPayment(p, deps);
+    await store.registerCharge({
+      checkId: conta.id, txid: 'pi', amountCents: 10000, tipCents: 1000, payerLabel: null, method: 'card',
+    });
+    // O ARRANJO não conta: só a última entrega é medida.
+    const final = await montar({ store, conta, deps, entregar });
+    apendou = false; reparou = false;
+    const r = await entregar(final);
+    return { status: r.status, apendou, reparou };
+  }
+
+  /** Um cenário por desfecho. O nome diz o caminho, não só o rótulo. */
+  const CENARIOS = {
+    'pagamento novo': async ({ entregar }) => {
+      void entregar;
+      return { kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' };
+    },
+    'reentrega do mesmo `evt_`': async ({ entregar }) => {
+      const e = { kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' };
+      await entregar(e);
+      return e;
+    },
+    'reapresentação com valor divergente': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      return { kind: 'payment_confirmed', txid: 'pi', amountCents: 9000, tipCents: 1000, method: 'card', eventId: 'e2' };
+    },
+    'reversão antes do estorno': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      return { kind: 'refund_failed', txid: 'pi', amountCents: 500, eventId: 'e2', refundId: 're_1' };
+    },
+    'segunda entrega da mesma falha': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      await entregar({ kind: 'refund', txid: 'pi', cumulativeRefundedCents: 1100, method: 'card', eventId: 'e2' });
+      await entregar({ kind: 'refund_failed', txid: 'pi', amountCents: 1100, eventId: 'e3', refundId: 're_1' });
+      return { kind: 'refund_failed', txid: 'pi', amountCents: 1100, eventId: 'e4', refundId: 're_1' };
+    },
+    'estorno cumulativo repetido': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      await entregar({ kind: 'refund', txid: 'pi', cumulativeRefundedCents: 1100, method: 'card', eventId: 'e2' });
+      return { kind: 'refund', txid: 'pi', cumulativeRefundedCents: 1100, method: 'card', eventId: 'e3' };
+    },
+    'reversão de txid que não existe': async () => (
+      { kind: 'refund_failed', txid: 'nao_existe', amountCents: 100, eventId: 'e9', refundId: 're_9' }
+    ),
+    'disputa perdida já encerrada': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      await entregar({ kind: 'dispute_lost', txid: 'pi', refundDeltaCents: 2000, method: 'dispute', eventId: 'e2', disputeId: 'dp_1' });
+      return { kind: 'dispute_lost', txid: 'pi', refundDeltaCents: 2000, method: 'dispute', eventId: 'e3', disputeId: 'dp_1' };
+    },
+  };
+
+  test('cada desfecho, medido: ou mexeu no razão, ou reconciliou a linha', async () => {
+    const vistos = new Set();
+    const mudos = [];
+    for (const [nome, montar] of Object.entries(CENARIOS)) {
+      const r = await correr(montar);
+      vistos.add(r.status);
+      // `rejected` é 409: a entrega NÃO foi aceita, o adquirente reenvia, e não
+      // há o que reconciliar — o razão não mudou e a linha não mentiu.
+      if (r.status === 'rejected') continue;
+      if (!r.apendou && !r.reparou) mudos.push(`${nome} → ${r.status}: não apendeu nem reconciliou`);
+    }
+    expect(mudos).toEqual([]);
+    // E o arranjo exercitou mais de um desfecho, senão o laço acima é decorativo.
+    expect(vistos.size).toBeGreaterThanOrEqual(4);
+  });
+
+  test('a contagem de SÍTIOS de saída é fixa — um sítio novo exige decisão', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+    const inicio = fonte.indexOf('async function applyConfirmedPayment');
+    const fim = fonte.indexOf('\nasync function', inicio + 10);
+    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+    /**
+     * DOIS NÚMEROS, porque uma regex sozinha só vê a forma que ela desenha.
+     *
+     * `return { status:` exige `status` como PRIMEIRA chave. A revisão plantou
+     * `return { checkId: null, status: 'duplicate' }` — as mesmas duas chaves na
+     * ordem inversa, que é o que sai da mão de quem copia o vizinho — e o censo
+     * ficou verde: a contagem não mexeu e o status não entrou no inventário.
+     *
+     * Então conta-se o conjunto MAIOR (todo `return {` do corpo) e, à parte,
+     * quantos desses carregam `status` em qualquer posição. Uma saída nova de
+     * qualquer forma move o primeiro número; uma saída com o status escondido
+     * move a diferença entre os dois. Nenhuma AST.
+     */
+    /**
+     * O NÚMERO DE FORA conta `return` STATEMENTS, não `return {`.
+     *
+     * Ancorado no literal, a próxima forma escapa inteira — e a revisão plantou
+     * a mais idiomática de todas, a que qualquer um escreve pra logar antes de
+     * sair:
+     *
+     *     const resposta = { status: 'duplicate', checkId: check.id };
+     *     return resposta;
+     *
+     * Nem `retornos` nem `comStatus` mexiam. Contando `return` como palavra, ela
+     * move o primeiro número; `return cond ? a : b`, `return Object.assign(…)` e
+     * `return ajudante(check)` movem também. A diferença entre os dois continua
+     * denunciando um `status` escondido (segurança MEDIUM-3 da rodada catorze).
+     */
+    const retornos = [...corpo.matchAll(/\breturn\b(?!\s*;)/g)].length;
+    const comStatus = [...corpo.matchAll(/return\s*\{[^}]*\bstatus\s*:/g)].length;
+    // Medido nesta rodada. `retornos` conta TODO `return` com valor do corpo
+    // (inclusive os que não devolvem objeto); `comStatus`, os que devolvem um
+    // objeto com `status`. Mexer em qualquer um dos dois é decidir: ou o cenário
+    // novo entra, ou a dívida sobe — e as duas coisas passam por alguém olhar.
+    // 22 retornos com valor, 20 deles devolvendo objeto com `status` — os dois
+    // que sobram devolvem outra coisa (`recompute`, o resultado do append).
+    expect({ retornos, comStatus }).toEqual({ retornos: 22, comStatus: 20 });
+  });
+
+  test('todo `status` que o fonte devolve tem cenário aqui', async () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+    const inicio = fonte.indexOf('async function applyConfirmedPayment');
+    const fim = fonte.indexOf('\nasync function', inicio + 10);
+    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+    /**
+     * O INVENTÁRIO É DE VALORES, em qualquer posição — não da POSIÇÃO do
+     * `status` num objeto.
+     *
+     * A versão anterior exigia `return { status: '…'` com o `status` como
+     * PRIMEIRA chave e valor literal. A revisão plantou o caso que importa mais
+     * do que uma saída nova: um VALOR novo num sítio existente —
+     * `status: seq > 0 ? 'appended' : 'skipped_quietly'`. Os dois contadores de
+     * sítios não se mexiam (o `return` é o mesmo), o valor não entrava no
+     * inventário, e nenhum cenário era cobrado. A suíte inteira ficava verde.
+     *
+     * E o desfecho é o pior deste repositório: a rota não conhece
+     * `skipped_quietly`, então cai no `json(res, 200, …)` — o adquirente recebe
+     * 200, nunca reentrega, e o razão nunca fica sabendo que o dinheiro entrou.
+     * Sucesso silencioso, inegociável #8 (segurança MEDIUM-1 da rodada quinze).
+     */
+    // Só o que está DENTRO de um `return`: `status: rowStatus` numa chamada ao
+    // store é leitura de linha, não desfecho desta função.
+    const retornosDoCorpo = [...corpo.matchAll(/\breturn\b[^;]*;/g)].map((m) => m[0]);
+    const doFonte = new Set(retornosDoCorpo
+      .flatMap((r) => [...r.matchAll(/\bstatus\s*:\s*'([a-z_]+)'/g)].map((m) => m[1])));
+    expect(doFonte.size).toBeGreaterThanOrEqual(4);
+
+    /**
+     * E VALOR NÃO-LITERAL É RECUSADO.
+     *
+     * Um ternário esconde dois valores atrás de um; o inventário não sabe ler
+     * expressão, e fingir que sabe é pior do que exigir que o autor nomeie os
+     * dois arms. Se um dia isto atrapalhar, a saída é escrever os dois `return`.
+     */
+    const naoLiterais = retornosDoCorpo
+      .flatMap((r) => [...r.matchAll(/\bstatus\s*:([^,}\n]+)/g)].map((m) => m[1].trim()))
+      .filter((x) => !/^'[a-z_]+'$/.test(x));
+    expect(naoLiterais).toEqual([]);
+
+    const vistos = new Set();
+    for (const montar of Object.values(CENARIOS)) vistos.add((await correr(montar)).status);
+    const semCenario = [...doFonte].filter((st) => !vistos.has(st)).sort();
+    expect(semCenario).toEqual([]);
+
+    /**
+     * E A ROTA SABE TRATAR TODOS ELES.
+     *
+     * O censo provava coisas sobre o tratador e NADA sobre a superfície que o
+     * chamador tem que despachar. Um `status` que a rota não conhece cai no
+     * `200` genérico, que para a reentrega do adquirente — a forma exata do
+     * achado acima. Aqui a lista do tratador é confrontada com o que as duas
+     * rotas de webhook nomeiam.
+     */
+    const router = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+    const conhecidosPelaRota = new Set([
+      ...[...router.matchAll(/result\.status === '([a-z_]+)'/g)].map((m) => m[1]),
+      ...[...router.matchAll(/'([a-z_]+)'\].includes\(result\.status\)/g)].map((m) => m[1]),
+      // O conjunto que a rota trata por pertencimento, não por igualdade.
+      ...(router.includes('NON_LEDGER_KINDS.has(result.status)') ? ['__non_ledger__'] : []),
+    ]);
+    const DESPACHO_GENERICO = new Set([
+      // Estes CAEM no 200 de propósito, e o motivo está escrito na rota: o
+      // razão já mudou (`appended`), ou a entrega era repetida (`duplicate`), ou
+      // o adquirente já foi avisado por outro caminho.
+      'appended', 'divergent_appended', 'duplicate', 'out_of_order',
+    ]);
+    const semDespacho = [...doFonte]
+      .filter((st) => !conhecidosPelaRota.has(st) && !DESPACHO_GENERICO.has(st))
+      .sort();
+    expect(semDespacho).toEqual([]);
+  });
 });
 
 

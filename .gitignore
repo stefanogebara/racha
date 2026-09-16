@@ -1,4 +1,9 @@
 node_modules/
+# SEM a barra também: com ela, o padrão só casa DIRETÓRIO, e um
+# `node_modules` que é LINK SIMBÓLICO (worktrees desta série apontam pro
+# node_modules do clone principal pra não reinstalar) escapava — o `git add -A`
+# de uma rodada de revisão commitou um.
+node_modules
 .env
 .env.*
 !.env.example

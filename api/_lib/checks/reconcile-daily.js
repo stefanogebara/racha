@@ -169,9 +169,32 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
     }
   }
 
-  // Ausência de PSP por outro motivo — um chamador que não tem adquirente
-  // (store de memória, conciliação só de carteira) — é silêncio legítimo: não
-  // houve decisão de desligar nada.
+  /**
+   * Ausência de PSP por outro motivo — um chamador que não tem adquirente (store
+   * de memória, conciliação só de carteira) — é silêncio legítimo: não houve
+   * decisão de desligar nada.
+   *
+   * E NÃO HÁ GUARDA AQUI PRO ADAPTADOR SEM PERNA DE REPASSE. Eu escrevi uma na
+   * rodada doze (`payables_leg_missing`) e ela era INALCANÇÁVEL: o `psp` daqui é
+   * o adaptador único do processo, que em produção é a Pagar.me — e ela TEM
+   * `listChargePayables`. A guarda nunca dispararia, nem pra casa que cobra por
+   * outro trilho (compliance MEDIUM-D da rodada treze).
+   *
+   * O caso REAL de hoje — uma casa que cobra por outro trilho num processo cuja
+   * Pagar.me tem a perna — já é coberto, e melhor: a cobrança cai em
+   * `foraDoAdquirente` mais abaixo e vira `charge_not_from_acquirer`, `high`,
+   * uma por casa com a contagem. O que estava errado ali era a FRASE, não a
+   * existência — ela dizia que a cobrança "não passou pelo adquirente", e uma
+   * cobrança da Stripe passou por um; só não por este. Corrigida.
+   *
+   * O QUE NÃO ESTÁ COBERTO, e fica dito: um processo cujo adaptador ÚNICO não
+   * tenha a perna. Aí o `return []` acima é indistinguível de "conferi e está
+   * tudo certo", e nada avisa. Hoje é impossível (produção exige
+   * `RACHA_PSP=pagarme`, que tem a perna), e é por isso que a guarda que eu
+   * escrevi era inalcançável — mas é o parágrafo que alguém lê no dia em que a
+   * Espanha for ligada com outro adaptador, e ele não pode dizer que está
+   * coberto (segurança LOW-3 da rodada catorze).
+   */
   if (!psp || typeof psp.listChargePayables !== 'function') return [];
   if (typeof store.listRecentConfirmedCharges !== 'function') return [];
 
@@ -311,8 +334,9 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
     achados.push({
       severity: 'high',
       code: 'charge_not_from_acquirer',
-      message: `${foraDoAdquirente.length} cobrança(s) desta casa não passaram pelo adquirente`
-        + ' — não existe recebível a conferir e o destino delas não é conferível por aqui',
+      message: `${foraDoAdquirente.length} cobrança(s) desta casa não passaram por ESTE adquirente`
+        + ` (${psp.provider || 'sem provider'}) — ou são de outro trilho, ou nunca passaram por adquirente nenhum;`
+        + ' de qualquer jeito não há recebível a conferir aqui e o destino delas não é conferível por esta perna',
       txids: foraDoAdquirente.slice(0, 10),
       charges: foraDoAdquirente.length,
     });

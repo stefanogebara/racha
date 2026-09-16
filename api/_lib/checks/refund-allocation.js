@@ -86,13 +86,28 @@ function alocarDevolucaoDoPagamento(estado, txid, pg, valor, opcoes = {}) {
    * BALDE ZERO: a TESTEMUNHA manda.
    *
    * Quando a devolução por fora existe porque um estorno FALHOU, o adquirente
-   * identificou QUAL lançamento falhou (pelo `re_`, ou pelo valor que casa com
-   * um só) — e os baldes são os que AQUELE lançamento usou. Não é o adquirente
-   * dizendo a repartição: é ele dizendo qual das nossas repartições não saiu.
-   * Seguir o proporcional em cima disso tira da base de cálculo da folha
-   * dinheiro que o lançamento diz que nunca foi gorjeta — ou deixa nela serviço
-   * que ele diz que voltou (compliance HIGH-2 de a95e15c, redação LOW-1 de
-   * 53c9ff0).
+   * relatou um VALOR — e quando exatamente um lançamento vivo daquele pagamento
+   * soma aquele valor, a gente INFERE que era ele, e usa os baldes que ELE usou.
+   *
+   * Inferência, não testemunho. A redação anterior dizia "o adquirente
+   * identificou qual lançamento falhou (pelo `re_`...)", e isso é falso: o
+   * `charge.refunded` é um evento de COBRANÇA e o adaptador não extrai id de
+   * estorno dele (`stripe-psp.js`), então NENHUM `PAYMENT_REFUNDED` do razão
+   * carrega `refundId` — o casamento é sempre por valor. O `re_` serve pra
+   * outra coisa: separar a segunda entrega da mesma falha.
+   *
+   * A diferença importa porque este parágrafo é a autoridade escrita do balde
+   * zero, o ramo que passa por cima de toda outra regra de rateio e move
+   * dinheiro pra dentro e pra fora da base de cálculo da folha. "O adquirente
+   * disse" faz um trabalho jurídico que o código não sustenta — e numa auditoria
+   * trabalhista quem responde é a frase, não a intenção (compliance MEDIUM-1 da
+   * rodada dez).
+   *
+   * Seguir o proporcional em cima da inferência tira da base da folha dinheiro
+   * que o lançamento diz que nunca foi gorjeta — ou deixa nela serviço que ele
+   * diz que voltou (compliance HIGH-2 de a95e15c). É por isso que a inferência
+   * é ESTREITA: só vale com um candidato e nenhuma reversão anterior daquele
+   * valor (ver `reversal-match.js`).
    */
   const testemunha = (opcoes && opcoes.testemunha) || null;
   if (testemunha) {

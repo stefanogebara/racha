@@ -352,6 +352,12 @@ function projetarAchados(findings) {
       severity: f.severity, code: f.code,
       ...(f.overpaidCents !== undefined ? { overpaidCents: f.overpaidCents } : {}),
       ...(f.deltaCents !== undefined ? { deltaCents: f.deltaCents } : {}),
+      // A SEGUNDA quantia de um achado que tem duas. Sem ela na projeção, o
+      // `{refundable}` da frase do `reopened_by_refund_mixed` chegava LITERAL na
+      // tela do dono — o `fill` devolve marcador desconhecido como veio. Campo
+      // acrescentado ao achado e esquecido aqui: a lista é de permissão, então o
+      // esquecimento é silencioso (segurança HIGH-1 da rodada catorze).
+      ...(f.refundableCents !== undefined ? { refundableCents: f.refundableCents } : {}),
       ...(f.driftCents !== undefined ? { driftCents: f.driftCents } : {}),
       ...(f.amountCents !== undefined ? { amountCents: f.amountCents } : {}),
       ...(f.txid ? { txid: f.txid } : {}),
@@ -963,7 +969,12 @@ async function route(req, res) {
           // exigência parecer coleta excessiva numa revisão — é o mínimo pra
           // emitir a cobrança, que é a base legal do art. 6º III da LGPD
           // (necessidade, execução de contrato). O app não guarda o número:
-          // `registerCharge` não persiste, e webhook com CPF passa por maskTaxId.
+          // `registerCharge` não persiste, e o webhook não guarda: a máscara é
+          // LISTA DE PERMISSÃO de escalares e o `customer.document` vem aninhado,
+          // então ele nem chega ao banco. (Esta linha dizia "passa por
+          // `maskTaxId`" — o ramo do pagador foi APAGADO da máscara, o que é mais
+          // protetivo: descarte, não mascaramento. Mas apontar pra um controle
+          // que não existe faz o próximo leitor confiar na máscara errada.)
           payerDocument: body.payerDocument ?? null,
         });
       } catch (e) {
@@ -1401,6 +1412,21 @@ async function route(req, res) {
             kind: parsed.kind, txid: parsed.txid, checkId: result.checkId || null,
             amountCents: parsed.amountCents, detail: parsed.reason || null,
           });
+          /**
+           * O PDV TAMBÉM PRECISA SABER. Estas duas saídas voltavam antes do
+           * `writeBackToPos` genérico lá embaixo — uma assimetria não decidida,
+           * herdada de quando elas eram só alerta.
+           *
+           * Uma reversão de estorno RESTAURA `paidCents` e pode devolver a conta
+           * pra `paga`: sem a sinalização, o balcão segue achando que a mesa
+           * deve, e alguém vai cobrá-la. O `writeBackPayment` só sinaliza com a
+           * conta 100% paga, então numa disputa perdida (que reduz o pago) ele
+           * sai calado sozinho — a chamada é segura nos dois casos, e a regra de
+           * "quando sinalizar" fica num lugar só (segurança LOW-2 da rodada dez).
+           */
+          if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
+            await writeBackToPos(result.checkId);
+          }
           const st = result.status === 'rejected' ? 409 : 200;
           return json(res, st, { success: st === 200, data: result });
         }
@@ -1441,6 +1467,21 @@ async function route(req, res) {
               checkId: result.checkId || null,
               amountCents: parsed.amountCents, detail: parsed.status || null,
             });
+          }
+          /**
+           * O PDV TAMBÉM PRECISA SABER. Estas duas saídas voltavam antes do
+           * `writeBackToPos` genérico lá embaixo — uma assimetria não decidida,
+           * herdada de quando elas eram só alerta.
+           *
+           * Uma reversão de estorno RESTAURA `paidCents` e pode devolver a conta
+           * pra `paga`: sem a sinalização, o balcão segue achando que a mesa
+           * deve, e alguém vai cobrá-la. O `writeBackPayment` só sinaliza com a
+           * conta 100% paga, então numa disputa perdida (que reduz o pago) ele
+           * sai calado sozinho — a chamada é segura nos dois casos, e a regra de
+           * "quando sinalizar" fica num lugar só (segurança LOW-2 da rodada dez).
+           */
+          if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
+            await writeBackToPos(result.checkId);
           }
           const st = result.status === 'rejected' ? 409 : 200;
           return json(res, st, { success: st === 200, data: result });

@@ -200,14 +200,29 @@ export default function WalletButtons({
     if (!gpayReady) return null; // device sem Google Pay → fica o Pix (e o saldo)
     return (
       <>
+        {/* O BOTÃO NÃO FICA CINZA EM SILÊNCIO.
+            Sem CPF ele era desabilitado sem uma palavra — o modo de falha que a
+            tela da conta já tinha consertado pro Pix ("ficava cinza em silêncio
+            e parecia quebrado"), repetido aqui. Agora ele é tocável e DIZ o que
+            falta, com a mesma frase do Pix, e leva o foco pro campo. */}
         <button
           type="button" className="walletbtn gpay"
-          disabled={disabled || busy || cpfDigits.length !== 11}
-          onClick={realGooglePay}
+          disabled={disabled || busy}
+          onClick={() => {
+            if (cpfDigits.length !== 11) {
+              setError(t('payer.cpfHint'));
+              document.getElementById('cpf-field')?.focus();
+              return;
+            }
+            setError(null);
+            void realGooglePay();
+          }}
         >
           {busy ? t('wallet.authorizing') : 'G Pay'}
         </button>
-        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
+        <p className="muted small" role="alert" style={{ margin: 0 }}>
+          {error && <span style={{ color: 'var(--erro)' }}>{error}</span>}
+        </p>
       </>
     );
   }

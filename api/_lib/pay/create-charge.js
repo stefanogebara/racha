@@ -346,6 +346,19 @@ function createChargeService({ store, psp }) {
         chargeRef, amountCents, tipCents,
         recipientId: venue.pspRecipientId,
         wallet, paymentToken, payerDocument,
+        /**
+         * O NOME DA CASA, pro descritor da fatura.
+         *
+         * O adaptador cravava `statement_descriptor: 'RACHA'`: a pessoa jantava
+         * no Bar do Zé, pagava com Google Pay, e a fatura do cartão dizia
+         * RACHA. Identificação errada do fornecedor (CDC art. 6º III), motor de
+         * contestação "não reconheço a compra", e o mesmo traço de "quem está no
+         * fluxo" que o inegociável #4 governa. O princípio já estava escrito no
+         * adaptador da Stripe ("quem cobrou tem que ser quem o cliente
+         * reconhece") e não tinha atravessado pro adquirente de produção
+         * (compliance MEDIUM-1 da rodada quinze).
+         */
+        venueName: venue.name,
         // A moeda é do MERCADO. Este argumento faltava, e o adaptador tinha
         // 'brl' de padrão: uma mesa espanhola no trilho de cartão cobrava em
         // real. A Stripe aceita isso sem reclamar (medido) — a defesa é aqui.

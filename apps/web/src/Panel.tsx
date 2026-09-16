@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { DICT, LangToggle, useT } from './lang';
+import { LangToggle, useT } from './lang';
 import { type PanelAtivacao } from './api';
-import { type CurrencyCode, type Key } from './i18n';
+import { textoDoAchado, type CurrencyCode } from './i18n';
 import { authedReq, signOut } from './auth';
 
 /**
@@ -21,6 +21,13 @@ interface Reconcile {
     message?: string;
     /** Os centavos, crus, pra o cliente formatar no idioma do leitor. */
     overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
+    // A SEGUNDA quantia de um achado, quando ele tem duas. Acrescentada ao achado,
+    // à projeção da rota, ao tipo do `textoDoAchado` e à frase — e esquecida AQUI,
+    // que é o tipo declarado do objeto entregue à função. Compila (tudo opcional,
+    // atribuição estrutural) e renderiza certo, então nada acusava: o próximo a
+    // escrever `f.refundableCents` neste arquivo levava erro de compilação sem
+    // pista de onde o campo mora (segurança LOW-1 da rodada quinze).
+    refundableCents?: number;
     chargedTipCents?: number; txid?: string; chargeId?: string; recipientId?: string;
   }>;
   at: string;
@@ -282,32 +289,6 @@ export default function Panel() {
  * ele, "não apareceu nada" e "não conferi nada" são a mesma tela, e a segunda é
  * a que quebra restaurante.
  */
-/**
- * Achado da conciliação → frase, no idioma do leitor.
- *
- * Mapa com genérico, nunca ternário: um código novo tem que sair como código,
- * e não como a frase do vizinho. Os centavos vêm crus do servidor e são
- * formatados aqui, onde se sabe quem está lendo.
- */
-function textoDoAchado(
-  f: {
-    code: string;
-    overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
-  },
-  t: (k: Key, v?: Record<string, string | number>) => string,
-  brl: (c: number) => string,
-): string {
-  const chave = `find.${f.code}` as Key;
-  // `amountCents` entra na cadeia: é o campo do `custody_leak` (quanto foi pra
-  // fora da subconta da casa). Sem ele, a frase saía com "{amount}" literal na
-  // tela — que é pior que não ter frase.
-  const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents ?? f.amountCents;
-  const vars = valor !== undefined ? { amount: brl(Math.abs(valor)) } : undefined;
-  // Pergunta, não exceção: `t()` de chave desconhecida estoura num
-  // `undefined[lang]`, e depender disso é depender de um acidente.
-  if (!(chave in DICT)) return t('find.other', { code: f.code });
-  return t(chave, vars);
-}
 
 function Conciliacao({ r, currency }: { r: Reconcile | undefined; currency: CurrencyCode }) {
   const { t, brl: fmtMoney, hm } = useT();
