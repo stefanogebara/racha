@@ -215,9 +215,24 @@ export const DICT = {
   // O que o CPF é fica AQUI e não no placeholder: glosado no rótulo, o campo
   // truncava em "Your CPF, the Brazilian tax ID (required to" num telefone de
   // 430px — e um rótulo cortado explica menos que um curto. Visto no navegador.
-  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. The payment provider asks for it to issue the charge — it goes to them, not to the restaurant, and Racha does not store it.',
-                        pt: 'O provedor de pagamento pede o CPF pra emitir a cobrança. Vai pra ele, não pro restaurante, e a Racha não guarda.',
-                        es: 'El CPF es el número fiscal brasileño. El proveedor de pago lo pide para emitir el cobro — va para él, no para el restaurante, y Racha no lo guarda.' },
+  /**
+   * QUEM PEDE O CPF É O PIX, e a frase dizia "o provedor de pagamento" — no
+   * singular, como se fosse um só.
+   *
+   * No Pix o gateway exige `customer.document` pra emitir a cobrança, e o
+   * documento VAI pra ele. No cartão, não: o adaptador da Stripe recebe o campo
+   * e o descarta (`void payerDocument`), de propósito e por minimização — a
+   * Stripe não exige documento. Então a justificativa escrita ("vai pra ele")
+   * era falsa justamente no trilho em que o dado não serve pra nada.
+   *
+   * A frase nova nomeia o trilho. A pergunta maior — se o campo deveria sumir
+   * quando a pessoa escolhe cartão — é de produto e está na fila; o que não pode
+   * esperar é a tela justificar a coleta com um destino que não existe
+   * (LGPD art. 6º III e art. 9º).
+   */
+  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. The Pix provider requires it to issue the charge — it goes to them, not to the restaurant, and Racha does not store it. On card it is not sent anywhere.',
+                        pt: 'O provedor do Pix exige o CPF pra emitir a cobrança. Vai pra ele, não pro restaurante, e a Racha não guarda. No cartão ele não é enviado a lugar nenhum.',
+                        es: 'El proveedor de Pix exige el CPF para emitir el cobro — va para él, no para el restaurante, y Racha no lo guarda. Con tarjeta no se envía a ninguna parte.' },
   'payer.cpfHint':    { en: 'Enter your CPF, 11 digits, to enable payment.',
                         pt: 'Preencha seu CPF (11 dígitos) pra liberar o pagamento.',
                         es: 'Escribe tu CPF, 11 dígitos, para habilitar el pago.' },
@@ -832,6 +847,12 @@ export const DICT = {
   'find.payables_no_recipient': { en: 'this venue has no known acquirer recipient — the destination cannot be checked',
                         pt: 'esta casa não tem recebedor conhecido no adquirente — não dá pra conferir o destino',
                         es: 'este local no tiene receptor conocido en el adquirente — no se puede verificar el destino' },
+  // ESTRUTURAL, não transitório: o adaptador deste adquirente não sabe listar
+  // repasse, então nenhuma varredura vai conferir o destino do dinheiro desta
+  // casa. Some no dia em que a perna existir.
+  'find.payables_leg_missing': { en: 'this acquirer does not report payouts — no charge had its destination checked',
+                        pt: 'este adquirente não reporta repasse — nenhuma cobrança teve o destino conferido',
+                        es: 'este adquirente no reporta abonos — ningún cobro tuvo su destino verificado' },
   'find.payables_unchecked': { en: 'could not read the acquirer’s receivables this time',
                         pt: 'não deu pra ler os recebíveis do adquirente nesta passada',
                         es: 'no se pudieron leer los abonos del adquirente esta vez' },
@@ -1278,9 +1299,25 @@ export const DICT = {
   // Sem nomear o trilho local: "além do Pix" numa tela espanhola é errado, e o
   // que importa nesta frase é o mesmo nos dois mercados — cartão e carteiras,
   // dinheiro direto na conta da casa, dados bancários na página da Stripe.
-  'stripe.blurb':     { en: 'Accept card, Apple Pay and Google Pay as well. The money lands straight in the restaurant’s account, with no custody by us. You connect a Stripe account and fill in the details on Stripe’s own secure page — the bank details never pass through Racha.',
-                        pt: 'Aceitar cartão, Apple Pay e Google Pay também. O dinheiro cai direto na conta do restaurante, sem custódia nossa. Você conecta uma conta Stripe e faz o cadastro na página segura da Stripe — os dados bancários não passam pela Racha.',
-                        es: 'Acepta tarjeta, Apple Pay y Google Pay también. El dinero cae directo en la cuenta del restaurante, sin custodia por nuestra parte. Conectas una cuenta de Stripe y rellenas los datos en su propia página segura — los datos bancarios nunca pasan por Racha.' },
+  /**
+   * "SEM CUSTÓDIA NOSSA" ERA FALSO NESTE TRILHO, e estava escrito na tela dele.
+   *
+   * O cartão é uma DESTINATION CHARGE (`stripe-psp.js`: `transfer_data.destination`):
+   * a cobrança nasce na plataforma e a Stripe transfere pra conta conectada do
+   * restaurante. Não é conta-bolsão e a Racha não saca nem retém — mas o
+   * dinheiro do cliente TRANSITA pela plataforma, e é isso que o inegociável #4
+   * governa. O próprio adaptador diz as duas coisas em comentários opostos: um
+   * afirma "liquida na conta do restaurante, não na plataforma" e outro, duzentas
+   * linhas abaixo, fala de "dinheiro parado no saldo da PLATAFORMA, que é
+   * território do inegociável #4". A copy seguiu o errado.
+   *
+   * A frase nova diz o que acontece. Quem precisa da diferença — um contador, um
+   * advogado de pagamentos — precisa dela exata; quem não precisa lê "a conta é
+   * sua" e segue.
+   */
+  'stripe.blurb':     { en: 'Accept card, Apple Pay and Google Pay as well. Payouts go to the restaurant’s own Stripe account — Racha never holds a pooled account and never withdraws from yours, though a card charge does pass through our Stripe platform before Stripe transfers it to you. You connect a Stripe account and fill in the details on Stripe’s own secure page — the bank details never pass through Racha.',
+                        pt: 'Aceitar cartão, Apple Pay e Google Pay também. O repasse vai para a conta Stripe do próprio restaurante — a Racha não tem conta-bolsão e nunca saca da sua, embora a cobrança no cartão passe pela nossa plataforma Stripe antes de a Stripe transferir para você. Você conecta uma conta Stripe e faz o cadastro na página segura da Stripe — os dados bancários não passam pela Racha.',
+                        es: 'Acepta tarjeta, Apple Pay y Google Pay también. El abono va a la cuenta de Stripe del propio restaurante — Racha no tiene cuenta ómnibus y nunca retira de la tuya, aunque el cobro con tarjeta pasa por nuestra plataforma de Stripe antes de que Stripe te lo transfiera. Conectas una cuenta de Stripe y rellenas los datos en su propia página segura — los datos bancarios nunca pasan por Racha.' },
   'wiz.t2subEs':      { en: 'Where the money from the bills lands. You connect a Stripe account and enter the IBAN and KYC details on Stripe’s page; the bank details never pass through Racha.',
                         pt: 'Onde o dinheiro das comandas cai. Você conecta uma conta Stripe e preenche IBAN e KYC na página deles; os dados bancários não passam pela Racha.',
                         es: 'Donde cae el dinero de las cuentas. Conectas una cuenta de Stripe e introduces el IBAN y los datos de KYC en su página; los datos bancarios nunca pasan por Racha.' },

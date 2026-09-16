@@ -230,15 +230,38 @@ function reconcileCheck({ checkId, events, payments }) {
      */
     const entrou = Object.values(state.payments || {})
       .reduce((acc, pg) => acc + (Number(pg.amountCents) || 0), 0);
-    if (houveEstorno && entrou >= state.totalCents && state.totalCents > 0) {
+    /**
+     * O QUE A DISPUTA TIROU NÃO ENTRA NA CONTA DO ACHADO.
+     *
+     * `houveEstorno` é um `some`: basta UM estorno do trilho pra o achado
+     * nascer, e o buraco na conta pode ser majoritariamente CHARGEBACK. Numa
+     * conta de R$ 200,00 com chargeback de R$ 110,00 e um estorno legítimo de
+     * R$ 20,00, o achado saía com R$ 120,00 e a frase "não peça o resto à mesa"
+     * — instruindo a apagar dos livros R$ 110,00 de prejuízo real. É palavra por
+     * palavra o que o parágrafo acima chama de errado, no caso MISTO
+     * (compliance MEDIUM-B da rodada doze).
+     *
+     * Então a parte disputada sai da conta, e o achado só sai se ainda sobrar
+     * buraco causado por DEVOLUÇÃO.
+     */
+    // SÓ O BALDE DO CONSUMO. O buraco que a mesa vê é `total - paid`, e a
+    // gorjeta não entra em `paidCents` — somar o balde da gorjeta aqui
+    // descontaria do buraco um dinheiro que nunca esteve nele.
+    const porDisputa = Object.values(state.payments || {}).reduce((acc, pg) => acc
+      + ((Number(pg.refundedAmountCents) || 0) - (Number(pg.refundedPeloTrilhoAmountCents) || 0)), 0);
+    const buraco = state.totalCents - state.paidCents;
+    const porDevolucao = buraco - Math.max(0, porDisputa);
+    if (houveEstorno && entrou >= state.totalCents && state.totalCents > 0 && porDevolucao > 0) {
       add('high', 'reopened_by_refund',
         `esta conta foi quitada (entrou ${entrou}¢ de ${state.totalCents}¢) e uma devolução a reabriu: `
-        + `o telefone da mesa mostra ${state.totalCents - state.paidCents}¢ "faltando" e o botão de pagar. `
-        + `Feche a conta ou lance um ajuste para baixo; não peça o resto à mesa (CDC art. 42)`,
+        + `o telefone da mesa mostra ${buraco}¢ "faltando" e o botão de pagar`
+        + (porDisputa > 0 ? `, dos quais ${porDevolucao}¢ vieram de devolução (o resto é chargeback, que a casa perdeu mesmo)` : '')
+        + `. Feche a conta ou lance um ajuste para baixo; não peça o resto à mesa (CDC art. 42)`,
         // `deltaCents`, e não um nome novo: é o campo que a cadeia do painel lê
         // (`overpaidCents ?? deltaCents ?? driftCents ?? amountCents`). Um campo
-        // fora da cadeia faria a tela do dono imprimir "{amount}" literal.
-        { deltaCents: state.totalCents - state.paidCents, entrouCents: entrou });
+        // fora da cadeia faria a tela do dono imprimir "{amount}" literal. E ele
+        // carrega a parte da DEVOLUÇÃO, que é o que o dono pode dar baixa.
+        { deltaCents: porDevolucao, buracoCents: buraco, entrouCents: entrou });
     }
   }
 

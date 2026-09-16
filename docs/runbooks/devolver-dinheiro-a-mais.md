@@ -100,6 +100,18 @@ conciliação levanta `paid_after_close`.
    nota de quem resolveu) — é ela que diz ao cliente que ele tem a receber. Feche
    as duas, ou a conta segue vermelha com a dívida já paga.
 
+   **Na NOTA dessa resolução, nada do cliente** — a mesma regra da referência,
+   três parágrafos abaixo, e é aqui que ela é mais fácil de esquecer: o campo é
+   texto livre e o exemplo que sai sozinho da cabeça de quem resolve é
+   "reembolsei o Pedro no Pix 11 98765-4321". Escreva o que aconteceu, não quem:
+   "dinheiro no caixa às 21h40", "estorno refeito e confirmado". A nota vai pro
+   razão, que é só-de-acréscimo: **a purga de retenção (migração 0031) cobre
+   `payments` e `check_views` e NÃO cobre `check_events`**, então o que entrar
+   ali não tem caminho de eliminação hoje (LGPD art. 6º III e art. 18, V). A
+   lacuna já está registrada em
+   [`docs/compliance/retencao.md`](../compliance/retencao.md) — o que faltava era
+   o aviso aqui, no passo em que alguém realmente digita a frase.
+
    A ORDEM não importa mais: o razão guarda que o estorno daquela cobrança
    falhou, e resolver a pendência não apaga esse fato. (Até a revisão de
    ec86b37, apagava — e resolver primeiro, que é o natural porque é a marca que
@@ -178,18 +190,31 @@ vê. Uma mesa que já pagou tudo.
    valor devolvido do consumo (R$ 9,09 no exemplo). **Isto ainda não tem botão**:
    é chamada de API, com a sua sessão de dono.
 
+   **Mande os ITENS, não só o total.** O ajuste substitui a lista de itens da
+   conta pelo que você mandar; mandando só `totalCents`, a conta inteira vira uma
+   linha só chamada "Total da conta" — e quem está com o telefone na mesa perde o
+   detalhamento E perde o racha POR ITEM, numa mesa que ainda vai pedir. Consertar
+   um problema de transparência quebrando outro não vale (CDC art. 6º III).
+
    ```bash
+   # Os itens que já estavam na conta, com UMA linha a menos (ou com um item
+   # ajustado) até o total bater com o novo valor.
    curl -X POST https://<host>/api/checks/adjust \
      -H 'authorization: Bearer <seu token de sessão>' \
      -H 'content-type: application/json' \
-     -d '{"checkId":"<uuid da conta>","totalCents":9091}'
+     -d '{"checkId":"<uuid da conta>","items":[
+           {"id":"i1","name":"Picanha na chapa","priceCents":8990},
+           {"id":"i2","name":"Ajuste — devolução no adquirente","priceCents":-0}
+         ]}'
    ```
 
-   `totalCents` é o total NOVO da conta, em centavos inteiros: no exemplo desta
-   seção a conta era R$ 100,00 (`10000`) e o consumo devolvido foi R$ 9,09
-   (`909`), então o total novo é `9091`. Nunca use o valor da devolução aqui —
-   o campo é o total, não o desconto. Resposta `200` com o estado novo; `403`
-   quer dizer que a sessão não é do dono daquela casa.
+   O total novo é a SOMA dos itens (o campo `totalCents` só é lido quando não
+   vêm itens). Item de valor negativo não é aceito, então o desconto entra
+   tirando ou reduzindo uma linha existente. Resposta `200` com o estado novo;
+   `403` quer dizer que a sessão não é do dono daquela casa.
+
+   Se a mesa **não** vai consumir mais, prefira o passo 1: fechar é um toque e
+   não mexe no detalhamento.
 3. **O que dizer para quem está com o telefone na mão**, enquanto isso não
    acontece: *"esta conta já está paga — o valor que aparece é a devolução que
    acabamos de fazer, e o sistema atualiza em instantes. Não pague de novo."*

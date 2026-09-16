@@ -434,3 +434,95 @@ test('uma devolução que o DONO fez no caixa não entra na régua do adquirente
   // Os dois saíram: 3000 pelo caixa, 2000 pelo cartão.
   expect(st.payments.pi_x.refundedAmountCents + st.payments.pi_x.refundedTipCents).toBe(5000);
 });
+
+test('a testemunha que não cabe nos baldes vivos vira proporcional — e grita', async () => {
+  /**
+   * O casador olha o razão INTEIRO e devolve a repartição de um lançamento
+   * HISTÓRICO; os baldes vivos do trilho podem já ter sido drenados por uma
+   * reversão anterior de OUTRO valor, que a guarda da testemunha não enxerga
+   * porque filtra por valor. O `validateEvent` recusava, a rota devolvia 409
+   * SEM UMA ANOMALIA, a Stripe reenviava, e o razão seguia dizendo que o
+   * cliente foi reembolsado de um dinheiro que nunca saiu (compliance HIGH-1 da
+   * rodada doze).
+   */
+  const { store, check, deps } = await mesaSimples(10000, 2000);
+  // A: só gorjeta. B: proporcional. Os dois do trilho.
+  await store.appendEvent(check.id, 'PAYMENT_REFUNDED', { txid: 'pi_x', amountCents: 0, tipCents: 1000 });
+  await store.appendEvent(check.id, 'PAYMENT_REFUNDED', { txid: 'pi_x', amountCents: 1800, tipCents: 200 });
+
+  // Uma falha de 1500 não casa com nenhum dos dois: entra proporcional e drena
+  // os baldes vivos pra {900, 600}.
+  await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 1500, eventId: 'evt_f1', refundId: 're_x',
+  }, deps);
+  const meio = reduce(await eventos(store, check.id));
+  expect([meio.payments.pi_x.refundedPeloTrilhoAmountCents,
+    meio.payments.pi_x.refundedPeloTrilhoTipCents]).toEqual([900, 600]);
+
+  // Agora a falha do A (1000, só gorjeta). A testemunha diria {0, 1000} — e não
+  // cabe nos 600 vivos.
+  const r = await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 1000, eventId: 'evt_f2', refundId: 're_a',
+  }, deps);
+  // Entra, pelo proporcional. Era `rejected` → 409 → reenvio → endpoint desabilitado.
+  expect(r.status).toBe('appended');
+  const evs = await eventos(store, check.id);
+  const grito = anomalias(evs).filter((a) => /o adquirente aponta um estorno de/.test(a.reason || ''));
+  expect(grito.length).toBe(1);
+  expect(grito[0].severity).toBe('high');
+  // E sem testemunha: a repartição é palpite nosso, e palpite não tira da folha.
+  expect(reversoes(evs, 'pi_x').map((e) => e.payload.testemunhado)).toEqual([false, false]);
+});
+
+test('reentrega SEM id sobre uma reversão COM id também é reentrega', async () => {
+  /**
+   * O caso simétrico do que a rodada onze fechou: a guarda de identidade precisa
+   * de `re_` na ENTREGA, e a contagem precisava de reversão cega no RAZÃO.
+   * Nenhuma das duas disparava, e a segunda entrega gravava "a reversão chegou
+   * antes do estorno" — frase falsa e permanente (compliance MEDIUM-A da rodada
+   * doze).
+   */
+  const { store, check, deps } = await mesaSimples(3000, 300);
+  await applyConfirmedPayment({
+    kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 1100, method: 'card', eventId: 'evt_e1',
+  }, deps);
+  await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 1100, eventId: 'evt_f1', refundId: 're_1',
+  }, deps);
+  const segunda = await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 1100, eventId: 'evt_f2', refundId: null,
+  }, deps);
+  expect(segunda.status).toBe('duplicate');
+  const evs = await eventos(store, check.id);
+  expect(reversoes(evs, 'pi_x').length).toBe(1);
+  expect(anomalias(evs).filter((a) => /antes do estorno/.test(a.reason || ''))).toEqual([]);
+});
+
+test('disputa SEM `dp_` continua sendo disputa — a marca vem do kind', async () => {
+  /**
+   * "É uma disputa" e "qual disputa" são perguntas diferentes, e o razão gravava
+   * só a segunda. Um `dispute_lost` sem id — o cinto cego, que este arquivo
+   * trata desde 2026-09-08 — produzia um `PAYMENT_REFUNDED` indistinguível de um
+   * estorno do adquirente: entrava no acumulado do trilho e virava candidato a
+   * "o estorno que falhou".
+   *
+   * A marca `deDisputa` sai do KIND, que sempre existe. Sem um teste, ela seria
+   * código que decide dinheiro e nunca foi executado (compliance MEDIUM-C).
+   */
+  const { store, check, deps } = await mesaSimples(10000, 1000);
+  await applyConfirmedPayment({
+    kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 3000, method: 'dispute', eventId: 'evt_d1',
+  }, deps);
+  const st = reduce(await eventos(store, check.id));
+  // Saiu do pagamento...
+  expect(st.payments.pi_x.refundedAmountCents + st.payments.pi_x.refundedTipCents).toBe(3000);
+  // ...e NÃO entrou no acumulado do trilho.
+  expect(st.payments.pi_x.refundedPeloTrilhoAmountCents
+    + st.payments.pi_x.refundedPeloTrilhoTipCents).toBe(0);
+  // Logo, uma falha de estorno do mesmo valor não tem o que desfazer.
+  const r = await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 3000, eventId: 'evt_f1', refundId: 're_1',
+  }, deps);
+  expect(r.status).toBe('out_of_order');
+  expect(reduce(await eventos(store, check.id)).status).toBe('parcial');
+});

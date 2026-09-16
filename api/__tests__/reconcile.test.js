@@ -536,6 +536,30 @@ describe('a conta que voltou a cobrar', () => {
     expect(r[0].deltaCents).toBe(10000);
   });
 
+  /**
+   * O CASO MISTO: chargeback grande + devolução pequena na mesma conta.
+   *
+   * `houveEstorno` é um `some` — basta uma devolução do trilho pro achado
+   * nascer —, e o buraco pode ser majoritariamente chargeback. A frase manda
+   * "fechar ou ajustar para baixo, não peça o resto à mesa": aplicada sobre a
+   * parte disputada, é instruir a apagar dos livros um prejuízo real
+   * (compliance MEDIUM-B da rodada doze).
+   */
+  test('no caso MISTO, o número é o da devolução — não o do chargeback', () => {
+    const r = achado([
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 2000, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 10000, tipCents: 1000, disputeId: 'dp_1' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 1818, tipCents: 182 }),
+    ]);
+    expect(r.length).toBe(1);
+    // O buraco é 11818; a parte da DEVOLUÇÃO é 1818. É essa que o dono pode
+    // dar baixa, e é essa que vai no número.
+    expect(r[0].deltaCents).toBe(1818);
+    expect(r[0].buracoCents).toBe(11818);
+    expect(r[0].message).toMatch(/chargeback, que a casa perdeu mesmo/);
+  });
+
   test('quitada sem devolução nenhuma não é achado', () => {
     expect(achado(quitada).length).toBe(0);
   });
@@ -561,8 +585,11 @@ describe('a conta que voltou a cobrar', () => {
     const r = achado([
       ev('OPENED', { totalCents: 20000 }),
       ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 0, method: 'pix' }),
-      // O MESMO txid de novo, com outro valor — o caminho `divergent_appended`.
-      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 0, method: 'pix' }),
+      // O MESMO txid de novo, com OUTRO valor — o caminho `divergent_appended`,
+      // que grava um segundo `PAYMENT_CONFIRMED` de propósito. Com o mesmo
+      // valor o redutor curto-circuita como reentrega limpa e este teste
+      // cobriria outro caminho que não o que o comentário promete.
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 12000, tipCents: 0, method: 'pix' }),
       ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 100, tipCents: 0 }),
     ]);
     expect(r.length).toBe(0);

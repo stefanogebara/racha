@@ -129,8 +129,19 @@ function casarReversao(events, txid, falhou, refundId) {
    *    art. 42; compliance HIGH-2 da rodada onze).
    *
    *    O `comId` já era calculado aqui e nunca era lido: o sinal estava na mão.
+   *
+   *    E O CASO SIMÉTRICO: reversão gravada COM `re_`, reentrega chegando SEM.
+   *    A guarda 1 precisa de id na ENTREGA; a condição das cegas precisa de id
+   *    ausente no RAZÃO. Escrita só com as cegas, nenhuma das duas disparava, e
+   *    a segunda entrega caía ou em "a reversão chegou antes do estorno" —
+   *    frase falsa e permanente, o defeito da rodada dez voltando pela porta
+   *    simétrica — ou num corte que reverte proporcionalmente sobre um estorno
+   *    que DEU CERTO (compliance MEDIUM-A da rodada doze). Por isso a condição é
+   *    "a entrega não tem id OU há reversão cega": falta de identidade de
+   *    qualquer um dos dois lados é o que torna a reentrega possível.
    */
-  if (cegasDoValor.length > 0 && revertidosDoValor.length >= doValor.length) {
+  if ((!refundId || cegasDoValor.length > 0) && revertidosDoValor.length >= doValor.length
+      && revertidosDoValor.length > 0) {
     return { decisao: 'reentrega', porque: 'consumo', anomalias };
   }
 

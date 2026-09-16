@@ -304,8 +304,44 @@ async function applyConfirmedPayment(parsed, deps) {
      * Sem: volta o proporcional, e o razão grava `testemunhado: false`, porque
      * palpite nosso não pode mandar no rateio que tira da base da folha.
      */
+    /**
+     * A TESTEMUNHA TEM QUE CABER NOS BALDES VIVOS, não só somar o valor certo.
+     *
+     * O casador olha o razão INTEIRO: a repartição que ele devolve é a de um
+     * lançamento HISTÓRICO, e os baldes vivos do trilho já podem ter sido
+     * drenados por reversões anteriores de OUTRO valor — que a guarda da
+     * testemunha não enxerga, porque ela filtra por valor.
+     *
+     * Medido: estorno A de {0,1000} e B de {1800,200}; uma falha de 1500 (que
+     * não casa com nenhum) entra proporcional e deixa o trilho em {900,600};
+     * depois a falha de 1000, que É o A, ganha testemunha {0,1000} — e o
+     * `validateEvent` recusa, porque 1000 de gorjeta não cabe em 600. A rota
+     * devolvia 409 SEM UMA ANOMALIA: a Stripe reenvia, o endpoint acaba
+     * desabilitado, e o razão segue dizendo que o cliente foi reembolsado de um
+     * dinheiro que nunca saiu (compliance HIGH-1 da rodada doze; inegociável #8,
+     * CDC art. 6º III, Lei 13.419/2017).
+     *
+     * `falhou` que não casa com um lançamento é o caso NORMAL, não exótico: o
+     * razão grava deltas de um acumulado, então dois estornos com um
+     * `charge.refunded` perdido viram um lançamento só.
+     *
+     * Não cabendo, a testemunha cai e o proporcional entra — que por construção
+     * cabe, porque é calculado SOBRE os baldes vivos.
+     */
+    const cabeNosBaldes = Number.isSafeInteger(casamento.amountCents)
+      && casamento.amountCents <= estornadoAmount && casamento.tipCents <= estornadoTip;
+    if (testemunhado && Number.isSafeInteger(casamento.amountCents) && !cabeNosBaldes) {
+      await gritar('testemunha_excede_o_balde', 'high',
+        `o adquirente aponta um estorno de ${casamento.amountCents}+${casamento.tipCents} e o razão só tem `
+        + `${estornadoAmount}+${estornadoTip} vivos neste pagamento — revertendo pelo proporcional, `
+        + `confira os estornos deste pagamento no adquirente`);
+      testemunhado = false;
+    }
+    // `cabeNosBaldes` NÃO se repete aqui: o `if` acima já derrubou a testemunha
+    // quando não cabia. Repetir seria um termo que nunca muda o resultado —
+    // medido: apagá-lo não quebra teste nenhum, que é a definição de guarda
+    // morta, e este arquivo já tem achados demais dessa família.
     const casaOValor = testemunhado
-      && Number.isSafeInteger(casamento.amountCents)
       && casamento.amountCents + casamento.tipCents === aReverter;
     reversalAllocated = casaOValor
       ? { amountCents: casamento.amountCents, tipCents: casamento.tipCents, testemunhado: true }
