@@ -311,8 +311,8 @@ const AUTH_SUPABASE_KEY = process.env.AUTH_SUPABASE_KEY || process.env.SUPABASE_
 let auth = null;
 let authClient = null;
 if (AUTH_SUPABASE_URL && AUTH_SUPABASE_KEY) {
-  const { createClient } = require('@supabase/supabase-js');
-  authClient = createClient(AUTH_SUPABASE_URL, AUTH_SUPABASE_KEY, {
+  const { criarClienteSupabase } = require('../_lib/store/cliente-supabase');
+  authClient = criarClienteSupabase(AUTH_SUPABASE_URL, AUTH_SUPABASE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   auth = createAuth({ authClient, store });

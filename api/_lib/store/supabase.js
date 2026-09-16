@@ -34,7 +34,7 @@ const { disputeCounts } = require('../checks/disputes');
  * - psp_payload_masked receives ONLY the masked subset built upstream.
  */
 
-const { createClient } = require('@supabase/supabase-js');
+const { criarClienteSupabase } = require('./cliente-supabase');
 const { reduce, paidAfterClose } = require('../checks/check-state');
 const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
@@ -144,7 +144,7 @@ function mapHouseAccount(a) {
  *   ver. Achado pela revisão de segurança de 2026-09-08.
  */
 function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
-  const client = injected || createClient(
+  const client = injected || criarClienteSupabase(
     url || required('SUPABASE_URL'),
     serviceRoleKey || required('SUPABASE_SERVICE_ROLE_KEY'),
     { auth: { persistSession: false } },
