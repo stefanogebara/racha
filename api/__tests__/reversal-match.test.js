@@ -11,6 +11,23 @@
  */
 
 const { casarReversao, candidatoDeEstorno } = require('../_lib/checks/reversal-match');
+const { estornoDoTrilho } = require('../_lib/checks/check-state');
+
+/**
+ * É O MESMO PREDICADO, não uma cópia que combina hoje.
+ *
+ * O commit que consolidou isto é inteiro sobre três cópias divergentes que
+ * custaram um achado ALTO cada. Uma cópia local que reproduzisse a divergência
+ * anterior (exclui `offRail` e `disputeId`, esquece `deDisputa`) passava a suíte
+ * inteira verde: nada afirmava que o arquivo IMPORTA em vez de copiar
+ * (segurança MEDIUM-2 da rodada doze).
+ *
+ * Identidade de referência é a afirmação mais forte possível aqui, e a mais
+ * barata: uma cópia, por mais idêntica que seja hoje, não passa.
+ */
+test('o candidato do casador É o predicado do redutor — a mesma função', () => {
+  expect(candidatoDeEstorno).toBe(estornoDoTrilho);
+});
 
 const est = (payload) => ({ type: 'PAYMENT_REFUNDED', payload: { txid: 'pi', ...payload } });
 const rev = (payload) => ({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid: 'pi', ...payload } });
@@ -252,4 +269,74 @@ test('propriedade: quem testemunha devolve uma repartição que soma o valor rel
   expect(cortes).toBeGreaterThan(20);
   // E mesmo ali, o `casaOValor` do handler recusa a repartição: é ele que segura.
   expect(cortesComCasamentoDeValor).toBe(0);
+});
+describe('identidade DIFERENTE não é reentrega', () => {
+  /**
+   * `re_A` falhou e foi revertido (com id). A casa emite `re_B`, do mesmo valor,
+   * e ele também falha. O `charge.refunded` de `re_B` atrasa — a Stripe não
+   * garante ordem. A contagem via `R(v)=1 >= C(v)=1` e devolvia `reentrega`, em
+   * silêncio: o estorno de `re_B` entra no razão quando o `charge.refunded`
+   * chegar, e NADA nunca o desfaz. Cliente sem o dinheiro, razão dizendo que
+   * foi reembolsado (CDC art. 6º III e art. 42).
+   *
+   * ESTE BLOCO JÁ EXISTIU e eu o apaguei sem querer, reescrevendo o fim do
+   * arquivo numa edição por índice. A revisão de segurança achou a ausência
+   * plantando exatamente o mutante que ele existe pra pegar — e por isso ele
+   * volta com a prova de mutação anotada, não só com o cenário.
+   */
+  test('reversão anterior COM outro `re_` não consome o candidato', () => {
+    const razao = [est({ amountCents: 1000, tipCents: 100 }),
+      rev({ amountCents: 1000, tipCents: 100, refundId: 're_A' })];
+    const r = casarReversao(razao, 'pi', 1100, 're_B');
+    expect(r.decisao).toBe('aplicar');
+    // Mutante que isto pega: trocar a condição por `revertidosDoValor.length > 0`.
+    expect(chaves(r)).toEqual(['reversao_ambigua']);
+  });
+
+  /**
+   * E A TESTEMUNHA CAI JUNTO. Com R(v)=1 e C(v)=1 não dá pra saber se o único
+   * candidato já foi consumido pela reversão anterior — e a testemunha é o que
+   * autoriza a devolução por fora a passar por cima do rateio e tirar da base de
+   * cálculo da folha (Lei 13.419/2017).
+   *
+   * Esta combinação (R>0 com C=1) só passou a ser ALCANÇÁVEL quando a contagem
+   * parou de engolir a entrega com id diferente: antes ela retornava `reentrega`
+   * e nunca chegava aqui. A correção abriu o caminho, e o teste que defende a
+   * testemunha nessa forma não tinha sido escrito junto (segurança HIGH-3 da
+   * rodada doze).
+   */
+  test('com R(v)>0 e um candidato só, a testemunha CAI', () => {
+    const razao = [est({ amountCents: 1000, tipCents: 100 }),
+      rev({ amountCents: 1000, tipCents: 100, refundId: 're_A' })];
+    expect(casarReversao(razao, 'pi', 1100, 're_B')).toMatchObject({ testemunhado: false });
+  });
+
+  test('mas uma reversão anterior SEM id continua consumindo — é a janela do deploy', () => {
+    const razao = [est({ amountCents: 1000, tipCents: 0 }), rev({ amountCents: 1000, tipCents: 0 })];
+    expect(casarReversao(razao, 'pi', 1000, 're_B').decisao).toBe('reentrega');
+  });
+
+  test('e a ENTREGA sem id sobre reversão com id também é reentrega', () => {
+    // Falta de identidade de QUALQUER um dos dois lados torna a reentrega
+    // possível — foi o caso simétrico que a rodada doze fechou.
+    const razao = [est({ amountCents: 1000, tipCents: 0 }),
+      rev({ amountCents: 1000, tipCents: 0, refundId: 're_A' })];
+    expect(casarReversao(razao, 'pi', 1000, null).decisao).toBe('reentrega');
+  });
+
+  test('e com UMA cega e uma com id, a cega ainda sustenta a reentrega', () => {
+    const razao = [
+      est({ amountCents: 1000, tipCents: 0 }), est({ amountCents: 1000, tipCents: 0 }),
+      rev({ amountCents: 1000, tipCents: 0 }), rev({ amountCents: 1000, tipCents: 0, refundId: 're_A' }),
+    ];
+    expect(casarReversao(razao, 'pi', 1000, 're_B').decisao).toBe('reentrega');
+  });
+
+  test('o predicado exclui a disputa marcada pelo KIND, sem `dp_`', () => {
+    // A forma que separa o predicado compartilhado de uma cópia local que só
+    // conhece `disputeId` — e era a única que nenhum teste exercitava.
+    expect(candidatoDeEstorno(est({ amountCents: 1000, tipCents: 0, deDisputa: true }))).toBe(false);
+    expect(casarReversao([est({ amountCents: 1000, tipCents: 0, deDisputa: true })], 'pi', 1000, 're_1'))
+      .toMatchObject({ testemunhado: false });
+  });
 });

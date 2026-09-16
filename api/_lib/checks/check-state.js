@@ -578,7 +578,25 @@ function applyEvent(state, evt, seq = null) {
        * o tem (segurança HIGH-2 da rodada onze).
        *
        * Não fica negativo: o `validateEvent` já recusa uma reversão maior do que
-       * o acumulado do trilho, balde a balde.
+       * o acumulado do trilho, balde a balde — e essa guarda tem teste PRÓPRIO
+       * no redutor desde a rodada doze, construído à mão em vez de passar pelo
+       * tratador (que já a torna redundante, e por isso a escondia).
+       *
+       * SOBRE O RAZÃO JÁ GRAVADO: apertar este teto pode recusar, no replay,
+       * uma reversão que o teto antigo aceitou — e aí uma conta vira de `paga`
+       * pra `parcial` no instante do deploy. Medido em produção antes de subir,
+       * com esta consulta:
+       *
+       *   select count(*) filter (where type = 'PAYMENT_REFUND_REVERSED')  as reversoes,
+       *          count(*) filter (where type = 'PAYMENT_REFUNDED'
+       *                             and payload->>'method' = 'dispute'
+       *                             and not (payload ? 'disputeId')
+       *                             and not (payload ? 'deDisputa'))       as disputa_sem_marca
+       *   from check_events;
+       *
+       * Em 2026-09-16: `reversoes = 0`, `disputa_sem_marca = 0`, `estornos = 1`.
+       * Raio de alcance zero. Se um dia não for zero, o número tem que sair
+       * desta consulta ANTES do deploy, e não da primeira mesa que reclamar.
        */
       pay.refundedPeloTrilhoAmountCents = (pay.refundedPeloTrilhoAmountCents || 0) - amount;
       pay.refundedPeloTrilhoTipCents = (pay.refundedPeloTrilhoTipCents || 0) - tip;

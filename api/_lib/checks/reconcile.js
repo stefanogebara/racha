@@ -142,6 +142,34 @@ function reconcileCheck({ checkId, events, payments }) {
 
 
   /**
+   * DISPUTA VELHA SEM MARCA DE PROCEDÊNCIA — a dívida do razão já gravado.
+   *
+   * `deDisputa` vem do KIND e resolve o futuro. Os `PAYMENT_REFUNDED` de disputa
+   * gravados ANTES dela, e os que o adaptador produziu quando o `dp_` não veio
+   * como string, não têm marca nenhuma: `estornoDoTrilho` devolve `true` pra
+   * eles, então entram no acumulado do trilho e viram candidatos a "o estorno
+   * que falhou" — que é o caminho por onde um chargeback era desfeito no razão.
+   *
+   * Não há migração de backfill, e a frase num commit não é um controle. O
+   * `method: 'dispute'` está no payload e distingue, então a varredura pode ao
+   * menos NOMEAR as linhas em vez de deixar a dívida só escrita
+   * (segurança LOW-2 da rodada doze).
+   *
+   * `info`: nada está errado agora, e o dono não tem o que fazer — é para a
+   * varredura saber de quantas linhas está falando quando alguém for escrever a
+   * migração.
+   */
+  for (const e of (Array.isArray(events) ? events : [])) {
+    if (e.type !== 'PAYMENT_REFUNDED' || !e.payload) continue;
+    if (e.payload.method !== 'dispute') continue;
+    if (e.payload.deDisputa === true || e.payload.disputeId) continue;
+    add('info', 'dispute_refund_unmarked',
+      `um estorno de DISPUTA sem marca de procedência (seq ${e.seq ?? '?'}) — razão anterior à marca `
+      + `\`deDisputa\`; ele conta como estorno do trilho até alguém preencher`,
+      { ...(e.payload.txid ? { txid: e.payload.txid } : {}), seq: e.seq });
+  }
+
+  /**
    * A CONTA QUE VOLTOU A COBRAR — quitada, e cobrando de novo.
    *
    * Um estorno pelo painel do adquirente é rateado entre consumo e serviço

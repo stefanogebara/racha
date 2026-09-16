@@ -47,12 +47,26 @@ const { estornoDoTrilho } = require('./check-state');
  * segurança mediu: dois estornos de R$ 11,00, duas entregas cegas, teto de
  * R$ 22,00.
  *
- * Não dá pra fechar sem escolher um lado errado. Exigir testemunha pro teto
- * bloquearia a devolução por fora em todo caso ambíguo — que é o caso comum — e
- * deixaria sem remédio um cliente a quem a casa DEVE. O que resta é gritar, e é
- * o que acontece: `sem_refund_id` em cada entrega (chave por entrega, não por
- * valor) mais `reversao_ambigua`. E a janela fecha sozinha: depois deste deploy
- * toda reversão nasce com `re_`, e aí a guarda 1 resolve por identidade.
+ * O CASO É RARO, e a primeira versão deste parágrafo dizia que era o comum —
+ * errado, e a revisão de segurança corrigiu: o comum é UM estorno num pagamento
+ * (C=1, R=0, testemunha verdadeira, teto intacto). Ambíguo é dois estornos de
+ * valor IDÊNTICO no mesmo pagamento, os dois falhando, sem identidade.
+ *
+ * Há uma terceira saída, considerada e recusada: condicionar a contribuição ao
+ * teto (`reversedOpen*`) à presença de `refundId`. Ela fecharia a inflação sem
+ * tocar no caso comum — e o preço é que uma reversão CEGA deixaria de abrir teto
+ * nenhum. Ou seja: no dia em que o adquirente omitir o id, um cliente a quem a
+ * casa DEVE fica sem caminho de devolução por fora. Trocar "às vezes o teto
+ * infla, e grita" por "às vezes não há remédio, e cala" é o lado errado pra
+ * errar quando o dinheiro é do cliente.
+ *
+ * Fica aberto, então, com o que dá pra afirmar: a inflação é limitada pelo valor
+ * do pagamento (o `validateEvent` não deixa reverter mais do que o trilho tem),
+ * sai `sem_refund_id` em CADA entrega (chave por entrega, não por valor) mais
+ * `reversao_ambigua`, e a guarda 1 resolve por identidade em toda entrega que
+ * traga `re_` — que é o que a Stripe manda hoje. Se um adquirente futuro não
+ * mandar, isto não é uma janela que fecha: é um buraco permanente, e aí a
+ * terceira saída volta pra mesa.
  *
  * Senão é nova, e a TESTEMUNHA só é verdadeira quando não há ambiguidade
  * NENHUMA: nada daquele valor foi revertido antes (`R(v) === 0`) e todos os

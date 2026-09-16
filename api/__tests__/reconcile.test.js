@@ -560,6 +560,31 @@ describe('a conta que voltou a cobrar', () => {
     expect(r[0].message).toMatch(/chargeback, que a casa perdeu mesmo/);
   });
 
+  /**
+   * A DÍVIDA DO RAZÃO JÁ GRAVADO, nomeada em vez de só escrita num commit.
+   * Um estorno de disputa anterior à marca `deDisputa` conta como estorno do
+   * trilho, e é por ali que um chargeback podia ser desfeito no razão.
+   */
+  test('disputa velha sem marca aparece na varredura — `info`, com o seq', () => {
+    const r = reconcileCheck({
+      checkId: 'c',
+      events: [...quitada,
+        ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2727, tipCents: 273, method: 'dispute' })],
+      payments: [],
+    }).findings.filter((f) => f.code === 'dispute_refund_unmarked');
+    expect(r.length).toBe(1);
+    expect(r[0].severity).toBe('info');
+    expect(r[0].txid).toBe('pi');
+  });
+
+  test('e a disputa MARCADA não aparece — nem pelo `dp_`, nem pelo kind', () => {
+    const achados = (payload) => reconcileCheck({
+      checkId: 'c', events: [...quitada, ev('PAYMENT_REFUNDED', payload)], payments: [],
+    }).findings.filter((f) => f.code === 'dispute_refund_unmarked');
+    expect(achados({ txid: 'pi', amountCents: 2727, tipCents: 273, method: 'dispute', disputeId: 'dp_1' })).toEqual([]);
+    expect(achados({ txid: 'pi', amountCents: 2727, tipCents: 273, method: 'dispute', deDisputa: true })).toEqual([]);
+  });
+
   test('quitada sem devolução nenhuma não é achado', () => {
     expect(achado(quitada).length).toBe(0);
   });

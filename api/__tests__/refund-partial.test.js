@@ -295,7 +295,9 @@ describe('o estorno parcial visto pelo RESTO do sistema', () => {
     // sem nada faltando de verdade. Um alerta que dispara em comportamento
     // correto está morto em duas semanas.
     expect(r.driftCents).toBe(0);
-    expect(r.findings.filter((f) => f.code === 'status_lag' || f.code === 'ledger_drift')).toEqual([]);
+    // LISTA FECHADA, não filtro por dois códigos: filtrando, um achado novo
+    // qualquer passava calado por aqui. A afirmação é "estes e nenhum outro".
+    expect(r.findings.map((f) => f.code).sort()).toEqual(['reopened_by_refund']);
 
     /**
      * O QUE ELA ACUSA, E POR QUE ESTE TESTE DIZIA `[]`.
@@ -357,7 +359,9 @@ describe('o estorno parcial visto pelo RESTO do sistema', () => {
       payments: (await store.listChecksForReconcile(venue.id))[0].payments,
     });
     // Sem divergência entre os dois registros: a soma bate dos dois lados.
-    expect(r.findings.filter((f) => f.code === 'status_lag' || f.code === 'ledger_drift')).toEqual([]);
+    // LISTA FECHADA, não filtro por dois códigos: filtrando, um achado novo
+    // qualquer passava calado por aqui. A afirmação é "estes e nenhum outro".
+    expect(r.findings.map((f) => f.code).sort()).toEqual(['reopened_by_refund']);
     /**
      * Mas a conta REABRIU, e é o caso máximo disso: devolvido o pagamento
      * inteiro, `paidCents` vai a zero, a conta vira `aberta` e o telefone da
@@ -578,4 +582,105 @@ test('a testemunha é do EPISÓDIO: um episódio velho não tranca o próximo', 
   const st = reduce(await store.loadEvents(conta.id));
   expect(st.payments.p1.reversedOpenTestemunhado).toBe(true);
   expect(st.payments.p1.reversedOpenTipCents).toBe(900);
+});
+
+describe('o teto da reversão no REDUTOR, sem passar pelo tratador', () => {
+  /**
+   * Esta guarda é o que o `check-state.js` invoca como prova de que o acumulado
+   * do trilho não fica negativo — e ela não tinha um teste. Três mutantes
+   * passavam verdes na suíte inteira (segurança HIGH-1 da rodada doze): o teto
+   * voltando ao acumulado TOTAL (com chargeback e devolução do dono dentro), a
+   * guarda inteira apagada, e o rateio proporcional do tratador voltando ao
+   * total.
+   *
+   * Por que ninguém pegava: todo teste de reversão entra pelo
+   * `applyConfirmedPayment`, que já corta `aReverter = min(falhou, jaEstornado)`
+   * pelo MESMO par de baldes. A guarda do módulo puro só era exercitada pelo
+   * caminho que já a torna redundante — a forma "guarda que nunca dispara",
+   * desta vez nos testes em vez de no código.
+   *
+   * Aqui o evento é construído À MÃO e passa direto pelo redutor.
+   */
+  const { reduce } = require('../_lib/checks/check-state');
+  const ev = (type, payload) => ({ type, payload });
+
+  /** R$ 100 + R$ 10 de serviço; chargeback de R$ 30; estorno do trilho de R$ 10. */
+  const razao = [
+    ev('OPENED', { totalCents: 10000 }),
+    ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card' }),
+    ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2727, tipCents: 273, disputeId: 'dp_1' }),
+    ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 }),
+  ];
+
+  test('o acumulado do trilho é o do ADQUIRENTE, não o total', () => {
+    const st = reduce(razao);
+    expect(st.payments.pi.refundedAmountCents + st.payments.pi.refundedTipCents).toBe(4000);
+    expect(st.payments.pi.refundedPeloTrilhoAmountCents).toBe(909);
+    expect(st.payments.pi.refundedPeloTrilhoTipCents).toBe(91);
+  });
+
+  const recusa = (st) => st.anomalies.filter((a) => /reversal exceeds refunded/.test(a.reason || ''));
+
+  test('reversão acima do balde do CONSUMO é recusada — o chargeback não é folga', () => {
+    // 2727 cabe no acumulado total (3636) e NÃO cabe no do trilho (909).
+    const st = reduce([...razao, ev('PAYMENT_REFUND_REVERSED', { txid: 'pi', amountCents: 2727, tipCents: 0 })]);
+    expect(recusa(st).length).toBe(1);
+    expect(recusa(st)[0].severity).toBe('high');
+    // E o evento foi DESCARTADO: o dinheiro da rede não voltou pra conta.
+    expect(st.payments.pi.refundedAmountCents).toBe(3636);
+    expect(st.paidCents).toBe(10000 - 3636);
+  });
+
+  test('reversão acima do balde da GORJETA é recusada — é a base de cálculo da folha', () => {
+    // 273 cabe no total da gorjeta (364) e não cabe no do trilho (91). Sem esta
+    // guarda, serviço que o chargeback levou voltava pra base da folha
+    // (Lei 13.419/2017, STJ Tema 1102).
+    const st = reduce([...razao, ev('PAYMENT_REFUND_REVERSED', { txid: 'pi', amountCents: 0, tipCents: 273 })]);
+    expect(recusa(st).length).toBe(1);
+    expect(st.payments.pi.refundedTipCents).toBe(364);
+  });
+
+  test('e a que CABE nos dois baldes passa', () => {
+    const st = reduce([...razao, ev('PAYMENT_REFUND_REVERSED', { txid: 'pi', amountCents: 909, tipCents: 91 })]);
+    expect(recusa(st)).toEqual([]);
+    // O acumulado do trilho zera; o do chargeback fica.
+    expect(st.payments.pi.refundedPeloTrilhoAmountCents
+      + st.payments.pi.refundedPeloTrilhoTipCents).toBe(0);
+    expect(st.payments.pi.refundedAmountCents + st.payments.pi.refundedTipCents).toBe(3000);
+  });
+
+  test('o RATEIO proporcional também sai dos baldes do trilho', async () => {
+    /**
+     * A outra metade do mesmo achado: o tratador rateia `aReverter` sobre os
+     * baldes vivos. Com o total no lugar deles, a proporção é calculada sobre
+     * dinheiro que a rede levou — e a fatia de gorjeta que volta pra base da
+     * folha muda.
+     */
+    const { createMemoryStore } = require('../_lib/store/memory');
+    const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Rateio', servicoBp: 1000 });
+    const mesa = await store.seedTable(venue.id, 'Mesa 1');
+    const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 10000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      findCheckByTxid: async () => ({ id: conta.id }),
+    };
+    await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 10000, tipCents: 1000, method: 'card' });
+    // O dono devolve os 10% no caixa (CDC: o serviço é removível) — fora do trilho.
+    await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 0, tipCents: 1000, offRail: true, reference: 'caixa', by: 'u-1' });
+    // Dois estornos de cartão do mesmo valor: ambíguo, então o rateio é proporcional.
+    await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 1000, tipCents: 0 });
+    await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 1000, tipCents: 0 });
+    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 1000, eventId: 'e1', refundId: 're_1' }, deps);
+
+    const evs = await store.loadEvents(conta.id);
+    const reversao = evs.filter((e) => e.type === 'PAYMENT_REFUND_REVERSED')[0];
+    // Os baldes VIVOS do trilho são {2000, 0}: o proporcional devolve tudo ao
+    // consumo. Com o total no lugar ({2000, 1000}, com a devolução do dono
+    // dentro), parte voltaria pra GORJETA — dinheiro que o dono já entregou em
+    // espécie, de volta na base da folha.
+    expect([reversao.payload.amountCents, reversao.payload.tipCents]).toEqual([1000, 0]);
+  });
 });

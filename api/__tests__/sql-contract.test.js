@@ -789,14 +789,22 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
  * E continua sendo CENSO porque a lista de desfechos vem do FONTE: um `status`
  * novo que ninguém exercitou aqui quebra o teste, em vez de passar despercebido.
  *
- * O LIMITE, dito: medir só alcança o que os cenários alcançam. Uma saída nova
- * atrás de uma condição que nenhum cenário produz passa verde aqui — do mesmo
- * jeito que a versão textual passava verde numa saída perto de um `appendEvent`
- * alheio. Os dois limites são reais e são opostos; o teste ao lado (`todo
- * `status` que o fonte devolve tem cenário aqui`) fecha o desta versão, porque
- * uma saída nova com `status` novo exige cenário novo. Uma saída nova com um
- * `status` que já existe, atrás de uma condição inalcançável, continua invisível
- * — e isso é o que dá pra afirmar.
+ * O LIMITE, COM NÚMERO. A primeira versão deste cabeçalho dizia que só escapava
+ * "uma saída nova atrás de uma condição inalcançável" — o que soa a resíduo
+ * exótico. A revisão de segurança MEDIU: dos 20 sítios de `return { status: … }`
+ * dentro de `applyConfirmedPayment`, os cenários abaixo alcançam **8**. Os 12
+ * mudos não são inalcançáveis: são caminhos de produção que estes cenários não
+ * constroem — inclusive o `duplicate` da idempotência do append (`seq < 0`), que
+ * é o que fecha a corrida entre duas entregas simultâneas do mesmo `evt_`.
+ *
+ * Nada disso é conserto de uma linha: cobrir 20 sítios pede 20 arranjos, e
+ * alguns só existem em corrida. O que ESTE teste pode fazer é (a) pegar o
+ * mutante alcançável, que pega, e (b) não deixar o número crescer calado — o
+ * teste ao lado fixa a contagem de sítios, então um sítio novo obriga alguém a
+ * decidir se escreve o cenário ou assume a dívida por escrito.
+ *
+ * "8 de 20" é uma frase que ninguém confunde com completude. "condição
+ * inalcançável" era.
  */
 describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () => {
   const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
@@ -894,6 +902,26 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
     expect(mudos).toEqual([]);
     // E o arranjo exercitou mais de um desfecho, senão o laço acima é decorativo.
     expect(vistos.size).toBeGreaterThanOrEqual(4);
+  });
+
+  test('a contagem de SÍTIOS de saída é fixa — um sítio novo exige decisão', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+    const inicio = fonte.indexOf('async function applyConfirmedPayment');
+    const fim = fonte.indexOf('\nasync function', inicio + 10);
+    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+    /**
+     * `status:` e não `status: '…'`: a regex anterior exigia literal com aspas, e
+     * uma saída com o status numa variável (`return { status: MUDO }`) não
+     * entrava na contagem — foi assim que a revisão escondeu uma saída muda
+     * dentro do próprio censo.
+     */
+    const sitios = [...corpo.matchAll(/return \{\s*status:/g)].length;
+    // Medido em 0feccdf: 20 sítios, 8 alcançados pelos cenários acima. Mexer
+    // neste número é decidir: ou o cenário novo entra, ou a dívida sobe — e as
+    // duas coisas passam por alguém olhar.
+    expect(sitios).toBe(20);
   });
 
   test('todo `status` que o fonte devolve tem cenário aqui', async () => {

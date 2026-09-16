@@ -847,6 +847,11 @@ export const DICT = {
   'find.payables_no_recipient': { en: 'this venue has no known acquirer recipient — the destination cannot be checked',
                         pt: 'esta casa não tem recebedor conhecido no adquirente — não dá pra conferir o destino',
                         es: 'este local no tiene receptor conocido en el adquirente — no se puede verificar el destino' },
+  // Razão anterior à marca de procedência da disputa: a linha conta como estorno
+  // do adquirente até alguém preencher. `info` — é inventário, não incidente.
+  'find.dispute_refund_unmarked': { en: 'a chargeback refund from before provenance was recorded — it still counts as an acquirer refund',
+                        pt: 'um estorno de disputa de antes da marca de procedência — ele ainda conta como estorno do adquirente',
+                        es: 'una devolución por disputa anterior a la marca de procedencia — todavía cuenta como devolución del adquirente' },
   // ESTRUTURAL, não transitório: o adaptador deste adquirente não sabe listar
   // repasse, então nenhuma varredura vai conferir o destino do dinheiro desta
   // casa. Some no dia em que a perna existir.
