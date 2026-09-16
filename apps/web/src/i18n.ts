@@ -938,6 +938,7 @@ export const DICT = {
   'wallet.exists':    { en: 'Account already exists — ask for your link at the counter',
                         pt: 'Conta já existe — peça seu link no balcão',
                         es: 'La cuenta ya existe — pide tu enlace en la barra' },
+  'wallet.badLinkTitle': { en: 'this link no longer opens', pt: 'este link não abre mais', es: 'este enlace ya no abre' },
   'wallet.badLink':   { en: 'Invalid link — ask for a new one at the counter.',
                         pt: 'Link inválido — peça um novo no balcão.',
                         es: 'Enlace no válido — pide uno nuevo en la barra.' },

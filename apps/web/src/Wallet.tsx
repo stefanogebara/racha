@@ -24,14 +24,41 @@ const LEDGER_KEY = {
   load: 'ledger.load', redeem: 'ledger.redeem', refund: 'ledger.refund',
 } as const;
 
-export default function Wallet() {
+/**
+ * LINK QUE NÃO ABRE — uma tela, não uma frase solta.
+ *
+ * Era `<p class="muted center">` numa página vazia: sem marca, sem contorno,
+ * sem nada pra fazer. Quem chega aqui é alguém com saldo no restaurante cujo
+ * link expirou ou veio truncado por um app de mensagem — e a tela devolvia uma
+ * linha cinza no meio do branco, que parece erro de carregamento e não resposta.
+ *
+ * Com a moldura e a marca, a frase vira um estado do produto; e o próximo passo
+ * ("peça um novo no balcão") é a única coisa que essa pessoa pode fazer, então
+ * ele fica dentro do cartão e não no fim de um parágrafo.
+ */
+function SemCarteira() {
   const { t } = useT();
+  return (
+    <Shell>
+      <header className="head">
+        <span className="venue">Racha</span>
+        <span className="mesa">{t('wallet.brand')}</span>
+      </header>
+      <section className="card">
+        <p className="label">{t('wallet.badLinkTitle')}</p>
+        <p className="muted">{t('wallet.badLink')}</p>
+      </section>
+    </Shell>
+  );
+}
+
+export default function Wallet() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const accountToken = params.get('t');
   const newToken = params.get('new');
   if (newToken) return <OpenWallet tableToken={newToken} />;
   if (accountToken) return <WalletView accountToken={accountToken} />;
-  return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
+  return <SemCarteira />;
 }
 
 // ------------------------------------------------------------------ carteira
@@ -119,7 +146,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
     }
   }
 
-  if (dead) return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
+  if (dead) return <SemCarteira />;
   if (!view && loadFailed) {
     return (
       <Shell>
@@ -245,7 +272,10 @@ function WalletView({ accountToken }: { accountToken: string }) {
           .map((e, i) => <LedgerRow key={i} entry={e} />)}
       </section>
 
-      <footer className="foot">
+      {/* `foot-aviso`: tres filhos, e o do meio e o aviso do art. 9o — uma
+          frase inteira. Em `space-between` ela espremia a marca em quatro
+          linhas de uma palavra. Medido no navegador. */}
+      <footer className="foot foot-aviso">
         <span>{t('wallet.brand')}</span>
         <PrivacyNotice venue={venue.name} />
         <LangToggle compact />
@@ -305,7 +335,7 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
     }
   }
 
-  if (dead) return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
+  if (dead) return <SemCarteira />;
   if (!config) return <Shell><p className="muted center">{t('common.loading')}</p></Shell>;
   if (!config.enabled) {
     return <Shell><p className="muted center">{t('wallet.noHouse', { venue: config.venueName })}</p></Shell>;
@@ -346,7 +376,10 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
           {t('wallet.bonusTerms', { days: config.validityDays, venue: config.venueName })}
         </p>
       </section>
-      <footer className="foot">
+      {/* `foot-aviso`: tres filhos, e o do meio e o aviso do art. 9o — uma
+          frase inteira. Em `space-between` ela espremia a marca em quatro
+          linhas de uma palavra. Medido no navegador. */}
+      <footer className="foot foot-aviso">
         <span>{t('wallet.brand')}</span>
         {/* Esta é a tela que pede NOME e TELEFONE — o dado mais identificável
             que o produto recebe, e preso a um saldo. O aviso do art. 9º foi
