@@ -319,7 +319,10 @@ function Conciliacao({ r, currency }: { r: Reconcile | undefined; currency: Curr
       <p className="label">{t('panel.recon')}</p>
       {vermelho ? (
         <>
-          <p className="small" style={{ color: 'var(--red, #a3231f)' }}>
+          {/* `--red` não existe no sistema: o canário de divergência — o número
+              mais alto do inegociável #8 — saía num bordô órfão, fora da
+              paleta, porque o CSS degrada em silêncio quando a variável falta. */}
+          <p className="small" style={{ color: 'var(--erro)' }}>
             <strong>
               {r.driftCents > 0
                 ? t('panel.reconDriftAmt', { amount: brl(r.driftCents) })

@@ -55,14 +55,34 @@
   --papel-alto: #F8F7F3;
   --ink:        #161714;
   --grafite:    #666761;
-  --faint:      #92938D;
+  /* A VOZ MAIS BAIXA, e só para o que NÃO precisa ser lido.
+     #92938D dava 2,72:1 sobre o papel — reprovava em toda superfície do sistema,
+     e carregava coisas que não são decoração: o rótulo da mesa, o estado
+     "fechada" de uma conta, a marca no cartão do QR. Escurecer o token até
+     passar 4,5:1 encostaria ele no `--grafite` e a escala de três degraus
+     morreria — então o que se moveu foi o TEXTO, não a cor: tudo que carrega
+     significado subiu pro grafite, e o faint ficou com o que a norma dispensa
+     (placeholder e o tique de uma caixa não marcada). Escurecido só o suficiente
+     pra placeholder legível: 3,3:1 sobre o papel. */
+  --faint:      #82837B;
   --fio:        #D4D2CB;
   --fio-forte:  #A6A59F;
   --azul:       #2F35FF;
   --azul-suave: #E7E8FF;
   --coral:      #D75D45;
+  /* O CORAL DE TEXTO é mais escuro que o de moldura, e isso não é capricho.
+     #D75D45 sobre papel-alto dá 3,54:1 — passa o mínimo de 3:1 de COMPONENTE
+     (WCAG 1.4.11) e reprova o de 4,5:1 de TEXTO (1.4.3). Medido em todos os
+     pares que existem na tela. No Presence o coral é acento de 9-10px; aqui ele
+     carrega a frase que recusa um pagamento e o número da dívida da casa, então
+     precisa da régua de texto. #A8412C dá 5,2:1. */
+  --coral-texto:#A8412C;
   --coral-suave:#F4DED8;
   --musgo:      #66745D;
+  /* Mesma razão do coral: #66745D sobre o musgo-suave dá 3,98:1 — passa o
+     mínimo de componente e reprova o de texto, e a pílula "paga" é o que o dono
+     lê pra saber se a mesa fechou. */
+  --musgo-texto:#5E6B56;
   --musgo-suave:#E4E7E1;
 
   --ui:     "Manrope", "Inter", system-ui, -apple-system, sans-serif;
@@ -76,9 +96,14 @@
   --rad-s: 10px;   /* controle */
 
   /* SEMANTICA, com nome do que significa — nao da cor. */
-  --erro:     var(--coral);
+  /* `--erro` é o que se ESCREVE; `--erro-fio` é o que se DESENHA. Um mesmo
+     token pros dois obrigaria a escolher entre reprovar contraste de texto ou
+     engrossar a moldura. */
+  --erro:     var(--coral-texto);
+  --erro-fio: var(--coral);
   --erro-bg:  var(--coral-suave);
-  --ok:       var(--musgo);
+  --ok:       var(--musgo-texto);
+  --ok-fio:   var(--musgo);
   --ok-bg:    var(--musgo-suave);
   --emcurso:  var(--azul);
   --emcurso-bg: var(--azul-suave);
@@ -94,7 +119,7 @@
   --verde:   var(--musgo);
   --verde-bg:var(--musgo-suave);
   --azul2:   #2429E0;
-  --alerta:  var(--coral);
+  --alerta:  var(--coral-texto);
   --alerta-bg: var(--coral-suave);
   --warm-white: var(--papel-alto);
   --charcoal:   var(--ink);
@@ -144,7 +169,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    restaurante e a unica coisa nesta tela que nao e nossa; ela ganha a serifa. */
 .venue { font: italic 400 34px/1 var(--serif); letter-spacing: -.01em; color: var(--ink); }
 /* A mesa e metadado: versalete de 10px, como todo metadado do Presence. */
-.mesa  { font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
+.mesa  { font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--grafite); white-space: nowrap; }
 
 /* ── superficies: papel alto sobre papel, fio de 1px, 24px ─────────────── */
 .card, .pixcard, .paid, .qrcard {
@@ -210,7 +235,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .progressbar span { display: block; height: 100%; background: var(--musgo); border-radius: 99px; transition: width .4s var(--mola); }
 
 /* ── controles ──────────────────────────────────────────────────────────── */
-.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .mode {
   min-height: 44px; padding: 11px 10px; border-radius: var(--rad-s);
   border: 1px solid var(--fio); background: transparent;
@@ -218,7 +243,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   cursor: pointer; transition: background-color .15s var(--mola), color .15s var(--mola), border-color .15s var(--mola);
 }
 .mode.on { background: var(--ink); color: var(--papel); border-color: var(--ink); }
-.modes3 { grid-template-columns: 1fr 1fr 1fr; }
+.modes3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .modes3 .mode { padding: 11px 4px; font-size: 13px; }
 
 .items.pickable { gap: 6px; }
@@ -263,14 +288,25 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 }
 .stepper strong { min-width: 22px; text-align: center; font: 500 17px/1 var(--ui); font-variant-numeric: tabular-nums; }
 
+/* A LINHA DE VALOR LIVRE é a moldura do Presence com um prefixo de moeda.
+   Ela era um `<label>` cujo texto inteiro era "R$": o nome acessível do campo
+   que decide quanto dinheiro sai era literalmente o cifrão, e não havia rótulo
+   visível nenhum — no mesmo cartão, trinta pixels acima, um `Campo` com
+   versalete. Duas molduras de campo lado a lado, uma com rótulo e outra sem. */
 .customrow {
-  display: flex; align-items: center; gap: 8px;
+  display: block;
   border: 1px solid var(--fio); border-radius: var(--rad-c);
-  background: var(--papel); padding: 12px 14px;
+  background: var(--papel); padding: 10px 14px 12px; cursor: text;
 }
-.customrow label { color: var(--grafite); font-size: 13px; }
+.customrow > span {
+  display: block; color: var(--grafite);
+  font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 8px;
+}
+.customrow .linha { display: flex; align-items: baseline; gap: 8px; }
+.customrow .cifra { color: var(--grafite); font: 400 16px/22px var(--ui); flex: none; }
+.customrow:focus-within { border-color: var(--azul); box-shadow: 0 0 0 3px var(--azul-suave); }
 .customrow input {
-  border: 0; outline: none; font-size: 20px; width: 100%;
+  border: 0; outline: none; font-size: 20px; width: 100%; min-height: 26px;
   font-variant-numeric: tabular-nums; background: transparent; color: var(--ink);
 }
 
@@ -290,7 +326,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .namefield:focus-visible { outline: none; border-color: var(--azul); box-shadow: 0 0 0 3px var(--azul-suave); }
 /* Campo invalido: fio coral. Antes a borda de erro era `--burgundy`, que
    apontava pra tinta — a borda de um campo errado era a borda normal. */
-.namefield[aria-invalid="true"] { border-color: var(--erro); }
+.namefield[aria-invalid="true"] { border-color: var(--erro-fio); }
 .namefield[aria-invalid="true"]:focus-visible { box-shadow: 0 0 0 3px var(--coral-suave); }
 
 /* ── O CAMPO do Presence: rotulo VISIVEL dentro da moldura ────────────────
@@ -319,13 +355,13 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .campo:focus-within { border-color: var(--azul); box-shadow: 0 0 0 3px var(--azul-suave); }
 /* Invalido: a moldura em coral e a legenda junto — a cor sozinha nao e
    mensagem (WCAG 1.4.1), entao quem usa isto tambem escreve o porque embaixo. */
-.campo.ruim { border-color: var(--erro); }
+.campo.ruim { border-color: var(--erro-fio); }
 .campo.ruim > span { color: var(--erro); }
 .campo.ruim:focus-within { border-color: var(--erro); box-shadow: 0 0 0 3px var(--coral-suave); }
 /* O recado do campo: mora colado nele, nao no fim do formulario. */
 .campo-msg { display: block; margin: 6px 2px 0; font: 400 13px/18px var(--ui); color: var(--grafite); }
 .campo-msg.ruim { color: var(--erro); }
-.campo-msg.bom  { color: var(--musgo); }
+.campo-msg.bom  { color: var(--musgo-texto); }
 
 /* A ACAO: retangulo de 10px, nao pilula. E a troca de forma mais visivel do
    Presence, e a mais deliberada — pilula era voz de marca de outra casa. */
@@ -352,7 +388,11 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .ghost:active { transform: scale(.97); }
 /* O terceiro nivel do Presence: sem fio, grafite. */
 .linklike { border: 1px solid transparent; border-radius: var(--rad-s); background: none;
-  color: var(--grafite); font: 500 12px/1 var(--ui); padding: 10px 6px; cursor: pointer; min-height: 40px; }
+  color: var(--grafite); font: 500 12px/1 var(--ui); padding: 10px 6px; cursor: pointer;
+  /* 44, como o `.ghost` e como o passo-a-passo: o produto adotou o mínimo do
+     HIG/WCAG 2.5.5 e este controle ficava em 42 por um `min-height: 40` que o
+     padding não alcançava. */
+  min-height: 44px; }
 .linklike:hover { color: var(--ink); }
 
 .walletrow { display: flex; gap: 8px; }
@@ -401,7 +441,17 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .paid .progresswrap { width: 100%; }
 
 /* ── painel ─────────────────────────────────────────────────────────────── */
-.statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+/* `minmax(0, 1fr)`, NÃO `1fr`.
+   Um item de grade nasce com `min-width: auto`, então a faixa `1fr` vira
+   `minmax(auto, 1fr)` e o mínimo do CONTEÚDO empurra a grade. `.stat b` é 28px
+   de Newsreader itálico e dinheiro não quebra linha: medido numa caixa de 350px
+   (a concha a 390), "R$ 12.480,00 / R$ 1.248,00 / R$ 84,50" ocupava 542px —
+   55% fora da tela. Os números do dia do dono saíam da tela em qualquer
+   faturamento real.
+   A lição já estava escrita neste arquivo, em seis linhas de comentário no
+   herói da landing (`min-width: 0`), e não tinha atravessado o resto. */
+.statgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.statgrid > * { min-width: 0; }
 /* Os números do dia moram DENTRO do painel, então descem um degrau, pela mesma
    regra dos campos: no papel, com fio. */
 .stat {
@@ -409,7 +459,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   padding: 18px 16px; gap: 4px; display: flex; flex-direction: column;
 }
 .stat b { font: italic 400 28px/1 var(--serif); font-variant-numeric: tabular-nums; }
-.stat span { font: 500 10px/16px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.stat span { font: 500 10px/16px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--grafite); }
 
 .checkrow {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
@@ -423,8 +473,8 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
 .pill.aberta  { color: var(--grafite); }
 .pill.parcial { border-color: var(--azul); background: var(--azul-suave); color: var(--azul); }
-.pill.paga    { border-color: var(--musgo); background: var(--musgo-suave); color: var(--musgo); }
-.pill.fechada { color: var(--faint); }
+.pill.paga    { border-color: var(--musgo); background: var(--musgo-suave); color: var(--musgo-texto); }
+.pill.fechada { color: var(--grafite); }
 
 .actrow { display: grid; grid-template-columns: 46px 1fr max-content; align-items: center; gap: 12px; }
 .actbar { height: 4px; border-radius: 99px; background: var(--fio); overflow: hidden; }
@@ -432,7 +482,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 
 .foot {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  color: var(--faint); font: 400 12px/20px var(--ui); padding-top: 8px;
+  color: var(--grafite); font: 400 12px/20px var(--ui); padding-top: 8px;
   border-top: 1px solid var(--fio); margin-top: 4px;
 }
 /* O rodape da CONTA tem tres filhos e o do meio e o aviso do art. 9o — uma
@@ -454,7 +504,8 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    sistema — papel bege embaixo derruba o contraste que o leitor precisa. */
 .qrbox { background: #fff; padding: 14px; border-radius: var(--rad-c); border: 1px solid var(--fio); display: grid; place-items: center; }
 
-.qrgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.qrgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.qrgrid > * { min-width: 0; }
 .qrcard { align-items: center; text-align: center; gap: 10px; break-inside: avoid; padding: 28px 20px 18px; }
 .qrcard .qrvenue { font: italic 400 26px/1 var(--serif); }
 /* O NUMERO DA MESA e o que alguem le de longe, com o cartao na mao: fica
@@ -462,11 +513,12 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .qrcard .qrmesa  { font: 500 30px/1 var(--ui); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 .qrcard .qrhint  { font: 400 15px/22px var(--ui); color: var(--grafite); }
 .qrcard .qrperks { font: 400 13px/20px var(--ui); color: var(--grafite); }
-.qrcard .qrbrand { font: 500 10px/1 var(--ui); color: var(--faint); letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
+.qrcard .qrbrand { font: 500 10px/1 var(--ui); color: var(--grafite); letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
 
-.chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .pos { color: var(--verde); font-weight: 600; }
-.cfggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cfggrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cfggrid > * { min-width: 0; }
 /* A GRADE DE CONFIGURAÇÃO vira a moldura do Presence sem mexer no markup.
    `AdminRecipient` já era o único formulário com rótulo visível de verdade (e
    com validação por campo, e com aviso no `blur`): ele não precisava do
@@ -495,6 +547,17 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    vez de flutuar. */
 .cfggrid label > .namefield + .namefield { border-top: 1px solid var(--fio); padding-top: 10px; }
 
+/* ── O ÚNICO PONTO DE QUEBRA DO APP ──────────────────────────────────────
+   O arquivo tinha um `@media` só, e era da landing. `minmax(0,1fr)` impede a
+   grade de EMPURRAR a tela, mas não impede "R$ 12.480,00" de encolher até
+   ilegível em três colunas de 110px. Abaixo de 520 as duas grades do dono
+   viram uma coluna — e a dos QRs continua em duas, porque um cartão de QR é
+   quadrado e dois cabem. */
+@media (max-width: 520px) {
+  .statgrid { grid-template-columns: minmax(0, 1fr); }
+  .cfggrid { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (prefers-reduced-motion: reduce) { .progressbar span { transition: none; } }
 
 @media print {
@@ -508,7 +571,11 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 }
 
 /* Seletor de idioma — pílula discreta, no rodapé. */
-.langtoggle { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--fio); border-radius: var(--rad-s); background: var(--papel-alto); }
+/* `gap` de 8px, não 2: a área de toque de cada opção é esticada pra 44px por um
+   `::after` de 44 de LARGURA, e com 2px de folga as três caixas se sobrepunham
+   em ~6px cada — os pixels visíveis à direita do "EN" acionavam o "PT", porque
+   o irmão seguinte pinta por cima. Medido. */
+.langtoggle { display: inline-flex; gap: 8px; padding: 3px; border: 1px solid var(--fio); border-radius: var(--rad-s); background: var(--papel-alto); }
 .langopt {
   border: 0; background: none; cursor: pointer;
   font: 500 11px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase;
@@ -522,7 +589,9 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    WCAG 2.5.5 — num controle que muda a língua da tela inteira. */
 .langopt::after {
   content: ''; position: absolute; top: 50%; left: 50%;
-  width: 44px; height: 44px; transform: translate(-50%, -50%);
+  /* A LARGURA é a do próprio botão, não 44 fixos: esticar a largura fazia as
+     três áreas se encavalarem. A altura continua 44 (é ela que falta). */
+  width: 100%; height: 44px; transform: translate(-50%, -50%);
 }
 .langopt.on { background: var(--ink); color: var(--papel); }
 .langopt:focus-visible { outline: 2px solid var(--azul); outline-offset: 2px; }
@@ -558,7 +627,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .passo b { font: 500 15px/22px var(--ui); letter-spacing: -.02em; }
 .passo span { font: 400 15px/1.35 var(--serif); color: var(--grafite); }
 .pill-verde { display: inline-block; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--musgo);
-  background: var(--musgo-suave); color: var(--musgo); font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
+  background: var(--musgo-suave); color: var(--musgo-texto); font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
 
 /* Modo embed (landing): a conta como um estado. Só CSS; o app não muda. */
 .shell.embed { min-height: 0; padding-bottom: 16px; }
@@ -630,6 +699,12 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .landing .btn.fantasma { border-color: transparent; color: var(--cr2); padding-left: 14px; }
 .landing .btn.fantasma::after { content: none; }
 .landing .btn.fantasma:hover { background: transparent; color: var(--cr); border-color: var(--fio); }
+/* O ANEL DE FOCO INVERTE JUNTO COM A SEÇÃO.
+   O anel global é `--azul` (#2F35FF), que dá 6,00:1 sobre o papel e 2,63:1 sobre
+   a tinta da landing — reprova o mínimo de 3:1 de componente (WCAG 1.4.11) em
+   TODOS os sete controles desta página. O creme dá 15,8:1 e é a mesma inversão
+   que a seção já faz com o resto. */
+.landing :focus-visible { outline-color: var(--cr); }
 
 /* Os três gestos: espinha curta, na coluna da manchete, ao lado do produto. */
 .passos { list-style: none; margin-top: 84px; border-top: 1px solid var(--fio); }
@@ -678,7 +753,15 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .eq .igual { gap: .16em; translate: 0 -.22em; }
 .partes { grid-column: 1 / -1; list-style: none; display: grid; grid-template-columns: repeat(12, 1fr); column-gap: var(--col); margin-top: 8px; }
 .partes li { grid-column: span 4; }
-.partes .acento .n { color: var(--acento); }
+/* O CENTAVO QUE SOBRA NÃO É UM PROBLEMA, e coral quer dizer problema.
+   A semântica declarada no topo deste arquivo é explícita: coral = erro, ou
+   dinheiro que a casa DEVE. Uma parte de R$ 79,04 numa seção cujo assunto é que
+   a divisão fecha AO CENTAVO não é nenhum dos dois — pintá-la de coral diz "aqui
+   tem um problema" na peça que existe pra dizer que não tem.
+   O destaque continua, feito com a única coisa que a página já usa pra destacar:
+   contraste. As irmãs recuam pro creme apagado; ela fica no creme cheio. */
+.partes li .n { color: var(--cr3); }
+.partes .acento .n { color: var(--cr); }
 .prova .cap { grid-column: 1 / span 7; margin-top: 48px; font: 400 24px/1.3 var(--serif); color: var(--cr2); text-wrap: pretty; }
 
 /* ── seções: um trilho ────────────────────────────────────────────────────── */

@@ -203,8 +203,12 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
     <section className="panel" id="recebimento" style={{ scrollMarginTop: 16 }}>
       <p className="label">Recebimento</p>
 
+      {/* O âmbar saiu do sistema quando a pílula "parcial" saiu: o Presence não
+          tem âmbar, e este era o amber-500 do Tailwind, num fio de 1,33:1 contra
+          o papel (WCAG 1.4.11 pede 3). "Sem recebedor real" é uma pendência que
+          trava o dinheiro: coral. */}
       {!realId && (
-        <div style={{ border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.08)', borderRadius: 12, padding: '10px 12px' }}>
+        <div style={{ border: '1px solid var(--erro-fio)', background: 'var(--erro-bg)', borderRadius: 'var(--rad-s)', padding: '10px 12px' }}>
           {loadError
             ? <p className="small">{t('rcpt.notFound')}</p>
             : <p className="small">{t('rcpt.none')}</p>}
@@ -273,7 +277,10 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
                   que o cliente lê no comprovante. Herança silenciosa num campo
                   que vai pra tela de terceiro é coisa que se descobre em
                   revisão; dizer custa uma linha. */}
-              <span className="small" style={{ color: 'var(--ink-3)' }}>{t('rcpt.docOnReceipt')}</span>
+              {/* `--ink-3` não existe: o `<span>` herdava a cor do pai, e dentro
+                  de `.cfggrid label` o pai está em versalete grafite — a frase
+                  saía em caixa-alta espaçada. */}
+              <span className="small" style={{ color: 'var(--grafite)' }}>{t('rcpt.docOnReceipt')}</span>
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>

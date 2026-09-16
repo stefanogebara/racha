@@ -379,11 +379,33 @@ export default function App() {
     );
   }
   if (!token) return <Home />;
+  /**
+   * A CONTA QUE NÃO CARREGOU — o beco mais comum do produto.
+   *
+   * QR vencido, mesa que o garçom ainda não abriu, link truncado por um app de
+   * mensagem: tudo cai aqui. A tela devolvia dois parágrafos cinzas no meio do
+   * papel, sem marca, sem contorno e sem seletor de idioma — o que parece erro
+   * de carregamento, não resposta.
+   *
+   * O conserto já estava escrito na carteira (`SemCarteira`) e não tinha
+   * atravessado pra cá, que é onde ele é mais usado. Agora é um estado do
+   * produto: moldura, marca, o que aconteceu, e o que a pessoa faz (a tela
+   * continua tentando sozinha, e isso é dito).
+   */
   if (error && !view) {
     return (
       <Shell>
-        <p className="muted center">{error}</p>
-        {polling && <p className="muted center small">{t('check.stillChecking')}</p>}
+        {/* Sem o slogan aqui: ele já está no rodapé desta mesma tela, e repetido
+            duas vezes numa tela de três linhas ele vira ruído. */}
+        <header className="head">
+          <span className="venue">Racha</span>
+        </header>
+        <section className="card">
+          <p className="label">{t('check.notLoadedTitle')}</p>
+          <p className="muted">{error}</p>
+          {polling && <p className="muted small">{t('check.stillChecking')}</p>}
+        </section>
+        <footer className="foot"><span>{t('app.tagline')}</span><LangToggle compact /></footer>
       </Shell>
     );
   }
@@ -807,17 +829,23 @@ export default function App() {
                   })}
             </p>
           )}
+          {/* O RÓTULO é o nome do campo; o cifrão é prefixo. Era um `<label>`
+              cujo texto inteiro era "R$": o nome acessível do campo que decide
+              quanto dinheiro sai era o símbolo da moeda. */}
           {mode === 'valor' && (
-            <div className="customrow">
+            <label className="customrow" htmlFor="valor">
+              <span>{t('share.custom')}</span>
+              <span className="linha">
               {/* O símbolo vem da MOEDA da casa, não de um literal — era "R$"
                   fixo, inclusive numa conta em euro. */}
-              <label htmlFor="valor">{currency === 'EUR' ? '€' : 'R$'}</label>
+              <span className="cifra" aria-hidden="true">{currency === 'EUR' ? '€' : 'R$'}</span>
               <input
                 id="valor" inputMode="decimal" placeholder="0,00"
                 value={customValue}
                 onChange={(e) => setCustomValue(e.target.value)}
               />
-            </div>
+              </span>
+            </label>
           )}
 
           {/* Em Espanha a conta NÃO tem linha de serviço: o preço já inclui o

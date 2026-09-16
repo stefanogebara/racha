@@ -77,8 +77,14 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
 
       {!completo && steps.map((s, i) => {
         const isNext = i === proximoTodo;
+        // AZUL, e não verde. O próximo passo é "onde você está", que é azul na
+        // semântica do sistema; musgo é dinheiro que entrou. O assistente ao
+        // lado (`SetupWizard`) já acertava isto, com o motivo escrito — duas
+        // telas do mesmo cadastro diziam a mesma coisa em cores opostas. E o
+        // verde era `rgba(16,185,129,…)`, o emerald-500 do Tailwind: um segundo
+        // verde, de fora da paleta.
         return (
-          <div className="checkrow" key={s.title} style={isNext ? { background: 'rgba(16,185,129,0.06)', borderRadius: 12, padding: '10px 12px' } : undefined}>
+          <div className="checkrow" key={s.title} style={isNext ? { background: 'var(--emcurso-bg)', borderRadius: 'var(--rad-s)', padding: '10px 12px' } : undefined}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flex: 1, flexWrap: 'wrap' }}>
               <span aria-hidden="true" style={{ opacity: s.done ? 1 : 0.35 }}>{s.done ? '✓' : isNext ? '→' : '○'}</span>
               <div style={{ flex: 1, minWidth: 180 }}>

@@ -40,8 +40,11 @@ function SemCarteira() {
   const { t } = useT();
   return (
     <Shell>
+      {/* A serifa é reservada ao nome da CASA — "a única coisa nesta tela que não
+          é nossa", diz a regra no `styles.css`. Aqui não se sabe qual casa é (o
+          link não abriu), então ninguém ganha a serifa: a marca vai em versalete,
+          como todo metadado. */}
       <header className="head">
-        <span className="venue">Racha</span>
         <span className="mesa">{t('wallet.brand')}</span>
       </header>
       <section className="card">
@@ -147,13 +150,22 @@ function WalletView({ accountToken }: { accountToken: string }) {
   }
 
   if (dead) return <SemCarteira />;
+  /**
+   * E ESTA FRASE ESTAVA EM PORTUGUÊS CRU no JSX, fora do dicionário: quem lê em
+   * inglês recebia "não deu para carregar sua carteira — tentar de novo". Duas
+   * strings, as duas na tela que guarda o saldo do cliente.
+   */
   if (!view && loadFailed) {
     return (
       <Shell>
-        <p className="muted center">
-          não deu para carregar sua carteira —{' '}
-          <button className="linklike" onClick={refresh}>tentar de novo</button>
-        </p>
+        <header className="head">
+          <span className="mesa">{t('wallet.brand')}</span>
+        </header>
+        <section className="card">
+          <p className="label">{t('wallet.loadFailedTitle')}</p>
+          <p className="muted">{t('wallet.loadFailed')}</p>
+          <button className="ghost" onClick={refresh}>{t('common.retry')}</button>
+        </section>
       </Shell>
     );
   }
@@ -244,14 +256,19 @@ function WalletView({ accountToken }: { accountToken: string }) {
             </button>
           ))}
         </div>
-        <div className="customrow">
-          <label htmlFor="recarga">R$</label>
-          <input
-            id="recarga" inputMode="decimal" placeholder={t('wallet.otherAmt')}
-            value={custom}
-            onChange={(e) => { setCustom(e.target.value); setChip(null); }}
-          />
-        </div>
+        {/* O rótulo é o nome do campo; o cifrão é prefixo. Era um `<label>` cujo
+            texto inteiro era "R$". */}
+        <label className="customrow" htmlFor="recarga">
+          <span>{t('wallet.otherAmt')}</span>
+          <span className="linha">
+            <span className="cifra" aria-hidden="true">R$</span>
+            <input
+              id="recarga" inputMode="decimal" placeholder="0,00"
+              value={custom}
+              onChange={(e) => { setCustom(e.target.value); setChip(null); }}
+            />
+          </span>
+        </label>
         {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         <button className="cta" disabled={amountCents == null || amountCents === 0 || busy} onClick={onLoad}>
           {t('wallet.doTopUp', { amount: brl(amountCents ?? 0) })}

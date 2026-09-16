@@ -162,6 +162,13 @@ export const DICT = {
   'lang.pt':          { en: 'Portuguese',                      pt: 'Português', es: 'Portugués' },
   'lang.es':          { en: 'Spanish',                         pt: 'Espanhol', es: 'Español' },
   'common.loading':   { en: 'loading the bill…',               pt: 'carregando a conta…', es: 'cargando la cuenta…' },
+  'common.retry':     { en: 'Try again',                       pt: 'Tentar de novo', es: 'Intentar de nuevo' },
+  // O TÍTULO do estado, pra ele ser um estado e não uma frase solta no papel.
+  'check.notLoadedTitle': { en: 'this bill did not open',      pt: 'esta conta não abriu', es: 'esta cuenta no se abrió' },
+  'wallet.loadFailedTitle': { en: 'your balance did not load', pt: 'seu saldo não carregou', es: 'tu saldo no cargó' },
+  'wallet.loadFailed': { en: 'The connection failed on the way. Your balance is safe — it lives on the server, not here.',
+                        pt: 'A conexão falhou no caminho. Seu saldo está a salvo — ele vive no servidor, não aqui.',
+                        es: 'La conexión falló en el camino. Tu saldo está a salvo — vive en el servidor, no aquí.' },
   'common.back':      { en: '← back to the bill',              pt: '← voltar pra conta', es: '← volver a la cuenta' },
   'common.optional':  { en: 'optional',                        pt: 'opcional', es: 'opcional' },
   'common.backShort': { en: '← back',                          pt: '← voltar', es: '← volver' },

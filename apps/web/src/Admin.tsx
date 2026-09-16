@@ -297,7 +297,10 @@ function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; tab
     <main className="shell">
       <section className="pixcard qrprint">
         <p className="label">{venue?.name}</p>
-        <h2 style={{ fontFamily: "'Instrument Serif', serif", fontWeight: 400, fontSize: 30 }}>{table.label}</h2>
+        {/* A serifa do sistema é a Newsreader, e é a única que o projeto
+            vendoriza. Esta linha pedia a Instrument Serif, que não é carregada
+            em lugar nenhum desde a migração: o rótulo da mesa caía em Times. */}
+        <h2 className="qrvenue" style={{ fontSize: 30 }}>{table.label}</h2>
         <div className="qrbox">
           <QRCodeSVG value={url} size={220} level="M" marginSize={2} />
         </div>
