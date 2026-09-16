@@ -523,8 +523,49 @@ describe('a conta que voltou a cobrar', () => {
     expect(r[0].deltaCents).toBe(409);
   });
 
+  /**
+   * A DEVOLUÇÃO INTEIRA é o caso MÁXIMO, e era o que o detector não via:
+   * `recompute` manda `paidCents === 0` pra `aberta`, não pra `parcial`, então
+   * ele gritava por R$ 9,09 e calava por R$ 110,00 — com `ok: true` e zero
+   * achados. É justamente o caso que o runbook já avisava em prosa há meses
+   * (segurança MEDIUM-1 da rodada onze).
+   */
+  test('a devolução INTEIRA também reabre — e é a que mais reabre', () => {
+    const r = achado([...quitada, ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 10000, tipCents: 1000 })]);
+    expect(r.length).toBe(1);
+    expect(r[0].deltaCents).toBe(10000);
+  });
+
   test('quitada sem devolução nenhuma não é achado', () => {
     expect(achado(quitada).length).toBe(0);
+  });
+
+  /**
+   * CHARGEBACK NÃO É DEVOLUÇÃO. Numa disputa perdida a dívida não está quitada:
+   * a rede levou o dinheiro. A frase do achado manda "fechar ou ajustar para
+   * baixo, não peça o resto à mesa" — sobre um chargeback, isso é instruir a
+   * apagar dos livros um prejuízo real (compliance MEDIUM-2 da rodada onze).
+   */
+  test('chargeback não é devolução — a dívida não está quitada', () => {
+    expect(achado([...quitada,
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91, disputeId: 'dp_1' })]).length).toBe(0);
+  });
+
+  /**
+   * O que ENTROU sai do REDUTOR, não da soma dos payloads: `divergent_appended`
+   * grava um SEGUNDO `PAYMENT_CONFIRMED` do mesmo txid de propósito, e somar
+   * payloads conta o pagamento duas vezes — fazendo o achado mandar NÃO COBRAR
+   * metade de uma conta que a mesa realmente deve.
+   */
+  test('a reapresentação divergente não faz a conta parecer quitada', () => {
+    const r = achado([
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 0, method: 'pix' }),
+      // O MESMO txid de novo, com outro valor — o caminho `divergent_appended`.
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 100, tipCents: 0 }),
+    ]);
+    expect(r.length).toBe(0);
   });
 
   test('conta que NUNCA foi quitada não é achado — falta é falta', () => {

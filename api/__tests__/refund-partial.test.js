@@ -356,7 +356,20 @@ describe('o estorno parcial visto pelo RESTO do sistema', () => {
       events: await store.loadEvents(check.id),
       payments: (await store.listChecksForReconcile(venue.id))[0].payments,
     });
-    expect(r.findings).toEqual([]);
+    // Sem divergência entre os dois registros: a soma bate dos dois lados.
+    expect(r.findings.filter((f) => f.code === 'status_lag' || f.code === 'ledger_drift')).toEqual([]);
+    /**
+     * Mas a conta REABRIU, e é o caso máximo disso: devolvido o pagamento
+     * inteiro, `paidCents` vai a zero, a conta vira `aberta` e o telefone da
+     * mesa volta a pedir os R$ 30,82 inteiros. O runbook avisa exatamente disto
+     * há meses em prosa ("devolver o pagamento inteiro reabre a conta e a mesa é
+     * cobrada de novo") e o detector não via, porque olhava só `parcial` —
+     * gritava por R$ 9,09 e calava por R$ 30,82 (segurança MEDIUM-1 da rodada
+     * onze).
+     */
+    const reaberta = r.findings.filter((f) => f.code === 'reopened_by_refund');
+    expect(reaberta.length).toBe(1);
+    expect(reaberta[0].deltaCents).toBe(3082);
   });
 });
 
@@ -499,11 +512,31 @@ test('a devolução que o DONO registrou não pode virar testemunha do adquirent
   await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', {
     txid: 'p1', amountCents: 0, tipCents: 900, offRail: true, reference: 'pix e2e', by: 'u-1',
   });
-  await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 900, eventId: 'evt_o', refundId: 're_o' }, deps);
+  const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 900, eventId: 'evt_o', refundId: 're_o' }, deps);
 
-  const st = reduce(await store.loadEvents(conta.id));
-  // A reversão acontece (o dinheiro se moveu), mas SEM autoridade de adquirente.
-  expect(st.payments.p1.reversedOpenTestemunhado).toBe(false);
+  /**
+   * NENHUMA reversão entra, e a saída é `out_of_order`.
+   *
+   * Este teste afirmava só que a testemunha era falsa — e deixava a reversão
+   * acontecer "porque o dinheiro se moveu". O dinheiro se moveu pela MÃO DO
+   * DONO, no caixa: pelo trilho do adquirente este pagamento não teve estorno
+   * nenhum, então não há o que desfazer. A reversão devolvia `paidCents` que o
+   * dono tinha entregado em espécie, com a gorjeta junto — e ninguém gritava
+   * (segurança HIGH-3 da rodada onze).
+   *
+   * Agora o razão diz o que é: o adquirente relatou a falha de um estorno que
+   * este razão não conhece. Isso é anomalia ALTA, e converge quando (e se) o
+   * estorno de verdade chegar.
+   */
+  expect(r.status).toBe('out_of_order');
+  const evs = await store.loadEvents(conta.id);
+  expect(evs.filter((e) => e.type === 'PAYMENT_REFUND_REVERSED')).toEqual([]);
+  const st = reduce(evs);
+  // O que o dono devolveu CONTINUA devolvido.
+  expect(st.payments.p1.refundedTipCents).toBe(900);
+  expect(st.payments.p1.reversedOpenCents || 0).toBe(0);
+  expect(evs.some((e) => e.type === 'PAYMENT_ANOMALY' && e.payload.severity === 'high'
+    && /antes do estorno/.test(e.payload.reason || ''))).toBe(true);
 });
 
 test('a testemunha é do EPISÓDIO: um episódio velho não tranca o próximo', async () => {

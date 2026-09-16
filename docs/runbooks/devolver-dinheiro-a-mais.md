@@ -171,13 +171,36 @@ vê. Uma mesa que já pagou tudo.
 
 **O que fazer, na hora:**
 
-1. **Feche a conta** (ou lance um ajuste para baixo no valor devolvido do
-   consumo — R$ 9,09 no exemplo). Qualquer um dos dois tira o botão da tela.
-2. **Nunca peça o resto à mesa.** Isso é cobrança de dívida já quitada
+1. **Feche a mesa no painel.** É um toque, e é o caminho que existe na tela:
+   o botão de fechar a conta manda `POST /api/checks/close`. Isso tira o botão
+   de pagar do telefone de quem está na mesa.
+2. **Se a mesa ainda vai consumir**, feche não — ajuste o total para baixo no
+   valor devolvido do consumo (R$ 9,09 no exemplo). **Isto ainda não tem botão**:
+   é chamada de API, com a sua sessão de dono.
+
+   ```bash
+   curl -X POST https://<host>/api/checks/adjust \
+     -H 'authorization: Bearer <seu token de sessão>' \
+     -H 'content-type: application/json' \
+     -d '{"checkId":"<uuid da conta>","totalCents":9091}'
+   ```
+
+   `totalCents` é o total NOVO da conta, em centavos inteiros: no exemplo desta
+   seção a conta era R$ 100,00 (`10000`) e o consumo devolvido foi R$ 9,09
+   (`909`), então o total novo é `9091`. Nunca use o valor da devolução aqui —
+   o campo é o total, não o desconto. Resposta `200` com o estado novo; `403`
+   quer dizer que a sessão não é do dono daquela casa.
+3. **O que dizer para quem está com o telefone na mão**, enquanto isso não
+   acontece: *"esta conta já está paga — o valor que aparece é a devolução que
+   acabamos de fazer, e o sistema atualiza em instantes. Não pague de novo."*
+   Ela pode estar olhando a tela agora, e o remédio acima é assíncrono
+   (CDC art. 6º III).
+4. **Nunca peça o resto à mesa.** Isso é cobrança de dívida já quitada
    (CDC art. 42); se alguém pagar, a casa deve de volta em dobro, mais o serviço
    que entrou junto — e nasce um excedente para você devolver de novo.
-3. Se ninguém agiu e a conta ficou aberta, a conciliação avisa: o achado
-   **`reopened_by_refund`**, crítico, traz o número que a mesa está vendo.
+5. Se ninguém agiu e a conta ficou aberta, a conciliação avisa: o achado
+   **`reopened_by_refund`**, severidade `high`, traz o número que a mesa está
+   vendo.
 
 **Isto não é do serviço.** Vale para QUALQUER devolução pelo painel do
 adquirente que toque o consumo — item errado, cortesia, engano de valor. O único

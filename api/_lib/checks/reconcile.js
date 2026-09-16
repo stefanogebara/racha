@@ -17,7 +17,7 @@
  * and merely log `info`.
  */
 
-const { reduce, paidAfterClose, sobraPorPagamento } = require('./check-state');
+const { reduce, paidAfterClose, sobraPorPagamento, estornoDoTrilho } = require('./check-state');
 const houseState = require('../house/account-state');
 
 /**
@@ -173,9 +173,42 @@ function reconcileCheck({ checkId, events, payments }) {
    * mesa é a aritmética, não a procedência; separar as duas seria escolher um
    * cliente pra proteger.
    */
-  if (state && state.status === 'parcial') {
+  /**
+   * `parcial` OU `aberta` — e o `aberta` é o caso MÁXIMO.
+   *
+   * `recompute` manda `paidCents === 0` pra `aberta`, não pra `parcial`. Então a
+   * devolução INTEIRA — justamente a que o runbook já avisava ("devolver o
+   * pagamento inteiro reabre a conta e a mesa é cobrada de novo") — caía fora do
+   * detector: ele gritava por R$ 9,09 e calava por R$ 100,00, com `ok: true` e
+   * zero achados. Medido (segurança MEDIUM-1 da rodada onze).
+   *
+   * O `entrou >= totalCents` abaixo é o que impede o falso positivo: uma conta
+   * que nunca foi paga também está `aberta`, e essa não entra.
+   */
+  if (state && (state.status === 'parcial' || state.status === 'aberta')) {
     const eventos = Array.isArray(events) ? events : [];
-    const houveEstorno = eventos.some((e) => e.type === 'PAYMENT_REFUNDED');
+    /**
+     * CHARGEBACK NÃO É DEVOLUÇÃO — e a diferença aqui é a frase inteira.
+     *
+     * `dispute_lost` também vira `PAYMENT_REFUNDED` (é dinheiro saindo), mas
+     * numa disputa a dívida NÃO está quitada: a rede levou o dinheiro de volta.
+     * Dizer ao operador que é dívida quitada, citar o art. 42 e mandar lançar
+     * ajuste para baixo seria instruir a apagar dos livros um prejuízo real — e
+     * sumir com o rastro contábil dele junto.
+     *
+     * É o mesmo predicado do `candidatoDeEstorno` no `reversal-match`, pela
+     * mesma razão, e por pouco ele não ficou só lá (compliance MEDIUM-2 da
+     * rodada onze).
+     */
+    /**
+     * DEVOLUÇÃO é o que passou pelo trilho ou o que o DONO devolveu no caixa —
+     * as duas reabrem a conta e re-cobram a mesa. CHARGEBACK não: ali a dívida
+     * não está quitada, a rede levou o dinheiro, e mandar "fechar ou ajustar
+     * para baixo, não peça o resto à mesa" seria instruir a apagar dos livros um
+     * prejuízo real (compliance MEDIUM-2 da rodada onze).
+     */
+    const houveEstorno = eventos.some((e) => estornoDoTrilho(e)
+      || (e.type === 'PAYMENT_REFUNDED' && e.payload && e.payload.offRail === true));
     // NÃO há teste de `ADJUSTED` aqui, de propósito. Um ajuste para baixo que
     // fecha a diferença devolve a conta pra `paga` e o `if` acima já não entra;
     // um ajuste que fecha SÓ PARTE dela deixa saldo na tela da mesa, e aí o
@@ -183,11 +216,20 @@ function reconcileCheck({ checkId, events, payments }) {
     // uma vez: seria inalcançável no primeiro caso e daria perdão no segundo.
     // (Medido: com o `!houveAjuste` no lugar, apagá-lo não quebrava teste
     // nenhum — guarda que nunca dispara.)
-    // Quanto ENTROU, antes de qualquer devolução. Se isso já cobria a conta, ela
-    // esteve quitada — e o que a reabriu foi a devolução, não uma falta.
-    const entrou = eventos
-      .filter((e) => e.type === 'PAYMENT_CONFIRMED' && e.payload)
-      .reduce((acc, e) => acc + (Number(e.payload.amountCents) || 0), 0);
+    /**
+     * Quanto ENTROU, antes de qualquer devolução. Se isso já cobria a conta, ela
+     * esteve quitada — e o que a reabriu foi a devolução, não uma falta.
+     *
+     * Sai do REDUTOR, não da soma dos payloads. O caminho `divergent_appended`
+     * grava de propósito um SEGUNDO `PAYMENT_CONFIRMED` para o mesmo `txid`
+     * quando o adquirente reapresenta o pagamento com valor divergente; o
+     * redutor é idempotente por txid e uma soma crua não é. Somando os payloads,
+     * uma conta de R$ 200,00 com um pagamento de R$ 100,00 reapresentado dava
+     * "entrou 20000¢ de 20000¢" — e o achado mandava NÃO COBRAR R$ 100,00 que a
+     * mesa de fato deve (compliance MEDIUM-3 da rodada onze).
+     */
+    const entrou = Object.values(state.payments || {})
+      .reduce((acc, pg) => acc + (Number(pg.amountCents) || 0), 0);
     if (houveEstorno && entrou >= state.totalCents && state.totalCents > 0) {
       add('high', 'reopened_by_refund',
         `esta conta foi quitada (entrou ${entrou}¢ de ${state.totalCents}¢) e uma devolução a reabriu: `

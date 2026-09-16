@@ -772,49 +772,147 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
 });
 
 /**
- * TODA SAÍDA QUE NÃO RECUSA OU APENDE OU RECONCILIA.
+ * TODA SAÍDA QUE NÃO RECUSA OU APENDE OU RECONCILIA — MEDIDO, não lido.
  *
- * O censo acima conta as chamadas de `repairRowFromLedger` e exige que cada uma
- * esteja atrás de um teste de reentrega. Ele pega a DELEÇÃO de uma chamada — e é
- * estruturalmente cego pra uma saída que nunca teve chamada nenhuma. Foi
- * exatamente essa a cegueira: o `out_of_order` devolvia 200 sobre um pagamento
- * cuja linha podia estar velha, e ficava velha pra sempre, porque nenhuma
- * chamada foi DELETADA — ela nunca existiu (segurança LOW-1 da rodada dez).
+ * A primeira versão deste censo lia o fonte: pegava cada `return { status: … }`
+ * e procurava `repairRowFromLedger|appendEvent` numa janela de 900 bytes antes
+ * dele. A revisão de segurança derrubou nos dois eixos: (1) o ajudante `gritar`
+ * tem um `await appendEvent(` que satisfazia a janela de TODA saída do bloco da
+ * reversão — um `duplicate` novo sem reparo nenhum passava verde; (2) a regex
+ * `return \{ status:` não casa retorno em duas linhas, e já existem dois assim.
+ * Proximidade não é fluxo de controle, e contar bytes não é analisar código.
  *
- * Este vai pelo outro lado: enumera as saídas de `applyConfirmedPayment` e
- * exige, de cada uma que não seja `rejected`, ou um append (a entrega mudou o
- * razão) ou uma reconciliação (a entrega não mudou o razão, então a linha é a
- * única coisa que pode ter ficado para trás). Uma saída nova entra no censo
- * sozinha, que é o que a contagem não faz.
+ * Então o censo deixou de ler e passou a MEDIR: cada desfecho é produzido de
+ * verdade, com dependências instrumentadas, e a pergunta é feita ao
+ * comportamento — esta entrega mexeu no razão ou reconciliou a linha?
+ *
+ * E continua sendo CENSO porque a lista de desfechos vem do FONTE: um `status`
+ * novo que ninguém exercitou aqui quebra o teste, em vez de passar despercebido.
+ *
+ * O LIMITE, dito: medir só alcança o que os cenários alcançam. Uma saída nova
+ * atrás de uma condição que nenhum cenário produz passa verde aqui — do mesmo
+ * jeito que a versão textual passava verde numa saída perto de um `appendEvent`
+ * alheio. Os dois limites são reais e são opostos; o teste ao lado (`todo
+ * `status` que o fonte devolve tem cenário aqui`) fecha o desta versão, porque
+ * uma saída nova com `status` novo exige cenário novo. Uma saída nova com um
+ * `status` que já existe, atrás de uma condição inalcançável, continua invisível
+ * — e isso é o que dá pra afirmar.
  */
-test('nenhuma saída de sucesso deixa a linha sem notícia do razão', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
-  const inicio = fonte.indexOf('async function applyConfirmedPayment');
-  const fim = fonte.indexOf('\nasync function', inicio + 10);
-  expect(inicio).toBeGreaterThan(0);
-  const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () => {
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { createMemoryStore } = require('../_lib/store/memory');
 
-  const saidas = [...corpo.matchAll(/return \{ status: '([a-z_]+)'/g)];
-  // Se a varredura devolver pouca coisa, ela quebrou — e um censo quebrado
-  // absolve tudo.
-  expect(saidas.length).toBeGreaterThanOrEqual(12);
-  const mudas = [];
-  for (const m of saidas) {
-    const status = m[1];
-    // `rejected` é 409: a entrega NÃO foi aceita, a Stripe reenvia, e não há o
-    // que reconciliar — o razão não mudou e a linha não mentiu.
-    if (status === 'rejected') continue;
-    // `appended`/`divergent_appended` são a saída do append: o razão mudou
-    // agora, e a projeção sai do mesmo caminho logo acima.
-    if (status === 'appended' || status === 'divergent_appended') continue;
-    const contexto = corpo.slice(Math.max(0, m.index - 900), m.index);
-    if (!/repairRowFromLedger\(|appendValidated\(|await appendEvent\(/.test(contexto)) {
-      mudas.push(`${status}: ${corpo.slice(m.index, m.index + 70).replace(/\s+/g, ' ')}`);
-    }
+  /** Roda um cenário com deps instrumentadas e devolve o que ele FEZ. */
+  async function correr(montar) {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Censo', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+    const mesa = await store.seedTable(venue.id, 'Mesa 1');
+    const conta = await store.openCheck(mesa.qrToken, [{ id: 'i', name: 'Prato', priceCents: 10000 }]);
+    let apendou = false;
+    /**
+     * "RECONCILIOU" é ter PERGUNTADO à linha, não ter escrito nela.
+     *
+     * A primeira versão instrumentava `repairPaymentRow`, e ele só é chamado
+     * quando há divergência — numa linha que já converge, `repairRowFromLedger`
+     * sai antes. Medindo a escrita, quatro caminhos que reconciliam
+     * corretamente apareciam como mudos. O que se quer afirmar é que a entrega
+     * CONFRONTOU a linha com o razão, e o sinal disso é o `getPayment`, que é a
+     * primeira coisa que `repairRowFromLedger` faz e ninguém mais chama daqui.
+     */
+    let reparou = false;
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: async (...a) => { apendou = true; return store.appendEvent(...a); },
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: async (...a) => { reparou = true; return store.getPayment(...a); },
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    const entregar = (p) => applyConfirmedPayment(p, deps);
+    await store.registerCharge({
+      checkId: conta.id, txid: 'pi', amountCents: 10000, tipCents: 1000, payerLabel: null, method: 'card',
+    });
+    // O ARRANJO não conta: só a última entrega é medida.
+    const final = await montar({ store, conta, deps, entregar });
+    apendou = false; reparou = false;
+    const r = await entregar(final);
+    return { status: r.status, apendou, reparou };
   }
-  expect(mudas).toEqual([]);
+
+  /** Um cenário por desfecho. O nome diz o caminho, não só o rótulo. */
+  const CENARIOS = {
+    'pagamento novo': async ({ entregar }) => {
+      void entregar;
+      return { kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' };
+    },
+    'reentrega do mesmo `evt_`': async ({ entregar }) => {
+      const e = { kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' };
+      await entregar(e);
+      return e;
+    },
+    'reapresentação com valor divergente': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      return { kind: 'payment_confirmed', txid: 'pi', amountCents: 9000, tipCents: 1000, method: 'card', eventId: 'e2' };
+    },
+    'reversão antes do estorno': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      return { kind: 'refund_failed', txid: 'pi', amountCents: 500, eventId: 'e2', refundId: 're_1' };
+    },
+    'segunda entrega da mesma falha': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      await entregar({ kind: 'refund', txid: 'pi', cumulativeRefundedCents: 1100, method: 'card', eventId: 'e2' });
+      await entregar({ kind: 'refund_failed', txid: 'pi', amountCents: 1100, eventId: 'e3', refundId: 're_1' });
+      return { kind: 'refund_failed', txid: 'pi', amountCents: 1100, eventId: 'e4', refundId: 're_1' };
+    },
+    'estorno cumulativo repetido': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      await entregar({ kind: 'refund', txid: 'pi', cumulativeRefundedCents: 1100, method: 'card', eventId: 'e2' });
+      return { kind: 'refund', txid: 'pi', cumulativeRefundedCents: 1100, method: 'card', eventId: 'e3' };
+    },
+    'reversão de txid que não existe': async () => (
+      { kind: 'refund_failed', txid: 'nao_existe', amountCents: 100, eventId: 'e9', refundId: 're_9' }
+    ),
+    'disputa perdida já encerrada': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      await entregar({ kind: 'dispute_lost', txid: 'pi', refundDeltaCents: 2000, method: 'dispute', eventId: 'e2', disputeId: 'dp_1' });
+      return { kind: 'dispute_lost', txid: 'pi', refundDeltaCents: 2000, method: 'dispute', eventId: 'e3', disputeId: 'dp_1' };
+    },
+  };
+
+  test('cada desfecho, medido: ou mexeu no razão, ou reconciliou a linha', async () => {
+    const vistos = new Set();
+    const mudos = [];
+    for (const [nome, montar] of Object.entries(CENARIOS)) {
+      const r = await correr(montar);
+      vistos.add(r.status);
+      // `rejected` é 409: a entrega NÃO foi aceita, o adquirente reenvia, e não
+      // há o que reconciliar — o razão não mudou e a linha não mentiu.
+      if (r.status === 'rejected') continue;
+      if (!r.apendou && !r.reparou) mudos.push(`${nome} → ${r.status}: não apendeu nem reconciliou`);
+    }
+    expect(mudos).toEqual([]);
+    // E o arranjo exercitou mais de um desfecho, senão o laço acima é decorativo.
+    expect(vistos.size).toBeGreaterThanOrEqual(4);
+  });
+
+  test('todo `status` que o fonte devolve tem cenário aqui', async () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+    const inicio = fonte.indexOf('async function applyConfirmedPayment');
+    const fim = fonte.indexOf('\nasync function', inicio + 10);
+    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+    // `\s*` e não um espaço: dois retornos deste arquivo são de duas linhas, e
+    // a versão anterior desta regex não os via.
+    const doFonte = new Set([...corpo.matchAll(/return \{\s*status: '([a-z_]+)'/g)].map((m) => m[1]));
+    expect(doFonte.size).toBeGreaterThanOrEqual(4);
+
+    const vistos = new Set();
+    for (const montar of Object.values(CENARIOS)) vistos.add((await correr(montar)).status);
+    const semCenario = [...doFonte].filter((st) => !vistos.has(st)).sort();
+    expect(semCenario).toEqual([]);
+  });
 });
 
 

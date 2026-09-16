@@ -77,10 +77,17 @@ Três consequências, e nenhuma delas é "adiar sem dizer":
 1. **O gatilho acima fecha os dois de uma vez.** Um estorno com composição
    explícita não tira nada do consumo, então não reabre a conta. Isto reforça o
    gatilho em vez de enfraquecê-lo.
-2. **Existe detector desde a rodada dez.** `reopened_by_refund`, na conciliação:
-   conta que esteve quitada, tem devolução e não tem ajuste vira achado
-   **crítico**, com o número que a mesa está vendo. Era a diferença entre
-   descobrir isto num documento e descobrir num cliente.
+2. **Passou a existir detector.** `reopened_by_refund`, na conciliação: conta
+   que esteve quitada e tem devolução vira achado **`high`**, com o número que a
+   mesa está vendo. Era a diferença entre descobrir isto num documento e
+   descobrir num cliente.
+
+   `high` e não `critical` porque nada se perdeu — perdeu-se a verdade da tela —
+   e porque a devolução em si é correta: o achado some no instante em que alguém
+   fecha ou ajusta. Não há predicado "e não tem ajuste": um ajuste que fecha a
+   diferença devolve a conta pra `paga` e o achado não nasce; um que fecha só
+   parte dela deixa saldo na tela, e aí tem que sair mesmo. (A primeira versão
+   tinha o predicado, e ele era inalcançável — medido.)
 3. **O runbook passou a dizer o que fazer.** Ver
    `docs/runbooks/devolver-dinheiro-a-mais.md` — fechar a conta, ou lançar um
    ajuste para baixo no valor devolvido do consumo, e **nunca** pedir o resto à

@@ -353,11 +353,84 @@ test('uma falha de estorno não desfaz um chargeback que a rede levou', async ()
   const antes = reduce(await eventos(store, check.id));
   expect(antes.status).toBe('parcial');
 
+  const r = await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 3000, eventId: 'evt_f1', refundId: 're_1',
+  }, deps);
+  /**
+   * NENHUMA reversão entra, e a saída é `out_of_order`: pelo que o ADQUIRENTE
+   * estornou, este pagamento não teve estorno nenhum — o que há é um chargeback,
+   * e uma disputa não é um objeto `Refund` que possa falhar.
+   *
+   * A primeira versão deste teste afirmava só `testemunhado === false`, e o
+   * próprio cabeçalho dela nomeava o desfecho que ela não media ("a conta voltava
+   * de `parcial` pra `paga` sobre dinheiro que não está mais na casa"). Medido
+   * então: a conta VOLTAVA mesmo — `paidCents` de 7273 pra 10000, com a gorjeta
+   * junto, na base de cálculo da folha, e zero anomalias. A negação da testemunha
+   * era metade do conserto (segurança HIGH-1 da rodada onze).
+   */
+  expect(r.status).toBe('out_of_order');
+  const evs = await eventos(store, check.id);
+  expect(reversoes(evs, 'pi_x')).toEqual([]);
+  const st = reduce(evs);
+  // O dinheiro que a rede levou CONTINUA fora, e a conta continua reaberta.
+  expect(st.status).toBe('parcial');
+  expect(st.paidCents).toBe(antes.paidCents);
+  expect(st.payments.pi_x.refundedAmountCents + st.payments.pi_x.refundedTipCents).toBe(3000);
+  // E GRITA, que é o que o ramo de fora de ordem existe pra fazer: o saldo da
+  // disputa mascarava esta guarda, então ela nunca disparava sobre uma conta
+  // que já tinha sofrido chargeback.
+  expect(anomalias(evs).some((a) => /antes do estorno/.test(a.reason || ''))).toBe(true);
+});
+
+test('o acumulado do trilho DESCE na reversão — senão o estorno seguinte é engolido', async () => {
+  /**
+   * `charge.amount_refunded` conta objetos `Refund`. A nossa régua tem que
+   * medir a mesma coisa — e ela SOBE no estorno e DESCE na reversão. Contada só
+   * pra cima (ou, pior, contando disputa sem descer), depois de uma reversão ela
+   * afirmava um estorno vivo que não existe mais: o próximo estorno DE VERDADE
+   * caía em `delta <= 0` e era engolido como reentrega, sem anomalia e sem log,
+   * com o cliente já com o dinheiro na mão (segurança HIGH-2 da rodada onze).
+   */
+  const { store, check, deps } = await mesaSimples(10000, 1000);
+  await applyConfirmedPayment({
+    kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 3000, method: 'card', eventId: 'evt_e1',
+  }, deps);
   await applyConfirmedPayment({
     kind: 'refund_failed', txid: 'pi_x', amountCents: 3000, eventId: 'evt_f1', refundId: 're_1',
   }, deps);
-  const evs = await eventos(store, check.id);
-  // A reversão entra (o adquirente relatou algo), mas SEM autoridade: é ela que
-  // autorizaria a devolução por fora a passar por cima do rateio.
-  expect(reversoes(evs, 'pi_x').map((e) => e.payload.testemunhado)).toEqual([false]);
+  const meio = reduce(await eventos(store, check.id));
+  expect(meio.payments.pi_x.refundedAmountCents + meio.payments.pi_x.refundedTipCents).toBe(0);
+  // A régua voltou a ZERO junto — não ficou presa no que já foi desfeito.
+  expect(meio.payments.pi_x.refundedPeloTrilhoAmountCents
+    + meio.payments.pi_x.refundedPeloTrilhoTipCents).toBe(0);
+
+  // A casa refaz o estorno. O adquirente manda o acumulado dele: 3000.
+  const r = await applyConfirmedPayment({
+    kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 3000, method: 'card', eventId: 'evt_e2',
+  }, deps);
+  expect(r.status).toBe('appended');
+  const fim = reduce(await eventos(store, check.id));
+  expect(fim.payments.pi_x.refundedAmountCents + fim.payments.pi_x.refundedTipCents).toBe(3000);
+});
+
+test('uma devolução que o DONO fez no caixa não entra na régua do adquirente', async () => {
+  /**
+   * `charge.amount_refunded` não conta a devolução que o dono registrou fora do
+   * trilho — o adquirente nunca a viu. Com ela dentro da régua, a casa devolvia
+   * R$ 30,00 no caixa e os estornos de cartão seguintes eram engolidos como
+   * `duplicate`, sem anomalia: cliente com o dinheiro na mão e o razão dizendo
+   * que a casa o tem, com o serviço na base da folha (segurança HIGH-3 da
+   * rodada onze).
+   */
+  const { store, check, deps } = await mesaSimples(10000, 1000);
+  await store.appendEvent(check.id, 'PAYMENT_REFUNDED', {
+    txid: 'pi_x', amountCents: 2727, tipCents: 273, offRail: true, reference: 'caixa', by: 'dono@bar',
+  });
+  const r = await applyConfirmedPayment({
+    kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 2000, method: 'card', eventId: 'evt_e1',
+  }, deps);
+  expect(r.status).toBe('appended');
+  const st = reduce(await eventos(store, check.id));
+  // Os dois saíram: 3000 pelo caixa, 2000 pelo cartão.
+  expect(st.payments.pi_x.refundedAmountCents + st.payments.pi_x.refundedTipCents).toBe(5000);
 });

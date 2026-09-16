@@ -157,18 +157,36 @@ test('o txid isola: nada de outro pagamento entra na conta deste', () => {
 });
 
 /**
- * A INVARIANTE QUE TORNA A ZERAGEM DO CORTE REDUNDANTE.
+ * A INVARIANTE QUE DE FATO SEGURA O CORTE — e a que eu tinha escrito, que era
+ * falsa.
  *
  * O `applyConfirmedPayment` corta a falha relatada pelo que o razão conhece
- * (`aReverter = min(falhou, jaEstornado)`) e, no corte, zera a testemunha. Essa
- * zeragem é cinto sobre suspensório, e o suspensório é aqui: se existe um
- * candidato VIVO somando `falhou`, então `jaEstornado >= falhou` e não há corte
- * nenhum — logo, num corte, o casamento já não achou candidato.
+ * (`aReverter = min(falhou, jaEstornado)`) e, no corte, zera a testemunha. Eu
+ * afirmei que essa zeragem era redundante por causa desta invariante: "se existe
+ * um candidato vivo somando `falhou`, então `jaEstornado >= falhou`". **Ela é
+ * falsa**, e as duas revisões da rodada onze trouxeram o contraexemplo — um
+ * razão que o PRÓPRIO handler produz, porque a reversão é gravada pelo valor
+ * cortado e rateada proporcionalmente, e então não soma o total de candidato
+ * nenhum:
  *
- * Uma guarda que nunca dispara é coisa que este repositório aprendeu a não
- * confiar. O jeito de confiar nela é PROVAR que é redundante, em vez de supor.
+ *     PAYMENT_REFUNDED        {1000, 100}
+ *     PAYMENT_REFUNDED        { 909,  91}
+ *     PAYMENT_REFUND_REVERSED {1818, 182}
+ *     → jaEstornado = 100, falhou = 1100 → HÁ CORTE
+ *     → casarReversao: { testemunhado: true, amountCents: 1000, tipCents: 100 }
+ *
+ * A prova anterior não pegava porque o GERADOR só emitia reversões que
+ * espelhavam exatamente um estorno: ele construía o mundo em que a invariante
+ * vale. Uma propriedade que gera só o caso fácil é um teste verde sobre nada —
+ * a terceira vez que esta suíte aprende isso.
+ *
+ * A invariante VERDADEIRA é mais simples, e é sobre o casador sozinho: quando
+ * ele testemunha, a repartição que ele devolve soma EXATAMENTE `falhou`, porque
+ * ela é a de um candidato daquele valor. É isso que faz o `casaOValor` do
+ * handler (`amountCents + tipCents === aReverter`) ser falso em todo corte — e
+ * é o `casaOValor`, não a zeragem, o suspensório de verdade.
  */
-test('propriedade: quando há corte, o casamento já não testemunha', () => {
+test('propriedade: quem testemunha devolve uma repartição que soma o valor relatado', () => {
   // PRNG de 32 bits com `Math.imul`. Um LCG em ponto flutuante degenera nos
   // bits baixos e gera trezentos casos que não separam nada — já aconteceu
   // nesta suíte, e o mutante ficou verde.
@@ -179,32 +197,59 @@ test('propriedade: quando há corte, o casamento já não testemunha', () => {
   };
   const inteiro = (n) => Math.floor(proximo() * n);
 
-  let comCorte = 0;
-  let testemunhouNoCorte = 0;
-  for (let i = 0; i < 2000; i += 1) {
+  let testemunhas = 0;
+  let cortes = 0;
+  let cortesComCasamentoDeValor = 0;
+  for (let i = 0; i < 4000; i += 1) {
     const razao = [];
-    const quantos = 1 + inteiro(4);
-    for (let k = 0; k < quantos; k += 1) {
-      const a = inteiro(2000);
-      const t = inteiro(500);
-      razao.push({ type: 'PAYMENT_REFUNDED', payload: { txid: 'pi', amountCents: a, tipCents: t } });
-      // Metade dos lançamentos ganha uma reversão — é o que faz `jaEstornado`
-      // descolar da soma dos candidatos, que é a única forma de haver corte.
-      if (proximo() < 0.5) {
-        razao.push({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid: 'pi', amountCents: a, tipCents: t } });
-      }
+    for (let k = 0, n = 1 + inteiro(4); k < n; k += 1) {
+      razao.push({ type: 'PAYMENT_REFUNDED', payload: { txid: 'pi', amountCents: inteiro(2000), tipCents: inteiro(500) } });
+    }
+    // Reversões de valor ARBITRÁRIO — não espelhos. É assim que o handler as
+    // grava: pelo valor cortado, rateado proporcionalmente.
+    for (let k = 0, n = inteiro(3); k < n; k += 1) {
+      razao.push({
+        type: 'PAYMENT_REFUND_REVERSED',
+        payload: {
+          txid: 'pi', amountCents: inteiro(2000), tipCents: inteiro(500),
+          ...(proximo() < 0.5 ? { refundId: `re_${k}` } : {}),
+        },
+      });
     }
     const jaEstornado = razao.reduce((acc, e) => acc
       + (e.type === 'PAYMENT_REFUNDED' ? (e.payload.amountCents + e.payload.tipCents) : 0)
       - (e.type === 'PAYMENT_REFUND_REVERSED' ? (e.payload.amountCents + e.payload.tipCents) : 0), 0);
-    const falhou = 1 + inteiro(4000);
-    if (falhou <= jaEstornado) continue;          // sem corte: nada a provar
-    comCorte += 1;
+    /**
+     * O VALOR RELATADO sai de um candidato na maioria das vezes.
+     *
+     * Sorteado livre em 1..4000 ele quase nunca casa com um lançamento, e a
+     * propriedade rodava 4000 vezes sem gerar UMA testemunha — verde sobre nada,
+     * que é o defeito que esta versão existe pra não repetir. O contador abaixo
+     * é o que denuncia isso.
+     */
+    const quais = razao.filter((e) => e.type === 'PAYMENT_REFUNDED');
+    const falhou = proximo() < 0.75 && quais.length
+      ? quais[inteiro(quais.length)].payload.amountCents + quais[inteiro(quais.length)].payload.tipCents
+      : 1 + inteiro(4000);
+    if (falhou <= 0) continue;
     const r = casarReversao(razao, 'pi', falhou, proximo() < 0.5 ? 're_x' : null);
-    if (r.decisao === 'aplicar' && r.testemunhado === true) testemunhouNoCorte += 1;
+    if (r.decisao !== 'aplicar' || r.testemunhado !== true) continue;
+    testemunhas += 1;
+    // A INVARIANTE: a repartição da testemunha soma o valor RELATADO.
+    expect(r.amountCents + r.tipCents).toBe(falhou);
+    // E daí sai o que o handler precisa: no corte, `casaOValor` é falso.
+    const aReverter = Math.min(falhou, jaEstornado);
+    if (aReverter !== falhou) {
+      cortes += 1;
+      if (r.amountCents + r.tipCents === aReverter) cortesComCasamentoDeValor += 1;
+    }
   }
-  // CONTA quantos casos o teste exerceu: uma propriedade que não gerou o caso
-  // que ela vigia é um teste verde sobre nada.
-  expect(comCorte).toBeGreaterThan(500);
-  expect(testemunhouNoCorte).toBe(0);
+  // CONTA o que exercitou: uma propriedade que não gerou o caso que ela vigia é
+  // um teste verde sobre nada.
+  expect(testemunhas).toBeGreaterThan(200);
+  // O gerador ALCANÇA o contraexemplo da invariante velha (corte com testemunha)
+  // — é por isso que a prova anterior era viciada.
+  expect(cortes).toBeGreaterThan(20);
+  // E mesmo ali, o `casaOValor` do handler recusa a repartição: é ele que segura.
+  expect(cortesComCasamentoDeValor).toBe(0);
 });

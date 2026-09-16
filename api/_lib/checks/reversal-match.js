@@ -1,5 +1,7 @@
 'use strict';
 
+const { estornoDoTrilho } = require('./check-state');
+
 /**
  * QUAL ESTORNO FALHOU? — a decisão inteira, pura, num lugar só.
  *
@@ -37,6 +39,21 @@
  * que o razão nem conhece — que é justamente o caso em que o adquirente sabe
  * algo que a gente não sabe.
  *
+ * ── O QUE ISTO NÃO RESOLVE, e é melhor estar escrito ──────────────────────
+ * Com DOIS OU MAIS candidatos do mesmo valor e nenhuma identidade, a mesma
+ * falha entregue duas vezes é indistinguível de duas falhas: `R(v)` não alcança
+ * `C(v)`, as duas entram, e o teto da devolução por fora (`reversedOpenCents`)
+ * fica maior do que o que o adquirente deixou de entregar. A revisão de
+ * segurança mediu: dois estornos de R$ 11,00, duas entregas cegas, teto de
+ * R$ 22,00.
+ *
+ * Não dá pra fechar sem escolher um lado errado. Exigir testemunha pro teto
+ * bloquearia a devolução por fora em todo caso ambíguo — que é o caso comum — e
+ * deixaria sem remédio um cliente a quem a casa DEVE. O que resta é gritar, e é
+ * o que acontece: `sem_refund_id` em cada entrega (chave por entrega, não por
+ * valor) mais `reversao_ambigua`. E a janela fecha sozinha: depois deste deploy
+ * toda reversão nasce com `re_`, e aí a guarda 1 resolve por identidade.
+ *
  * Senão é nova, e a TESTEMUNHA só é verdadeira quando não há ambiguidade
  * NENHUMA: nada daquele valor foi revertido antes (`R(v) === 0`) e todos os
  * candidatos daquele valor têm a MESMA repartição. Com uma reversão anterior no
@@ -44,28 +61,22 @@
  * a compliance mediu virando 409 eterno num caso e testemunha forjada no outro.
  */
 
-/** Um lançamento de estorno é candidato? (Quem NÃO é, e por quê.) */
-function candidatoDeEstorno(e) {
-  if (!e || e.type !== 'PAYMENT_REFUNDED' || !e.payload) return false;
-  // A devolução que o DONO registrou não é candidata: o adquirente nunca a viu,
-  // e o rateio dela saiu do nosso próprio motor. Deixá-la no conjunto carimbava
-  // a atestação do dono como testemunha do adquirente.
-  if (e.payload.offRail === true) return false;
-  // O CHARGEBACK também não. `dispute_lost` vira `PAYMENT_REFUNDED` (é dinheiro
-  // saindo), mas um `refund.failed` descreve um objeto `Refund` da Stripe, e uma
-  // disputa não é um — ela nunca pode ser "o estorno que falhou". Com a linha da
-  // disputa no conjunto, um chargeback parcial do mesmo valor destruía a
-  // testemunha de um estorno de verdade; e, sozinho, ele era "o único que casa",
-  // então uma falha de estorno DESFAZIA no razão um chargeback que a rede
-  // levou: a conta voltava de `parcial` pra `paga` sobre dinheiro que não está
-  // mais na casa (segurança HIGH-3 da rodada dez).
-  //
-  // As duas exclusões são a MESMA regra — "só é candidato o que o adquirente
-  // poderia estar reportando como estorno falho" — e por meses só uma estava
-  // escrita.
-  if (e.payload.disputeId) return false;
-  return true;
-}
+/**
+ * Um lançamento de estorno é candidato? É a MESMA pergunta que o redutor faz
+ * pra decidir o que entra no acumulado do trilho, então é a MESMA função.
+ *
+ * A devolução que o DONO registrou (`offRail`) e o CHARGEBACK (`dispute_lost`)
+ * viram `PAYMENT_REFUNDED` porque são dinheiro saindo, mas nenhum dos dois é um
+ * objeto `Refund` da Stripe — nenhum dos dois pode ser "o estorno que falhou".
+ * Com o chargeback no conjunto, uma falha de estorno DESFAZIA no razão um
+ * chargeback que a rede levou.
+ *
+ * Esta função foi uma cópia local por uma rodada, e a cópia divergiu da régua do
+ * acumulado em dois predicados diferentes — dois achados ALTOS, um por rodada.
+ * Agora ela é o `estornoDoTrilho` do redutor, reexportado com o nome que este
+ * arquivo usa.
+ */
+const candidatoDeEstorno = estornoDoTrilho;
 
 /**
  * @param {Array} events   o razão inteiro da conta
@@ -98,13 +109,28 @@ function casarReversao(events, txid, falhou, refundId) {
 
   const doValor = candidatos.filter((l) => l.amountCents + l.tipCents === falhou);
   const revertidosDoValor = revertidos.filter((r) => r.total === falhou);
+  // As reversões daquele valor que NÃO TÊM IDENTIDADE — as únicas que poderiam
+  // ser esta mesma falha de novo.
+  const cegasDoValor = revertidosDoValor.filter((r) => !r.comId);
 
-  // 2. REENTREGA POR CONTAGEM — a defesa que sobra sem identidade, e a única
-  //    que alcança a JANELA DO DEPLOY: toda reversão já gravada nasceu sem
-  //    `re_` (o adaptador descartava), então a guarda de identidade não pode
-  //    disparar ali. Esta pode, e não depende de o estorno ainda estar vivo no
-  //    razão — o que é o ponto: depois da primeira reversão ele não está.
-  if (revertidosDoValor.length > 0 && revertidosDoValor.length >= doValor.length) {
+  /**
+   * 2. REENTREGA POR CONTAGEM — a defesa que sobra sem identidade, e a única
+   *    que alcança a JANELA DO DEPLOY: toda reversão já gravada nasceu sem
+   *    `re_` (o adaptador descartava), então a guarda de identidade não pode
+   *    disparar ali. Esta pode, e não depende de o estorno ainda estar vivo no
+   *    razão — o que é o ponto: depois da primeira reversão ele não está.
+   *
+   *    DUAS CONDIÇÕES, e a primeira separa "pode ser esta mesma" de "é outra,
+   *    provadamente". Se TODAS as reversões daquele valor têm `re_` — e nenhum
+   *    deles é o nosso, senão a guarda 1 já teria disparado —, então esta é uma
+   *    falha diferente, dita pela identidade. Engoli-la como reentrega deixa o
+   *    cliente sem o dinheiro e o razão dizendo que ele foi reembolsado, que é o
+   *    desfecho que este repositório chama de o pior possível (CDC art. 6º III e
+   *    art. 42; compliance HIGH-2 da rodada onze).
+   *
+   *    O `comId` já era calculado aqui e nunca era lido: o sinal estava na mão.
+   */
+  if (cegasDoValor.length > 0 && revertidosDoValor.length >= doValor.length) {
     return { decisao: 'reentrega', porque: 'consumo', anomalias };
   }
 

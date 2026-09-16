@@ -187,13 +187,24 @@ function validateEvent(evt, prevState) {
       if ((p.amountCents ?? 0) === 0 && (p.tipCents ?? 0) === 0) invalid('zero-value reversal');
       const rev = prevState.payments[p.txid];
       if (!rev) invalid(`reversal for unknown txid ${p.txid}`);
-      // Não se pode desfazer mais estorno do que existe. Um `refund.failed`
-      // que chega duas vezes, ou pra um estorno que nunca entrou, é
-      // divergência — alto, não absorvido.
-      if ((p.amountCents ?? 0) > rev.refundedAmountCents) {
+      /**
+       * Não se pode desfazer mais estorno do que existe. Um `refund.failed` que
+       * chega duas vezes, ou pra um estorno que nunca entrou, é divergência —
+       * alto, não absorvido.
+       *
+       * E o "que existe" NÃO INCLUI CHARGEBACK. Uma reversão desfaz um estorno
+       * que FALHOU; uma disputa perdida não é um objeto `Refund` e não pode
+       * falhar assim (`dispute_won` é outro evento). Com o chargeback somado
+       * aqui, ele virava folga: uma reversão maior do que tudo o que o
+       * adquirente estornou passava por esta guarda usando dinheiro que a rede
+       * levou, e o razão devolvia pra conta — com a gorjeta junto, inflando a
+       * base de cálculo da folha (Lei 13.419/2017; compliance HIGH-1 da rodada
+       * onze).
+       */
+      if ((p.amountCents ?? 0) > (rev.refundedPeloTrilhoAmountCents || 0)) {
         invalid(`reversal exceeds refunded amount for txid ${p.txid}`);
       }
-      if ((p.tipCents ?? 0) > rev.refundedTipCents) {
+      if ((p.tipCents ?? 0) > (rev.refundedPeloTrilhoTipCents || 0)) {
         invalid(`reversal exceeds refunded tip for txid ${p.txid}`);
       }
       break;
@@ -370,7 +381,22 @@ function applyEvent(state, evt, seq = null) {
          * serviço dele na base de cálculo da folha (segurança HIGH-4 da rodada
          * dez; Lei 13.419/2017, inegociável #8).
          */
-        refundedPorDisputaCents: 0,
+        /**
+         * Quanto deste pagamento o ADQUIRENTE estornou — e ainda está estornado.
+         *
+         * `refunded*Cents` soma as três procedências (estorno, chargeback e a
+         * devolução que o dono registrou no caixa) porque as três são dinheiro
+         * saindo. Este par conta só a primeira, que é a única que o
+         * `charge.amount_refunded` da Stripe conta — e a única que um
+         * `refund.failed` pode desfazer.
+         *
+         * SOBE no estorno do trilho e DESCE na reversão. Contado ao contrário
+         * (só o que veio de disputa, sem descer) ele ficava negativo depois de
+         * uma reversão, e a régua do estorno cumulativo passava a engolir
+         * estorno de verdade como reentrega (segurança HIGH-2 da rodada onze).
+         */
+        refundedPeloTrilhoAmountCents: 0,
+        refundedPeloTrilhoTipCents: 0,
         disputedAmountCents: 0,
         /**
          * Quanto DESTE pagamento entrou a mais — DERIVADO, não recebido.
@@ -461,11 +487,17 @@ function applyEvent(state, evt, seq = null) {
       if (typeof p.disputeId === 'string' && p.disputeId) {
         pay.disputeIdsClosed = [...(pay.disputeIdsClosed || []), p.disputeId];
       }
-      // O que veio de DISPUTA fica contado à parte — ver `refundedPorDisputaCents`.
-      // A marca é o `disputeId`, a mesma que já decide a idempotência do
-      // chargeback: um estorno comum nunca a traz.
-      if (typeof p.disputeId === 'string' && p.disputeId) {
-        pay.refundedPorDisputaCents = (pay.refundedPorDisputaCents || 0) + amount + tip;
+      // O que passou pelo ADQUIRENTE sobe também no acumulado do trilho — ver
+      // `refundedPeloTrilhoAmountCents`. Chargeback e devolução do dono ficam de
+      // fora, pelo predicado único (`estornoDoTrilho`).
+      //
+      // Dois campos e não um total: quem pergunta "quanto deste pagamento o
+      // adquirente estornou" precisa da resposta por BALDE — é com ela que o
+      // teto da reversão é calculado, que o rateio proporcional é feito e que a
+      // validação da reversão decide.
+      if (estornoDoTrilho({ type: 'PAYMENT_REFUNDED', payload: p })) {
+        pay.refundedPeloTrilhoAmountCents = (pay.refundedPeloTrilhoAmountCents || 0) + amount;
+        pay.refundedPeloTrilhoTipCents = (pay.refundedPeloTrilhoTipCents || 0) + tip;
       }
       next.paidCents -= amount;
       next.tipCents -= tip;
@@ -534,6 +566,22 @@ function applyEvent(state, evt, seq = null) {
       const pay = next.payments[p.txid];
       pay.refundedAmountCents -= amount;
       pay.refundedTipCents -= tip;
+      /**
+       * E O ACUMULADO DO TRILHO DESCE JUNTO.
+       *
+       * Uma reversão desfaz um estorno que o adquirente tentou e não conseguiu —
+       * sempre um do trilho (chargeback e devolução do dono não podem falhar
+       * assim). Sem este decremento, o acumulado do trilho só subia: depois de
+       * uma reversão ele afirmava um estorno vivo que não existe mais, e a régua
+       * do estorno cumulativo passava a engolir estorno de VERDADE como
+       * reentrega — cliente com o dinheiro de volta e o razão dizendo que a casa
+       * o tem (segurança HIGH-2 da rodada onze).
+       *
+       * Não fica negativo: o `validateEvent` já recusa uma reversão maior do que
+       * o acumulado do trilho, balde a balde.
+       */
+      pay.refundedPeloTrilhoAmountCents = (pay.refundedPeloTrilhoAmountCents || 0) - amount;
+      pay.refundedPeloTrilhoTipCents = (pay.refundedPeloTrilhoTipCents || 0) - tip;
       next.paidCents += amount;
       next.tipCents += tip;
       // O VALOR entra na anomalia: é o que o cliente tem a receber, e a tela
@@ -738,6 +786,32 @@ function cloneState(state) {
  * quebra, porque o sintoma é uma conta que continua vermelha e ninguém
  * associa à mudança de uma string.
  */
+/**
+ * ESTE ESTORNO PASSOU PELO ADQUIRENTE?
+ *
+ * Três coisas viram `PAYMENT_REFUNDED` porque as três são dinheiro saindo: o
+ * estorno do adquirente, o CHARGEBACK (`dispute_lost`) e a devolução que o DONO
+ * registrou no caixa (`offRail`). Só a primeira é um objeto `Refund` da Stripe.
+ *
+ * A diferença não é acadêmica: `charge.amount_refunded` — o acumulado que o
+ * adquirente manda — conta objetos `Refund` e nada mais. Toda régua nossa que
+ * for comparada com aquele número, ou que perguntar "quanto deste pagamento o
+ * adquirente estornou", tem que usar ESTE predicado. Houve três cópias
+ * divergentes dele nesta série, cada uma cobrindo um subconjunto diferente, e
+ * cada uma custou um achado ALTO (rodadas dez e onze). Agora é um só, e quem
+ * precisa importa.
+ */
+function estornoDoTrilho(e) {
+  if (!e || e.type !== 'PAYMENT_REFUNDED' || !e.payload) return false;
+  if (e.payload.offRail === true) return false;
+  // `deDisputa` é a marca derivada do KIND; `disputeId` é o `dp_` quando ele
+  // veio. As duas respondem a mesma pergunta, e a primeira responde também
+  // quando o adquirente fechou a disputa sem id — o caso do "cinto cego".
+  if (e.payload.deDisputa === true) return false;
+  if (e.payload.disputeId) return false;
+  return true;
+}
+
 /** As gravidades que a conciliação sabe ordenar (`severityRank`). */
 const ANOMALY_SEVERITIES = ['critical', 'high', 'info'];
 
@@ -1030,6 +1104,7 @@ function paidAfterClose(state) {
 }
 
 module.exports = {
+  estornoDoTrilho,
   ANOMALY_SEVERITIES,
   STATUS, EVENT_TYPES, EventValidationError,
   reduce, applyEvent, validateEvent, remainingCents, lateTxids, paidAfterClose,

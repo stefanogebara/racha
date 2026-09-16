@@ -146,7 +146,23 @@ async function applyConfirmedPayment(parsed, deps) {
   if (type === 'PAYMENT_REFUND_REVERSED') {
     const pay = state && state.payments[parsed.txid];
     if (!pay) return { status: 'rejected', reason: `reversal for unknown txid ${parsed.txid}` };
-    const jaEstornado = pay.refundedAmountCents + pay.refundedTipCents;
+    /**
+     * O TETO DA REVERSÃO conta só o que o ADQUIRENTE estornou.
+     *
+     * `falhou` é o `Refund.amount` da Stripe — a mesma régua do
+     * `charge.amount_refunded`, que nunca conta disputa. Comparar com o nosso
+     * acumulado TOTAL, com o chargeback dentro, é a mesma "duas réguas
+     * diferentes" que o ramo do estorno cumulativo já corrige cem linhas abaixo
+     * — e aqui ela fazia coisa pior do que errar a conta: o saldo da disputa
+     * MASCARAVA o `jaEstornado === 0`, então uma reversão de um estorno que o
+     * razão nunca viu não caía em `out_of_order`, era aplicada contra o
+     * chargeback, devolvia pra conta dinheiro que a rede levou e subia a
+     * gorjeta junto — na base de cálculo da folha (Lei 13.419/2017). Sem uma
+     * anomalia sequer (compliance HIGH-1 da rodada onze).
+     */
+    const estornadoAmount = pay.refundedPeloTrilhoAmountCents || 0;
+    const estornadoTip = pay.refundedPeloTrilhoTipCents || 0;
+    const jaEstornado = estornadoAmount + estornadoTip;
     const falhou = Number.isSafeInteger(parsed.amountCents) ? parsed.amountCents : jaEstornado;
 
     /**
@@ -250,14 +266,27 @@ async function applyConfirmedPayment(parsed, deps) {
      * Um valor cortado é, por construção, uma coisa que o adquirente NÃO disse.
      * Então não pode sustentar testemunha nenhuma.
      *
-     * A ZERAGEM ABAIXO É CINTO SOBRE SUSPENSÓRIO, e fica dito qual é qual. O
-     * casamento é feito sobre `falhou`, e há uma INVARIANTE: se existe um
-     * candidato vivo somando `falhou`, então `jaEstornado >= falhou` e não há
-     * corte nenhum. Ou seja, num corte o casamento já não achou candidato e a
-     * testemunha já é falsa. A invariante é o que defende de verdade, e está
-     * provada por propriedade em `reversal-match.test.js` — porque uma guarda
-     * que nunca dispara é coisa que este repositório aprendeu a não confiar, e
-     * o jeito de confiar nela é provar que ela é redundante em vez de supor.
+     * A ZERAGEM ABAIXO É CINTO SOBRE SUSPENSÓRIO — e o suspensório é o
+     * `casaOValor` logo adiante, não o que eu escrevi aqui antes.
+     *
+     * A versão anterior deste parágrafo dizia que a zeragem era redundante por
+     * causa de uma invariante: "se existe um candidato vivo somando `falhou`,
+     * então `jaEstornado >= falhou`". As duas revisões da rodada onze mostraram
+     * que ela é FALSA, com um contraexemplo que este próprio arquivo produz — a
+     * reversão é gravada pelo valor CORTADO e rateada proporcionalmente, então
+     * ela não soma o total de candidato nenhum, e um corte com testemunha é
+     * perfeitamente alcançável.
+     *
+     * O que realmente segura é a aritmética do `casaOValor`: a repartição que o
+     * casador devolve quando testemunha soma EXATAMENTE `falhou` (é a de um
+     * candidato daquele valor), e `casaOValor` a compara com `aReverter`. Num
+     * corte os dois são diferentes por definição, então o proporcional entra.
+     * Essa invariante é sobre o casador sozinho, é verdadeira, e está provada
+     * por propriedade em `reversal-match.test.js` — com um gerador que ALCANÇA
+     * o corte com testemunha, que é o que a prova anterior não fazia.
+     *
+     * Um parágrafo que chama de redundante a guarda errada é um convite escrito
+     * pra alguém remover a que está segurando o dinheiro.
      */
     let testemunhado = casamento.testemunhado === true;
     if (aReverter !== falhou) {
@@ -280,7 +309,10 @@ async function applyConfirmedPayment(parsed, deps) {
       && casamento.amountCents + casamento.tipCents === aReverter;
     reversalAllocated = casaOValor
       ? { amountCents: casamento.amountCents, tipCents: casamento.tipCents, testemunhado: true }
-      : { ...allocateRefund(pay.refundedAmountCents, pay.refundedTipCents, aReverter), testemunhado: false };
+      // O proporcional é sobre o que o ADQUIRENTE estornou, não sobre o que
+      // saiu do pagamento: com o chargeback na base, o rateio tirava da gorjeta
+      // uma proporção calculada sobre dinheiro que a rede levou.
+      : { ...allocateRefund(estornadoAmount, estornadoTip, aReverter), testemunhado: false };
   }
 
   let refundAllocated = null;
@@ -408,8 +440,7 @@ async function applyConfirmedPayment(parsed, deps) {
      * anomalia e sem log, com o cliente já com o dinheiro na mão (segurança
      * HIGH-4 da rodada dez).
      */
-    const porDisputa = pay.refundedPorDisputaCents || 0;
-    const jaEstornado = (pay.refundedAmountCents + pay.refundedTipCents) - porDisputa;
+    const jaEstornado = (pay.refundedPeloTrilhoAmountCents || 0) + (pay.refundedPeloTrilhoTipCents || 0);
     const delta = parsed.cumulativeRefundedCents - jaEstornado;
     if (delta <= 0) {
       // Reenvio do mesmo estorno, ou um acumulado mais velho que o que já
@@ -464,6 +495,22 @@ async function applyConfirmedPayment(parsed, deps) {
     // O `dp_` fica no LOG: é o que distingue a reentrega de uma derrota da
     // segunda derrota de verdade, e o log é o único lugar durável.
     ...(type === 'PAYMENT_REFUNDED' && parsed.disputeId ? { disputeId: parsed.disputeId } : {}),
+    /**
+     * E A PROCEDÊNCIA fica marcada MESMO SEM O `dp_`.
+     *
+     * "É uma disputa" e "qual disputa" são perguntas diferentes, e o razão
+     * gravava só a segunda. Um `dispute_lost` sem `dp_` — o cinto cego, que este
+     * arquivo já trata cem linhas acima — produzia um `PAYMENT_REFUNDED` que
+     * nenhum leitor conseguia distinguir de um estorno do adquirente: entrava no
+     * acumulado do trilho, virava candidato a "o estorno que falhou", e o
+     * chargeback podia ser desfeito no razão (segurança HIGH-3 da rodada dez,
+     * HIGH-1 da rodada onze).
+     *
+     * A marca é derivada do KIND, que a gente sempre tem. Os lançamentos
+     * gravados ANTES desta linha continuam sem ela — e pra esses o `dp_`, quando
+     * existe, ainda responde.
+     */
+    ...(type === 'PAYMENT_REFUNDED' && parsed.kind === 'dispute_lost' ? { deDisputa: true } : {}),
     // A TESTEMUNHA É VERDADEIRA? Só quando o valor revertido casou com UM
     // lançamento do razão. Sem isso o rateio é palpite nosso, e o razão precisa
     // dizer qual dos dois foi — é ele que autoriza tirar da base da folha.
