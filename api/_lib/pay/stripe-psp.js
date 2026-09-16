@@ -236,6 +236,22 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         // transfere pra conta conectada do restaurante. Ver o cabeçalho — não é
         // o mesmo que o split do Pagar.me, e a diferença é do inegociável #4.
         transfer_data: { destination: recipientId },
+        /**
+         * E O COMERCIANTE QUE APARECE NA FATURA É O RESTAURANTE.
+         *
+         * A regra está escrita no cabeçalho do Bizum — "quem cobrou tem que ser
+         * quem o cliente reconhece" — e estava aplicada só lá. Sem
+         * `on_behalf_of`, numa destination charge, quem aparece no app do banco
+         * de quem pagou é a PLATAFORMA: a pessoa jantou no Bar do Zé e vê
+         * "Racha" na fatura do cartão. Isso é identificação errada do fornecedor
+         * (CDC art. 6º III) e é justamente o traço que caracteriza quem está no
+         * fluxo, que é o que o inegociável #4 governa (BACEN Res. 494/2025).
+         *
+         * Princípio escrito num método e ausente no outro — a mesma família das
+         * três cópias divergentes do predicado de estorno. Achado pela revisão
+         * de compliance da rodada catorze, e é uma linha.
+         */
+        on_behalf_of: recipientId,
         ...(applicationFeeCents > 0 ? { application_fee_amount: applicationFeeCents } : {}),
         // Gorjeta viaja na MESMA cobrança e fica rastreável (Lei 13.419) — o
         // ledger lê tip_cents daqui, igual ao Pagar.me.

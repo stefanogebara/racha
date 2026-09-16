@@ -231,7 +231,10 @@ vê. Uma mesa que já pagou tudo.
    que entrou junto — e nasce um excedente para você devolver de novo.
 5. Se ninguém agiu e a conta ficou aberta, a conciliação avisa: o achado
    **`reopened_by_refund`**, severidade `high`, traz o número que a mesa está
-   vendo.
+   vendo. Se a conta também sofreu CHARGEBACK, o código é
+   **`reopened_by_refund_mixed`** e ele traz DOIS números: o que a mesa vê e a
+   parte que veio de devolução — ajuste só por essa parte. O resto é prejuízo da
+   casa, e apagá-lo dos livros é apagar o prejuízo.
 
 **Isto não é do serviço.** Vale para QUALQUER devolução pelo painel do
 adquirente que toque o consumo — item errado, cortesia, engano de valor. O único

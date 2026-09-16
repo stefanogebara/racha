@@ -66,6 +66,17 @@ describe('stripe adapter — createWalletCharge (destination charge)', () => {
     expect(p.amount).toBe(8800);              // total = consumo + gorjeta
     expect(p.currency).toBe('brl');
     expect(p.transfer_data).toEqual({ destination: 'acct_venue1' }); // sem custódia
+    /**
+     * E O COMERCIANTE DA FATURA É O RESTAURANTE.
+     *
+     * A regra está escrita no cabeçalho do Bizum ("quem cobrou tem que ser quem
+     * o cliente reconhece") e estava aplicada só lá: no cartão, quem aparecia no
+     * app do banco de quem pagou era a PLATAFORMA. A pessoa janta no Bar do Zé e
+     * vê "Racha" na fatura — identificação errada do fornecedor (CDC art. 6º
+     * III) e o traço que caracteriza quem está no fluxo (inegociável #4).
+     * Achado pela revisão de compliance da rodada catorze.
+     */
+    expect(p.on_behalf_of).toBe('acct_venue1');
     expect(p.metadata.tip_cents).toBe('800'); // gorjeta separada (Lei 13.419)
     expect(p.metadata.wallet).toBe('apple_pay');
     expect(p.application_fee_amount).toBeUndefined(); // 0 → omitido

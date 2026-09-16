@@ -211,7 +211,10 @@ export const DICT = {
 
   // ── identificação ───────────────────────────────────────────────────────
   'payer.name':       { en: 'Your name (optional)',            pt: 'Seu nome (opcional)', es: 'Tu nombre (opcional)' },
-  'payer.cpf':        { en: 'Your CPF (required to pay)',      pt: 'Seu CPF (obrigatório pra pagar)', es: 'Tu CPF (obligatorio para pagar)' },
+  // "PRA PAGAR COM PIX", e não "pra pagar": o botão do Pix é o único que o CPF
+  // destrava (`onPay` barra só ele); o elemento da Stripe paga sem. O rótulo
+  // dizia uma obrigação maior do que a que o código impõe.
+  'payer.cpf':        { en: 'Your CPF (required for Pix)',      pt: 'Seu CPF (obrigatório pra pagar com Pix)', es: 'Tu CPF (obligatorio para pagar con Pix)' },
   // O que o CPF é fica AQUI e não no placeholder: glosado no rótulo, o campo
   // truncava em "Your CPF, the Brazilian tax ID (required to" num telefone de
   // 430px — e um rótulo cortado explica menos que um curto. Visto no navegador.
@@ -231,15 +234,24 @@ export const DICT = {
    * manda, então a frase passou a NEGAR um destino que existe. Negar é a direção
    * mais grave num aviso de transparência (LGPD art. 6º III e art. 9º).
    *
-   * A frase certa não fala de instrumento (Pix/cartão) — fala de quem recebe. E
-   * ela não promete o que não sabe: diz que vai pro provedor de pagamento da
-   * casa, que é sempre verdade quando ele pede, e que a Racha não guarda, que é
-   * sempre verdade. A pergunta maior — o campo sumir quando o trilho não usa o
-   * documento — é de produto e está na fila.
+   * A CONDICIONAL TEM QUE ESTAR NA TELA, não só aqui no comentário.
+   *
+   * A versão anterior desta frase dizia "o provedor de pagamento do restaurante
+   * EXIGE o CPF" — sem condição —, e eu justifiquei aqui escrevendo "que é
+   * sempre verdade quando ele pede". A condicional ficou no comentário e a tela
+   * afirmou incondicionalmente: quem paga por Apple Pay numa casa brasileira lê
+   * que o provedor exige, digita, e o número viaja até o nosso servidor pra ser
+   * descartado (LGPD art. 6º III e art. 9º; compliance MEDIUM-1 da rodada
+   * catorze). A frase agora diz NO PIX, que é onde a exigência existe, e diz o
+   * que acontece nos outros trilhos em vez de calar.
+   *
+   * O conserto completo — o campo sumir quando o trilho não usa o documento — é
+   * de produto e continua na fila. O que não podia esperar é a tela afirmar uma
+   * exigência que, naquele caminho, não existe.
    */
-  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. The restaurant’s payment provider requires it to issue the charge — it goes to the provider, never to the restaurant, and Racha does not store it.',
-                        pt: 'O provedor de pagamento do restaurante exige o CPF pra emitir a cobrança. Vai pra ele, nunca pro restaurante, e a Racha não guarda.',
-                        es: 'El proveedor de pago del restaurante exige el CPF para emitir el cobro — va para él, nunca para el restaurante, y Racha no lo guarda.' },
+  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. Paying by Pix, the provider requires it to issue the charge — it goes to the provider, never to the restaurant, and Racha does not store it. On other rails it may not be used at all.',
+                        pt: 'No Pix, o provedor de pagamento exige o CPF pra emitir a cobrança. Vai pra ele, nunca pro restaurante, e a Racha não guarda. Nos outros meios ele pode nem ser usado.',
+                        es: 'Con Pix, el proveedor de pago exige el CPF para emitir el cobro — va para él, nunca para el restaurante, y Racha no lo guarda. En otros medios puede que ni se use.' },
   'payer.cpfHint':    { en: 'Enter your CPF, 11 digits, to enable payment.',
                         pt: 'Preencha seu CPF (11 dígitos) pra liberar o pagamento.',
                         es: 'Escribe tu CPF, 11 dígitos, para habilitar el pago.' },

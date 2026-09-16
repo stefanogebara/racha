@@ -79,7 +79,9 @@ Três consequências, e nenhuma delas é "adiar sem dizer":
    gatilho em vez de enfraquecê-lo.
 2. **Passou a existir detector.** `reopened_by_refund`, na conciliação: conta
    que esteve quitada e tem devolução vira achado **`high`**, com o número que a
-   mesa está vendo. Era a diferença entre descobrir isto num documento e
+   mesa está vendo. Com chargeback na mesma conta o código é
+   **`reopened_by_refund_mixed`**, que traz também a parte devolvível — só ela
+   pode ser ajustada para baixo. Era a diferença entre descobrir isto num documento e
    descobrir num cliente.
 
    `high` e não `critical` porque nada se perdeu — perdeu-se a verdade da tela —

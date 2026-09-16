@@ -495,7 +495,7 @@ describe('a conta que voltou a cobrar', () => {
   const achado = (evs) => reconcileCheck({ checkId: 'c', events: evs, payments: [] })
     .findings.filter((x) => /^reopened_by_refund/.test(x.code));
 
-  test('quitada e reaberta por devolução: CRÍTICO, com o número que a mesa vê', () => {
+  test('quitada e reaberta por devolução: `high`, com o número que a mesa vê', () => {
     const r = achado([...quitada, ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 })]);
     expect(r.length).toBe(1);
     // `high`: nada se perdeu, mas a operação não terminou — e o achado some
