@@ -10,7 +10,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { semComentarios } from './censo-taxid.ts';
 import { join } from 'node:path';
-import { DICT, LANGS, asLang, money, tError, STRIPE_LOCALE, LANDING_MARKET } from '../src/i18n.ts';
+import {
+  DICT, LANGS, asLang, fill, money, tError, textoDoAchado, STRIPE_LOCALE, LANDING_MARKET,
+} from '../src/i18n.ts';
 
 const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: string }][];
 
@@ -822,14 +824,35 @@ test('a rota do painel MANDA os centavos que o painel formata', async () => {
   const path = await import('node:path');
   const router = fs.readFileSync(
     path.join(import.meta.dirname, '..', '..', '..', 'api', '_app', 'router.js'), 'utf8');
+  // A regra da frase saiu do `Panel.tsx` pra um módulo `.ts` puro, pra o teste
+  // de cruzamento poder CHAMÁ-LA em vez de copiá-la — e este censo leu junto.
   const panel = fs.readFileSync(
-    path.join(import.meta.dirname, '..', 'src', 'Panel.tsx'), 'utf8');
+    path.join(import.meta.dirname, '..', 'src', 'i18n.ts'), 'utf8');
 
   // A cadeia que o painel lê pra preencher {amount}.
   const cadeia = panel.match(/const valor = ([^;]+);/);
-  assert.ok(cadeia, 'não achei a cadeia de centavos no Panel');
+  assert.ok(cadeia, 'não achei a cadeia de centavos no i18n');
   const campos = [...cadeia[1].matchAll(/f\.(\w+)/g)].map((m) => m[1]);
   assert.ok(campos.length >= 4, `cadeia curta demais: ${campos.join(', ')}`);
+
+  /**
+   * E TODO campo do achado que a FRASE lê, não só os da cadeia.
+   *
+   * `refundableCents` não está na cadeia do `{amount}` — ele é uma segunda
+   * variável no `vars`. Foi acrescentado ao achado e esquecido na projeção da
+   * rota, que é lista de PERMISSÃO: o esquecimento é silencioso, e o
+   * `{refundable}` chegava LITERAL na tela do dono toda vez que o achado saía,
+   * numa frase cuja instrução é "ajuste pela parte devolvida" (segurança HIGH-1
+   * da rodada catorze).
+   *
+   * A regra geral: se `textoDoAchado` lê o campo, a rota tem que mandar.
+   */
+  const corpoDaFrase = panel.slice(panel.indexOf('export function textoDoAchado('));
+  const fimDaFrase = corpoDaFrase.indexOf('\n}\n');
+  const lidos = [...new Set([...corpoDaFrase.slice(0, fimDaFrase).matchAll(/f\.(\w+)/g)].map((m) => m[1]))];
+  assert.ok(lidos.includes('refundableCents'),
+    'a varredura do corpo da frase quebrou: não achou nem o campo que motivou este censo');
+  for (const c of lidos) if (!campos.includes(c)) campos.push(c);
 
   // A projeção da rota, onde os achados são mapeados.
   // A projeção mora em `projetarAchados`, e a rota chama a função.
@@ -990,10 +1013,24 @@ test('o {amount} do achado de conta reaberta é o BURACO, o que a mesa vê', asy
   // E a frase é a do caso MISTO, que nomeia os dois.
   assert.equal(f.code, 'reopened_by_refund_mixed');
 
-  // A CADEIA do painel (`overpaidCents ?? deltaCents ?? …`) tem que devolver o
-  // buraco, porque é isso que a frase afirma.
-  const valor = (f as Record<string, number>).overpaidCents ?? f.deltaCents;
-  assert.equal(valor, 13000, 'o {amount} renderizado tem que ser o buraco que a mesa vê');
+  /**
+   * E A FRASE RENDERIZADA, pela função DO PAINEL — não por uma cópia da cadeia.
+   *
+   * A primeira versão deste teste re-implementava `overpaidCents ?? deltaCents`
+   * aqui. Medido: com a cadeia real reordenada pra `… ?? refundableCents ?? …`,
+   * o painel passava a imprimir R$ 20,00 onde a mesa vê R$ 130,00 — o achado da
+   * rodada treze, verbatim — e a suíte inteira ficava verde. Uma cópia da regra
+   * não é a regra.
+   */
+  // O `t` do painel, montado com a mesma `fill` que a tela usa — é ela que
+  // devolve marcador desconhecido VERBATIM, e é isso que o teste tem que ver.
+  const tPt = (k: keyof typeof DICT, v?: Record<string, string | number>) => fill(DICT[k].pt, v);
+  const frase = textoDoAchado(f, tPt, (c: number) => money(c, 'pt', 'BRL'));
+  assert.match(frase, /R\$\s?130,00/, `a frase tem que trazer o buraco: ${frase}`);
+  assert.match(frase, /R\$\s?20,00/, `e a parte devolvível: ${frase}`);
+  // E o marcador NÃO pode sobreviver: o `fill` devolve desconhecido verbatim.
+  assert.doesNotMatch(frase, /\{refundable\}|\{amount\}/, `marcador literal na tela: ${frase}`);
+
   for (const lang of ['en', 'pt', 'es'] as const) {
     assert.match(DICT['find.reopened_by_refund_mixed'][lang], /\{amount\}[\s\S]*\{refundable\}/,
       `${lang}: a frase do caso misto tem que nomear os dois números, nessa ordem`);

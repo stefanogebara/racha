@@ -589,6 +589,55 @@ describe('a conta que voltou a cobrar', () => {
     expect(r[0].message).not.toMatch(/chargeback/);
   });
 
+  /**
+   * O AJUSTE PARCIAL DEIXA O ACHADO DE PÉ — é a propriedade que o comentário do
+   * `reconcile.js` afirma vinte linhas acima do portão, e que uma guarda minha
+   * derrubava.
+   *
+   * `porDisputa` é fixo; o buraco encolhe a cada `ADJUSTED`. Com
+   * `porDevolucao > 0` no portão, o achado sumia no instante em que o dono fazia
+   * o que a própria frase manda ("ajuste o total para baixo na parte devolvida")
+   * — e o buraco do chargeback continuava na tela da mesa, com o botão de pagar
+   * ligado (CDC art. 42 § único; segurança HIGH-2 da rodada catorze).
+   */
+  test('depois do ajuste pela parte devolvida, o buraco do chargeback CONTINUA acusando', () => {
+    const base = [
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 11000, tipCents: 0, disputeId: 'dp_1' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2000, tipCents: 0 }),
+    ];
+    const antes = achado(base);
+    expect(antes.length).toBe(1);
+    expect(antes[0].deltaCents).toBe(13000);
+    expect(antes[0].refundableCents).toBe(2000);
+
+    // O dono faz exatamente o que a frase manda: ajusta na parte devolvida.
+    const depois = achado([...base, ev('ADJUSTED', { totalCents: 18000 })]);
+    expect(depois.length).toBe(1);
+    // Sobra o buraco do chargeback — e ele CONTINUA cobrável na tela da mesa.
+    expect(depois[0].deltaCents).toBe(11000);
+    // E não há mais nada a ajustar: a parte devolvível é zero, nunca negativa.
+    expect(depois[0].refundableCents).toBe(0);
+  });
+
+  /**
+   * O CINTO CEGO: chargeback fechado sem `dp_`, marcado só pelo KIND. A cópia
+   * inline do predicado tinha esse ramo e nenhum teste o segurava — apagá-lo não
+   * quebrava nada, e sem ele a conciliação mandava dar baixa no prejuízo inteiro.
+   */
+  test('disputa marcada só pelo KIND também sai da parte devolvível', () => {
+    const r = achado([
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 11000, tipCents: 0, deDisputa: true }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2000, tipCents: 0 }),
+    ]);
+    expect(r.length).toBe(1);
+    expect(r[0].code).toBe('reopened_by_refund_mixed');
+    expect(r[0].refundableCents).toBe(2000);
+  });
+
   test('quitada sem devolução nenhuma não é achado', () => {
     expect(achado(quitada).length).toBe(0);
   });

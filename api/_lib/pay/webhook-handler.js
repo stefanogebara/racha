@@ -350,6 +350,14 @@ async function applyConfirmedPayment(parsed, deps) {
      * caminho do webhook o portão é o RPC e esta função.
      */
     const cabeNosBaldes = Number.isSafeInteger(casamento.amountCents)
+      // O `tipCents` está aqui por SIMETRIA, e fica dito que ele não pode ser o
+      // que segura: `casaOValor` exige `amountCents + tipCents === aReverter`
+      // com `aReverter` inteiro, e inteiro + não-inteiro nunca é inteiro — então
+      // o balde do consumo já derruba sozinho toda forma fracionária. Apagá-lo
+      // não quebra teste nenhum, e desta vez isso é uma observação, não uma
+      // licença: a próxima rodada não precisa redescobrir que ele é redundante
+      // pela mesma evidência que este arquivo acabou de recusar como prova
+      // (segurança LOW-2 da rodada catorze).
       && Number.isSafeInteger(casamento.tipCents)
       && casamento.amountCents <= estornadoAmount && casamento.tipCents <= estornadoTip;
     if (testemunhado && casamento.amountCents !== undefined && !cabeNosBaldes) {

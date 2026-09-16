@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { DICT, LangToggle, useT } from './lang';
+import { LangToggle, useT } from './lang';
 import { type PanelAtivacao } from './api';
-import { type CurrencyCode, type Key } from './i18n';
+import { textoDoAchado, type CurrencyCode } from './i18n';
 import { authedReq, signOut } from './auth';
 
 /**
@@ -289,34 +289,7 @@ export default function Panel() {
  * e não como a frase do vizinho. Os centavos vêm crus do servidor e são
  * formatados aqui, onde se sabe quem está lendo.
  */
-function textoDoAchado(
-  f: {
-    code: string;
-    overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
-    // A SEGUNDA quantia de um achado, quando ele tem duas. O `reopened_by_refund`
-    // com chargeback no meio tem: o que a mesa VÊ e o que o dono pode dar BAIXA.
-    // Sem ela, a frase teria que escolher um dos dois e mentir sobre o outro.
-    refundableCents?: number;
-  },
-  t: (k: Key, v?: Record<string, string | number>) => string,
-  brl: (c: number) => string,
-): string {
-  const chave = `find.${f.code}` as Key;
-  // `amountCents` entra na cadeia: é o campo do `custody_leak` (quanto foi pra
-  // fora da subconta da casa). Sem ele, a frase saía com "{amount}" literal na
-  // tela — que é pior que não ter frase.
-  const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents ?? f.amountCents;
-  const vars = valor !== undefined
-    ? {
-      amount: brl(Math.abs(valor)),
-      ...(f.refundableCents !== undefined ? { refundable: brl(Math.abs(f.refundableCents)) } : {}),
-    }
-    : undefined;
-  // Pergunta, não exceção: `t()` de chave desconhecida estoura num
-  // `undefined[lang]`, e depender disso é depender de um acidente.
-  if (!(chave in DICT)) return t('find.other', { code: f.code });
-  return t(chave, vars);
-}
+
 
 function Conciliacao({ r, currency }: { r: Reconcile | undefined; currency: CurrencyCode }) {
   const { t, brl: fmtMoney, hm } = useT();

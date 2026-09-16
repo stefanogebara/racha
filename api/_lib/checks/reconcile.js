@@ -17,7 +17,9 @@
  * and merely log `info`.
  */
 
-const { reduce, paidAfterClose, sobraPorPagamento, estornoDoTrilho } = require('./check-state');
+const {
+  reduce, paidAfterClose, sobraPorPagamento, estornoDoTrilho, marcadoComoDisputa,
+} = require('./check-state');
 const houseState = require('../house/account-state');
 
 /**
@@ -297,11 +299,35 @@ function reconcileCheck({ checkId, events, payments }) {
      * buraco que a mesa vê é `total − paid` e a gorjeta não entra em `paidCents`.
      */
     const porDisputa = eventos.reduce((acc, e) => (
-      e.type === 'PAYMENT_REFUNDED' && e.payload && (e.payload.deDisputa === true || e.payload.disputeId)
-        ? acc + (Number(e.payload.amountCents) || 0) : acc), 0);
+      marcadoComoDisputa(e) ? acc + (Number(e.payload.amountCents) || 0) : acc), 0);
     const buraco = state.totalCents - state.paidCents;
-    const porDevolucao = buraco - Math.max(0, porDisputa);
-    if (houveEstorno && entrou >= state.totalCents && state.totalCents > 0 && porDevolucao > 0) {
+    // `Math.max(0, …)`: depois de um ajuste para baixo o buraco encolhe e a parte
+    // devolvível pode ficar negativa. Zero é o que ela é — não há mais nada a
+    // ajustar —, e negativo na tela do dono seria um número inventado.
+    const porDevolucao = Math.max(0, buraco - Math.max(0, porDisputa));
+    /**
+     * SEM `porDevolucao > 0` NO PORTÃO — ele apagava o achado no instante em que
+     * o dono fazia o que o próprio achado manda.
+     *
+     * `porDisputa` é uma soma fixa sobre os eventos de disputa; `buraco` encolhe
+     * a cada `ADJUSTED`. Então, assim que o dono ajusta o total "na parte
+     * devolvida" — a instrução literal da frase —, `porDevolucao` zera e o achado
+     * SOME, com o buraco do chargeback ainda na tela da mesa e o botão de pagar
+     * ligado. Medido ponta a ponta: conta de R$ 200,00, chargeback de R$ 110,00,
+     * estorno de R$ 20,00; antes do ajuste sai `high`, depois do ajuste sai
+     * NENHUM achado, com R$ 110,00 ainda cobráveis (CDC art. 42 § único).
+     *
+     * E contradizia o parágrafo vinte linhas acima, que diz com todas as letras
+     * que "um ajuste que fecha SÓ PARTE dela deixa saldo na tela da mesa, e aí o
+     * achado tem que sair". A guarda que eu acrescentei na rodada doze derrubava
+     * a propriedade que o comentário ao lado afirma (segurança HIGH-2 da rodada
+     * catorze).
+     *
+     * A separação entre "o que a mesa vê" e "o que dá pra dar baixa" é de
+     * APRESENTAÇÃO, e já está inteira nos dois campos e nas duas frases. O portão
+     * não precisava dela.
+     */
+    if (houveEstorno && entrou >= state.totalCents && state.totalCents > 0) {
       /**
        * `deltaCents` É O BURACO — o número que a MESA está vendo.
        *
@@ -319,6 +345,8 @@ function reconcileCheck({ checkId, events, payments }) {
        * quando há chargeback no meio, o código do achado muda, e a outra frase
        * nomeia os dois números.
        */
+      // MISTO quando há chargeback no meio: é o que decide se a frase precisa
+      // nomear os dois números ou um só.
       const misto = porDisputa > 0;
       add('high', misto ? 'reopened_by_refund_mixed' : 'reopened_by_refund',
         `esta conta foi quitada (entrou ${entrou}¢ de ${state.totalCents}¢) e uma devolução a reabriu: `

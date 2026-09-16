@@ -838,6 +838,27 @@ function cloneState(state) {
  * cada uma custou um achado ALTO (rodadas dez e onze). Agora é um só, e quem
  * precisa importa.
  */
+/**
+ * ESTE ESTORNO VEIO DE UMA DISPUTA? — a outra metade da mesma pergunta.
+ *
+ * Derivada, não copiada. A quarta cópia inline deste predicado nasceu na
+ * conciliação (`(deDisputa === true || disputeId)`) no mesmo commit em que o
+ * parágrafo abaixo dizia "houve três cópias divergentes, cada uma custou um
+ * achado ALTO; agora é um só, e quem precisa importa". Medido: apagar o ramo do
+ * `deDisputa` da cópia não quebrava nenhum teste, e com ele apagado um
+ * chargeback fechado SEM `dp_` — o cinto cego — deixava de contar como disputa,
+ * e a conciliação mandava o dono dar baixa no prejuízo inteiro (segurança
+ * MEDIUM-2 da rodada catorze).
+ *
+ * `offRail` fica de fora dos dois lados: a devolução que o dono registrou no
+ * caixa não é do trilho NEM é disputa — é a terceira procedência.
+ */
+function marcadoComoDisputa(e) {
+  if (!e || e.type !== 'PAYMENT_REFUNDED' || !e.payload) return false;
+  if (e.payload.offRail === true) return false;
+  return !estornoDoTrilho(e);
+}
+
 function estornoDoTrilho(e) {
   if (!e || e.type !== 'PAYMENT_REFUNDED' || !e.payload) return false;
   if (e.payload.offRail === true) return false;
@@ -1141,7 +1162,7 @@ function paidAfterClose(state) {
 }
 
 module.exports = {
-  estornoDoTrilho,
+  estornoDoTrilho, marcadoComoDisputa,
   ANOMALY_SEVERITIES,
   STATUS, EVENT_TYPES, EventValidationError,
   reduce, applyEvent, validateEvent, remainingCents, lateTxids, paidAfterClose,

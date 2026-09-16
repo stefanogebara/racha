@@ -352,6 +352,12 @@ function projetarAchados(findings) {
       severity: f.severity, code: f.code,
       ...(f.overpaidCents !== undefined ? { overpaidCents: f.overpaidCents } : {}),
       ...(f.deltaCents !== undefined ? { deltaCents: f.deltaCents } : {}),
+      // A SEGUNDA quantia de um achado que tem duas. Sem ela na projeção, o
+      // `{refundable}` da frase do `reopened_by_refund_mixed` chegava LITERAL na
+      // tela do dono — o `fill` devolve marcador desconhecido como veio. Campo
+      // acrescentado ao achado e esquecido aqui: a lista é de permissão, então o
+      // esquecimento é silencioso (segurança HIGH-1 da rodada catorze).
+      ...(f.refundableCents !== undefined ? { refundableCents: f.refundableCents } : {}),
       ...(f.driftCents !== undefined ? { driftCents: f.driftCents } : {}),
       ...(f.amountCents !== undefined ? { amountCents: f.amountCents } : {}),
       ...(f.txid ? { txid: f.txid } : {}),

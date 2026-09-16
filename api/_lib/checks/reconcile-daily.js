@@ -180,12 +180,20 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
    * `listChargePayables`. A guarda nunca dispararia, nem pra casa que cobra por
    * outro trilho (compliance MEDIUM-D da rodada treze).
    *
-   * O caso que ela queria cobrir já é coberto, e melhor: uma cobrança que este
-   * adquirente não reconhece cai em `foraDoAdquirente` mais abaixo e vira
-   * `charge_not_from_acquirer`, `high`, uma por casa com a contagem. O que
-   * estava errado ali era a FRASE, não a existência — ela dizia que a cobrança
-   * "não passou pelo adquirente", e uma cobrança da Stripe passou por um; só não
-   * por este. Corrigida.
+   * O caso REAL de hoje — uma casa que cobra por outro trilho num processo cuja
+   * Pagar.me tem a perna — já é coberto, e melhor: a cobrança cai em
+   * `foraDoAdquirente` mais abaixo e vira `charge_not_from_acquirer`, `high`,
+   * uma por casa com a contagem. O que estava errado ali era a FRASE, não a
+   * existência — ela dizia que a cobrança "não passou pelo adquirente", e uma
+   * cobrança da Stripe passou por um; só não por este. Corrigida.
+   *
+   * O QUE NÃO ESTÁ COBERTO, e fica dito: um processo cujo adaptador ÚNICO não
+   * tenha a perna. Aí o `return []` acima é indistinguível de "conferi e está
+   * tudo certo", e nada avisa. Hoje é impossível (produção exige
+   * `RACHA_PSP=pagarme`, que tem a perna), e é por isso que a guarda que eu
+   * escrevi era inalcançável — mas é o parágrafo que alguém lê no dia em que a
+   * Espanha for ligada com outro adaptador, e ele não pode dizer que está
+   * coberto (segurança LOW-3 da rodada catorze).
    */
   if (!psp || typeof psp.listChargePayables !== 'function') return [];
   if (typeof store.listRecentConfirmedCharges !== 'function') return [];

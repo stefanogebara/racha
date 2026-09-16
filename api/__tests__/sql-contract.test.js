@@ -924,13 +924,30 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
      * qualquer forma move o primeiro número; uma saída com o status escondido
      * move a diferença entre os dois. Nenhuma AST.
      */
-    const retornos = [...corpo.matchAll(/return\s*\{/g)].length;
+    /**
+     * O NÚMERO DE FORA conta `return` STATEMENTS, não `return {`.
+     *
+     * Ancorado no literal, a próxima forma escapa inteira — e a revisão plantou
+     * a mais idiomática de todas, a que qualquer um escreve pra logar antes de
+     * sair:
+     *
+     *     const resposta = { status: 'duplicate', checkId: check.id };
+     *     return resposta;
+     *
+     * Nem `retornos` nem `comStatus` mexiam. Contando `return` como palavra, ela
+     * move o primeiro número; `return cond ? a : b`, `return Object.assign(…)` e
+     * `return ajudante(check)` movem também. A diferença entre os dois continua
+     * denunciando um `status` escondido (segurança MEDIUM-3 da rodada catorze).
+     */
+    const retornos = [...corpo.matchAll(/\breturn\b(?!\s*;)/g)].length;
     const comStatus = [...corpo.matchAll(/return\s*\{[^}]*\bstatus\s*:/g)].length;
-    // Medido em ccf0659: 20 retornos de objeto no corpo, os 20 com `status`, e
-    // 8 alcançados pelos cenários acima. Mexer em qualquer um destes números é
-    // decidir: ou o cenário novo entra, ou a dívida sobe — e as duas coisas
-    // passam por alguém olhar.
-    expect({ retornos, comStatus }).toEqual({ retornos: 20, comStatus: 20 });
+    // Medido nesta rodada. `retornos` conta TODO `return` com valor do corpo
+    // (inclusive os que não devolvem objeto); `comStatus`, os que devolvem um
+    // objeto com `status`. Mexer em qualquer um dos dois é decidir: ou o cenário
+    // novo entra, ou a dívida sobe — e as duas coisas passam por alguém olhar.
+    // 22 retornos com valor, 20 deles devolvendo objeto com `status` — os dois
+    // que sobram devolvem outra coisa (`recompute`, o resultado do append).
+    expect({ retornos, comStatus }).toEqual({ retornos: 22, comStatus: 20 });
   });
 
   test('todo `status` que o fonte devolve tem cenário aqui', async () => {

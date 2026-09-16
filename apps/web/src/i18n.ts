@@ -1624,6 +1624,50 @@ export const DICT = {
 
 export type Key = keyof typeof DICT;
 
+/**
+ * A FRASE DE UM ACHADO DA CONCILIAÇÃO — a regra, fora do componente.
+ *
+ * Ela vivia dentro do `Panel.tsx`, e por isso não dava pra chamar de um teste:
+ * o runner do app é `node --test` sobre TypeScript, que não transforma JSX. O
+ * teste de cruzamento escrito pra rodada treze acabou RE-IMPLEMENTANDO a cadeia
+ * (`overpaidCents ?? deltaCents`) — dois elementos de quatro — em vez de passar
+ * por aqui. Medido: com a cadeia real reordenada pra incluir `refundableCents`,
+ * o painel passava a imprimir R$ 20,00 onde a mesa vê R$ 130,00 (o achado da
+ * rodada treze, verbatim) e a suíte inteira ficava verde. Uma cópia da regra não
+ * é a regra (segurança MEDIUM-1 da rodada catorze).
+ *
+ * Num módulo `.ts` puro, o teste chama a MESMA função que a tela chama.
+ */
+export function textoDoAchado(
+  f: {
+    code: string;
+    overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
+    // A SEGUNDA quantia de um achado, quando ele tem duas. O `reopened_by_refund`
+    // com chargeback no meio tem: o que a mesa VÊ e o que o dono pode dar BAIXA.
+    // Sem ela, a frase teria que escolher um dos dois e mentir sobre o outro.
+    refundableCents?: number;
+  },
+  t: (k: Key, v?: Record<string, string | number>) => string,
+  brl: (c: number) => string,
+): string {
+  const chave = `find.${f.code}` as Key;
+  // `amountCents` entra na cadeia: é o campo do `custody_leak` (quanto foi pra
+  // fora da subconta da casa). Sem ele, a frase saía com "{amount}" literal na
+  // tela — que é pior que não ter frase.
+  const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents ?? f.amountCents;
+  const vars = valor !== undefined
+    ? {
+      amount: brl(Math.abs(valor)),
+      ...(f.refundableCents !== undefined ? { refundable: brl(Math.abs(f.refundableCents)) } : {}),
+    }
+    : undefined;
+  // Pergunta, não exceção: `t()` de chave desconhecida estoura num
+  // `undefined[lang]`, e depender disso é depender de um acidente.
+  if (!(chave in DICT)) return t('find.other', { code: f.code });
+  return t(chave, vars);
+}
+
+
 
 /**
  * Dinheiro. A MOEDA não muda com o idioma — a conta é em reais nos dois casos,
