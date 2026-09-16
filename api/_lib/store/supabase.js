@@ -151,47 +151,112 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
   );
 
   /**
-
    * As contas FECHADAS entre estas, em leituras por lote de 200 — o evento
-
    * CLOSED é o que faz o redutor dizer `fechada` (é o único caminho até ela).
-
    *
-
    * A versão anterior repassava o razão INTEIRO de cada conta que a casa já
-
    * teve, uma leitura por conta, em série: a cada carga do /admin, do /qrs e
-
    * depois de cada ação numa mesa. Mil contas a ~120 ms por ida são os 120 s do
-
    * `maxDuration`, e o admin parava de carregar semanas depois de a casa
-
    * começar (auditoria de onboarding C2, auditoria de backend H3).
-
    */
-
   async function idsDeContasFechadas(ids) {
-
     const fechadas = new Set();
-
     for (let i = 0; i < ids.length; i += 200) {
-
       const { data, error } = await client
-
         .from('check_events').select('check_id')
-
         .eq('type', 'CLOSED').in('check_id', ids.slice(i, i + 200));
-
       throwOn(error, 'idsDeContasFechadas');
-
       for (const r of data || []) fechadas.add(r.check_id);
-
     }
-
     return fechadas;
-
   }
 
+  /**
+   * O RAZÃO DE MUITAS CONTAS, EM LEITURAS POR LOTE.
+   *
+   * `idsDeContasFechadas` já tinha tirado UM laço de leitura-por-conta, e
+   * sobraram quatro — `getPanelView`, `getCheckByQrToken`,
+   * `listChecksForReconcile` e `listHouseAccountsForReconcile`. É o mesmo
+   * conserto pontual que esta casa já viu três vezes pegar um sítio de dois:
+   * a régua certa escrita uma vez não chega sozinha aos outros chamadores.
+   *
+   * ──────────────────────────────────────────────────────────────────────────
+   * POR QUE ISTO PAGINA, E O LOTE DE `idsDeContasFechadas` NÃO PRECISAVA
+   *
+   * O PostgREST corta a resposta num número máximo de linhas (`db-max-rows`;
+   * 1000 no padrão do Supabase) e NÃO avisa — devolve menos linhas com um 200.
+   * `idsDeContasFechadas` seleciona só o evento CLOSED, que é no máximo um por
+   * conta, então um lote de 200 ids traz no máximo 200 linhas e nunca encosta
+   * no corte. Um razão INTEIRO não: 200 contas com 20 eventos cada são 4000
+   * linhas, e o corte devolveria as primeiras 1000 com cara de razão completo.
+   *
+   * Um razão truncado não é um erro de leitura, é um erro de DINHEIRO: o
+   * redutor veria uma conta sem o pagamento que ela recebeu. Então aqui se
+   * pagina por `range` até vir uma página curta, com ordem TOTAL
+   * (`check_id, seq`) — sem ordem total, duas páginas podem repetir e omitir a
+   * mesma linha.
+   * ──────────────────────────────────────────────────────────────────────────
+   *
+   * @param {string[]} ids
+   * @returns {Promise<Map<string, object[]>>} id → eventos em ordem de `seq`.
+   *   Toda conta pedida sai no mapa, mesmo sem eventos — quem chama faz
+   *   `reduce(mapa.get(id))` e um `undefined` viraria um erro em vez de uma
+   *   conta vazia.
+   */
+  const IDS_POR_LOTE = 200;
+  const LINHAS_POR_PAGINA = 1000;
+
+  /**
+   * A leitura por lote, UMA vez. Todo `.in()` que pode trazer muitas linhas por
+   * id passa por aqui — se cada chamador escrevesse a sua, a paginação seria
+   * lembrada em uns e esquecida em outros, que é exatamente como esta casa
+   * ganhou três cópias divergentes do predicado de estorno.
+   *
+   * @param {object} p
+   * @param {string} p.tabela
+   * @param {string} p.colunas  `select` — PRECISA conter `p.coluna`.
+   * @param {string} p.coluna   a coluna do `in` e a chave do mapa.
+   * @param {string[]} p.ids
+   * @param {string[]} p.ordem  ordem TOTAL (a primeira é sempre `p.coluna`).
+   * @param {string} p.op       nome pro erro.
+   */
+  async function lerPorLote({ tabela, colunas, coluna, ids, ordem, op }) {
+    const mapa = new Map();
+    for (const id of ids) mapa.set(id, []);
+    for (let i = 0; i < ids.length; i += IDS_POR_LOTE) {
+      const lote = ids.slice(i, i + IDS_POR_LOTE);
+      let de = 0;
+      for (;;) {
+        let q = client.from(tabela).select(colunas).in(coluna, lote);
+        for (const col of ordem) q = q.order(col, { ascending: true });
+        const { data, error } = await q.range(de, de + LINHAS_POR_PAGINA - 1);
+        throwOn(error, op);
+        const linhas = data || [];
+        for (const r of linhas) {
+          const balde = mapa.get(r[coluna]);
+          // Linha de um id que não foi pedido não existe (o filtro é do banco),
+          // mas um balde ausente viraria um TypeError no meio de uma leitura de
+          // dinheiro. Ignorar é a resposta segura; o teste cobre o caminho.
+          if (balde) balde.push(r);
+        }
+        if (linhas.length < LINHAS_POR_PAGINA) break;
+        de += LINHAS_POR_PAGINA;
+      }
+    }
+    return mapa;
+  }
+
+  function loadEventsPorLote(ids) {
+    return lerPorLote({
+      tabela: 'check_events',
+      colunas: 'check_id, seq, type, payload, created_at',
+      coluna: 'check_id',
+      ids: [...new Set((ids || []).filter(isUuid))],
+      ordem: ['check_id', 'seq'],
+      op: 'loadEventsPorLote',
+    });
+  }
 
   async function loadEvents(checkId) {
     if (!isUuid(checkId)) return []; // malformed id → empty log → "not found"
@@ -496,8 +561,12 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .limit(10);
       throwOn(cErr, 'getCheckByQrToken.check');
 
+      // POR LOTE, e num salto só: são até dez candidatas, e esta é a rota que
+      // TODO QR lido atravessa — dez idas em série no caminho do cliente que
+      // está com o telefone na mão em cima da mesa. Ver `loadEventsPorLote`.
+      const razoes = await loadEventsPorLote((cands || []).map((c) => c.id));
       for (const cand of cands || []) {
-        const state = reduce(await loadEvents(cand.id));
+        const state = reduce(razoes.get(cand.id) || []);
         if (state.status === 'fechada') continue;
         let items = [];
         try { items = JSON.parse(cand.pos_ref) || []; } catch { items = []; }
@@ -930,19 +999,33 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .from('checks').select('id').eq('venue_id', venueId);
       throwOn(error, 'listChecksForReconcile.checks');
       const out = [];
-      for (const c of checks || []) {
-        const { data: pays, error: pErr } = await client
-          .from('payments')
+      // POR LOTE, os dois lados. Era UMA leitura de pagamentos MAIS uma do
+      // razão POR CONTA, em série: 2N+1 idas pra conciliar uma casa, e a
+      // conciliação roda todo dia sobre a casa INTEIRA (inegociável #8). Uma
+      // casa de cinco mil contas fazia dez mil idas e batia no `maxDuration`
+      // antes de terminar — a conciliação parava de rodar justo quando a casa
+      // ficava grande o bastante pra importar.
+      const ids = (checks || []).map((c) => c.id);
+      const [razoes, pagamentos] = await Promise.all([
+        loadEventsPorLote(ids),
+        lerPorLote({
+          tabela: 'payments',
           // Os CONFIRMADOS entram na leitura da conciliação: são as colunas
           // que o painel soma em faturamento e em GORJETA (base da folha, Lei
           // 13.419), e até aqui elas eram conferidas contra NADA. Ver
           // `reconcileCheck`.
-          .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, status, method, currency, confirmed_at')
-          .eq('check_id', c.id);
-        throwOn(pErr, 'listChecksForReconcile.payments');
+          colunas: 'check_id, txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, status, method, currency, confirmed_at',
+          coluna: 'check_id',
+          ids,
+          ordem: ['check_id', 'txid'],
+          op: 'listChecksForReconcile.payments',
+        }),
+      ]);
+      for (const c of checks || []) {
+        const pays = pagamentos.get(c.id) || [];
         out.push({
           checkId: c.id,
-          events: await loadEvents(c.id),
+          events: razoes.get(c.id) || [],
           payments: (pays || []).map((p) => ({
             txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents,
             status: p.status, method: p.method, currency: p.currency,
@@ -1353,15 +1436,33 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .eq('venue_id', venueId);
       throwOn(error, 'listHouseAccountsForReconcile');
       const out = [];
+      // POR LOTE. Eram DUAS idas por conta da casa — os lotes de bônus e o
+      // razão —, em série, dentro da conciliação diária. Mesmo motivo do
+      // `listChecksForReconcile` logo acima.
+      const ids = (accounts || []).map((a) => a.id).filter(isUuid);
+      const [lotesPorConta, razoes] = await Promise.all([
+        lerPorLote({
+          tabela: 'house_bonus_lots',
+          colunas: 'account_id, event_seq, remaining_cents, expires_at',
+          coluna: 'account_id',
+          ids,
+          ordem: ['account_id', 'event_seq'],
+          op: 'listHouseAccountsForReconcile.lots',
+        }),
+        lerPorLote({
+          tabela: 'house_account_events',
+          colunas: 'account_id, seq, type, payload',
+          coluna: 'account_id',
+          ids,
+          ordem: ['account_id', 'seq'],
+          op: 'listHouseAccountsForReconcile.events',
+        }),
+      ]);
       for (const a of accounts || []) {
-        const { data: lots, error: lErr } = await client
-          .from('house_bonus_lots')
-          .select('event_seq, remaining_cents, expires_at')
-          .eq('account_id', a.id);
-        throwOn(lErr, 'listHouseAccountsForReconcile.lots');
+        const lots = lotesPorConta.get(a.id) || [];
         out.push({
           accountId: a.id,
-          events: await this.loadHouseEvents(a.id),
+          events: razoes.get(a.id) || [],
           stored: {
             principalCents: Number(a.principal_cents),
             lots: (lots || []).map((l) => ({
@@ -1412,8 +1513,11 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
        * descontava, e a série ao lado dele não.
        */
       const sobraPorTxid = new Map();
+      // POR LOTE: era uma leitura do razão POR CONTA ABERTA, em série, e o
+      // painel do dono recarrega a cada 4 s. Ver `loadEventsPorLote`.
+      const razoes = await loadEventsPorLote((checks || []).map((c) => c.id));
       for (const c of checks || []) {
-        const state = reduce(await loadEvents(c.id));
+        const state = reduce(razoes.get(c.id) || []);
         // PELA REGRA ÚNICA: este mapa desconta a dívida do FATURAMENTO da série
         // semanal (ver `ativacao.js`), e lido do excedente congelado ele era
         // cego justamente na sobra que nasce de uma reversão — a série contava

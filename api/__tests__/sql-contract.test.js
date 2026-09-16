@@ -418,14 +418,43 @@ describe('censo do SELECT: a leitura tem que trazer o que o código usa', () => 
     const lidos = new Set([...corpo[0].matchAll(/\brow\.(\w+)/g)].map((m) => m[1]));
     expect(lidos.size).toBeGreaterThanOrEqual(4);
 
-    // O SELECT das LINHAS de pagamento dentro do `listChecksForReconcile`.
-    const bloco = sup.match(/async listChecksForReconcile\(venueId\)[\s\S]*?\n {4}\}/);
-    expect(bloco).not.toBeNull();
-    const selects = [...bloco[0].matchAll(/\.select\('([^']+)'\)/g)].map((m) => m[1]);
-    const colunas = new Set(selects.join(',').split(',').map((c) => c.trim()));
-
-    const faltando = [...lidos].filter((n) => !colunas.has(camelParaSnake(n))).sort();
-    expect(faltando).toEqual([]);
+    /**
+     * O SELECT É MEDIDO NA IDA AO BANCO, não lido no fonte.
+     *
+     * Esta metade do censo procurava `.select('…')` DENTRO do bloco do
+     * `listChecksForReconcile`, e morreu no dia em que a leitura virou lote e
+     * as colunas passaram a ser um argumento de `lerPorLote`. É o mesmo modo
+     * de falha que já matou o censo do `appendEvent` quando as anomalias
+     * viraram o helper `gritar()`: censo textual morre quando o código vira
+     * ajudante — e morre ABSOLVENDO, que é o lado ruim.
+     *
+     * Então roda-se a leitura contra um cliente que ANOTA o que foi pedido.
+     * Sobrevive a lote, a helper e a qualquer refatoração que mantenha a ida.
+     */
+    const { createSupabaseStore } = require('../_lib/store/supabase');
+    const pedidas = new Set();
+    const cliente = { from: (tabela) => {
+      const b = new Proxy({}, { get: (_, m) => {
+        if (m === 'then') {
+          const data = tabela === 'checks' ? [{ id: 'c1' }] : [];
+          return (ok, falha) => Promise.resolve({ data, error: null }).then(ok, falha);
+        }
+        return (...args) => {
+          if (m === 'select' && tabela === 'payments') {
+            for (const c of String(args[0]).split(',')) pedidas.add(c.trim());
+          }
+          return b;
+        };
+      } });
+      return b;
+    } };
+    return createSupabaseStore({ client: cliente }).listChecksForReconcile('v1').then(() => {
+      // O cliente falso podia devolver vazio sem nunca ter ido a `payments` —
+      // aí o conjunto seria vazio e o censo absolveria tudo.
+      expect(pedidas.size).toBeGreaterThanOrEqual(8);
+      const faltando = [...lidos].filter((n) => !pedidas.has(camelParaSnake(n))).sort();
+      expect(faltando).toEqual([]);
+    });
   });
 
   test('o mapeamento é conferido por VALOR — troca de coluna não passa', () => {

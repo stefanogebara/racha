@@ -168,13 +168,15 @@ test('o store de PRODUÇÃO monta a sobra igual à regra única — medido, não
   const from = (tabela) => {
     const b = {
       select() { return b; }, eq() { return b; }, order() { return b; }, limit() { return b; },
-      gte() { return b; }, in() { return b; }, not() { return b; },
+      gte() { return b; }, in() { return b; }, not() { return b; }, range() { return b; },
       maybeSingle() { return b; }, single() { return b; },
       then(ok, falha) {
         let data = [];
         if (tabela === 'venues') data = { id: 'v1', name: 'Casa', market: 'BR' };
         else if (tabela === 'checks') data = [{ id: CONTA, table_id: 't1', venue_tables: { label: 'Mesa 1' } }];
-        else if (tabela === 'check_events') data = eventos;
+        // `check_id` em cada linha: a leitura do razão é POR LOTE e agrupa
+        // pela coluna. Sem ela o falso devolveria eventos órfãos.
+        else if (tabela === 'check_events') data = eventos.map((e) => ({ ...e, check_id: CONTA }));
         else if (tabela === 'payments') data = [pagamento('ana', 10000), pagamento('bruno', 6000)];
         return Promise.resolve({ data, error: null }).then(ok, falha);
       },
