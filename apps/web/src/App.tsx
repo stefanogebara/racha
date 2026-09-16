@@ -781,10 +781,13 @@ export default function App() {
         )}
       </section>
 
+      {/* `.bigmoney` é a classe da QUANTIA (52px de Newsreader itálico, tabular) e
+          estava emoldurando um emoji, no lugar onde a quantia costuma estar. A
+          marca de pago já existe e diz a mesma coisa sem fingir ser dinheiro. */}
       {remaining === 0 ? (
-        <section className="card center">
-          <p className="bigmoney">🎉</p>
-          <p>{t('check.allPaid')}</p>
+        <section className="card paid">
+          <div className="paidmark" aria-hidden="true">✓</div>
+          <h2>{t('check.allPaid')}</h2>
         </section>
       ) : (
         <section className="card">

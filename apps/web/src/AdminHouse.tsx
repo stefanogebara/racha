@@ -200,14 +200,18 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
 
       <div className="stat">
         <b className="mono">{brl(liability.principalCents + liability.bonusCents)}</b>
-        <span>
-          Passivo em aberto: {brl(liability.principalCents)} (pago) + {brl(liability.bonusCents)} (bônus)
-          em {liability.accountCount} {liability.accountCount === 1 ? 'conta' : 'contas'}
-        </span>
+        {/* FRASE, não rótulo: `.stat span` é o versalete de 10px que o sistema
+            reserva pra rótulo de uma a três palavras, e aqui carregava o passivo
+            contábil da casa em caixa-alta espaçada — e em português cru. */}
       </div>
       <p className="muted small">
-        O saldo pago é passivo reembolsável — dinheiro do cliente até ser consumido; só o bônus é promoção sua.
+        {t('house.liability', {
+          paid: brl(liability.principalCents),
+          bonus: brl(liability.bonusCents),
+          n: liability.accountCount,
+        })}
       </p>
+      <p className="muted small">{t('house.liabilityWhy')}</p>
 
       <p className="label">{t('house.accountsCount', { n: accounts.length })}</p>
       {accounts.length === 0 && <p className="muted small">{t('house.noAccounts')}</p>}

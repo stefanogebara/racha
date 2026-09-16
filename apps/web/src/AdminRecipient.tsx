@@ -201,7 +201,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
   return (
     <section className="panel" id="recebimento" style={{ scrollMarginTop: 16 }}>
-      <p className="label">Recebimento</p>
+      <p className="label">{t('rcpt.sectionTitle')}</p>
 
       {/* O âmbar saiu do sistema quando a pílula "parcial" saiu: o Presence não
           tem âmbar, e este era o amber-500 do Tailwind, num fio de 1,33:1 contra
@@ -213,7 +213,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
             ? <p className="small">{t('rcpt.notFound')}</p>
             : <p className="small">{t('rcpt.none')}</p>}
           {info.recipientId && (
-            <p className="muted small">O id atual ({info.recipientId}) é de demonstração — não recebe de verdade.</p>
+            <p className="muted small">{t('rcpt.demoId', { id: info.recipientId })}</p>
           )}
         </div>
       )}

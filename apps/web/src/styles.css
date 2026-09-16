@@ -93,6 +93,9 @@
   --rad-p: 28px;   /* painel */
   --rad-c: 16px;   /* campo */
   --rad-s: 10px;   /* controle */
+  /* A PÍLULA, que o Presence tem (`--ps-radius-pill`) e Racha não tinha: o
+     código alternava entre `99px` e `999px` pro mesmo formato. */
+  --rad-pill: 999px;
 
   /* SEMANTICA, com nome do que significa — nao da cor. */
   /* `--erro` é o que se ESCREVE; `--erro-fio` é o que se DESENHA. Um mesmo
@@ -223,8 +226,8 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 /* O trilho do Presence e um FIO. Aqui ele engorda pra 4px porque e a unica
    medida de quanto da conta ja foi paga num telefone — mas continua um fio,
    nao uma barra. Musgo: e dinheiro que entrou. */
-.progressbar { height: 4px; border-radius: 99px; background: var(--fio); overflow: hidden; }
-.progressbar span { display: block; height: 100%; background: var(--musgo); border-radius: 99px; transition: width .4s var(--mola); }
+.progressbar { height: 4px; border-radius: var(--rad-pill); background: var(--fio); overflow: hidden; }
+.progressbar span { display: block; height: 100%; background: var(--musgo); border-radius: var(--rad-pill); transition: width .4s var(--mola); }
 
 /* ── controles ──────────────────────────────────────────────────────────── */
 .modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -248,8 +251,11 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   text-align: left; cursor: pointer;
   transition: border-color .15s var(--mola), background-color .15s var(--mola);
 }
+/* 8px, e não 6: a escala do sistema é 10/16/24/28, e o tique é o único
+   elemento pequeno o bastante pra pedir menos que 10 — 8 é a metade do
+   controle, não um sexto valor inventado. */
 .itempick .tick {
-  flex: none; width: 22px; height: 22px; border-radius: 6px;
+  flex: none; width: 22px; height: 22px; border-radius: 8px;
   display: grid; place-items: center;
   border: 1px solid var(--fio); background: var(--papel-alto);
   font-size: 13px; font-weight: 600; color: var(--faint);
@@ -461,7 +467,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 /* Estado em pilula de FIO, como o `presence-listening-status`: a cor diz o
    que e, a regua diz que e um estado e nao um botao. O ambar da "parcial"
    saiu — o Presence nao tem ambar, e "parcial" e algo EM CURSO, que e azul. */
-.pill { border-radius: 999px; padding: 4px 10px; border: 1px solid var(--fio);
+.pill { border-radius: var(--rad-pill); padding: 4px 10px; border: 1px solid var(--fio);
   font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
 .pill.aberta  { color: var(--grafite); }
 .pill.parcial { border-color: var(--azul); background: var(--azul-suave); color: var(--azul); }
@@ -469,8 +475,8 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .pill.fechada { color: var(--grafite); }
 
 .actrow { display: grid; grid-template-columns: 46px 1fr max-content; align-items: center; gap: 12px; }
-.actbar { height: 4px; border-radius: 99px; background: var(--fio); overflow: hidden; }
-.actbar span { display: block; height: 100%; background: var(--musgo); border-radius: 99px; }
+.actbar { height: 4px; border-radius: var(--rad-pill); background: var(--fio); overflow: hidden; }
+.actbar span { display: block; height: 100%; background: var(--musgo); border-radius: var(--rad-pill); }
 
 .foot {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -507,7 +513,11 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .qrcard .qrperks { font: 400 13px/20px var(--ui); color: var(--grafite); }
 .qrcard .qrbrand { font: 500 10px/1 var(--ui); color: var(--grafite); letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
 
+/* `.chips` É `.modes3` — mesma grade, mesmo gap, mesmo filho (`.mode`). Eram
+   dois nomes, e só um deles trazia o padding apertado, então os chips da
+   carteira ficavam com folga lateral diferente da dos modos da conta. */
 .chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.chips .mode { padding: 11px 4px; font-size: 13px; }
 .pos { color: var(--ok); font-weight: 600; }
 .cfggrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .cfggrid > * { min-width: 0; }
@@ -571,7 +581,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .langopt {
   border: 0; background: none; cursor: pointer;
   font: 500 11px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase;
-  padding: 6px 10px; border-radius: 7px; color: var(--grafite);
+  padding: 6px 10px; border-radius: 8px; color: var(--grafite);
   position: relative;
 }
 /* A pílula continua do tamanho que foi desenhada; a ÁREA DE TOQUE cresce por
@@ -618,7 +628,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .passo:last-of-type { border-bottom: none; }
 .passo b { font: 500 15px/22px var(--ui); letter-spacing: -.02em; }
 .passo span { font: 400 15px/1.35 var(--serif); color: var(--grafite); }
-.pill-verde { display: inline-block; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--ok-fio);
+.pill-verde { display: inline-block; padding: 4px 10px; border-radius: var(--rad-pill); border: 1px solid var(--ok-fio);
   background: var(--ok-bg); color: var(--ok); font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
 
 /* Modo embed (landing): a conta como um estado. Só CSS; o app não muda. */
@@ -661,7 +671,11 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .landing .topo { display: flex; align-items: baseline; justify-content: space-between; padding-top: 44px; height: 94px; box-sizing: border-box; }
 .landing .marca { font: italic 400 30px/1 var(--serif); letter-spacing: -.02em; color: var(--cr); }
 .landing .topo nav { display: flex; align-items: baseline; gap: 28px; font: 400 13px/1 var(--ui); }
-.landing .topo nav > a { color: var(--cr2); } .landing .topo nav > a:hover { color: var(--cr); }
+/* ALVO de 24px (WCAG 2.2, 2.5.8): os links da barra tinham 13px de altura e os
+   do rodapé 20 — não são links inline numa frase, então não caem na exceção. O
+   padding vertical cresce; a tipografia não muda. */
+.landing .topo nav > a { color: var(--cr2); display: inline-flex; align-items: center; min-height: 24px; }
+.landing .topo nav > a:hover { color: var(--cr); }
 .landing .langtoggle { border: 0; background: transparent; padding: 0; gap: 14px; align-items: baseline; }
 .landing .langopt { color: var(--cr3); font: 500 11px/1 var(--ui); letter-spacing: .1em; padding: 0; border-radius: 0; }
 .landing .langopt.on { background: transparent; color: var(--cr); }
@@ -783,13 +797,15 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .manifesto p:first-child { grid-column: 1 / -1; font-size: 30px; line-height: 38px; max-width: 24em; }
 .manifesto p:nth-child(n+2) { color: var(--cr2); }
 .casa .link { margin-top: 48px; }
+.landing .link { min-height: 24px; }
 
 /* Colofão: uma régua inteira, depois quatro colunas na grade. */
 .landing .rodape { margin-top: 96px; padding-bottom: 48px; font: 400 14px/20px var(--ui); color: var(--cr3); row-gap: 0; align-items: baseline; }
 .landing .rodape hr { grid-column: 1 / -1; border: 0; border-top: 1px solid var(--fio); margin: 0 0 28px; }
 .landing .rodape > span:not(.legal) { grid-column: 1 / span 4; white-space: nowrap; }
 .landing .rodape nav { grid-column: 5 / span 4; display: flex; gap: 28px; }
-.landing .rodape nav a { color: var(--cr2); border-bottom: 1px solid var(--fio); padding-bottom: 2px; }
+.landing .rodape nav a { color: var(--cr2); border-bottom: 1px solid var(--fio); padding-bottom: 2px;
+  display: inline-flex; align-items: center; min-height: 24px; }
 .landing .rodape nav a:hover { color: var(--cr); border-color: var(--cr); }
 .landing .rodape .legal { grid-column: 9 / span 4; justify-self: end; text-align: right; color: var(--cr4); }
 

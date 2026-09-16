@@ -63,12 +63,17 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
     <section className="panel" aria-label={t('setup.rollout')}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
         <p className="label">{t('setup.rollout')}</p>
-        <span className="muted small">{completo ? 'completa ✓' : `passo ${feitos + 1} de ${steps.length}`}</span>
+        <span className="muted small">
+          {completo ? t('setup.done') : t('setup.stepOf', { n: feitos + 1, total: steps.length })}
+        </span>
       </div>
 
-      {/* Barra de progresso — o fio contínuo do fluxo. */}
-      <div aria-hidden="true" style={{ height: 6, borderRadius: 999, background: 'rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: 'var(--ok)', transition: 'width .3s ease' }} />
+      {/* Barra de progresso — a MESMA do resto do produto (`.progressbar`), e não
+          uma terceira geometria. Eram três: 4px com o fio do sistema aqui e no
+          painel, 6px com um preto puro de fora da paleta neste, 2px no
+          assistente ao lado. Mesmo objeto, três alturas, dois trilhos. */}
+      <div className="progressbar" aria-hidden="true">
+        <span style={{ width: `${pct}%` }} />
       </div>
 
       {!completo && (

@@ -1167,6 +1167,10 @@ export const DICT = {
 
   // ── implantação (AdminSetup) ───────────────────────────────────────────
   'setup.rollout':    { en: 'Rollout',                         pt: 'Implantação', es: 'Implantación' },
+  // O contador do assistente: estava em portugues cru no JSX, com o ordinal
+  // montado a mao. `completa` tem a mesma grafia em pt e es de proposito.
+  'setup.done':       { en: 'complete ✓', pt: 'completa ✓', es: 'completa ✓' },
+  'setup.stepOf':     { en: 'step {n} of {total}', pt: 'passo {n} de {total}', es: 'paso {n} de {total}' },
   'setup.inOrder':    { en: 'Follow the steps in order — each one unlocks the next.',
                         pt: 'Siga os passos na ordem — cada um destrava o próximo.',
                         es: 'Sigue los pasos en orden — cada uno desbloquea el siguiente.' },
@@ -1328,6 +1332,19 @@ export const DICT = {
   'house.saving':     { en: 'saving…',                         pt: 'salvando…', es: 'guardando…' },
   'house.saveConfig': { en: 'Save settings',                   pt: 'Salvar configuração', es: 'Guardar configuración' },
   'house.accountsCount': { en: 'Accounts ({n})',                pt: 'Contas ({n})', es: 'Cuentas ({n})' },
+  // O PASSIVO DA CASA — o número que um contador olha. Estava em português cru
+  // no JSX, e num versalete de 10px que o sistema reserva pra rótulo de 1-3
+  // palavras. Agora é frase, nas três línguas, fora do versalete.
+  'house.liability': { en: 'Open liability: {paid} paid + {bonus} bonus across {n} account(s)',
+                        pt: 'Passivo em aberto: {paid} (pago) + {bonus} (bônus) em {n} conta(s)',
+                        es: 'Pasivo abierto: {paid} (pagado) + {bonus} (bono) en {n} cuenta(s)' },
+  'house.liabilityWhy': { en: 'Paid balance is a refundable liability — the customer’s money until it is spent; only the bonus is your promotion.',
+                        pt: 'O saldo pago é passivo reembolsável — dinheiro do cliente até ser consumido; só o bônus é promoção sua.',
+                        es: 'El saldo pagado es un pasivo reembolsable — dinero del cliente hasta que se gaste; solo el bono es promoción tuya.' },
+  'rcpt.sectionTitle': { en: 'Payouts', pt: 'Recebimento', es: 'Cobros' },
+  'rcpt.demoId':      { en: 'The current id ({id}) is a demo one — it does not actually receive.',
+                        pt: 'O id atual ({id}) é de demonstração — não recebe de verdade.',
+                        es: 'El id actual ({id}) es de demostración — no recibe de verdad.' },
   'house.noAccounts': { en: 'no accounts yet.',                pt: 'nenhuma conta ainda.', es: 'todavía no hay cuentas.' },
   'house.paidTag':    { en: '{amount} paid',                    pt: '{amount} pago', es: '{amount} pagado' },
   'house.bonusTag':   { en: '{amount} bonus',                   pt: '{amount} bônus', es: '{amount} de bono' },

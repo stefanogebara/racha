@@ -78,8 +78,11 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
                   </span>
                   <span className="small" style={{ color: i === step ? 'var(--ink)' : 'var(--grafite)', fontWeight: i === step ? 600 : 400 }}>{t(stepKey)}</span>
                 </button>
+                {/* O fio ENTRE os passos é um conector, não uma barra de progresso:
+                    1px, a régua do sistema. Estava em 2px, que era a terceira
+                    medida do mesmo objeto neste produto. */}
                 {i < STEP_KEYS.length - 1 && (
-                  <div style={{ flex: 1, height: 2, background: done[i] ? 'var(--ok)' : 'var(--fio)', margin: '13px 6px 0' }} />
+                  <div style={{ flex: 1, height: 1, background: done[i] ? 'var(--ok-fio)' : 'var(--fio)', margin: '14px 6px 0' }} />
                 )}
               </div>
             );
