@@ -171,6 +171,50 @@ describe('o funil do store de PRODUÇÃO conta como o da memória', () => {
     });
   });
 
+  /**
+   * O NUMERADOR TEM QUE CABER NO DENOMINADOR.
+   *
+   * `recordCheckView` é telemetria de navegador, melhor esforço: bloqueada,
+   * limitada por taxa ou simplesmente perdida, a conta entra em `pagas` e não em
+   * `abertas`. Medindo os dois conjuntos INDEPENDENTES, a razão passava de 1 —
+   * e é este número que o portão de adoção lê pra decidir se o produto continua
+   * (CLAUDE.md, ≥25% na semana 8). Inflado, ele mantém vivo um piloto que
+   * fracassou.
+   *
+   * Nenhum caso anterior pegava isso: em todos eles os pagamentos eram de contas
+   * que também foram vistas, ou seja `pagas ⊆ abertas` por construção do
+   * fixture. Achado pela terceira revisão de segurança de 2026-09-16 (M4).
+   */
+  test('uma conta PAGA que ninguém viu não infla a conversão', async () => {
+    const soUmaVista = {
+      ...dados,
+      // A: vista, não paga.  B: paga, com o beacon perdido.
+      check_views: [{ check_id: conta(0), venue_id: VENUE, at: agora, session_hash: 'a' }],
+      payments: [{ check_id: conta(1), txid: 'tx9', venue_id: VENUE, status: 'confirmado', confirmed_at: agora }],
+    };
+    const { client } = postgrestFalso(soUmaVista);
+    const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client });
+    const f = await store.getAdoptionFunnel(VENUE, {});
+    expect(f.contasAbertasNaMesa).toBe(1);
+    expect(f.contasPagas).toBe(1);
+    // A verdade é ZERO: a única conta que alguém abriu na mesa não foi paga.
+    // Sem a interseção, isto era 1.0 — 100% de conversão.
+    expect(f.conversao).toBe(0);
+  });
+
+  test('e a conversão nunca passa de 1, aconteça o que acontecer com a telemetria', async () => {
+    const tresPagasUmaVista = {
+      ...dados,
+      check_views: [{ check_id: conta(0), venue_id: VENUE, at: agora, session_hash: 'a' }],
+      payments: [0, 1, 2].map((i) => ({
+        check_id: conta(i), txid: `txx${i}`, venue_id: VENUE, status: 'confirmado', confirmed_at: agora,
+      })),
+    };
+    const { client } = postgrestFalso(tresPagasUmaVista);
+    const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client });
+    expect((await store.getAdoptionFunnel(VENUE, {})).conversao).toBeLessThanOrEqual(1);
+  });
+
   test('sem ninguém na mesa, a conversão é NULA e não zero', async () => {
     // Zero é uma medida ("abriram e não pagaram"); nulo é a ausência dela. O
     // portão de adoção lê os dois de forma diferente.

@@ -16,9 +16,15 @@ const { createMemoryStore } = require('../_lib/store/memory');
 const USERS = { tokU1: { id: 'u1', email: 'u1@x.com' }, tokU2: { id: 'u2', email: 'u2@x.com' } };
 const fakeAuthClient = {
   auth: {
-    getUser: async (token) => USERS[token]
+    // A FORMA DO ERRO IMPORTA, e este dublê tinha uma que a produção não
+    // produz. O GoTrue recusa token com **403 + `error_code: bad_jwt`** (medido
+    // contra o projeto real em 2026-09-16); um erro sem código é o que o Kong
+    // devolve quando a `apikey` está errada, e esse NÃO pode deslogar ninguém.
+    // Com o dublê antigo (`{ message: 'invalid' }`), este arquivo afirmava 401
+    // sobre uma forma que só existe aqui dentro. Ver `login-indisponivel.test.js`.
+    getUser: async (token) => (USERS[token]
       ? { data: { user: USERS[token] }, error: null }
-      : { data: { user: null }, error: { message: 'invalid' } },
+      : { data: { user: null }, error: { name: 'AuthApiError', status: 403, code: 'bad_jwt', message: 'invalid JWT' } }),
   },
 };
 

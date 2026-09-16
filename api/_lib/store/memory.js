@@ -508,8 +508,33 @@ function createMemoryStore() {
       /** txid → quanto falta restituir daquele pagamento. Ver o store do
        *  Supabase: o excedente vive no razão, não numa coluna. */
       const sobraPorTxid = new Map();
+      /**
+       * O MESMO RECORTE DO STORE DE PRODUÇÃO — abertas de qualquer idade, as da
+       * janela, e as que receberam dinheiro na janela.
+       *
+       * Este store devolvia TODA conta da casa. Enquanto o de produção fazia o
+       * mesmo, tudo bem; desde o recorte, os dois passaram a desenhar painéis
+       * diferentes — e todo teste de painel escrito contra a memória passaria a
+       * provar um comportamento que a produção não tem. É a armadilha que este
+       * arquivo documenta sobre si mesmo em três lugares ("um dublê que oferece
+       * campo que a produção não tem"), aplicada ao recorte em vez de ao campo.
+       * Achado pela terceira revisão de compliance de 2026-09-16.
+       */
+      const desdeAJanela = new Date(Date.parse(nowIso) - 8 * 86400000).toISOString();
+      const comDinheiroNaJanela = new Set(
+        [...payments.values()]
+          .filter((p) => p.status === 'confirmado' && p.confirmedAt && p.confirmedAt >= desdeAJanela)
+          .map((p) => p.checkId),
+      );
+      const noRecorte = (c) => {
+        const st = reduce(events.get(c.id) || []);
+        if (st && st.status !== 'fechada') return true;          // aberta, qualquer idade
+        if (c.openedAt && c.openedAt >= desdeAJanela) return true; // aberta na janela
+        return comDinheiroNaJanela.has(c.id);                     // recebeu na janela
+      };
       const rows = [...checks.values()]
         .filter((c) => c.venueId === venueId)
+        .filter(noRecorte)
         .map((c) => {
           const table = [...tables.values()].find((t) => t.id === c.tableId);
           const state = reduce(events.get(c.id) || []);
@@ -762,11 +787,27 @@ function createMemoryStore() {
           && Date.parse(p.confirmedAt) >= corte
           && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId)
         .map((p) => p.checkId));
+      /** O numerador INTERSECTADO: quem pagou E foi visto na mesa. */
+      const convertidas = new Set([...pagas].filter((id) => abertas.has(id)));
       return {
         contasCriadas: criadas.length,
         contasAbertasNaMesa: abertas.size,
         contasPagas: pagas.size,
-        conversao: abertas.size > 0 ? pagas.size / abertas.size : null,
+        /**
+       * A CONVERSÃO É SOBRE QUEM ABRIU — e o numerador tem que ser subconjunto
+       * do denominador.
+       *
+       * Era `pagas.size / abertas.size` com os dois conjuntos medidos
+       * INDEPENDENTES. O `recordCheckView` é telemetria de navegador, melhor
+       * esforço: bloqueada, limitada por taxa ou perdida, a conta entra em
+       * `pagas` e não em `abertas`. Com duas contas — A vista e não paga, B paga
+       * com o beacon bloqueado — a conta dava 1.0, ou seja 100% de conversão,
+       * onde a verdadeira é 0%. E é este número que o portão de adoção lê pra
+       * decidir se o produto continua (CLAUDE.md, ≥25% na semana 8): inflado,
+       * ele mantém vivo um piloto que fracassou. Achado pela terceira revisão de
+       * segurança de 2026-09-16 (M4).
+       */
+      conversao: abertas.size > 0 ? convertidas.size / abertas.size : null,
       };
     },
 

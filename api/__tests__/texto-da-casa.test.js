@@ -154,6 +154,33 @@ describe('os caracteres que somem no diff', () => {
     expect(rotuloDaMesa('Mesa 7\u2800').valor).toBe(rotuloDaMesa('Mesa 7').valor);
   });
 
+  /**
+   * A VARREDURA — a unica forma de afirmar "nao sobra invisivel" sem uma lista.
+   *
+   * Cada rodada de revisao achou mais um caractere que passava: U+00AD e U+3164,
+   * depois U+2800 e o bloco de tags, depois os 32 `\p{Cf}` que ficam FORA de
+   * `Default_Ignorable_Code_Point` (U+0600-0605, U+06DD, U+070F, U+0890/0891,
+   * U+08E2, U+110BD, U+13430-1343F, U+FFF9-FFFB). Enumerar exemplos e sempre
+   * chegar em terceiro lugar; entao aqui se varre o espaco INTEIRO de pontos de
+   * codigo e se afirma o conjunto EXATO do que sobrevive.
+   *
+   * Roda em ~2 s. Vale o preco: e o unico teste deste arquivo que nao pode
+   * ficar desatualizado em relacao ao Unicode.
+   */
+  test('a varredura: o UNICO invisivel que atravessa e o seletor de variacao', () => {
+    const sobrevivem = [];
+    for (let cp = 0; cp <= 0x10FFFF; cp += 1) {
+      const c = String.fromCodePoint(cp);
+      if (!/\p{Cf}/u.test(c) && !/\p{Default_Ignorable_Code_Point}/u.test(c)) continue;
+      const r = rotuloDaMesa(`Mesa 7${c}`);
+      if (r.ok && r.valor !== 'Mesa 7') sobrevivem.push(cp);
+    }
+    // U+FE00..U+FE0F, e mais nada. A excecao e decidida e esta documentada no
+    // modulo: seletor de variacao desenha o caractere ANTERIOR, e tira-lo
+    // reescreve a placa do restaurante.
+    expect(sobrevivem).toEqual([...Array(16)].map((_, i) => 0xFE00 + i));
+  }, 60000);
+
   test('mas o seletor de variacao NAO e removido — ele desenha a placa da casa', () => {
     // Tirar o U+FE0F de "Bar (coracao) do Ze" muda as palavras do restaurante,
     // que e a unica coisa que este modulo promete nao fazer.

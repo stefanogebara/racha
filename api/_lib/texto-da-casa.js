@@ -130,6 +130,20 @@ const TEM_CONTEUDO = /[\p{L}\p{N}\p{S}]/u;
  * `Default_Ignorable_Code_Point` é a propriedade que o Unicode mantém pra
  * "isto não deve desenhar", então ela cobre o bloco de tags, o CGJ, o hífen
  * suave e tudo que as próximas versões acrescentarem — sem lista pra manter.
+ *
+ * MAS ELA NÃO É O CONJUNTO DE "NÃO DESENHA". Varrido o espaço inteiro de
+ * pontos de código contra este módulo: **32 caracteres `General_Category=Cf`
+ * ficam de fora dela** e passavam — U+0600–0605 e U+06DD (marcas de número
+ * árabes), U+070F, U+0890/0891, U+08E2, U+110BD, U+13430–1343F (controles
+ * egípcios) e U+FFF9–FFFB (âncoras de anotação interlinear). Anexados a um
+ * nome de verdade, `"Mesa 7"` e `"Mesa 7\uFFF9"` desenham igual e passam pela
+ * unicidade — e no `payer_label`, que é de quem NÃO está autenticado, essa é a
+ * linha sósia na lista de pagantes que a revisão MEDIUM-3 já tinha nomeado.
+ * Achado pela terceira revisão de segurança de 2026-09-16 (M2).
+ *
+ * Unir `\p{Cf}` é seguro porque os membros LEGÍTIMOS dessa categoria — ZWJ,
+ * ZWNJ, as marcas bidi — já foram removidos pelo `INVISIVEIS` antes desta
+ * linha rodar: o que chega aqui como `Cf` é o que esta casa não quer.
  * MENOS `\uFE00-\uFE0F`: os seletores de variação são a exceção decidida (eles
  * desenham o caractere ANTERIOR, e tirá-los reescreve a placa do restaurante).
  *
@@ -137,7 +151,7 @@ const TEM_CONTEUDO = /[\p{L}\p{N}\p{S}]/u;
  * casa não conhece, e apagar em silêncio o desconhecido é como se perde um
  * caractere que importava.
  */
-const RESIDUO_IGNORAVEL = /[[\p{Default_Ignorable_Code_Point}]--[\uFE00-\uFE0F]]/v;
+const RESIDUO_IGNORAVEL = /[[\p{Default_Ignorable_Code_Point}\p{Cf}]--[︀-️]]/v;
 
 /**
  * Os limites — lidos de um JSON que o CLIENTE também lê.

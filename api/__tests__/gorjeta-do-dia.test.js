@@ -214,9 +214,136 @@ describe('a lista de contas do painel tem recorte — e ele não perde nada que 
     expect(painel.checks.map((c) => c.checkId)).not.toContain(uuid(3));
   });
 
+  /**
+   * A DISPUTA CHEGA SEMPRE TARDE — e por isso caía fora de tudo.
+   *
+   * Uma disputa não toca `confirmed_at` nem o `status` da conta: é um evento no
+   * razão, e o cartão tem 120 dias pra abrir uma. Então a conta disputada é
+   * sempre velha e fechada, e o quadro de chargebacks do painel ficava vazio
+   * POR CONSTRUÇÃO — justo no caso em que há dinheiro saindo da casa. E o canal
+   * alto não cobria: a conciliação só avisa numa faixa de sete dias antes do
+   * prazo de evidência, e uma disputa PERDIDA não gera achado `dispute_*`
+   * nenhum. Achado pela terceira revisão de segurança de 2026-09-16 (M3).
+   */
+  test('a conta VELHA com disputa nova volta pra lista — o quadro de chargeback depende disso', async () => {
+    const dados = casaVariada();
+    dados.check_events.push({
+      check_id: uuid(3), seq: 2, type: 'PAYMENT_DISPUTED',
+      payload: { txid: 'tx_antigo', amountCents: 5000, disputeId: 'dp_1' }, created_at: AGORA,
+    });
+    const painel = await painelEm(dados, AGORA);
+    expect(painel.checks.map((c) => c.checkId)).toContain(uuid(3));
+  });
+
+  test('e a disputa VELHA não traz a conta de volta — a janela vale pros dois lados', async () => {
+    const dados = casaVariada();
+    dados.check_events.push({
+      check_id: uuid(3), seq: 2, type: 'PAYMENT_DISPUTED',
+      payload: { txid: 'tx_antigo', amountCents: 5000, disputeId: 'dp_1' }, created_at: ANTIGA,
+    });
+    const painel = await painelEm(dados, AGORA);
+    expect(painel.checks.map((c) => c.checkId)).not.toContain(uuid(3));
+  });
+
+  /**
+   * A DISPUTA DE OUTRA CASA NÃO ENTRA NESTE PAINEL.
+   *
+   * A leitura de eventos de disputa NÃO tem filtro de casa — `check_events` não
+   * tem a coluna `venue_id`, então ela varre a janela inteira da plataforma. O
+   * que segura o inquilino é o `.eq('venue_id')` da busca das CONTAS por id, e
+   * essa guarda passou a ser carregada justamente por este conjunto novo: antes
+   * dele, todo id vinha de uma consulta já filtrada por casa, e a revisão a
+   * classificou como "não alcançável hoje". Agora é.
+   *
+   * Sem o filtro, o painel do dono A desenharia a mesa, os totais e a dívida de
+   * uma conta do dono B — o `select` puxa `venue_tables(label)` junto.
+   */
+  test('a disputa de OUTRA casa não traz a conta dela pro meu painel', async () => {
+    const dados = casaVariada();
+    // Uma segunda casa, com a sua mesa, a sua conta e uma disputa de hoje.
+    dados.venues.push({ id: 'v2', name: 'Casa Vizinha', market: 'BR' });
+    dados.venue_tables.push({ id: 't9', venue_id: 'v2', label: 'Mesa da Vizinha', training: false });
+    dados.checks.push({
+      id: uuid(9), venue_id: 'v2', table_id: 't9', status: 'fechada', opened_at: ANTIGA,
+      pos_ref: '[]', venue_tables: { label: 'Mesa da Vizinha' },
+    });
+    dados.check_events.push({
+      check_id: uuid(9), seq: 1, type: 'PAYMENT_DISPUTED',
+      payload: { txid: 'tx_vizinha', amountCents: 9999, disputeId: 'dp_9' }, created_at: AGORA,
+    });
+
+    const painel = await painelEm(dados, AGORA);
+    expect(painel.checks.map((c) => c.checkId)).not.toContain(uuid(9));
+    // E o rótulo da mesa dela não aparece em lugar nenhum da resposta.
+    expect(JSON.stringify(painel)).not.toContain('Mesa da Vizinha');
+  });
+
+  test('a lista sai em ordem CRONOLÓGICA — a união dos conjuntos não decide a ordem', async () => {
+    const painel = await painelEm(casaVariada(), AGORA);
+    const datas = painel.checks.map((c) => c.checkId);
+    // As duas velhas (1 e 2) antes da de hoje (0).
+    expect(datas.indexOf(uuid(0))).toBe(datas.length - 1);
+  });
+
   test('nenhuma conta aparece duas vezes — os três conjuntos se sobrepõem de propósito', async () => {
     const painel = await painelEm(casaVariada(), AGORA);
     const ids = painel.checks.map((c) => c.checkId);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+/**
+ * OS DOIS STORES DESENHAM O MESMO PAINEL.
+ *
+ * O recorte nasceu só no store de produção. O de memória continuou devolvendo
+ * TODA conta da casa — e é contra ele que quase todo teste de painel roda, o
+ * que faria cada um deles provar um comportamento que a produção não tem
+ * (`dispute-lifecycle.test.js` é o primeiro caso, e ele já está na árvore).
+ * É a armadilha que o `memory.js` documenta sobre si mesmo em três lugares,
+ * aplicada ao RECORTE em vez de a um campo. Achado pela terceira revisão de
+ * compliance de 2026-09-16 (MEDIUM-C/M5).
+ *
+ * Medido antes de escrever isto: apagar o filtro do store de memória não
+ * quebrava NADA na suíte inteira. Este teste é o que faz quebrar.
+ */
+describe('o recorte do painel é o MESMO nos dois stores', () => {
+  const { createMemoryStore } = require('../_lib/store/memory');
+
+  /**
+   * `openCheck` devolve a PRÓPRIA linha guardada no Map (não uma cópia), então
+   * envelhecer uma conta é mexer no `openedAt` dela. É seam de dublê, não de
+   * produção — e é o mesmo campo que o store de produção lê.
+   */
+  const envelhecer = (linha, dias) => {
+    linha.openedAt = new Date(Date.now() - dias * 86400000).toISOString();
+  };
+
+  async function casaNaMemoria() {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Casa', servicoBp: 1000, pspRecipientId: 're_x' });
+    const mesaA = await store.seedTable(venue.id, 'Mesa A');
+    const mesaB = await store.seedTable(venue.id, 'Mesa B');
+    const velha = await store.openCheck(mesaA.qrToken, [{ id: 'i', name: 'X', priceCents: 1000 }]);
+    envelhecer(velha, 60);
+    const dehoje = await store.openCheck(mesaB.qrToken, [{ id: 'i', name: 'Y', priceCents: 2000 }]);
+    return { store, venue, velha, dehoje };
+  }
+
+  test('a conta ABERTA de qualquer idade fica — obrigação viva não vence', async () => {
+    const { store, venue, velha, dehoje } = await casaNaMemoria();
+    const ids = (await store.getPanelView(venue.id)).checks.map((c) => c.checkId);
+    expect(ids).toContain(dehoje.id);
+    expect(ids).toContain(velha.id);
+  });
+
+  test('a conta velha, FECHADA e parada sai — como sai na produção', async () => {
+    const { store, venue, velha, dehoje } = await casaNaMemoria();
+    // O fechamento é um EVENTO no razão — não há `closeCheck` no store; quem
+    // fecha é o serviço, pelo `appendEvent`. O recorte lê o estado derivado,
+    // então é assim que a conta fica fechada de verdade.
+    await store.appendEvent(velha.id, 'CLOSED', {});
+    const ids = (await store.getPanelView(venue.id)).checks.map((c) => c.checkId);
+    expect(ids).toContain(dehoje.id);
+    expect(ids).not.toContain(velha.id);
   });
 });

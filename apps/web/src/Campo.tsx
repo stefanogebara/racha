@@ -60,7 +60,10 @@ export function Campo({ rotulo, recado, ruim, bom, mascara, value, onChange, ...
         onChange?.(e);
       },
     }
-    : { value, onChange };
+    // O `ref` vai nos DOIS ramos: sem ele, um componente cujo `mascara` aparece
+    // ou some entre renders desanexa e reanexa o ref do DOM. Inerte hoje (nenhum
+    // chamador alterna), e de graça.
+    : { ref: mascarado.ref, value, onChange };
 
   return (
     <div>

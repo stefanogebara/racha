@@ -64,7 +64,7 @@ const { vigiarRetencao } = require('../_lib/checks/retention-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 const { PAPEL_DE_DONO } = require('../_lib/store/papeis');
-const { nomeDaCasa, rotuloDaMesa, cidadeDaCasa } = require('../_lib/texto-da-casa');
+const { nomeDaCasa, rotuloDaMesa, cidadeDaCasa, rotuloDoPagador } = require('../_lib/texto-da-casa');
 
 // AS ENVS, NORMALIZADAS UMA VEZ SÓ — e é a única leitura delas no `api/`.
 //
@@ -339,11 +339,20 @@ function projetarAchados(findings) {
   // escondiam um prazo de disputa (compliance LOW-D de 57c0d2e).
   const juntar = (code) => {
     const grupo = findings.filter((f) => f.code === code);
-    return grupo.length <= 1 ? grupo : [{
+    if (grupo.length <= 1) return grupo;
+    // O ENDEREÇO SOBREVIVE À JUNÇÃO quando há um só. Juntar cinco achados numa
+    // linha é o certo (senão eles enchem as vagas e escondem um prazo de
+    // disputa), mas jogar fora `checkId` e `txid` de um grupo de UM transforma
+    // um aviso acionável em "aconteceu alguma coisa em algum lugar".
+    const daMesmaConta = new Set(grupo.map((f) => f.checkId).filter(Boolean));
+    const doMesmoTxid = new Set(grupo.map((f) => f.txid).filter(Boolean));
+    return [{
       severity: grupo.some((f) => f.severity === 'critical') ? 'critical' : 'high',
       code,
       amountCents: grupo.reduce((soma, f) => soma + (f.amountCents || 0), 0),
       count: grupo.length,
+      ...(daMesmaConta.size === 1 ? { checkId: [...daMesmaConta][0] } : {}),
+      ...(doMesmoTxid.size === 1 ? { txid: [...doMesmoTxid][0] } : {}),
     }];
   };
   return [...findings.filter((f) => !JUNTAR_NO_PAINEL.includes(f.code)), ...JUNTAR_NO_PAINEL.flatMap(juntar)]
@@ -365,6 +374,20 @@ function projetarAchados(findings) {
       ...(f.txid ? { txid: f.txid } : {}),
       ...(f.chargeId ? { chargeId: f.chargeId } : {}),
       ...(f.count ? { count: f.count } : {}),
+      /**
+       * O ENDEREÇO DA OBRIGAÇÃO.
+       *
+       * A projeção é lista de PERMISSÃO — o que não está aqui não chega à tela,
+       * em silêncio — e `checkId` não estava. Enquanto o painel listava toda
+       * conta da casa isso passava: o dono achava a mesa na lista. Desde que a
+       * lista ganhou recorte (as abertas + as da janela + as que receberam
+       * dinheiro na janela), uma dívida numa conta VELHA e fechada é anunciada
+       * por um achado que não diz QUAL conta — e o passo 1 do runbook
+       * `devolver-dinheiro-a-mais.md` é "na lista de mesas, a conta com dívida
+       * mostra…". Anunciar sem endereçar não é acionável (CC art. 876).
+       * Achado pela terceira revisão de compliance de 2026-09-16.
+       */
+      ...(f.checkId ? { checkId: f.checkId } : {}),
     }));
 }
 
@@ -999,7 +1022,7 @@ async function route(req, res) {
         try {
           const { rawBody, signature } = demoPsp.buildConfirmationWebhook({
             txid: result.txid, amountCents: result.amountCents, tipCents: result.tipCents,
-            payerName: body.payerLabel || 'Cliente Demo', payerCpf: '390.533.447-05',
+            payerName: rotuloDoPagador(body.payerLabel).valor || 'Cliente Demo', payerCpf: '390.533.447-05',
             method: result.method,
           });
           await demoWebhook(rawBody, { 'x-racha-signature': signature });

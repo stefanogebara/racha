@@ -15,6 +15,16 @@
  */
 
 const { createAuth, naoDeuPraPerguntar } = require('../_lib/auth');
+/**
+ * AS CLASSES DE VERDADE, e não objetos literais.
+ *
+ * Três rodadas seguidas este arquivo afirmou formas que o auth-js não constrói
+ * — `{name:'AuthApiError', status:500}`, depois `{status:401}` pra token
+ * inválido, depois `{code:'session_not_found'}` — e das três vezes o CÓDIGO foi
+ * escrito pra casar com a ficção. A única forma de parar é construir o erro com
+ * a biblioteca que a produção usa.
+ */
+const AuthJs = require('@supabase/auth-js');
 const { createMemoryStore } = require('../_lib/store/memory');
 
 const pedido = (token) => ({ headers: { authorization: `Bearer ${token}` } });
@@ -24,6 +34,12 @@ const comErro = (error) => ({ auth: { getUser: async () => ({ data: null, error 
 const abortado = Object.assign(new Error('This operation was aborted'), {
   name: 'AuthRetryableFetchError', status: 0,
 });
+/** Token inválido: 403 `bad_jwt` — medido contra a produção, montado pela classe. */
+const tokenRecusado = new AuthJs.AuthApiError('invalid JWT', 403, 'bad_jwt');
+/** `apikey` errada (rotação de chave): 401 do Kong, SEM código. MEDIDO. */
+const apikeyErrada = new AuthJs.AuthApiError('Invalid API key', 401, undefined);
+/** Sessão REVOGADA: o auth-js não usa `AuthApiError` aqui — é outra classe. */
+const sessaoRevogada = new AuthJs.AuthSessionMissingError();
 
 describe('o login indisponível não desloga ninguém', () => {
   const store = createMemoryStore();
@@ -44,13 +60,35 @@ describe('o login indisponível não desloga ninguém', () => {
   });
 
   test('um token RECUSADO continua 401 — senão a guarda some junto', async () => {
-    // Esta é a metade que uma correção apressada quebra: alargar o ramo de
-    // transporte até ele engolir a recusa de verdade transforma um portão de
-    // autenticação num aviso.
-    const recusado = Object.assign(new Error('invalid JWT'), { name: 'AuthApiError', status: 401 });
-    const auth = createAuth({ authClient: comErro(recusado), store });
+    // Esta é a metade que uma correção apressada quebra, e ela JÁ FOI QUEBRADA:
+    // a versão anterior decidia por status, e como o GoTrue recusa com 403 (não
+    // 401), o ramo de deslogar virou código morto em produção — quem tinha a
+    // sessão revogada lia "o login não respondeu" e nunca era convidado a
+    // entrar. A forma abaixo é a MEDIDA contra a produção.
+    const auth = createAuth({ authClient: comErro(tokenRecusado), store });
     await expect(auth.requireUser(pedido('t'))).rejects.toMatchObject({ statusCode: 401 });
     expect(await auth.requireUser(pedido('t')).catch((e) => e.code)).toBeUndefined();
+  });
+
+  test('a sessão REVOGADA desloga — é o único evento em que "entre de novo" é a resposta certa', async () => {
+    // O auth-js não entrega isto como `AuthApiError` com código: ele intercepta
+    // `session_not_found` e lança `AuthSessionMissingError`, que não tem `code`
+    // nenhum. Uma lista só de códigos classificava a revogação como "não deu
+    // pra perguntar", e o dono lia uma revogação como queda de plataforma.
+    const auth = createAuth({ authClient: comErro(sessaoRevogada), store });
+    await expect(auth.requireUser(pedido('t'))).rejects.toMatchObject({ statusCode: 401 });
+  });
+
+  test('a APIKEY ERRADA não desloga ninguém — 401 do Kong, não recusa de token', async () => {
+    // O cenário: rotação de chave no Supabase com a env da Vercel atrasada —
+    // esta casa já viu duas vezes. A versão anterior chamava isto de "token
+    // ruim" e deslogava TODO dono com o painel aberto: exatamente o dano que o
+    // portão existe pra impedir, disparado pela falha de configuração mais
+    // provável que existe.
+    const auth = createAuth({ authClient: comErro(apikeyErrada), store });
+    await expect(auth.requireUser(pedido('t'))).rejects.toMatchObject({
+      statusCode: 503, code: 'auth_unavailable',
+    });
   });
 
   test('sem token nenhum continua 401 — nem chega a perguntar', async () => {
@@ -65,32 +103,42 @@ describe('o login indisponível não desloga ninguém', () => {
 });
 
 describe('o predicado, medido caso a caso', () => {
+  /**
+   * AS FORMAS MEDIDAS, e nao as imaginadas.
+   *
+   * As duas versoes anteriores deste caso afirmavam objetos que o GoTrue nunca
+   * produz — primeiro `{name:'AuthApiError', status:500}` (o auth-js converte
+   * 5xx em `AuthRetryableFetchError`), depois `{status:401}` pra token
+   * invalido. O segundo fez o teste documentar o CONTRARIO do runtime, e o
+   * codigo foi escrito pra casar com ele.
+   *
+   * Isto aqui e o que a producao devolveu em 2026-09-16, medido com curl contra
+   * `/auth/v1/user` do projeto real:
+   *
+   *   token lixo, apikey certa → 403 {"error_code":"bad_jwt", ...}
+   *   JWT expirado             → 403 {"error_code":"bad_jwt", ...}
+   *   apikey errada (rotacao)  → 401 {"message":"Invalid API key"}  (sem codigo)
+   *
+   * O auth-js levanta `error_code` do corpo pra `error.code` (`lib/fetch.js`).
+   */
   test.each([
-    // O QUE O auth-js DE FATO PRODUZ. As formas abaixo foram lidas do
-    // `@supabase/auth-js/dist/main/lib/fetch.js`: ele converte 500-504 e
-    // 520-530 em `AuthRetryableFetchError`, e o resto em `AuthApiError` com o
-    // status da resposta. A primeira versão deste caso afirmava
-    // `{ name: 'AuthApiError', status: 500 }` — uma forma que o auth-js NUNCA
-    // constrói —, então o teste documentava o contrário do runtime e o próximo
-    // leitor "consertaria" o código pra casar com ele.
+    // ── o GoTrue DECIDIU sobre o token: 401, e o cliente desloga ────────────
+    ['bad_jwt (403) — token lixo ou expirado, MEDIDO', tokenRecusado, false],
+    ['sessao REVOGADA — classe de verdade, sem `code` nenhum', sessaoRevogada, false],
+    ['user_banned', new AuthJs.AuthApiError('banned', 403, 'user_banned'), false],
+    // ── nao deu pra perguntar: 503, e NINGUEM desloga ──────────────────────
+    ['401 do Kong, apikey errada — MEDIDO, e e o caso da rotacao de chave', apikeyErrada, true],
+    ['429 — limite de taxa, atingivel DE PROPOSITO por quem nao tem sessao',
+      { name: 'AuthApiError', status: 429 }, true],
+    ['500 → o auth-js chama de Retryable', new AuthJs.AuthRetryableFetchError('500', 500), true],
+    ['520 da Cloudflare', new AuthJs.AuthRetryableFetchError('520', 520), true],
+    ['corpo que nao e JSON → AuthUnknownError, sem status', new AuthJs.AuthUnknownError('html', new Error('x')), true],
     ['abort (sem resposta)', abortado, true],
-    ['500 → o auth-js chama de Retryable', { name: 'AuthRetryableFetchError', status: 500 }, true],
-    ['520 da Cloudflare', { name: 'AuthRetryableFetchError', status: 520 }, true],
-    ['status 0 sem nome conhecido', { status: 0, message: 'socket hang up' }, true],
-    // Os dois furos que a lista de recusa tinha, e que a inversão fecha.
-    ['429 — limite de taxa do GoTrue, atingível DE PROPÓSITO', { name: 'AuthApiError', status: 429 }, true],
-    ['403 de WAF na frente do GoTrue', { name: 'AuthApiError', status: 403 }, true],
-    // A ÚNICA coisa que autoriza deslogar.
-    ['401 — o GoTrue olhou e disse não', { name: 'AuthApiError', status: 401 }, false],
-    ['401 como string', { name: 'AuthApiError', status: '401' }, false],
-    // Erro sem forma: não é 401, então não desloga ninguém.
-    // SEM status: não veio do auth-js (dublê, provedor diferente, versão
-    // velha). Continua sendo recusa de token — senão quem tem mesmo um token
-    // ruim veria "o login não respondeu" pra sempre, sem ser convidado a entrar.
-    ['erro sem status', { name: 'Sei lá' }, false],
-    ['erro que é string', 'quebrou', false],
+    ['403 de WAF, sem codigo', { name: 'AuthApiError', status: 403 }, true],
+    ['codigo que esta casa nao conhece', { name: 'AuthApiError', status: 403, code: 'algo_novo' }, true],
+    ['erro sem forma', { name: 'Sei la' }, true],
     ['nulo', null, false],
-  ])('%s → é falha de transporte? %p', (_nome, erro, esperado) => {
+  ])('%s → e falha de transporte? %p', (_nome, erro, esperado) => {
     expect(naoDeuPraPerguntar(erro)).toBe(esperado);
   });
 });

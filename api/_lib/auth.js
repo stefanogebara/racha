@@ -33,45 +33,83 @@ function bearer(authorizationHeader) {
  * @param {object} deps.store  the data store (venue_members access)
  */
 /**
- * O GoTrue OLHOU O TOKEN E DISSE NÃO — ou só não deu pra perguntar?
+ * O GoTrue DECIDIU SOBRE ESTE TOKEN — ou só não deu pra perguntar?
  *
- * Isto era uma lista de RECUSA ("o que conta como falha de transporte"), e
- * perdeu pro primeiro código que ela não listava. A segunda revisão de
- * segurança de 2026-09-16 mediu dois furos:
+ * Esta pergunta já errou duas vezes, nas duas direções, e as duas versões
+ * anteriores erraram pelo mesmo motivo: decidiam pelo STATUS, que aqui é
+ * artefato de transporte, e não pelo campo que carrega SIGNIFICADO.
  *
- *  · **429.** Não está no `NETWORK_ERROR_CODES` do auth-js (que cobre 500-504 e
- *    520-530), então vem como `AuthApiError(429)` e caía no 401 — e o cliente
- *    desloga em qualquer 401. Alguém sem autenticação nenhuma jogando tokens
- *    falsos em qualquer rota de dono empurra o IP de saída compartilhado da
- *    Vercel pro limite de taxa do GoTrue, e todo dono com o painel aberto é
- *    deslogado no meio do turno. O mesmo dano de antes, agora DE PROPÓSITO.
- *  · **403 de WAF** na frente do GoTrue: idem.
+ * MEDIDO contra a produção em 2026-09-16 (`/auth/v1/user`, projeto real):
  *
- * Então inverte-se: a única coisa que conta como "o token não presta" é um
- * **401**. Todo o resto — 0, 403, 429, 5xx, erro sem forma, transporte — é "não
- * deu pra perguntar". Uma lista de permissão sobre o que autoriza a deslogar,
- * pela mesma razão que a lista de invisíveis virou uma pergunta inversa: lista
- * de recusa perde pro próximo valor.
+ *   token lixo, apikey certa   → 403 {"error_code":"bad_jwt","msg":"invalid JWT…"}
+ *   JWT expirado/assinatura má → 403 {"error_code":"bad_jwt","msg":"…signature is invalid"}
+ *   apikey ERRADA (rotação)    → 401 {"message":"Invalid API key"}   ← sem código
  *
- * ERRAR PRA QUE LADO: classificar uma recusa de verdade como 503 devolve 503 e
- * NÃO devolve usuário — o ramo lança. Ninguém entra; a pessoa vê "o login não
- * respondeu" em vez de "entre de novo". Classificar uma indisponibilidade como
- * 401 desloga a casa inteira. O lado seguro é este.
+ * Ou seja, ao contrário do que as duas versões supunham:
+ *
+ *  · **Um token recusado NÃO é 401 — é 403.** A regra anterior ("só 401 conta
+ *    como recusa") deixava o ramo de deslogar INALCANÇÁVEL em produção: quem
+ *    tivesse a sessão de fato revogada lia "o login não respondeu" e nunca era
+ *    convidado a entrar de novo.
+ *  · **O 401 que existe de verdade é do KONG**, na frente do GoTrue, quando a
+ *    `apikey` está errada — o cenário de uma rotação de chave em que a env da
+ *    Vercel ficou pra trás, que esta casa já viu duas vezes. A regra anterior
+ *    chamava isso de "token ruim" e deslogava TODO dono com o painel aberto:
+ *    exatamente o dano que ela existia pra impedir, disparado pela falha de
+ *    configuração mais provável que existe.
+ *
+ * Então decide-se pelo `code`, que o auth-js levanta do `error_code` do corpo
+ * (`lib/fetch.js`) e que só existe quando o GOTRUE respondeu sobre o token. É
+ * lista de PERMISSÃO: o que não está aqui não desloga ninguém.
+ *
+ * ERRAR PRA QUE LADO: um código novo que o GoTrue invente cai em 503 — a pessoa
+ * vê "o login não respondeu" até o access token vencer, e aí o próprio auth-js
+ * falha o refresh e emite `SIGNED_OUT` (limite de uma vida de token, ~1 h).
+ * Chato e temporário. O outro lado — deslogar a casa inteira num soluço de
+ * plataforma — é o que se está evitando. Achado pela terceira revisão de
+ * compliance de 2026-09-16 (o anterior era HIGH e não tinha fechado).
  */
+const CODIGOS_DE_RECUSA = new Set([
+  'bad_jwt',                     // malformado, expirado, assinatura inválida
+  'session_expired',
+  'user_not_found',              // a conta sumiu
+  'user_banned',
+  'refresh_token_not_found',
+  'refresh_token_already_used',
+  'no_authorization',
+]);
+
+/**
+ * E A RECUSA QUE NÃO CHEGA COMO CÓDIGO.
+ *
+ * `session_not_found` estava na lista acima e NUNCA chegaria nela: o auth-js
+ * intercepta esse código uma linha antes de montar o `AuthApiError` e lança
+ * `AuthSessionMissingError`, que é um `CustomAuthError` — medido com a classe
+ * de verdade: `name='AuthSessionMissingError'`, `status=400`, **`code=undefined`**.
+ *
+ * Quer dizer que a sessão foi REVOGADA (o dono saiu noutro aparelho, um admin
+ * encerrou, a conta sumiu) — o único evento em que a resposta certa é mesmo
+ * "entre de novo" — e a lista de códigos o classificava como "não deu pra
+ * perguntar". O operador leria uma revogação como queda de plataforma, que é o
+ * sinal errado justamente onde o certo é claro. Achado pela terceira revisão de
+ * segurança de 2026-09-16 (M1).
+ *
+ * Pelo NOME, e não importando a classe: o `authClient` é injetado (o de teste
+ * não é o do auth-js), e casar por nome funciona pros dois. O teste constrói a
+ * classe DE VERDADE, que é o que garante que este nome é o nome.
+ */
+const NOMES_DE_RECUSA = new Set(['AuthSessionMissingError']);
+
+/** O GoTrue respondeu SOBRE O TOKEN? (E não: "houve alguma resposta".) */
+function recusouOToken(error) {
+  if (!error) return false;
+  if (typeof error.name === 'string' && NOMES_DE_RECUSA.has(error.name)) return true;
+  return typeof error.code === 'string' && CODIGOS_DE_RECUSA.has(error.code);
+}
+
 function naoDeuPraPerguntar(error) {
   if (!error) return false;
-  // SÓ DECIDE QUANDO HÁ UM STATUS PRA JULGAR.
-  //
-  // O auth-js sempre põe um: `0` quando a ida não voltou, o código da resposta
-  // quando voltou (lido em `@supabase/auth-js/.../lib/fetch.js`). Um erro SEM
-  // status não veio dele — é um dublê, um provedor de auth diferente, uma
-  // versão mais velha — e aí a resposta honesta é a antiga: trate como recusa
-  // de token. O contrário estragaria o outro lado: quem tem mesmo um token
-  // ruim veria "o login não respondeu" pra sempre, sem nunca ser convidado a
-  // entrar de novo.
-  const status = Number(error.status);
-  if (!Number.isFinite(status)) return false;
-  return status !== 401;
+  return !recusouOToken(error);
 }
 
 function createAuth({ authClient, store }) {
@@ -138,4 +176,4 @@ function createAuth({ authClient, store }) {
   return { requireUser, requireVenueOwner, requireTableOwner };
 }
 
-module.exports = { createAuth, AuthError, bearer, naoDeuPraPerguntar };
+module.exports = { createAuth, AuthError, bearer, naoDeuPraPerguntar, CODIGOS_DE_RECUSA, NOMES_DE_RECUSA };

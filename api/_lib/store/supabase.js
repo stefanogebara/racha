@@ -292,14 +292,25 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     if (!colunas.split(',').map((c) => c.trim()).includes(coluna)) {
       throw new Error(`lerPorLote(${tabela}): o select precisa trazer '${coluna}' — é a chave do mapa`);
     }
-    // MINÚSCULA DOS DOIS LADOS. O `isUuid` aceita hexadecimal maiúsculo (a regex
-    // tem a flag `i`), e o Postgres devolve `uuid` sempre em minúscula: um id
-    // maiúsculo na entrada indexaria o mapa por uma chave que nenhuma linha
-    // devolvida casaria, e o `throw` do balde ausente derrubaria uma leitura
-    // legítima. Inalcançável hoje — todo `ids` daqui vem de uma leitura do banco
-    // na mesma função — e alcançável na primeira vez que um id vier de uma
-    // requisição. Apontado pela segunda revisão de segurança de 2026-09-16.
-    const emMinuscula = ids.map((id) => String(id).toLowerCase());
+    /**
+     * MINÚSCULA — mas SÓ pra uuid.
+     *
+     * O `isUuid` aceita hexadecimal maiúsculo (a regex tem `i`) e o Postgres
+     * devolve `uuid` sempre em minúscula: um id maiúsculo na entrada indexaria o
+     * mapa por uma chave que nenhuma linha casaria, e o `throw` do balde ausente
+     * derrubaria uma leitura legítima.
+     *
+     * Dobrar a caixa INCONDICIONALMENTE, porém, quebra o caso oposto e pior: o
+     * ajudante é genérico, e numa coluna de texto sensível à caixa — `txid`, que
+     * na Stripe é `pi_3Ab…` — o `.in()` não casaria NADA, todo balde ficaria
+     * vazio, e o `throw` do balde ausente nunca dispararia porque linha nenhuma
+     * volta. Sairia um mapa de listas vazias sem erro: exatamente o sumiço
+     * silencioso que aquele `throw` existe pra impedir, contornado por fora.
+     * Apontado pelas segunda e terceira revisões de segurança de 2026-09-16.
+     */
+    const todosUuid = ids.every(isUuid);
+    const chave = (v) => (todosUuid ? String(v).toLowerCase() : v);
+    const emMinuscula = ids.map(chave);
     const mapa = new Map();
     for (const id of emMinuscula) mapa.set(id, []);
     for (let i = 0; i < emMinuscula.length; i += IDS_POR_LOTE) {
@@ -313,7 +324,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         },
       });
       for (const r of linhas) {
-        const balde = mapa.get(String(r[coluna]).toLowerCase());
+        const balde = mapa.get(chave(r[coluna]));
         // GRITA em vez de descartar. O filtro é do banco, então uma linha de um
         // id que ninguém pediu não deveria existir — e se existir, ela é o
         // sintoma de alguma coisa errada na leitura, não ruído pra varrer. Um
@@ -884,13 +895,29 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       // Segunda revisão de segurança de 2026-09-16 (NEW-2).
       const abertas = new Set(views.map((r) => r.check_id));
       const pagas = new Set(pagos.map((r) => r.check_id));
+      /** O numerador INTERSECTADO: quem pagou E foi visto na mesa. */
+      const convertidas = new Set([...pagas].filter((id) => abertas.has(id)));
       return {
         contasCriadas: checks.length,
         contasAbertasNaMesa: abertas.size,
         contasPagas: pagas.size,
         // A leitura do portão: das contas que alguém ABRIU, quantas fecharam
         // pelo Racha. Sem o denominador certo, 25% não quer dizer nada.
-        conversao: abertas.size > 0 ? pagas.size / abertas.size : null,
+        /**
+         * A CONVERSÃO É SOBRE QUEM ABRIU — e o numerador tem que ser subconjunto
+         * do denominador.
+         *
+         * Era `pagas.size / abertas.size` com os dois conjuntos medidos
+         * INDEPENDENTES. O `recordCheckView` é telemetria de navegador, melhor
+         * esforço: bloqueada, limitada por taxa ou perdida, a conta entra em
+         * `pagas` e não em `abertas`. Com duas contas — A vista e não paga, B paga
+         * com o beacon bloqueado — a conta dava 1.0, ou seja 100% de conversão,
+         * onde a verdadeira é 0%. E é este número que o portão de adoção lê pra
+         * decidir se o produto continua (CLAUDE.md, ≥25% na semana 8): inflado,
+         * ele mantém vivo um piloto que fracassou. Achado pela terceira revisão de
+         * segurança de 2026-09-16 (M4).
+         */
+        conversao: abertas.size > 0 ? convertidas.size / abertas.size : null,
       };
     },
 
@@ -1816,33 +1843,100 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
        * da conciliação, que varre a casa inteira e grita `critical` depois de
        * 48 h. O canal alto continua alto.
        */
-      const idsComDinheiroNaJanela = [...new Set((confirmedRaw || []).map((p) => p.check_id))];
-      const [abertas, daJanela, comDinheiro] = await Promise.all([
+      const COLUNAS_DA_CONTA = 'id, table_id, opened_at, venue_tables(label)';
+      /**
+       * Buscar contas POR ID, mas SEMPRE dentro desta casa.
+       *
+       * Os conjuntos 3 e 4 partem de ids achados noutra tabela (`payments`,
+       * `check_events`). O `lerPorLote` não tem filtro, então uma busca por id
+       * puro tomaria o inquilino por herança em vez de re-derivá-lo — e o
+       * `select` puxa `venue_tables(label)`, então uma divergência desenharia a
+       * mesa, os totais e a dívida de OUTRA casa no painel deste dono. É o único
+       * lugar do recorte onde o id não vem de uma consulta já filtrada por
+       * `venue_id`, e é por isso que o `.eq('venue_id')` está aqui.
+       * Apontado pela terceira revisão de segurança de 2026-09-16 (L3).
+       */
+      const contasDaCasaPorId = async (ids, op) => {
+        const limpos = [...new Set(ids)].filter(isUuid);
+        if (limpos.length === 0) return [];
+        const fora = [];
+        for (let i = 0; i < limpos.length; i += IDS_POR_LOTE) {
+          const lote = limpos.slice(i, i + IDS_POR_LOTE);
+          fora.push(...await lerPaginado({
+            op,
+            consulta: (de, ate) => client.from('checks').select(COLUNAS_DA_CONTA)
+              .eq('venue_id', venueId).in('id', lote)
+              .order('id', { ascending: true }).range(de, ate),
+          }));
+        }
+        return fora;
+      };
+
+      const [abertas, daJanela] = await Promise.all([
         lerPaginado({
           op: 'getPanelView.checks.abertas',
-          consulta: (de, ate) => client.from('checks').select('id, table_id, venue_tables(label)')
+          consulta: (de, ate) => client.from('checks').select(COLUNAS_DA_CONTA)
             .eq('venue_id', venueId).neq('status', 'fechada')
             .order('id', { ascending: true }).range(de, ate),
         }),
         lerPaginado({
           op: 'getPanelView.checks.janela',
-          consulta: (de, ate) => client.from('checks').select('id, table_id, venue_tables(label)')
+          consulta: (de, ate) => client.from('checks').select(COLUNAS_DA_CONTA)
             .eq('venue_id', venueId).gte('opened_at', desde)
             .order('opened_at', { ascending: true }).order('id', { ascending: true })
             .range(de, ate),
         }),
-        idsComDinheiroNaJanela.length === 0 ? Promise.resolve([]) : lerPorLote({
-          tabela: 'checks',
-          colunas: 'id, table_id, venue_tables(label)',
-          coluna: 'id',
-          ids: idsComDinheiroNaJanela.filter(isUuid),
-          ordem: ['id'],
-          op: 'getPanelView.checks.comDinheiro',
-        }).then((m) => [...m.values()].flat()),
       ]);
+      const jaTenho = new Set([...abertas, ...daJanela].map((c) => c.id));
+
+      /**
+       * O QUARTO CONJUNTO: as contas com DISPUTA na janela.
+       *
+       * Uma disputa não toca `confirmed_at` nem `status` da conta — ela é um
+       * evento no razão, e chega semanas depois do pagamento (o cartão tem 120
+       * dias). Então a conta disputada é sempre velha e fechada, e caía FORA dos
+       * três conjuntos: o quadro de chargebacks do painel ficava vazio por
+       * construção, justo pro caso em que há dinheiro saindo.
+       *
+       * E o canal alto NÃO cobria: a conciliação só emite `dispute_evidence_due`
+       * numa faixa de sete dias antes do prazo, e uma disputa PERDIDA não gera
+       * achado `dispute_*` nenhum — só o dinheiro vai embora. Achado pela
+       * terceira revisão de segurança de 2026-09-16 (M3).
+       *
+       * A leitura de `check_events` não tem `venue_id` (a tabela não tem a
+       * coluna), então ela varre a janela e o filtro de casa é aplicado na busca
+       * das contas, acima. Disputa é rara — são poucas linhas em oito dias.
+       */
+      const eventosDeDisputa = await lerPaginado({
+        op: 'getPanelView.checks.disputa',
+        consulta: (de, ate) => client.from('check_events').select('check_id')
+          .in('type', ['PAYMENT_DISPUTED', 'PAYMENT_DISPUTE_CLOSED'])
+          .gte('created_at', desde)
+          .order('check_id', { ascending: true }).order('seq', { ascending: true })
+          .range(de, ate),
+      });
+
+      // Só o que AINDA NÃO TENHO vai pro banco de novo: numa casa normal quase
+      // todo pagamento da janela é de uma conta que o conjunto 2 já trouxe, e
+      // buscá-las outra vez eram idas a mais em toda carga do painel (L4).
+      const [comDinheiro, comDisputa] = await Promise.all([
+        contasDaCasaPorId(
+          (confirmedRaw || []).map((p) => p.check_id).filter((id) => !jaTenho.has(id)),
+          'getPanelView.checks.comDinheiro',
+        ),
+        contasDaCasaPorId(
+          eventosDeDisputa.map((e) => e.check_id).filter((id) => !jaTenho.has(id)),
+          'getPanelView.checks.comDisputa',
+        ),
+      ]);
+
       const porId = new Map();
-      for (const c of [...abertas, ...daJanela, ...comDinheiro]) porId.set(c.id, c);
-      const checks = [...porId.values()];
+      for (const c of [...abertas, ...daJanela, ...comDinheiro, ...comDisputa]) porId.set(c.id, c);
+      // ORDEM CRONOLÓGICA, como era antes do recorte: a união dos conjuntos sai
+      // na ordem em que eles foram lidos, e o painel desenha `data.checks` sem
+      // ordenar — a lista de mesas do dono tinha virado uma ordem arbitrária.
+      const checks = [...porId.values()]
+        .sort((a, b) => String(a.opened_at || '').localeCompare(String(b.opened_at || '')) || a.id.localeCompare(b.id));
 
       const rows = [];
       /**
