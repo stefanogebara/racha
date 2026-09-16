@@ -85,11 +85,14 @@ function alocarDevolucaoDoPagamento(estado, txid, pg, valor, opcoes = {}) {
   /**
    * BALDE ZERO: a TESTEMUNHA manda.
    *
-   * Quando a devolução por fora existe porque um estorno FALHOU, o adquirente já
-   * disse quanto era de consumo e quanto era de serviço. Seguir o proporcional
-   * em cima disso tira da base da folha dinheiro que a testemunha diz que nunca
-   * foi gorjeta — ou deixa nela serviço que a testemunha diz que voltou
-   * (compliance HIGH-2 de a95e15c).
+   * Quando a devolução por fora existe porque um estorno FALHOU, o adquirente
+   * identificou QUAL lançamento falhou (pelo `re_`, ou pelo valor que casa com
+   * um só) — e os baldes são os que AQUELE lançamento usou. Não é o adquirente
+   * dizendo a repartição: é ele dizendo qual das nossas repartições não saiu.
+   * Seguir o proporcional em cima disso tira da base de cálculo da folha
+   * dinheiro que o lançamento diz que nunca foi gorjeta — ou deixa nela serviço
+   * que ele diz que voltou (compliance HIGH-2 de a95e15c, redação LOW-1 de
+   * 53c9ff0).
    */
   const testemunha = (opcoes && opcoes.testemunha) || null;
   if (testemunha) {

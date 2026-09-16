@@ -1430,11 +1430,18 @@ async function route(req, res) {
         // há cliente com reembolso a receber por outro caminho.
         if (parsed.kind === 'refund_failed') {
           result = await applyConfirmedPayment(parsed, confirmDeps);
-          await avisarEventoDeDinheiro({
-            kind: parsed.kind, txid: parsed.txid,
-            checkId: result.checkId || null,
-            amountCents: parsed.amountCents, detail: parsed.status || null,
-          });
+          // UMA falha, UM aviso. A Stripe entrega a mesma falha em dois eventos
+          // (`refund.failed` e `refund.updated` com status `failed`), e o aviso
+          // saía nos dois: dois "R$ X refund_failed" idênticos no canal do
+          // canário, por evento normal. Canário que se repete é canário que se
+          // aprende a ignorar (inegociável #8; segurança LOW-2 de 53c9ff0).
+          if (result.status !== 'duplicate') {
+            await avisarEventoDeDinheiro({
+              kind: parsed.kind, txid: parsed.txid,
+              checkId: result.checkId || null,
+              amountCents: parsed.amountCents, detail: parsed.status || null,
+            });
+          }
           const st = result.status === 'rejected' ? 409 : 200;
           return json(res, st, { success: st === 200, data: result });
         }

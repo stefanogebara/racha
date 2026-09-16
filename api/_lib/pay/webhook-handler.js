@@ -147,30 +147,26 @@ async function applyConfirmedPayment(parsed, deps) {
     if (!pay) return { status: 'rejected', reason: `reversal for unknown txid ${parsed.txid}` };
     const jaEstornado = pay.refundedAmountCents + pay.refundedTipCents;
     const falhou = Number.isSafeInteger(parsed.amountCents) ? parsed.amountCents : jaEstornado;
-    if (parsed.refundId) {
-      const jaRevertido = events.some((e) => e.type === 'PAYMENT_REFUND_REVERSED'
-        && e.payload && e.payload.refundId === parsed.refundId);
-      if (jaRevertido) {
-        return { status: 'duplicate', checkId: check.id };
-      }
-    } else {
-      /**
-       * SEM IDENTIDADE, a reversão entra — e GRITA.
-       *
-       * Hoje só a Stripe emite este evento, e o objeto `Refund` sempre traz
-       * `id`: este ramo não devia acontecer. "Não devia acontecer" é o que esta
-       * série aprendeu a não confiar — e recusar seria pior (a Stripe reentrega
-       * até desabilitar o endpoint, e o dinheiro já se moveu). Então aplica, e
-       * deixa uma anomalia ALTA: sem o `re_` não há como distinguir a segunda
-       * entrega da mesma falha de uma falha nova, e o razão pode estar dobrado.
-       */
-      try {
-        await appendEvent(check.id, 'PAYMENT_ANOMALY', {
-          txid: parsed.txid,
-          reason: `reversão de estorno sem id do estorno (valor ${aReverter}) — não dá pra separar reentrega de falha nova`,
-          severity: 'high',
-        }, parsed.eventId ? `${parsed.eventId}:sem_refund_id` : null);
-      } catch { /* melhor esforço: a reversão em si não depende disto */ }
+    /**
+     * ESTE `re_` JÁ FOI REVERTIDO? Segunda entrega da MESMA falha, não uma nova.
+     *
+     * Vem ANTES de tudo — inclusive do ramo "estorno ainda não está no razão",
+     * porque depois da primeira reversão o pagamento fica sem estorno vivo e a
+     * segunda entrega caía ali, gravando no razão que "a reversão chegou antes
+     * do estorno". Ela chegou DEPOIS, e a reversão já estava aplicada: uma frase
+     * falsa, para sempre, em cima do dinheiro que uma auditoria vai conferir
+     * (compliance LOW-1 de 11a0904).
+     *
+     * E o atalho RECONCILIA a linha antes de sair. Todo outro caminho de
+     * `duplicate` neste arquivo repara; este saía direto, e uma linha que ficou
+     * velha entre duas entregas em voo ficava velha pra sempre — a projeção
+     * dizendo "devolvido" sobre dinheiro que está na casa.
+     */
+    if (parsed.refundId
+      && events.some((e) => e.type === 'PAYMENT_REFUND_REVERSED'
+        && e.payload && e.payload.refundId === parsed.refundId)) {
+      await repairRowFromLedger(check.id, parsed.txid, deps);
+      return { status: 'duplicate', checkId: check.id };
     }
     if (jaEstornado === 0) {
       /**
@@ -208,14 +204,29 @@ async function applyConfirmedPayment(parsed, deps) {
         await appendEvent(check.id, 'PAYMENT_ANOMALY', {
           txid: parsed.txid,
           reason: `reversão de estorno chegou antes do estorno (valor ${parsed.amountCents ?? '?'})`,
-          // `info`: este caso CONVERGE sozinho quando o estorno chega e a
-          // reentrega aplica a reversão. Deixá-lo `high` mantinha a casa
-          // vermelha por algo que se curou — o canário que grita pra sempre, e
-          // que este commit corrige em três outros lugares. O log fica com o
-          // registro de que a ordem veio trocada.
-          severity: 'info',
+          /**
+           * `high`, e não `info`.
+           *
+           * O texto aqui dizia que o caso "CONVERGE sozinho quando a reentrega
+           * aplica a reversão". Não há reentrega: esta saída devolve 200, e a
+           * Stripe só reentrega em resposta de falha. O irmão (`refund.updated`
+           * com status `failed`) é emitido no MESMO instante, então numa ordem
+           * trocada os dois caem aqui e os dois somem — o dinheiro voltou pro
+           * restaurante e o razão nunca soube, com a conciliação comparando duas
+           * projeções que contam a mesma mentira (compliance HIGH-2 de 53c9ff0).
+           *
+           * Uma reversão DESCARTADA é dinheiro do cliente sem dono no razão.
+           * Isso é alto. O conserto de verdade — guardar a reversão pendente e
+           * aplicá-la quando o estorno chegar — está registrado como decisão,
+           * porque mexe na forma do razão.
+           */
+          severity: 'high',
         }, parsed.eventId ? `${parsed.eventId}:out_of_order` : null);
-      } catch { /* o registro é o melhor esforço; a resposta 200 não muda */ }
+      } catch (e) {
+        // FALA. Um `catch` mudo foi o que transformou um `ReferenceError` numa
+        // guarda morta por um commit inteiro (segurança HIGH-1 de 53c9ff0).
+        process.stderr.write(`[webhook] anomalia out_of_order não gravada: ${String(e && e.message).slice(0, 160)}\n`);
+      }
       return { status: 'out_of_order', checkId: check.id, reason: `reversal before refund for txid ${parsed.txid}` };
     }
     // Valor NEGATIVO ou zero é recusa, não exceção.
@@ -281,17 +292,98 @@ async function applyConfirmedPayment(parsed, deps) {
      */
     const revertidosPorValor = new Map();
     for (const e of events) {
+      // DO MESMO PAGAMENTO. O conjunto de candidatos é filtrado por txid e este
+      // contador não era: numa conta rachada em partes iguais — o caso NORMAL
+      // deste produto — a reversão de um pagador consumia o contador do outro,
+      // destruindo a testemunha de quem casava sozinho e FORJANDO a de quem era
+      // ambíguo. Compensar a dívida de um com o crédito de outro é o que o
+      // `refund-allocation` proíbe por escrito (CC art. 876; segurança HIGH-3
+      // de 53c9ff0).
       if (e.type !== 'PAYMENT_REFUND_REVERSED' || !e.payload) continue;
+      if (String(e.payload.txid) !== String(parsed.txid)) continue;
       const total = (Number(e.payload.amountCents) || 0) + (Number(e.payload.tipCents) || 0);
       revertidosPorValor.set(total, (revertidosPorValor.get(total) || 0) + 1);
     }
     const casam = [];
+    let algumConsumido = false;
     for (const l of lancamentos) {
       const total = l.amountCents + l.tipCents;
       if (total !== aReverter) continue;
       const consumidos = revertidosPorValor.get(total) || 0;
-      if (consumidos > 0) { revertidosPorValor.set(total, consumidos - 1); continue; }
+      if (consumidos > 0) { revertidosPorValor.set(total, consumidos - 1); algumConsumido = true; continue; }
       casam.push(l);
+    }
+    /**
+     * E SEM `re_` — razão gravado antes deste deploy, ou adquirente que não
+     * manda id — a defesa é o CONSUMO: todo candidato daquele valor já foi
+     * revertido, e nenhum sobrou. Isso é reentrega, não falha nova.
+     *
+     * Este ramo é o que atravessa a janela do deploy: toda reversão que já está
+     * no razão hoje foi gravada sem `refundId`, e não há como preencher (o `re_`
+     * era descartado no adaptador). Um par de entregas que cruze a release cairia
+     * direto no buraco que o `re_` fecha (segurança HIGH-2 de 53c9ff0).
+     */
+    if (!casam.length && algumConsumido) {
+      await repairRowFromLedger(check.id, parsed.txid, deps);
+      return { status: 'duplicate', checkId: check.id };
+    }
+    /**
+     * A JANELA DO DEPLOY, nomeada em vez de adivinhada.
+     *
+     * Toda reversão que já está no razão foi gravada SEM `refundId` — o `re_`
+     * era descartado no adaptador, e não há como preencher depois. Um par de
+     * entregas que cruze a release chega assim: a primeira sem id, a segunda com
+     * id. Aí "segunda entrega da mesma falha" e "o refazimento também falhou"
+     * são indistinguíveis — os dois produzem um estorno do mesmo valor e uma
+     * falha do mesmo valor.
+     *
+     * Não dá pra decidir sem inventar. Recusar descarta um fato que o adquirente
+     * relatou; aplicar pode dobrar a reversão. Aplica, porque o razão é de
+     * fatos relatados, e GRITA — a ambiguidade tem nome, valor e txid, e alguém
+     * resolve olhando o painel do adquirente. A janela é finita e se fecha
+     * sozinha: depois deste deploy toda reversão nasce com `re_`
+     * (segurança HIGH-2 de 53c9ff0).
+     */
+    if (parsed.refundId && events.some((e) => e.type === 'PAYMENT_REFUND_REVERSED'
+      && e.payload && String(e.payload.txid) === String(parsed.txid)
+      && !e.payload.refundId
+      && ((Number(e.payload.amountCents) || 0) + (Number(e.payload.tipCents) || 0)) === aReverter)) {
+      try {
+        await appendEvent(check.id, 'PAYMENT_ANOMALY', {
+          txid: parsed.txid,
+          reason: `reversão de ${aReverter} com id chegou sobre uma reversão do mesmo valor SEM id — reentrega ou falha nova? confira o estorno no adquirente`,
+          severity: 'high',
+        }, `${parsed.txid}:reversao_ambigua:${aReverter}`);
+      } catch (e) {
+        process.stderr.write(`[webhook] anomalia reversao_ambigua não gravada: ${String(e && e.message).slice(0, 160)}\n`);
+      }
+    }
+    /**
+     * SEM IDENTIDADE E SEM CONSUMO: aplica — e GRITA.
+     *
+     * Só a Stripe emite este evento e o objeto `Refund` sempre traz `id`, então
+     * este ramo não devia acontecer. "Não devia acontecer" é o que esta série
+     * aprendeu a não confiar. Recusar seria pior (a Stripe reentrega até
+     * desabilitar o endpoint, e o dinheiro já se moveu), então entra com uma
+     * anomalia ALTA.
+     *
+     * A versão anterior desta guarda ficava ACIMA da declaração de `aReverter` e
+     * interpolava a variável: `ReferenceError` na zona morta temporal, engolido
+     * por um `catch` vazio — a anomalia NUNCA era gravada, em 100% das execuções
+     * (compliance HIGH-1 e segurança HIGH-1 de 53c9ff0). O `catch` mudo é o que
+     * transformou um erro de programação em degradação silenciosa; agora ele
+     * escreve, como todos os outros melhor-esforço deste arquivo.
+     */
+    if (!parsed.refundId) {
+      try {
+        await appendEvent(check.id, 'PAYMENT_ANOMALY', {
+          txid: parsed.txid,
+          reason: `reversão de estorno sem id do estorno (valor ${aReverter}) — não dá pra separar reentrega de falha nova`,
+          severity: 'high',
+        }, `${parsed.txid}:sem_refund_id:${aReverter}`);
+      } catch (e) {
+        process.stderr.write(`[webhook] anomalia sem_refund_id não gravada: ${String(e && e.message).slice(0, 160)}\n`);
+      }
     }
     if (casam.length === 1) {
       reversalAllocated = { ...casam[0], testemunhado: true };
@@ -366,7 +458,9 @@ async function applyConfirmedPayment(parsed, deps) {
             reason: `disputa perdida recusada como reentrega SEM id de disputa `
               + `(delta ${parsed.refundDeltaCents}¢) — conferir no adquirente`,
           }, parsed.eventId ? `${parsed.eventId}:blind_belt` : null);
-        } catch { /* melhor esforço: a recusa segue */ }
+        } catch (e) {
+          process.stderr.write(`[webhook] anomalia de recusa não gravada: ${String(e && e.message).slice(0, 160)}\n`);
+        }
       }
       await repairRowFromLedger(check.id, parsed.txid, deps);
       return { status: 'duplicate', checkId: check.id };

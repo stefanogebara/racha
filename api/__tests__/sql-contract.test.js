@@ -753,12 +753,19 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
     // `check.id` e não `checkId`: exclui a própria DEFINIÇÃO da função.
     const chamadas = [...fonte.matchAll(/repairRowFromLedger\(check\.id/g)].map((m) => m.index);
     // `toBe`, não `>=`: um censo com folga na direção da DELEÇÃO não é censo.
-    expect(chamadas.length).toBe(7);
+    expect(chamadas.length).toBe(9);
     /**
      * Os testes de reentrega que guardam cada chamada. `jaEncerrada` é uma
      * disputa já fechada — reentrega também, só que dita por outro nome.
      */
-    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada/;
+    /**
+     * As duas DUPLICATAS novas da reversão (53c9ff0), nomeadas aqui porque é
+     * isto que o censo cobra: `refundId === parsed.refundId` é a segunda entrega
+     * da mesma falha identificada pelo `re_`; `algumConsumido` é a mesma coisa
+     * sem identidade — todo candidato daquele valor já foi revertido e nenhum
+     * sobrou, que só acontece em reentrega.
+     */
+    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada|algumConsumido/;
     const semGuarda = [];
     for (const idx of chamadas) {
       // O trecho antes da chamada, até o `if` que a guarda.

@@ -130,25 +130,74 @@ test('a série de faturamento desconta a dívida — medido, não por regex', as
   expect(painel.ativacao.semana.valorCents).toBe(10000);
 });
 
-test('os DOIS stores montam a sobra pela mesma implementação', () => {
+test('o store de PRODUÇÃO monta a sobra igual à regra única — medido, não por regex', async () => {
   /**
-   * A metade de saída deste censo passou a medir só o store de MEMÓRIA, e o de
-   * PRODUÇÃO ficou sem nada: a revisão de segurança plantou nele um segundo laço
-   * sobrescrevendo o mapa com a derivação errada, e a suíte inteira ficou verde
-   * — o painel mandaria o dono devolver ao pagador errado (segurança MEDIUM-2 de
-   * 11a0904). Agora a regra é um módulo com dois chamadores, e o censo confere
-   * que nenhum dos dois a reimplementa.
+   * A versão anterior deste teste era uma REGEX contra o fonte dos dois stores,
+   * e a revisão de segurança replantou nela os dois mutantes de sempre, agora no
+   * store de produção: um `.slice(0, 0)` na linha do painel (a grafia exigida
+   * continua lá) e um segundo laço re-chaveando o mapa do faturamento. Suíte
+   * inteira verde nos dois casos. Uma regex sempre perde pra um mutante que
+   * preserva a regex (segurança MEDIUM-1 de 53c9ff0).
+   *
+   * Aqui o `getPanelView` do Supabase roda contra um cliente falso e a resposta
+   * dele é comparada com a regra única.
    */
-  for (const arq of ['_lib/store/memory.js', '_lib/store/supabase.js']) {
-    const fonte = fs.readFileSync(path.join(RAIZ, arq), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^\s*\/\/.*$/gm, '');
-    expect(fonte).toMatch(/overpaidTxids: linhasDeSobra\(state\)/);
-    expect(fonte).toMatch(/acumularSobra\(state, sobraPorTxid\)/);
-    // E não chamam a regra crua por conta própria: quem quiser mudar a resposta
-    // muda o módulo, onde o teste de saída está.
-    expect(fonte).not.toMatch(/sobraPorPagamento\(/);
-  }
+  const { createSupabaseStore } = require('../_lib/store/supabase');
+  const { reduce, sobraPorPagamento } = require('../_lib/checks/check-state');
+
+  // UUID de verdade: `loadEvents` do Supabase recusa id malformado (devolve []).
+  const CONTA = '33333333-3333-4333-8333-333333333333';
+  const eventos = [
+    { seq: 1, type: 'OPENED', payload: { totalCents: 10000 } },
+    { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ana', amountCents: 10000, tipCents: 0, method: 'pix' } },
+    { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ana', amountCents: 6000, tipCents: 0 } },
+    { seq: 4, type: 'CLOSED', payload: {} },
+    { seq: 5, type: 'PAYMENT_CONFIRMED', payload: { txid: 'bruno', amountCents: 6000, tipCents: 0, method: 'pix' } },
+    { seq: 6, type: 'PAYMENT_REFUND_REVERSED', payload: { txid: 'ana', amountCents: 6000, tipCents: 0, testemunhado: true } },
+  ];
+  // Os pagamentos de VERDADE por trás dos eventos: sem eles a série semanal soma
+  // zero e o desconto da dívida não tem o que descontar — o teste ficaria cego
+  // justamente na linha que ele existe pra vigiar.
+  const agora = new Date().toISOString();
+  const pagamento = (txid, cents) => ({
+    txid, amount_cents: cents, tip_cents: 0,
+    confirmed_amount_cents: cents, confirmed_tip_cents: 0,
+    refunded_amount_cents: 0, refunded_tip_cents: 0,
+    check_id: CONTA, confirmed_at: agora, method: 'pix',
+  });
+  const from = (tabela) => {
+    const b = {
+      select() { return b; }, eq() { return b; }, order() { return b; }, limit() { return b; },
+      gte() { return b; }, in() { return b; }, not() { return b; },
+      maybeSingle() { return b; }, single() { return b; },
+      then(ok, falha) {
+        let data = [];
+        if (tabela === 'venues') data = { id: 'v1', name: 'Casa', market: 'BR' };
+        else if (tabela === 'checks') data = [{ id: CONTA, table_id: 't1', venue_tables: { label: 'Mesa 1' } }];
+        else if (tabela === 'check_events') data = eventos;
+        else if (tabela === 'payments') data = [pagamento('ana', 10000), pagamento('bruno', 6000)];
+        return Promise.resolve({ data, error: null }).then(ok, falha);
+      },
+    };
+    return b;
+  };
+  const store = createSupabaseStore({
+    url: 'http://falso', serviceRoleKey: 'x',
+    client: { from, rpc: async () => ({ data: [], error: null }) },
+  });
+
+  const painel = await store.getPanelView('v1');
+  const esperado = sobraPorPagamento(reduce(eventos));
+  expect([...esperado]).toEqual([['ana', 6000]]);
+
+  const daConta = painel.checks.find((c) => c.checkId === CONTA);
+  const doPainel = new Map((daConta.state.overpaidTxids || []).map((x) => [x.txid, x.restituteCents]));
+  // A linha que o painel desenha embaixo da mesa é a da regra única.
+  expect([...doPainel]).toEqual([...esperado]);
+
+  // E a SÉRIE SEMANAL do store de produção desconta a dívida, como a da memória:
+  // recebido 16000, dívida 6000 → 10000 (CC art. 876).
+  expect(painel.ativacao.semana.valorCents).toBe(10000);
 });
 
 test('a regra do painel é medida na SAÍDA, não pela grafia', () => {
