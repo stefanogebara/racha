@@ -70,8 +70,13 @@ conciliação levanta `paid_after_close`.
    (consumo + serviço), como no passo 2 acima. O webhook registra a devolução e
    a marca diminui no valor devolvido (se a cobrança também mostra `a devolver`, o estorno sai PRIMEIRO dessa sobra — confira as duas linhas). **Não use "não pagou no caixa" pra registrar uma
    devolução**: o serviço ficaria na base da folha (Lei 13.419/2017) sem ter
-   voltado, e nada no razão diria que o dinheiro voltou. Devolução em dinheiro
-   no caixa não tem registro aqui — por isso o adquirente.
+   voltado, e nada no razão diria que o dinheiro voltou.
+
+   Enquanto o estorno pelo adquirente for possível, é por ele que se devolve, e
+   a rota de registro por fora **recusa** (`use_acquirer_refund`). Ela existe só
+   pro caso do passo 6, e o motivo é que o adquirente é a testemunha: sem ele, a
+   única prova de que o dinheiro voltou seria a palavra de quem opera o caixa —
+   sobre um valor que sai da base da folha do time.
 3. **Se a mesa NÃO pagou no caixa:** "não pagou no caixa" na linha da mesa. O
    pagamento era legítimo, e a pergunta fica respondida.
 4. **Pagamento em DUPLICIDADE** (a conta já estava paga no Racha): a linha diz
@@ -80,24 +85,189 @@ conciliação levanta `paid_after_close`.
 5. **Sem resposta, a pergunta não some**: depois de 48 horas ela vira
    `critical` na conciliação, como a dívida de restituição.
 
-6. **Se o estorno pelo adquirente NÃO for possível** — ele falhou e voltou, ou o
-   Pix passou dos 90 dias da devolução: devolva por fora e **registre**, com
-   `POST /api/checks/record-restitution` (a conta, a cobrança, o valor e a
-   referência). O teto dessa rota inclui a marca do pago-depois-de-fechar. **Na
-   referência, nada do cliente**: nem nome, nem CPF, nem chave Pix — o id E2E do
-   Pix, ou "dinheiro no caixa às 21h40". Ela fica num razão que não se apaga.
+6. **Se o estorno pelo adquirente NÃO for possível** — ele falhou e voltou
+   (a conta mostra `estorno FALHOU`), ou o **prazo do trilho acabou**: Pix, 90
+   dias da transação (Res. BCB nº 1/2020 c/c nº 103/2021); cartão, 180 dias, que
+   é o limite do adquirente. Aí devolva por fora (transferência, dinheiro no
+   caixa) e **registre**, com `POST /api/checks/record-restitution` (a conta, a
+   cobrança, o valor e a referência). Só nesses casos o teto dessa rota inclui a
+   marca do pago-depois-de-fechar; fora deles ela responde `use_acquirer_refund`
+   e o caminho é o passo 2.
+
+   **O registro fecha a marca do pago-depois-de-fechar, não a do estorno que
+   falhou.** São duas coisas: o `estorno FALHOU` continua na conta até alguém
+   resolver aquela pendência (`POST /api/checks/resolve-issue` sem escopo, com a
+   nota de quem resolveu) — é ela que diz ao cliente que ele tem a receber. Feche
+   as duas, ou a conta segue vermelha com a dívida já paga.
+
+   **Na NOTA dessa resolução, nada do cliente** — a mesma regra da referência,
+   três parágrafos abaixo, e é aqui que ela é mais fácil de esquecer: o campo é
+   texto livre e o exemplo que sai sozinho da cabeça de quem resolve é
+   "reembolsei o Pedro no Pix 11 98765-4321". Escreva o que aconteceu, não quem:
+   "dinheiro no caixa às 21h40", "estorno refeito e confirmado". A nota vai pro
+   razão, que é só-de-acréscimo: **a purga de retenção (migração 0031) cobre
+   `payments` e `check_views` e NÃO cobre `check_events`**, então o que entrar
+   ali não tem caminho de eliminação hoje (LGPD art. 6º III e art. 18, V). A
+   lacuna já está registrada em
+   [`docs/compliance/retencao.md`](../compliance/retencao.md) — o que faltava era
+   o aviso aqui, no passo em que alguém realmente digita a frase.
+
+   A ORDEM não importa mais: o razão guarda que o estorno daquela cobrança
+   falhou, e resolver a pendência não apaga esse fato. (Até a revisão de
+   ec86b37, apagava — e resolver primeiro, que é o natural porque é a marca que
+   o cliente vê, trancava a devolução pra sempre.)
+
+   **Na referência, nada do cliente**: nem nome, nem CPF, nem chave Pix — o id
+   E2E do Pix, ou "dinheiro no caixa às 21h40". Ela fica num razão que não se
+   apaga.
+
+   **A referência também é a chave contra a repetição.** Registrar o MESMO
+   comprovante duas vezes na mesma cobrança não cria um segundo lançamento: a
+   segunda chamada responde a mesma coisa que a primeira. Então, se a chamada
+   der timeout, REPITA com a mesma referência — é seguro. O que não se pode é
+   repetir com uma referência nova pra "garantir": aí são duas devoluções.
+
+   E se a conta tiver mudado enquanto você registrava (outro estorno caiu, um
+   pagamento atrasado chegou), a resposta é `restitution_conflict` e **nada foi
+   gravado** — recarregue a conta e confira o valor de novo, porque o teto pode
+   ter mudado junto.
+
+   **As respostas que esta rota dá**, porque ela é chamada por `curl` e não tem
+   tela que traduza:
+
+   | resposta | o que aconteceu | o que fazer |
+   |---|---|---|
+   | `200 {seq, amountCents, tipCents}` | registrado | confira no painel que a marca caiu |
+   | `200 {duplicate: true, recorded: {...}}` | esta referência já estava registrada | nada — confira em `recorded` se o valor é o que você quis; se vier `null`, confira a conta no painel |
+   | `400 amount_invalid` | faltou `checkId`/`txid`, ou o valor não é inteiro positivo | confira o corpo do pedido |
+   | `404 check_not_found` | não existe conta com esse `checkId` | confira o id |
+   | `403 forbidden` | esta conta não é de uma casa sua | confira o id |
+   | `404 txid_unknown` | essa cobrança não é desta conta | confira o `txid` — é o erro de digitação mais comum |
+   | `400 restitution_failed` | o razão recusou o lançamento | confira valor e cobrança |
+   | `409 restitution_conflict` | a conta mudou no meio; **nada foi gravado** | recarregue, confira o teto, registre de novo |
+   | `400 use_acquirer_refund` | o trilho do adquirente ainda está aberto | devolva por lá (passo 2) |
+   | `400 nothing_to_restitute` | esta cobrança não deve nada de volta | confira se é a cobrança certa |
+   | `400 amount_over` | acima do teto; `vars.leftCents` diz o máximo | registre só o que é devido |
+   | `400 reference_required` | faltou a referência (mínimo 3 caracteres) | ponha o comprovante |
+   | `503 payment_age_unknown` | não deu pra saber a idade da cobrança (ou é um trilho sem prazo cadastrado) | tente de novo; se insistir, fale com o time |
+   | `500 restitution_unavailable` | o banco não respondeu — **pode ter gravado** | **confira a conta antes de repetir** |
 
 **No primeiro deploy com isto**: todo pagamento atrasado ANTIGO, sem resposta,
 aparece como `critical` na primeira conciliação da noite. Avise as casas do
 piloto antes, e responda os antigos pelo painel.
 
+## Devolver SÓ o serviço
+
+A mesa pediu a remoção dos 10% depois de pagar? O estorno pelo adquirente
+funciona, mas o razão ainda reparte o valor proporcionalmente entre consumo e
+serviço — parte do serviço devolvido continua contada na base da folha. Está
+nomeado, com o porquê e o gatilho, em
+[`docs/decisions/2026-09-16-devolver-so-o-servico.md`](../decisions/2026-09-16-devolver-so-o-servico.md).
+Enquanto isso, o erro sobra na base de cálculo da folha que o restaurante
+distribui (nunca falta) — mas avise o time de produto quando acontecer, porque é
+o caso que decide o gatilho.
+
+### E a conta VOLTA A COBRAR. Não peça o resto à mesa.
+
+O rateio não abate só a gorjeta: ele abate o **consumo** também, e o total da
+conta não muda. Numa conta de R$ 100,00 + R$ 10,00 de serviço, devolver os
+R$ 10,00 de serviço deixa a conta assim:
+
+| antes | depois |
+| --- | --- |
+| `paga` · pago R$ 100,00 de R$ 100,00 | `parcial` · pago R$ 90,91 de R$ 100,00 |
+
+O telefone de quem está na mesa volta a mostrar **"faltam R$ 9,09"** e o botão de
+pagar — e o QR da mesa é o mesmo, então qualquer pessoa daquela mesa recarrega e
+vê. Uma mesa que já pagou tudo.
+
+**O que fazer, na hora:**
+
+1. **Feche a mesa no painel.** É um toque, e é o caminho que existe na tela:
+   o botão de fechar a conta manda `POST /api/checks/close`. Isso tira o botão
+   de pagar do telefone de quem está na mesa.
+2. **Se a mesa ainda vai consumir**, feche não — ajuste o total para baixo no
+   valor devolvido do consumo (R$ 9,09 no exemplo). **Isto ainda não tem botão**:
+   é chamada de API, com a sua sessão de dono.
+
+   **Mande os ITENS, não só o total.** O ajuste substitui a lista de itens da
+   conta pelo que você mandar; mandando só `totalCents`, a conta inteira vira uma
+   linha só chamada "Total da conta" — e quem está com o telefone na mesa perde o
+   detalhamento E perde o racha POR ITEM, numa mesa que ainda vai pedir. Consertar
+   um problema de transparência quebrando outro não vale (CDC art. 6º III).
+
+   **Item de valor negativo NÃO é aceito** — não existe linha de "desconto". O
+   desconto entra REDUZINDO uma linha que já está lá. No exemplo desta seção a
+   conta era R$ 100,00 e o consumo devolvido foi R$ 9,09, então o total novo é
+   R$ 90,91 (`9091`), e a conta abaixo fecha nesse número:
+
+   ```bash
+   # As mesmas linhas de antes, com a primeira reduzida em 909 (8990 → 8081).
+   # 8081 + 1010 = 9091, que é o total novo.
+   curl -X POST https://<host>/api/checks/adjust \
+     -H 'authorization: Bearer <seu token de sessão>' \
+     -H 'content-type: application/json' \
+     -d '{"checkId":"<uuid da conta>","items":[
+           {"id":"i1","name":"Picanha na chapa","priceCents":8081},
+           {"id":"i2","name":"Chopp artesanal (2x)","priceCents":1010}
+         ]}'
+   ```
+
+   O total novo é a SOMA dos itens — o campo `totalCents` só é lido quando não
+   vêm itens, e é por isso que mandar só ele apaga o detalhamento. Respostas:
+   `200` com o estado novo; `400 item N: valor inválido` se alguma linha vier
+   negativa; `400 a conta não pode ser zero` se a soma der zero; `403` se a
+   sessão não for do dono daquela casa.
+
+   Se a mesa **não** vai consumir mais, prefira o passo 1: fechar é um toque e
+   não mexe no detalhamento.
+3. **O que dizer para quem está com o telefone na mão**, enquanto isso não
+   acontece: *"esta conta já está paga — o valor que aparece é a devolução que
+   acabamos de fazer, e o sistema atualiza em instantes. Não pague de novo."*
+   Ela pode estar olhando a tela agora, e o remédio acima é assíncrono
+   (CDC art. 6º III).
+4. **Nunca peça o resto à mesa.** Isso é cobrança de dívida já quitada
+   (CDC art. 42); se alguém pagar, a casa deve de volta em dobro, mais o serviço
+   que entrou junto — e nasce um excedente para você devolver de novo.
+5. Se ninguém agiu e a conta ficou aberta, a conciliação avisa: o achado
+   **`reopened_by_refund`**, severidade `high`, traz o número que a mesa está
+   vendo. Se a conta também sofreu CHARGEBACK, o código é
+   **`reopened_by_refund_mixed`** e ele traz DOIS números: o que a mesa vê e a
+   parte que veio de devolução — ajuste só por essa parte. O resto é prejuízo da
+   casa, e apagá-lo dos livros é apagar o prejuízo.
+
+**Isto não é do serviço.** Vale para QUALQUER devolução pelo painel do
+adquirente que toque o consumo — item errado, cortesia, engano de valor. O único
+caso que não reabre a conta é a devolução de EXCEDENTE, porque ali o pagamento
+entrou acima do total e o abate só consome a sobra. É por isso que a instrução lá
+em cima manda devolver **pelo excedente** e não pelo total do pagamento.
+
 ## Por onde o dinheiro sai
 
-**Do consumo, nunca da gorjeta.** O excedente entra registrado como consumo, e
-a devolução sai de lá. A gorjeta arrecadada é remuneração do time (Lei
-13.419/2017 + STJ Tema 1102) e não é fundo de onde a casa tira dinheiro pra
-restituir — nem por acidente de arredondamento. Ver `allocateRestitution` em
-`api/_lib/checks/split-engine.js`.
+**O excedente sai do consumo, nunca da gorjeta.** Ele entra registrado como
+consumo, e a devolução sai de lá. A gorjeta arrecadada é remuneração do time
+(Lei 13.419/2017 + STJ Tema 1102) e não é fundo de onde a casa tira dinheiro
+pra restituir — nem por acidente de arredondamento.
+
+**Isto vale pra duplicidade DEPOIS do fecho.** A de antes — duas pessoas pagando
+a conta inteira com segundos de diferença — ainda não tem regra automática, e o
+porquê está em
+[`docs/decisions/2026-09-15-o-servico-da-cobranca-que-duplicou-outra.md`](../decisions/2026-09-15-o-servico-da-cobranca-que-duplicou-outra.md).
+Ali a conciliação avisa (`overpaid_tip_check`) e a conferência é sua.
+
+**A exceção é o serviço de um pagamento que duplicou a conta**, e ela é a mesma
+lei pelo outro lado: 10% sobre uma cobrança que não correspondeu a atendimento
+nenhum nunca foi serviço prestado — é do cliente, e volta inteiro da gorjeta.
+Devolver R$ 110 de uma duplicação de R$ 100 + R$ 10 deixa a base da folha menor
+em exatamente R$ 10, não numa fatia proporcional.
+
+**E num pagamento que chegou depois de fechar e ainda não foi respondido, o
+consumo volta ANTES da gorjeta.** Devolver só o principal (R$ 100 de um Pix de
+R$ 100 + R$ 10) devolve R$ 100 de consumo e zero de serviço — a marca fica
+valendo os R$ 10 que ainda não voltaram, visível no painel. Pelo proporcional,
+voltavam R$ 90,91 de consumo e R$ 9,09 de serviço: sobrava consumo pago, a marca
+não fechava, e ficavam R$ 0,91 de serviço na folha sobre um atendimento que
+talvez nunca tenha existido. Ver `api/_lib/checks/refund-allocation.js`.
 
 ## Antes de emitir: o saldo do recebedor
 

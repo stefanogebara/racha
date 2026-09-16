@@ -923,6 +923,11 @@ describe('o reparo aparece no relatório e no alerta', () => {
           { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
           { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid, amountCents: 10000, tipCents: 0, method: 'pix' } },
           { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid, amountCents: 2000, tipCents: 0, offRail: true, reference: 'caixa', by: 'dona@bar' } },
+          // A conta FECHA depois da devolução — sem isto ela fica `parcial` e o
+          // telefone da mesa volta a mostrar saldo e o botão de pagar, o que hoje
+          // é um achado próprio (`reopened_by_refund`). Aqui o assunto é o REPARO
+          // da linha; misturar os dois faria este teste falhar por outra razão.
+          { seq: 4, type: 'CLOSED', payload: {} },
         ],
         // A linha não sabe do estorno: puro atraso de projeção.
         payments: [{
@@ -1125,6 +1130,11 @@ describe('censo: nenhuma ROTA pede a escrita do reparo', () => {
           { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
           { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix' } },
           { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 0, offRail: true, reference: 'caixa', by: 'd@b' } },
+          // A conta FECHA depois da devolução — sem isto ela fica `parcial` e o
+          // telefone da mesa volta a mostrar saldo e o botão de pagar, o que hoje
+          // é um achado próprio (`reopened_by_refund`). Aqui o assunto é o REPARO
+          // da linha; misturar os dois faria este teste falhar por outra razão.
+          { seq: 4, type: 'CLOSED', payload: {} },
         ],
         payments: [{
           txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
@@ -1160,6 +1170,11 @@ describe('censo: nenhuma ROTA pede a escrita do reparo', () => {
           { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
           { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix' } },
           { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 0, offRail: true, reference: 'caixa', by: 'd@b' } },
+          // A conta FECHA depois da devolução — sem isto ela fica `parcial` e o
+          // telefone da mesa volta a mostrar saldo e o botão de pagar, o que hoje
+          // é um achado próprio (`reopened_by_refund`). Aqui o assunto é o REPARO
+          // da linha; misturar os dois faria este teste falhar por outra razão.
+          { seq: 4, type: 'CLOSED', payload: {} },
         ],
         payments: [{
           txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
@@ -1315,6 +1330,11 @@ describe('prazo e teto: só contam o que era candidato', () => {
         seq: 3, type: 'PAYMENT_REFUNDED',
         payload: { txid: inp.payments[0].txid, amountCents: 2000, tipCents: 0, offRail: true, reference: 'x', by: 'd@b' },
       });
+      // E a conta FECHA. Sem isto ela fica `parcial` e o telefone da mesa volta
+      // a mostrar saldo e o botão de pagar — o que hoje é um achado próprio
+      // (`reopened_by_refund`). Aqui o assunto é o REPARO da linha; misturar os
+      // dois faria estes testes ficarem vermelhos por outra razão.
+      inp.events.push({ seq: 4, type: 'CLOSED', payload: {} });
     }
     return inputs;
   }
@@ -1660,6 +1680,11 @@ describe('o sumidouro sobrevive a um estouro de dentro', () => {
         { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
         { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix' } },
         { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 0, offRail: true, reference: 'x', by: 'd@b' } },
+          // A conta FECHA depois da devolução — sem isto ela fica `parcial` e o
+          // telefone da mesa volta a mostrar saldo e o botão de pagar, o que hoje
+          // é um achado próprio (`reopened_by_refund`). Aqui o assunto é o REPARO
+          // da linha; misturar os dois faria este teste falhar por outra razão.
+          { seq: 4, type: 'CLOSED', payload: {} },
       ],
       payments: [{
         txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,
@@ -2041,6 +2066,11 @@ describe('a batida carrega o tier `info`', () => {
         { seq: 1, type: 'OPENED', payload: { totalCents: 10000, items: [], servicoBp: 0, currency: 'BRL' } },
         { seq: 2, type: 'PAYMENT_CONFIRMED', payload: { txid: 'ch_1', amountCents: 10000, tipCents: 0, method: 'pix' } },
         { seq: 3, type: 'PAYMENT_REFUNDED', payload: { txid: 'ch_1', amountCents: 2000, tipCents: 0, offRail: true, reference: 'x', by: 'd@b' } },
+          // A conta FECHA depois da devolução — sem isto ela fica `parcial` e o
+          // telefone da mesa volta a mostrar saldo e o botão de pagar, o que hoje
+          // é um achado próprio (`reopened_by_refund`). Aqui o assunto é o REPARO
+          // da linha; misturar os dois faria este teste falhar por outra razão.
+          { seq: 4, type: 'CLOSED', payload: {} },
       ],
       payments: [{
         txid: 'ch_1', status: 'confirmado', amountCents: 10000, tipCents: 0,

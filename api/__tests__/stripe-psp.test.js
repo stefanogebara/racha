@@ -66,6 +66,17 @@ describe('stripe adapter — createWalletCharge (destination charge)', () => {
     expect(p.amount).toBe(8800);              // total = consumo + gorjeta
     expect(p.currency).toBe('brl');
     expect(p.transfer_data).toEqual({ destination: 'acct_venue1' }); // sem custódia
+    /**
+     * E O COMERCIANTE DA FATURA É O RESTAURANTE.
+     *
+     * A regra está escrita no cabeçalho do Bizum ("quem cobrou tem que ser quem
+     * o cliente reconhece") e estava aplicada só lá: no cartão, quem aparecia no
+     * app do banco de quem pagou era a PLATAFORMA. A pessoa janta no Bar do Zé e
+     * vê "Racha" na fatura — identificação errada do fornecedor (CDC art. 6º
+     * III) e o traço que caracteriza quem está no fluxo (inegociável #4).
+     * Achado pela revisão de compliance da rodada catorze.
+     */
+    expect(p.on_behalf_of).toBe('acct_venue1');
     expect(p.metadata.tip_cents).toBe('800'); // gorjeta separada (Lei 13.419)
     expect(p.metadata.wallet).toBe('apple_pay');
     expect(p.application_fee_amount).toBeUndefined(); // 0 → omitido
@@ -661,4 +672,21 @@ describe('a taxa da plataforma não incide sobre a GORJETA', () => {
     });
     expect(r.txid).toBe('pi_x');
   });
+});
+
+test('o `refund.failed` leva o id do ESTORNO — é o que separa as duas entregas', async () => {
+  /**
+   * A mesma falha chega em `refund.failed` E `refund.updated` com status
+   * `failed`, com `evt_` DIFERENTES: nem a chave do evento nem o índice único os
+   * separam. Sem o `re_`, a segunda entrega revertia de novo e apagava do razão
+   * um estorno que SAIU — o telefone voltava a anunciar a dívida e a casa pagava
+   * duas vezes (segurança HIGH-1 de 11a0904).
+   */
+  const event = {
+    type: 'refund.failed', livemode: false,
+    data: { object: { id: 're_abc', object: 'refund', payment_intent: 'pi_1', amount: 900, status: 'failed' } },
+  };
+  const psp = mk({ webhookSecret: 'whsec_x' }, stubStripe({ event }));
+  const parsed = await psp.verifyAndParseWebhook('{raw}', { 'stripe-signature': 't=1,v1=abc' });
+  expect(parsed).toMatchObject({ kind: 'refund_failed', txid: 'pi_1', amountCents: 900, refundId: 're_abc' });
 });

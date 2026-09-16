@@ -757,3 +757,41 @@ test('cobranças fora do adquirente viram UM achado, não um por cobrança', asy
   // E o agregado NÃO dispara por cima: a pergunta já foi respondida.
   expect(achados.some((f) => f.code === 'payables_never_verified')).toBe(false);
 });
+
+describe('cobrança de OUTRO trilho na perna deste adquirente', () => {
+  /**
+   * Eu escrevi na rodada doze uma guarda `payables_leg_missing` pro adaptador
+   * que não sabe listar repasse. Ela era INALCANÇÁVEL: o `psp` da conciliação é
+   * o adaptador único do processo, que em produção é a Pagar.me — e ela TEM a
+   * perna. A guarda nunca dispararia, nem pra casa que cobra por outro trilho
+   * (compliance MEDIUM-D da rodada treze).
+   *
+   * O caso já era coberto, e melhor: uma cobrança que este adquirente não
+   * reconhece vira `charge_not_from_acquirer`, `high`, uma por casa com a
+   * contagem. O que estava errado ali era a FRASE — ela dizia que a cobrança
+   * "não passou pelo adquirente", e uma cobrança da Stripe passou por um; só não
+   * por este.
+   */
+  const { reconcilePayablesLeg } = require('../_lib/checks/reconcile-daily');
+  const casa = { id: 'v1', name: 'Casa', pspRecipientId: 're_x', recebedorOk: true, isTest: false };
+
+  test('a frase nomeia ESTE adquirente, e não afirma que não houve nenhum', async () => {
+    const store = {
+      listRecentConfirmedCharges: async () => [
+        { txid: 'pi_3Q', checkId: 'c1', paidAmountCents: 5000, method: 'card' },
+      ],
+    };
+    const psp = { provider: 'pagarme', listChargePayables: async () => ({ notFromAcquirer: true }) };
+    const achados = await reconcilePayablesLeg(store, psp, casa, {});
+    const fora = achados.filter((f) => f.code === 'charge_not_from_acquirer');
+    expect(fora.length).toBe(1);
+    expect(fora[0].severity).toBe('high');
+    // O provider entra na frase: é o que diz QUAL perna não alcança a cobrança.
+    expect(fora[0].message).toMatch(/pagarme/);
+    expect(fora[0].message).toMatch(/ESTE adquirente/);
+  });
+
+  test('sem adquirente nenhum (store de memória) continua silêncio', async () => {
+    expect(await reconcilePayablesLeg({ listRecentConfirmedCharges: async () => [] }, null, casa, {})).toEqual([]);
+  });
+});

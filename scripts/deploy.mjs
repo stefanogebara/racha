@@ -117,16 +117,27 @@ process.stdout.write('✓ RACHA_NOTIFY_SECRET configurado em production\n');
 // recebe BR Code de mentira (auditoria de backend C1). A API recusa as rotas de
 // dinheiro nos dois casos — e o deploy nem começa. Os valores não são segredo:
 // dá pra dizer qual está errado.
-for (const [chave, esperado] of [['RACHA_STORE', 'supabase'], ['RACHA_PSP', 'pagarme']]) {
+// `RACHA_ENV` entra na lista porque o portão do runtime não pode depender das
+// variáveis de SISTEMA da Vercel: `VERCEL` e `VERCEL_ENV` saem da mesma chave do
+// projeto, e com ela desligada o router não tinha como saber que estava em
+// produção (segurança HIGH-1 de ec86b37). Agora o ambiente é nosso, e é aqui que
+// se exige que ele esteja lá.
+for (const [chave, esperado] of [['RACHA_STORE', 'supabase'], ['RACHA_PSP', 'pagarme'], ['RACHA_ENV', 'production']]) {
   const env = (envs.envs || []).find((e) => e.key === chave && (e.target || []).includes('production'));
   let valor = null;
   if (env && env.id) {
     const det = await fetch(`https://api.vercel.com/v1/projects/${PROJECT_ID}/env/${env.id}?teamId=${TEAM_ID}`, { headers })
       .then((r) => r.json()).catch(() => ({}));
-    valor = det && typeof det.value === 'string' ? det.value.trim() : null;
+    // CRU, sem `.trim()`. O valor colado com um espaço é um ERRO a corrigir no
+    // painel, não algo a acomodar em silêncio: a rodada ec86b37 mostrou o que
+    // acontece quando um lado tolera o espaço e o outro não — portão verde,
+    // adaptador de mentira, casa de verdade cobrando (CRITICAL-1). Todos os
+    // leitores normalizam hoje; ainda assim, o certo é o valor estar certo.
+    valor = det && typeof det.value === 'string' ? det.value : null;
   }
   if (valor !== esperado) {
-    process.stderr.write(`\n✗ ${chave} em production está ${valor === null ? 'AUSENTE' : `"${valor}"`}, e precisa ser "${esperado}" — deploy ABORTADO.\n`);
+    const comEspaco = typeof valor === 'string' && valor.trim() === esperado;
+    process.stderr.write(`\n✗ ${chave} em production está ${valor === null ? 'AUSENTE' : `"${valor}"`}, e precisa ser "${esperado}"${comEspaco ? ' — há ESPAÇO sobrando no valor colado' : ''} — deploy ABORTADO.\n`);
     process.exit(1);
   }
   process.stdout.write(`✓ ${chave}=${esperado} em production\n`);

@@ -195,6 +195,17 @@ const SAIDA_SEM_PORTAO = {
 const SAIDA_FORA_DE_ROTA = [
   // LINHAS INTEIRAS, uma ocorrência cada. Ver o teste.
   //
+  // O PREDICADO DO PORTÃO, não uma saída. `psp.provider` é LEITURA de
+  // propriedade — a pergunta "o adaptador que sobrou é o que recusa?" — e é ela
+  // que fecha as rotas de dinheiro e pagina o fundador quando a plataforma está
+  // quebrada. O censo casa `psp.` seguido de letra de propósito, pra que método
+  // novo entre coberto sem ninguém lembrar, e estreitar esse padrão pra poupar
+  // esta linha cegaria o censo inteiro. Então ela é DECLARADA: a alternativa
+  // (olhar só a lista de envs faltando) deixava passar o apagão em que as envs
+  // estão certas e a `PAGARME_SECRET_KEY` é inválida — nenhuma rota fechava e
+  // ninguém era paginado (segurança MEDIUM-2 de ec86b37).
+  "const PLATAFORMA_QUEBRADA = () => CONFIG_DE_PRODUCAO_FALTANDO.length > 0 || psp.provider === 'unconfigured';",
+  //
   // A FÁBRICA dos dois serviços de cobrança. Elas não chamam nada: constroem o
   // serviço que as rotas chamam, e as rotas estão declaradas ou gateadas.
   // O `require` da fábrica: o caminho `create-charge` casa o singleton `charge`.

@@ -252,6 +252,89 @@ d(temPg ? 'o teto no Postgres de verdade (migração 0033)' : 'o teto no Postgre
     expect(Q("select window_seconds from charge_slots where slot_key = 'janela:x'")).toBe('3600');
   });
 
+  /**
+   * O LANÇAMENTO CONDICIONAL DA 0034, no Postgres de verdade.
+   *
+   * O gêmeo em memória prova a regra; só aqui se prova que a TRAVA trava. Duas
+   * sessões de verdade, cada uma autorizada pela mesma leitura do razão, é o
+   * cenário exato que a revisão mediu: sem a conferência dentro da trava, as
+   * duas gravam e a devolução sai pelo dobro do direito.
+   */
+  describe('0034 — compare-and-append', () => {
+    let conta = null;
+    beforeAll(() => {
+      Q(`insert into venues (id, name, cnpj) values ('11111111-1111-4111-8111-111111111111', 'Casa 0034', '11222333000181')
+         on conflict do nothing;
+         insert into venue_tables (id, venue_id, label) values ('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111', 'Mesa 1')
+         on conflict do nothing;`);
+      conta = Q(`insert into checks (venue_id, table_id, total_cents) values
+        ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', 10000) returning id;`).trim();
+      Q(`select append_check_event('${conta}'::uuid, 'OPENED', '{"totalCents":10000}'::jsonb);`);
+    });
+
+    test('grava quando o razão está no seq esperado, e RECUSA com 40001 quando andou', () => {
+      const seq = Number(Q(`select append_check_event_if_unchanged('${conta}'::uuid, 'PAYMENT_CONFIRMED',
+        '{"txid":"t1","amountCents":10000,"tipCents":0,"method":"pix"}'::jsonb, null, 1);`));
+      expect(seq).toBe(2);
+      // O MESMO seq esperado, de novo: o razão andou.
+      const erro = QErr(`select append_check_event_if_unchanged('${conta}'::uuid, 'CLOSED', '{}'::jsonb, null, 1);`);
+      expect(erro).toMatch(/o razão mudou/);
+      // E nada foi gravado.
+      expect(Number(Q(`select count(*) from check_events where check_id = '${conta}'::uuid;`))).toBe(2);
+    });
+
+    test('seq esperado AUSENTE é recusado — o portão não pode ser pulado por omissão', () => {
+      expect(QErr(`select append_check_event_if_unchanged('${conta}'::uuid, 'CLOSED', '{}'::jsonb, null, null);`))
+        .toMatch(/expected_seq obrigatório/);
+    });
+
+    test('DUAS sessões de verdade na mesma leitura: uma grava, a outra é recusada', async () => {
+      const antes = Number(Q(`select coalesce(max(seq), 0) from check_events where check_id = '${conta}'::uuid;`));
+      const payload = (ref) => `'{"txid":"t1","amountCents":100,"tipCents":0,"offRail":true,"reference":"${ref}"}'::jsonb`;
+      const [a, b] = await Promise.all([
+        Qa(`select append_check_event_if_unchanged('${conta}'::uuid, 'PAYMENT_REFUNDED', ${payload('E2E-A')}, null, ${antes});`),
+        Qa(`select append_check_event_if_unchanged('${conta}'::uuid, 'PAYMENT_REFUNDED', ${payload('E2E-B')}, null, ${antes});`),
+      ]);
+      const falhas = [a, b].filter((r) => /ERRO/.test(r));
+      expect(falhas.length).toBe(1);
+      expect(falhas[0]).toMatch(/o razão mudou/);
+      expect(Number(Q(`select count(*) from check_events where check_id = '${conta}'::uuid;`))).toBe(antes + 1);
+    });
+
+    test('a MESMA referência não entra duas vezes — caixa e espaço não criam outra', () => {
+      const seq = Number(Q(`select coalesce(max(seq), 0) from check_events where check_id = '${conta}'::uuid;`));
+      // A que venceu a corrida acima — seja qual for.
+      const gravada = Q(`select payload->>'reference' from check_events
+        where check_id = '${conta}'::uuid and type = 'PAYMENT_REFUNDED' order by seq limit 1;`).trim();
+      expect(gravada).toMatch(/^E2E-[AB]$/);
+      // O mesmo comprovante, como ele volta colado de outro lugar.
+      const repetida = `  ${gravada.toLowerCase()} `;
+      const erro = QErr(`select append_check_event_if_unchanged('${conta}'::uuid, 'PAYMENT_REFUNDED',
+        '{"txid":"t1","amountCents":100,"tipCents":0,"offRail":true,"reference":"${repetida}"}'::jsonb, null, ${seq});`);
+      expect(erro).toMatch(/check_events_offrail_refund_uidx|duplicate key/);
+      // E a OUTRA referência, que é outro ato, entra.
+      const outra = gravada === 'E2E-A' ? 'E2E-Z' : 'E2E-Y';
+      expect(QErr(`select append_check_event_if_unchanged('${conta}'::uuid, 'PAYMENT_REFUNDED',
+        '{"txid":"t1","amountCents":100,"tipCents":0,"offRail":true,"reference":"${outra}"}'::jsonb, null, ${seq});`))
+        .toBeNull();
+    });
+
+    test('uma devolução NO TRILHO (sem offRail) não entra no índice — pode repetir referência', () => {
+      const seq = Number(Q(`select coalesce(max(seq), 0) from check_events where check_id = '${conta}'::uuid;`));
+      const erro = QErr(`select append_check_event_if_unchanged('${conta}'::uuid, 'PAYMENT_REFUNDED',
+        '{"txid":"t1","amountCents":1,"tipCents":0,"reference":"E2E-A"}'::jsonb, null, ${seq});`);
+      expect(erro).toBeNull();
+    });
+
+    test('anon e authenticated não executam o lançamento condicional', () => {
+      for (const papel of ['anon', 'authenticated']) {
+        Q(`do $$ begin if not exists (select 1 from pg_roles where rolname = '${papel}') then create role ${papel}; end if; end $$;`);
+        expect(QErr(`set role ${papel}; select append_check_event_if_unchanged('${conta}'::uuid, 'CLOSED', '{}'::jsonb, null, 1);`))
+          .toMatch(/permission denied|permissão negada/i);
+      }
+    });
+  });
+
   test('anon e authenticated não executam nem leem', () => {
     expect(QErr('set role anon; select charge_slots_fingerprint()')).toMatch(/permission denied/);
     expect(QErr("set role anon; select claim_slots(array['check:x'], array[1], 900)")).toMatch(/permission denied/);

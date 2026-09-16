@@ -34,6 +34,7 @@ const BizumPay = lazy(() => import('./BizumPay'));
 import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, splitEqualLocal, type SplitMode } from './split';
 import { formatTaxId } from './br';
+import { refDoPagamento } from './pagamento-ref';
 
 import { lembrarToken, tokenDaVolta, voltandoDePagamento } from './payReturn';
 
@@ -176,9 +177,22 @@ export default function App() {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(() => new Set());
   const [servicoOn, setServicoOn] = useState(true);
   const [payerLabel, setPayerLabel] = useState('');
-  // CPF do pagador: o adquirente exige o documento do customer em TODO
-  // método (Pix e cartão) — padrão de checkout brasileiro. Um campo só,
-  // compartilhado com o Google Pay.
+  /**
+   * CPF do pagador. QUEM EXIGE É O GATEWAY, e cada um exige de um jeito.
+   *
+   * Este comentário dizia "o adquirente exige o documento do customer em TODO
+   * método (Pix e cartão) — padrão de checkout brasileiro". É falso, e é falso
+   * contra outro arquivo deste repositório: o adaptador da Stripe RECEBE o campo
+   * e o descarta, com oito linhas explicando a minimização. A Pagar.me exige
+   * (Pix e Google Pay); a Stripe não.
+   *
+   * A crença escrita aqui produziu duas redações erradas do aviso ao cliente em
+   * rodadas seguidas — uma afirmando um destino que não existia, outra negando
+   * um que existia. É o lugar onde alguém lê antes de escrever a terceira
+   * (compliance MEDIUM-2 da rodada catorze).
+   *
+   * Um campo só, compartilhado com o Google Pay.
+   */
   const [cpf, setCpf] = useState('');
   const cpfDigits = cpf.replace(/\D/g, '');
   // Antes o botão de pagar exigia CPF pra HABILITAR — ficava cinza em silêncio e
@@ -190,7 +204,9 @@ export default function App() {
   const [charge, setCharge] = useState<ChargeResult | null>(null);
   // Quanto já estava pago no instante em que criei MINHA cobrança — quando o
   // pago passar disso, é a minha que caiu → avança pro ✓ sozinho.
-  const [paidBaseline, setPaidBaseline] = useState<number | null>(null);
+  // A MARCA da minha cobrança na conta pública (ver `pagamento-ref.ts`). O ✓
+  // espera ESTA marca cair — não o total da mesa subir.
+  const [ownRef, setOwnRef] = useState<string | null>(null);
   /** Quando o pagamento foi confirmado NESTA sessão — o carimbo do comprovante.
    *  Fixado na transição, não no render: no render ele andaria a cada poll. */
   const [paidAt, setPaidAt] = useState<string | null>(null);
@@ -198,6 +214,7 @@ export default function App() {
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [demoGone, setDemoGone] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   // Para de fazer polling quando a conta some no meio do redeem (fechou/girou).
   const [polling, setPolling] = useState(true);
   // O intervalo do poll, que cresce no 404 e volta ao normal no acerto.
@@ -303,14 +320,18 @@ export default function App() {
     }
   }, [view, houseChecked, token]);
 
-  // Auto-avança pro ✓ quando o pagamento cai — webhook real OU Simulador da
-  // demo, sem depender de botão. Vale pro diner REAL: paguei no banco → vejo a
-  // confirmação sozinho (antes ficava travado na tela do código Pix).
+  // Auto-avança pro ✓ quando o MEU pagamento cai — webhook real OU Simulador da
+  // demo, sem depender de botão. Comparava o `paidCents` da MESA com o de antes
+  // da minha cobrança: qualquer pagamento servia, e numa mesa em que quatro
+  // pessoas pagam juntas, o telefone de quem ainda não tinha pago dizia
+  // "Pagamento confirmado — você pagou" (auditoria de fluxo, CRITICAL-1). Agora
+  // espera a marca da PRÓPRIA cobrança aparecer entre os pagamentos da conta.
   useEffect(() => {
-    if (step === 'pagar' && charge && paidBaseline !== null && view && view.state.paidCents > paidBaseline) {
+    if (step === 'pagar' && charge && ownRef && view
+        && Object.values(view.state.payments || {}).some((p) => p.ref === ownRef)) {
       setPaidAt(new Date().toISOString()); setStep('pago');
     }
-  }, [view, step, charge, paidBaseline]);
+  }, [view, step, charge, ownRef]);
 
   // O ✓ é o momento-prova do demo de prospecção: o lead PAGOU a conta de
   // mentira. Cobre os dois caminhos até 'pago' (webhook e redeem de saldo).
@@ -397,13 +418,22 @@ export default function App() {
     setCpfHint(false);
     setPayError(null);
     try {
-      setPaidBaseline(state.paidCents); // baseline ANTES da minha cobrança cair
+      setOwnRef(null); // a marca da cobrança NOVA chega com ela, abaixo
       // `undefined`, não '' — não pedimos documento neste mercado, então não
       // mandamos um campo vazio pra ser validado como se tivesse sido pedido.
       const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null,
                                    taxIdRequired ? cpfDigits : undefined,
                                    primaryRail === 'bizum' ? 'bizum' : 'pix');
       setCharge(result);
+      // A MARCA que faz esta tela reconhecer o PRÓPRIO pagamento. Sem
+      // `crypto.subtle` (contexto não-seguro, WebView velha) ela não existe, e
+      // aí NENHUM caminho leva de `pagar` a `pago` numa casa de verdade: a
+      // pessoa paga e a tela continua mostrando o copia-e-cola, o que convida a
+      // pagar de novo (CDC art. 42 § único) e não dá comprovante nenhum
+      // (art. 6º III). O aviso abaixo cobre isso — e o `.catch` existe porque
+      // uma promessa rejeitada aqui deixava `ownRef` nulo em silêncio
+      // (compliance MEDIUM-6 de ec86b37).
+      void refDoPagamento(result.txid).then(setOwnRef).catch(() => setOwnRef(null));
       setStep('pagar');
       setCopied(false);
     } catch (e) {
@@ -436,8 +466,16 @@ export default function App() {
 
   async function onCopy() {
     if (!charge || !charge.copiaECola) return;
-    await navigator.clipboard.writeText(charge.copiaECola).catch(() => {});
-    setCopied(true);
+    // COPIADO SÓ QUANDO COPIOU. `writeText` falha no navegador embutido do
+    // WhatsApp e do Instagram, fora de HTTPS ou sem permissão — e a tela dizia
+    // "copiado" assim mesmo: a pessoa abria o banco e colava nada, e o código na
+    // tela vinha cortado em 64 caracteres (auditoria de UI, C1).
+    try {
+      await navigator.clipboard.writeText(charge.copiaECola);
+      setCopied(true); setCopyFailed(false);
+    } catch {
+      setCopied(false); setCopyFailed(true);
+    }
   }
 
   // Demo affordance: stands in for the diner's bank app.
@@ -487,23 +525,30 @@ export default function App() {
             <p className="muted small center">{t('bizum.how')}</p>
           ) : (
             <>
-              <div className="codebox" aria-label={t('pix.aria')}>
-                {(charge.copiaECola ?? '').slice(0, 64)}…
+              <div className="codebox selectable" aria-label={t('pix.aria')}>
+                {charge.copiaECola ?? ''}
               </div>
               <button className="cta" onClick={onCopy}>
                 {copied ? t('pix.copied') : t('pix.copy')}
               </button>
+              {copyFailed && <p className="muted small center" role="status">{t('pix.copyFailed')}</p>}
               <p className="muted small center">
                 {t('pix.how')}
               </p>
             </>
           )}
-          {!demoGone && (
+          {/* O botão de SIMULAR só na casa de demonstração. Aparecia pra todo
+              cliente de verdade, embaixo do Pix de verdade, até um toque devolver
+              404 (auditorias de fluxo H2 e de UI H3). */}
+          {venue.demo === true && !demoGone && (
             <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
               {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>
           )}
-          {confirmError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{confirmError}</p>}
+          {confirmError && <p className="muted small" style={{ color: 'var(--alerta)' }}>{confirmError}</p>}
+          {/* Este telefone não consegue calcular a própria marca: avisa, em vez
+              de esperar por um ✓ que não vem. */}
+          {ownRef === null && <p className="muted small center">{t('pix.noAutoConfirm')}</p>}
           <button className="linklike" onClick={() => setStep('conta')}>{t('common.back')}</button>
         </section>
       </Shell>
@@ -802,7 +847,11 @@ export default function App() {
               num bar, é também o motivo de alguém desistir de pagar. O destino
               é verdade conferida: `create-charge.js` manda pro PSP e o
               `registerCharge` NÃO guarda; webhook que traz CPF passa pelo
-              `maskTaxId`. */}
+              descarte — a máscara do webhook é lista de PERMISSÃO de escalares e
+              o documento vem aninhado, então ele não tem caminho pro banco.
+              (Aqui dizia "passa pelo `maskTaxId`", e esse ramo foi apagado da
+              máscara: o resultado é mais forte, a frase é que apontava pra um
+              controle inexistente.) */}
           {taxIdRequired && <p className="muted small" id="cpf-why">{t('payer.cpfWhy')}</p>}
           {taxIdRequired && cpfHint && cpfDigits.length !== 11 && (
             <p className="small" style={{ color: 'var(--burgundy)' }}>{t('payer.cpfHint')}</p>
@@ -832,7 +881,7 @@ export default function App() {
                 payerLabel={payerLabel.trim() || null}
                 amountLabel={brl(totalToPay)}
                 disabled={totalToPay === 0}
-                onAuthorized={() => { setPaidBaseline(state.paidCents); }}
+                onAuthorized={() => { /* o ✓ do Bizum depende da marca da cobrança — Espanha desligada; ver o backlog */ }}
               />
               </Suspense>
               {!STRIPE_READY && (

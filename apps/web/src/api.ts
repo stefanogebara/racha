@@ -47,6 +47,15 @@ export interface CheckView {
      *  Ver `api/_lib/checks/public-state.js`. */
     anomalies: number;
     /**
+     * Os pagamentos da mesa, pelo ordinal (`p1`, `p2`) e SEM o id do adquirente.
+     * `ref` é o sha256 do txid em doze hex: o telefone reconhece o PRÓPRIO
+     * pagamento sem conhecer o de ninguém (ver `pagamento-ref.ts`).
+     */
+    payments?: Record<string, {
+      ref?: string; amountCents: number; tipCents: number;
+      refundedAmountCents: number; refundedTipCents: number; late: boolean;
+    }>;
+    /**
      * Avisos DO CLIENTE sobre o próprio dinheiro: código estável + centavos, a
      * traduzir e formatar aqui (o servidor nunca manda texto de erro nem
      * dinheiro formatado). Nada da postura da casa entra nesta lista —
@@ -96,7 +105,8 @@ export interface HouseLedgerEntry {
 }
 
 export interface HouseAccountView {
-  venue: { name: string };
+  /** `demo`: só a casa de demonstração mostra o botão de simular a confirmação. */
+  venue: { name: string; demo?: boolean };
   config: { bonusBp: number; validityDays: number };
   account: {
     name: string;

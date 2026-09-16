@@ -133,7 +133,17 @@ test('a rota do Stripe conhece exatamente as mesmas espécies que o portão', ()
   // O bloco de despacho da rota do Stripe: `parsed.kind === '…'` dentro dela.
   const inicio = src.indexOf("url.pathname === '/api/webhooks/stripe'");
   expect(inicio).toBeGreaterThan(0);
-  const bloco = src.slice(inicio, inicio + 12000);
+  /**
+   * ATÉ A PRÓXIMA ROTA, e não uma janela de N caracteres.
+   *
+   * Era `slice(inicio, inicio + 12000)`. Um comentário acrescentado no meio da
+   * rota empurrou parte do despacho pra fora da janela e o censo passou a
+   * acusar espécies "faltando" que estão lá — uma janela fixa envelhece junto
+   * com o arquivo, e o jeito dela falhar é acusar o inocente, que morre igual a
+   * absolver o culpado. É o mesmo recorte que o `non-ledger.test.js` já usa.
+   */
+  const fimDaRota = src.indexOf("url.pathname === '", inicio + 40);
+  const bloco = src.slice(inicio, fimDaRota > inicio ? fimDaRota : undefined);
   const naRota = new Set([...bloco.matchAll(/parsed\.kind === '([a-z_]+)'/g)].map((m) => m[1]));
 
   // Toda espécie que NÃO move o razão precisa estar tratada na rota — senão
@@ -304,33 +314,53 @@ describe('censo das chaves de idempotência', () => {
     expect(arquivos.length).toBeGreaterThanOrEqual(4);
     const semSufixo = [];
     for (const rel of arquivos) {
-      const src = fs.readFileSync(path.join(raiz, rel), 'utf8');
-      // Appends de ANOMALIA e de FECHO: os dois tipos que acompanham outro
-      // lançamento na mesma entrega. O lançamento principal usa a chave pura,
-      // e é assim que tem que ser.
-      const alvos = [/PAYMENT_ANOMALY[\s\S]{0,600}?\}\s*,\s*([^)]*)\)/g,
-        /PAYMENT_DISPUTE_CLOSED[\s\S]{0,300}?\}\s*,\s*([^)]*)\)/g];
-      for (const re of alvos) {
-        for (const m of src.matchAll(re)) {
-          const chave = m[1];
-          if (!/eventId/.test(chave)) continue;      // não passa evento: nada a conferir
-          if (!/`\$\{[^}]*eventId[^}]*\}:/.test(chave)) {
-            semSufixo.push(`${rel}: ${chave.trim().slice(0, 60)}`);
-          }
-        }
-      }
+      semSufixo.push(...varrerChaves(rel, fs.readFileSync(path.join(raiz, rel), 'utf8')));
     }
     expect(semSufixo).toEqual([]);
   });
 
-  test('o censo não passa por regex quebrado — ele ENXERGA os dois sufixos de hoje', () => {
-    const src = arquivos();
-    expect(src).toMatch(/`\$\{parsed\.eventId\}:closed`/);
-    expect(src).toMatch(/`\$\{parsed\.eventId\}:out_of_order`/);
-  });
-
-  function arquivos() {
-    return ['_lib/pay/webhook-handler.js', '_app/router.js']
-      .map((rel) => fs.readFileSync(path.join(raiz, rel), 'utf8')).join('\n');
+  /**
+   * O SCANNER, extraído — porque a prova de que ele enxerga é rodá-lo.
+   *
+   * A versão anterior desta prova era `expect(fonte).toMatch(/:out_of_order`/)`:
+   * ela afirmava a GRAFIA de duas chaves de hoje pra mostrar que o censo não
+   * estava cego. Testar grafia é o que morre primeiro — o dia em que as chaves
+   * passaram a sair de um ajudante (`gritar(chave, …)`), as duas grafias
+   * sumiram do arquivo, o censo continuou correto e a prova dele quebrou. Pior
+   * seria o contrário: as grafias ficarem e o censo quebrar.
+   */
+  function varrerChaves(rel, src) {
+    // Appends de ANOMALIA e de FECHO: os dois tipos que acompanham outro
+    // lançamento na mesma entrega. O lançamento principal usa a chave pura,
+    // e é assim que tem que ser.
+    const alvos = [/PAYMENT_ANOMALY[\s\S]{0,600}?\}\s*,\s*([^)]*)\)/g,
+      /PAYMENT_DISPUTE_CLOSED[\s\S]{0,300}?\}\s*,\s*([^)]*)\)/g];
+    const fora = [];
+    for (const re of alvos) {
+      for (const m of src.matchAll(re)) {
+        const chave = m[1];
+        if (!/eventId/.test(chave)) continue;      // não passa evento: nada a conferir
+        if (!/`\$\{[^}]*eventId[^}]*\}:/.test(chave)) {
+          fora.push(`${rel}: ${chave.trim().slice(0, 60)}`);
+        }
+      }
+    }
+    return fora;
   }
+
+  test('o censo ENXERGA — medido sobre fontes sintéticas, não pela grafia', () => {
+    // A chave PURA é o defeito: ela queima a idempotência do próprio evento.
+    const cru = `await appendEvent(id, 'PAYMENT_ANOMALY', { txid, reason: 'x' }, parsed.eventId);`;
+    expect(varrerChaves('falso.js', cru).length).toBe(1);
+    // Com sufixo, literal — a forma antiga.
+    const literal = 'await appendEvent(id, \'PAYMENT_ANOMALY\', { txid, reason: \'x\' }, `${parsed.eventId}:out_of_order`);';
+    expect(varrerChaves('falso.js', literal)).toEqual([]);
+    // Com sufixo VINDO DE VARIÁVEL — a forma de hoje, que a prova por grafia
+    // não conseguia ver.
+    const ajudante = 'await appendEvent(id, \'PAYMENT_ANOMALY\', { txid, reason }, `${parsed.eventId}:${chave}`);';
+    expect(varrerChaves('falso.js', ajudante)).toEqual([]);
+    // E uma chave que nem passa o evento continua fora do censo.
+    const semEvento = `await appendEvent(id, 'PAYMENT_ANOMALY', { txid, reason: 'x' }, null);`;
+    expect(varrerChaves('falso.js', semEvento)).toEqual([]);
+  });
 });

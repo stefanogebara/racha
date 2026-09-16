@@ -183,7 +183,30 @@ describe('toda rota que lê documento do corpo o confere', () => {
   }];
 
   test('cada leitura de documento está a poucas linhas de uma conferência', () => {
-    const linhas = ROUTER.split('\n');
+    /**
+     * A JANELA É DE CÓDIGO, não de linhas do arquivo.
+     *
+     * O censo já ignorava comentário na hora de decidir se a linha LÊ um
+     * documento — e não ignorava na hora de medir a distância até a conferência.
+     * Então um parágrafo acrescentado entre a leitura e a guarda empurrava a
+     * guarda pra fora da janela e o censo acusava um inocente. Aconteceu: seis
+     * linhas de comentário sobre a máscara do CPF derrubaram três leituras que
+     * estão conferidas.
+     *
+     * Um censo que falha por causa de prosa é um censo que alguém afrouxa. As
+     * linhas em branco e as de comentário puro saem da contagem; os índices
+     * reportados continuam sendo os do arquivo, porque é por eles que se
+     * procura.
+     */
+    const linhasCruas = ROUTER.split('\n');
+    const linhas = [];
+    const indiceReal = [];
+    linhasCruas.forEach((linha, i) => {
+      const codigo = linha.replace(/(^|[^:])\/\/.*$/, '$1');
+      if (!codigo.trim() || /^\s*[*/]/.test(codigo)) return;
+      linhas.push(codigo);
+      indiceReal.push(i);
+    });
     const semGuarda = [];
     const nomes = new Set();
     linhas.forEach((linha, i) => {
@@ -195,7 +218,7 @@ describe('toda rota que lê documento do corpo o confere', () => {
       achou.forEach((m) => nomes.add(m[1]));
       if (DISPENSADAS.some((d) => codigo.includes(d.trecho))) return;
       const janela = linhas.slice(Math.max(0, i - 16), i + 8).join('\n');
-      if (!CONFEREM.test(janela)) semGuarda.push(`router.js:${i + 1}  ${linha.trim().slice(0, 100)}`);
+      if (!CONFEREM.test(janela)) semGuarda.push(`router.js:${indiceReal[i] + 1}  ${linha.trim().slice(0, 100)}`);
     });
     // Um censo que anda em zero leituras passa calado.
     expect(nomes.size).toBeGreaterThanOrEqual(3);

@@ -45,6 +45,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
   const [custom, setCustom] = useState('');
   const [charge, setCharge] = useState<HouseLoadResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [confirming, setConfirming] = useState(false);
   // TOQUE DUPLO na recarga gastava duas das vagas da conta — o mesmo defeito do
   // botão de pagar, consertado só lá. Revisão de compliance de 2026-09-15.
@@ -88,8 +89,16 @@ function WalletView({ accountToken }: { accountToken: string }) {
 
   async function onCopy() {
     if (!charge) return;
-    await navigator.clipboard.writeText(charge.copiaECola).catch(() => {});
-    setCopied(true);
+    // COPIADO SÓ QUANDO COPIOU. `writeText` falha no navegador embutido do
+    // WhatsApp e do Instagram, fora de HTTPS ou sem permissão — e a tela dizia
+    // "copiado" assim mesmo: a pessoa abria o banco e colava nada, e o código na
+    // tela vinha cortado em 64 caracteres (auditoria de UI, C1).
+    try {
+      await navigator.clipboard.writeText(charge.copiaECola);
+      setCopied(true); setCopyFailed(false);
+    } catch {
+      setCopied(false); setCopyFailed(true);
+    }
   }
 
   // Demo affordance: stands in for the diner's bank app (mesmo padrão do App).
@@ -141,16 +150,18 @@ function WalletView({ accountToken }: { accountToken: string }) {
             </>
           )}
           <p className="muted small">{t('wallet.refundable')}</p>
-          <div className="codebox" aria-label={t('pix.aria')}>
-            {charge.copiaECola.slice(0, 64)}…
+          <div className="codebox selectable" aria-label={t('pix.aria')}>
+            {charge.copiaECola}
           </div>
           <button className="cta" onClick={onCopy}>
             {copied ? t('pix.copied') : t('pix.copy')}
           </button>
+          {copyFailed && <p className="muted small center" role="status">{t('pix.copyFailed')}</p>}
           <p className="muted small center">
             {t('pix.how')}
           </p>
-          {!demoGone && (
+          {/* SIMULAR só na casa de demonstração (auditorias de fluxo H2 e de UI H3). */}
+          {venue.demo === true && !demoGone && (
             <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
               {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>

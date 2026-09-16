@@ -146,7 +146,7 @@ describe('estorno que FALHOU', () => {
     expect(st.paidCents).toBe(3082 - 455);
 
     const r = await applyConfirmedPayment({
-      kind: 'refund_failed', txid: 'pi_x', amountCents: 500, status: 'failed',
+      kind: 'refund_failed', txid: 'pi_x', amountCents: 500, status: 'failed', refundId: 're_a',
     }, deps);
     expect(r.status).toBe('appended');
 
@@ -171,7 +171,7 @@ describe('estorno que FALHOU', () => {
       amount: meio.payments.pi_x.refundedAmountCents,
       tip: meio.payments.pi_x.refundedTipCents,
     };
-    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 777 }, deps);
+    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 777, refundId: 're_b' }, deps);
     const fim = await estado(store, check.id);
     // Devolveu exatamente o que tirou, centavo por centavo.
     expect(tirado.amount + tirado.tip).toBe(777);
@@ -195,7 +195,7 @@ describe('estorno que FALHOU', () => {
     // sistema, não no contador de falhas da Stripe. Achado pela revisão de
     // segurança de 2026-09-08.
     const { store, check, deps } = await mesaPaga();
-    const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500 }, deps);
+    const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500, refundId: 're_c' }, deps);
     expect(r.status).toBe('out_of_order');
 
     const st = await estado(store, check.id);
@@ -209,7 +209,7 @@ describe('estorno que FALHOU', () => {
 
   test('reversão de txid desconhecido é recusada', async () => {
     const { deps } = await mesaPaga();
-    const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_nunca', amountCents: 500 }, deps);
+    const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_nunca', amountCents: 500, refundId: 're_d' }, deps);
     expect(r.status).toBe('rejected');
   });
 });
@@ -225,7 +225,7 @@ describe('valores impossíveis são recusa, não exceção', () => {
     await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500 }, deps);
 
     for (const amountCents of [-1, -500, 0]) {
-      const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents }, deps);
+      const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents, refundId: `re_${amountCents}` }, deps);
       expect(r.status).toBe('rejected');
       expect(r.reason).toMatch(/inválido/);
     }
@@ -285,7 +285,7 @@ describe('o estorno parcial visto pelo RESTO do sistema', () => {
     return { store, venue, check };
   }
 
-  test('a conciliação NÃO acusa nada: a soma bate dos dois lados', async () => {
+  test('a conciliação não acusa DIVERGÊNCIA: a soma bate dos dois lados', async () => {
     const { store, venue, check } = await comEstornoParcial();
     const rows = (await store.listChecksForReconcile(venue.id))[0].payments;
     const r = reconcileCheck({
@@ -295,8 +295,28 @@ describe('o estorno parcial visto pelo RESTO do sistema', () => {
     // sem nada faltando de verdade. Um alerta que dispara em comportamento
     // correto está morto em duas semanas.
     expect(r.driftCents).toBe(0);
-    expect(r.findings).toEqual([]);
-    expect(r.ok).toBe(true);
+    // LISTA FECHADA, não filtro por dois códigos: filtrando, um achado novo
+    // qualquer passava calado por aqui. A afirmação é "estes e nenhum outro".
+    expect(r.findings.map((f) => f.code).sort()).toEqual(['reopened_by_refund']);
+
+    /**
+     * O QUE ELA ACUSA, E POR QUE ESTE TESTE DIZIA `[]`.
+     *
+     * "Os dois registros somam igual" e "a tela da mesa está certa" eram a mesma
+     * pergunta neste teste, e não são. A conta foi paga em cheio (3082 de 3082),
+     * o estorno parcial abateu o consumo, `totalCents` não se mexeu — e o
+     * telefone de quem está na mesa voltou a mostrar saldo e o botão de pagar,
+     * num QR que qualquer um daquela mesa recarrega. Cobrança de dívida já
+     * quitada (CDC art. 42). As duas projeções concordam porque as duas derivam
+     * do mesmo razão: é exatamente onde a conciliação não enxerga sozinha.
+     *
+     * Achado pela revisão de compliance da rodada dez — num documento, não num
+     * cliente, e por pouco.
+     */
+    const reaberta = r.findings.filter((f) => f.code === 'reopened_by_refund');
+    expect(reaberta.length).toBe(1);
+    expect(reaberta[0].severity).toBe('high');
+    expect(r.ok).toBe(false);
   });
 
   test('a linha continua CONFIRMADA e diz quanto foi estornado', async () => {
@@ -338,7 +358,22 @@ describe('o estorno parcial visto pelo RESTO do sistema', () => {
       events: await store.loadEvents(check.id),
       payments: (await store.listChecksForReconcile(venue.id))[0].payments,
     });
-    expect(r.findings).toEqual([]);
+    // Sem divergência entre os dois registros: a soma bate dos dois lados.
+    // LISTA FECHADA, não filtro por dois códigos: filtrando, um achado novo
+    // qualquer passava calado por aqui. A afirmação é "estes e nenhum outro".
+    expect(r.findings.map((f) => f.code).sort()).toEqual(['reopened_by_refund']);
+    /**
+     * Mas a conta REABRIU, e é o caso máximo disso: devolvido o pagamento
+     * inteiro, `paidCents` vai a zero, a conta vira `aberta` e o telefone da
+     * mesa volta a pedir os R$ 30,82 inteiros. O runbook avisa exatamente disto
+     * há meses em prosa ("devolver o pagamento inteiro reabre a conta e a mesa é
+     * cobrada de novo") e o detector não via, porque olhava só `parcial` —
+     * gritava por R$ 9,09 e calava por R$ 30,82 (segurança MEDIUM-1 da rodada
+     * onze).
+     */
+    const reaberta = r.findings.filter((f) => f.code === 'reopened_by_refund');
+    expect(reaberta.length).toBe(1);
+    expect(reaberta[0].deltaCents).toBe(3082);
   });
 });
 
@@ -391,5 +426,261 @@ describe('devolver o EXCEDENTE não pode sangrar a folha', () => {
       expect(r.tipCents).toBeLessThanOrEqual(gorjeta);
       expect(r.amountCents).toBeLessThanOrEqual(consumo);
     }
+  });
+});
+
+test('a reversão CASA com o lançamento que falhou — e só aí a testemunha manda', async () => {
+  /**
+   * O `refund.failed` traz um TOTAL; o adquirente não diz quanto daquilo era
+   * consumo e quanto era serviço. O razão diz: cada `PAYMENT_REFUNDED` gravou os
+   * baldes que ELE usou. Casando o total com um lançamento, a testemunha é
+   * verdadeira; sem casar, a repartição é `allocateProportional` — palpite nosso
+   * — e não pode ter autoridade de adquirente pra tirar da base da folha
+   * (compliance HIGH-1 de 95f72a9).
+   */
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { reduce } = require('../_lib/checks/check-state');
+
+  const store = createMemoryStore();
+  const venue = await store.seedVenue({ name: 'Casar', servicoBp: 1000 });
+  const mesa = await store.seedTable(venue.id, 'Mesa 1');
+  const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 10000 }]);
+  const deps = {
+    loadEvents: store.loadEvents.bind(store),
+    appendEvent: store.appendEvent.bind(store),
+    findCheckByTxid: async () => ({ id: conta.id }),
+  };
+
+  await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 10000, tipCents: 1000, method: 'pix' });
+  // Dois lançamentos com baldes DIFERENTES: um só de consumo, outro só de serviço.
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 5000, tipCents: 0 });
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 0, tipCents: 1000 });
+
+  // O de 5000 (só consumo) falha.
+  await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 5000, eventId: 'evt_1', refundId: 're_p1a' }, deps);
+  const st = reduce(await store.loadEvents(conta.id));
+  expect(st.payments.p1.reversedOpenTestemunhado).toBe(true);
+  expect(st.payments.p1.reversedOpenAmountCents).toBe(5000);
+  expect(st.payments.p1.reversedOpenTipCents).toBe(0);
+});
+
+test('sem lançamento que case, a repartição é derivada e NÃO manda', async () => {
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { reduce } = require('../_lib/checks/check-state');
+
+  const store = createMemoryStore();
+  const venue = await store.seedVenue({ name: 'Sem casar', servicoBp: 1000 });
+  const mesa = await store.seedTable(venue.id, 'Mesa 1');
+  const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 10000 }]);
+  const deps = {
+    loadEvents: store.loadEvents.bind(store),
+    appendEvent: store.appendEvent.bind(store),
+    findCheckByTxid: async () => ({ id: conta.id }),
+  };
+  await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 10000, tipCents: 1000, method: 'pix' });
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 3000, tipCents: 0 });
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 3000, tipCents: 0 });
+
+  // 3000 casa com DOIS lançamentos: ambíguo, então derivado.
+  await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 3000, eventId: 'evt_2', refundId: 're_p1b' }, deps);
+  const st = reduce(await store.loadEvents(conta.id));
+  expect(st.payments.p1.reversedOpenTestemunhado).toBe(false);
+});
+
+test('a devolução que o DONO registrou não pode virar testemunha do adquirente', async () => {
+  /**
+   * O conjunto de casamento incluía lançamentos `offRail` — devoluções que o
+   * adquirente NUNCA viu, cujo rateio saiu do nosso próprio motor. Uma falha
+   * cujo valor coincidisse com a atestação do dono a carimbava como testemunha,
+   * e aí o balde ZERO passava por cima das regras com os números do próprio dono
+   * (compliance HIGH-2 e segurança MEDIUM-1 de 11a0904). E o runbook GARANTE a
+   * coincidência: ele manda registrar por fora exatamente o valor da testemunha.
+   */
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { reduce } = require('../_lib/checks/check-state');
+
+  const store = createMemoryStore();
+  const venue = await store.seedVenue({ name: 'Off-rail', servicoBp: 1000 });
+  const mesa = await store.seedTable(venue.id, 'Mesa 1');
+  const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 10000 }]);
+  const deps = {
+    loadEvents: store.loadEvents.bind(store),
+    appendEvent: store.appendEvent.bind(store),
+    findCheckByTxid: async () => ({ id: conta.id }),
+  };
+  await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 10000, tipCents: 1000, method: 'pix' });
+  // Só UM lançamento, e ele é do dono: nada do adquirente pra casar.
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', {
+    txid: 'p1', amountCents: 0, tipCents: 900, offRail: true, reference: 'pix e2e', by: 'u-1',
+  });
+  const r = await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 900, eventId: 'evt_o', refundId: 're_o' }, deps);
+
+  /**
+   * NENHUMA reversão entra, e a saída é `out_of_order`.
+   *
+   * Este teste afirmava só que a testemunha era falsa — e deixava a reversão
+   * acontecer "porque o dinheiro se moveu". O dinheiro se moveu pela MÃO DO
+   * DONO, no caixa: pelo trilho do adquirente este pagamento não teve estorno
+   * nenhum, então não há o que desfazer. A reversão devolvia `paidCents` que o
+   * dono tinha entregado em espécie, com a gorjeta junto — e ninguém gritava
+   * (segurança HIGH-3 da rodada onze).
+   *
+   * Agora o razão diz o que é: o adquirente relatou a falha de um estorno que
+   * este razão não conhece. Isso é anomalia ALTA, e converge quando (e se) o
+   * estorno de verdade chegar.
+   */
+  expect(r.status).toBe('out_of_order');
+  const evs = await store.loadEvents(conta.id);
+  expect(evs.filter((e) => e.type === 'PAYMENT_REFUND_REVERSED')).toEqual([]);
+  const st = reduce(evs);
+  // O que o dono devolveu CONTINUA devolvido.
+  expect(st.payments.p1.refundedTipCents).toBe(900);
+  expect(st.payments.p1.reversedOpenCents || 0).toBe(0);
+  expect(evs.some((e) => e.type === 'PAYMENT_ANOMALY' && e.payload.severity === 'high'
+    && /antes do estorno/.test(e.payload.reason || ''))).toBe(true);
+});
+
+test('a testemunha é do EPISÓDIO: um episódio velho não tranca o próximo', async () => {
+  /**
+   * `reversedOpenTestemunhado` era um AND sobre a vida inteira do pagamento: a
+   * primeira reversão não testemunhada cravava `false` PRA SEMPRE, e uma
+   * reversão genuinamente casada depois — com o episódio anterior já quitado —
+   * caía no proporcional, deixando na folha serviço que voltou ao cliente
+   * (segurança HIGH-2 de 11a0904).
+   */
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { reduce } = require('../_lib/checks/check-state');
+
+  const store = createMemoryStore();
+  const venue = await store.seedVenue({ name: 'Episódios', servicoBp: 1000 });
+  const mesa = await store.seedTable(venue.id, 'Mesa 1');
+  const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 10000 }]);
+  const deps = {
+    loadEvents: store.loadEvents.bind(store),
+    appendEvent: store.appendEvent.bind(store),
+    findCheckByTxid: async () => ({ id: conta.id }),
+  };
+  await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 10000, tipCents: 1000, method: 'pix' });
+
+  // EPISÓDIO 1: ambíguo (dois lançamentos do mesmo valor) → não testemunhado.
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 500, tipCents: 0 });
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 500, tipCents: 0 });
+  await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 500, eventId: 'e1', refundId: 're_1' }, deps);
+  expect(reduce(await store.loadEvents(conta.id)).payments.p1.reversedOpenTestemunhado).toBe(false);
+
+  // A casa refaz e sai: o episódio ENCERRA.
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 500, tipCents: 0 });
+  expect(reduce(await store.loadEvents(conta.id)).payments.p1.reversedOpenCents || 0).toBe(0);
+
+  // EPISÓDIO 2: um lançamento só com aquele valor → testemunhado.
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 0, tipCents: 900 });
+  await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 900, eventId: 'e2', refundId: 're_2' }, deps);
+  const st = reduce(await store.loadEvents(conta.id));
+  expect(st.payments.p1.reversedOpenTestemunhado).toBe(true);
+  expect(st.payments.p1.reversedOpenTipCents).toBe(900);
+});
+
+describe('o teto da reversão no REDUTOR, sem passar pelo tratador', () => {
+  /**
+   * Esta guarda é o que o `check-state.js` invoca como prova de que o acumulado
+   * do trilho não fica negativo — e ela não tinha um teste. Três mutantes
+   * passavam verdes na suíte inteira (segurança HIGH-1 da rodada doze): o teto
+   * voltando ao acumulado TOTAL (com chargeback e devolução do dono dentro), a
+   * guarda inteira apagada, e o rateio proporcional do tratador voltando ao
+   * total.
+   *
+   * Por que ninguém pegava: todo teste de reversão entra pelo
+   * `applyConfirmedPayment`, que já corta `aReverter = min(falhou, jaEstornado)`
+   * pelo MESMO par de baldes. A guarda do módulo puro só era exercitada pelo
+   * caminho que já a torna redundante — a forma "guarda que nunca dispara",
+   * desta vez nos testes em vez de no código.
+   *
+   * Aqui o evento é construído À MÃO e passa direto pelo redutor.
+   */
+  const { reduce } = require('../_lib/checks/check-state');
+  const ev = (type, payload) => ({ type, payload });
+
+  /** R$ 100 + R$ 10 de serviço; chargeback de R$ 30; estorno do trilho de R$ 10. */
+  const razao = [
+    ev('OPENED', { totalCents: 10000 }),
+    ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card' }),
+    ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2727, tipCents: 273, disputeId: 'dp_1' }),
+    ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 }),
+  ];
+
+  test('o acumulado do trilho é o do ADQUIRENTE, não o total', () => {
+    const st = reduce(razao);
+    expect(st.payments.pi.refundedAmountCents + st.payments.pi.refundedTipCents).toBe(4000);
+    expect(st.payments.pi.refundedPeloTrilhoAmountCents).toBe(909);
+    expect(st.payments.pi.refundedPeloTrilhoTipCents).toBe(91);
+  });
+
+  const recusa = (st) => st.anomalies.filter((a) => /reversal exceeds refunded/.test(a.reason || ''));
+
+  test('reversão acima do balde do CONSUMO é recusada — o chargeback não é folga', () => {
+    // 2727 cabe no acumulado total (3636) e NÃO cabe no do trilho (909).
+    const st = reduce([...razao, ev('PAYMENT_REFUND_REVERSED', { txid: 'pi', amountCents: 2727, tipCents: 0 })]);
+    expect(recusa(st).length).toBe(1);
+    expect(recusa(st)[0].severity).toBe('high');
+    // E o evento foi DESCARTADO: o dinheiro da rede não voltou pra conta.
+    expect(st.payments.pi.refundedAmountCents).toBe(3636);
+    expect(st.paidCents).toBe(10000 - 3636);
+  });
+
+  test('reversão acima do balde da GORJETA é recusada — é a base de cálculo da folha', () => {
+    // 273 cabe no total da gorjeta (364) e não cabe no do trilho (91). Sem esta
+    // guarda, serviço que o chargeback levou voltava pra base da folha
+    // (Lei 13.419/2017, STJ Tema 1102).
+    const st = reduce([...razao, ev('PAYMENT_REFUND_REVERSED', { txid: 'pi', amountCents: 0, tipCents: 273 })]);
+    expect(recusa(st).length).toBe(1);
+    expect(st.payments.pi.refundedTipCents).toBe(364);
+  });
+
+  test('e a que CABE nos dois baldes passa', () => {
+    const st = reduce([...razao, ev('PAYMENT_REFUND_REVERSED', { txid: 'pi', amountCents: 909, tipCents: 91 })]);
+    expect(recusa(st)).toEqual([]);
+    // O acumulado do trilho zera; o do chargeback fica.
+    expect(st.payments.pi.refundedPeloTrilhoAmountCents
+      + st.payments.pi.refundedPeloTrilhoTipCents).toBe(0);
+    expect(st.payments.pi.refundedAmountCents + st.payments.pi.refundedTipCents).toBe(3000);
+  });
+
+  test('o RATEIO proporcional também sai dos baldes do trilho', async () => {
+    /**
+     * A outra metade do mesmo achado: o tratador rateia `aReverter` sobre os
+     * baldes vivos. Com o total no lugar deles, a proporção é calculada sobre
+     * dinheiro que a rede levou — e a fatia de gorjeta que volta pra base da
+     * folha muda.
+     */
+    const { createMemoryStore } = require('../_lib/store/memory');
+    const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Rateio', servicoBp: 1000 });
+    const mesa = await store.seedTable(venue.id, 'Mesa 1');
+    const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 10000 }]);
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: store.appendEvent.bind(store),
+      findCheckByTxid: async () => ({ id: conta.id }),
+    };
+    await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 10000, tipCents: 1000, method: 'card' });
+    // O dono devolve os 10% no caixa (CDC: o serviço é removível) — fora do trilho.
+    await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 0, tipCents: 1000, offRail: true, reference: 'caixa', by: 'u-1' });
+    // Dois estornos de cartão do mesmo valor: ambíguo, então o rateio é proporcional.
+    await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 1000, tipCents: 0 });
+    await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 1000, tipCents: 0 });
+    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 1000, eventId: 'e1', refundId: 're_1' }, deps);
+
+    const evs = await store.loadEvents(conta.id);
+    const reversao = evs.filter((e) => e.type === 'PAYMENT_REFUND_REVERSED')[0];
+    // Os baldes VIVOS do trilho são {2000, 0}: o proporcional devolve tudo ao
+    // consumo. Com o total no lugar ({2000, 1000}, com a devolução do dono
+    // dentro), parte voltaria pra GORJETA — dinheiro que o dono já entregou em
+    // espécie, de volta na base da folha.
+    expect([reversao.payload.amountCents, reversao.payload.tipCents]).toEqual([1000, 0]);
   });
 });

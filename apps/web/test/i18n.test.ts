@@ -10,7 +10,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { semComentarios } from './censo-taxid.ts';
 import { join } from 'node:path';
-import { DICT, LANGS, asLang, money, tError, STRIPE_LOCALE, LANDING_MARKET } from '../src/i18n.ts';
+import {
+  DICT, LANGS, asLang, fill, money, tError, textoDoAchado, STRIPE_LOCALE, LANDING_MARKET,
+} from '../src/i18n.ts';
 
 const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: string }][];
 
@@ -792,6 +794,9 @@ test('todo achado com {amount} na frase tem um campo de centavos que o painel l�
     'find.overpayment': 'deltaCents',
     'find.paid_after_close': 'amountCents',
     'find.paid_after_close_tip': 'amountCents',
+    'find.reopened_by_refund': 'deltaCents',
+    'find.reopened_by_refund_mixed': 'deltaCents',
+    'find.reopened_by_chargeback': 'deltaCents',
   };
   for (const [chave, campo] of Object.entries(comValor)) {
     assert.ok(chave in DICT, `${chave} não está no dicionário`);
@@ -820,20 +825,48 @@ test('a rota do painel MANDA os centavos que o painel formata', async () => {
   const path = await import('node:path');
   const router = fs.readFileSync(
     path.join(import.meta.dirname, '..', '..', '..', 'api', '_app', 'router.js'), 'utf8');
+  // A regra da frase saiu do `Panel.tsx` pra um módulo `.ts` puro, pra o teste
+  // de cruzamento poder CHAMÁ-LA em vez de copiá-la — e este censo leu junto.
   const panel = fs.readFileSync(
-    path.join(import.meta.dirname, '..', 'src', 'Panel.tsx'), 'utf8');
+    path.join(import.meta.dirname, '..', 'src', 'i18n.ts'), 'utf8');
 
   // A cadeia que o painel lê pra preencher {amount}.
   const cadeia = panel.match(/const valor = ([^;]+);/);
-  assert.ok(cadeia, 'não achei a cadeia de centavos no Panel');
+  assert.ok(cadeia, 'não achei a cadeia de centavos no i18n');
   const campos = [...cadeia[1].matchAll(/f\.(\w+)/g)].map((m) => m[1]);
   assert.ok(campos.length >= 4, `cadeia curta demais: ${campos.join(', ')}`);
+
+  /**
+   * E TODO campo do achado que a FRASE lê, não só os da cadeia.
+   *
+   * `refundableCents` não está na cadeia do `{amount}` — ele é uma segunda
+   * variável no `vars`. Foi acrescentado ao achado e esquecido na projeção da
+   * rota, que é lista de PERMISSÃO: o esquecimento é silencioso, e o
+   * `{refundable}` chegava LITERAL na tela do dono toda vez que o achado saía,
+   * numa frase cuja instrução é "ajuste pela parte devolvida" (segurança HIGH-1
+   * da rodada catorze).
+   *
+   * A regra geral: se `textoDoAchado` lê o campo, a rota tem que mandar.
+   */
+  const corpoDaFrase = panel.slice(panel.indexOf('export function textoDoAchado('));
+  const fimDaFrase = corpoDaFrase.indexOf('\n}\n');
+  const lidos = [...new Set([...corpoDaFrase.slice(0, fimDaFrase).matchAll(/f\.(\w+)/g)].map((m) => m[1]))];
+  assert.ok(lidos.includes('refundableCents'),
+    'a varredura do corpo da frase quebrou: não achou nem o campo que motivou este censo');
+  for (const c of lidos) if (!campos.includes(c)) campos.push(c);
 
   // A projeção da rota, onde os achados são mapeados.
   // A projeção mora em `projetarAchados`, e a rota chama a função.
   const i = router.indexOf('function projetarAchados(');
   assert.ok(i > 0 && router.includes('findings: projetarAchados(r.findings)'), 'não achei a projeção dos achados na rota');
-  const projecao = router.slice(i, i + 2400);
+  // ATÉ O FIM DA FUNÇÃO, não um número mágico: `2400` passava 497 caracteres
+  // dentro do `json(...)` vizinho. Hoje aquele trecho não tem nenhum `*Cents`,
+  // então não havia falso positivo — mas a asserção é `includes` sobre texto
+  // cru, e qualquer nome de campo futuro que aparecesse ali satisfaria o censo
+  // calado (segurança LOW-2 da rodada quinze). É o mesmo recorte que o
+  // `sql-contract.test.js` já faz pelo `\nfunction `.
+  const fimDaProjecao = router.indexOf('\nfunction ', i + 10);
+  const projecao = router.slice(i, fimDaProjecao > i ? fimDaProjecao : undefined);
   const faltando = campos.filter((c) => !projecao.includes(c));
   assert.deepEqual(faltando, [], `campos que o painel lê e a rota não manda:\n${faltando.join('\n')}`);
 });
@@ -943,4 +976,71 @@ test('todo marcador de toda chave err.* é servido pelos DOIS mapeadores', () =>
     }
   }
   assert.deepEqual(orfaos, []);
+});
+
+/**
+ * A FRASE DO PAINEL E O NÚMERO QUE ELA IMPRIME SÃO A MESMA COISA?
+ *
+ * O achado `reopened_by_refund` carrega DOIS números: o buraco que a mesa vê, e
+ * a parte dele que veio de devolução. A frase diz "a mesa está vendo {amount}
+ * faltando" — e num commit o `deltaCents` passou a carregar a parte devolvível,
+ * sem que a frase mudasse. O painel passou a afirmar que dois números diferentes
+ * eram o mesmo: o dono lia R$ 20,00, a mesa via R$ 130,00, ele ajustava R$ 20 e
+ * quem sentasse ali pagava R$ 110 que a rede já tinha levado (segurança HIGH-1
+ * da rodada treze).
+ *
+ * Nenhum teste ligava o campo do achado à string renderizada — o teste do
+ * servidor afirmava os dois números no mesmo `expect` e não perguntava qual
+ * deles a tela usa. Este pergunta.
+ */
+test('o {amount} do achado de conta reaberta é o BURACO, o que a mesa vê', async () => {
+  // `createRequire`: este arquivo é ESM (o runner é `node --test` sobre `.ts`) e
+  // a conciliação é CommonJS. É a ponte, não um atalho.
+  const { createRequire } = await import('node:module');
+  const req = createRequire(import.meta.url);
+  const { reconcileCheck } = req('../../../api/_lib/checks/reconcile');
+  const ev = (type: string, payload: unknown) => ({ type, payload });
+  // Conta de R$ 200,00: chargeback de R$ 110,00 e estorno do trilho de R$ 20,00.
+  const achados = reconcileCheck({
+    checkId: 'c',
+    events: [
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 11000, tipCents: 0, disputeId: 'dp_1' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2000, tipCents: 0 }),
+    ],
+    payments: [],
+  }).findings.filter((f: { code: string }) => /^reopened_by_refund/.test(f.code));
+
+  assert.equal(achados.length, 1);
+  const f = achados[0] as { code: string; deltaCents: number; refundableCents: number };
+  // O BURACO é 13000 — é o que o telefone da mesa mostra.
+  assert.equal(f.deltaCents, 13000);
+  // A parte devolvível é 2000 — é o que o dono pode dar baixa.
+  assert.equal(f.refundableCents, 2000);
+  // E a frase é a do caso MISTO, que nomeia os dois.
+  assert.equal(f.code, 'reopened_by_refund_mixed');
+
+  /**
+   * E A FRASE RENDERIZADA, pela função DO PAINEL — não por uma cópia da cadeia.
+   *
+   * A primeira versão deste teste re-implementava `overpaidCents ?? deltaCents`
+   * aqui. Medido: com a cadeia real reordenada pra `… ?? refundableCents ?? …`,
+   * o painel passava a imprimir R$ 20,00 onde a mesa vê R$ 130,00 — o achado da
+   * rodada treze, verbatim — e a suíte inteira ficava verde. Uma cópia da regra
+   * não é a regra.
+   */
+  // O `t` do painel, montado com a mesma `fill` que a tela usa — é ela que
+  // devolve marcador desconhecido VERBATIM, e é isso que o teste tem que ver.
+  const tPt = (k: keyof typeof DICT, v?: Record<string, string | number>) => fill(DICT[k].pt, v);
+  const frase = textoDoAchado(f, tPt, (c: number) => money(c, 'pt', 'BRL'));
+  assert.match(frase, /R\$\s?130,00/, `a frase tem que trazer o buraco: ${frase}`);
+  assert.match(frase, /R\$\s?20,00/, `e a parte devolvível: ${frase}`);
+  // E o marcador NÃO pode sobreviver: o `fill` devolve desconhecido verbatim.
+  assert.doesNotMatch(frase, /\{refundable\}|\{amount\}/, `marcador literal na tela: ${frase}`);
+
+  for (const lang of ['en', 'pt', 'es'] as const) {
+    assert.match(DICT['find.reopened_by_refund_mixed'][lang], /\{amount\}[\s\S]*\{refundable\}/,
+      `${lang}: a frase do caso misto tem que nomear os dois números, nessa ordem`);
+  }
 });

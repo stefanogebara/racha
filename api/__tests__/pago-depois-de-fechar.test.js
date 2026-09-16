@@ -17,7 +17,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { reduce, paidAfterClose, validateEvent } = require('../_lib/checks/check-state');
+const { reduce, paidAfterClose, validateEvent, sobraPorPagamento } = require('../_lib/checks/check-state');
 const { reconcileCheck } = require('../_lib/checks/reconcile');
 const { formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
 const { tetoDaRestituicao, payloadDaResolucao, autorDoRegistro } = require('../_lib/checks/restitution');
@@ -95,6 +95,32 @@ describe('pago depois de fechar — o caso calado', () => {
     expect(achados(reconcileCheck({ checkId: 'c1', events: MESA, payments: linhas(null) }))).toHaveLength(1);
   });
 
+  test('sem a LINHA do pagamento, o relógio das 48 h corre pelo razão', () => {
+    /**
+     * Ele lia só a linha de `payments`, e sem ela `horas` virava 0: a marca
+     * ficava `high` PRA SEMPRE e nunca subia pra `critical` — a dívida com o
+     * consumidor parava de subir de tom exatamente quando a projeção falhava,
+     * que é o cenário que o conserto da data foi escrito pra fechar
+     * (compliance MEDIUM-3 de 41b188a).
+     */
+    const comData = (at, ev) => ({ ...ev, created_at: at });
+    const velhoNoRazao = [
+      comData(horasAtras(8 * 24), opened(30000)),
+      comData(horasAtras(8 * 24), paid('txA', 10000)),
+      comData(horasAtras(8 * 24), paid('txB', 10000)),
+      comData(horasAtras(8 * 24), closed()),
+      comData(horasAtras(8 * 24), paid('txC', 10000)),
+    ];
+    const semLinhas = achados(reconcileCheck({ checkId: 'c1', events: velhoNoRazao, payments: [] }));
+    expect(semLinhas).toHaveLength(1);
+    expect(semLinhas[0].severity).toBe('critical');
+
+    // E a MAIS ANTIGA das duas fontes manda: linha recente, razão velho.
+    const linhaNova = linhas(horasAtras(1)).map((l) => ({ ...l }));
+    const misto = achados(reconcileCheck({ checkId: 'c1', events: velhoNoRazao, payments: linhaNova }));
+    expect(misto[0].severity).toBe('critical');
+  });
+
   test('INVARIANTE: marcas + sobra = dinheiro atrasado líquido, em qualquer ordem e com qualquer estorno de irmão', () => {
     // O excedente CONGELADO no pagamento fazia o valor depender da ordem de
     // chegada depois do estorno de um irmão: 200 ou 250 do que eram 250
@@ -125,14 +151,45 @@ describe('pago depois de fechar — o caso calado', () => {
           if (r + rt > 0) ev.push(refunded(x.txid, r, rt));
         }
       }
+      /**
+       * E O PAGAMENTO DE ANTES DO FECHO também é estornado às vezes.
+       *
+       * O gerador só mexia nos ATRASADOS, e por isso nunca produzia o caso em
+       * que a duplicidade some porque o IRMÃO foi devolvido — o atrasado vira o
+       * pagador exato e legítimo da conta. Ali um serviço GANHO aparecia como
+       * "devolver de qualquer jeito", `critical` pra sempre, e o runbook mandava
+       * a casa pagar ao cliente o que ele não tinha a receber (segurança HIGH-1
+       * de 41b188a). O estorno que FALHA entra junto: ele devolve dinheiro à
+       * conta depois do fecho e pode CRIAR duplicidade onde não havia
+       * (compliance HIGH-1 da mesma rodada).
+       */
+      if (antes.length && rnd(3) === 0) {
+        const valor = 1 + rnd(antes[0].payload.amountCents);
+        ev.push(refunded('pre', valor, 0));
+        if (rnd(4) === 0) {
+          ev.push({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid: 'pre', amountCents: valor, tipCents: 0 } });
+        }
+      }
       const st = reduce(ev);
       const liqAmt = (t) => st.payments[t].amountCents - st.payments[t].refundedAmountCents;
       const liqTip = (t) => st.payments[t].tipCents - st.payments[t].refundedTipCents;
       const marcas = paidAfterClose(st).reduce((soma, x) => soma + x.amountCents, 0);
       const pool = atrasados.reduce((soma, x) => soma + liqAmt(x.txid), 0);
       const atrasadoLiquido = pool + atrasados.reduce((soma, x) => soma + liqTip(x.txid), 0);
-      // A sobra conta até o que entrou atrasado; o resto dela é de quem pagou antes.
-      expect({ caso, soma: marcas + Math.min(st.overpaidCents, pool) }).toEqual({ caso, soma: atrasadoLiquido });
+      /**
+       * A sobra que entra na conta é a ATRIBUÍDA aos atrasados — não
+       * `min(overpaid, pool)`.
+       *
+       * Desde que a sobra criada por uma reversão passou a pertencer a quem
+       * perdeu o estorno (compliance HIGH-1 de a95e15c), parte de `overpaidCents`
+       * pode ter endereço num pagamento que NÃO é atrasado. O invariante é sobre
+       * o dinheiro atrasado, então ele soma o que foi endereçado a atrasados.
+       */
+      const enderecos = sobraPorPagamento(st);
+      const sobraDosAtrasados = atrasados
+        .reduce((soma, x) => soma + (enderecos.get(x.txid) || 0), 0);
+      void pool;
+      expect({ caso, soma: marcas + sobraDosAtrasados }).toEqual({ caso, soma: atrasadoLiquido });
     }
   });
 
@@ -204,6 +261,82 @@ describe('pago depois de fechar — o caso calado', () => {
         if (rnd(2) === 0) {
           const r = rnd(x.a + 1); const rt = rnd(x.tip + 1);
           if (r + rt > 0) ev.push(refunded(x.txid, r, rt));
+        }
+      }
+      /**
+       * E O PAGAMENTO DE ANTES DO FECHO também é estornado às vezes.
+       *
+       * O gerador só mexia nos ATRASADOS, e por isso nunca produzia o caso em
+       * que a duplicidade some porque o IRMÃO foi devolvido — o atrasado vira o
+       * pagador exato e legítimo da conta. Ali um serviço GANHO aparecia como
+       * "devolver de qualquer jeito", `critical` pra sempre, e o runbook mandava
+       * a casa pagar ao cliente o que ele não tinha a receber (segurança HIGH-1
+       * de 41b188a). O estorno que FALHA entra junto: ele devolve dinheiro à
+       * conta depois do fecho e pode CRIAR duplicidade onde não havia
+       * (compliance HIGH-1 da mesma rodada).
+       */
+      if (antes.length && rnd(3) === 0) {
+        const valor = 1 + rnd(antes[0].payload.amountCents);
+        ev.push(refunded('pre', valor, 0));
+        if (rnd(4) === 0) {
+          ev.push({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid: 'pre', amountCents: valor, tipCents: 0 } });
+        }
+      }
+      /**
+       * O QUE OS TRÊS ACHADOS DESTA SÉRIE TINHAM EM COMUM — e a monotonia que
+       * eu quase escrevi no lugar.
+       *
+       * A revisão de segurança pediu "se o devido era positivo e nenhuma gorjeta
+       * voltou, continua positivo". Escrevi, e ela ficou vermelha num caso
+       * legítimo: estornar o pagamento de ANTES do fecho faz a conta precisar
+       * MAIS dos atrasados, então a parte não necessária deles encolhe — que é
+       * exatamente o comportamento que a mesma revisão exigiu no achado do
+       * irmão. Monotonia é falsa aqui.
+       *
+       * O que é verdade, e é do que os três achados tratam, não depende da
+       * fórmula:
+       *
+       *  1. se a conta está INTEIRAMENTE coberta sem este pagamento, todo o
+       *     serviço que ainda resta nele é `sempreDevido` — não sobra nada
+       *     clicável, porque não há pergunta a fazer sobre o caixa;
+       *  2. se a conta PRECISA dele por inteiro, nada nele é `sempreDevido` —
+       *     senão um serviço ganho vira dívida.
+       */
+      for (const x of atrasados) {
+        for (let corte = 1; corte <= ev.length; corte += 1) {
+          const st2 = reduce(ev.slice(0, corte));
+          const pg = st2.payments[x.txid];
+          if (!pg) continue;
+          const liquidoDe = (q) => Math.max(0, q.amountCents - (q.refundedAmountCents || 0));
+          const doResto = Object.entries(st2.payments)
+            .filter(([t]) => t !== x.txid)
+            .reduce((soma, [, q]) => soma + liquidoDe(q), 0);
+          // O que a conta tem de quem NÃO chegou atrasado. É esta a cobertura
+          // que decide se os atrasados foram precisos: entre atrasados, a
+          // convenção é que o mais VELHO cobre e o mais novo duplica, então
+          // "coberta sem este" não vale como premissa quando quem cobre é outro
+          // atrasado — os dois não podem ser o redundante ao mesmo tempo.
+          const dosNaoAtrasados = Object.values(st2.payments)
+            .filter((q) => !q.late).reduce((soma, q) => soma + liquidoDe(q), 0);
+          const servico = Math.max(0, (pg.tipCents || 0) - (pg.refundedTipCents || 0));
+          const marcas = paidAfterClose(st2).filter((m) => m.txid === x.txid);
+          const devido = marcas.filter((m) => m.sempreDevido).reduce((soma, m) => soma + m.amountCents, 0);
+          const pergunta = marcas.filter((m) => !m.sempreDevido).reduce((soma, m) => soma + m.amountCents, 0);
+
+          if (dosNaoAtrasados >= st2.totalCents && servico > 0 && !pg.lateResolved) {
+            // 1. coberta sem ele: o serviço inteiro é devido, e a pergunta não
+            // carrega nada de serviço (ela vale, no máximo, o consumo líquido).
+            expect({ caso, txid: x.txid, corte, devido, sobrouServicoClicavel: pergunta > liquidoDe(pg) })
+              .toEqual({ caso, txid: x.txid, corte, devido: servico, sobrouServicoClicavel: false });
+          }
+          // Pelo BRUTO, que é a base da regra: o que já voltou continua
+          // contando como duplicidade (é o que faz o serviço sobreviver ao
+          // estorno do principal), então a premissa "precisou dele todo" tem de
+          // olhar o mesmo número.
+          if (doResto + Math.max(0, pg.amountCents || 0) <= st2.totalCents) {
+            // 2. a conta precisa dele por inteiro: nada é "devido de qualquer jeito".
+            expect({ caso, txid: x.txid, corte, devido }).toEqual({ caso, txid: x.txid, corte, devido: 0 });
+          }
         }
       }
       const marcasAntes = paidAfterClose(reduce(ev));
@@ -316,14 +449,21 @@ describe('o que o dono vê primeiro — nem o painel nem o alerta da noite são 
 });
 
 describe('as regras puras das duas rotas do dono — testadas sem HTTP', () => {
-  test('o teto da devolução REGISTRADA inclui a marca do pago-depois-de-fechar', () => {
-    // Sem ela, um atrasado cujo estorno falhou, ou um Pix além dos 90 dias, não
-    // tinha jeito verdadeiro de fechar (compliance MEDIUM-A de 57c0d2e).
+  test('o teto da devolução REGISTRADA alcança a marca do pago-depois-de-fechar — só com o trilho impossível', () => {
+    // Sem alcançá-la, um atrasado cujo estorno falhou, ou um Pix além dos 90
+    // dias, não tinha jeito verdadeiro de fechar (compliance MEDIUM-A de
+    // 57c0d2e). Alcançando-a SEMPRE, virava um jeito de tirar serviço da folha
+    // por atestação (segurança MEDIUM-2 de 3eea5f3) — ver
+    // `devolucao-fora-do-trilho.test.js`.
     const st = reduce(MESA);
-    expect(tetoDaRestituicao(st, 'txC')).toEqual({ excesso: 0, tardio: 10000, teto: 10000 });
-    expect(tetoDaRestituicao(st, 'txA')).toEqual({ excesso: 0, tardio: 0, teto: 0 });
+    const velho = { confirmedAt: new Date(Date.now() - 91 * 86400000).toISOString(), method: 'pix' };
+    expect(tetoDaRestituicao(st, 'txC', velho)).toMatchObject({ excesso: 0, tardio: 10000, teto: 10000 });
+    expect(tetoDaRestituicao(st, 'txC')).toMatchObject({ tardio: 0, teto: 0 });
+    expect(tetoDaRestituicao(st, 'txA', velho)).toMatchObject({ excesso: 0, tardio: 0, teto: 0 });
     const dup = reduce([opened(20000), paid('txA', 10000), paid('txB', 10000), closed(), paid('txC', 10000, 1000)]);
-    expect(tetoDaRestituicao(dup, 'txC')).toEqual({ excesso: 10000, tardio: 1000, teto: 11000 });
+    expect(tetoDaRestituicao(dup, 'txC', velho)).toMatchObject({ excesso: 10000, tardio: 1000, teto: 11000 });
+    // O EXCEDENTE não depende do trilho: sobra devolve-se sempre.
+    expect(tetoDaRestituicao(dup, 'txC')).toMatchObject({ excesso: 10000, tardio: 0, teto: 10000 });
     expect(tetoDaRestituicao(dup, 'nenhum')).toBeNull();
   });
 
@@ -345,7 +485,10 @@ describe('as regras puras das duas rotas do dono — testadas sem HTTP', () => {
     const trecho = (rota) => { const i = R.indexOf(`url.pathname === '${rota}'`); return R.slice(i, R.indexOf("url.pathname === '", i + 40)); };
     expect(trecho('/api/checks/resolve-issue')).toMatch(/const payload = payloadDaResolucao\(b, user\);/);
     expect(trecho('/api/checks/resolve-issue')).toMatch(/appendValidated\(store, b\.checkId, 'PAYMENT_ISSUE_RESOLVED', payload\)/);
-    expect(trecho('/api/checks/record-restitution')).toMatch(/tetoDaRestituicao\(estado, String\(b\.txid\)\)\.teto/);
+    expect(trecho('/api/checks/record-restitution')).toMatch(/const limites = tetoDaRestituicao\(estado, String\(b\.txid\), \{/);
+    // O trilho impossível se decide pela LINHA do pagamento: data e meio.
+    expect(trecho('/api/checks/record-restitution')).toMatch(/confirmedAt: linhaDoPagamento && linhaDoPagamento\.confirmedAt/);
+    expect(trecho('/api/checks/record-restitution')).toMatch(/method: linhaDoPagamento && linhaDoPagamento\.method/);
     expect(trecho('/api/checks/record-restitution')).toMatch(/by: autorDoRegistro\(user\)/);
   });
 

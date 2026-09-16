@@ -65,6 +65,35 @@ function valoresDaRestricao(sql, tabela, coluna) {
   return new Set([...ultimo.matchAll(/'([^']+)'/g)].map((m) => m[1]));
 }
 
+/**
+ * A VARREDURA, UMA SÓ — usada na fonte de verdade e nas fontes SINTÉTICAS do
+ * teste das isenções. Enquanto eram duas cópias, mutar a de verdade (tirar o
+ * `pgConstraint` do padrão, por exemplo) não deixava nenhum teste vermelho:
+ * a cópia do teste continuava provando o comportamento antigo.
+ */
+const leiturasQueDECIDEM = (fonte) => {
+  const achados = [];
+  for (const m of fonte.matchAll(/\bpg(?:Code|Constraint)\b/g)) {
+    const nome = m[0];
+    const antes = fonte.slice(Math.max(0, m.index - 60), m.index);
+    const linha = fonte.slice(Math.max(0, m.index - 120), m.index + 60).replace(/\s+/g, ' ').trim();
+    // ESCRITA (`e.pgCode = ...`) não é leitura.
+    if (new RegExp(`^${nome}\\s*=[^=]`).test(fonte.slice(m.index, m.index + nome.length + 6))) continue;
+    // E a forma de LITERAL ou CHAMADA (`{ pgCode: '40001' }`, `{ pgConstraint:
+    // nomeDaRestricao(msg) }`), que o dublê usa pra produzir o erro na forma
+    // que o `throwOn` produz. Um RENOME de desestruturação (`{ pgCode: x }`)
+    // não tem aspas nem parêntese depois do nome, então segue sendo pego — foi
+    // a fuga que a revisão de d7f2683 provou.
+    if (new RegExp(`^${nome}\\s*:\\s*(?:['"\`\\d]|[A-Za-z_$][\\w$]*\\()`)
+      .test(fonte.slice(m.index, m.index + nome.length + 40))) continue;
+    // Dentro de uma interpolação (`${e.pgCode}`) é texto, não decisão.
+    if (/\$\{[^}]*$/.test(antes)) continue;
+    achados.push({ linha, indice: m.index, antes });
+  }
+  return achados;
+};
+
+
 describe('o esquema aceita exatamente o que o código escreve', () => {
   test('check_events.type conhece TODOS os EVENT_TYPES', () => {
     const sql = sqlNaOrdem();
@@ -301,8 +330,19 @@ describe('redefinir uma função não pode APAGAR o que outra migração acresce
     const sql = sqlNaOrdem();
     const faltando = [];
     for (const { funcao, precisa } of INVARIANTES) {
+      /**
+       * POR FRONTEIRA DE IDENTIFICADOR, não por prefixo.
+       *
+       * `append_check_event_if_unchanged` (migração 0034) COMEÇA com
+       * `append_check_event`, então a busca por prefixo passou a achá-la como se
+       * fosse a última redefinição da outra — e acusou que a definição tinha
+       * "perdido" o bloco de cache do status, que nunca esteve lá porque é outra
+       * função. Um guarda que acusa o inocente é tão ruim quanto um que absolve
+       * o culpado: da segunda vez ninguém lê. É o MESMO erro de prefixo que o
+       * censo de crons já tinha cometido (ver `cron-fail-closed`).
+       */
       const defs = [...sql.matchAll(
-        new RegExp(`create or replace function public\\.${funcao}[\\s\\S]*?\\$\\$;`, 'g'),
+        new RegExp(`create or replace function public\\.${funcao}(?![a-z0-9_])[\\s\\S]*?\\$\\$;`, 'g'),
       )];
       if (!defs.length) { faltando.push(`${funcao}: nenhuma definição`); continue; }
       const ultima = defs[defs.length - 1][0];
@@ -713,12 +753,14 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
     // `check.id` e não `checkId`: exclui a própria DEFINIÇÃO da função.
     const chamadas = [...fonte.matchAll(/repairRowFromLedger\(check\.id/g)].map((m) => m.index);
     // `toBe`, não `>=`: um censo com folga na direção da DELEÇÃO não é censo.
-    expect(chamadas.length).toBe(7);
+    expect(chamadas.length).toBe(9);
     /**
      * Os testes de reentrega que guardam cada chamada. `jaEncerrada` é uma
-     * disputa já fechada — reentrega também, só que dita por outro nome.
+     * disputa já fechada — reentrega também, só que dita por outro nome; e
+     * `casamento.decisao === 'reentrega'` é a decisão do `reversal-match`, que
+     * cobre as duas formas de reentrega da reversão (por `re_` e por contagem).
      */
-    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada/;
+    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada|decisao === 'reentrega'|jaEstornado === 0/;
     const semGuarda = [];
     for (const idx of chamadas) {
       // O trecho antes da chamada, até o `if` que a guarda.
@@ -727,6 +769,261 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
     }
     expect(semGuarda).toEqual([]);
   }
+});
+
+/**
+ * TODA SAÍDA QUE NÃO RECUSA OU APENDE OU RECONCILIA — MEDIDO, não lido.
+ *
+ * A primeira versão deste censo lia o fonte: pegava cada `return { status: … }`
+ * e procurava `repairRowFromLedger|appendEvent` numa janela de 900 bytes antes
+ * dele. A revisão de segurança derrubou nos dois eixos: (1) o ajudante `gritar`
+ * tem um `await appendEvent(` que satisfazia a janela de TODA saída do bloco da
+ * reversão — um `duplicate` novo sem reparo nenhum passava verde; (2) a regex
+ * `return \{ status:` não casa retorno em duas linhas, e já existem dois assim.
+ * Proximidade não é fluxo de controle, e contar bytes não é analisar código.
+ *
+ * Então o censo deixou de ler e passou a MEDIR: cada desfecho é produzido de
+ * verdade, com dependências instrumentadas, e a pergunta é feita ao
+ * comportamento — esta entrega mexeu no razão ou reconciliou a linha?
+ *
+ * E continua sendo CENSO porque a lista de desfechos vem do FONTE: um `status`
+ * novo que ninguém exercitou aqui quebra o teste, em vez de passar despercebido.
+ *
+ * O LIMITE, COM NÚMERO. A primeira versão deste cabeçalho dizia que só escapava
+ * "uma saída nova atrás de uma condição inalcançável" — o que soa a resíduo
+ * exótico. A revisão de segurança MEDIU: dos 20 sítios de `return { status: … }`
+ * dentro de `applyConfirmedPayment`, os cenários abaixo alcançam **8**. Os 12
+ * mudos não são inalcançáveis: são caminhos de produção que estes cenários não
+ * constroem — inclusive o `duplicate` da idempotência do append (`seq < 0`), que
+ * é o que fecha a corrida entre duas entregas simultâneas do mesmo `evt_`.
+ *
+ * Nada disso é conserto de uma linha: cobrir 20 sítios pede 20 arranjos, e
+ * alguns só existem em corrida. O que ESTE teste pode fazer é (a) pegar o
+ * mutante alcançável, que pega, e (b) não deixar o número crescer calado — o
+ * teste ao lado fixa a contagem de sítios, então um sítio novo obriga alguém a
+ * decidir se escreve o cenário ou assume a dívida por escrito.
+ *
+ * "8 de 20" é uma frase que ninguém confunde com completude. "condição
+ * inalcançável" era.
+ */
+describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () => {
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { createMemoryStore } = require('../_lib/store/memory');
+
+  /** Roda um cenário com deps instrumentadas e devolve o que ele FEZ. */
+  async function correr(montar) {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Censo', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+    const mesa = await store.seedTable(venue.id, 'Mesa 1');
+    const conta = await store.openCheck(mesa.qrToken, [{ id: 'i', name: 'Prato', priceCents: 10000 }]);
+    let apendou = false;
+    /**
+     * "RECONCILIOU" é ter PERGUNTADO à linha, não ter escrito nela.
+     *
+     * A primeira versão instrumentava `repairPaymentRow`, e ele só é chamado
+     * quando há divergência — numa linha que já converge, `repairRowFromLedger`
+     * sai antes. Medindo a escrita, quatro caminhos que reconciliam
+     * corretamente apareciam como mudos. O que se quer afirmar é que a entrega
+     * CONFRONTOU a linha com o razão, e o sinal disso é o `getPayment`, que é a
+     * primeira coisa que `repairRowFromLedger` faz e ninguém mais chama daqui.
+     */
+    let reparou = false;
+    const deps = {
+      loadEvents: store.loadEvents.bind(store),
+      appendEvent: async (...a) => { apendou = true; return store.appendEvent(...a); },
+      recordPayment: store.recordPayment.bind(store),
+      findCheckByTxid: store.findCheckByTxid.bind(store),
+      seenPspEvent: store.seenPspEvent.bind(store),
+      getPayment: async (...a) => { reparou = true; return store.getPayment(...a); },
+      repairPaymentRow: store.repairPaymentRow.bind(store),
+    };
+    const entregar = (p) => applyConfirmedPayment(p, deps);
+    await store.registerCharge({
+      checkId: conta.id, txid: 'pi', amountCents: 10000, tipCents: 1000, payerLabel: null, method: 'card',
+    });
+    // O ARRANJO não conta: só a última entrega é medida.
+    const final = await montar({ store, conta, deps, entregar });
+    apendou = false; reparou = false;
+    const r = await entregar(final);
+    return { status: r.status, apendou, reparou };
+  }
+
+  /** Um cenário por desfecho. O nome diz o caminho, não só o rótulo. */
+  const CENARIOS = {
+    'pagamento novo': async ({ entregar }) => {
+      void entregar;
+      return { kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' };
+    },
+    'reentrega do mesmo `evt_`': async ({ entregar }) => {
+      const e = { kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' };
+      await entregar(e);
+      return e;
+    },
+    'reapresentação com valor divergente': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      return { kind: 'payment_confirmed', txid: 'pi', amountCents: 9000, tipCents: 1000, method: 'card', eventId: 'e2' };
+    },
+    'reversão antes do estorno': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      return { kind: 'refund_failed', txid: 'pi', amountCents: 500, eventId: 'e2', refundId: 're_1' };
+    },
+    'segunda entrega da mesma falha': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      await entregar({ kind: 'refund', txid: 'pi', cumulativeRefundedCents: 1100, method: 'card', eventId: 'e2' });
+      await entregar({ kind: 'refund_failed', txid: 'pi', amountCents: 1100, eventId: 'e3', refundId: 're_1' });
+      return { kind: 'refund_failed', txid: 'pi', amountCents: 1100, eventId: 'e4', refundId: 're_1' };
+    },
+    'estorno cumulativo repetido': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      await entregar({ kind: 'refund', txid: 'pi', cumulativeRefundedCents: 1100, method: 'card', eventId: 'e2' });
+      return { kind: 'refund', txid: 'pi', cumulativeRefundedCents: 1100, method: 'card', eventId: 'e3' };
+    },
+    'reversão de txid que não existe': async () => (
+      { kind: 'refund_failed', txid: 'nao_existe', amountCents: 100, eventId: 'e9', refundId: 're_9' }
+    ),
+    'disputa perdida já encerrada': async ({ entregar }) => {
+      await entregar({ kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' });
+      await entregar({ kind: 'dispute_lost', txid: 'pi', refundDeltaCents: 2000, method: 'dispute', eventId: 'e2', disputeId: 'dp_1' });
+      return { kind: 'dispute_lost', txid: 'pi', refundDeltaCents: 2000, method: 'dispute', eventId: 'e3', disputeId: 'dp_1' };
+    },
+  };
+
+  test('cada desfecho, medido: ou mexeu no razão, ou reconciliou a linha', async () => {
+    const vistos = new Set();
+    const mudos = [];
+    for (const [nome, montar] of Object.entries(CENARIOS)) {
+      const r = await correr(montar);
+      vistos.add(r.status);
+      // `rejected` é 409: a entrega NÃO foi aceita, o adquirente reenvia, e não
+      // há o que reconciliar — o razão não mudou e a linha não mentiu.
+      if (r.status === 'rejected') continue;
+      if (!r.apendou && !r.reparou) mudos.push(`${nome} → ${r.status}: não apendeu nem reconciliou`);
+    }
+    expect(mudos).toEqual([]);
+    // E o arranjo exercitou mais de um desfecho, senão o laço acima é decorativo.
+    expect(vistos.size).toBeGreaterThanOrEqual(4);
+  });
+
+  test('a contagem de SÍTIOS de saída é fixa — um sítio novo exige decisão', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+    const inicio = fonte.indexOf('async function applyConfirmedPayment');
+    const fim = fonte.indexOf('\nasync function', inicio + 10);
+    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+    /**
+     * DOIS NÚMEROS, porque uma regex sozinha só vê a forma que ela desenha.
+     *
+     * `return { status:` exige `status` como PRIMEIRA chave. A revisão plantou
+     * `return { checkId: null, status: 'duplicate' }` — as mesmas duas chaves na
+     * ordem inversa, que é o que sai da mão de quem copia o vizinho — e o censo
+     * ficou verde: a contagem não mexeu e o status não entrou no inventário.
+     *
+     * Então conta-se o conjunto MAIOR (todo `return {` do corpo) e, à parte,
+     * quantos desses carregam `status` em qualquer posição. Uma saída nova de
+     * qualquer forma move o primeiro número; uma saída com o status escondido
+     * move a diferença entre os dois. Nenhuma AST.
+     */
+    /**
+     * O NÚMERO DE FORA conta `return` STATEMENTS, não `return {`.
+     *
+     * Ancorado no literal, a próxima forma escapa inteira — e a revisão plantou
+     * a mais idiomática de todas, a que qualquer um escreve pra logar antes de
+     * sair:
+     *
+     *     const resposta = { status: 'duplicate', checkId: check.id };
+     *     return resposta;
+     *
+     * Nem `retornos` nem `comStatus` mexiam. Contando `return` como palavra, ela
+     * move o primeiro número; `return cond ? a : b`, `return Object.assign(…)` e
+     * `return ajudante(check)` movem também. A diferença entre os dois continua
+     * denunciando um `status` escondido (segurança MEDIUM-3 da rodada catorze).
+     */
+    const retornos = [...corpo.matchAll(/\breturn\b(?!\s*;)/g)].length;
+    const comStatus = [...corpo.matchAll(/return\s*\{[^}]*\bstatus\s*:/g)].length;
+    // Medido nesta rodada. `retornos` conta TODO `return` com valor do corpo
+    // (inclusive os que não devolvem objeto); `comStatus`, os que devolvem um
+    // objeto com `status`. Mexer em qualquer um dos dois é decidir: ou o cenário
+    // novo entra, ou a dívida sobe — e as duas coisas passam por alguém olhar.
+    // 22 retornos com valor, 20 deles devolvendo objeto com `status` — os dois
+    // que sobram devolvem outra coisa (`recompute`, o resultado do append).
+    expect({ retornos, comStatus }).toEqual({ retornos: 22, comStatus: 20 });
+  });
+
+  test('todo `status` que o fonte devolve tem cenário aqui', async () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+    const inicio = fonte.indexOf('async function applyConfirmedPayment');
+    const fim = fonte.indexOf('\nasync function', inicio + 10);
+    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+    /**
+     * O INVENTÁRIO É DE VALORES, em qualquer posição — não da POSIÇÃO do
+     * `status` num objeto.
+     *
+     * A versão anterior exigia `return { status: '…'` com o `status` como
+     * PRIMEIRA chave e valor literal. A revisão plantou o caso que importa mais
+     * do que uma saída nova: um VALOR novo num sítio existente —
+     * `status: seq > 0 ? 'appended' : 'skipped_quietly'`. Os dois contadores de
+     * sítios não se mexiam (o `return` é o mesmo), o valor não entrava no
+     * inventário, e nenhum cenário era cobrado. A suíte inteira ficava verde.
+     *
+     * E o desfecho é o pior deste repositório: a rota não conhece
+     * `skipped_quietly`, então cai no `json(res, 200, …)` — o adquirente recebe
+     * 200, nunca reentrega, e o razão nunca fica sabendo que o dinheiro entrou.
+     * Sucesso silencioso, inegociável #8 (segurança MEDIUM-1 da rodada quinze).
+     */
+    // Só o que está DENTRO de um `return`: `status: rowStatus` numa chamada ao
+    // store é leitura de linha, não desfecho desta função.
+    const retornosDoCorpo = [...corpo.matchAll(/\breturn\b[^;]*;/g)].map((m) => m[0]);
+    const doFonte = new Set(retornosDoCorpo
+      .flatMap((r) => [...r.matchAll(/\bstatus\s*:\s*'([a-z_]+)'/g)].map((m) => m[1])));
+    expect(doFonte.size).toBeGreaterThanOrEqual(4);
+
+    /**
+     * E VALOR NÃO-LITERAL É RECUSADO.
+     *
+     * Um ternário esconde dois valores atrás de um; o inventário não sabe ler
+     * expressão, e fingir que sabe é pior do que exigir que o autor nomeie os
+     * dois arms. Se um dia isto atrapalhar, a saída é escrever os dois `return`.
+     */
+    const naoLiterais = retornosDoCorpo
+      .flatMap((r) => [...r.matchAll(/\bstatus\s*:([^,}\n]+)/g)].map((m) => m[1].trim()))
+      .filter((x) => !/^'[a-z_]+'$/.test(x));
+    expect(naoLiterais).toEqual([]);
+
+    const vistos = new Set();
+    for (const montar of Object.values(CENARIOS)) vistos.add((await correr(montar)).status);
+    const semCenario = [...doFonte].filter((st) => !vistos.has(st)).sort();
+    expect(semCenario).toEqual([]);
+
+    /**
+     * E A ROTA SABE TRATAR TODOS ELES.
+     *
+     * O censo provava coisas sobre o tratador e NADA sobre a superfície que o
+     * chamador tem que despachar. Um `status` que a rota não conhece cai no
+     * `200` genérico, que para a reentrega do adquirente — a forma exata do
+     * achado acima. Aqui a lista do tratador é confrontada com o que as duas
+     * rotas de webhook nomeiam.
+     */
+    const router = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+    const conhecidosPelaRota = new Set([
+      ...[...router.matchAll(/result\.status === '([a-z_]+)'/g)].map((m) => m[1]),
+      ...[...router.matchAll(/'([a-z_]+)'\].includes\(result\.status\)/g)].map((m) => m[1]),
+      // O conjunto que a rota trata por pertencimento, não por igualdade.
+      ...(router.includes('NON_LEDGER_KINDS.has(result.status)') ? ['__non_ledger__'] : []),
+    ]);
+    const DESPACHO_GENERICO = new Set([
+      // Estes CAEM no 200 de propósito, e o motivo está escrito na rota: o
+      // razão já mudou (`appended`), ou a entrega era repetida (`duplicate`), ou
+      // o adquirente já foi avisado por outro caminho.
+      'appended', 'divergent_appended', 'duplicate', 'out_of_order',
+    ]);
+    const semDespacho = [...doFonte]
+      .filter((st) => !conhecidosPelaRota.has(st) && !DESPACHO_GENERICO.has(st))
+      .sort();
+    expect(semDespacho).toEqual([]);
+  });
 });
 
 
@@ -804,7 +1101,54 @@ test('a imagem ANTERIOR do reparo nunca perde um campo', () => {
  * Então o campo tem UM leitor, e ele é a função cujo trabalho é decidir o que o
  * código prova. Achado pela revisão de segurança de 2026-09-09 (LOW-4).
  */
-test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
+/**
+ * O JULGAMENTO — separado da varredura pra poder ser medido sobre uma fonte
+ * PLANTADA. Enquanto ele só rodava contra o `reconcile.js` de verdade, onde todo
+ * leitor já está no lugar certo, afrouxar a contenção (`noCorpo = true`) não
+ * deixava nada vermelho: não havia violação no repositório pra ele deixar
+ * passar. Um guarda que só é exercitado por código que o obedece não foi
+ * exercitado.
+ */
+function foraDoClassificador(fonteDoClassificador, decisoes) {
+  const corpo = (nome) => {
+    const i = fonteDoClassificador.indexOf(`function ${nome}(`);
+    if (i < 0) return null;
+    let nivel = 0; let j = fonteDoClassificador.indexOf('{', i);
+    const inicio = j;
+    for (; j < fonteDoClassificador.length; j += 1) {
+      if (fonteDoClassificador[j] === '{') nivel += 1;
+      else if (fonteDoClassificador[j] === '}') { nivel -= 1; if (nivel === 0) break; }
+    }
+    return [inicio, j];
+  };
+  const corpos = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega'].map(corpo).filter(Boolean);
+  const naChamada = (antes) => /(?:recusaProvada|desfechoDoLancamento|podeSerReentrega)\(\s*(?:err|e)?\s*(?:&&\s*(?:err|e))?\s*\.?$/.test(antes);
+  return {
+    corpos,
+    fora: decisoes.filter((d) => !(d.arquivo === '_lib/checks/reconcile.js'
+      && (corpos.some(([a, b]) => d.indice > a && d.indice < b) || naChamada(d.antes)))),
+  };
+}
+
+test('o julgamento da CONTENÇÃO pega uma decisão plantada fora do classificador', () => {
+  const fonte = [
+    'function recusaProvada(codigo) {',
+    "  return codigo === '40001';",
+    '}',
+    'function desfechoDoLancamento(err) {',
+    "  if (err.pgCode === '23505') return 'duplicado';",   // DENTRO: legítimo
+    '}',
+    'function podeSerReentrega(err) { return err.pgCode === \'23505\'; }',
+    "function outraCoisa(err) { if (err.pgCode === '40001') return 'x'; }", // FORA: proibido
+  ].join('\n');
+  const achados = leiturasQueDECIDEM(fonte)
+    .map((a) => ({ ...a, arquivo: '_lib/checks/reconcile.js' }));
+  expect(achados.length).toBe(3);
+  const { fora } = foraDoClassificador(fonte, achados);
+  expect(fora.map((d) => d.linha.includes('outraCoisa'))).toEqual([true]);
+});
+
+test('`pgCode` e `pgConstraint` só são lidos pelo classificador', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const raiz = path.join(__dirname, '..');
@@ -832,24 +1176,95 @@ test('`pgCode` tem exatamente um leitor, e ele é o classificador', () => {
     const fonte = fs.readFileSync(p, 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
-    // `\bpgCode\b`, não `\.pgCode`: um decisor escrito como
-    // `const { pgCode } = e; if (pgCode) ...` não tem acesso pontuado e passava
-    // verde. A minha mutação usou a forma pontuada, que é por isso que ela
-    // falhou como esperado. (LOW-3 da revisão de segurança de 2026-09-09.)
-    for (const m of fonte.matchAll(/\bpgCode\b/g)) {
-      const antes = fonte.slice(Math.max(0, m.index - 60), m.index);
-      const linha = fonte.slice(Math.max(0, m.index - 120), m.index + 60).replace(/\s+/g, ' ').trim();
-      // ESCRITA (`e.pgCode = ...`) não é leitura. Casa a partir do nome, porque
-      // o match agora é a palavra e não o acesso pontuado.
-      if (/^pgCode\s*=[^=]/.test(fonte.slice(m.index, m.index + 14))) continue;
-      // Dentro de uma interpolação (`${e.pgCode}`) é texto, não decisão.
-      if (/\$\{[^}]*$/.test(antes)) continue;
-      decisoes.push({ arquivo: path.relative(raiz, p), linha });
+    for (const achado of leiturasQueDECIDEM(fonte)) {
+      decisoes.push({ arquivo: path.relative(raiz, p), ...achado });
     }
   }
 
-  // Toda DECISÃO passa pelo classificador, e só há uma.
-  expect(decisoes.length).toBe(1);
-  expect(decisoes[0].arquivo).toBe('_lib/checks/reconcile.js');
-  expect(decisoes[0].linha).toMatch(/recusaProvada\(/);
+  /**
+   * TODA decisão está DENTRO do classificador — contido, não por vizinhança.
+   *
+   * A versão anterior exigia que a linha da leitura tivesse `recusaProvada(`
+   * numa janela de 180 caracteres. Isso é PROXIMIDADE: um `if (err.pgCode ===
+   * '23505')` novo, escrito por acaso perto de uma chamada existente, passava
+   * verde — e a revisão de segurança de 41b188a apontou a fraqueza. Agora o
+   * teste acha o corpo das duas funções que TÊM o direito de decidir por código
+   * do banco e exige que cada leitura caia dentro de uma delas.
+   */
+  const corpoDe = (nome) => {
+    // SEM COMENTÁRIO, como a varredura: os índices das leituras vêm da fonte
+    // despida, e comparar com posições da fonte crua desalinha tudo.
+    const fonte = fs.readFileSync(path.join(raiz, '_lib', 'checks', 'reconcile.js'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    const i = fonte.indexOf(`function ${nome}(`);
+    if (i < 0) return null;
+    let nivel = 0; let j = fonte.indexOf('{', i);
+    const inicio = j;
+    for (; j < fonte.length; j += 1) {
+      if (fonte[j] === '{') nivel += 1;
+      else if (fonte[j] === '}') { nivel -= 1; if (nivel === 0) break; }
+    }
+    return [inicio, j];
+  };
+  const NOMES = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega'];
+  const CLASSIFICADORES = NOMES.map(corpoDe).filter(Boolean);
+  expect(CLASSIFICADORES.length).toBe(NOMES.length);
+
+  /**
+   * O JULGAMENTO É O MESMO da fonte plantada — uma implementação, dois
+   * chamadores.
+   *
+   * Eu tinha extraído `foraDoClassificador` e deixado ESTE teste com a regra
+   * reimplementada inline: a prova plantada provava a cópia, e mutar a contenção
+   * do censo de verdade deixava a suíte inteira verde, incluindo o teste novo
+   * escrito pra impedir exatamente isso (segurança MEDIUM-3 de a95e15c). O
+   * `erros-traduzidos.test.ts` diz a coisa certa sobre isso — "uma cópia da
+   * regra dentro do teste que a confere prova a cópia, não a regra" — e eu fiz o
+   * oposto no mesmo commit.
+   */
+  const fonteDoClassificador = fs.readFileSync(path.join(raiz, '_lib', 'checks', 'reconcile.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const { corpos, fora } = foraDoClassificador(fonteDoClassificador, decisoes);
+  expect(corpos.length).toBe(3);
+  expect(decisoes.length).toBeGreaterThan(0);
+  expect(fora.map((d) => `${d.arquivo}: ${d.linha}`)).toEqual([]);
+});
+/**
+ * O CENSO DO `pgCode` É TESTADO CONTRA FUGAS CONHECIDAS.
+ *
+ * Duas já passaram por ele: a desestruturação sem renome (achado de 2026-09-09)
+ * e o renome, que a isenção de literal reabriu (segurança MEDIUM-2 de d7f2683).
+ * Uma isenção escrita a olho é uma fuga esperando; aqui ela é medida.
+ */
+test('as isenções do censo isentam só ESCRITA — medido sobre fontes sintéticas', () => {
+  /**
+   * Duas fugas já passaram por este censo: a desestruturação sem renome (achado
+   * de 2026-09-09) e o renome, que a isenção de literal reabriu (segurança
+   * MEDIUM-2 de d7f2683). Uma isenção escrita a olho é uma fuga esperando.
+   *
+   * E a varredura aqui é a MESMA do censo, exportada do teste de cima: enquanto
+   * eram duas cópias, mutar a de verdade não deixava nada vermelho.
+   */
+  const pega = (fonte) => leiturasQueDECIDEM(fonte).length > 0;
+  const casos = [
+    ['decisão pontuada', "if (e.pgCode === '40001') {}", true],
+    ['decisão sobre pgConstraint', "if (e.pgConstraint === 'x_uidx') {}", true],
+    ['ESCRITA de pgConstraint por literal', "Object.assign(e, { pgConstraint: 'x_uidx' })", false],
+    ['desestruturação', 'const { pgCode } = e; if (pgCode) {}', true],
+    ['desestruturação COM RENOME', "const { pgCode: sqlstate } = e; if (sqlstate === '23505') {}", true],
+    ['renome COM valor default ainda é decisão', "const { pgCode: s = '' } = e; if (s === '23505') {}", true],
+    ['decisão frouxa', "if (e.pgCode == '40001') {}", true],
+    ['decisão dentro de literal', "const r = { conflito: e.pgCode === '40001' };", true],
+    ['cópia pra variável', "const s = e.pgCode; if (s === '23505') {}", true],
+    ['ESCRITA por atribuição', 'e.pgCode = error.code;', false],
+    ['ESCRITA por literal', "Object.assign(new Error(), { pgCode: '40001' })", false],
+    ['ESCRITA por literal numérica', 'const e = { pgCode: 40001 };', false],
+    ['ESCRITA cujo valor é CHAMADA', 'const e = { pgConstraint: nomeDaRestricao(msg) };', false],
+    ['interpolação é texto, não decisão', 'process.stderr.write(`${e.pgCode}`);', false],
+  ];
+  const resultado = casos.map(([nome, fonte]) => [nome, pega(fonte)]);
+  expect(resultado).toEqual(casos.map(([nome, , esperado]) => [nome, esperado]));
+
 });

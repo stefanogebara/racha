@@ -210,7 +210,13 @@ describe('a leitura PÚBLICA da conta é uma lista branca', () => {
     });
     // A chave é um ordinal da conta, não o id do adquirente.
     expect(Object.keys(publico.payments)).toEqual(['p1']);
+    // `ref` entrou DE PROPÓSITO, e a lista branca continua branca: é o sha256 do
+    // txid em doze hex — deixa o telefone reconhecer a PRÓPRIA cobrança sem
+    // conhecer o id de ninguém (o ✓ confirmava o pagamento de outra pessoa da
+    // mesa; auditoria de fluxo, CRITICAL-1). O teste de cima segue exigindo que
+    // `pi_1` não apareça.
     expect(publico.payments.p1).toEqual({
+      ref: require('node:crypto').createHash('sha256').update('pi_1').digest('hex').slice(0, 12),
       amountCents: 3000, tipCents: 300, refundedAmountCents: 0, refundedTipCents: 0, late: false,
     });
   });
@@ -260,16 +266,61 @@ describe('avisos DO CLIENTE sobre o próprio dinheiro', () => {
     // cliente credor de R$ 50. O aviso derivava do saldo NÃO estornado — os
     // R$ 100 inteiros — e mandava a pessoa cobrar o dobro no caixa. Um número
     // errado é pior que nenhum.
-    const p = publicCheckState({
+    //
+    // E o aviso sai do FATO (`reversedOpenCents`), não da anomalia: derivado da
+    // anomalia ele nunca se apagava — ela só sai por um `PAYMENT_ISSUE_RESOLVED`
+    // SEM escopo, que nenhuma tela manda —, então depois de a casa devolver por
+    // fora o telefone de quem tem o QR seguia dizendo "ainda é devido" e a mesa
+    // cobrava de novo o que já tinha recebido (segurança HIGH-2 de 95f72a9).
+    const comDivida = {
       status: 'paga', totalCents: 10000, paidCents: 10000, tipCents: 0, overpaidCents: 0,
-      payments: { pi_1: { amountCents: 10000, tipCents: 0, refundedAmountCents: 0, refundedTipCents: 0 } },
+      payments: {
+        pi_1: {
+          amountCents: 10000, tipCents: 0, refundedAmountCents: 0, refundedTipCents: 0,
+          reversedOpenCents: 5000, reversedOpenAmountCents: 5000, reversedOpenTipCents: 0,
+        },
+      },
       anomalies: [{ seq: 5, type: 'PAYMENT_REFUND_REVERSED', txid: 'pi_1', severity: 'high',
         amountCents: 5000,
         reason: 'estorno de pi_1 FALHOU: dinheiro voltou pro restaurante e o cliente ficou sem' }],
-    });
+    };
+    const p = publicCheckState(comDivida);
     expect(p.notices).toEqual([{ code: 'refund_reversed', amountCents: 5000 }]);
     // E o TEXTO da anomalia continua fora: só o código e o valor atravessam.
     expect(JSON.stringify(p)).not.toContain('FALHOU');
+
+    // PAGA a dívida, o aviso some — mesmo com a anomalia ainda no log.
+    const quitada = publicCheckState({
+      ...comDivida,
+      payments: {
+        pi_1: {
+          ...comDivida.payments.pi_1,
+          reversedOpenCents: 0, reversedOpenAmountCents: 0, reversedOpenTipCents: 0,
+        },
+      },
+    });
+    expect(quitada.notices).toEqual([]);
+  });
+
+  test('a sobra já endereçada a uma testemunha não é anunciada DUAS vezes', () => {
+    // Os mesmos centavos saíam como sobra da conta E como estorno a receber:
+    // R$ 120,00 anunciados sobre R$ 60,00 de dívida (CDC art. 6º III). Desde que
+    // a sobra criada por uma reversão pertence a quem perdeu o estorno, os dois
+    // números descrevem o mesmo dinheiro por construção.
+    const p = publicCheckState({
+      status: 'paga', totalCents: 10000, paidCents: 16000, tipCents: 0, overpaidCents: 6000,
+      payments: {
+        txA: {
+          amountCents: 10000, tipCents: 0, refundedAmountCents: 0, refundedTipCents: 0,
+          reversedOpenCents: 6000, reversedOpenAmountCents: 6000, reversedOpenTipCents: 0,
+        },
+        txC: { amountCents: 6000, tipCents: 0, refundedAmountCents: 0, refundedTipCents: 0, late: true },
+      },
+      anomalies: [],
+    });
+    expect(p.notices).toEqual([{ code: 'refund_reversed', amountCents: 6000 }]);
+    const total = p.notices.reduce((soma, a) => soma + a.amountCents, 0);
+    expect(total).toBeLessThanOrEqual(6000);
   });
 
   test('anomalia SEM valor não vira aviso — "algo a receber, não sei quanto" não ajuda', () => {

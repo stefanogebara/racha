@@ -1,5 +1,7 @@
 'use strict';
 
+const { nomeDaRestricao } = require('./pg-erro');
+
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
 const { documentoPublicavelDaCasa } = require('../br/documento.js');
 const { confirmedMoney } = require('./confirmed-money');
@@ -34,6 +36,7 @@ const { disputeCounts } = require('../checks/disputes');
 
 const { createClient } = require('@supabase/supabase-js');
 const { reduce, paidAfterClose } = require('../checks/check-state');
+const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const { RECIPIENT_TERMINAL } = require('../recipient-status');
 
@@ -85,6 +88,12 @@ function throwOn(error, op) {
   if (typeof error.code === 'string' && (SQLSTATE_RE.test(error.code) || PGRST_RE.test(error.code))) {
     e.pgCode = error.code;
   }
+  // O NOME da restrição violada, quando o Postgres o diz. Só forma, como o
+  // código: quem decide o que ele prova é o classificador. Sem isto, QUALQUER
+  // unicidade virava "já registrado" — inclusive a `(check_id, seq)` do razão,
+  // que significaria o oposto (compliance LOW-1 de d7f2683).
+  const nome = nomeDaRestricao(`${error.message || ''} ${error.details || ''}`);
+  if (nome) e.pgConstraint = nome;
   throw e;
 }
 
@@ -141,11 +150,60 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     { auth: { persistSession: false } },
   );
 
+  /**
+
+   * As contas FECHADAS entre estas, em leituras por lote de 200 — o evento
+
+   * CLOSED é o que faz o redutor dizer `fechada` (é o único caminho até ela).
+
+   *
+
+   * A versão anterior repassava o razão INTEIRO de cada conta que a casa já
+
+   * teve, uma leitura por conta, em série: a cada carga do /admin, do /qrs e
+
+   * depois de cada ação numa mesa. Mil contas a ~120 ms por ida são os 120 s do
+
+   * `maxDuration`, e o admin parava de carregar semanas depois de a casa
+
+   * começar (auditoria de onboarding C2, auditoria de backend H3).
+
+   */
+
+  async function idsDeContasFechadas(ids) {
+
+    const fechadas = new Set();
+
+    for (let i = 0; i < ids.length; i += 200) {
+
+      const { data, error } = await client
+
+        .from('check_events').select('check_id')
+
+        .eq('type', 'CLOSED').in('check_id', ids.slice(i, i + 200));
+
+      throwOn(error, 'idsDeContasFechadas');
+
+      for (const r of data || []) fechadas.add(r.check_id);
+
+    }
+
+    return fechadas;
+
+  }
+
+
   async function loadEvents(checkId) {
     if (!isUuid(checkId)) return []; // malformed id → empty log → "not found"
     const { data, error } = await client
       .from('check_events')
-      .select('seq, type, payload')
+      // `created_at`: a DATA do evento, que é o que decide se o trilho de
+      // devolução daquele pagamento ainda está aberto. Sem ela, a única fonte da
+      // data era a linha de `payments` — a projeção que a rota da devolução
+      // trata como melhor-esforço —, e um `railImpossible: 'pix_90d'` gravado no
+      // razão não podia ser re-derivado dele por uma auditoria (compliance
+      // MEDIUM-4 de d7f2683).
+      .select('seq, type, payload, created_at')
       .eq('check_id', checkId)
       .order('seq', { ascending: true });
     throwOn(error, 'loadEvents');
@@ -309,11 +367,12 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .select('id, table_id')
         .eq('venue_id', venueId);
       throwOn(cErr, 'listTables.checks');
+      // As FECHADAS numa leitura por lote, não o razão de cada conta: ver
+      // `idsDeContasFechadas`.
+      const fechadas = await idsDeContasFechadas((allChecks || []).map((c) => c.id));
       const openByTable = new Set();
       for (const c of allChecks || []) {
-        if (openByTable.has(c.table_id)) continue;
-        const state = reduce(await loadEvents(c.id));
-        if (state.status !== 'fechada') openByTable.add(c.table_id);
+        if (!fechadas.has(c.id)) openByTable.add(c.table_id);
       }
       return (tabs || [])
         .map((t) => ({
@@ -358,10 +417,10 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         const { data: checkRows, error: cErr } = await client
           .from('checks').select('id').eq('table_id', tableId);
         throwOn(cErr, 'setTableActive.checks');
-        for (const c of checkRows || []) {
-          if (reduce(await loadEvents(c.id)).status !== 'fechada') {
-            throw new Error('table has an open check — close it before deactivating');
-          }
+        // As fechadas numa leitura por lote — ver `idsDeContasFechadas`.
+        const fechadas = await idsDeContasFechadas((checkRows || []).map((c) => c.id));
+        if ((checkRows || []).some((c) => !fechadas.has(c.id))) {
+          throw new Error('table has an open check — close it before deactivating');
         }
       }
       const { data, error } = await client
@@ -527,6 +586,21 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      *   lock e devolve `seq` negativo quando já aplicou (migração 0018) — é o
      *   que fecha a corrida entre duas entregas simultâneas do mesmo evento.
      */
+    /**
+     * COMPARE-AND-APPEND (migração 0034). O RPC confere o último `seq` DENTRO
+     * da trava e recusa com 40001 quando o razão mudou; o índice único parcial
+     * recusa com 23505 a mesma devolução fora do trilho registrada duas vezes.
+     * Os dois códigos chegam no `pgCode` pelo `throwOn` — e são CHECADOS pela
+     * rota (inegociável #7).
+     */
+    async appendEventIfUnchanged(checkId, type, payload, pspEventId = null, expectedSeq = null) {
+      const { data, error } = await client.rpc('append_check_event_if_unchanged', {
+        p_check_id: checkId, p_type: type, p_payload: payload,
+        p_psp_event_id: pspEventId, p_expected_seq: expectedSeq,
+      });
+      throwOn(error, 'appendEventIfUnchanged');
+      return data;
+    },
     async appendEvent(checkId, type, payload, pspEventId = null) {
       const { data, error } = await client.rpc('append_check_event', {
         p_check_id: checkId, p_type: type, p_payload: payload, p_psp_event_id: pspEventId,
@@ -1340,10 +1414,12 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const sobraPorTxid = new Map();
       for (const c of checks || []) {
         const state = reduce(await loadEvents(c.id));
-        for (const [txid, pg] of Object.entries(state.payments || {})) {
-          const falta = Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0));
-          if (falta > 0) sobraPorTxid.set(txid, falta);
-        }
+        // PELA REGRA ÚNICA: este mapa desconta a dívida do FATURAMENTO da série
+        // semanal (ver `ativacao.js`), e lido do excedente congelado ele era
+        // cego justamente na sobra que nasce de uma reversão — a série contava
+        // como receita a mesma quantia que a linha ao lado chamava de dívida
+        // (CC art. 876; segurança HIGH-1 de a95e15c).
+        acumularSobra(state, sobraPorTxid);
         rows.push({
           checkId: c.id,
           tableLabel: c.venue_tables ? c.venue_tables.label : '?',
@@ -1386,12 +1462,11 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
              * leitura pública segue com ordinal.
              */
             ...(state.overpaidCents > 0 ? {
-              overpaidTxids: Object.entries(state.payments)
-                .map(([txid, pg]) => ({
-                  txid,
-                  restituteCents: Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-                }))
-                .filter((x) => x.restituteCents > 0),
+              // PELA REGRA ÚNICA do redutor: o excedente cru é zero na
+              // duplicidade que nasce depois, e o painel mostrava "a devolver"
+              // sem nenhuma cobrança embaixo — com o runbook mandando devolver
+              // "pelo valor ao lado da cobrança" (compliance HIGH-1 de 089e8a2).
+              overpaidTxids: linhasDeSobra(state),
             } : {}),
             // Disputas por CONTAGEM: é a taxa de chargeback que o
             // adquirente julga, e o dono não tinha como ver a dele.

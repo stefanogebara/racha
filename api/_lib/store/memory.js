@@ -1,5 +1,7 @@
 'use strict';
 
+const { nomeDaRestricao, mensagemDeUnicidade } = require('./pg-erro');
+
 /**
  * Métodos que confirmam INLINE, sem webhook de gateway — e por isso ficam fora
  * da reconciliação ativa. Todo o resto entra, inclusive trilhos que ainda não
@@ -33,9 +35,25 @@ const { disputeCounts } = require('../checks/disputes');
 
 const crypto = require('crypto');
 const { reduce, paidAfterClose } = require('../checks/check-state');
+const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
 const { isTerminalRecipientStatus } = require('../recipient-status');
+
+/**
+ * A CHAVE do índice único parcial da 0034 — a mesma normalização do SQL
+ * (`lower(btrim(...))`): "PIX E2E123" e "pix e2e123 " são o mesmo comprovante.
+ */
+function chaveDaDevolucaoForaDoTrilho(type, payload) {
+  if (type !== 'PAYMENT_REFUNDED' || !payload || payload.offRail !== true) return null;
+  // `btrim` do Postgres tira SÓ o espaço ASCII — e o dublê usava `trim()` do
+  // JS, que tira tabulação, quebra de linha e NBSP também. Dublê mais restritivo
+  // que o banco esconde o furo em vez de mostrá-lo (segurança LOW-1 de
+  // d7f2683). Aqui ele imita o `btrim`; quem tira o resto é a rota, na entrada.
+  const ref = String(payload.reference == null ? '' : payload.reference)
+    .replace(/^ +| +$/g, '').toLowerCase();
+  return `${payload.txid}\u0000${ref}`;
+}
 
 function createMemoryStore() {
   const venues = new Map();
@@ -488,10 +506,13 @@ function createMemoryStore() {
         .map((c) => {
           const table = [...tables.values()].find((t) => t.id === c.tableId);
           const state = reduce(events.get(c.id) || []);
-          for (const [txid, pg] of Object.entries(state.payments || {})) {
-            const falta = Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0));
-            if (falta > 0) sobraPorTxid.set(txid, falta);
-          }
+          // PELA REGRA ÚNICA: este mapa desconta a dívida do FATURAMENTO da
+          // série semanal (ver `ativacao.js`), e lido do excedente congelado ele
+          // era cego justamente na sobra que nasce de uma reversão — a série
+          // contava como receita a mesma quantia que a linha ao lado chamava de
+          // dívida (CC art. 876; segurança HIGH-1 de a95e15c). Eram CINCO
+          // leitores do congelado, não quatro: eu contei à mão em vez de varrer.
+          acumularSobra(state, sobraPorTxid);
           return {
             checkId: c.id,
             tableLabel: table ? table.label : '?',
@@ -534,12 +555,11 @@ function createMemoryStore() {
              * leitura pública segue com ordinal.
              */
             ...(state.overpaidCents > 0 ? {
-              overpaidTxids: Object.entries(state.payments)
-                .map(([txid, pg]) => ({
-                  txid,
-                  restituteCents: Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-                }))
-                .filter((x) => x.restituteCents > 0),
+              // PELA REGRA ÚNICA do redutor: o excedente cru é zero na
+              // duplicidade que nasce depois, e o painel mostrava "a devolver"
+              // sem nenhuma cobrança embaixo — com o runbook mandando devolver
+              // "pelo valor ao lado da cobrança" (compliance HIGH-1 de 089e8a2).
+              overpaidTxids: linhasDeSobra(state),
             } : {}),
               // Disputas por CONTAGEM: é a taxa de chargeback que o
               // adquirente julga, e o dono não tinha como ver a dele.
@@ -661,6 +681,41 @@ function createMemoryStore() {
      *   que três tipos de evento chegaram a produção recusados por um CHECK
      *   que nenhum teste lia.
      */
+    /**
+     * COMPARE-AND-APPEND (migração 0034): só grava se o razão daquela conta
+     * ainda estiver no `seq` que o chamador viu.
+     *
+     * O dublê precisa ser tão restritivo quanto o banco — inclusive o ÍNDICE
+     * ÚNICO parcial das devoluções fora do trilho, porque um dublê que aceita
+     * o que o Postgres recusa é armadilha, não dublê. Os erros saem com
+     * `pgCode`, na mesma forma que o `throwOn` do Supabase produz.
+     */
+    async appendEventIfUnchanged(checkId, type, payload, pspEventId = null, expectedSeq = null) {
+      if (!Number.isInteger(expectedSeq) || expectedSeq < 0) {
+        throw Object.assign(new Error('memory store appendEventIfUnchanged: expected_seq obrigatório'), { pgCode: '22023' });
+      }
+      if (!events.has(checkId)) throw new Error('unknown check');
+      const log = events.get(checkId);
+      const atual = log.length ? log[log.length - 1].seq : 0;
+      if (atual !== expectedSeq) {
+        throw Object.assign(
+          new Error(`memory store appendEventIfUnchanged: o razão mudou (esperado ${expectedSeq}, atual ${atual})`),
+          { pgCode: '40001' },
+        );
+      }
+      const chave = chaveDaDevolucaoForaDoTrilho(type, payload);
+      if (chave && log.some((e) => chaveDaDevolucaoForaDoTrilho(e.type, e.payload) === chave)) {
+        throw Object.assign(
+          new Error('memory store appendEventIfUnchanged: devolução fora do trilho já registrada'),
+          // Pelo MESMO extrator da produção: o dublê escreve a mensagem que o
+          // Postgres escreveria e deixa o parser tirar o nome dela. Receber o
+          // nome de bandeja deixava o ramo de falha da extração sem teste
+          // nenhum (segurança LOW-3 de 41b188a).
+          { pgCode: '23505', pgConstraint: nomeDaRestricao(mensagemDeUnicidade('check_events_offrail_refund_uidx')) },
+        );
+      }
+      return this.appendEvent(checkId, type, payload, pspEventId);
+    },
     async appendEvent(checkId, type, payload, pspEventId = null) {
       if (!events.has(checkId)) throw new Error('unknown check');
       if (pspEventId != null) {
@@ -671,7 +726,13 @@ function createMemoryStore() {
       }
       const log = events.get(checkId);
       const seq = log.length + 1;
-      log.push({ seq, type, payload, ...(pspEventId != null ? { pspEventId } : {}) });
+      // `created_at` como no Postgres: o dublê tem que devolver o razão com a
+      // mesma forma, senão a data que decide o prazo do trilho só existe em
+      // produção (compliance MEDIUM-4 de d7f2683).
+      log.push({
+        seq, type, payload, created_at: new Date().toISOString(),
+        ...(pspEventId != null ? { pspEventId } : {}),
+      });
       return seq;
     },
     /** Ver a 0028: quem abriu a conta na mesa. Idempotente por conta+sessão. */
@@ -1159,7 +1220,14 @@ function createMemoryStore() {
         const e = new Error('excede o que falta pagar'); e.statusCode = 409; throw e;
       }
       const seq = log.length + 1;
-      log.push({ seq, type: 'PAYMENT_CONFIRMED', payload: { txid, amountCents, tipCents: 0, method: 'house_account' } });
+      // `created_at` aqui também: no Postgres a coluna tem `default now()`, e o
+      // dublê sem ela devolvia `confirmedAt: null` onde a produção devolve data
+      // — dublê MENOS informado que o banco é a inversão do defeito que a rodada
+      // passada consertou no outro sentido (segurança LOW-5 de 41b188a).
+      log.push({
+        seq, type: 'PAYMENT_CONFIRMED', created_at: new Date().toISOString(),
+        payload: { txid, amountCents, tipCents: 0, method: 'house_account' },
+      });
       return seq;
     },
     async refundHousePrincipal({ accountId, amountCents, nowIso }) {

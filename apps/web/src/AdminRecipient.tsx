@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authedReq as req } from './auth';
+import { type ApiError } from './api';
 import { useT } from './lang';
-import { onlyDigits, alnum, isValidCNPJ, docKind, maskCpfCnpj, isValidEmail, BR_BANKS, bankName } from './br';
+import { onlyDigits, alnum, isValidCNPJ, docKind, maskCpfCnpj, isValidEmail, BR_BANKS, bankName, normalizarDocumento } from './br';
 
 /**
  * "Recebimento" — o recebedor Pagar.me (split) do restaurante, por venue.
@@ -29,6 +30,9 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   const { t, tErr } = useT();
   const [info, setInfo] = useState<RecipientInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // O recebedor cadastrado NÃO EXISTE MAIS no adquirente (um 404 de verdade): a
+  // criação que vier daqui é SUBSTITUIÇÃO explícita (`replace: true`).
+  const [substituir, setSubstituir] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [created, setCreated] = useState<CreatedRecipient | null>(null);
   const [idCopied, setIdCopied] = useState(false);
@@ -73,7 +77,15 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
       // status quando não há `error`. Dicionário preenchido, frase nunca
       // exibida. Achado pela revisão de segurança de 2026-09-13.
       setLoadError(tErr(e));
-      setInfo((prev) => prev ?? { recipientId: null, status: null });
+      // SÓ o "recebedor não existe" abre o formulário de criar outro — e aí a
+      // criação vai como substituição explícita. Uma falha passageira do
+      // adquirente (rede, 5xx) mostrava "crie um novo; ele substitui o antigo"
+      // e o formulário: um envio trocava pra onde o dinheiro da casa liquida
+      // (auditoria de onboarding, C3). Agora ela só mostra o erro.
+      if ((e as ApiError).code === 'recipient_not_found') {
+        setSubstituir(true);
+        setInfo((prev) => prev ?? { recipientId: null, status: null });
+      }
     }
   }, [venueId, tErr]);
 
@@ -83,7 +95,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
     return (
       <section className="panel" id="recebimento">
         <p className="label">{t('rcpt.section')}</p>
-        <p className="muted small">{loadError ?? 'carregando…'}</p>
+        <p className="muted small">{loadError ?? t('admin.loading')}</p>
       </section>
     );
   }
@@ -158,6 +170,9 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           venueId,
+          // Trocar um recebedor de verdade é EXPLÍCITO: o servidor recusa sem
+          // isto (409 `recipient_exists`).
+          ...(substituir || realId ? { replace: true } : {}),
           name: name.trim(),
           ...(email.trim() ? { email: email.trim() } : {}),
           ...(notifyWhatsapp.trim() ? { notifyWhatsapp: notifyWhatsapp.trim() } : {}),
@@ -248,9 +263,10 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
             <label style={{ gridColumn: '1 / -1' }}>
               {t('rcpt.docLabel')}
-              <input className="namefield" inputMode="numeric" placeholder="00.000.000/0000-00" value={maskCpfCnpj(doc)}
+              <input className="namefield" inputMode="text" autoCapitalize="characters" autoComplete="off"
+                placeholder="00.000.000/0000-00" value={maskCpfCnpj(doc)}
                 onBlur={() => touch('doc')} style={errStyle('doc', valid.doc)}
-                onChange={(e) => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
+                onChange={(e) => setDoc(normalizarDocumento(e.target.value))} />
               {fb('doc', valid.doc, docErr, t('rcpt.docHint'),
                 t('admin.cnpjOk'))}
               {/* A casa HERDA este documento quando ainda não tem um, e é ele

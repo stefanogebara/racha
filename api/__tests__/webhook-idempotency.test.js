@@ -15,10 +15,18 @@
  * inteiro, a conta voltava pra `paga`, o write-back dizia "pago" pro POS e a
  * mesa fechava com o cliente tendo recebido R$ 5,00 de volta.
  *
- * A correção não foi por espécie: foi no APPEND. `psp_event_id` único,
- * conferido dentro do lock por conta (migração 0018), então a segunda entrega
- * do mesmo `evt_` é no-op — e a corrida entre duas entregas simultâneas fecha
- * junto, que a checagem em memória não fechava.
+ * A primeira correção foi no APPEND: `psp_event_id` único, conferido dentro do
+ * lock por conta (migração 0018), então a segunda entrega do MESMO `evt_` é
+ * no-op — e a corrida entre duas entregas simultâneas fecha junto.
+ *
+ * MAS ISSO NÃO FECHA A DUPLA ENTREGA, e este cabeçalho afirmou por meses que
+ * fechava: `refund.failed` e `refund.updated` são eventos DIFERENTES, com `evt_`
+ * diferentes — a unicidade não os vê. O que os separava era acidente (depois da
+ * primeira reversão o pagamento ficava sem estorno vivo e o segundo caía em
+ * `out_of_order`), e bastava o adquirente REFAZER o estorno no meio pra o
+ * acidente sumir: a segunda entrega apagava do razão um estorno que SAIU
+ * (segurança HIGH-1 de 11a0904). A idempotência de verdade aqui é a identidade
+ * do ESTORNO (`re_`), e é ela que este arquivo testa agora.
  */
 
 const { applyConfirmedPayment, LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
@@ -62,16 +70,25 @@ describe('idempotência por id de evento', () => {
     }, deps);
     const alvo = dinheiro(await estado(store, check.id));
 
-    // A falha do estorno chega em DOIS eventos com o mesmo id lógico.
+    /**
+     * A FALHA CHEGA EM DOIS EVENTOS DIFERENTES — é a entrega normal da Stripe
+     * (`refund.failed` e `refund.updated` com status `failed`), com `evt_`
+     * distintos. A versão anterior deste teste mandava as duas com o MESMO
+     * `eventId` ("dois eventos com o mesmo id lógico"), premissa que a Stripe
+     * não honra: ele era verde por construção — a guarda que nunca dispara, no
+     * teste escrito pra provar que ela dispara (compliance HIGH-1 de 11a0904).
+     *
+     * O que separa as duas entregas é a identidade do ESTORNO (`re_`).
+     */
     const primeiro = await applyConfirmedPayment({
-      kind: 'refund_failed', txid: 'pi_x', amountCents: 900, eventId: 'evt_falha',
+      kind: 'refund_failed', txid: 'pi_x', amountCents: 900, eventId: 'evt_falha_1', refundId: 're_900',
     }, deps);
     expect(primeiro.status).toBe('appended');
     const depoisDaReversao = dinheiro(await estado(store, check.id));
 
     for (let i = 0; i < 3; i += 1) {
       const r = await applyConfirmedPayment({
-        kind: 'refund_failed', txid: 'pi_x', amountCents: 900, eventId: 'evt_falha',
+        kind: 'refund_failed', txid: 'pi_x', amountCents: 900, eventId: `evt_falha_${i + 2}`, refundId: 're_900',
       }, deps);
       expect(r.status).toBe('duplicate');
     }
@@ -150,4 +167,49 @@ describe('idempotência por id de evento', () => {
     expect(r.status).toBe('duplicate');
     expect((await estado(store, check.id)).paidCents).toBe(3082);
   });
+});
+
+test('a segunda entrega da mesma falha NÃO apaga o estorno que o adquirente refez', async () => {
+  /**
+   * O pior desfecho da entrega dupla, medido pela revisão de segurança: a casa
+   * recebe `refund.failed`, o adquirente REFAZ o estorno e sai, e aí chega a
+   * segunda entrega da MESMA falha (`refund.updated` com status `failed`,
+   * outro `evt_`). Ela revertia de novo: o razão apagava um estorno que SAIU, o
+   * telefone de quem tem o QR voltava a anunciar a dívida, o painel reabria o
+   * teto, e a casa pagava duas vezes — sem anomalia, com a conciliação verde
+   * (segurança HIGH-1 de 11a0904, inegociável #7).
+   */
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { reduce } = require('../_lib/checks/check-state');
+  const { publicCheckState } = require('../_lib/checks/public-state');
+
+  const store = createMemoryStore();
+  const venue = await store.seedVenue({ name: 'Dupla entrega', servicoBp: 1000 });
+  const mesa = await store.seedTable(venue.id, 'Mesa 1');
+  const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 10000 }]);
+  const deps = {
+    loadEvents: store.loadEvents.bind(store),
+    appendEvent: store.appendEvent.bind(store),
+    findCheckByTxid: async () => ({ id: conta.id }),
+  };
+  await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'pi_x', amountCents: 10000, tipCents: 0, method: 'card' });
+  await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 2000, eventId: 'evt_r' }, deps);
+  await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 2000, eventId: 'evt_f1', refundId: 're_x' }, deps);
+  // O adquirente REFAZ e desta vez sai.
+  await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 2000, eventId: 'evt_r2' }, deps);
+  const antes = reduce(await store.loadEvents(conta.id));
+  expect(publicCheckState(antes).notices).toEqual([]);
+
+  // A SEGUNDA entrega da mesma falha.
+  const r = await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 2000, eventId: 'evt_f2', refundId: 're_x',
+  }, deps);
+  expect(r.status).toBe('duplicate');
+
+  const depois = reduce(await store.loadEvents(conta.id));
+  expect(depois.paidCents).toBe(antes.paidCents);
+  expect(depois.payments.pi_x.reversedOpenCents || 0).toBe(0);
+  // E o telefone do cliente continua sem anunciar dívida nenhuma.
+  expect(publicCheckState(depois).notices).toEqual([]);
 });
