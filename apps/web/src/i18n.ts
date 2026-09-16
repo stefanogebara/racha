@@ -211,10 +211,13 @@ export const DICT = {
 
   // ── identificação ───────────────────────────────────────────────────────
   'payer.name':       { en: 'Your name (optional)',            pt: 'Seu nome (opcional)', es: 'Tu nombre (opcional)' },
-  // "PRA PAGAR COM PIX", e não "pra pagar": o botão do Pix é o único que o CPF
-  // destrava (`onPay` barra só ele); o elemento da Stripe paga sem. O rótulo
-  // dizia uma obrigação maior do que a que o código impõe.
-  'payer.cpf':        { en: 'Your CPF (required for Pix)',      pt: 'Seu CPF (obrigatório pra pagar com Pix)', es: 'Tu CPF (obligatorio para pagar con Pix)' },
+  // OS DOIS TRILHOS QUE O EXIGEM, nomeados. A versão anterior dizia só "Pix", e
+  // o comentário que a justificava dizia que "o botão do Pix é o único que o CPF
+  // destrava" — falso: o botão do Google Pay também é travado por ele
+  // (`WalletPay`), e ficava cinza SEM MENSAGEM, que é o modo de falha que esta
+  // tela já tinha consertado pro Pix ("ficava cinza em silêncio e parecia
+  // quebrado"). Quem exige é a Pagar.me, nos dois; a Stripe não exige em nenhum.
+  'payer.cpf':        { en: 'Your CPF (required for Pix and Google Pay)', pt: 'Seu CPF (obrigatório pra Pix e Google Pay)', es: 'Tu CPF (obligatorio para Pix y Google Pay)' },
   // O que o CPF é fica AQUI e não no placeholder: glosado no rótulo, o campo
   // truncava em "Your CPF, the Brazilian tax ID (required to" num telefone de
   // 430px — e um rótulo cortado explica menos que um curto. Visto no navegador.
@@ -249,9 +252,9 @@ export const DICT = {
    * de produto e continua na fila. O que não podia esperar é a tela afirmar uma
    * exigência que, naquele caminho, não existe.
    */
-  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. Paying by Pix, the provider requires it to issue the charge — it goes to the provider, never to the restaurant, and Racha does not store it. On other rails it may not be used at all.',
-                        pt: 'No Pix, o provedor de pagamento exige o CPF pra emitir a cobrança. Vai pra ele, nunca pro restaurante, e a Racha não guarda. Nos outros meios ele pode nem ser usado.',
-                        es: 'Con Pix, el proveedor de pago exige el CPF para emitir el cobro — va para él, nunca para el restaurante, y Racha no lo guarda. En otros medios puede que ni se use.' },
+  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. On Pix and Google Pay the payment provider requires it to issue the charge, and it goes to the provider — never to the restaurant, and Racha does not store it. On card it is not requested by the provider.',
+                        pt: 'No Pix e no Google Pay, o provedor de pagamento exige o CPF pra emitir a cobrança, e ele vai pra esse provedor — nunca pro restaurante, e a Racha não guarda. No cartão, o provedor não pede.',
+                        es: 'Con Pix y Google Pay, el proveedor de pago exige el CPF para emitir el cobro, y va para ese proveedor — nunca para el restaurante, y Racha no lo guarda. Con tarjeta, el proveedor no lo pide.' },
   'payer.cpfHint':    { en: 'Enter your CPF, 11 digits, to enable payment.',
                         pt: 'Preencha seu CPF (11 dígitos) pra liberar o pagamento.',
                         es: 'Escribe tu CPF, 11 dígitos, para habilitar el pago.' },
@@ -736,6 +739,18 @@ export const DICT = {
    * Com um número só, o dono ajustava pelo menor e a mesa continuava vendo o
    * maior, com o botão de pagar ligado (CDC art. 42 § único).
    */
+  /**
+   * E A TERCEIRA: o buraco é TODO chargeback, e não há o que ajustar.
+   *
+   * É o estado depois de o dono fazer o que a frase do caso misto manda. Sem uma
+   * frase própria, ela dizia "dos quais R$ 0,00 vieram de devolução — ajuste na
+   * parte devolvida": metade da instrução vira no-op, e quem repetir o gesto de
+   * ontem apaga dos livros um prejuízo real. Aqui só sobra a ação verdadeira, e
+   * o art. 42 não é citado: nesta parcela a dívida NÃO está quitada.
+   */
+  'find.reopened_by_chargeback': { en: 'this bill was settled and the table still sees {amount} “still owed” with a pay button — and that whole gap is a chargeback the house lost. There is nothing to adjust down; writing it off would erase a real loss. Close the bill.',
+                        pt: 'esta conta estava quitada e a mesa ainda vê {amount} “faltando” com o botão de pagar — e esse buraco é TODO de chargeback, que a casa perdeu. Não há nada a ajustar; apagá-lo dos livros seria apagar um prejuízo. Feche a conta.',
+                        es: 'esta cuenta estaba saldada y la mesa aún ve {amount} «pendiente» con el botón de pagar — y ese hueco es TODO contracargo, que el local perdió. No hay nada que ajustar; borrarlo sería borrar una pérdida real. Cierra la cuenta.' },
   'find.reopened_by_refund_mixed': { en: 'this bill was settled and a refund reopened it — the table now sees {amount} “still owed” and a pay button, of which {refundable} came from a refund; the rest is a chargeback the house actually lost. Close the bill or adjust the total down by the refunded part; do not ask the table for the difference',
                         pt: 'esta conta estava quitada e uma devolução a reabriu — a mesa está vendo {amount} “faltando” e o botão de pagar, dos quais {refundable} vieram de devolução; o resto é chargeback, que a casa perdeu mesmo. Feche a conta ou ajuste o total para baixo na parte devolvida; não peça a diferença à mesa',
                         es: 'esta cuenta estaba saldada y una devolución la reabrió — la mesa ve {amount} «pendiente» y el botón de pagar, de los cuales {refundable} vinieron de una devolución; el resto es un contracargo que el local sí perdió. Cierra la cuenta o ajusta el total a la baja por la parte devuelta; no pidas la diferencia a la mesa' },
@@ -1574,7 +1589,13 @@ export const DICT = {
   'land.forVenues': { en: 'I run a restaurant',               pt: 'Tenho um restaurante', es: 'Tengo un restaurante' },
   'land.proof1':    { en: 'Pix settles to the restaurant’s own account', pt: 'O Pix cai na conta do próprio restaurante', es: 'El pago cae en la cuenta del propio restaurante' },
   'land.proof2':    { en: 'Service charge optional, tracked for payroll', pt: 'Serviço opcional, rastreado pra folha', es: 'Servicio opcional, registrado para la nómina' },
-  'land.proof3':    { en: 'We never hold your money',           pt: 'A gente nunca segura o seu dinheiro', es: 'Nunca retenemos tu dinero' },
+  // "NUNCA SEGURAMOS" sem qualificação era o chamador esquecido da correção do
+  // `stripe.blurb`: no cartão a cobrança TRANSITA pelo saldo da plataforma antes
+  // da transferência, e na Espanha isso vale pra 100% do volume (Bizum e cartão
+  // são destination charges). Oferta que vincula (CDC arts. 30 e 37), e terreno
+  // do inegociável #4. A frase nova afirma o que é verdade nos dois trilhos: a
+  // conta é do restaurante, e a Racha não tem conta-bolsão nem saca dela.
+  'land.proof3':    { en: 'No pooled account, no withdrawals by us',  pt: 'Sem conta-bolsão, sem saque nosso', es: 'Sin cuenta ómnibus, sin retiros nuestros' },
   'land.menuLabel': { en: 'Every line gets its block',          pt: 'Cada linha tem seu bloco', es: 'Cada línea tiene su grabado' },
   'land.menuSub':   { en: 'Fourteen woodcuts, carved in one pass, one for each thing a bar bill prints.',
                       pt: 'Catorze xilogravuras, entalhadas de uma vez, uma pra cada coisa que uma conta de bar imprime.',
@@ -1606,9 +1627,9 @@ export const DICT = {
   'land.house4':    { en: 'Prepaid house balance turns loyalty into cash up front.', pt: 'Saldo da casa pré-pago transforma fidelidade em caixa antecipado.', es: 'El saldo prepago de la casa convierte fidelidad en caja por adelantado.' },
 
   'land.nav':      { en: 'For restaurants',                pt: 'Para restaurantes', es: 'Para restaurantes' },
-  'land.house0':   { en: 'Pix lands in the restaurant’s own account. We never hold the money.',
-                     pt: 'O Pix cai na conta do próprio restaurante. A gente nunca segura o dinheiro.',
-                        es: 'El pago cae en la cuenta del propio restaurante. Nunca retenemos el dinero.' },
+  'land.house0':   { en: 'The money lands in the restaurant’s own account. Racha has no pooled account and never withdraws from yours.',
+                     pt: 'O dinheiro cai na conta do próprio restaurante. A Racha não tem conta-bolsão e nunca saca da sua.',
+                        es: 'El dinero cae en la cuenta del propio restaurante. Racha no tiene cuenta ómnibus y nunca retira de la tuya.' },
 
   'land.proofTitle': { en: 'To the cent. Always.',            pt: 'Ao centavo. Sempre.', es: 'Al céntimo. Siempre.' },
   'land.proofSub':   { en: 'Every split sums back to the bill exactly. When the cents don’t divide, the remainder goes to one share — never rounded away, never invented.',
@@ -1625,7 +1646,15 @@ export const DICT = {
 export type Key = keyof typeof DICT;
 
 /**
- * A FRASE DE UM ACHADO DA CONCILIAÇÃO — a regra, fora do componente.
+ * Achado da conciliação → frase, no idioma do leitor.
+ *
+ * Mapa com genérico, nunca ternário: um código novo tem que sair como código, e
+ * não como a frase do vizinho. Os centavos vêm crus do servidor e são formatados
+ * aqui, onde se sabe quem está lendo. (Este bloco ficou pra trás no `Panel.tsx`
+ * quando a função mudou de casa, e passou a descrever a função vizinha —
+ * segurança LOW-1 da rodada quinze.)
+ *
+ * A REGRA, fora do componente.
  *
  * Ela vivia dentro do `Panel.tsx`, e por isso não dava pra chamar de um teste:
  * o runner do app é `node --test` sobre TypeScript, que não transforma JSX. O
@@ -1658,7 +1687,20 @@ export function textoDoAchado(
   const vars = valor !== undefined
     ? {
       amount: brl(Math.abs(valor)),
-      ...(f.refundableCents !== undefined ? { refundable: brl(Math.abs(f.refundableCents)) } : {}),
+      /**
+       * SEM `Math.abs` no segundo número.
+       *
+       * O `{amount}` usa valor absoluto porque `driftCents` é uma diferença com
+       * sinal e o sinal já está na frase. Este não: `refundableCents` é "quanto
+       * dá pra dar baixa", e negativo é BUG do servidor. `Math.abs` era o
+       * mascarador clássico de erro de sinal — com o teto do servidor removido,
+       * −8000 virava "R$ 80,00 vieram de devolução" num buraco de R$ 30,00, e
+       * ajustar por esse número apagaria dos livros R$ 50,00 de prejuízo real.
+       * O cliente é o último lugar que pode recusar (segurança MEDIUM-2 da
+       * rodada quinze).
+       */
+      ...(f.refundableCents !== undefined
+        ? { refundable: brl(Math.max(0, f.refundableCents)) } : {}),
     }
     : undefined;
   // Pergunta, não exceção: `t()` de chave desconhecida estoura num

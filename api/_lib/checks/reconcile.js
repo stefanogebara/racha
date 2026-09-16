@@ -345,14 +345,37 @@ function reconcileCheck({ checkId, events, payments }) {
        * quando há chargeback no meio, o código do achado muda, e a outra frase
        * nomeia os dois números.
        */
-      // MISTO quando há chargeback no meio: é o que decide se a frase precisa
-      // nomear os dois números ou um só.
+      /**
+       * TRÊS FRASES, porque são três situações — e a do meio vira instrução
+       * impossível se não se separar a terceira.
+       *
+       * Depois que o dono ajusta "na parte devolvida", o achado continua saindo
+       * (é a propriedade que o portão acima defende) — mas `porDevolucao` é
+       * ZERO. A frase do caso misto passava a dizer "dos quais R$ 0,00 vieram de
+       * devolução […] ajuste o total para baixo na parte devolvida": a segunda
+       * metade do remédio é um no-op, e quem repetisse o gesto de ontem apagaria
+       * dos livros prejuízo REAL de chargeback — precisamente o que o parágrafo
+       * acima diz que não se pode instruir (compliance MEDIUM-3 da rodada
+       * quinze).
+       *
+       * E a citação do art. 42 sai do caso "só chargeback": ali a dívida não
+       * está quitada, e o artigo não alcança essa parcela. "Feche a conta"
+       * continua sendo a ação verdadeira, e vira a única.
+       */
       const misto = porDisputa > 0;
-      add('high', misto ? 'reopened_by_refund_mixed' : 'reopened_by_refund',
-        `esta conta foi quitada (entrou ${entrou}¢ de ${state.totalCents}¢) e uma devolução a reabriu: `
-        + `o telefone da mesa mostra ${buraco}¢ "faltando" e o botão de pagar`
-        + (misto ? `, dos quais ${porDevolucao}¢ vieram de devolução (o resto é chargeback, que a casa perdeu mesmo)` : '')
-        + `. Feche a conta ou lance um ajuste para baixo; não peça o resto à mesa (CDC art. 42)`,
+      const soChargeback = misto && porDevolucao === 0;
+      const codigo = soChargeback ? 'reopened_by_chargeback'
+        : (misto ? 'reopened_by_refund_mixed' : 'reopened_by_refund');
+      add('high', codigo,
+        `esta conta foi quitada (entrou ${entrou}¢ de ${state.totalCents}¢) e o telefone da mesa mostra `
+        + `${buraco}¢ "faltando" e o botão de pagar`
+        + (soChargeback
+          ? `, e esse buraco é TODO de chargeback — não há nada a ajustar, e apagá-lo dos livros seria `
+            + `apagar um prejuízo. Feche a conta.`
+          : (misto
+            ? `, dos quais ${porDevolucao}¢ vieram de devolução (o resto é chargeback, que a casa perdeu mesmo). `
+              + `Feche a conta ou ajuste o total para baixo NA PARTE DEVOLVIDA; não peça essa parte à mesa (CDC art. 42)`
+            : `. Feche a conta ou lance um ajuste para baixo; não peça o resto à mesa (CDC art. 42)`)),
         { deltaCents: buraco, refundableCents: porDevolucao, entrouCents: entrou });
     }
   }

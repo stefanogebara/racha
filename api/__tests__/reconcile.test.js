@@ -492,8 +492,11 @@ describe('a conta que voltou a cobrar', () => {
   ];
   // Os DOIS códigos: o simples e o do caso misto (com chargeback no meio), que
   // tem frase própria porque carrega dois números.
+  // Os TRÊS códigos da família: o simples, o misto (com chargeback no meio) e o
+  // de chargeback puro — o estado DEPOIS do ajuste, em que não há mais nada a
+  // ajustar e a única ação verdadeira é fechar a conta.
   const achado = (evs) => reconcileCheck({ checkId: 'c', events: evs, payments: [] })
-    .findings.filter((x) => /^reopened_by_refund/.test(x.code));
+    .findings.filter((x) => /^reopened_by_(refund|chargeback)/.test(x.code));
 
   test('quitada e reaberta por devolução: `high`, com o número que a mesa vê', () => {
     const r = achado([...quitada, ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 })]);
@@ -619,6 +622,41 @@ describe('a conta que voltou a cobrar', () => {
     expect(depois[0].deltaCents).toBe(11000);
     // E não há mais nada a ajustar: a parte devolvível é zero, nunca negativa.
     expect(depois[0].refundableCents).toBe(0);
+    /**
+     * E A FRASE MUDA. Com `refundableCents = 0`, a do caso misto diria "dos
+     * quais R$ 0,00 vieram de devolução — ajuste na parte devolvida": metade da
+     * instrução vira no-op, e repetir o gesto de ontem apagaria dos livros
+     * prejuízo real (compliance MEDIUM-3 da rodada quinze).
+     */
+    expect(depois[0].code).toBe('reopened_by_chargeback');
+    expect(depois[0].message).toMatch(/não há nada a ajustar/);
+    // E o art. 42 NÃO é citado aqui: nesta parcela a dívida não está quitada.
+    expect(depois[0].message).not.toMatch(/art\. 42/);
+  });
+
+  /**
+   * E PASSANDO DO LIMITE, a parte devolvível é ZERO — não negativa.
+   *
+   * O teste acima para exatamente no zero (`buraco === porDisputa`), então o
+   * `Math.max(0, …)` era um no-op em toda asserção da suíte: apagá-lo não
+   * quebrava nada. E o consumidor AMPLIFICA o negativo em vez de recusá-lo — o
+   * painel formatava `Math.abs(refundableCents)`, então −8000 virava
+   * "R$ 80,00 vieram de devolução" numa conta com buraco de R$ 30,00, e ajustar
+   * por esse número apagaria dos livros R$ 50,00 de prejuízo real
+   * (segurança MEDIUM-2 da rodada quinze).
+   */
+  test('ajuste ALÉM da parte devolvida não produz devolvível negativo', () => {
+    const r = achado([
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 11000, tipCents: 0, disputeId: 'dp_1' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2000, tipCents: 0 }),
+      // O dono ajustou 10000, muito além dos 2000 devolvidos.
+      ev('ADJUSTED', { totalCents: 10000 }),
+    ]);
+    expect(r.length).toBe(1);
+    expect(r[0].deltaCents).toBe(3000);
+    expect(r[0].refundableCents).toBe(0);
   });
 
   /**

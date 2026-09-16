@@ -969,7 +969,12 @@ async function route(req, res) {
           // exigência parecer coleta excessiva numa revisão — é o mínimo pra
           // emitir a cobrança, que é a base legal do art. 6º III da LGPD
           // (necessidade, execução de contrato). O app não guarda o número:
-          // `registerCharge` não persiste, e webhook com CPF passa por maskTaxId.
+          // `registerCharge` não persiste, e o webhook não guarda: a máscara é
+          // LISTA DE PERMISSÃO de escalares e o `customer.document` vem aninhado,
+          // então ele nem chega ao banco. (Esta linha dizia "passa por
+          // `maskTaxId`" — o ramo do pagador foi APAGADO da máscara, o que é mais
+          // protetivo: descarte, não mascaramento. Mas apontar pra um controle
+          // que não existe faz o próximo leitor confiar na máscara errada.)
           payerDocument: body.payerDocument ?? null,
         });
       } catch (e) {

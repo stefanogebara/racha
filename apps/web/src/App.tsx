@@ -847,7 +847,11 @@ export default function App() {
               num bar, é também o motivo de alguém desistir de pagar. O destino
               é verdade conferida: `create-charge.js` manda pro PSP e o
               `registerCharge` NÃO guarda; webhook que traz CPF passa pelo
-              `maskTaxId`. */}
+              descarte — a máscara do webhook é lista de PERMISSÃO de escalares e
+              o documento vem aninhado, então ele não tem caminho pro banco.
+              (Aqui dizia "passa pelo `maskTaxId`", e esse ramo foi apagado da
+              máscara: o resultado é mais forte, a frase é que apontava pra um
+              controle inexistente.) */}
           {taxIdRequired && <p className="muted small" id="cpf-why">{t('payer.cpfWhy')}</p>}
           {taxIdRequired && cpfHint && cpfDigits.length !== 11 && (
             <p className="small" style={{ color: 'var(--burgundy)' }}>{t('payer.cpfHint')}</p>

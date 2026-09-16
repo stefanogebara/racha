@@ -796,6 +796,7 @@ test('todo achado com {amount} na frase tem um campo de centavos que o painel l�
     'find.paid_after_close_tip': 'amountCents',
     'find.reopened_by_refund': 'deltaCents',
     'find.reopened_by_refund_mixed': 'deltaCents',
+    'find.reopened_by_chargeback': 'deltaCents',
   };
   for (const [chave, campo] of Object.entries(comValor)) {
     assert.ok(chave in DICT, `${chave} não está no dicionário`);
@@ -858,7 +859,14 @@ test('a rota do painel MANDA os centavos que o painel formata', async () => {
   // A projeção mora em `projetarAchados`, e a rota chama a função.
   const i = router.indexOf('function projetarAchados(');
   assert.ok(i > 0 && router.includes('findings: projetarAchados(r.findings)'), 'não achei a projeção dos achados na rota');
-  const projecao = router.slice(i, i + 2400);
+  // ATÉ O FIM DA FUNÇÃO, não um número mágico: `2400` passava 497 caracteres
+  // dentro do `json(...)` vizinho. Hoje aquele trecho não tem nenhum `*Cents`,
+  // então não havia falso positivo — mas a asserção é `includes` sobre texto
+  // cru, e qualquer nome de campo futuro que aparecesse ali satisfaria o censo
+  // calado (segurança LOW-2 da rodada quinze). É o mesmo recorte que o
+  // `sql-contract.test.js` já faz pelo `\nfunction `.
+  const fimDaProjecao = router.indexOf('\nfunction ', i + 10);
+  const projecao = router.slice(i, fimDaProjecao > i ? fimDaProjecao : undefined);
   const faltando = campos.filter((c) => !projecao.includes(c));
   assert.deepEqual(faltando, [], `campos que o painel lê e a rota não manda:\n${faltando.join('\n')}`);
 });

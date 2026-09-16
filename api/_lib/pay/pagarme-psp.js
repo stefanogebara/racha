@@ -161,6 +161,33 @@ function parseCharge(charge, eventId = null) {
   };
 }
 
+/**
+ * O DESCRITOR DA FATURA — o nome que aparece no app do banco de quem pagou.
+ *
+ * Era `'RACHA'` cravado: a pessoa jantava no Bar do Zé, pagava com Google Pay, e
+ * a fatura dizia RACHA. Identificação errada do fornecedor (CDC art. 6º III) e
+ * motor de contestação "não reconheço a compra" — e o cabeçalho deste mesmo
+ * arquivo afirma que "o restaurante é o merchant of record do seu recebedor".
+ * O princípio já estava escrito no adaptador da Stripe ("quem cobrou tem que ser
+ * quem o cliente reconhece") e não tinha atravessado pra cá, que é o adquirente
+ * de produção (compliance MEDIUM-1 da rodada quinze).
+ *
+ * A Pagar.me limita o campo a 13 caracteres e não aceita acento nem pontuação,
+ * então o nome é normalizado AQUI e não pelo chamador — um descritor recusado
+ * derruba a cobrança inteira. Sem nome, e só sem nome, cai no nosso.
+ */
+function descritorDaFatura(venueName) {
+  const cru = String(venueName || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase()
+    .slice(0, 13)
+    .trim();
+  return cru || 'RACHA';
+}
+
 function assertCents(v, name) {
   if (!Number.isSafeInteger(v) || v < 0) {
     throw new TypeError(`${name} must be a non-negative integer, got ${v}`);
@@ -307,7 +334,10 @@ function createPagarmePsp({
       };
     },
 
-    async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, payerDocument = null, currency }) {
+    async createWalletCharge({
+      chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken,
+      payerDocument = null, currency, venueName = null,
+    }) {
       // Defesa em profundidade, do mesmo tipo da do adaptador da Stripe: o
       // portão compartilhado já confere `currencies`, e ainda assim quem emite
       // recusa uma moeda que não sabe emitir. O que este `if` pega é o
@@ -331,7 +361,8 @@ function createPagarmePsp({
           payment_method: 'credit_card',
           credit_card: {
             installments: 1,
-            statement_descriptor: 'RACHA',
+            // O DESCRITOR É A CASA, não nós. Ver `descritorDaFatura`.
+            statement_descriptor: descritorDaFatura(venueName),
             // Token do Google Pay via gateway tokenization (docs: Google Pay™
             // guide — gatewayMerchantId = acc_...). Apple Pay: fase 2.
             card_token: paymentToken,

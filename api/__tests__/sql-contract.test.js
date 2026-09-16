@@ -957,15 +957,72 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
     const inicio = fonte.indexOf('async function applyConfirmedPayment');
     const fim = fonte.indexOf('\nasync function', inicio + 10);
     const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
-    // `\s*` e não um espaço: dois retornos deste arquivo são de duas linhas, e
-    // a versão anterior desta regex não os via.
-    const doFonte = new Set([...corpo.matchAll(/return \{\s*status: '([a-z_]+)'/g)].map((m) => m[1]));
+    /**
+     * O INVENTÁRIO É DE VALORES, em qualquer posição — não da POSIÇÃO do
+     * `status` num objeto.
+     *
+     * A versão anterior exigia `return { status: '…'` com o `status` como
+     * PRIMEIRA chave e valor literal. A revisão plantou o caso que importa mais
+     * do que uma saída nova: um VALOR novo num sítio existente —
+     * `status: seq > 0 ? 'appended' : 'skipped_quietly'`. Os dois contadores de
+     * sítios não se mexiam (o `return` é o mesmo), o valor não entrava no
+     * inventário, e nenhum cenário era cobrado. A suíte inteira ficava verde.
+     *
+     * E o desfecho é o pior deste repositório: a rota não conhece
+     * `skipped_quietly`, então cai no `json(res, 200, …)` — o adquirente recebe
+     * 200, nunca reentrega, e o razão nunca fica sabendo que o dinheiro entrou.
+     * Sucesso silencioso, inegociável #8 (segurança MEDIUM-1 da rodada quinze).
+     */
+    // Só o que está DENTRO de um `return`: `status: rowStatus` numa chamada ao
+    // store é leitura de linha, não desfecho desta função.
+    const retornosDoCorpo = [...corpo.matchAll(/\breturn\b[^;]*;/g)].map((m) => m[0]);
+    const doFonte = new Set(retornosDoCorpo
+      .flatMap((r) => [...r.matchAll(/\bstatus\s*:\s*'([a-z_]+)'/g)].map((m) => m[1])));
     expect(doFonte.size).toBeGreaterThanOrEqual(4);
+
+    /**
+     * E VALOR NÃO-LITERAL É RECUSADO.
+     *
+     * Um ternário esconde dois valores atrás de um; o inventário não sabe ler
+     * expressão, e fingir que sabe é pior do que exigir que o autor nomeie os
+     * dois arms. Se um dia isto atrapalhar, a saída é escrever os dois `return`.
+     */
+    const naoLiterais = retornosDoCorpo
+      .flatMap((r) => [...r.matchAll(/\bstatus\s*:([^,}\n]+)/g)].map((m) => m[1].trim()))
+      .filter((x) => !/^'[a-z_]+'$/.test(x));
+    expect(naoLiterais).toEqual([]);
 
     const vistos = new Set();
     for (const montar of Object.values(CENARIOS)) vistos.add((await correr(montar)).status);
     const semCenario = [...doFonte].filter((st) => !vistos.has(st)).sort();
     expect(semCenario).toEqual([]);
+
+    /**
+     * E A ROTA SABE TRATAR TODOS ELES.
+     *
+     * O censo provava coisas sobre o tratador e NADA sobre a superfície que o
+     * chamador tem que despachar. Um `status` que a rota não conhece cai no
+     * `200` genérico, que para a reentrega do adquirente — a forma exata do
+     * achado acima. Aqui a lista do tratador é confrontada com o que as duas
+     * rotas de webhook nomeiam.
+     */
+    const router = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+    const conhecidosPelaRota = new Set([
+      ...[...router.matchAll(/result\.status === '([a-z_]+)'/g)].map((m) => m[1]),
+      ...[...router.matchAll(/'([a-z_]+)'\].includes\(result\.status\)/g)].map((m) => m[1]),
+      // O conjunto que a rota trata por pertencimento, não por igualdade.
+      ...(router.includes('NON_LEDGER_KINDS.has(result.status)') ? ['__non_ledger__'] : []),
+    ]);
+    const DESPACHO_GENERICO = new Set([
+      // Estes CAEM no 200 de propósito, e o motivo está escrito na rota: o
+      // razão já mudou (`appended`), ou a entrega era repetida (`duplicate`), ou
+      // o adquirente já foi avisado por outro caminho.
+      'appended', 'divergent_appended', 'duplicate', 'out_of_order',
+    ]);
+    const semDespacho = [...doFonte]
+      .filter((st) => !conhecidosPelaRota.has(st) && !DESPACHO_GENERICO.has(st))
+      .sort();
+    expect(semDespacho).toEqual([]);
   });
 });
 
