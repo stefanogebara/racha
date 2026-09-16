@@ -590,7 +590,7 @@ export default function App() {
               {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>
           )}
-          {confirmError && <p className="muted small" style={{ color: 'var(--alerta)' }}>{confirmError}</p>}
+          {confirmError && <p className="muted small" style={{ color: 'var(--erro)' }}>{confirmError}</p>}
           {/* Este telefone não consegue calcular a própria marca: avisa, em vez
               de esperar por um ✓ que não vem. */}
           {ownRef === null && <p className="muted small center">{t('pix.noAutoConfirm')}</p>}

@@ -22,9 +22,19 @@ import { join } from 'node:path';
  */
 const RAIZ = join(import.meta.dirname, '..', 'src');
 const fontes = () => readdirSync(RAIZ).filter((f) => /\.(tsx?|css)$/.test(f))
-  .map((f) => readFileSync(join(RAIZ, f), 'utf8'));
+  .map((f) => semComentario(readFileSync(join(RAIZ, f), 'utf8')));
 
-const css = readFileSync(join(RAIZ, 'styles.css'), 'utf8');
+/**
+ * SEM COMENTÁRIO. Um censo que lê comentário acusa a prosa que documenta o
+ * próprio conserto — aconteceu três vezes neste repositório, e aconteceu aqui:
+ * o parágrafo que explica por que `--w` foi apagado contém `--w:`, e o censo
+ * passou a exigir um leitor pra um token que não existe mais.
+ */
+const semComentario = (src: string) => src
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+const css = semComentario(readFileSync(join(RAIZ, 'styles.css'), 'utf8'));
 /**
  * As DECLARAÇÕES, em qualquer escopo e em qualquer posição da linha.
  *
@@ -58,9 +68,42 @@ test('nenhuma `var(--x)` aponta pra token que não existe', () => {
     + 'e ninguém vê. Defina o token ou use um que exista.\n');
 });
 
+/**
+ * E TODO TOKEN DECLARADO TEM QUEM O LEIA.
+ *
+ * O outro lado do censo, e o que pegou a camada de apelidos: trinta tokens
+ * declarados, vinte e cinco sem um único leitor — inclusive três (`--ok-bg`,
+ * `--erro-bg`, `--emcurso-bg`) criados por este redesenho pra nomear
+ * significado, enquanto o código chamava `--musgo-suave` e `--coral-suave`
+ * direto. Camada semântica que ninguém atravessa é decoração, e decoração num
+ * arquivo de tokens é onde a próxima divergência nasce.
+ *
+ * As DISPENSAS são declaradas, com motivo — não por silêncio.
+ */
+test('nenhum token declarado fica sem leitor', () => {
+  const DISPENSADOS = new Map([
+    // Os tokens de ESCOPO da landing: declarados no bloco `.landing` e lidos lá
+    // dentro pelas próprias regras, que esta varredura conta junto — ficam
+    // listados porque a varredura não distingue escopo.
+    ['--n', 'chão da landing, lido pelas regras do próprio bloco'],
+    ['--u', 'unidade de ritmo da landing'],
+    ['--escala', 'razão do embed, lida no `calc` do `.tela`'],
+  ]);
+  const semLeitor = [...declarados]
+    .filter((t) => !usados.has(t) && !DISPENSADOS.has(t))
+    .sort();
+  assert.deepEqual(semLeitor, [],
+    `\n${semLeitor.join('\n')}\nToken sem leitor: ou alguém devia estar usando, ou ele é `
+    + 'sobra de uma migração. Apague, ou use, ou declare a dispensa com motivo.\n');
+});
+
 test('o censo ENXERGA — medido sobre fonte sintética', () => {
   // Sem isto, um erro de recorte na regex (o `^\s{2}` das declarações, por
   // exemplo) absolveria o arquivo inteiro em silêncio.
+  // E o corte de comentário não pode engolir código: um `var()` de verdade
+  // depois de um comentário na mesma linha continua sendo visto.
+  assert.equal(semComentario('/* --sumido: 1; */ color: var(--ink);').includes('var(--ink)'), true);
+  assert.equal(semComentario('/* --sumido: 1; */').includes('--sumido'), false);
   const falso = 'color: var(--nao-existe-mesmo);';
   const achadas = [...falso.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1])
     .filter((t) => !declarados.has(t));

@@ -136,7 +136,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   // Feedback abaixo do input: erro (vermelho) > confirmação (verde) > dica (cinza).
   const fb = (key: string, ok: boolean, errMsg: string, hint: string, okMsg?: string) => {
     if (showErr(key) && !ok) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--erro)' }}>{errMsg}</span>;
-    if (ok && okMsg) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--emerald)' }}>{okMsg}</span>;
+    if (ok && okMsg) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--ok)' }}>{okMsg}</span>;
     return <span className="muted small" style={{ display: 'block', marginTop: 4 }}>{hint}</span>;
   };
   // UM CPF BEM FORMADO não é "dígito verificador errado" — os dígitos batem.
@@ -239,7 +239,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
       {loadError && <p className="muted small" style={{ color: 'var(--erro)' }}>{loadError}</p>}
       {created && (
-        <p className="small" style={{ color: 'var(--emerald)' }}>
+        <p className="small" style={{ color: 'var(--ok)' }}>
           {t('rcpt.created', { id: created.recipientId, status: created.status })}
         </p>
       )}

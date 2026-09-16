@@ -86,7 +86,6 @@
   --musgo-suave:#E4E7E1;
 
   --ui:     "Manrope", "Inter", system-ui, -apple-system, sans-serif;
-  --titulo: "Manrope", "Inter", system-ui, -apple-system, sans-serif;
   --serif:  "Newsreader", Georgia, serif;
   --mola:   cubic-bezier(.4, 0, .2, 1);
 
@@ -105,39 +104,32 @@
   --ok:       var(--musgo-texto);
   --ok-fio:   var(--musgo);
   --ok-bg:    var(--musgo-suave);
+  /* `--titulo` era um segundo nome pra `--ui` desde que a Instrument Sans saiu:
+     os dois apontavam pra Manrope. Dois nomes pra mesma fonte é como a
+     divergência começa. */
   --emcurso:  var(--azul);
   --emcurso-bg: var(--azul-suave);
 
-  /* Nomes antigos, mapeados. Sessenta call sites nao migram numa tarde —
-     mas os que dizem ERRO migraram, porque apontavam pra tinta. */
-  --cinza:   var(--grafite);
-  --claro:   var(--faint);
-  --branco:  var(--papel-alto);
-  --linha:   var(--fio-forte);
-  --linha2:  var(--fio);
+  /**
+   * A CAMADA DE APELIDOS SAIU.
+   *
+   * Ela existiu com um motivo escrito — "sessenta call sites nao migram numa
+   * tarde" — e o censo mediu QUINZE, espalhados por cinco significados com doze
+   * nomes: `--erro` e `--alerta` pra erro, `--ok`/`--emerald`/`--verde` pra
+   * recebido, `--ink`/`--charcoal`, `--grafite`/`--stone`,
+   * `--fio`/`--glass-border-input`. E VINTE E CINCO dos trinta apelidos não
+   * tinham um leitor sequer.
+   *
+   * Pior: `--ok-bg`, `--erro-bg` e `--emcurso-bg` foram criados por este
+   * redesenho pra nomear significado, e o código passava por baixo deles
+   * chamando `--musgo-suave`/`--coral-suave`/`--azul-suave` direto. Camada
+   * semântica que ninguém atravessa é decoração.
+   *
+   * Os quinze foram migrados pro nome do SIGNIFICADO e o resto foi apagado. O
+   * censo em `test/tokens.test.ts` agora pega os dois lados: `var()` sem
+   * declaração, e declaração sem leitor.
+   */
   --fundo2:  #EAE8E2;
-  --verde:   var(--musgo);
-  --verde-bg:var(--musgo-suave);
-  --azul2:   #2429E0;
-  --alerta:  var(--coral-texto);
-  --alerta-bg: var(--coral-suave);
-  --warm-white: var(--papel-alto);
-  --charcoal:   var(--ink);
-  --stone:      var(--grafite);
-  --muted:      var(--grafite);
-  --paper:      var(--papel-alto);
-  --emerald:        var(--musgo);
-  --emerald-bright: var(--musgo);
-  --glass-card:   var(--papel-alto);
-  --glass-panel:  var(--papel-alto);
-  --glass-subtle: var(--fundo2);
-  --glass-border: var(--fio);
-  --glass-border-subtle: var(--fio);
-  --glass-border-input:  var(--fio);
-  --rule:  var(--fio);
-  --rule-2: var(--fio);
-  --slip:  var(--papel-alto);
-  --slip-ink: var(--ink);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -434,7 +426,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .paid { align-items: center; text-align: center; gap: 16px; padding: 44px 22px; border-color: var(--fio-forte); }
 .paidmark {
   width: 64px; height: 64px; border-radius: 50%;
-  border: 1px solid var(--musgo); background: var(--musgo-suave); color: var(--musgo); font-size: 30px;
+  border: 1px solid var(--ok-fio); background: var(--ok-bg); color: var(--ok); font-size: 30px;
   display: grid; place-items: center;
 }
 .paid h2 { font: italic 400 30px/1.15 var(--serif); }
@@ -473,7 +465,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
 .pill.aberta  { color: var(--grafite); }
 .pill.parcial { border-color: var(--azul); background: var(--azul-suave); color: var(--azul); }
-.pill.paga    { border-color: var(--musgo); background: var(--musgo-suave); color: var(--musgo-texto); }
+.pill.paga    { border-color: var(--ok-fio); background: var(--ok-bg); color: var(--ok); }
 .pill.fechada { color: var(--grafite); }
 
 .actrow { display: grid; grid-template-columns: 46px 1fr max-content; align-items: center; gap: 12px; }
@@ -516,7 +508,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .qrcard .qrbrand { font: 500 10px/1 var(--ui); color: var(--grafite); letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
 
 .chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.pos { color: var(--verde); font-weight: 600; }
+.pos { color: var(--ok); font-weight: 600; }
 .cfggrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .cfggrid > * { min-width: 0; }
 /* A GRADE DE CONFIGURAÇÃO vira a moldura do Presence sem mexer no markup.
@@ -626,8 +618,8 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .passo:last-of-type { border-bottom: none; }
 .passo b { font: 500 15px/22px var(--ui); letter-spacing: -.02em; }
 .passo span { font: 400 15px/1.35 var(--serif); color: var(--grafite); }
-.pill-verde { display: inline-block; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--musgo);
-  background: var(--musgo-suave); color: var(--musgo-texto); font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
+.pill-verde { display: inline-block; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--ok-fio);
+  background: var(--ok-bg); color: var(--ok); font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
 
 /* Modo embed (landing): a conta como um estado. Só CSS; o app não muda. */
 .shell.embed { min-height: 0; padding-bottom: 16px; }
@@ -656,7 +648,9 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   --n: #161714; --cr: #F2F0EB;
   --cr2: rgba(242,240,235,.86); --cr3: rgba(242,240,235,.72); --cr4: rgba(242,240,235,.52);
   --fio: rgba(242,240,235,.16);
-  --acento: #D75D45;
+  /* O `--acento` saiu junto com o âmbar: a parte que leva o centavo a mais
+     destaca por CONTRASTE (creme cheio contra creme apagado), não por cor —
+     coral quer dizer problema, e o centavo que sobra é o assunto da peça. */
   --u: 128px; --col: 24px;
   background: var(--n); color: var(--cr); min-height: 100vh; overflow-x: clip;
   font: 400 16px/24px var(--ui);
@@ -724,9 +718,21 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .flut.espeto { width: 270px; height: 270px; left: -215px; top: 400px; rotate: 0deg; }
 .flut.chopp  { width: 92px;  height: 92px;  right: -104px; top: 36px; rotate: -6deg; }
 .flut.tampa  { width: 92px; height: 92px; right: -108px; top: 480px; rotate: 14deg; }
+/* E ELES CABEM na largura de desktop mais comum.
+   A 1280 o chopp saía 29px pra fora da janela e a tampa 38px — 41% do bloco —, e
+   como o `.landing` tem `overflow-x: clip` não havia barra pra denunciar: eles
+   simplesmente apareciam decepados. A decisão #36 diz que a ilustração é a marca
+   e fica; ela estava ficando pela metade. Medido no navegador. */
+@media (max-width: 1360px) {
+  .flut.chopp { right: -68px; }
+  .flut.tampa { right: -64px; }
+}
 .palco .dica { margin-top: 18px; text-align: center; font: 400 13px/18px var(--ui); color: var(--cr4); }
 .tela {
-  --w: 357px; --escala: calc(357 / 430);
+  /* `--escala` é a razão entre a largura desenhada do app (430) e a da coluna
+     (357): o iframe renderiza a 430 e é reduzido por `transform`. Havia um
+     `--w: 357px` ao lado que ninguém lia — o `.tela` usa `width: 100%`. */
+  --escala: calc(357 / 430);
   align-self: start; display: block;
   width: 100%; height: calc(var(--h, 812px) * var(--escala)); border-radius: 22px; overflow: hidden; box-sizing: border-box;
   background: #fff; box-shadow: 0 0 0 1px var(--fio); cursor: pointer;

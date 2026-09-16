@@ -10,6 +10,7 @@
  * Serif itálica só na manchete e nos numerais; UM acento na página. Os
  * entalhes: nas linhas da conta E soltos em volta do telefone (escolha do dono).
  */
+import { useEffect, useRef, useState } from 'react';
 import { LangToggle, useT } from './lang';
 import { formatTaxId } from './br';
 import { dishMask } from './dish';
@@ -34,6 +35,39 @@ const RACHA_CNPJ = '65087663000130';
 
 export default function Home() {
   const { t, lang } = useT();
+  /**
+   * A ALTURA DO EMBED, MEDIDA — não um palpite que corta o botão de pagar.
+   *
+   * O `.tela` calculava `calc(var(--h, 812px) * var(--escala))`, e `--h` NUNCA
+   * era definido em lugar nenhum: a moldura ficava sempre nos 812 do padrão.
+   * Medido no navegador a 1280: o conteúdo do embed tem 1011px, então 199px
+   * (20%) ficavam de fora — e o que caía fora era o campo de CPF e o
+   * "Pagar R$ … com Pix", ou seja, exatamente o botão que a página existe pra
+   * prometer. O comentário ao lado justificava mostrar "um estado, não o app";
+   * o estado escolhido terminava no meio do formulário.
+   *
+   * O embed é do MESMO documento (mesma origem), então dá pra perguntar a ele.
+   * Se não der — `contentDocument` nulo por qualquer razão —, fica o padrão de
+   * antes, que é o comportamento de hoje e não piora nada.
+   */
+  const quadro = useRef<HTMLIFrameElement>(null);
+  const [alturaDoEmbed, setAlturaDoEmbed] = useState<number | null>(null);
+  useEffect(() => {
+    const medir = () => {
+      try {
+        const doc = quadro.current && quadro.current.contentDocument;
+        const h = doc && doc.documentElement ? doc.documentElement.scrollHeight : 0;
+        if (h > 0) setAlturaDoEmbed(h);
+      } catch { /* origem diferente: fica o padrão */ }
+    };
+    const el = quadro.current;
+    if (el) el.addEventListener('load', medir);
+    // O conteúdo cresce depois do `load` (fontes, a conta chegando): uma
+    // segunda medida cobre isso sem ficar sondando pra sempre.
+    const t2 = setTimeout(medir, 1200);
+    medir();
+    return () => { if (el) el.removeEventListener('load', medir); clearTimeout(t2); };
+  }, [lang]);
   const parts = Array.from({ length: PROOF_PEOPLE }, (_, i) => splitEqualLocal(PROOF_TOTAL, PROOF_PEOPLE, i)).sort((a, b) => a - b);
   const market = LANDING_MARKET[lang];
   const fmt = (c: number) => money(c, lang, market.currency);
@@ -82,10 +116,12 @@ export default function Home() {
             Moldura de fio, sem bisel, sem 9:41: é uma página web, e isso é o
             argumento. Passa da dobra de propósito; quem rola vê o resto. */}
         <div className="palco">
-          <a className="tela" href={`${DEMO}&lang=${lang}`} aria-label={t('land.demoFrame')}>
+          <a className="tela" href={`${DEMO}&lang=${lang}`} aria-label={t('land.demoFrame')}
+             style={alturaDoEmbed ? ({ '--h': `${alturaDoEmbed}px` } as React.CSSProperties) : undefined}>
             {/* `key` força a remontagem quando o idioma muda: trocar o src de um
                 iframe já montado deixa o documento antigo na tela. */}
-            <iframe key={lang} title={t('land.demoFrame')} src={embedSrc(lang)}
+            <iframe ref={quadro} key={lang} title={t('land.demoFrame')} src={embedSrc(lang)}
+                    style={alturaDoEmbed ? { height: `${alturaDoEmbed}px` } : undefined}
                     loading="eager" tabIndex={-1} />
           </a>
           {/* Os entalhes soltos em volta do telefone — a mesa em volta da conta.

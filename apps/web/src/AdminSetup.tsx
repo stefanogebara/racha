@@ -68,7 +68,7 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
 
       {/* Barra de progresso — o fio contínuo do fluxo. */}
       <div aria-hidden="true" style={{ height: 6, borderRadius: 999, background: 'rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: 'var(--emerald)', transition: 'width .3s ease' }} />
+        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: 'var(--ok)', transition: 'width .3s ease' }} />
       </div>
 
       {!completo && (

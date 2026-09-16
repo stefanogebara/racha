@@ -67,19 +67,19 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
             // de erro diria que ha algo errado com ele. Azul e a cor de 'em curso'
             // no Presence, e e o que o passo atual e.
             const bg = state === 'done' ? 'var(--ok)' : state === 'current' ? 'var(--emcurso)' : 'transparent';
-            const fg = state === 'pending' ? 'var(--stone)' : '#fff';
+            const fg = state === 'pending' ? 'var(--grafite)' : '#fff';
             const reachable = canJump(i);
             return (
               <div key={stepKey} style={{ display: 'flex', alignItems: 'flex-start', flex: i < STEP_KEYS.length - 1 ? 1 : '0 0 auto', minWidth: 0 }}>
                 <button onClick={() => reachable && setStep(i)} disabled={!reachable} aria-current={i === step}
                   style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: reachable ? 'pointer' : 'not-allowed', opacity: reachable ? 1 : 0.5, padding: 0 }}>
-                  <span style={{ width: 28, height: 28, borderRadius: 999, background: bg, color: fg, border: state === 'pending' ? '1px solid var(--glass-border-input)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>
+                  <span style={{ width: 28, height: 28, borderRadius: 999, background: bg, color: fg, border: state === 'pending' ? '1px solid var(--fio)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>
                     {done[i] ? '✓' : i + 1}
                   </span>
-                  <span className="small" style={{ color: i === step ? 'var(--charcoal)' : 'var(--stone)', fontWeight: i === step ? 600 : 400 }}>{t(stepKey)}</span>
+                  <span className="small" style={{ color: i === step ? 'var(--ink)' : 'var(--grafite)', fontWeight: i === step ? 600 : 400 }}>{t(stepKey)}</span>
                 </button>
                 {i < STEP_KEYS.length - 1 && (
-                  <div style={{ flex: 1, height: 2, background: done[i] ? 'var(--emerald)' : 'var(--glass-border-input)', margin: '13px 6px 0' }} />
+                  <div style={{ flex: 1, height: 2, background: done[i] ? 'var(--ok)' : 'var(--fio)', margin: '13px 6px 0' }} />
                 )}
               </div>
             );

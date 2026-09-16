@@ -107,7 +107,7 @@ function Onboarding() {
         <p className="muted small">
           {t('admin.psplater')}
         </p>
-        {error && <p className="muted small" style={{ color: 'var(--alerta)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         <button className="cta" disabled={busy || !name.trim() || (cnpj !== '' && !cnpjValid)} onClick={submit}>
           {busy ? t('admin.creating') : t('admin.createVenue')}
         </button>
@@ -229,7 +229,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
             ec86b37 (LOW-3) destruiu seis mensagens boas pra consertar uma, e a
             que ele queria consertar também ficou vazia (segurança HIGH-2 de
             d7f2683). O código cru que sobrava vira frase na ORIGEM, no hook. */}
-        {error && <p className="muted small" style={{ color: 'var(--alerta)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         {tables.length === 0 && <p className="muted small">{t('admin.noTables')}</p>}
         {/* `table`, não `t`: o parâmetro chamava-se `t` e sombreava o tradutor,
             então `t('admin.openBill')` chamaria a MESA como função. */}
