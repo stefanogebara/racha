@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LangToggle, useT } from './lang';
 import { type PanelAtivacao } from './api';
 import { textoDoAchado, type CurrencyCode } from './i18n';
@@ -89,15 +89,57 @@ export default function Panel() {
     try {
       setData(await authedReq<PanelData>(`/api/panel?v=${encodeURIComponent(venueId)}`));
       setError(null);
+      return true;
     } catch (e) {
       setError(tErr(e));
+      return false;
     }
   }, [venueId, tErr]);
 
+  /**
+   * O PAINEL PARA DE PERGUNTAR QUANDO NINGUÉM ESTÁ OLHANDO.
+   *
+   * Eram quatro segundos, para sempre, em toda aba aberta — e cada volta é uma
+   * leitura do razão de toda conta aberta da casa MAIS a conciliação. Uma aba
+   * esquecida num tablet do balcão custava 21.600 cargas por dia sem ninguém
+   * ler nenhuma delas, e o custo não é só servidor: foi esse laço que
+   * transformou uma lentidão de dez segundos no login numa deslogada de todo
+   * dono do sistema (o 401 de cada volta chamava `signOut`).
+   *
+   * `visibilitychange` é o sinal certo: a aba escondida não pinta, então a
+   * carga que ela busca não é vista por ninguém. Ao voltar, recarrega NA HORA —
+   * quem volta pro tablet quer o estado de agora, não o de daqui a quatro
+   * segundos.
+   *
+   * E o recuo depois de uma falha: numa queda, cada aba aberta batia a cada
+   * quatro segundos, o que é exatamente o contrário do que ajuda a plataforma
+   * a se levantar. Dobra até um minuto e volta ao normal no primeiro acerto.
+   */
+  const falhas = useRef(0);
   useEffect(() => {
-    void refresh();
-    const id = setInterval(refresh, 4000);
-    return () => clearInterval(id);
+    let vivo = true;
+    let id: ReturnType<typeof setTimeout>;
+
+    const proximoIntervalo = () => Math.min(4000 * 2 ** falhas.current, 60_000);
+    const uma = async () => {
+      if (!vivo) return;
+      if (document.visibilityState === 'visible') {
+        const ok = await refresh();
+        falhas.current = ok ? 0 : falhas.current + 1;
+      }
+      if (vivo) id = setTimeout(uma, proximoIntervalo());
+    };
+    void uma();
+
+    const aoVoltar = () => {
+      if (document.visibilityState !== 'visible') return;
+      // Volta na hora, e zera o recuo: a pessoa está olhando de novo.
+      falhas.current = 0;
+      clearTimeout(id);
+      void uma();
+    };
+    document.addEventListener('visibilitychange', aoVoltar);
+    return () => { vivo = false; clearTimeout(id); document.removeEventListener('visibilitychange', aoVoltar); };
   }, [refresh]);
 
   // RESPONDER a pergunta do pago-depois-de-fechar, com a resposta FIXA "não

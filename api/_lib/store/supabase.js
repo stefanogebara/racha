@@ -1805,8 +1805,16 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
           .eq('venue_id', venueId)
           .eq('status', 'confirmado')
           .gte('confirmed_at', desde)
-          // `txid` é único (0001): ordem total, sem repetir nem omitir linha
-          // entre páginas.
+          // A ORDEM SEGUE O FILTRO, não o contrário.
+          //
+          // `txid` sozinho é ordem total (é único desde a 0001) e serviria pra
+          // paginar — mas filtrar por `(venue_id, status, confirmed_at)` e
+          // ordenar por `txid` obriga o Postgres a ORDENAR todas as linhas que
+          // casam antes de cortar a página, e a repetir isso a cada página.
+          // Ordenando pelo próprio `confirmed_at` (com o `txid` desempatando,
+          // que é o que mantém a ordem total), o mesmo índice que serve o
+          // filtro serve a ordem, e a página sai por varredura.
+          .order('confirmed_at', { ascending: true })
           .order('txid', { ascending: true })
           .range(de, ate),
       });
