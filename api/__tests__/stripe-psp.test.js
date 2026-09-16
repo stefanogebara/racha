@@ -189,10 +189,14 @@ describe('stripe adapter — createWalletCharge (destination charge)', () => {
     // Nenhum dos quatro chegou ao aplicador.
     expect(chamadasAoAplicador).toEqual([]);
 
-    // E o que É nosso passa: chega ao aplicador e é recusado por txid
-    // desconhecido, que é o comportamento certo pra um txid que não emitimos.
+    // E o que É nosso passa: chega ao aplicador. O txid é desconhecido e o
+    // evento diz que DINHEIRO FOI PAGO, então o desfecho é `money_without_check`
+    // — gravado em `orphan_money_events` antes de a rota responder 200. Era
+    // `rejected`, e um 409 não guarda nada: o adquirente reenvia, desiste, e a
+    // notícia de um cartão capturado sem linha de pagamento some (compliance
+    // HIGH-1 de 2026-09-16).
     const r = await handle('payment_intent.succeeded', 'sig');
-    expect(r.status).toBe('rejected');
+    expect(r.status).toBe('money_without_check');
     expect(chamadasAoAplicador).toEqual(['pi_x']);
   });
 

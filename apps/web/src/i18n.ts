@@ -753,6 +753,26 @@ export const DICT = {
                         es: 'Devuelve este por el adquirente — la marca sale cuando llegue la devolución. Regístralo aquí solo si la devolución falló, o si venció el plazo del carril (Pix 90 días, tarjeta 180).' },
   // O que NÃO se sabe: o lançamento pode ter pousado. Mandar tentar de novo às
   // cegas é mandar registrar duas vezes a mesma devolução.
+  /**
+   * O CARTÃO PODE JÁ TER SIDO COBRADO — e a frase NÃO manda tentar de novo.
+   *
+   * No trilho de carteira o adquirente CAPTURA o cartão antes de a nossa linha
+   * de pagamento existir. Quando essa escrita falha, o desfecho honesto não é
+   * "algo deu errado, tente de novo": é dizer que pode ter passado e pedir pra
+   * conferir. Um "tente de novo" com o botão armado sobre um cartão já
+   * capturado é convite a pagar duas vezes (CDC art. 42), e o erro de fato é
+   * NOSSO, não de quem está pagando.
+   *
+   * É o mesmo vocabulário do `err.restitution_unavailable` logo abaixo e do
+   * `ret.body` ("se o pagamento passou, ele já está aí") — a diferença é que
+   * aqui quem lê é o cliente na mesa, então a frase diz o que ele faz agora:
+   * espera a conta atualizar, e fala com o balcão se não atualizar.
+   */
+  'err.charge_maybe_captured': {
+    en: 'Your card may already have been charged, but we could not record it. Do not pay again — wait for the bill to update, and speak to the staff if it does not.',
+    pt: 'Seu cartão pode já ter sido cobrado, mas não conseguimos registrar. Não pague de novo — espere a conta atualizar e fale com o balcão se ela não atualizar.',
+    es: 'Puede que tu tarjeta ya se haya cobrado, pero no pudimos registrarlo. No pagues otra vez — espera a que la cuenta se actualice y habla con el personal si no lo hace.',
+  },
   'err.restitution_unavailable': { en: 'The refund could not be recorded now. Open the bill and check before recording it again.',
                         pt: 'Não deu pra registrar a devolução agora. Abra a conta e confira antes de registrar de novo.',
                         es: 'No se pudo registrar la devolución ahora. Abre la cuenta y comprueba antes de registrarla otra vez.' },

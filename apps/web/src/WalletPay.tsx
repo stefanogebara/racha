@@ -33,10 +33,27 @@ const GPAY_MERCHANT_ID = (import.meta.env.VITE_GOOGLE_PAY_MERCHANT_ID) || '';
 /// keys are listed rather than matched by prefix so the dictionary's Key union
 /// still checks the lookup — a renamed key becomes a compile error here instead
 /// of a raw "card.gpayFail" on someone's screen.
-function asMessage(t: (k: 'card.gpayFail' | 'card.gpayOut') => string, e: unknown): string {
+/**
+ * O erro vira frase: por CÓDIGO quando o servidor manda um, e pela chave
+ * interna nos dois casos que nascem aqui na tela.
+ *
+ * Isto devolvia `e.message` CRU quando não era um dos dois casos locais — ou
+ * seja, todo erro do servidor chegava ao cliente na mesa como a frase interna
+ * em inglês. Passou despercebido enquanto os erros deste trilho eram genéricos;
+ * ficou visível quando o `charge_maybe_captured` nasceu, que é justamente o que
+ * mais precisa ser LIDO: o cartão pode ter sido cobrado.
+ *
+ * `tErr` é o tradutor por código que o resto da plataforma usa (CLAUDE.md: o
+ * servidor manda código, o cliente escolhe a língua).
+ */
+function asMessage(
+  t: (k: 'card.gpayFail' | 'card.gpayOut') => string,
+  tErr: (e: unknown) => string,
+  e: unknown,
+): string {
   const raw = (e as Error).message || '';
   if (raw === 'card.gpayFail' || raw === 'card.gpayOut') return t(raw);
-  return raw;
+  return tErr(e);
 }
 
 // pay.js é singleton — carrega uma vez por página.
@@ -119,11 +136,22 @@ export default function WalletButtons({
    */
   onPaid: (charge: ChargeResult) => void;
 }) {
-  const { t, brl } = useT();
+  const { t, brl, tErr } = useT();
   const real = REAL && !simulated && acceptsWallet;
   const [sheet, setSheet] = useState<Wallet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * O BOTÃO DESARMA quando a cobrança pode ter passado.
+   *
+   * O adquirente captura o cartão antes de a nossa linha existir; se a escrita
+   * falha, a resposta vem com `charge_maybe_captured`. Deixar o botão armado
+   * ali é convidar a segunda cobrança (CDC art. 42) — e a pessoa, lendo "não
+   * conseguimos registrar", tem todo motivo pra tocar de novo. Só a conta
+   * atualizando (ou o balcão) resolve, e as duas coisas acontecem fora desta
+   * tela.
+   */
+  const [travado, setTravado] = useState(false);
   const [gpayReady, setGpayReady] = useState(false);
   const cpfDigits = payerDocument.replace(/\D/g, '');
 
@@ -175,7 +203,8 @@ export default function WalletButtons({
       await settle('google_pay', data.paymentMethodData.tokenizationData.token, cpfDigits);
     } catch (e) {
       const status = (e as { statusCode?: string }).statusCode;
-      if (status !== 'CANCELED') setError(asMessage(t, e)); // fechar a sheet não é erro
+      if (status !== 'CANCELED') setError(asMessage(t, tErr, e)); // fechar a sheet não é erro
+      if ((e as { code?: string }).code === 'charge_maybe_captured') setTravado(true);
     } finally {
       setBusy(false);
     }
@@ -190,7 +219,8 @@ export default function WalletButtons({
       await settle(wallet, paymentToken);
       setSheet(null);
     } catch (e) {
-      setError(asMessage(t, e));
+      setError(asMessage(t, tErr, e));
+      if ((e as { code?: string }).code === 'charge_maybe_captured') setTravado(true);
     } finally {
       setBusy(false);
     }
@@ -200,14 +230,20 @@ export default function WalletButtons({
     if (!gpayReady) return null; // device sem Google Pay → fica o Pix (e o saldo)
     return (
       <>
-        {/* O BOTÃO NÃO FICA CINZA EM SILÊNCIO.
+        {/* O BOTÃO NÃO FICA CINZA EM SILÊNCIO — inclusive quando `travado`:
+            ali ele fica cinza PORQUE o parágrafo abaixo diz que o cartão pode
+            já ter sido cobrado. Cinza com o motivo escrito é o oposto de cinza
+            em silêncio; o que não pode é ele continuar tocável sobre uma
+            captura que talvez já tenha acontecido (CDC art. 42).
+
+            O BOTÃO NÃO FICA CINZA EM SILÊNCIO.
             Sem CPF ele era desabilitado sem uma palavra — o modo de falha que a
             tela da conta já tinha consertado pro Pix ("ficava cinza em silêncio
             e parecia quebrado"), repetido aqui. Agora ele é tocável e DIZ o que
             falta, com a mesma frase do Pix, e leva o foco pro campo. */}
         <button
           type="button" className="walletbtn gpay"
-          disabled={disabled || busy}
+          disabled={disabled || busy || travado}
           onClick={() => {
             if (cpfDigits.length !== 11) {
               setError(t('payer.cpfHint'));

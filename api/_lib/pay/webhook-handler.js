@@ -73,8 +73,52 @@ async function applyConfirmedPayment(parsed, deps) {
       const alt = await fallback(parsed);
       if (alt) return alt;
     }
-    // A webhook for a txid we never issued: reject loudly. Never 200 an
-    // unknown money event — that is how funds disappear from ledgers.
+    /**
+     * UM TXID QUE NUNCA EMITIMOS — e a resposta depende de ter MOVIDO DINHEIRO.
+     *
+     * "Never 200 an unknown money event — that is how funds disappear from
+     * ledgers" continua certo, e a conclusão que estava aqui era o contrário
+     * dela: um 409 não guarda nada. O adquirente reenvia algumas vezes, desiste,
+     * e o evento some — que é exatamente o sumiço que a frase proíbe.
+     *
+     * O caso que importa é real e tem nome: o `createWalletCharge` CAPTURA o
+     * cartão dentro da chamada, e a linha de `payments` só é escrita depois. Se
+     * essa escrita falha (o banco tem prazo de 10 s desde 2026-09-16), o dinheiro
+     * saiu e nós não temos linha nenhuma — e este webhook é a única notícia que
+     * o mundo nos dá disso. 409 nele é jogar a notícia fora.
+     *
+     * Então: evento que MOVEU dinheiro vira `money_without_check`, que é uma
+     * espécie do `NON_LEDGER_KINDS` — gravada em `orphan_money_events` com o
+     * `orderCode` (que carrega o id da conta), contada pela conciliação diária e
+     * relatada no aviso do fundador. O resto — um `charge.pending` de outro
+     * ambiente, ruído — segue recusado, porque aí não há dinheiro pra perder.
+     * Achado pela revisão de compliance de 2026-09-16 (HIGH-1).
+     */
+    if (parsed.paid === true || parsed.kind === 'payment_confirmed') {
+      // A FORMA é a que o `handleNonLedgerMoneyEvent` já lê: ele tira o valor, o
+      // id do evento e o corpo de dentro de `raw`. Montar um formato próprio aqui
+      // gravaria o órfão com `amountCents: null` — um alerta que diz "sumiu
+      // dinheiro" sem dizer quanto.
+      return {
+        status: 'money_without_check',
+        txid: parsed.txid,
+        type: parsed.type || null,
+        reason: `dinheiro confirmado para um txid sem linha de pagamento: ${parsed.txid}`,
+        raw: {
+          eventId: parsed.eventId || null,
+          // SEM um `status:` aqui, de propósito: o censo do `sql-contract`
+          // recusa `status` não-literal dentro de um `return` ("um ternário
+          // esconde dois valores atrás de um"), e a regra é boa. O status cru do
+          // adquirente já viaja no `raw.raw`, que é o corpo mascarado que vai
+          // pro `orphan_money_events`.
+          amountCents: (parsed.amountCents || 0) + (parsed.tipCents || 0) + (parsed.excessCents || 0),
+          // O `code` do pedido carrega o `checkId`: é ele que torna o órfão
+          // RESOLVÍVEL em vez de só visível.
+          orderCode: parsed.orderCode || null,
+          raw: parsed.raw || null,
+        },
+      };
+    }
     return { status: 'rejected', reason: `unknown txid ${parsed.txid}` };
   }
 
@@ -789,6 +833,9 @@ const ROW_STATUS_FOR_KIND = Object.freeze({
  * aplicador — lá dentro tudo que não é `refund` é tratado como pagamento.
  */
 const NON_LEDGER_KINDS = new Set([
+  // Dinheiro CONFIRMADO para um txid sem linha — o caso do cartão capturado
+  // cuja escrita falhou. Ver o bloco no `!check` acima.
+  'money_without_check',
   'dispute_opened', 'refund_progress', 'unusable_money_event',
   // Mudança de estado da disputa (prazo, prova enviada) e movimento do valor
   // disputado no SALDO. Nenhum dos dois muda o que a mesa deve; os dois

@@ -97,11 +97,22 @@ describe('censo das espécies de evento de webhook', () => {
     // NENHUM deles chegou ao aplicador — é o ponto todo.
     expect(aplicou).toEqual([]);
 
-    // Os do razão chegam. Aqui o txid é desconhecido, então é recusa alta,
-    // que é o comportamento certo pra um txid que não emitimos.
+    /**
+     * Os do razão chegam ao aplicador. O txid é desconhecido, e aí o desfecho
+     * depende de o evento ter MOVIDO DINHEIRO:
+     *
+     *  · `payment_confirmed` → `money_without_check`. Dinheiro confirmado e
+     *    nenhuma linha onde pendurá-lo é o caso do cartão capturado cuja
+     *    escrita falhou: 409 ali joga fora a única notícia que o mundo nos dá
+     *    (compliance HIGH-1 de 2026-09-16). Vai pra `orphan_money_events`.
+     *  · O resto → `rejected`. Sem dinheiro confirmado não há o que perder, e
+     *    registrar todo evento desconhecido encheria a fila de órfãos que
+     *    ninguém fecha.
+     */
     for (const kind of LEDGER_KINDS) {
       const r = await handleWith({ kind, txid: 'pi_y', amountCents: 3390, tipCents: 0 });
-      expect(r.status).toBe('rejected');
+      const esperado = kind === 'payment_confirmed' ? 'money_without_check' : 'rejected';
+      expect({ kind, status: r.status }).toEqual({ kind, status: esperado });
     }
     // Uma entrada por espécie do razão — contagem derivada da lista, não
     // escrita à mão: `refund_failed` mudou de lado quando ganhou evento
@@ -146,10 +157,44 @@ test('a rota do Stripe conhece exatamente as mesmas espécies que o portão', ()
   const bloco = src.slice(inicio, fimDaRota > inicio ? fimDaRota : undefined);
   const naRota = new Set([...bloco.matchAll(/parsed\.kind === '([a-z_]+)'/g)].map((m) => m[1]));
 
-  // Toda espécie que NÃO move o razão precisa estar tratada na rota — senão
-  // cai no aplicador, que só conhece as do razão.
-  const faltando = [...NON_LEDGER_KINDS].filter((k) => !naRota.has(k)).sort();
+  /**
+   * Toda espécie que NÃO move o razão precisa estar tratada na rota — senão cai
+   * no aplicador, que só conhece as do razão.
+   *
+   * MAS SÓ AS QUE UM ADAPTADOR EMITE. `NON_LEDGER_KINDS` tem duas
+   * procedências: a maioria vem do `parsed.kind` que os adaptadores constroem
+   * ao ler o webhook, e essas a rota precisa nomear. O `money_without_check`
+   * vem do TRATADOR — ele nasce quando não há conta pro txid, depois do parse —
+   * e por isso nunca aparece como `parsed.kind`; exigir que a rota o nomeie era
+   * pedir uma linha impossível.
+   *
+   * A procedência é DERIVADA dos adaptadores, e não uma lista à mão: uma
+   * espécie nova que um adaptador passe a emitir entra na exigência sozinha.
+   */
+  const adaptadores = ['pagarme-psp.js', 'stripe-psp.js', 'mock-psp.js']
+    .map((f) => path.join(__dirname, '..', '_lib', 'pay', f))
+    .filter((f) => fs.existsSync(f))
+    .map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+  const emitidosPorAdaptador = new Set(
+    [...adaptadores.matchAll(/kind:\s*'([a-z_]+)'/g)].map((m) => m[1]),
+  );
+  // O censo tem que ENXERGAR os adaptadores: zero emitidos absolveria tudo.
+  expect(emitidosPorAdaptador.size).toBeGreaterThanOrEqual(5);
+
+  const faltando = [...NON_LEDGER_KINDS]
+    .filter((k) => emitidosPorAdaptador.has(k))
+    .filter((k) => !naRota.has(k))
+    .sort();
   expect(faltando).toEqual([]);
+
+  // E o que o TRATADOR deriva é despachado por pertencimento, não por nome —
+  // o `responderDoAplicador` trata o conjunto. Sem esta conferência, mudar o
+  // despacho pra uma enumeração deixaria estes órfãos sem rota e o censo mudo.
+  const derivados = [...NON_LEDGER_KINDS].filter((k) => !emitidosPorAdaptador.has(k));
+  if (derivados.length > 0) {
+    const router = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+    expect(router).toMatch(/NON_LEDGER_KINDS\.has\(result\.status\)/);
+  }
 
   // E a rota não pode inventar espécie que o portão não conhece.
   const classificadas = new Set([...LEDGER_KINDS, ...NON_LEDGER_KINDS, 'ignored']);

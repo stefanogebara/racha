@@ -131,32 +131,60 @@ describe('evento de dinheiro sem lançamento', () => {
   });
 });
 
-describe('a ROTA do Pix trata a espécie inteira, não uma lista escrita à mão', () => {
+describe('as ROTAS de webhook tratam a espécie inteira, não uma lista escrita à mão', () => {
+  /**
+   * O CÓDIGO VIROU AJUDANTE, e este censo morria com ele.
+   *
+   * As duas asserções abaixo procuravam `NON_LEDGER_KINDS.has(result.status)`
+   * DENTRO do bloco da rota do Pix. O tratamento saiu da rota e virou
+   * `responderDoAplicador`, compartilhado com a rota da Stripe — que era
+   * justamente o defeito que o comentário antigo da rota já descrevia ("esta
+   * rota foi corrigida; a da Stripe ficou com a versão antiga (…) agora é uma
+   * função e um censo"), e a função nunca tinha sido escrita.
+   *
+   * É o mesmo modo de falha que já matou o censo do `appendEvent` quando as
+   * anomalias viraram `gritar()`: censo textual ancorado no LUGAR morre quando
+   * o código se muda, e morre ABSOLVENDO. Então agora ele pergunta duas coisas
+   * que sobrevivem à mudança de lugar: as rotas DELEGAM, e o ajudante trata o
+   * conjunto.
+   */
   const fs = require('node:fs');
   const path = require('node:path');
   const src = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
-  /** O bloco da rota, do marcador até o começo da PRÓXIMA rota — e não uma
-   *  janela de N caracteres, que envelhece junto com o arquivo. */
-  const trecho = (marcador) => {
+  const trecho = (marcador, ate) => {
     const i = src.indexOf(marcador);
     expect(i).toBeGreaterThan(0);
-    const fim = src.indexOf("url.pathname === '/api/webhooks/stripe'", i);
+    const fim = ate ? src.indexOf(ate, i + 40) : -1;
     return src.slice(i, fim > i ? fim : undefined);
   };
+  const ajudante = () => trecho('async function responderDoAplicador', '\nfunction json(');
 
-  test('/api/webhooks/psp chama o tratador e devolve 503 quando nada foi feito', () => {
-    const rota = trecho("url.pathname === '/api/webhooks/psp'");
+  test('o ajudante trata o CONJUNTO, e devolve 503 quando nada foi guardado', () => {
+    const f = ajudante();
     // O conjunto, não uma enumeração: a próxima espécie inventada já entra.
-    expect(rota).toMatch(/NON_LEDGER_KINDS\.has\(result\.status\)/);
-    expect(rota).toMatch(/handleNonLedgerMoneyEvent\(result, \{ psp: 'pagarme' \}\)/);
-    expect(rota).toMatch(/money_event_unrecorded/);
+    expect(f).toMatch(/NON_LEDGER_KINDS\.has\(result\.status\)/);
+    expect(f).toMatch(/handleNonLedgerMoneyEvent\(result, \{ psp \}\)/);
+    expect(f).toMatch(/money_event_unrecorded/);
+    expect(f).toMatch(/needsRetry\(marca\)/);
+  });
+
+  test('as DUAS rotas de webhook delegam a ele — nenhuma responde por conta própria', () => {
+    // A assimetria entre os dois rails é exatamente o que produziu o achado:
+    // um tinha o tratamento e o outro respondia 409/200 seco.
+    for (const [rail, psp] of [['psp', 'pagarme'], ['stripe', 'stripe']]) {
+      const rota = trecho(`url.pathname === '/api/webhooks/${rail}'`,
+        rail === 'psp' ? "url.pathname === '/api/webhooks/stripe'" : null);
+      expect({ rail, delega: /responderDoAplicador\(res, result, '/.test(rota) }).toEqual({ rail, delega: true });
+      expect({ rail, psp: rota.includes(`responderDoAplicador(res, result, '${psp}')`) }).toEqual({ rail, psp: true });
+      // E NENHUMA delas monta a resposta à mão.
+      expect({ rail, aMao: /result\.status === 'rejected' \? 409 : 200/.test(rota) }).toEqual({ rail, aMao: false });
+    }
   });
 
   test('a resposta não ecoa o corpo cru do PSP', () => {
     // `raw` traz documento do pagador e payload do Pix. Só o Basic Auth vê a
     // resposta, mas o subconjunto mascarado é o que se devolve.
-    const rota = trecho("url.pathname === '/api/webhooks/psp'");
-    const eco = rota.match(/status: result\.status, type: result\.type[^}]*\}/);
+    const eco = ajudante().match(/status: result\.status, type: result\.type[^}]*\}/);
     expect(eco).not.toBeNull();
     expect(eco[0]).not.toMatch(/\braw\b/);
   });

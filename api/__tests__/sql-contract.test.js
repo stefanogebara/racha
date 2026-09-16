@@ -914,6 +914,15 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
       void entregar;
       return { kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' };
     },
+    /**
+     * DINHEIRO CONFIRMADO PRA UM TXID SEM LINHA — o cartão capturado cuja
+     * escrita de `payments` falhou. O desfecho não pode ser um 409 que some:
+     * vira `money_without_check`, gravado em `orphan_money_events`.
+     */
+    'txid que nunca emitimos, com dinheiro pago': async ({ entregar }) => {
+      void entregar;
+      return { kind: 'payment_confirmed', txid: 'pi_fantasma', amountCents: 5000, tipCents: 0, method: 'card', eventId: 'e9', paid: true };
+    },
     'reentrega do mesmo `evt_`': async ({ entregar }) => {
       const e = { kind: 'payment_confirmed', txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'card', eventId: 'e1' };
       await entregar(e);
@@ -957,6 +966,24 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
       // `rejected` é 409: a entrega NÃO foi aceita, o adquirente reenvia, e não
       // há o que reconciliar — o razão não mudou e a linha não mentiu.
       if (r.status === 'rejected') continue;
+      /**
+       * `money_without_check` é o ÚNICO desfecho cujo registro durável mora
+       * FORA deste portão.
+       *
+       * Ele nasce quando não existe conta pra pendurar nada: dinheiro
+       * confirmado pra um txid sem linha de `payments` — o cartão capturado
+       * cuja escrita falhou. Não há razão onde apendar nem linha pra
+       * reconciliar, e é exatamente por isso que ele existe em vez do 409 que
+       * havia antes: a rota o grava em `orphan_money_events` (via
+       * `responderDoAplicador` → `handleNonLedgerMoneyEvent`) e só então
+       * responde 200. Quem prova ESSE lado é o `non-ledger.test.js`, que afirma
+       * que as duas rotas delegam e que o 503 sai quando nada foi guardado.
+       *
+       * Ou seja: a exigência deste teste ("ou mexeu no razão, ou reconciliou")
+       * é sobre desfechos que TÊM conta. Este não tem, e a dispensa é nominal e
+       * com o lugar da prova escrito.
+       */
+      if (r.status === 'money_without_check') continue;
       if (!r.apendou && !r.reparou) mudos.push(`${nome} → ${r.status}: não apendeu nem reconciliou`);
     }
     expect(mudos).toEqual([]);
@@ -970,7 +997,19 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
     const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
     const inicio = fonte.indexOf('async function applyConfirmedPayment');
     const fim = fonte.indexOf('\nasync function', inicio + 10);
-    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+    /**
+     * SEM COMENTARIO, antes de contar qualquer coisa.
+     *
+     * O censo conta a palavra `return` sobre o TEXTO, e ela aparece em PROSA:
+     * o comentario que explica um `return` fazia o contador subir sem que
+     * nenhum sitio de saida existisse. Foi o que aconteceu ao documentar o
+     * `money_without_check` — 24 onde havia 23. E a terceira vez que um censo
+     * deste repositorio e enganado pelo texto que explica o proprio conserto,
+     * e a resposta e sempre a mesma: tirar comentario ANTES de medir.
+     */
+    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^[ \t]*\/\/.*$/gm, '');
     /**
      * DOIS NÚMEROS, porque uma regex sozinha só vê a forma que ela desenha.
      *
@@ -1005,9 +1044,19 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
     // (inclusive os que não devolvem objeto); `comStatus`, os que devolvem um
     // objeto com `status`. Mexer em qualquer um dos dois é decidir: ou o cenário
     // novo entra, ou a dívida sobe — e as duas coisas passam por alguém olhar.
-    // 22 retornos com valor, 20 deles devolvendo objeto com `status` — os dois
-    // que sobram devolvem outra coisa (`recompute`, o resultado do append).
-    expect({ retornos, comStatus }).toEqual({ retornos: 22, comStatus: 20 });
+    // 22 retornos com valor, 21 deles devolvendo objeto com `status` — o que
+    // sobra devolve outra coisa (o resultado do append).
+    //
+    // DUAS coisas mexeram nestes números em 2026-09-16, e vale separá-las:
+    //  · Um sítio NOVO: o ramo do txid desconhecido deixou de ser um `rejected`
+    //    único e passou a distinguir o evento que MOVEU dinheiro
+    //    (`money_without_check`, que vai pra `orphan_money_events`) do ruído.
+    //    +1 retorno, +1 com status.
+    //  · A MEDIDA ficou mais exata: o contador passou a tirar os comentários
+    //    antes de contar. A palavra "return" aparece em prosa, e o número
+    //    anterior (22) incluía pelo menos uma dessas. Ou seja, a base real era
+    //    21, não 22 — o censo vinha contando um sítio que não existe.
+    expect({ retornos, comStatus }).toEqual({ retornos: 22, comStatus: 21 });
   });
 
   test('todo `status` que o fonte devolve tem cenário aqui', async () => {
@@ -1016,7 +1065,19 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
     const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
     const inicio = fonte.indexOf('async function applyConfirmedPayment');
     const fim = fonte.indexOf('\nasync function', inicio + 10);
-    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+    /**
+     * SEM COMENTARIO, antes de contar qualquer coisa.
+     *
+     * O censo conta a palavra `return` sobre o TEXTO, e ela aparece em PROSA:
+     * o comentario que explica um `return` fazia o contador subir sem que
+     * nenhum sitio de saida existisse. Foi o que aconteceu ao documentar o
+     * `money_without_check` — 24 onde havia 23. E a terceira vez que um censo
+     * deste repositorio e enganado pelo texto que explica o proprio conserto,
+     * e a resposta e sempre a mesma: tirar comentario ANTES de medir.
+     */
+    const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^[ \t]*\/\/.*$/gm, '');
     /**
      * O INVENTÁRIO É DE VALORES, em qualquer posição — não da POSIÇÃO do
      * `status` num objeto.
@@ -1070,8 +1131,20 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
     const conhecidosPelaRota = new Set([
       ...[...router.matchAll(/result\.status === '([a-z_]+)'/g)].map((m) => m[1]),
       ...[...router.matchAll(/'([a-z_]+)'\].includes\(result\.status\)/g)].map((m) => m[1]),
-      // O conjunto que a rota trata por pertencimento, não por igualdade.
-      ...(router.includes('NON_LEDGER_KINDS.has(result.status)') ? ['__non_ledger__'] : []),
+      /**
+       * O CONJUNTO que a rota trata por PERTENCIMENTO, expandido.
+       *
+       * Isto guardava um marcador (`__non_ledger__`) que não casava com status
+       * nenhum: a rota despachava a família inteira e o censo seguia dizendo que
+       * cada membro dela estava sem despacho. Enquanto nenhum `NON_LEDGER_KIND`
+       * saía do `applyConfirmedPayment`, a lacuna era invisível — o
+       * `money_without_check` foi o primeiro, e o censo acusou o inocente.
+       *
+       * Expandir é o certo e é mais forte: se a rota deixar de tratar o
+       * conjunto, TODOS os membros passam a faltar de uma vez.
+       */
+      ...(router.includes('NON_LEDGER_KINDS.has(result.status)')
+        ? [...require('../_lib/pay/webhook-handler').NON_LEDGER_KINDS] : []),
     ]);
     const DESPACHO_GENERICO = new Set([
       // Estes CAEM no 200 de propósito, e o motivo está escrito na rota: o

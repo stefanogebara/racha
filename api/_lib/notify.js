@@ -274,6 +274,10 @@ const KINDS_DE_FUNDADOR = Object.freeze(new Set([
   // `parsed.kind`. São exatamente os que estavam faltando.
   'dispute_opened', 'dispute_updated', 'dispute_funds', 'dispute_lost',
   'account_alert', 'unusable_money_event', 'refund_failed',
+  // Dinheiro CONFIRMADO para um txid sem linha de pagamento. Distinto do
+  // `unusable_money_event`, que é "o adaptador não consegue medir o valor":
+  // aqui o valor é conhecido, o que falta é a linha onde pendurá-lo.
+  'money_without_check',
   // Retenção — literais, do cron.
   'retention_ok', 'retention_blocked', 'retention_late',
 ]));

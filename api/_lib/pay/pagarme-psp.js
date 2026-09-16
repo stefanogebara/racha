@@ -142,6 +142,17 @@ function parseCharge(charge, eventId = null) {
   }
   return {
     txid: charge.id,
+    /**
+     * O `code` DO PEDIDO — e nele vai o id da conta.
+     *
+     * `baseOrder` manda `code: chargeRef`, e `chargeRef` começa com o
+     * `checkId`. Quer dizer que uma cobrança que capturou e cuja linha de
+     * `payments` não existe AINDA É RASTREÁVEL: o dinheiro sabe de que conta
+     * veio, mesmo quando o nosso lado não sabe. Sem carregar isto pra frente, um
+     * órfão viraria um txid solto e um valor, e alguém teria que abrir o painel
+     * do adquirente pra descobrir a mesa.
+     */
+    orderCode: (charge.order && charge.order.code) || null,
     // O id do evento vem de FORA: a conciliação lê a cobrança pela API e não
     // tem evento nenhum (null, e o índice parcial da 0018 ignora nulos), o
     // webhook tem. O campo existe nos dois pra ninguém esquecer de passá-lo.

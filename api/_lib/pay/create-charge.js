@@ -408,10 +408,57 @@ function createChargeService({ store, psp }) {
       });
     }
 
-    await store.registerCharge({
+    /**
+     * A ESCRITA DEPOIS DO DINHEIRO — e o que dizer quando ela falha.
+     *
+     * No trilho de carteira o `createWalletCharge` CAPTURA o cartão dentro da
+     * chamada acima (Pagar.me v5 captura por padrão). Se esta linha falha, o
+     * dinheiro saiu e nós não temos onde pendurá-lo.
+     *
+     * Três coisas, nesta ordem:
+     *
+     *  1. **TENTA DE NOVO.** A falha típica é o prazo de 10 s do banco, e uma
+     *     segunda ida costuma passar. Se a primeira tiver escrito e só a
+     *     resposta ter se perdido, a segunda bate na unicidade do `txid` — e
+     *     isso é SUCESSO, não erro: a linha existe, que é tudo que se queria.
+     *  2. **NÃO DIZ "tente de novo".** O erro sai com código próprio, e a tela
+     *     desarma o botão. Um "algo deu errado, tente de novo" com o botão
+     *     armado sobre um cartão que JÁ foi capturado é convite a pagar duas
+     *     vezes (CDC art. 42), e este produto já tem o vocabulário certo pra
+     *     isso noutras telas ("se o pagamento passou, ele já está aí").
+     *  3. **O webhook vira a rede.** Quando a cobrança confirmar, o
+     *     `charge.paid` chega pra um txid sem linha e o portão devolve
+     *     `money_without_check`, que é gravado em `orphan_money_events` com o
+     *     `orderCode` — e o `code` do pedido carrega o `checkId`. Ou seja: o
+     *     dinheiro fica rastreável mesmo tendo perdido a corrida aqui.
+     *
+     * Achado pela revisão de compliance de 2026-09-16 (HIGH-1).
+     */
+    const gravarLinha = () => store.registerCharge({
       checkId, txid: charge.txid, amountCents, tipCents, payerLabel,
       method: rail,
     });
+    try {
+      await gravarLinha();
+    } catch (primeiraFalha) {
+      try {
+        await gravarLinha();
+      } catch (segundaFalha) {
+        if (!/duplicate|unique|23505/i.test(String(segundaFalha.message))) {
+          process.stderr.write(
+            `[cobranca] LINHA NAO GRAVADA apos cobrar txid=${charge.txid} check=${checkId} `
+            + `rail=${rail}: ${String(segundaFalha.message).slice(0, 160)}\n`,
+          );
+          const e = new Error('charge created at the acquirer but not recorded');
+          e.statusCode = 502;
+          // O cliente traduz. A frase NÃO manda tentar de novo.
+          e.code = 'charge_maybe_captured';
+          e.txid = charge.txid;
+          throw e;
+        }
+        // Unicidade na segunda: a primeira escreveu e só a resposta se perdeu.
+      }
+    }
 
     return {
       txid: charge.txid,

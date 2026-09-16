@@ -164,13 +164,36 @@ describe('webhook handler — money events land exactly once', () => {
     expect(state.paidCents).toBe(6000); // untouched
   });
 
-  test('webhook for a txid we never issued is rejected, not 200-swallowed', async () => {
+  /**
+   * UM TXID QUE NUNCA EMITIMOS — e a resposta depende de ter MOVIDO DINHEIRO.
+   *
+   * A intenção original deste teste era "não engolir com 200", e ela continua
+   * valendo: nada aqui volta 200 sem deixar registro. O que mudou é que um 409
+   * TAMBÉM não deixa registro — o adquirente reenvia, desiste, e a notícia some.
+   * Quando o evento diz que dinheiro FOI PAGO, o desfecho passa a ser
+   * `money_without_check`, que grava em `orphan_money_events` e só então
+   * responde 200. É o caso do cartão capturado cuja linha de `payments` não foi
+   * escrita (compliance HIGH-1 de 2026-09-16).
+   */
+  test('um txid desconhecido que MOVEU dinheiro vira órfão registrável, não um 409 que some', async () => {
     const { psp, handler } = freshWorld();
     const wh = psp.buildConfirmationWebhook({ txid: 'ghost', amountCents: 100 });
     const res = await handler(wh.rawBody, wh.signature);
-    expect(res.status).toBe('rejected');
-    expect(res.reason).toMatch(/unknown txid/);
+    expect(res.status).toBe('money_without_check');
+    // O valor viaja: um alerta que diz "sumiu dinheiro" sem dizer quanto não
+    // serve pra nada.
+    expect(res.raw.amountCents).toBe(100);
+    expect(res.txid).toBe('ghost');
+    // E o desfecho está na família que a rota grava antes de responder 200.
+    const { NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
+    expect(NON_LEDGER_KINDS.has(res.status)).toBe(true);
   });
+
+  // A OUTRA METADE — "um txid desconhecido que NÃO moveu dinheiro segue
+  // recusado" — mora no `webhook-kinds.test.js`, que percorre a matriz de
+  // espécies com um portão instrumentado. O dublê deste arquivo só sabe montar
+  // confirmação, então um teste aqui teria que inventar o evento, e um evento
+  // inventado é a forma que já enganou o `login-indisponivel` três vezes.
 
   test('bad signature never reaches the store', async () => {
     const { psp, handler, store, table } = freshWorld();

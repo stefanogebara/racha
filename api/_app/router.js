@@ -391,6 +391,51 @@ function projetarAchados(findings) {
     }));
 }
 
+/**
+ * A RESPOSTA A PARTIR DO DESFECHO DO APLICADOR — num lugar só.
+ *
+ * Quatro sítios faziam `result.status === 'rejected' ? 409 : 200` à mão, e
+ * "todo desfecho novo tem que ser DECIDIDO em cada sítio de saída" já é um
+ * censo desta casa (`sql-contract`: "a contagem de SÍTIOS de saída é fixa").
+ * Quando o `money_without_check` nasceu, três desses sítios responderiam 200
+ * SEM registrar nada — que é exatamente o "200-swallow" que o comentário do
+ * portão proíbe, e o motivo de o achado existir.
+ *
+ * Aqui o desfecho da família `NON_LEDGER_KINDS` passa pelo gravador durável
+ * ANTES da resposta, em qualquer rail.
+ *
+ * QUEM DECIDE O REENVIO É `needsRetry`, e ele olha o REGISTRO, não o aviso — o
+ * aviso degrada pra stderr sem `RACHA_NOTIFY_SECRET` e a anomalia não. Uma
+ * falha de gravação costuma ser PERSISTENTE (um CHECK recusando o tipo do
+ * evento, uma permissão), do jeito que a produção recusou três tipos por doze
+ * dias — e nesse estado todo cancelamento parcial saía 200, a Pagar.me nunca
+ * reenviava, e o único vestígio era uma mensagem de chat com a conciliação
+ * verde por cima do dinheiro que saiu.
+ *
+ * O comentário que morava na rota da Pagar.me já dizia "esta rota foi
+ * corrigida; a da Stripe ficou com a versão antiga (…) agora é uma função e um
+ * censo". A função nunca tinha sido escrita: a Pagar.me guardava a cópia boa e
+ * a Stripe seguia com o 409/200 seco. Esta é a função.
+ */
+async function responderDoAplicador(res, result, psp) {
+  if (NON_LEDGER_KINDS.has(result.status)) {
+    const marca = await handleNonLedgerMoneyEvent(result, { psp });
+    if (needsRetry(marca)) {
+      process.stderr.write(`[webhook] ${result.status} SEM registro — devolvendo 503 pra reenvio\n`);
+      return json(res, 503, {
+        success: false, code: 'money_event_unrecorded',
+        data: { status: result.status, txid: result.txid || null },
+      });
+    }
+    return json(res, 200, {
+      success: true,
+      data: { status: result.status, type: result.type || null, txid: result.txid || null },
+    });
+  }
+  const status = result.status === 'rejected' ? 409 : 200;
+  return json(res, status, { success: status === 200, data: result });
+}
+
 function json(res, status, body, extra = null) {
   res.writeHead(status, {
     'Content-Type': 'application/json',
@@ -1237,43 +1282,7 @@ async function route(req, res) {
           data: { status: result.status, txid: result.txid, expired: expirou },
         });
       }
-      // Evento de dinheiro sem lançamento: anomalia no razão + aviso. Não
-      // gravado NEM avisado é 503, pra Pagar.me reenviar — perder o evento em
-      // silêncio é o que o inegociável #8 proíbe.
-      if (NON_LEDGER_KINDS.has(result.status)) {
-        const marca = await handleNonLedgerMoneyEvent(result, { psp: 'pagarme' });
-        /**
-         * Quem decide o reenvio é `needsRetry`, e ele mora num lugar só.
-         *
-         * A regra é: o que vale é o registro DURÁVEL, não o aviso — o aviso
-         * degrada pra stderr sem `RACHA_NOTIFY_SECRET` e a anomalia não. Uma
-         * falha de gravação costuma ser PERSISTENTE (um CHECK recusando o tipo
-         * do evento, uma permissão), do jeito que a produção recusou três
-         * tipos por doze dias — e nesse estado todo cancelamento parcial saía
-         * 200, a Pagar.me nunca reenviava, e o único vestígio era uma mensagem
-         * de chat com a conciliação verde por cima do dinheiro que saiu.
-         *
-         * Esta rota já tinha sido corrigida; a da Stripe ficou com a versão
-         * antiga, e o teste que guardava a regra recortava o arquivo entre as
-         * duas rotas, então era estruturalmente incapaz de ver a segunda
-         * cópia. Agora é uma função e um censo.
-         */
-        if (needsRetry(marca)) {
-          process.stderr.write(`[webhook] ${result.status} SEM registro e SEM aviso — devolvendo 503 pra reenvio\n`);
-          return json(res, 503, {
-            success: false, code: 'money_event_unrecorded',
-            data: { status: result.status, txid: result.txid || null },
-          });
-        }
-        // O eco vai MASCARADO: o corpo cru do Pagar.me traz documento do
-        // pagador e payload do Pix, e `raw` saía inteiro na resposta.
-        return json(res, 200, {
-          success: true,
-          data: { status: result.status, type: result.type || null, txid: result.txid || null },
-        });
-      }
-      const status = result.status === 'rejected' ? 409 : 200;
-      return json(res, status, { success: status === 200, data: result });
+      return responderDoAplicador(res, result, 'pagarme');
     }
 
     // --- webhook do Stripe (2º rail) — confirmação de cartão/Apple Pay --------
@@ -1481,8 +1490,7 @@ async function route(req, res) {
           if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
             await writeBackToPos(result.checkId);
           }
-          const st = result.status === 'rejected' ? 409 : 200;
-          return json(res, st, { success: st === 200, data: result });
+          return responderDoAplicador(res, result, 'stripe');
         }
         // Pagamento que FALHOU: a linha sai de `pendente` e nada mais.
         //
@@ -1537,8 +1545,7 @@ async function route(req, res) {
           if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
             await writeBackToPos(result.checkId);
           }
-          const st = result.status === 'rejected' ? 409 : 200;
-          return json(res, st, { success: st === 200, data: result });
+          return responderDoAplicador(res, result, 'stripe');
         }
         result = await applyConfirmedPayment(parsed, confirmDeps);
       } catch (err) {
@@ -1548,8 +1555,7 @@ async function route(req, res) {
       if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
         await writeBackToPos(result.checkId);
       }
-      const status = result.status === 'rejected' ? 409 : 200;
-      return json(res, status, { success: status === 200, data: result });
+      return responderDoAplicador(res, result, 'stripe');
     }
 
     // --- house accounts: diner (public; bearer credential = accountToken) ----

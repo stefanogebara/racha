@@ -206,6 +206,19 @@ const SAIDA_FORA_DE_ROTA = [
   // ninguém era paginado (segurança MEDIUM-2 de ec86b37).
   "const PLATAFORMA_QUEBRADA = () => CONFIG_DE_PRODUCAO_FALTANDO.length > 0 || psp.provider === 'unconfigured';",
   //
+  // O GRAVADOR DURÁVEL dentro do ajudante de resposta dos webhooks
+  // (`responderDoAplicador`). Ele mora em escopo de módulo porque as DUAS rotas
+  // de webhook — Pagar.me e Stripe — precisam do mesmo desfecho, e a versão em
+  // que cada rota escrevia o seu era o defeito: quando o `money_without_check`
+  // nasceu, três dos quatro sítios teriam respondido 200 sem registrar nada,
+  // que é o "200-swallow" que o portão proíbe por escrito. Não é alcançável
+  // fora de rota: quem chama são as duas rotas de webhook, e as duas verificam
+  // a ASSINATURA do adquirente antes de qualquer coisa — o portão desta saída é
+  // criptográfico e está a montante, não uma env. Um chamador novo que não
+  // venha de webhook verificado é a coisa que este censo deve pegar, e continua
+  // pegando: a declaração é de UMA linha e de UMA ocorrência.
+  "const marca = await handleNonLedgerMoneyEvent(result, { psp });",
+  //
   // A FÁBRICA dos dois serviços de cobrança. Elas não chamam nada: constroem o
   // serviço que as rotas chamam, e as rotas estão declaradas ou gateadas.
   // O `require` da fábrica: o caminho `create-charge` casa o singleton `charge`.
