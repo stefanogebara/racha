@@ -196,22 +196,28 @@ vê. Uma mesa que já pagou tudo.
    detalhamento E perde o racha POR ITEM, numa mesa que ainda vai pedir. Consertar
    um problema de transparência quebrando outro não vale (CDC art. 6º III).
 
+   **Item de valor negativo NÃO é aceito** — não existe linha de "desconto". O
+   desconto entra REDUZINDO uma linha que já está lá. No exemplo desta seção a
+   conta era R$ 100,00 e o consumo devolvido foi R$ 9,09, então o total novo é
+   R$ 90,91 (`9091`), e a conta abaixo fecha nesse número:
+
    ```bash
-   # Os itens que já estavam na conta, com UMA linha a menos (ou com um item
-   # ajustado) até o total bater com o novo valor.
+   # As mesmas linhas de antes, com a primeira reduzida em 909 (8990 → 8081).
+   # 8081 + 1010 = 9091, que é o total novo.
    curl -X POST https://<host>/api/checks/adjust \
      -H 'authorization: Bearer <seu token de sessão>' \
      -H 'content-type: application/json' \
      -d '{"checkId":"<uuid da conta>","items":[
-           {"id":"i1","name":"Picanha na chapa","priceCents":8990},
-           {"id":"i2","name":"Ajuste — devolução no adquirente","priceCents":-0}
+           {"id":"i1","name":"Picanha na chapa","priceCents":8081},
+           {"id":"i2","name":"Chopp artesanal (2x)","priceCents":1010}
          ]}'
    ```
 
-   O total novo é a SOMA dos itens (o campo `totalCents` só é lido quando não
-   vêm itens). Item de valor negativo não é aceito, então o desconto entra
-   tirando ou reduzindo uma linha existente. Resposta `200` com o estado novo;
-   `403` quer dizer que a sessão não é do dono daquela casa.
+   O total novo é a SOMA dos itens — o campo `totalCents` só é lido quando não
+   vêm itens, e é por isso que mandar só ele apaga o detalhamento. Respostas:
+   `200` com o estado novo; `400 item N: valor inválido` se alguma linha vier
+   negativa; `400 a conta não pode ser zero` se a soma der zero; `403` se a
+   sessão não for do dono daquela casa.
 
    Se a mesa **não** vai consumir mais, prefira o passo 1: fechar é um toque e
    não mexe no detalhamento.

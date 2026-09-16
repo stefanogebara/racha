@@ -219,20 +219,27 @@ export const DICT = {
    * QUEM PEDE O CPF É O PIX, e a frase dizia "o provedor de pagamento" — no
    * singular, como se fosse um só.
    *
-   * No Pix o gateway exige `customer.document` pra emitir a cobrança, e o
-   * documento VAI pra ele. No cartão, não: o adaptador da Stripe recebe o campo
-   * e o descarta (`void payerDocument`), de propósito e por minimização — a
-   * Stripe não exige documento. Então a justificativa escrita ("vai pra ele")
-   * era falsa justamente no trilho em que o dado não serve pra nada.
+   * Quem exige é o GATEWAY, e cada um exige de um jeito. No Pix e no Google Pay
+   * a Pagar.me pede `customer.document` pra emitir a cobrança, e o documento VAI
+   * pra ela (`pagarme-psp.js`: `baseOrder` → `document`). Na Stripe, não: o
+   * adaptador recebe o campo e o DESCARTA (`void payerDocument`), de propósito e
+   * por minimização, porque ela não exige documento.
    *
-   * A frase nova nomeia o trilho. A pergunta maior — se o campo deveria sumir
-   * quando a pessoa escolhe cartão — é de produto e está na fila; o que não pode
-   * esperar é a tela justificar a coleta com um destino que não existe
-   * (LGPD art. 6º III e art. 9º).
+   * A redação de ontem dizia "vai pro provedor de pagamento", no singular — e
+   * era falsa na Stripe. A correção de hoje trocou por "no cartão ele não é
+   * enviado a lugar nenhum", e ficou PIOR: o cartão da Pagar.me (Google Pay)
+   * manda, então a frase passou a NEGAR um destino que existe. Negar é a direção
+   * mais grave num aviso de transparência (LGPD art. 6º III e art. 9º).
+   *
+   * A frase certa não fala de instrumento (Pix/cartão) — fala de quem recebe. E
+   * ela não promete o que não sabe: diz que vai pro provedor de pagamento da
+   * casa, que é sempre verdade quando ele pede, e que a Racha não guarda, que é
+   * sempre verdade. A pergunta maior — o campo sumir quando o trilho não usa o
+   * documento — é de produto e está na fila.
    */
-  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. The Pix provider requires it to issue the charge — it goes to them, not to the restaurant, and Racha does not store it. On card it is not sent anywhere.',
-                        pt: 'O provedor do Pix exige o CPF pra emitir a cobrança. Vai pra ele, não pro restaurante, e a Racha não guarda. No cartão ele não é enviado a lugar nenhum.',
-                        es: 'El proveedor de Pix exige el CPF para emitir el cobro — va para él, no para el restaurante, y Racha no lo guarda. Con tarjeta no se envía a ninguna parte.' },
+  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. The restaurant’s payment provider requires it to issue the charge — it goes to the provider, never to the restaurant, and Racha does not store it.',
+                        pt: 'O provedor de pagamento do restaurante exige o CPF pra emitir a cobrança. Vai pra ele, nunca pro restaurante, e a Racha não guarda.',
+                        es: 'El proveedor de pago del restaurante exige el CPF para emitir el cobro — va para él, nunca para el restaurante, y Racha no lo guarda.' },
   'payer.cpfHint':    { en: 'Enter your CPF, 11 digits, to enable payment.',
                         pt: 'Preencha seu CPF (11 dígitos) pra liberar o pagamento.',
                         es: 'Escribe tu CPF, 11 dígitos, para habilitar el pago.' },
@@ -837,27 +844,19 @@ export const DICT = {
   'find.test_venue_with_live_recipient': { en: 'venues flagged as test have real payout accounts — they can receive real money and no reconciliation runs on them',
                         pt: 'casas marcadas como teste têm conta de repasse de verdade — elas podem receber dinheiro real e nenhuma conciliação roda nelas',
                         es: 'locales marcados como prueba tienen cuentas de abono reales — pueden recibir dinero real y ninguna conciliación se ejecuta sobre ellos' },
-  // NÃO É "AINDA": essa cobrança nunca passou por adquirente nenhum.
-  'find.charge_not_from_acquirer': { en: 'this charge did not go through the acquirer, so there is no settlement record to check — its destination cannot be verified here',
-                        pt: 'esta cobrança não passou pelo adquirente, então não há registro de repasse a conferir — o destino dela não é conferível por aqui',
-                        es: 'este cobro no pasó por el adquirente, así que no hay registro de abono que revisar — su destino no se puede verificar aquí' },
+  // "ESTE adquirente", e não "o adquirente". A frase anterior afirmava que a
+  // cobrança não passou por adquirente NENHUM — falso pra uma cobrança de outro
+  // trilho, que passou por um, só não por este. A perna de conciliação é de um
+  // adquirente só, e é isso que ela sabe dizer.
+  'find.charge_not_from_acquirer': { en: 'this charge did not go through this acquirer — either it is on another rail or it never went through one; either way there is no settlement record to check here',
+                        pt: 'esta cobrança não passou por este adquirente — ou é de outro trilho, ou nunca passou por adquirente nenhum; de todo jeito não há registro de repasse a conferir aqui',
+                        es: 'este cobro no pasó por este adquirente — o es de otra vía, o nunca pasó por ninguno; en cualquier caso no hay registro de abono que revisar aquí' },
   'find.payables_venue_shape_unknown': { en: 'the reconciliation was handed an incomplete venue record — nothing can be asserted about where this venue\u2019s money goes',
                         pt: 'a conciliação recebeu um registro de casa incompleto — não dá pra afirmar nada sobre o destino do dinheiro dela',
                         es: 'la conciliación recibió un registro de local incompleto — no se puede afirmar nada sobre el destino de su dinero' },
   'find.payables_no_recipient': { en: 'this venue has no known acquirer recipient — the destination cannot be checked',
                         pt: 'esta casa não tem recebedor conhecido no adquirente — não dá pra conferir o destino',
                         es: 'este local no tiene receptor conocido en el adquirente — no se puede verificar el destino' },
-  // Razão anterior à marca de procedência da disputa: a linha conta como estorno
-  // do adquirente até alguém preencher. `info` — é inventário, não incidente.
-  'find.dispute_refund_unmarked': { en: 'a chargeback refund from before provenance was recorded — it still counts as an acquirer refund',
-                        pt: 'um estorno de disputa de antes da marca de procedência — ele ainda conta como estorno do adquirente',
-                        es: 'una devolución por disputa anterior a la marca de procedencia — todavía cuenta como devolución del adquirente' },
-  // ESTRUTURAL, não transitório: o adaptador deste adquirente não sabe listar
-  // repasse, então nenhuma varredura vai conferir o destino do dinheiro desta
-  // casa. Some no dia em que a perna existir.
-  'find.payables_leg_missing': { en: 'this acquirer does not report payouts — no charge had its destination checked',
-                        pt: 'este adquirente não reporta repasse — nenhuma cobrança teve o destino conferido',
-                        es: 'este adquirente no reporta abonos — ningún cobro tuvo su destino verificado' },
   'find.payables_unchecked': { en: 'could not read the acquirer’s receivables this time',
                         pt: 'não deu pra ler os recebíveis do adquirente nesta passada',
                         es: 'no se pudieron leer los abonos del adquirente esta vez' },

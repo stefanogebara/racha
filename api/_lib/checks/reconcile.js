@@ -142,34 +142,32 @@ function reconcileCheck({ checkId, events, payments }) {
 
 
   /**
-   * DISPUTA VELHA SEM MARCA DE PROCEDÊNCIA — a dívida do razão já gravado.
+   * A DÍVIDA DO RAZÃO JÁ GRAVADO — e por que NÃO há varredura pra ela.
    *
-   * `deDisputa` vem do KIND e resolve o futuro. Os `PAYMENT_REFUNDED` de disputa
-   * gravados ANTES dela, e os que o adaptador produziu quando o `dp_` não veio
-   * como string, não têm marca nenhuma: `estornoDoTrilho` devolve `true` pra
-   * eles, então entram no acumulado do trilho e viram candidatos a "o estorno
-   * que falhou" — que é o caminho por onde um chargeback era desfeito no razão.
+   * A marca de procedência da disputa (`deDisputa`) vem do KIND e resolve o
+   * futuro. Os `PAYMENT_REFUNDED` de disputa gravados ANTES dela não têm marca
+   * nenhuma, e entram no acumulado do trilho como se fossem estorno do
+   * adquirente.
    *
-   * Não há migração de backfill, e a frase num commit não é um controle. O
-   * `method: 'dispute'` está no payload e distingue, então a varredura pode ao
-   * menos NOMEAR as linhas em vez de deixar a dívida só escrita
-   * (segurança LOW-2 da rodada doze).
+   * Eu escrevi aqui uma varredura que os nomeava por `payload.method ===
+   * 'dispute'`. Ela NÃO PODE DISPARAR: `method` só é gravado no payload de
+   * `PAYMENT_CONFIRMED` (ver o construtor em `webhook-handler.js`), nunca no de
+   * `PAYMENT_REFUNDED`. O único teste que ela tinha montava o evento à mão com o
+   * campo — provava o redator, não o buraco (compliance MEDIUM-B da rodada
+   * treze). Saiu.
    *
-   * `info`: nada está errado agora, e o dono não tem o que fazer — é para a
-   * varredura saber de quantas linhas está falando quando alguém for escrever a
-   * migração.
+   * E não há substituto: nenhum campo do razão antigo distingue um estorno de
+   * disputa de um estorno do adquirente. É exatamente por isso que a marca
+   * precisou ser acrescentada. O que dá pra afirmar é o tamanho da população, e
+   * ele foi MEDIDO em produção antes de mexer no teto (a consulta está ao lado
+   * da guarda, em `check-state.js`): `disputa_sem_marca = 0`. Zero linhas, zero
+   * alcance. Se um dia não for zero, a resposta é uma migração de backfill a
+   * partir da coluna `kind` da linha de `payments` — não um achado que não
+   * consegue ver o que procura.
    */
-  for (const e of (Array.isArray(events) ? events : [])) {
-    if (e.type !== 'PAYMENT_REFUNDED' || !e.payload) continue;
-    if (e.payload.method !== 'dispute') continue;
-    if (e.payload.deDisputa === true || e.payload.disputeId) continue;
-    add('info', 'dispute_refund_unmarked',
-      `um estorno de DISPUTA sem marca de procedência (seq ${e.seq ?? '?'}) — razão anterior à marca `
-      + `\`deDisputa\`; ele conta como estorno do trilho até alguém preencher`,
-      { ...(e.payload.txid ? { txid: e.payload.txid } : {}), seq: e.seq });
-  }
 
   /**
+   * A CONTA QUE VOLTOU A COBRAR — quitada, e cobrando de novo.  /**
    * A CONTA QUE VOLTOU A COBRAR — quitada, e cobrando de novo.
    *
    * Um estorno pelo painel do adquirente é rateado entre consumo e serviço
@@ -272,11 +270,35 @@ function reconcileCheck({ checkId, events, payments }) {
      * Então a parte disputada sai da conta, e o achado só sai se ainda sobrar
      * buraco causado por DEVOLUÇÃO.
      */
-    // SÓ O BALDE DO CONSUMO. O buraco que a mesa vê é `total - paid`, e a
-    // gorjeta não entra em `paidCents` — somar o balde da gorjeta aqui
-    // descontaria do buraco um dinheiro que nunca esteve nele.
-    const porDisputa = Object.values(state.payments || {}).reduce((acc, pg) => acc
-      + ((Number(pg.refundedAmountCents) || 0) - (Number(pg.refundedPeloTrilhoAmountCents) || 0)), 0);
+    /**
+     * SÓ A DISPUTA, e SÓ O BALDE DO CONSUMO.
+     *
+     * Duas armadilhas aqui, e eu caí na primeira. A conta era
+     * `refundedAmount − refundedPeloTrilhoAmount` — e o acumulado do trilho
+     * exclui TRÊS coisas: disputa, disputa sem `dp_`, e a devolução que o DONO
+     * registrou no caixa (`offRail`). A diferença, então, não é "o que a
+     * disputa levou": é disputa MAIS devolução por fora. Com o nome errado, a
+     * aritmética seguiu o nome.
+     *
+     * O efeito é o pior possível, e é exatamente o caminho que o runbook manda o
+     * operador seguir: o estorno falha, o dono devolve R$ 20,00 em dinheiro no
+     * caixa e registra — e aí `porDevolucao` dá ZERO e o achado NÃO SAI. O
+     * telefone da mesa mostra R$ 20,00 "faltando" e o botão de pagar, numa conta
+     * quitada cujo dinheiro já voltou em espécie. Cobrança de dívida extinta
+     * (CDC art. 42), com o único controle que existe pra ela apagado justamente
+     * na classe de devolução mais comum (compliance HIGH-1 da rodada treze).
+     *
+     * E contradizia o parágrafo três linhas acima, que diz que a devolução do
+     * dono conta como devolução "porque quem re-cobra a mesa é a aritmética, não
+     * a procedência".
+     *
+     * Agora a conta é dos EVENTOS de disputa, direto — sem passar por uma
+     * diferença que carrega o que não devia. Só o balde do consumo, porque o
+     * buraco que a mesa vê é `total − paid` e a gorjeta não entra em `paidCents`.
+     */
+    const porDisputa = eventos.reduce((acc, e) => (
+      e.type === 'PAYMENT_REFUNDED' && e.payload && (e.payload.deDisputa === true || e.payload.disputeId)
+        ? acc + (Number(e.payload.amountCents) || 0) : acc), 0);
     const buraco = state.totalCents - state.paidCents;
     const porDevolucao = buraco - Math.max(0, porDisputa);
     if (houveEstorno && entrou >= state.totalCents && state.totalCents > 0 && porDevolucao > 0) {

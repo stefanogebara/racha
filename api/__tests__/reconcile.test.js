@@ -561,28 +561,22 @@ describe('a conta que voltou a cobrar', () => {
   });
 
   /**
-   * A DÍVIDA DO RAZÃO JÁ GRAVADO, nomeada em vez de só escrita num commit.
-   * Um estorno de disputa anterior à marca `deDisputa` conta como estorno do
-   * trilho, e é por ali que um chargeback podia ser desfeito no razão.
+   * A DEVOLUÇÃO QUE O DONO FEZ NO CAIXA é devolução — e era a que sumia.
+   *
+   * A conta da parte disputada era `refundedAmount − refundedPeloTrilhoAmount`,
+   * e o acumulado do trilho exclui TRÊS coisas: disputa, disputa sem `dp_` e o
+   * `offRail`. A diferença carregava a devolução do dono junto, `porDevolucao`
+   * dava zero e o achado NÃO SAÍA — no caminho exato que o runbook manda o
+   * operador seguir quando o estorno falha (compliance HIGH-1 da rodada treze).
    */
-  test('disputa velha sem marca aparece na varredura — `info`, com o seq', () => {
-    const r = reconcileCheck({
-      checkId: 'c',
-      events: [...quitada,
-        ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2727, tipCents: 273, method: 'dispute' })],
-      payments: [],
-    }).findings.filter((f) => f.code === 'dispute_refund_unmarked');
+  test('devolução do DONO no caixa também reabre — e o achado sai', () => {
+    const r = achado([...quitada, ev('PAYMENT_REFUNDED', {
+      txid: 'pi', amountCents: 909, tipCents: 91, offRail: true, reference: 'caixa', by: 'u-1',
+    })]);
     expect(r.length).toBe(1);
-    expect(r[0].severity).toBe('info');
-    expect(r[0].txid).toBe('pi');
-  });
-
-  test('e a disputa MARCADA não aparece — nem pelo `dp_`, nem pelo kind', () => {
-    const achados = (payload) => reconcileCheck({
-      checkId: 'c', events: [...quitada, ev('PAYMENT_REFUNDED', payload)], payments: [],
-    }).findings.filter((f) => f.code === 'dispute_refund_unmarked');
-    expect(achados({ txid: 'pi', amountCents: 2727, tipCents: 273, method: 'dispute', disputeId: 'dp_1' })).toEqual([]);
-    expect(achados({ txid: 'pi', amountCents: 2727, tipCents: 273, method: 'dispute', deDisputa: true })).toEqual([]);
+    expect(r[0].deltaCents).toBe(909);
+    // E a frase NÃO fala de chargeback: não houve nenhum.
+    expect(r[0].message).not.toMatch(/chargeback/);
   });
 
   test('quitada sem devolução nenhuma não é achado', () => {

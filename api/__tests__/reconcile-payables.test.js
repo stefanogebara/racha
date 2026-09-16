@@ -758,38 +758,40 @@ test('cobranças fora do adquirente viram UM achado, não um por cobrança', asy
   expect(achados.some((f) => f.code === 'payables_never_verified')).toBe(false);
 });
 
-describe('adquirente sem perna de repasse', () => {
+describe('cobrança de OUTRO trilho na perna deste adquirente', () => {
   /**
-   * `listChargePayables` só existe no adaptador da Pagar.me. Uma casa que cobra
-   * pela Stripe passava pela conciliação diária SEM conferência nenhuma de
-   * destino, e o retorno era `[]` — o mesmo valor de "conferi e está tudo
-   * certo". Degradação aberta num guarda de dinheiro (inegociáveis #7 e #8), e
-   * justamente no trilho em que o dinheiro do cliente TRANSITA pela plataforma
-   * antes de ser transferido (destination charge).
+   * Eu escrevi na rodada doze uma guarda `payables_leg_missing` pro adaptador
+   * que não sabe listar repasse. Ela era INALCANÇÁVEL: o `psp` da conciliação é
+   * o adaptador único do processo, que em produção é a Pagar.me — e ela TEM a
+   * perna. A guarda nunca dispararia, nem pra casa que cobra por outro trilho
+   * (compliance MEDIUM-D da rodada treze).
+   *
+   * O caso já era coberto, e melhor: uma cobrança que este adquirente não
+   * reconhece vira `charge_not_from_acquirer`, `high`, uma por casa com a
+   * contagem. O que estava errado ali era a FRASE — ela dizia que a cobrança
+   * "não passou pelo adquirente", e uma cobrança da Stripe passou por um; só não
+   * por este.
    */
   const { reconcilePayablesLeg } = require('../_lib/checks/reconcile-daily');
-
   const casa = { id: 'v1', name: 'Casa', pspRecipientId: 're_x', recebedorOk: true, isTest: false };
-  const semPerna = { name: 'stripe' };            // sem `listChargePayables`
-  const store = (quantas) => ({
-    listRecentConfirmedCharges: async () => Array.from({ length: quantas }, (_, i) => ({ txid: `pi_${i}` })),
-  });
 
-  test('com cobrança confirmada, o buraco vira ACHADO — não silêncio', async () => {
-    const r = await reconcilePayablesLeg(store(3), semPerna, casa, {});
-    expect(r.length).toBe(1);
-    expect(r[0].code).toBe('payables_leg_missing');
-    expect(r[0].severity).toBe('high');
-    expect(r[0].charges).toBe(3);
-    // O nome do adquirente entra: é o que diz qual perna falta implementar.
-    expect(r[0].message).toMatch(/stripe/);
-  });
-
-  test('sem cobrança nenhuma no período, não há o que conferir — silêncio legítimo', async () => {
-    expect(await reconcilePayablesLeg(store(0), semPerna, casa, {})).toEqual([]);
+  test('a frase nomeia ESTE adquirente, e não afirma que não houve nenhum', async () => {
+    const store = {
+      listRecentConfirmedCharges: async () => [
+        { txid: 'pi_3Q', checkId: 'c1', paidAmountCents: 5000, method: 'card' },
+      ],
+    };
+    const psp = { provider: 'pagarme', listChargePayables: async () => ({ notFromAcquirer: true }) };
+    const achados = await reconcilePayablesLeg(store, psp, casa, {});
+    const fora = achados.filter((f) => f.code === 'charge_not_from_acquirer');
+    expect(fora.length).toBe(1);
+    expect(fora[0].severity).toBe('high');
+    // O provider entra na frase: é o que diz QUAL perna não alcança a cobrança.
+    expect(fora[0].message).toMatch(/pagarme/);
+    expect(fora[0].message).toMatch(/ESTE adquirente/);
   });
 
   test('sem adquirente nenhum (store de memória) continua silêncio', async () => {
-    expect(await reconcilePayablesLeg(store(3), null, casa, {})).toEqual([]);
+    expect(await reconcilePayablesLeg({ listRecentConfirmedCharges: async () => [] }, null, casa, {})).toEqual([]);
   });
 });
