@@ -955,37 +955,24 @@ test('`pgCode` e `pgConstraint` só são lidos pelo classificador', () => {
   expect(CLASSIFICADORES.length).toBe(NOMES.length);
 
   /**
-   * E A CONTENÇÃO É MEDIDA DE VERDADE.
+   * O JULGAMENTO É O MESMO da fonte plantada — uma implementação, dois
+   * chamadores.
    *
-   * O que estava aqui era `CLASSIFICADORES.every(([a, b]) => !(0 > a && 0 < b))`
-   * — e `a` é o índice de uma chave que existe, sempre positivo, então a
-   * expressão era a CONSTANTE `true`. Um guarda que não pode disparar, escrito
-   * no mesmo commit que fecha um achado sobre guardas que não disparam
-   * (segurança LOW-1 de 089e8a2). Agora a sonda usa dois pontos concretos.
+   * Eu tinha extraído `foraDoClassificador` e deixado ESTE teste com a regra
+   * reimplementada inline: a prova plantada provava a cópia, e mutar a contenção
+   * do censo de verdade deixava a suíte inteira verde, incluindo o teste novo
+   * escrito pra impedir exatamente isso (segurança MEDIUM-3 de a95e15c). O
+   * `erros-traduzidos.test.ts` diz a coisa certa sobre isso — "uma cópia da
+   * regra dentro do teste que a confere prova a cópia, não a regra" — e eu fiz o
+   * oposto no mesmo commit.
    */
-  const dentroDe = (indice) => CLASSIFICADORES.some(([a, b]) => indice > a && indice < b);
-  const [primeiroA, primeiroB] = CLASSIFICADORES[0];
-  expect(dentroDe(Math.floor((primeiroA + primeiroB) / 2))).toBe(true);   // no meio de um corpo
-  expect(dentroDe(0)).toBe(false);                                        // topo do arquivo
-  expect(dentroDe(Math.max(...CLASSIFICADORES.map(([, b]) => b)) + 1)).toBe(false); // depois do último
-
+  const fonteDoClassificador = fs.readFileSync(path.join(raiz, '_lib', 'checks', 'reconcile.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const { corpos, fora } = foraDoClassificador(fonteDoClassificador, decisoes);
+  expect(corpos.length).toBe(3);
   expect(decisoes.length).toBeGreaterThan(0);
-  for (const d of decisoes) {
-    // Dentro do CORPO de um classificador, ou dentro da CHAMADA de um — passar
-    // o valor pro classificador não é decidir com ele.
-    const noCorpo = CLASSIFICADORES.some(([a, b]) => d.indice > a && d.indice < b);
-    /**
-     * PASSAR o valor pro classificador não é decidir com ele — mas só quando o
-     * que se passa é o valor CRU. `recusaProvada(e.pgCode === '23505' ? … : …)`
-     * é uma decisão por SQLSTATE escrita dentro do argumento, e o `[^)]*`
-     * anterior a engolia (segurança LOW-2 de 089e8a2).
-     */
-    const naChamada = /(?:recusaProvada|desfechoDoLancamento|podeSerReentrega)\(\s*(?:err|e)?\s*(?:&&\s*(?:err|e))?\s*\.?$/
-      .test(d.antes);
-    const dentro = d.arquivo === '_lib/checks/reconcile.js' && (noCorpo || naChamada);
-    expect({ arquivo: d.arquivo, dentroDoClassificador: dentro })
-      .toEqual({ arquivo: '_lib/checks/reconcile.js', dentroDoClassificador: true });
-  }
+  expect(fora.map((d) => `${d.arquivo}: ${d.linha}`)).toEqual([]);
 });
 /**
  * O CENSO DO `pgCode` É TESTADO CONTRA FUGAS CONHECIDAS.

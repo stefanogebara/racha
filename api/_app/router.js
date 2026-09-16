@@ -1933,7 +1933,11 @@ async function route(req, res) {
        */
       let seq;
       try {
-        const partes = alocarDevolucaoDoPagamento(estado, String(b.txid), pg, valor);
+        // A TESTEMUNHA vai junto: quando a devolução por fora existe porque um
+        // estorno falhou, quem diz o que era consumo e o que era serviço é o
+        // adquirente, não o proporcional (compliance HIGH-2 de a95e15c).
+        const partes = alocarDevolucaoDoPagamento(estado, String(b.txid), pg, valor,
+          limites.testemunha ? { testemunha: limites.testemunha } : {});
         seq = await appendValidated(store, b.checkId, 'PAYMENT_REFUNDED', {
           txid: String(b.txid),
           amountCents: partes.amountCents,

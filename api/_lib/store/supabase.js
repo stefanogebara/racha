@@ -1413,9 +1413,13 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const sobraPorTxid = new Map();
       for (const c of checks || []) {
         const state = reduce(await loadEvents(c.id));
-        for (const [txid, pg] of Object.entries(state.payments || {})) {
-          const falta = Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0));
-          if (falta > 0) sobraPorTxid.set(txid, falta);
+        // PELA REGRA ÚNICA: este mapa desconta a dívida do FATURAMENTO da série
+        // semanal (ver `ativacao.js`), e lido do excedente congelado ele era
+        // cego justamente na sobra que nasce de uma reversão — a série contava
+        // como receita a mesma quantia que a linha ao lado chamava de dívida
+        // (CC art. 876; segurança HIGH-1 de a95e15c).
+        for (const [txid, centavos] of sobraPorPagamento(state)) {
+          if (centavos > 0) sobraPorTxid.set(txid, centavos);
         }
         rows.push({
           checkId: c.id,

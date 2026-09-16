@@ -268,6 +268,10 @@ test('banco fora do ar não vira "confira o valor": 500, e a cópia manda CONFER
    */
   expect(rota).toMatch(/const recusa = codigoDaRecusa\(estado, String\(b\.txid\), limites\);/);
   expect(rota).toMatch(/railImpossible: limites\.motivo/);
+  // E a TESTEMUNHA viaja pro rateio: sem ela o pagamento pontual cai no
+  // proporcional e tira da folha o que o adquirente diz que nunca foi gorjeta
+  // (compliance HIGH-2 de a95e15c).
+  expect(rota).toMatch(/limites\.testemunha \? \{ testemunha: limites\.testemunha \} : \{\}\)/);
 
   const i18n = fs.readFileSync(path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
   for (const chave of ['err.restitution_unavailable', 'err.use_acquirer_refund', 'err.payment_age_unknown']) {
@@ -409,14 +413,30 @@ describe('o serviço DEVIDO sobrevive ao estorno do principal', () => {
     expect(reduce(base).payments.txC.excessCents).toBe(0);
     expect(paidAfterClose(reduce(base))).toEqual([{ txid: 'txC', amountCents: 6600 }]);
 
+    /**
+     * E A SOBRA QUE A REVERSÃO CRIA É DE QUEM PERDEU O ESTORNO.
+     *
+     * A versão anterior deste teste afirmava que a duplicidade passava a ser do
+     * txC — e ela vinha do mesmo lugar que o painel: `naoNecessario` dava a
+     * sobra ao atrasado mais novo. Mas os centavos que voltaram são os que a
+     * casa devia ao txA, e o razão diz isso na anomalia ("o cliente ficou sem").
+     * Contados nos dois lugares, o painel mandava estornar o txC enquanto a tela
+     * do txA prometia a MESMA quantia: R$ 120 sobre R$ 60 de sobra, cada ação
+     * justificada pelo que a tela mostrava (compliance HIGH-1 de a95e15c).
+     *
+     * O txC pagou o que a conta precisava naquele momento — o serviço dele foi
+     * prestado, e não é devido.
+     */
     const revertido2 = reduce([...base, revertido('txA', 6000, 0)]);
     expect(revertido2.overpaidCents).toBe(6000);
-    expect(paidAfterClose(revertido2)).toEqual([{ txid: 'txC', amountCents: 600, sempreDevido: true }]);
-    // E agora o botão não pode apagá-lo.
+    expect([...sobraPorPagamento(revertido2)]).toEqual([['txA', 6000]]);
+    // A marca do txC segue sendo a PERGUNTA inteira — ele pagou o que a conta
+    // precisava, e a pergunta dele é a do caixa, não a da duplicidade.
+    expect(paidAfterClose(revertido2)).toEqual([{ txid: 'txC', amountCents: 6600 }]);
     expect(() => validateEvent({
       type: 'PAYMENT_ISSUE_RESOLVED',
       payload: { txid: 'txC', note: 'a mesa não pagou no caixa', by: 'u-1', scope: 'paid_after_close' },
-    }, revertido2)).toThrow(/duplicidade/);
+    }, revertido2)).not.toThrow();
   });
 
   test('a mesa que pagou NO CAIXA continua sem `sempreDevido` — o razão não vê o caixa', () => {
@@ -492,36 +512,55 @@ describe('a DATA que decide o prazo vem do razão', () => {
   });
 });
 
-describe('a duplicidade que nasce DEPOIS tem endereço e teto', () => {
+describe('a sobra que uma REVERSÃO cria tem um endereço só', () => {
   /**
-   * O `paidAfterClose` passou a enxergar a duplicidade viva, e outros quatro
-   * lugares continuaram lendo o excedente CONGELADO — que é zero justamente
-   * nessa população. O resultado: o painel mostrando "a devolver" sem nenhuma
-   * cobrança embaixo (com o runbook mandando devolver "pelo valor ao lado da
-   * cobrança"), e o teto saindo R$ 6,00 pra uma dívida de R$ 66,00 (compliance
-   * HIGH-1 de 089e8a2).
+   * O `PAYMENT_REFUND_REVERSED` devolve o valor a `paidCents` E grava a
+   * testemunha. Os mesmos centavos viravam sobra da conta (endereçada ao
+   * atrasado mais novo) e "você tem a receber" do pagador original — dois
+   * endereços pro mesmo dinheiro (compliance HIGH-1 de a95e15c).
    */
   const nasceDepois = [
     opened(10000), paid('txA', 10000), refunded('txA', 6000, 0), closed(),
     paid('txC', 6000, 600), revertido('txA', 6000, 0),
   ];
 
-  test('a SOBRA aponta a cobrança certa, mesmo com excedente congelado zero', () => {
+  test('a SOBRA é de quem perdeu o estorno, não do atrasado mais novo', () => {
     const st = reduce(nasceDepois);
-    expect(st.payments.txC.excessCents).toBe(0);
     expect(st.overpaidCents).toBe(6000);
-    expect([...sobraPorPagamento(st)].filter(([, c]) => c > 0)).toEqual([['txC', 6000]]);
+    expect(st.payments.txA.reversedOpenCents).toBe(6000);
+    expect([...sobraPorPagamento(st)]).toEqual([['txA', 6000]]);
+    // E o que a soma dos endereços promete nunca passa do que a casa deve.
+    expect([...sobraPorPagamento(st).values()].reduce((a, b) => a + b, 0))
+      .toBeLessThanOrEqual(st.overpaidCents);
   });
 
-  test('e o teto cobre a dívida INTEIRA quando o estorno falha', () => {
-    const comFalha = reduce([...nasceDepois,
-      refunded('txC', 6000, 600), revertido('txC', 6000, 600)]);
-    expect(tetoDaRestituicao(comFalha, 'txC', { confirmedAt: diasAtras(1) }))
-      .toMatchObject({ excesso: 6000, tardio: 600, teto: 6600 });
+  test('e o teto de quem perdeu cobre a dívida dele', () => {
+    const st = reduce(nasceDepois);
+    expect(tetoDaRestituicao(st, 'txA', { confirmedAt: diasAtras(1) }))
+      .toMatchObject({ trilhoImpossivel: true, motivo: 'refund_reversed', teto: 6000 });
+  });
+
+  test('a soma dos endereços nunca passa da dívida — nem com três pagando tudo', () => {
+    // Três pagam a conta inteira e a casa estorna parte de um: o teto por
+    // pagamento (em vez de rateio) prometia R$ 300 sobre R$ 270 de dívida, e o
+    // runbook manda devolver linha por linha (segurança MEDIUM-1 de a95e15c).
+    const tres = reduce([opened(15000), paid('ana', 15000), paid('bruno', 15000),
+      paid('carla', 15000), refunded('ana', 3000, 0)]);
+    const enderecos = sobraPorPagamento(tres);
+    expect([...enderecos.values()].reduce((a, b) => a + b, 0)).toBe(tres.overpaidCents);
+  });
+
+  test('a conta REDUZIDA no PDV também ganha endereço', () => {
+    // Ninguém tem excedente congelado (correto: ninguém pagou a mais, a conta
+    // encolheu), e o painel dizia "a devolver" sem nenhuma cobrança embaixo
+    // (segurança MEDIUM-2 de a95e15c).
+    const menor = reduce([opened(10000), paid('ch1', 10000),
+      { type: 'ADJUSTED', payload: { totalCents: 5000 } }]);
+    expect(menor.overpaidCents).toBe(5000);
+    expect([...sobraPorPagamento(menor)]).toEqual([['ch1', 5000]]);
   });
 
   test('o cliente que só digitou um número maior não muda de comportamento', () => {
-    // O excedente sobre a PRÓPRIA cobrança continua vindo do congelado.
     const digitou = reduce([opened(10000), paid('t1', 14000, 1000)]);
     expect([...sobraPorPagamento(digitou)]).toEqual([['t1', 4000]]);
     expect(tetoDaRestituicao(digitou, 't1', {}).teto).toBe(4000);
@@ -565,3 +604,63 @@ test('o motivo grava os DOIS quando os dois valem, e o tamanho da testemunha', (
   const R = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
   expect(R).toMatch(/reversedOpenCents: limites\.revertidoEmAberto/);
 });
+
+describe('a devolução por fora segue A TESTEMUNHA, não o proporcional', () => {
+  /**
+   * `reversedOpenCents` colapsava consumo e serviço num número só, e o rateio do
+   * pagamento PONTUAL caía no proporcional. Um estorno de R$ 50 só de CONSUMO
+   * que falha tirava R$ 4,55 da base da folha sobre dinheiro que nunca foi
+   * gorjeta; o espelho deixava R$ 9,09 de serviço na folha DEPOIS de ele ter
+   * voltado ao cliente (compliance HIGH-2 de a95e15c). O adquirente já diz qual
+   * balde falhou — Lei 13.419/2017, STJ Tema 1102 e CLT art. 462, que não deixa
+   * desfazer depois.
+   */
+  const comFalha = (a, t) => reduce([
+    opened(10000), paid('t1', 10000, 1000), refunded('t1', a, t), revertido('t1', a, t),
+  ]);
+  const devolver = (st, valor) => {
+    const limites = tetoDaRestituicao(st, 't1', { confirmedAt: diasAtras(1) });
+    return {
+      limites,
+      partes: alocarDevolucaoDoPagamento(st, 't1', st.payments.t1, valor,
+        limites.testemunha ? { testemunha: limites.testemunha } : {}),
+    };
+  };
+
+  test('falhou só o CONSUMO: nada sai da base da folha', () => {
+    const st = comFalha(5000, 0);
+    expect(st.payments.t1.reversedOpenAmountCents).toBe(5000);
+    expect(st.payments.t1.reversedOpenTipCents).toBe(0);
+    const { limites, partes } = devolver(st, 5000);
+    expect(limites.testemunha).toEqual({ amountCents: 5000, tipCents: 0 });
+    expect(partes).toEqual({ amountCents: 5000, tipCents: 0 });
+  });
+
+  test('falhou só o SERVIÇO: sai inteiro da base da folha', () => {
+    const st = comFalha(0, 1000);
+    const { partes } = devolver(st, 1000);
+    expect(partes).toEqual({ amountCents: 0, tipCents: 1000 });
+  });
+
+  test('falharam os dois: cada um pelo seu tamanho', () => {
+    const st = comFalha(10000, 1000);
+    const { limites, partes } = devolver(st, limites0(st));
+    expect(limites.testemunha).toEqual({ amountCents: 10000, tipCents: 1000 });
+    expect(partes).toEqual({ amountCents: 10000, tipCents: 1000 });
+  });
+
+  test('o que PASSA da testemunha volta às regras de sempre', () => {
+    // Testemunha de 1000 só de consumo, devolução de 2200: 1000 pelo balde da
+    // testemunha, o resto proporcional sobre o que sobrou.
+    const st = comFalha(1000, 0);
+    const { partes } = devolver(st, 2200);
+    expect(partes.amountCents + partes.tipCents).toBe(2200);
+    expect(partes.amountCents).toBeGreaterThanOrEqual(1000);
+    expect(partes.tipCents).toBeGreaterThan(0);
+  });
+});
+
+/** O teto daquele estado, pra não repetir a chamada. */
+function limites0(st) {
+  return tetoDaRestituicao(st, 't1', { confirmedAt: new Date(Date.now() - 86400000).toISOString() }).teto;
+}

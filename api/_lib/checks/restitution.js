@@ -166,7 +166,14 @@ function tetoDaRestituicao(estado, txid, opcoes = {}) {
     // O TAMANHO da testemunha entra no razão junto com o motivo: sem ele, uma
     // auditoria lê `refund_reversed` e não sabe que parte daquela devolução
     // tinha testemunha e parte não.
-    ...(revertidoEmAberto > 0 ? { revertidoEmAberto } : {}),
+    ...(revertidoEmAberto > 0 ? {
+      revertidoEmAberto,
+      // Os DOIS baldes da testemunha: é o adquirente dizendo qual parte falhou.
+      testemunha: {
+        amountCents: Math.max(0, pg.reversedOpenAmountCents || 0),
+        tipCents: Math.max(0, pg.reversedOpenTipCents || 0),
+      },
+    } : {}),
     teto: Math.min(liquido, Math.max(excesso + tardio, daTestemunha)),
   };
 }

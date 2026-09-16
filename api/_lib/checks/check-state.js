@@ -449,6 +449,8 @@ function applyEvent(state, evt, seq = null) {
       // testemunha do trilho impossível vale o que ainda não voltou.
       if (pay.reversedOpenCents) {
         pay.reversedOpenCents = Math.max(0, pay.reversedOpenCents - (amount + tip));
+        pay.reversedOpenAmountCents = Math.max(0, (pay.reversedOpenAmountCents || 0) - amount);
+        pay.reversedOpenTipCents = Math.max(0, (pay.reversedOpenTipCents || 0) - tip);
       }
       return recompute(next);
     }
@@ -491,6 +493,16 @@ function applyEvent(state, evt, seq = null) {
        * o adquirente deixou de devolver.
        */
       pay.reversedOpenCents = (pay.reversedOpenCents || 0) + amount + tip;
+      // E EM DOIS BALDES, porque o adquirente diz QUAL falhou.
+      //
+      // Colapsados num número só, a devolução por fora de um pagamento pontual
+      // caía no rateio proporcional: um estorno de R$ 50 só de CONSUMO que falha
+      // tirava R$ 4,55 da base da folha sobre dinheiro que nunca foi gorjeta — e
+      // o espelho deixava R$ 9,09 de serviço na folha depois de ele ter voltado
+      // ao cliente (compliance HIGH-2 de a95e15c; Lei 13.419/2017, STJ Tema 1102
+      // e CLT art. 462, que não deixa descontar depois).
+      pay.reversedOpenAmountCents = (pay.reversedOpenAmountCents || 0) + amount;
+      pay.reversedOpenTipCents = (pay.reversedOpenTipCents || 0) + tip;
       return withAnomaly(recompute(next), seq, 'PAYMENT_REFUND_REVERSED',
         `estorno de ${p.txid} FALHOU: dinheiro voltou pro restaurante e o cliente ficou sem`,
         p.txid, 'high', amount + tip);
@@ -750,16 +762,28 @@ function lateTxids(state) {
 function naoNecessarioDosAtrasados(state) {
   const fora = new Map();
   if (!state) return fora;
-  const atrasados = Object.entries(state.payments).filter(([, p]) => p.late);
   const liquido = (p) => Math.max(0, p.amountCents - (p.refundedAmountCents || 0));
-  const doResto = Object.entries(state.payments)
-    .filter(([, p]) => !p.late)
-    .reduce((soma, [, p]) => soma + liquido(p), 0);
-  let falta = Math.max(0, (state.totalCents || 0) - doResto);
+  /**
+   * O QUE ESTÁ RETIDO POR UM ESTORNO QUE FALHOU NÃO COBRE A CONTA.
+   *
+   * O `PAYMENT_REFUND_REVERSED` devolve o valor a `paidCents` E grava a
+   * testemunha. Os mesmos centavos viravam, ao mesmo tempo, sobra da conta
+   * (endereçada ao atrasado mais novo) e "você tem a receber" do pagador
+   * original — dois endereços, e a casa pagando R$ 120 sobre R$ 60 de sobra,
+   * cada ação justificada pelo que a tela mostrava (compliance HIGH-1 de
+   * a95e15c). Dinheiro que já tem dono não cobre conta de ninguém.
+   */
+  const cobre = (p) => Math.max(0, liquido(p) - Math.max(0, p.reversedOpenCents || 0));
+  // TODOS os pagamentos, na ordem do razão — não só os atrasados. A sobra de uma
+  // conta REDUZIDA no PDV, ou de uma duplicidade anterior ao fecho, também
+  // precisa de endereço: sem ele o painel dizia "a devolver" sem nenhuma
+  // cobrança embaixo (segurança MEDIUM-2 de a95e15c).
+  const todos = Object.entries(state.payments);
+  let falta = Math.max(0, state.totalCents || 0);
   // Do MAIS VELHO pro mais novo: a ordem de `Object.entries` é a de inserção, e
   // o redutor insere na ordem do razão.
-  for (const [txid, p] of atrasados) {
-    // BRUTO pra medir ESTE, LÍQUIDO pra descontar o que ele cobre.
+  for (const [txid, p] of todos) {
+    // BRUTO pra medir ESTE, o que COBRE pra descontar.
     //
     // O bruto é o que faz a duplicidade sobreviver à devolução do principal. Mas
     // quem COBRE a conta é o que ainda está lá: descontando o bruto dos outros,
@@ -768,7 +792,7 @@ function naoNecessarioDosAtrasados(state) {
     // dinheiro que a conta precisava. Medido pela propriedade 2 da suíte.
     const bruto = Math.max(0, p.amountCents || 0);
     fora.set(txid, Math.max(0, bruto - falta));
-    falta -= Math.min(liquido(p), falta);
+    falta -= Math.min(cobre(p), falta);
   }
   return fora;
 }
@@ -796,14 +820,38 @@ function sobraPorPagamento(state) {
   const out = new Map();
   if (!state) return out;
   const naoNecessario = naoNecessarioDosAtrasados(state);
-  const teto = Math.max(0, state.overpaidCents || 0);
-  for (const [txid, p] of Object.entries(state.payments)) {
-    const devolvido = Math.max(0, p.refundedAmountCents || 0);
-    const liquido = Math.max(0, (p.amountCents || 0) - devolvido);
-    const congelado = Math.max(0, (p.excessCents || 0) - devolvido);
-    const vivo = p.late ? Math.max(0, (naoNecessario.get(txid) || 0) - devolvido) : 0;
-    out.set(txid, Math.min(liquido, Math.max(congelado, vivo), teto));
+  const entradas = Object.entries(state.payments);
+  for (const [txid] of entradas) out.set(txid, 0);
+  let restante = Math.max(0, state.overpaidCents || 0);
+  const liquido = (p) => Math.max(0, (p.amountCents || 0) - Math.max(0, p.refundedAmountCents || 0));
+  const dar = (txid, quanto) => {
+    const dado = Math.max(0, Math.min(quanto, restante));
+    if (dado <= 0) return;
+    out.set(txid, (out.get(txid) || 0) + dado);
+    restante -= dado;
+  };
+
+  /**
+   * PRIMEIRO quem teve o estorno falhado: a reversão RECRIOU a sobra, e ela é
+   * dele. Depois, do mais NOVO pro mais velho, quem a conta não precisou —
+   * a mesma convenção do `paidAfterClose`.
+   *
+   * E é RATEIO, não teto por pagamento. O `min(..., overpaidCents)` aplicado a
+   * cada um separadamente deixava a SOMA passar do que a casa deve: três
+   * pagando a conta inteira e um estorno parcial davam R$ 300 de linhas sobre
+   * R$ 270 de dívida — e o runbook manda devolver "pelo valor ao lado da
+   * cobrança", linha por linha (segurança MEDIUM-1 de a95e15c).
+   */
+  for (const [txid, p] of entradas) {
+    dar(txid, Math.min(Math.max(0, p.reversedOpenCents || 0), liquido(p)));
   }
+  for (const [txid, p] of [...entradas].reverse()) {
+    const congelado = Math.max(0, (p.excessCents || 0) - Math.max(0, p.refundedAmountCents || 0));
+    const vivo = Math.max(0, (naoNecessario.get(txid) || 0) - Math.max(0, p.refundedAmountCents || 0));
+    const teto = Math.min(liquido(p), Math.max(congelado, vivo));
+    dar(txid, Math.max(0, teto - (out.get(txid) || 0)));
+  }
+  for (const [txid, valor] of [...out]) if (valor === 0) out.delete(txid);
   return out;
 }
 
@@ -815,19 +863,21 @@ function paidAfterClose(state) {
   // MEDIUM-1 e compliance MEDIUM-C de 57c0d2e).
   const atrasados = Object.entries(state.payments).filter(([, p]) => p.late);
   const liquido = (p) => Math.max(0, p.amountCents - (p.refundedAmountCents || 0));
-  const pool = atrasados.reduce((soma, [, p]) => soma + liquido(p), 0);
-  let aDescontar = Math.min(Math.max(0, state.overpaidCents || 0), pool);
-  const duplicado = new Map();
-  for (const [txid, p] of [...atrasados].reverse()) {
-    const d = Math.min(liquido(p), aDescontar);
-    aDescontar -= d;
-    duplicado.set(txid, d);
-  }
+  /**
+   * A SOBRA DE CADA UM vem do MESMO rateio que endereça a linha do painel.
+   *
+   * Aqui havia um segundo rateio, próprio, do mais novo pro mais velho sobre os
+   * atrasados — e depois que a sobra criada por uma reversão passou a pertencer
+   * a quem perdeu o estorno, os dois discordavam: o painel mandava estornar uma
+   * cobrança e a marca da mesa descontava de outra (compliance HIGH-1 de
+   * a95e15c). Um rateio só, duas leituras.
+   */
+  const duplicado = sobraPorPagamento(state);
   const naoNecessario = naoNecessarioDosAtrasados(state);
   const out = [];
   for (const [txid, p] of atrasados) {
     const l = liquido(p);
-    const d = duplicado.get(txid);
+    const d = Math.min(liquido(p), duplicado.get(txid) || 0);
     const servico = Math.max(0, (p.tipCents || 0) - (p.refundedTipCents || 0));
     /**
      * O SERVIÇO ACOMPANHA O CONSUMO — pela duplicidade COMO ELA CHEGOU, não

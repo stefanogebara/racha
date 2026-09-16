@@ -17,7 +17,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { reduce, paidAfterClose, validateEvent } = require('../_lib/checks/check-state');
+const { reduce, paidAfterClose, validateEvent, sobraPorPagamento } = require('../_lib/checks/check-state');
 const { reconcileCheck } = require('../_lib/checks/reconcile');
 const { formatReconcileAlert } = require('../_lib/checks/reconcile-daily');
 const { tetoDaRestituicao, payloadDaResolucao, autorDoRegistro } = require('../_lib/checks/restitution');
@@ -176,8 +176,20 @@ describe('pago depois de fechar — o caso calado', () => {
       const marcas = paidAfterClose(st).reduce((soma, x) => soma + x.amountCents, 0);
       const pool = atrasados.reduce((soma, x) => soma + liqAmt(x.txid), 0);
       const atrasadoLiquido = pool + atrasados.reduce((soma, x) => soma + liqTip(x.txid), 0);
-      // A sobra conta até o que entrou atrasado; o resto dela é de quem pagou antes.
-      expect({ caso, soma: marcas + Math.min(st.overpaidCents, pool) }).toEqual({ caso, soma: atrasadoLiquido });
+      /**
+       * A sobra que entra na conta é a ATRIBUÍDA aos atrasados — não
+       * `min(overpaid, pool)`.
+       *
+       * Desde que a sobra criada por uma reversão passou a pertencer a quem
+       * perdeu o estorno (compliance HIGH-1 de a95e15c), parte de `overpaidCents`
+       * pode ter endereço num pagamento que NÃO é atrasado. O invariante é sobre
+       * o dinheiro atrasado, então ele soma o que foi endereçado a atrasados.
+       */
+      const enderecos = sobraPorPagamento(st);
+      const sobraDosAtrasados = atrasados
+        .reduce((soma, x) => soma + (enderecos.get(x.txid) || 0), 0);
+      void pool;
+      expect({ caso, soma: marcas + sobraDosAtrasados }).toEqual({ caso, soma: atrasadoLiquido });
     }
   });
 

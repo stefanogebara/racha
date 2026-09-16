@@ -70,8 +70,10 @@ function servicoDevidoDoAtrasado(estado, txid) {
  * @param {string} txid
  * @param {object} pg o pagamento no estado derivado
  * @param {number} valor centavos desta devolução
- * @param {{forcada?: boolean}} [opcoes] `forcada` quando o dinheiro foi TIRADO
- *   (chargeback/disputa perdida) em vez de devolvido por escolha da casa.
+ * @param {{forcada?: boolean, testemunha?: {amountCents: number, tipCents: number}}} [opcoes]
+ *   `forcada` quando o dinheiro foi TIRADO (chargeback/disputa perdida) em vez de
+ *   devolvido por escolha da casa. `testemunha` é o estorno que o adquirente
+ *   deixou de entregar, JÁ SEPARADO em consumo e serviço.
  */
 function alocarDevolucaoDoPagamento(estado, txid, pg, valor, opcoes = {}) {
   const consumo = Math.max(0, pg.amountCents - (pg.refundedAmountCents || 0));
@@ -80,6 +82,26 @@ function alocarDevolucaoDoPagamento(estado, txid, pg, valor, opcoes = {}) {
     Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
     consumo,
   );
+  /**
+   * BALDE ZERO: a TESTEMUNHA manda.
+   *
+   * Quando a devolução por fora existe porque um estorno FALHOU, o adquirente já
+   * disse quanto era de consumo e quanto era de serviço. Seguir o proporcional
+   * em cima disso tira da base da folha dinheiro que a testemunha diz que nunca
+   * foi gorjeta — ou deixa nela serviço que a testemunha diz que voltou
+   * (compliance HIGH-2 de a95e15c).
+   */
+  const testemunha = (opcoes && opcoes.testemunha) || null;
+  if (testemunha) {
+    const doConsumo = Math.min(valor, Math.max(0, testemunha.amountCents || 0), consumo);
+    const resto = valor - doConsumo;
+    const daGorjeta = Math.min(resto, Math.max(0, testemunha.tipCents || 0), gorjeta);
+    if (doConsumo + daGorjeta === valor) return { amountCents: doConsumo, tipCents: daGorjeta };
+    // O que passa da testemunha segue as regras de sempre, sobre o que sobrou.
+    const p = tresBaldes(consumo - doConsumo, gorjeta - daGorjeta,
+      Math.max(0, excedente - doConsumo), 0, valor - doConsumo - daGorjeta, consumoPrimeiro(pg, opcoes));
+    return { amountCents: doConsumo + p.amountCents, tipCents: daGorjeta + p.tipCents };
+  }
   const devido = Math.min(servicoDevidoDoAtrasado(estado, txid), gorjeta);
   // Sem serviço devido E fora de um atrasado em aberto, nada muda: as duas
   // regras antigas, intactas.
