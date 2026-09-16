@@ -117,22 +117,29 @@ function publicCheckState(state) {
  */
 function dinerNotices(state) {
   const avisos = [];
-  if (state.overpaidCents > 0) {
-    avisos.push({ code: 'overpaid_pending_restitution', amountCents: state.overpaidCents });
-  }
-  for (const a of Array.isArray(state.anomalies) ? state.anomalies : []) {
-    if (a && a.type === 'PAYMENT_REFUND_REVERSED') {
-      // O valor é o do ESTORNO QUE FALHOU, que a anomalia carrega. Derivar do
-      // saldo não-estornado do pagamento dava outro número — o do pagamento
-      // inteiro num estorno parcial — e mandava a pessoa cobrar o dobro no
-      // caixa. Sem o valor (anomalia antiga), o aviso não sai: dizer "você tem
-      // algo a receber, não sei quanto" não ajuda ninguém, e a marca continua
-      // no painel da casa.
-      if (Number.isSafeInteger(a.amountCents) && a.amountCents > 0) {
-        avisos.push({ code: 'refund_reversed', amountCents: a.amountCents });
-      }
-    }
-  }
+  /**
+   * O ESTORNO QUE FALHOU sai do FATO, não da anomalia.
+   *
+   * Duas coisas estavam erradas, e as duas custam dinheiro à mesa:
+   *
+   *  · o aviso nunca se apagava. Ele vinha da lista de anomalias, e a anomalia
+   *    só sai por `PAYMENT_ISSUE_RESOLVED` SEM escopo — que nenhuma tela manda
+   *    (o botão do painel manda sempre com escopo). Depois de a casa devolver
+   *    por fora, o razão dizia que não devia nada e o telefone de quem tem o QR
+   *    seguia dizendo "ainda é devido, fale com a equipe": a mesa cobrando de
+   *    novo o que já recebeu (segurança HIGH-2 de 95f72a9). O saldo revertido em
+   *    aberto (`reversedOpenCents`) é o fato, e ele se abate sozinho;
+   *  · os mesmos centavos saíam DUAS vezes — como sobra da conta e como estorno
+   *    a receber. Desde que a sobra criada por uma reversão passou a pertencer a
+   *    quem perdeu o estorno, os dois números descrevem o mesmo dinheiro por
+   *    construção: R$ 120,00 anunciados sobre R$ 60,00 de dívida (CDC art. 6º
+   *    III). A sobra que já tem endereço numa testemunha não é anunciada de novo.
+   */
+  const revertidoEmAberto = Object.values(state.payments || {})
+    .reduce((soma, p) => soma + Math.max(0, p.reversedOpenCents || 0), 0);
+  const sobra = Math.max(0, (state.overpaidCents || 0) - revertidoEmAberto);
+  if (sobra > 0) avisos.push({ code: 'overpaid_pending_restitution', amountCents: sobra });
+  if (revertidoEmAberto > 0) avisos.push({ code: 'refund_reversed', amountCents: revertidoEmAberto });
   return avisos;
 }
 

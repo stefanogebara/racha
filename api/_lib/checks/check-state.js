@@ -447,10 +447,35 @@ function applyEvent(state, evt, seq = null) {
       next.tipCents -= tip;
       // O estorno que ENFIM saiu abate o saldo revertido em aberto: a
       // testemunha do trilho impossível vale o que ainda não voltou.
-      if (pay.reversedOpenCents) {
-        pay.reversedOpenCents = Math.max(0, pay.reversedOpenCents - (amount + tip));
-        pay.reversedOpenAmountCents = Math.max(0, (pay.reversedOpenAmountCents || 0) - amount);
-        pay.reversedOpenTipCents = Math.max(0, (pay.reversedOpenTipCents || 0) - tip);
+      /**
+       * O ABATE É POR BALDE, e o que passa de um NÃO come o outro.
+       *
+       * Antes o total era abatido pela soma e cada balde aparado em zero: um
+       * estorno legítimo de OUTRO motivo — a mesa pedindo a remoção dos 10%,
+       * inegociável #3 — zerava o total da testemunha de um estorno de consumo
+       * que tinha falhado, e a rota passava a responder `nothing_to_restitute`
+       * a um cliente a quem a casa devia R$ 20,00 (segurança HIGH-1 e
+       * compliance HIGH-4 de 95f72a9). O razão afirmava o contrário do fato.
+       *
+       * O excedente de um balde vira ANOMALIA, não desconto no outro: o
+       * adquirente não diz qual lançamento é qual, e engolir a diferença em
+       * silêncio é a degradação que o inegociável #7 proíbe.
+       */
+      // SÓ QUANDO HÁ TESTEMUNHA EM ABERTO. Sem esta guarda, todo estorno comum
+      // — que tem os baldes em zero — "passava do balde" e virava anomalia.
+      if (!(pay.reversedOpenCents > 0)) return recompute(next);
+      const sobrouA = Math.max(0, amount - (pay.reversedOpenAmountCents || 0));
+      const sobrouT = Math.max(0, tip - (pay.reversedOpenTipCents || 0));
+      pay.reversedOpenAmountCents = Math.max(0, (pay.reversedOpenAmountCents || 0) - amount);
+      pay.reversedOpenTipCents = Math.max(0, (pay.reversedOpenTipCents || 0) - tip);
+      pay.reversedOpenCents = pay.reversedOpenAmountCents + pay.reversedOpenTipCents;
+      // A anomalia sai MESMO com o balde exaurido — é justamente aí que o
+      // excedente some se ninguém falar. A guarda que eu tinha escrito exigia
+      // saldo restante e calava o único caso que importa.
+      if (sobrouA > 0 || sobrouT > 0) {
+        return withAnomaly(recompute(next), seq, 'PAYMENT_ANOMALY',
+          `estorno de ${p.txid} entregue além da testemunha daquele balde `
+          + `(consumo +${sobrouA}, serviço +${sobrouT})`, p.txid, 'info');
       }
       return recompute(next);
     }
@@ -492,17 +517,35 @@ function applyEvent(state, evt, seq = null) {
        * `PAYMENT_REFUNDED` seguinte o abate: a testemunha vale exatamente o que
        * o adquirente deixou de devolver.
        */
-      pay.reversedOpenCents = (pay.reversedOpenCents || 0) + amount + tip;
-      // E EM DOIS BALDES, porque o adquirente diz QUAL falhou.
+      pay.reversedOpenAmountCents = (pay.reversedOpenAmountCents || 0) + amount;
+      pay.reversedOpenTipCents = (pay.reversedOpenTipCents || 0) + tip;
+      pay.reversedOpenCents = pay.reversedOpenAmountCents + pay.reversedOpenTipCents;
+      /**
+       * E A REPARTIÇÃO FOI TESTEMUNHADA, ou é palpite nosso?
+       *
+       * O `refund.failed` traz um TOTAL. Quando o webhook consegue casar esse
+       * total com UM lançamento do razão, os baldes são o que aquele lançamento
+       * de fato usou — aí a testemunha manda no rateio da devolução por fora.
+       * Quando não casa, a repartição é `allocateProportional`, e um palpite
+       * nosso não pode ter autoridade de adquirente pra tirar dinheiro da base
+       * da folha (compliance HIGH-1 de 95f72a9). Um razão ANTIGO não tem o
+       * campo: `undefined` é tratado como não testemunhado, que é o lado seguro.
+       */
+      pay.reversedOpenTestemunhado = p.testemunhado === true
+        && (pay.reversedOpenTestemunhado !== false);
+      // EM DOIS BALDES, e o total DERIVADO deles.
       //
-      // Colapsados num número só, a devolução por fora de um pagamento pontual
+      // Colapsado num número só, a devolução por fora de um pagamento pontual
       // caía no rateio proporcional: um estorno de R$ 50 só de CONSUMO que falha
       // tirava R$ 4,55 da base da folha sobre dinheiro que nunca foi gorjeta — e
       // o espelho deixava R$ 9,09 de serviço na folha depois de ele ter voltado
       // ao cliente (compliance HIGH-2 de a95e15c; Lei 13.419/2017, STJ Tema 1102
       // e CLT art. 462, que não deixa descontar depois).
-      pay.reversedOpenAmountCents = (pay.reversedOpenAmountCents || 0) + amount;
-      pay.reversedOpenTipCents = (pay.reversedOpenTipCents || 0) + tip;
+      //
+      // O total tinha aritmética PRÓPRIA, e os três números derivavam entre si:
+      // um estorno que passasse de um balde corroía o outro pelo total, e aí
+      // `estornoFalhou` (que lê o total) dizia "não há estorno em aberto"
+      // enquanto o balde ainda dizia que havia. Ver o abate, abaixo.
       return withAnomaly(recompute(next), seq, 'PAYMENT_REFUND_REVERSED',
         `estorno de ${p.txid} FALHOU: dinheiro voltou pro restaurante e o cliente ficou sem`,
         p.txid, 'high', amount + tip);
@@ -773,7 +816,13 @@ function naoNecessarioDosAtrasados(state) {
    * cada ação justificada pelo que a tela mostrava (compliance HIGH-1 de
    * a95e15c). Dinheiro que já tem dono não cobre conta de ninguém.
    */
-  const cobre = (p) => Math.max(0, liquido(p) - Math.max(0, p.reversedOpenCents || 0));
+  // O CONSUMO da testemunha, só. `liquido`, `falta` e o pote da sobra são
+  // grandezas de CONSUMO — `overpaidCents` é `paidCents - totalCents`, e gorjeta
+  // nunca entra em `paidCents`. Descontando o total (consumo + serviço), uma
+  // reversão de GORJETA comia sobra de consumo de outro pagador: a duplicidade
+  // dele encolhia e o serviço `sempreDevido` caía junto (segurança MEDIUM-1 e
+  // compliance HIGH-3 de 95f72a9). O lado da gorjeta já é servido pelo teto.
+  const cobre = (p) => Math.max(0, liquido(p) - Math.max(0, p.reversedOpenAmountCents || 0));
   // TODOS os pagamentos, na ordem do razão — não só os atrasados. A sobra de uma
   // conta REDUZIDA no PDV, ou de uma duplicidade anterior ao fecho, também
   // precisa de endereço: sem ele o painel dizia "a devolver" sem nenhuma
@@ -843,7 +892,7 @@ function sobraPorPagamento(state) {
    * cobrança", linha por linha (segurança MEDIUM-1 de a95e15c).
    */
   for (const [txid, p] of entradas) {
-    dar(txid, Math.min(Math.max(0, p.reversedOpenCents || 0), liquido(p)));
+    dar(txid, Math.min(Math.max(0, p.reversedOpenAmountCents || 0), liquido(p)));
   }
   for (const [txid, p] of [...entradas].reverse()) {
     const congelado = Math.max(0, (p.excessCents || 0) - Math.max(0, p.refundedAmountCents || 0));

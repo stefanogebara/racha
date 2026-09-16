@@ -393,3 +393,63 @@ describe('devolver o EXCEDENTE não pode sangrar a folha', () => {
     }
   });
 });
+
+test('a reversão CASA com o lançamento que falhou — e só aí a testemunha manda', async () => {
+  /**
+   * O `refund.failed` traz um TOTAL; o adquirente não diz quanto daquilo era
+   * consumo e quanto era serviço. O razão diz: cada `PAYMENT_REFUNDED` gravou os
+   * baldes que ELE usou. Casando o total com um lançamento, a testemunha é
+   * verdadeira; sem casar, a repartição é `allocateProportional` — palpite nosso
+   * — e não pode ter autoridade de adquirente pra tirar da base da folha
+   * (compliance HIGH-1 de 95f72a9).
+   */
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { reduce } = require('../_lib/checks/check-state');
+
+  const store = createMemoryStore();
+  const venue = await store.seedVenue({ name: 'Casar', servicoBp: 1000 });
+  const mesa = await store.seedTable(venue.id, 'Mesa 1');
+  const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 10000 }]);
+  const deps = {
+    loadEvents: store.loadEvents.bind(store),
+    appendEvent: store.appendEvent.bind(store),
+    findCheckByTxid: async () => ({ id: conta.id }),
+  };
+
+  await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 10000, tipCents: 1000, method: 'pix' });
+  // Dois lançamentos com baldes DIFERENTES: um só de consumo, outro só de serviço.
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 5000, tipCents: 0 });
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 0, tipCents: 1000 });
+
+  // O de 5000 (só consumo) falha.
+  await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 5000, eventId: 'evt_1' }, deps);
+  const st = reduce(await store.loadEvents(conta.id));
+  expect(st.payments.p1.reversedOpenTestemunhado).toBe(true);
+  expect(st.payments.p1.reversedOpenAmountCents).toBe(5000);
+  expect(st.payments.p1.reversedOpenTipCents).toBe(0);
+});
+
+test('sem lançamento que case, a repartição é derivada e NÃO manda', async () => {
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { applyConfirmedPayment } = require('../_lib/pay/webhook-handler');
+  const { reduce } = require('../_lib/checks/check-state');
+
+  const store = createMemoryStore();
+  const venue = await store.seedVenue({ name: 'Sem casar', servicoBp: 1000 });
+  const mesa = await store.seedTable(venue.id, 'Mesa 1');
+  const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 10000 }]);
+  const deps = {
+    loadEvents: store.loadEvents.bind(store),
+    appendEvent: store.appendEvent.bind(store),
+    findCheckByTxid: async () => ({ id: conta.id }),
+  };
+  await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 10000, tipCents: 1000, method: 'pix' });
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 3000, tipCents: 0 });
+  await store.appendEvent(conta.id, 'PAYMENT_REFUNDED', { txid: 'p1', amountCents: 3000, tipCents: 0 });
+
+  // 3000 casa com DOIS lançamentos: ambíguo, então derivado.
+  await applyConfirmedPayment({ kind: 'refund_failed', txid: 'p1', amountCents: 3000, eventId: 'evt_2' }, deps);
+  const st = reduce(await store.loadEvents(conta.id));
+  expect(st.payments.p1.reversedOpenTestemunhado).toBe(false);
+});

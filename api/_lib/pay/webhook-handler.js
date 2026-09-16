@@ -206,7 +206,34 @@ async function applyConfirmedPayment(parsed, deps) {
     if (!Number.isSafeInteger(aReverter) || aReverter <= 0) {
       return { status: 'rejected', reason: `reversal amount inválido (${parsed.amountCents}) para ${parsed.txid}` };
     }
-    reversalAllocated = allocateRefund(pay.refundedAmountCents, pay.refundedTipCents, aReverter);
+    /**
+     * DE QUAL LANÇAMENTO ERA O ESTORNO QUE FALHOU?
+     *
+     * O `refund.failed` traz um TOTAL — o adquirente não diz quanto daquilo era
+     * consumo e quanto era serviço. O razão diz: cada `PAYMENT_REFUNDED` gravou
+     * os baldes que ELE usou. Se exatamente um lançamento daquele txid soma o
+     * valor que falhou, é ele, e aí a testemunha é verdadeira.
+     *
+     * Quando não dá pra casar (dois estornos do mesmo valor, ou um acumulado
+     * que não bate com nenhum), volta o proporcional — e aí a testemunha é
+     * DERIVADA, não uma afirmação do adquirente. A diferença importa: é ela que
+     * autoriza o rateio da devolução por fora a passar por cima das regras e
+     * tirar dinheiro da base da folha (compliance HIGH-1 de 95f72a9). Dizer
+     * "o adquirente disse" sobre um palpite nosso é a mesma falha que esta
+     * série já cometeu na cópia da tela: afirmação sem código atrás.
+     */
+    const lancamentos = events
+      .filter((e) => e.type === 'PAYMENT_REFUNDED' && e.payload && e.payload.txid === parsed.txid)
+      .map((e) => ({
+        amountCents: Number(e.payload.amountCents) || 0,
+        tipCents: Number(e.payload.tipCents) || 0,
+      }));
+    const casam = lancamentos.filter((l) => l.amountCents + l.tipCents === aReverter);
+    if (casam.length === 1) {
+      reversalAllocated = { ...casam[0], testemunhado: true };
+    } else {
+      reversalAllocated = { ...allocateRefund(pay.refundedAmountCents, pay.refundedTipCents, aReverter), testemunhado: false };
+    }
   }
 
   let refundAllocated = null;
@@ -338,7 +365,21 @@ async function applyConfirmedPayment(parsed, deps) {
         reason: `refund ${parsed.cumulativeRefundedCents} exceeds paid ${paidTotal} for txid ${parsed.txid}`,
       };
     }
-    refundAllocated = alocarDevolucao(state, parsed.txid, pay, delta);
+    /**
+     * A REFAÇÃO do estorno também segue a testemunha.
+     *
+     * Ela caía no proporcional: com uma falha só de serviço (R$ 10,00), refazer
+     * o estorno pelo trilho devolvia R$ 10,00 ao cliente e o razão registrava
+     * R$ 0,91 — R$ 9,09 ficando na folha sobre serviço que voltou (compliance
+     * MEDIUM-1 de 95f72a9). Ou a testemunha vale nos dois trilhos, ou em nenhum.
+     */
+    refundAllocated = alocarDevolucao(state, parsed.txid, pay, delta,
+      pay.reversedOpenTestemunhado === true ? {
+        testemunha: {
+          amountCents: Math.max(0, pay.reversedOpenAmountCents || 0),
+          tipCents: Math.max(0, pay.reversedOpenTipCents || 0),
+        },
+      } : undefined);
   }
 
   const payload = type === 'PAYMENT_DISPUTE_CLOSED' ? {
@@ -359,6 +400,11 @@ async function applyConfirmedPayment(parsed, deps) {
     // O `dp_` fica no LOG: é o que distingue a reentrega de uma derrota da
     // segunda derrota de verdade, e o log é o único lugar durável.
     ...(type === 'PAYMENT_REFUNDED' && parsed.disputeId ? { disputeId: parsed.disputeId } : {}),
+    // A TESTEMUNHA É VERDADEIRA? Só quando o valor revertido casou com UM
+    // lançamento do razão. Sem isso o rateio é palpite nosso, e o razão precisa
+    // dizer qual dos dois foi — é ele que autoriza tirar da base da folha.
+    ...(type === 'PAYMENT_REFUND_REVERSED' && reversalAllocated
+      ? { testemunhado: reversalAllocated.testemunhado === true } : {}),
   };
 
   if (type === 'PAYMENT_CONFIRMED' && state && state.payments[parsed.txid]) {

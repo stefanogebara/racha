@@ -27,7 +27,14 @@ const opened = (t) => ({ type: 'OPENED', payload: { totalCents: t } });
 const paid = (txid, a, tip = 0) => ({ type: 'PAYMENT_CONFIRMED', payload: { txid, amountCents: a, tipCents: tip, method: 'pix' } });
 const closed = () => ({ type: 'CLOSED', payload: {} });
 const refunded = (txid, a, tip = 0) => ({ type: 'PAYMENT_REFUNDED', payload: { txid, amountCents: a, tipCents: tip } });
-const revertido = (txid, a, tip = 0) => ({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid, amountCents: a, tipCents: tip } });
+/**
+ * A reversão como o webhook a grava quando CASOU o valor com um lançamento do
+ * razão — aí os baldes são os daquele lançamento, e a testemunha manda no
+ * rateio. Sem `testemunhado`, a repartição é o proporcional do
+ * `allocateRefund`: palpite nosso, sem autoridade de adquirente.
+ */
+const revertido = (txid, a, tip = 0) => ({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid, amountCents: a, tipCents: tip, testemunhado: true } });
+const revertidoSemCasar = (txid, a, tip = 0) => ({ type: 'PAYMENT_REFUND_REVERSED', payload: { txid, amountCents: a, tipCents: tip } });
 const resolvido = (txid) => ({ type: 'PAYMENT_ISSUE_RESOLVED', payload: { txid, note: 'estorno refeito por fora', by: 'u-1' } });
 const resolvidoEscopado = (txid) => ({ type: 'PAYMENT_ISSUE_RESOLVED', payload: { txid, note: 'a mesa não pagou no caixa', by: 'u-1', scope: 'paid_after_close' } });
 const diasAtras = (d) => new Date(Date.now() - d * 86400000).toISOString();
@@ -464,7 +471,10 @@ test('o CHARGEBACK continua proporcional — ninguém escolheu de onde o dinheir
   const W = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
   // A disputa perdida marca `forcada`; o estorno comum, não.
   expect(W).toMatch(/alocarDevolucao\(state, parsed\.txid, pay, parsed\.refundDeltaCents, \{ forcada: true \}\)/);
-  expect(W).toMatch(/alocarDevolucao\(state, parsed\.txid, pay, delta\)/);
+  // O estorno comum não marca `forcada` — e desde 95f72a9 leva a testemunha,
+  // quando ela existe, pra refação seguir o que o adquirente não entregou.
+  expect(W).toMatch(/refundAllocated = alocarDevolucao\(state, parsed\.txid, pay, delta,/);
+  expect(W).not.toMatch(/alocarDevolucao\(state, parsed\.txid, pay, delta, \{ forcada: true \}\);[\s\S]*alocarDevolucao\(state, parsed\.txid, pay, delta, \{ forcada: true \}\)/);
 });
 
 describe('a DATA que decide o prazo vem do razão', () => {
@@ -649,6 +659,23 @@ describe('a devolução por fora segue A TESTEMUNHA, não o proporcional', () =>
     expect(partes).toEqual({ amountCents: 10000, tipCents: 1000 });
   });
 
+  test('sem CASAR o lançamento, a repartição é palpite nosso e não manda no rateio', () => {
+    /**
+     * O `refund.failed` traz um TOTAL: quando dois estornos do mesmo valor
+     * existem, ou o acumulado não bate com nenhum, a repartição volta a ser
+     * `allocateProportional` — e um palpite nosso não pode ter autoridade de
+     * adquirente pra tirar dinheiro da base da folha (compliance HIGH-1 de
+     * 95f72a9). O comentário do código dizia "o adquirente já disse quanto era
+     * de consumo e quanto era de serviço", e isso é FALSO no caminho do webhook.
+     */
+    const st = reduce([opened(10000), paid('t1', 10000, 1000),
+      refunded('t1', 5000, 0), revertidoSemCasar('t1', 5000, 0)]);
+    expect(st.payments.t1.reversedOpenTestemunhado).toBe(false);
+    const limites = tetoDaRestituicao(st, 't1', { confirmedAt: diasAtras(1) });
+    expect(limites.teto).toBe(5000);          // o teto continua valendo
+    expect(limites.testemunha).toBeUndefined(); // mas o rateio não é mandado por ela
+  });
+
   test('o que PASSA da testemunha volta às regras de sempre', () => {
     // Testemunha de 1000 só de consumo, devolução de 2200: 1000 pelo balde da
     // testemunha, o resto proporcional sobre o que sobrou.
@@ -664,3 +691,93 @@ describe('a devolução por fora segue A TESTEMUNHA, não o proporcional', () =>
 function limites0(st) {
   return tetoDaRestituicao(st, 't1', { confirmedAt: new Date(Date.now() - 86400000).toISOString() }).teto;
 }
+
+describe('os contadores da testemunha não derivam entre si', () => {
+  /**
+   * O total tinha aritmética PRÓPRIA (abatido pela soma) e cada balde era
+   * aparado em zero. Um estorno legítimo de OUTRO motivo — a mesa pedindo a
+   * remoção dos 10%, inegociável #3 — zerava o total da testemunha de um estorno
+   * de consumo que tinha falhado, e a rota passava a responder
+   * `nothing_to_restitute` a um cliente a quem a casa devia (segurança HIGH-1 e
+   * compliance HIGH-4 de 95f72a9). O razão dizia o contrário do fato.
+   */
+  test('o total é a SOMA dos baldes, sempre', () => {
+    const passos = [
+      opened(10000), paid('t1', 10000, 1000),
+      refunded('t1', 2000, 0), revertido('t1', 2000, 0),
+      refunded('t1', 1000, 1000),
+    ];
+    for (let corte = 1; corte <= passos.length; corte += 1) {
+      const pg = reduce(passos.slice(0, corte)).payments.t1;
+      if (!pg) continue;
+      expect({ corte, total: pg.reversedOpenCents || 0 })
+        .toEqual({ corte, total: (pg.reversedOpenAmountCents || 0) + (pg.reversedOpenTipCents || 0) });
+    }
+  });
+
+  test('um estorno de OUTRO motivo não apaga a testemunha do primeiro', () => {
+    const st = reduce([
+      opened(10000), paid('t1', 10000, 1000),
+      refunded('t1', 2000, 0), revertido('t1', 2000, 0),   // falhou: consumo 2000
+      refunded('t1', 0, 1000),                              // a mesa tirou os 10%: outro assunto
+    ]);
+    const pg = st.payments.t1;
+    expect(pg.reversedOpenAmountCents).toBe(2000);
+    expect(pg.reversedOpenCents).toBe(2000);
+    // E a porta continua aberta pelo tamanho certo.
+    expect(tetoDaRestituicao(st, 't1', { confirmedAt: diasAtras(1) }))
+      .toMatchObject({ trilhoImpossivel: true, teto: 2000 });
+  });
+
+  test('o estorno que passa do balde vira ANOMALIA, não desconto no outro', () => {
+    const st = reduce([
+      opened(10000), paid('t1', 10000, 1000),
+      refunded('t1', 0, 500), revertido('t1', 0, 500),   // falhou: serviço 500
+      refunded('t1', 0, 1000),                            // entregue 1000 de serviço
+    ]);
+    expect(st.payments.t1.reversedOpenTipCents).toBe(0);
+    expect(st.anomalies.some((a) => /além da testemunha/.test(a.reason || ''))).toBe(true);
+  });
+});
+
+test('uma reversão SÓ de gorjeta não mexe em nenhum endereço de consumo', () => {
+  /**
+   * `liquido`, `falta` e o pote da sobra são grandezas de CONSUMO —
+   * `overpaidCents` é `paidCents - totalCents`, e gorjeta nunca entra em
+   * `paidCents`. Descontando o total, uma reversão de gorjeta comia sobra de
+   * consumo de outro pagador: a duplicidade dele encolhia e o `sempreDevido`
+   * caía junto (segurança MEDIUM-1 e compliance HIGH-3 de 95f72a9).
+   */
+  const semReversao = [opened(10000), paid('A', 10000, 5000), closed(), paid('B', 10000, 1000)];
+  const comReversao = [
+    opened(10000), paid('A', 10000, 5000),
+    refunded('A', 0, 5000), revertido('A', 0, 5000),
+    closed(), paid('B', 10000, 1000),
+  ];
+  const enderecos = (evs) => [...sobraPorPagamento(reduce(evs))];
+  expect(enderecos(comReversao)).toEqual(enderecos(semReversao));
+  expect(paidAfterClose(reduce(comReversao))).toEqual(paidAfterClose(reduce(semReversao)));
+  // E B continua sendo duplicidade inteira: 100% do consumo dele e o serviço junto.
+  expect(enderecos(comReversao)).toEqual([['B', 10000]]);
+  expect(paidAfterClose(reduce(comReversao)))
+    .toEqual([{ txid: 'B', amountCents: 1000, sempreDevido: true }]);
+});
+
+test('o que passa da testemunha recupera o BALDE 2 — o serviço devido', () => {
+  /**
+   * O quarto argumento do `tresBaldes` estava cravado em `0` no caminho da
+   * testemunha: o dinheiro era autorizado pelo teto COMO serviço devido e saía
+   * como consumo. O cliente recebia tudo e ZERO saía da base da folha, com a
+   * marca `sempreDevido` seguindo aberta (compliance HIGH-2 e segurança
+   * MEDIUM-3 de 95f72a9).
+   */
+  const st = reduce([
+    opened(20000), paid('A', 10000), closed(), paid('B', 20000, 2000),
+    refunded('B', 10000, 0), revertido('B', 10000, 0),
+  ]);
+  const limites = tetoDaRestituicao(st, 'B', { confirmedAt: diasAtras(1) });
+  const partes = alocarDevolucaoDoPagamento(st, 'B', st.payments.B, 11000,
+    limites.testemunha ? { testemunha: limites.testemunha } : {});
+  // 10000 pela testemunha (consumo), e o serviço devido sai da GORJETA.
+  expect(partes).toEqual({ amountCents: 10000, tipCents: 1000 });
+});

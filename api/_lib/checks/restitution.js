@@ -168,11 +168,15 @@ function tetoDaRestituicao(estado, txid, opcoes = {}) {
     // tinha testemunha e parte não.
     ...(revertidoEmAberto > 0 ? {
       revertidoEmAberto,
-      // Os DOIS baldes da testemunha: é o adquirente dizendo qual parte falhou.
-      testemunha: {
-        amountCents: Math.max(0, pg.reversedOpenAmountCents || 0),
-        tipCents: Math.max(0, pg.reversedOpenTipCents || 0),
-      },
+      // Os DOIS baldes — e SÓ quando a repartição foi testemunhada, isto é,
+      // quando o valor revertido casou com um lançamento do razão. Palpite
+      // proporcional nosso não manda no rateio (compliance HIGH-1 de 95f72a9).
+      ...(pg.reversedOpenTestemunhado === true ? {
+        testemunha: {
+          amountCents: Math.max(0, pg.reversedOpenAmountCents || 0),
+          tipCents: Math.max(0, pg.reversedOpenTipCents || 0),
+        },
+      } : {}),
     } : {}),
     teto: Math.min(liquido, Math.max(excesso + tardio, daTestemunha)),
   };

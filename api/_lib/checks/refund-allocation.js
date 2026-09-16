@@ -97,9 +97,21 @@ function alocarDevolucaoDoPagamento(estado, txid, pg, valor, opcoes = {}) {
     const resto = valor - doConsumo;
     const daGorjeta = Math.min(resto, Math.max(0, testemunha.tipCents || 0), gorjeta);
     if (doConsumo + daGorjeta === valor) return { amountCents: doConsumo, tipCents: daGorjeta };
-    // O que passa da testemunha segue as regras de sempre, sobre o que sobrou.
+    /**
+     * O que passa da testemunha segue as regras de sempre — INCLUSIVE o balde 2.
+     *
+     * Ele estava cravado em `0`, e o dinheiro era autorizado pelo teto COMO
+     * serviço devido (`tardio` inclui o `servicoDevido`) e saía como consumo:
+     * o cliente recebia os R$ 110,00 e ZERO saía da base da folha, com a marca
+     * `sempreDevido` seguindo aberta — a casa pagando de novo pelo trilho, ou
+     * ficando `critical` pra sempre (compliance HIGH-2 e segurança MEDIUM-3 de
+     * 95f72a9). O comentário dizia "regras de sempre" e pulava uma delas.
+     */
+    const devidoQueSobra = Math.max(0,
+      Math.min(servicoDevidoDoAtrasado(estado, txid), gorjeta) - daGorjeta);
     const p = tresBaldes(consumo - doConsumo, gorjeta - daGorjeta,
-      Math.max(0, excedente - doConsumo), 0, valor - doConsumo - daGorjeta, consumoPrimeiro(pg, opcoes));
+      Math.max(0, excedente - doConsumo), Math.min(devidoQueSobra, gorjeta - daGorjeta),
+      valor - doConsumo - daGorjeta, consumoPrimeiro(pg, opcoes));
     return { amountCents: doConsumo + p.amountCents, tipCents: daGorjeta + p.tipCents };
   }
   const devido = Math.min(servicoDevidoDoAtrasado(estado, txid), gorjeta);
