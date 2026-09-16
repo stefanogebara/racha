@@ -181,6 +181,39 @@ describe('a lista de contas do painel tem recorte — e ele não perde nada que 
     expect(painel.today.tipsCents).toBe(1000);
   });
 
+  /**
+   * O BURACO CONHECIDO DO RECORTE, dito em voz alta.
+   *
+   * O terceiro conjunto sai de `confirmedRaw`, que filtra
+   * `status='confirmado'` E `confirmed_at >= desde`. Uma conta VELHA e FECHADA
+   * cujo único movimento na janela foi um ESTORNO não entra em conjunto
+   * nenhum: `confirmed_at` é a data em que o dinheiro entrou, não a data da
+   * devolução, e o `status` no banco não volta a `aberta` quando um estorno
+   * reabre a conta (a 0004 só escreve `fechada`, no fechamento).
+   *
+   * Isso é ACEITO, e não ignorado. A obrigação continua visível pelo canal
+   * ALTO: a conciliação não tem janela de data — ela varre a casa inteira — e
+   * emite `reopened_by_refund` / `reopened_by_refund_mixed`, que o painel
+   * desenha entre os achados e que vira `critical` depois de 48 h
+   * (`reconcile.test.js`, `refund-partial.test.js`). O que se perde é a LINHA
+   * da mesa numa lista de mesas; o que se mantém é o aviso de que há dinheiro
+   * a resolver.
+   *
+   * Fica escrito aqui porque um recorte sem o seu próprio buraco documentado é
+   * como alguém descobre o buraco tarde.
+   */
+  test('a conta velha, fechada e só ESTORNADA na janela sai da lista — e o aviso fica com a conciliação', async () => {
+    const dados = casaVariada();
+    // A conta 3 (velha, fechada, sem movimento) ganha um estorno de hoje no
+    // razão — sem pagamento confirmado na janela.
+    dados.check_events.push({
+      check_id: uuid(3), seq: 2, type: 'PAYMENT_REFUNDED',
+      payload: { txid: 'tx_antigo', amountCents: 5000, tipCents: 0 }, created_at: AGORA,
+    });
+    const painel = await painelEm(dados, AGORA);
+    expect(painel.checks.map((c) => c.checkId)).not.toContain(uuid(3));
+  });
+
   test('nenhuma conta aparece duas vezes — os três conjuntos se sobrepõem de propósito', async () => {
     const painel = await painelEm(casaVariada(), AGORA);
     const ids = painel.checks.map((c) => c.checkId);
