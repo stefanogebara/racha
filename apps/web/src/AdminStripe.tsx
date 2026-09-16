@@ -81,8 +81,8 @@ export default function AdminStripe({ venueId }: { venueId: string }) {
       {active && <span className="pill paga" style={{ alignSelf: 'flex-start' }}>{t('stripe.active')}</span>}
       {pending && <span className="pill parcial" style={{ alignSelf: 'flex-start' }}>{t('stripe.pending')}</span>}
 
-      {err && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{err}</p>}
-      {loadError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{loadError}</p>}
+      {err && <p className="muted small" style={{ color: 'var(--erro)' }}>{err}</p>}
+      {loadError && <p className="muted small" style={{ color: 'var(--erro)' }}>{loadError}</p>}
 
       {!active && (
         <button className="cta" style={{ padding: '12px 20px', alignSelf: 'flex-start' }} disabled={busy} onClick={connect}>

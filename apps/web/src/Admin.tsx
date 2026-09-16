@@ -82,10 +82,10 @@ function Onboarding() {
         <input className="namefield" placeholder={t('admin.city')} value={city} onChange={(e) => setCity(e.target.value)} />
         <input className="namefield" inputMode="text" autoCapitalize="characters" autoComplete="off"
           placeholder={t('admin.cnpjField')} value={maskCpfCnpj(cnpj)}
-          style={cnpj && !cnpjValid ? { borderColor: 'var(--burgundy)' } : undefined}
+          style={cnpj && !cnpjValid ? { borderColor: 'var(--erro)' } : undefined}
           onChange={(e) => setCnpj(normalizarDocumento(e.target.value))} />
         {cnpj !== '' && (
-          <span className="small" style={{ color: cnpjValid ? 'var(--emerald)' : 'var(--burgundy)' }}>
+          <span className="small" style={{ color: cnpjValid ? 'var(--emerald)' : 'var(--erro)' }}>
             {cnpjValid ? t('admin.cnpjOk') : t('admin.cnpjBad')}
           </span>
         )}
@@ -177,8 +177,8 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
           silêncio, e a semana 8 do portão de adoção absorve a diferença.
           Falhar fechado é o certo; falhar calado não é. */}
       {venue && venue.podeCobrarServico === false && (
-        <section className="panel" style={{ borderColor: 'var(--burgundy)' }}>
-          <p className="label" style={{ color: 'var(--burgundy)' }}>{t('admin.noTipDocTitle')}</p>
+        <section className="panel" style={{ borderColor: 'var(--erro)' }}>
+          <p className="label" style={{ color: 'var(--erro)' }}>{t('admin.noTipDocTitle')}</p>
           <p className="muted small">{t('admin.noTipDocBody')}</p>
           <button className="cta" style={{ marginTop: 8 }} onClick={onConfigure}>
             {t('admin.noTipDocCta')}

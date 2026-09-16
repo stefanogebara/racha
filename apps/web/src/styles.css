@@ -1,89 +1,133 @@
 /* Fontes vendorizadas em /fonts. Antes vinham do Google Fonts; quando a CDN
-   falhava (e falha — atrás de proxy, em 4G ruim), a Instrument Serif itálica
-   virava uma Georgia inclinada à força e o herói inteiro perdia a voz. A fonte
-   é parte do design tanto quanto a cor; não se terceiriza pra rede. */
-@font-face { font-family: "Inter"; font-style: normal; font-weight: 400 600; font-display: swap;
-  src: url(/fonts/Inter-400.woff2) format("woff2"); }
-@font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 400 600; font-display: swap;
-  src: url(/fonts/InstrumentSans-400.woff2) format("woff2"); }
-@font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url(/fonts/InstrumentSerif-400.woff2) format("woff2"); }
-@font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap;
-  src: url(/fonts/InstrumentSerif-400i.woff2) format("woff2"); }
+   falhava (e falha — atrás de proxy, em 4G ruim), a serifa italica virava uma
+   Georgia inclinada a forca e o heroi inteiro perdia a voz. A fonte e parte do
+   design tanto quanto a cor; nao se terceiriza pra rede.
 
-/* Racha — o sistema da landing do Seatable, aplicado à plataforma inteira.
+   O Presence do twin-me carrega Manrope e Newsreader por `@import` do Google.
+   Aqui elas sao baixadas: o telefone que le esta no wi-fi de um restaurante,
+   e o sistema de design nao pode depender de um terceiro pra ter voz. Os dois
+   subconjuntos (latin e latin-ext) sao os mesmos que o Google serve, com o
+   mesmo `unicode-range` — portugues e espanhol cabem nos dois juntos. */
+@font-face { font-family: "Manrope"; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url(/fonts/Manrope-var-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Manrope"; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url(/fonts/Manrope-var-latinext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Newsreader"; font-style: normal; font-weight: 400 600; font-display: swap;
+  src: url(/fonts/Newsreader-var-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Newsreader"; font-style: normal; font-weight: 400 600; font-display: swap;
+  src: url(/fonts/Newsreader-var-latinext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Newsreader"; font-style: italic; font-weight: 400 600; font-display: swap;
+  src: url(/fonts/Newsreader-var-italic-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Newsreader"; font-style: italic; font-weight: 400 600; font-display: swap;
+  src: url(/fonts/Newsreader-var-italic-latinext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+
+/* Racha — o sistema Presence (twin-me), aplicado a plataforma inteira.
  *
- * Tokens, escala tipográfica, ritmo e formas vêm da landing nova do Seatable
- * (mesma casa, mesma máquina de vendas). Tinta quase preta sobre papel claro,
- * Instrument Sans nos títulos, Inter no corpo, Instrument Serif itálico como
- * voz de marca, cartão de 20px com fio fino, botão pílula preta.
+ * Paleta, tipografia, raios e o ritmo de fio fino vem do Presence:
+ * papel #f2f0eb, tinta quase preta, reguas de 1px, rotulo em versalete de 10px,
+ * controle de 10px, campo de 16, cartao de 24, painel de 28. Manrope na
+ * interface, Newsreader como voz — narrativa e dinheiro.
  *
- * O que ficou de Racha: a comanda continua sendo o objeto que carrega o
+ * O que fica de Racha: a comanda continua sendo o objeto que carrega o
  * dinheiro, e os blocos entalhados continuam ilustrando as linhas da conta —
- * agora tinta preta sobre papel, que é onde xilogravura nasceu.
+ * tinta preta sobre papel, que e onde xilogravura nasceu. O Presence nao tem
+ * ilustracao nenhuma; era a unica coisa que Racha nao ia trocar.
+ *
+ * SEMANTICA — e aqui a troca nao e cosmetica:
+ *  · musgo  = recebido, conferido, quitado;
+ *  · coral  = erro, campo invalido, dinheiro que a casa DEVE;
+ *  · azul   = o passo em que voce esta, o que esta em curso;
+ *  · faint  = encerrado, sem acao.
+ * O `--burgundy` do sistema antigo apontava pra `--ink`: toda mensagem de erro
+ * e toda borda de campo invalido saiam em quase-preto, indistinguiveis do
+ * texto normal. Erro agora e coral, com nome proprio (`--erro`).
  */
 
 :root {
-  /* Paleta — direto da landing. */
-  --ink:     #18191B;
-  --cinza:   #6A6A6C;
-  --claro:   #ACADAE;
-  --papel:   #F9F9F9;
-  --branco:  #FFFFFF;
-  --linha:   #C4C4C4;
-  --linha2:  #DBDBDB;
-  --fundo2:  #F2F2F2;
-  --verde-bg:#DBEDDF;
-  --verde:   #448F52;
-  --azul:    #3B7BF6;
-  --azul2:   #2F6FE8;
-  /* Vermelho só onde a lei/erro exige atenção — não é cor de marca. */
-  --alerta:  #B42318;
-  --alerta-bg: #FEF3F2;
+  /* Presence — os mesmos valores do `presence-system.css`. */
+  --papel:      #F2F0EB;
+  --papel-alto: #F8F7F3;
+  --ink:        #161714;
+  --grafite:    #666761;
+  --faint:      #92938D;
+  --fio:        #D4D2CB;
+  --fio-forte:  #A6A59F;
+  --azul:       #2F35FF;
+  --azul-suave: #E7E8FF;
+  --coral:      #D75D45;
+  --coral-suave:#F4DED8;
+  --musgo:      #66745D;
+  --musgo-suave:#E4E7E1;
 
-  --ui:     "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --titulo: "Instrument Sans", "Inter", sans-serif;
-  --serif:  "Instrument Serif", Georgia, serif;
-  --mola:   cubic-bezier(.23, 1, .32, 1);
+  --ui:     "Manrope", "Inter", system-ui, -apple-system, sans-serif;
+  --titulo: "Manrope", "Inter", system-ui, -apple-system, sans-serif;
+  --serif:  "Newsreader", Georgia, serif;
+  --mola:   cubic-bezier(.4, 0, .2, 1);
 
-  --rad:   20px;   /* cartão */
+  --rad:   24px;   /* cartao */
+  --rad-p: 28px;   /* painel */
+  --rad-c: 16px;   /* campo */
   --rad-s: 10px;   /* controle */
 
-  /* Nomes antigos, mapeados. Sessenta call sites não migram numa tarde. */
-  --warm-white: var(--branco);
+  /* SEMANTICA, com nome do que significa — nao da cor. */
+  --erro:     var(--coral);
+  --erro-bg:  var(--coral-suave);
+  --ok:       var(--musgo);
+  --ok-bg:    var(--musgo-suave);
+  --emcurso:  var(--azul);
+  --emcurso-bg: var(--azul-suave);
+
+  /* Nomes antigos, mapeados. Sessenta call sites nao migram numa tarde —
+     mas os que dizem ERRO migraram, porque apontavam pra tinta. */
+  --cinza:   var(--grafite);
+  --claro:   var(--faint);
+  --branco:  var(--papel-alto);
+  --linha:   var(--fio-forte);
+  --linha2:  var(--fio);
+  --fundo2:  #EAE8E2;
+  --verde:   var(--musgo);
+  --verde-bg:var(--musgo-suave);
+  --azul2:   #2429E0;
+  --alerta:  var(--coral);
+  --alerta-bg: var(--coral-suave);
+  --warm-white: var(--papel-alto);
   --charcoal:   var(--ink);
-  --stone:      var(--cinza);
-  --muted:      var(--cinza);
-  --paper:      var(--branco);
-  --burgundy:      var(--ink);
-  --burgundy-dark: #2A2B2E;
-  --emerald:        var(--verde);
-  --emerald-bright: var(--verde);
-  --glass-card:   var(--papel);
-  --glass-panel:  var(--papel);
+  --stone:      var(--grafite);
+  --muted:      var(--grafite);
+  --paper:      var(--papel-alto);
+  --emerald:        var(--musgo);
+  --emerald-bright: var(--musgo);
+  --glass-card:   var(--papel-alto);
+  --glass-panel:  var(--papel-alto);
   --glass-subtle: var(--fundo2);
-  --glass-border: var(--linha2);
-  --glass-border-subtle: rgba(0,0,0,.06);
-  --glass-border-input:  var(--linha2);
-  --rule:  var(--linha2);
-  --rule-2: rgba(0,0,0,.06);
-  --slip:  var(--branco);
+  --glass-border: var(--fio);
+  --glass-border-subtle: var(--fio);
+  --glass-border-input:  var(--fio);
+  --rule:  var(--fio);
+  --rule-2: var(--fio);
+  --slip:  var(--papel-alto);
   --slip-ink: var(--ink);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  background: var(--branco);
+  background: var(--papel);
   color: var(--ink);
-  font: 400 16px/24px var(--ui);
+  font: 400 15px/22px var(--ui);
   -webkit-font-smoothing: antialiased;
 }
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 a { color: inherit; text-decoration: none; }
 button, textarea, input, select { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--azul); outline-offset: 3px; }
 
 select.namefield { appearance: none; -webkit-appearance: none; background-image: none; cursor: pointer; }
 
@@ -96,33 +140,45 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 
 /* ── cabeçalho: a marca em serif itálico, como na landing ────────────────── */
 .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 2px 2px; }
+/* A CASA em Newsreader italico — a voz narrativa do Presence. O nome do
+   restaurante e a unica coisa nesta tela que nao e nossa; ela ganha a serifa. */
 .venue { font: italic 400 34px/1 var(--serif); letter-spacing: -.01em; color: var(--ink); }
-.mesa  { font: 400 15px/1 var(--titulo); color: var(--cinza); white-space: nowrap; }
+/* A mesa e metadado: versalete de 10px, como todo metadado do Presence. */
+.mesa  { font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
 
-/* ── superfícies: papel com fio fino, 20px ──────────────────────────────── */
-.card, .pixcard, .paid, .panel, .stat, .qrcard {
-  background: var(--papel);
-  border: 1px solid var(--linha2);
+/* ── superficies: papel alto sobre papel, fio de 1px, 24px ─────────────── */
+.card, .pixcard, .paid, .stat, .qrcard {
+  background: var(--papel-alto);
+  border: 1px solid var(--fio);
   border-radius: var(--rad);
+  padding: 22px 20px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+/* O PAINEL e o raio maior do Presence (28): e a superficie que contem outras. */
+.panel {
+  background: var(--papel-alto);
+  border: 1px solid var(--fio);
+  border-radius: var(--rad-p);
   padding: 24px 22px;
   display: flex; flex-direction: column; gap: 14px;
 }
-/* A comanda é branca — um degrau mais clara que o resto, e é o que carrega o
-   número que a casa vai cobrar. */
-.card.slip { background: var(--branco); }
+/* A comanda: mesmo papel, FIO FORTE. No Presence o que importa nao ganha outra
+   cor de fundo — ganha uma regua mais firme (`--ps-rule-strong` no cartao do
+   heroi). Aqui o que importa e o numero que a casa vai cobrar. */
+.card.slip { border-color: var(--fio-forte); }
 
 .label {
-  /* --claro é o cinza de TÍTULO de seção da landing, grande. Num rótulo de
-     13px ele fica ilegível, então o rótulo usa o cinza de corpo. */
-  font: 400 13px/1 var(--titulo); letter-spacing: .04em;
-  text-transform: uppercase; color: var(--cinza);
+  /* O rotulo do Presence: 10-11px, versalete, entreletra larga, grafite. E o
+     unico lugar do sistema onde texto vira versalete. */
+  font: 500 11px/1 var(--ui); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--grafite);
 }
 
 .items { list-style: none; display: flex; flex-direction: column; }
 .items li {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
-  font: 400 16px/24px var(--ui);
-  border-bottom: 1px solid rgba(0,0,0,.06); padding: 12px 0;
+  font: 400 15px/22px var(--ui);
+  border-bottom: 1px solid var(--fio); padding: 12px 0;
 }
 .items li:last-child { border-bottom: none; }
 
@@ -142,45 +198,51 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 
 .totalrow {
   display: flex; justify-content: space-between; align-items: baseline;
-  font: 600 20px/28px var(--titulo);
+  font: 500 19px/26px var(--ui); letter-spacing: -.02em;
   border-top: 1px solid var(--ink); padding-top: 14px; margin-top: 4px;
 }
 
 .progresswrap { display: flex; flex-direction: column; gap: 8px; }
-.progressbar { height: 6px; border-radius: 99px; background: var(--fundo2); overflow: hidden; }
-.progressbar span { display: block; height: 100%; background: var(--verde); border-radius: 99px; transition: width .4s var(--mola); }
+/* O trilho do Presence e um FIO. Aqui ele engorda pra 4px porque e a unica
+   medida de quanto da conta ja foi paga num telefone — mas continua um fio,
+   nao uma barra. Musgo: e dinheiro que entrou. */
+.progressbar { height: 4px; border-radius: 99px; background: var(--fio); overflow: hidden; }
+.progressbar span { display: block; height: 100%; background: var(--musgo); border-radius: 99px; transition: width .4s var(--mola); }
 
 /* ── controles ──────────────────────────────────────────────────────────── */
 .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .mode {
-  padding: 11px 10px; border-radius: var(--rad-s);
-  border: 1px solid var(--linha2); background: var(--branco);
-  font: 400 14px/1 var(--titulo); color: var(--cinza);
-  cursor: pointer; transition: background-color .2s var(--mola), color .2s var(--mola);
+  min-height: 44px; padding: 11px 10px; border-radius: var(--rad-s);
+  border: 1px solid var(--fio); background: transparent;
+  font: 500 13px/1 var(--ui); color: var(--grafite);
+  cursor: pointer; transition: background-color .15s var(--mola), color .15s var(--mola), border-color .15s var(--mola);
 }
-.mode.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.mode.on { background: var(--ink); color: var(--papel); border-color: var(--ink); }
 .modes3 { grid-template-columns: 1fr 1fr 1fr; }
 .modes3 .mode { padding: 11px 4px; font-size: 13px; }
 
 .items.pickable { gap: 6px; }
 .items.pickable li { border-bottom: none; padding: 0; }
 .itempick {
-  display: flex; align-items: center; gap: 10px; width: 100%;
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px;
   padding: 10px 12px; border-radius: var(--rad-s);
-  border: 1px solid var(--linha2); background: var(--branco);
-  font: 400 16px/24px var(--ui); color: var(--ink);
+  border: 1px solid var(--fio); background: transparent;
+  font: 400 15px/22px var(--ui); color: var(--ink);
   text-align: left; cursor: pointer;
   transition: border-color .15s var(--mola), background-color .15s var(--mola);
 }
 .itempick .tick {
   flex: none; width: 22px; height: 22px; border-radius: 6px;
   display: grid; place-items: center;
-  border: 1px solid var(--linha2); background: var(--branco);
-  font-size: 13px; font-weight: 600; color: var(--claro);
+  border: 1px solid var(--fio); background: var(--papel-alto);
+  font-size: 13px; font-weight: 600; color: var(--faint);
 }
 .itempick .iname { flex: 1; }
-.itempick.on { border-color: var(--verde); background: var(--verde-bg); }
-.itempick.on .tick { border-color: var(--verde); background: var(--verde); color: #fff; }
+/* ESCOLHIDO e azul: e o que esta em curso, nao o que ja foi pago. O musgo fica
+   pra dinheiro que entrou — misturar os dois faria o cliente ler "pago" numa
+   linha que ele so marcou. */
+.itempick.on { border-color: var(--azul); background: var(--azul-suave); }
+.itempick.on .tick { border-color: var(--azul); background: var(--azul); color: #fff; }
 .itemhint { margin-top: 2px; }
 
 /* Envolve: com os botões de 44px o "pessoas" passava 10px da borda num
@@ -189,8 +251,8 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   font: 400 16px/24px var(--ui); }
 .stepper {
   display: flex; align-items: center; gap: 12px;
-  border: 1px solid var(--linha2); border-radius: var(--rad-s);
-  background: var(--branco); padding: 5px 8px;
+  border: 1px solid var(--fio); border-radius: var(--rad-s);
+  background: var(--papel-alto); padding: 5px 8px;
 }
 .stepper button {
   /* 44px é o mínimo do HIG e do WCAG 2.5.5, e este é o controle que decide
@@ -199,14 +261,14 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   width: 44px; height: 44px; border-radius: 8px; border: 0;
   background: var(--fundo2); font-size: 19px; color: var(--ink); cursor: pointer;
 }
-.stepper strong { min-width: 22px; text-align: center; font: 600 17px/1 var(--titulo); }
+.stepper strong { min-width: 22px; text-align: center; font: 500 17px/1 var(--ui); font-variant-numeric: tabular-nums; }
 
 .customrow {
   display: flex; align-items: center; gap: 8px;
-  border: 1px solid var(--linha2); border-radius: var(--rad-s);
-  background: var(--branco); padding: 12px 14px;
+  border: 1px solid var(--fio); border-radius: var(--rad-c);
+  background: var(--papel-alto); padding: 12px 14px;
 }
-.customrow label { color: var(--cinza); }
+.customrow label { color: var(--grafite); font-size: 13px; }
 .customrow input {
   border: 0; outline: none; font-size: 20px; width: 100%;
   font-variant-numeric: tabular-nums; background: transparent; color: var(--ink);
@@ -214,75 +276,120 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 
 /* O 10% é opcional e removível (CDC). O valor sai em TINTA, não em verde: é um
    custo que o cliente paga, e verde diz "boa notícia" — errado pra quem paga. */
-.servico { display: flex; gap: 10px; align-items: flex-start; font: 400 15px/22px var(--ui); color: var(--ink); }
-.servico input { width: 18px; height: 18px; accent-color: var(--ink); margin-top: 2px; flex: none; }
+.servico { display: flex; gap: 10px; align-items: flex-start; font: 400 14px/21px var(--ui); color: var(--ink); }
+.servico input { width: 18px; height: 18px; accent-color: var(--azul); margin-top: 2px; flex: none; }
 .servico em { font-style: normal; color: var(--ink); font-weight: 600; }
 
+/* O CAMPO do Presence: raio de 16, papel alto, fio fino — e 16px de corpo,
+   que e o minimo que o Safari do iPhone aceita sem dar zoom ao focar. */
 .namefield {
-  border: 1px solid var(--linha2); border-radius: var(--rad-s); padding: 13px 14px;
-  font: 400 16px/24px var(--ui); background: var(--branco); color: var(--ink);
+  border: 1px solid var(--fio); border-radius: var(--rad-c); padding: 14px 14px; min-height: 48px;
+  font: 400 16px/22px var(--ui); background: var(--papel-alto); color: var(--ink);
 }
-.namefield::placeholder { color: var(--claro); }
-.namefield:focus-visible { outline: none; border-color: var(--ink); }
+.namefield::placeholder { color: var(--faint); }
+.namefield:focus-visible { outline: none; border-color: var(--azul); box-shadow: 0 0 0 3px var(--azul-suave); }
+/* Campo invalido: fio coral. Antes a borda de erro era `--burgundy`, que
+   apontava pra tinta — a borda de um campo errado era a borda normal. */
+.namefield[aria-invalid="true"] { border-color: var(--erro); }
+.namefield[aria-invalid="true"]:focus-visible { box-shadow: 0 0 0 3px var(--coral-suave); }
 
-/* A ação: pílula preta, como na landing. */
+/* ── O CAMPO do Presence: rotulo VISIVEL dentro da moldura ────────────────
+   `.ps-field-row label` — uma caixa de 16px com uma legenda em versalete de
+   10px por cima e o campo sem moldura por baixo.
+
+   Nao e so estilo. Todo campo desta plataforma era PLACEHOLDER e nada mais: o
+   rotulo sumia no primeiro caractere, e quem voltava pra conferir o que digitou
+   — num formulario de "CNPJ / agencia / conta / CPF do responsavel" — nao tinha
+   como saber em qual campo estava. O `aria-label` resolvia pro leitor de tela e
+   nao pra quem enxerga. Aqui o rotulo fica. */
+.campo { display: block; border: 1px solid var(--fio); border-radius: var(--rad-c);
+  background: var(--papel-alto); padding: 10px 14px 12px; cursor: text; }
+.campo > span { display: block; color: var(--grafite);
+  font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 8px; }
+.campo input, .campo select, .campo textarea {
+  width: 100%; min-height: 26px; padding: 0; border: 0; background: transparent; outline: 0;
+  color: var(--ink); font: 400 16px/22px var(--ui);
+}
+.campo input::placeholder { color: var(--faint); }
+.campo:focus-within { border-color: var(--azul); box-shadow: 0 0 0 3px var(--azul-suave); }
+/* Invalido: a moldura em coral e a legenda junto — a cor sozinha nao e
+   mensagem (WCAG 1.4.1), entao quem usa isto tambem escreve o porque embaixo. */
+.campo.ruim { border-color: var(--erro); }
+.campo.ruim > span { color: var(--erro); }
+.campo.ruim:focus-within { border-color: var(--erro); box-shadow: 0 0 0 3px var(--coral-suave); }
+/* O recado do campo: mora colado nele, nao no fim do formulario. */
+.campo-msg { display: block; margin: 6px 2px 0; font: 400 13px/18px var(--ui); color: var(--grafite); }
+.campo-msg.ruim { color: var(--erro); }
+.campo-msg.bom  { color: var(--musgo); }
+
+/* A ACAO: retangulo de 10px, nao pilula. E a troca de forma mais visivel do
+   Presence, e a mais deliberada — pilula era voz de marca de outra casa. */
 .cta {
   display: inline-flex; align-items: center; justify-content: center;
-  min-height: 48px; padding: 0 18px; border: 1px solid transparent; border-radius: 9999px;
-  background: var(--ink); color: #fff; font: 400 16px/1 var(--titulo); cursor: pointer;
-  transition: transform .15s var(--mola), background-color .3s var(--mola);
+  /* 48, nao 44: e o botao que move dinheiro, com o telefone numa mao so. */
+  min-height: 48px; padding: 0 18px; border: 1px solid var(--ink); border-radius: var(--rad-s);
+  background: var(--ink); color: var(--papel); font: 500 14px/1 var(--ui); cursor: pointer;
+  letter-spacing: -.005em;
+  transition: transform .15s var(--mola), background-color .15s var(--mola);
 }
-.cta:hover { background: #2A2B2E; }
+.cta:hover { background: #272822; }
 .cta:active { transform: scale(.98); }
-.cta:disabled { background: var(--fundo2); color: var(--claro); cursor: default; transform: none; }
+.cta:disabled { background: var(--fundo2); border-color: var(--fio); color: var(--faint); cursor: default; transform: none; }
 
 .ghost {
   display: inline-flex; align-items: center; justify-content: center;
-  min-height: 44px; padding: 0 16px; border-radius: 9999px;
-  border: 1px solid var(--linha2); background: var(--branco);
-  color: var(--ink); font: 400 15px/1 var(--titulo); cursor: pointer;
+  min-height: 44px; padding: 0 16px; border-radius: var(--rad-s);
+  border: 1px solid var(--ink); background: transparent;
+  color: var(--ink); font: 500 13px/1 var(--ui); cursor: pointer;
+  transition: background-color .15s var(--mola), color .15s var(--mola), transform .15s var(--mola);
 }
-.ghost:hover { background: var(--papel); }
-.linklike { border: 0; background: none; color: var(--cinza); font: 400 15px/1 var(--ui); padding: 8px 4px; cursor: pointer; }
+.ghost:hover { background: var(--ink); color: var(--papel); }
+.ghost:active { transform: scale(.97); }
+/* O terceiro nivel do Presence: sem fio, grafite. */
+.linklike { border: 1px solid transparent; border-radius: var(--rad-s); background: none;
+  color: var(--grafite); font: 500 12px/1 var(--ui); padding: 10px 6px; cursor: pointer; min-height: 40px; }
 .linklike:hover { color: var(--ink); }
 
 .walletrow { display: flex; gap: 8px; }
 .walletbtn {
-  flex: 1; border-radius: 9999px; padding: 13px; font: 500 15px/1 var(--ui);
+  flex: 1; border-radius: var(--rad-s); min-height: 48px; padding: 13px; font: 500 14px/1 var(--ui);
   cursor: pointer; border: 1px solid transparent;
 }
+/* As duas carteiras mantem a marca DELAS — as diretrizes de Apple e Google
+   mandam no botao, nao o nosso sistema. O que o Presence empresta e o raio. */
 .walletbtn.apple { background: #000; color: #fff; }
-.walletbtn.gpay { background: #fff; color: #1F1F1F; border-color: var(--linha2); }
+.walletbtn.gpay { background: #fff; color: #1F1F1F; border-color: var(--fio-forte); }
 .walletbtn:disabled { opacity: .4; cursor: default; }
 
 .sheetoverlay {
-  position: fixed; inset: 0; background: rgba(24,25,27,.42);
+  position: fixed; inset: 0; background: rgba(22,23,20,.42);
   display: flex; align-items: flex-end; justify-content: center; z-index: 60;
 }
 .sheet {
-  background: var(--branco); width: min(430px, 100%);
-  border-radius: var(--rad) var(--rad) 0 0; padding: 24px 22px 30px;
+  background: var(--papel-alto); width: min(430px, 100%);
+  border-top: 1px solid var(--fio-forte);
+  border-radius: var(--rad-p) var(--rad-p) 0 0; padding: 24px 22px 30px;
   display: flex; flex-direction: column; gap: 14px;
-  box-shadow: 0 -8px 40px rgba(24,25,27,.14);
+  box-shadow: 0 -2px 4px rgba(36,36,31,.04), 0 -28px 80px rgba(36,36,31,.09);
 }
 
 /* Pix */
-.pixcard { text-align: center; align-items: stretch; background: var(--branco); }
+.pixcard { text-align: center; align-items: stretch; border-color: var(--fio-forte); }
 .bigmoney { font: italic 400 52px/1 var(--serif); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .codebox {
   font: 400 12px/18px ui-monospace, "SF Mono", Menlo, monospace;
-  color: var(--cinza); background: var(--papel);
-  border: 1px solid var(--linha2); border-radius: var(--rad-s); padding: 14px;
+  color: var(--grafite); background: var(--papel);
+  border: 1px solid var(--fio); border-radius: var(--rad-c); padding: 14px;
   word-break: break-all; text-align: left;
 }
 /* O código Pix INTEIRO e selecionável num toque: quando a cópia automática
    falha (navegador embutido), segurar o dedo precisa pegar o código todo. */
 .codebox.selectable { user-select: all; -webkit-user-select: all; word-break: break-all; }
 
-.paid { align-items: center; text-align: center; gap: 16px; padding: 44px 22px; background: var(--branco); }
+.paid { align-items: center; text-align: center; gap: 16px; padding: 44px 22px; border-color: var(--fio-forte); }
 .paidmark {
   width: 64px; height: 64px; border-radius: 50%;
-  background: var(--verde-bg); color: var(--verde); font-size: 30px;
+  border: 1px solid var(--musgo); background: var(--musgo-suave); color: var(--musgo); font-size: 30px;
   display: grid; place-items: center;
 }
 .paid h2 { font: italic 400 30px/1.15 var(--serif); }
@@ -292,47 +399,65 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .stat { padding: 18px 16px; gap: 4px; }
 .stat b { font: italic 400 28px/1 var(--serif); font-variant-numeric: tabular-nums; }
-.stat span { font: 400 13px/18px var(--ui); color: var(--cinza); }
+.stat span { font: 500 10px/16px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
 
 .checkrow {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  padding: 14px 2px; border-bottom: 1px solid rgba(0,0,0,.06); font: 400 15px/22px var(--ui);
+  padding: 14px 2px; border-bottom: 1px solid var(--fio); font: 400 14px/20px var(--ui);
 }
 .checkrow:last-child { border-bottom: none; }
-.pill { border-radius: 6px; padding: 3px 9px; font: 400 14px/20px var(--ui); white-space: nowrap; }
-.pill.aberta  { background: var(--fundo2); color: var(--cinza); }
-.pill.parcial { background: #FDF3D7; color: #8A6410; }
-.pill.paga    { background: var(--verde-bg); color: var(--verde); }
-.pill.fechada { background: var(--fundo2); color: var(--claro); }
+/* Estado em pilula de FIO, como o `presence-listening-status`: a cor diz o
+   que e, a regua diz que e um estado e nao um botao. O ambar da "parcial"
+   saiu — o Presence nao tem ambar, e "parcial" e algo EM CURSO, que e azul. */
+.pill { border-radius: 999px; padding: 4px 10px; border: 1px solid var(--fio);
+  font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.pill.aberta  { color: var(--grafite); }
+.pill.parcial { border-color: var(--azul); background: var(--azul-suave); color: var(--azul); }
+.pill.paga    { border-color: var(--musgo); background: var(--musgo-suave); color: var(--musgo); }
+.pill.fechada { color: var(--faint); }
 
 .actrow { display: grid; grid-template-columns: 46px 1fr max-content; align-items: center; gap: 12px; }
-.actbar { height: 6px; border-radius: 99px; background: var(--fundo2); overflow: hidden; }
-.actbar span { display: block; height: 100%; background: var(--verde); border-radius: 99px; }
+.actbar { height: 4px; border-radius: 99px; background: var(--fio); overflow: hidden; }
+.actbar span { display: block; height: 100%; background: var(--musgo); border-radius: 99px; }
 
 .foot {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  color: var(--claro); font: 400 13px/20px var(--ui); padding-top: 8px;
+  color: var(--faint); font: 400 12px/20px var(--ui); padding-top: 8px;
+  border-top: 1px solid var(--fio); margin-top: 4px;
 }
-.muted { color: var(--cinza); }
-.small { font-size: 14px; line-height: 21px; }
+/* O rodape da CONTA tem tres filhos e o do meio e o aviso do art. 9o — uma
+   frase inteira. Numa linha so ela espremia o slogan em quatro linhas de uma
+   palavra. O aviso ganha a primeira linha inteira; slogan e idioma dividem a
+   segunda. */
+.foot-aviso { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px 16px; }
+.foot-aviso > :nth-child(1) { grid-area: 2 / 1; }
+.foot-aviso > :nth-child(2) { grid-area: 1 / 1 / auto / -1; }
+.foot-aviso > :nth-child(3) { grid-area: 2 / 2; justify-self: end; }
+
+.muted { color: var(--grafite); }
+.small { font-size: 13px; line-height: 20px; }
 .center { text-align: center; }
 
 /* QR */
 .qrprint { align-items: center; text-align: center; gap: 12px; }
-.qrbox { background: #fff; padding: 14px; border-radius: var(--rad-s); border: 1px solid var(--linha2); display: grid; place-items: center; }
+/* O QR fica em BRANCO puro e so ele: e um alvo optico, nao uma superficie do
+   sistema — papel bege embaixo derruba o contraste que o leitor precisa. */
+.qrbox { background: #fff; padding: 14px; border-radius: var(--rad-c); border: 1px solid var(--fio); display: grid; place-items: center; }
 
 .qrgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.qrcard { background: var(--branco); align-items: center; text-align: center; gap: 10px; break-inside: avoid; padding: 28px 20px 18px; }
+.qrcard { align-items: center; text-align: center; gap: 10px; break-inside: avoid; padding: 28px 20px 18px; }
 .qrcard .qrvenue { font: italic 400 26px/1 var(--serif); }
-.qrcard .qrmesa  { font: 600 30px/1 var(--titulo); letter-spacing: -.02em; }
-.qrcard .qrhint  { font: 400 15px/22px var(--ui); color: var(--cinza); }
-.qrcard .qrperks { font: 400 14px/20px var(--ui); color: var(--cinza); }
-.qrcard .qrbrand { font: 400 12px/1 var(--ui); color: var(--claro); letter-spacing: .18em; margin-top: 6px; }
+/* O NUMERO DA MESA e o que alguem le de longe, com o cartao na mao: fica
+   grande, sem versalete, tabular. */
+.qrcard .qrmesa  { font: 500 30px/1 var(--ui); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.qrcard .qrhint  { font: 400 15px/22px var(--ui); color: var(--grafite); }
+.qrcard .qrperks { font: 400 13px/20px var(--ui); color: var(--grafite); }
+.qrcard .qrbrand { font: 500 10px/1 var(--ui); color: var(--faint); letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
 
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .pos { color: var(--verde); font-weight: 600; }
 .cfggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.cfggrid label { display: flex; flex-direction: column; gap: 6px; font: 400 14px/20px var(--ui); color: var(--cinza); }
+.cfggrid label { display: flex; flex-direction: column; gap: 6px; font: 500 10px/16px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--grafite); }
 
 @media (prefers-reduced-motion: reduce) { .progressbar span { transition: none; } }
 
@@ -347,11 +472,11 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 }
 
 /* Seletor de idioma — pílula discreta, no rodapé. */
-.langtoggle { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--linha2); border-radius: 9999px; background: var(--branco); }
+.langtoggle { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--fio); border-radius: var(--rad-s); background: var(--papel-alto); }
 .langopt {
   border: 0; background: none; cursor: pointer;
-  font: 400 12px/1 var(--titulo); letter-spacing: .04em;
-  padding: 6px 10px; border-radius: 9999px; color: var(--cinza);
+  font: 500 11px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase;
+  padding: 6px 10px; border-radius: 7px; color: var(--grafite);
   position: relative;
 }
 /* A pílula continua do tamanho que foi desenhada; a ÁREA DE TOQUE cresce por
@@ -363,8 +488,8 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   content: ''; position: absolute; top: 50%; left: 50%;
   width: 44px; height: 44px; transform: translate(-50%, -50%);
 }
-.langopt.on { background: var(--ink); color: #fff; }
-.langopt:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.langopt.on { background: var(--ink); color: var(--papel); }
+.langopt:focus-visible { outline: 2px solid var(--azul); outline-offset: 2px; }
 
 /* ── o herói, no ritmo da landing ────────────────────────────────────────
    Marca grande em serif itálico, subtítulo em Instrument Sans, e ar em volta.
@@ -372,29 +497,32 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    não o mesmo número: 96px de marca num telefone vira uma palavra por linha. */
 .hero { padding: 44px 0 8px; text-align: center; display: flex; flex-direction: column; gap: 0; }
 .hero .marca { font: italic 400 58px/1 var(--serif); letter-spacing: -.03em; }
+/* O display do Presence: Manrope, entreletra negativa forte. */
 .hero h1 {
-  margin-top: 22px; font: 400 30px/38px var(--titulo);
-  letter-spacing: -.02em; text-wrap: balance;
+  margin-top: 22px; font: 400 34px/1.02 var(--ui);
+  letter-spacing: -.05em; text-wrap: balance;
 }
+/* A lede e narrativa: Newsreader, como no Presence. */
 .hero .sub {
-  margin-top: 14px; font: 400 17px/26px var(--ui); color: var(--cinza);
-  text-wrap: pretty; max-width: 46ch; margin-left: auto; margin-right: auto;
+  margin-top: 16px; font: 400 19px/1.35 var(--serif); color: var(--grafite);
+  text-wrap: pretty; max-width: 42ch; margin-left: auto; margin-right: auto;
 }
 .hero .acoes { margin-top: 26px; display: flex; flex-direction: column; gap: 10px; }
 
 /* Seções da landing: título centralizado em cinza-claro, corpo em cinza. */
 .t-secao { text-align: center; margin-bottom: 4px; }
-.t-secao h2 { font: 600 22px/30px var(--titulo); color: var(--claro); letter-spacing: -.01em; }
-.t-secao p { margin-top: 6px; font: 400 15px/23px var(--ui); color: var(--cinza); }
+.t-secao h2 { font: 500 11px/1 var(--ui); color: var(--grafite); letter-spacing: .12em; text-transform: uppercase; }
+.t-secao p { margin-top: 10px; font: 400 17px/1.35 var(--serif); color: var(--grafite); }
 
 /* Passo numerado — a régua da landing, em coluna. */
 /* Empilhado, não em duas colunas: "1 · Escaneou" ao lado de uma frase de duas
    linhas quebra a frase em pedaços curtos e a leitura trava. */
-.passo { display: flex; flex-direction: column; gap: 3px; padding: 14px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+.passo { display: flex; flex-direction: column; gap: 3px; padding: 14px 0; border-bottom: 1px solid var(--fio); }
 .passo:last-of-type { border-bottom: none; }
-.passo b { font: 600 16px/24px var(--titulo); }
-.passo span { font: 400 15px/23px var(--ui); color: var(--cinza); }
-.pill-verde { display: inline-block; padding: 3px 9px; border-radius: 6px; background: var(--verde-bg); color: var(--verde); font: 400 14px/20px var(--ui); }
+.passo b { font: 500 15px/22px var(--ui); letter-spacing: -.02em; }
+.passo span { font: 400 15px/1.35 var(--serif); color: var(--grafite); }
+.pill-verde { display: inline-block; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--musgo);
+  background: var(--musgo-suave); color: var(--musgo); font: 500 11px/16px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
 
 /* Modo embed (landing): a conta como um estado. Só CSS; o app não muda. */
 .shell.embed { min-height: 0; padding-bottom: 16px; }

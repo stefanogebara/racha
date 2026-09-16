@@ -83,7 +83,7 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
               <span aria-hidden="true" style={{ opacity: s.done ? 1 : 0.35 }}>{s.done ? '✓' : isNext ? '→' : '○'}</span>
               <div style={{ flex: 1, minWidth: 180 }}>
                 <strong style={{ opacity: s.done ? 0.6 : 1 }}>{s.title}</strong>
-                <p className="muted small" style={s.warn ? { color: 'var(--burgundy)' } : undefined}>{s.sub}</p>
+                <p className="muted small" style={s.warn ? { color: 'var(--erro)' } : undefined}>{s.sub}</p>
               </div>
             </div>
             {!s.done && s.href && (

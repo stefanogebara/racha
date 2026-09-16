@@ -80,7 +80,7 @@ export default function HousePay({
           }}
         />
       </div>
-      {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
       <button
         className="cta"
         disabled={busy || amountCents == null || amountCents === 0 || amountCents > availableCents}

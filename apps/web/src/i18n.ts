@@ -210,7 +210,12 @@ export const DICT = {
                         es: 'Cargo por servicio ({pct}% de tu parte) — opcional' },
 
   // ── identificação ───────────────────────────────────────────────────────
+  // O ROTULO e o PLACEHOLDER dizem coisas diferentes agora. O rotulo fica na
+  // moldura do campo e nao some quando a pessoa digita; o placeholder mostra a
+  // FORMA esperada, que e o que um placeholder sabe fazer. Antes havia so a
+  // segunda metade, fazendo as duas coisas mal.
   'payer.name':       { en: 'Your name (optional)',            pt: 'Seu nome (opcional)', es: 'Tu nombre (opcional)' },
+  'payer.namePlaceholder': { en: 'e.g. Ana',                   pt: 'ex.: Ana', es: 'p. ej. Ana' },
   'payer.cpf':        { en: 'Your CPF (required to pay)',      pt: 'Seu CPF (obrigatório pra pagar)', es: 'Tu CPF (obligatorio para pagar)' },
   // O que o CPF é fica AQUI e não no placeholder: glosado no rótulo, o campo
   // truncava em "Your CPF, the Brazilian tax ID (required to" num telefone de
@@ -218,9 +223,13 @@ export const DICT = {
   'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. The payment provider asks for it to issue the charge — it goes to them, not to the restaurant, and Racha does not store it.',
                         pt: 'O provedor de pagamento pede o CPF pra emitir a cobrança. Vai pra ele, não pro restaurante, e a Racha não guarda.',
                         es: 'El CPF es el número fiscal brasileño. El proveedor de pago lo pide para emitir el cobro — va para él, no para el restaurante, y Racha no lo guarda.' },
-  'payer.cpfHint':    { en: 'Enter your CPF, 11 digits, to enable payment.',
-                        pt: 'Preencha seu CPF (11 dígitos) pra liberar o pagamento.',
-                        es: 'Escribe tu CPF, 11 dígitos, para habilitar el pago.' },
+  // "11 digitos" era a regra INTEIRA que a tela conferia, e nao e a regra: o
+  // digito verificador tambem e conferido aqui agora, entao a frase tem que
+  // cobrir o caso "onze digitos que nao fecham" — senao a pessoa conta os
+  // digitos, acha onze, e nao entende por que o botao nao anda.
+  'payer.cpfHint':    { en: 'Check your CPF — 11 digits, and the check digits have to match.',
+                        pt: 'Confira seu CPF — 11 dígitos, e os dígitos verificadores têm que fechar.',
+                        es: 'Revisa tu CPF — 11 dígitos, y los dígitos verificadores tienen que cuadrar.' },
 
   // ── pagar ───────────────────────────────────────────────────────────────
   // Uma chave por TRILHO: "Pay {amount} with Pix" numa mesa de Madrid é uma

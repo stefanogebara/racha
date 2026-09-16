@@ -152,7 +152,7 @@ export default function StripeWalletPay({
           onError={setError}
         />
       </Elements>
-      {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
     </div>
   );
 }

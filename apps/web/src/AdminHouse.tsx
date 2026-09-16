@@ -192,7 +192,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
         </label>
       </div>
 
-      {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
       {saved && <p className="small" style={{ color: 'var(--emerald)' }}>{t('admin.saved')}</p>}
       <button className="cta" style={{ padding: '12px 20px' }} disabled={saving} onClick={save}>
         {saving ? t('house.saving') : t('house.saveConfig')}

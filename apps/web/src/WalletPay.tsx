@@ -207,7 +207,7 @@ export default function WalletButtons({
         >
           {busy ? t('wallet.authorizing') : 'G Pay'}
         </button>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
       </>
     );
   }
@@ -238,7 +238,7 @@ export default function WalletButtons({
           </button>
         ))}
       </div>
-      {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
 
       {sheet && (
         <div className="sheetoverlay" role="dialog" aria-modal="true" aria-label={t('wallet.payWith', { wallet: WALLET_LABEL[sheet] })}>

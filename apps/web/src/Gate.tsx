@@ -88,7 +88,7 @@ function Login({ onDone }: { onDone: () => void }) {
         <input className="namefield" type="password" placeholder={mode === 'up' ? t('gate.newPassword') : t('gate.password')} value={password}
           onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
 
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         {notice && <p className="muted small" style={{ color: 'var(--green, #15803d)' }}>{notice}</p>}
 
         <button className="cta" disabled={busy || !email.trim() || !password} onClick={submit}>

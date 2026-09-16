@@ -170,7 +170,7 @@ export default function Panel() {
             do faturamento: quem recebeu o indevido tem que restituir. */}
         {(data.today.overpaidCents || 0) > 0 && (
           <div className="stat">
-            <b className="mono" style={{ color: 'var(--burgundy)' }}>{brl(data.today.overpaidCents || 0)}</b>
+            <b className="mono" style={{ color: 'var(--erro)' }}>{brl(data.today.overpaidCents || 0)}</b>
             <span>{t('panel.toRefund')}</span>
           </div>
         )}
@@ -224,7 +224,7 @@ export default function Panel() {
                   equipe não dizia qual mesa, nem qual cobrança. Ver
                   `docs/runbooks/devolver-dinheiro-a-mais.md`. */}
               {(c.state.overpaidCents || 0) > 0 && (
-                <span className="owed" style={{ color: 'var(--burgundy)', fontSize: 12 }}>
+                <span className="owed" style={{ color: 'var(--erro)', fontSize: 12 }}>
                   {t('panel.owedBack', { amount: brl(c.state.overpaidCents || 0) })}
                   {(c.state.overpaidTxids || []).map((x) => (
                     <em key={x.txid} className="mono" style={{ display: 'block', opacity: 0.75 }}>
@@ -239,7 +239,7 @@ export default function Panel() {
                   frase de girar o QR manda a equipe olhar AQUI. (Compliance
                   HIGH-1 de 40d5c50.) */}
               {(c.state.paidAfterClose || []).length > 0 && (
-                <span className="owed" style={{ color: 'var(--burgundy)', fontSize: 12 }}>
+                <span className="owed" style={{ color: 'var(--erro)', fontSize: 12 }}>
                   {(c.state.paidAfterClose || []).map((x) => (
                     <em key={`${x.txid}:${x.sempreDevido ? 'devido' : 'pergunta'}`} style={{ display: 'block' }}>
                       {x.sempreDevido

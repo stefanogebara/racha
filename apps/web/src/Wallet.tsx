@@ -166,7 +166,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
               {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>
           )}
-          {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+          {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
           <p className="muted small">{t('wallet.onlyAt', { venue: venue.name })}</p>
           <button className="linklike" onClick={() => { setCharge(null); void refresh(); }}>{t('common.backWallet')}</button>
         </section>
@@ -224,7 +224,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
             onChange={(e) => { setCustom(e.target.value); setChip(null); }}
           />
         </div>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         <button className="cta" disabled={amountCents == null || amountCents === 0 || busy} onClick={onLoad}>
           {t('wallet.doTopUp', { amount: brl(amountCents ?? 0) })}
         </button>
@@ -335,7 +335,7 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
           value={phone}
           onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 13))}
         />
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         <button className="cta" disabled={busy || !name.trim() || phone.length < 10} onClick={submit}>
           {busy ? t('wallet.creating') : t('wallet.create')}
         </button>

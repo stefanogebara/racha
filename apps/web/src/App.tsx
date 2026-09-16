@@ -33,7 +33,8 @@ const StripeWalletPay = lazy(() => import('./StripeWalletPay'));
 const BizumPay = lazy(() => import('./BizumPay'));
 import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, splitEqualLocal, type SplitMode } from './split';
-import { formatTaxId } from './br';
+import { formatTaxId, isValidCPF, maskCpfCnpj } from './br';
+import { Campo } from './Campo';
 import { refDoPagamento } from './pagamento-ref';
 
 import { lembrarToken, tokenDaVolta, voltandoDePagamento } from './payReturn';
@@ -182,6 +183,17 @@ export default function App() {
   // compartilhado com o Google Pay.
   const [cpf, setCpf] = useState('');
   const cpfDigits = cpf.replace(/\D/g, '');
+  /**
+   * ONZE DÍGITOS NÃO É UM CPF.
+   *
+   * A tela conferia só o COMPRIMENTO: `00000000000` passava, a cobrança ia pro
+   * gateway, o gateway recusava, e a pessoa levava um erro genérico do outro
+   * lado do botão de pagar — com a mesa esperando. O dígito verificador é
+   * aritmética que cabe aqui, e o repositório já tem a função (`isValidCPF`,
+   * a mesma que o cadastro do dono usa). Conferir no campo é o único jeito de
+   * dizer QUAL campo está errado.
+   */
+  const cpfOk = isValidCPF(cpfDigits);
   // Antes o botão de pagar exigia CPF pra HABILITAR — ficava cinza em silêncio e
   // parecia "quebrado" (diner toca e nada acontece). Agora é tocável e, sem CPF,
   // dá feedback + foca o campo.
@@ -397,7 +409,7 @@ export default function App() {
   async function onPay() {
     // Só barra onde o documento é exigido pelo trilho. Barrar em Espanha
     // travaria o pagamento num campo que a tela nem mostra.
-    if (taxIdRequired && cpfDigits.length !== 11) {
+    if (taxIdRequired && !cpfOk) {
       setCpfHint(true);
       document.getElementById('cpf-field')?.focus();
       return;
@@ -620,7 +632,7 @@ export default function App() {
               falhou: nos dois a casa deve, e ficar calado é o problema — o
               cliente vai embora sem saber que tem valor a receber. */}
           {(state.notices || []).map((n, i) => (
-            <p key={`${n.code}:${i}`} className="muted small center" style={{ color: 'var(--burgundy)' }}>
+            <p key={`${n.code}:${i}`} className="muted small center" style={{ color: 'var(--erro)' }}>
               {/* Um `switch`, não um ternário: um código novo que o servidor
                   inventar renderizaria a frase do ESTORNO — uma cobrança de
                   dinheiro falsa pro cliente. Desconhecido não aparece. */}
@@ -806,9 +818,12 @@ export default function App() {
           {/* aria-label, não só placeholder: um placeholder some no foco e não
               é rótulo pra leitor de tela. Numa tela de pagamento, o campo tem
               que continuar dizendo o que é depois que a pessoa começa a digitar. */}
-          <input
-            className="namefield" maxLength={60} placeholder={t('payer.name')}
-            aria-label={t('payer.name')}
+          <Campo
+            rotulo={t('payer.name')} maxLength={60} placeholder={t('payer.namePlaceholder')}
+            // `name`: o teclado do telefone oferece o que a pessoa já tem
+            // guardado. Num fluxo de pagamento, cada campo digitado à mão é uma
+            // chance de desistir.
+            autoComplete="name" enterKeyHint="next"
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
           {/* O documento do pagador só existe onde o TRILHO precisa dele. No
@@ -818,15 +833,21 @@ export default function App() {
               exige `customer.document` pra emitir a cobrança, e é essa
               necessidade que sustenta o campo. */}
           {taxIdRequired && (
-          <input
+          <Campo
             id="cpf-field"
-            className="namefield" inputMode="numeric" maxLength={14}
-            placeholder={t('payer.cpf')}
-            aria-label={t('payer.cpf')}
+            rotulo={t('payer.cpf')} inputMode="numeric" maxLength={14}
+            // A FORMA sai do FORMATADOR, nao de uma string pontuada a mao: o censo
+            // do `taxid.test.ts` existe porque toda pontuacao escrita a mao acaba
+            // divergindo do formatador, e um placeholder e pontuacao escrita a mao.
+            placeholder={maskCpfCnpj('00000000000')}
             aria-describedby="cpf-why"
-            style={cpfHint && cpfDigits.length !== 11 ? { borderColor: 'var(--burgundy)' } : undefined}
+            // A PONTUAÇÃO que um humano escreve, enquanto ele digita: o mesmo
+            // `maskCpfCnpj` do cadastro do dono. Sem isso a pessoa conferia
+            // onze dígitos colados num campo de pagamento.
+            ruim={cpfHint && !cpfOk}
+            recado={cpfHint && !cpfOk ? t('payer.cpfHint') : undefined}
             value={cpf}
-            onChange={(e) => { setCpf(e.target.value); if (e.target.value.replace(/\D/g, '').length === 11) setCpfHint(false); }}
+            onChange={(e) => { setCpf(maskCpfCnpj(e.target.value)); if (isValidCPF(e.target.value)) setCpfHint(false); }}
           />
           )}
           {/* Por que o CPF. Um número de documento pedido numa tela de pagamento
@@ -836,12 +857,9 @@ export default function App() {
               `registerCharge` NÃO guarda; webhook que traz CPF passa pelo
               `maskTaxId`. */}
           {taxIdRequired && <p className="muted small" id="cpf-why">{t('payer.cpfWhy')}</p>}
-          {taxIdRequired && cpfHint && cpfDigits.length !== 11 && (
-            <p className="small" style={{ color: 'var(--burgundy)' }}>{t('payer.cpfHint')}</p>
-          )}
 
           {payError && (
-            <p className="small" style={{ color: 'var(--burgundy)' }}>
+            <p className="small" style={{ color: 'var(--erro)' }}>
               {t('pay.retry', { error: payError })}
             </p>
           )}
@@ -954,7 +972,9 @@ export default function App() {
         </section>
       )}
 
-      <footer className="foot">
+      {/* `foot-aviso`: tres filhos, e o do meio e uma frase inteira. Em
+          `space-between` o slogan virava quatro linhas de uma palavra. */}
+      <footer className="foot foot-aviso">
         <span>{t('app.tagline')}</span>
         {/* O aviso do art. 9º vive AQUI, na tela da conta — ver PrivacyNotice.
             Leva o nome e o documento da CASA porque é ela a controladora, e um

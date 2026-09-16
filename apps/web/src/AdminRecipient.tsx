@@ -132,10 +132,10 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
   // Borda vermelha só quando o campo foi tocado e está inválido.
   const errStyle = (key: string, ok: boolean) =>
-    (showErr(key) && !ok ? { borderColor: 'var(--burgundy)' } : undefined);
+    (showErr(key) && !ok ? { borderColor: 'var(--erro)' } : undefined);
   // Feedback abaixo do input: erro (vermelho) > confirmação (verde) > dica (cinza).
   const fb = (key: string, ok: boolean, errMsg: string, hint: string, okMsg?: string) => {
-    if (showErr(key) && !ok) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--burgundy)' }}>{errMsg}</span>;
+    if (showErr(key) && !ok) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--erro)' }}>{errMsg}</span>;
     if (ok && okMsg) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--emerald)' }}>{okMsg}</span>;
     return <span className="muted small" style={{ display: 'block', marginTop: 4 }}>{hint}</span>;
   };
@@ -233,7 +233,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
         </div>
       )}
 
-      {loadError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{loadError}</p>}
+      {loadError && <p className="muted small" style={{ color: 'var(--erro)' }}>{loadError}</p>}
       {created && (
         <p className="small" style={{ color: 'var(--emerald)' }}>
           {t('rcpt.created', { id: created.recipientId, status: created.status })}
@@ -366,7 +366,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
           <p className="muted small">{t('rcpt.sameDoc')}</p>
 
-          {submitError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{submitError}</p>}
+          {submitError && <p className="muted small" style={{ color: 'var(--erro)' }}>{submitError}</p>}
           {marketplaceHint && <p className="muted small">{marketplaceHint}</p>}
 
           <button className="cta" style={{ padding: '12px 20px' }} disabled={busy} onClick={submit}>

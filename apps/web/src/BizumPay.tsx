@@ -193,7 +193,7 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
       <button className="cta" disabled={busy} onClick={onConfirm}>
         {busy ? t('pix.simulating') : t('pay.ctaBizum', { amount: amountLabel })}
       </button>
-      {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
     </div>
   );
 }
