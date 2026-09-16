@@ -38,6 +38,7 @@ const { reduce, paidAfterClose } = require('../checks/check-state');
 const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
+const { PAPEL_DE_DONO } = require('./papeis');
 const { isTerminalRecipientStatus } = require('../recipient-status');
 
 /**
@@ -177,7 +178,7 @@ function createMemoryStore() {
     },
 
     // --- ownership / membership ---------------------------------------------
-    async addVenueMember(venueId, userId, role = 'owner') {
+    async addVenueMember(venueId, userId, role = PAPEL_DE_DONO) {
       if (!venues.has(venueId)) throw new Error('unknown venue');
       if (!userId) throw new Error('userId required');
       if (members.some((m) => m.venueId === venueId && m.userId === userId)) {
@@ -186,12 +187,14 @@ function createMemoryStore() {
       members.push({ venueId, userId, role });
       return { venueId, userId, role };
     },
+    // Ver o comentário longo em `store/supabase.js`: o papel É conferido, nos
+    // dois stores, e o contrato entre eles é o que impede a divergência.
     async userOwnsVenue(userId, venueId) {
-      return members.some((m) => m.userId === userId && m.venueId === venueId);
+      return members.some((m) => m.userId === userId && m.venueId === venueId && m.role === PAPEL_DE_DONO);
     },
     async listVenuesForOwner(userId) {
       return members
-        .filter((m) => m.userId === userId)
+        .filter((m) => m.userId === userId && m.role === PAPEL_DE_DONO)
         .map((m) => venues.get(m.venueId))
         .filter(Boolean);
     },

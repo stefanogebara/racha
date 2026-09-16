@@ -16,6 +16,7 @@ function badRequest(msg) {
 }
 
 const { disputeCounts } = require('../checks/disputes');
+const { PAPEL_DE_DONO } = require('./papeis');
 
 /**
  * Supabase store — the production implementation of the store contract
@@ -346,7 +347,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
 
     // --- ownership / membership ---------------------------------------------
-    async addVenueMember(venueId, userId, role = 'owner') {
+    async addVenueMember(venueId, userId, role = PAPEL_DE_DONO) {
       if (!userId) throw new Error('userId required');
       // ignoreDuplicates: an existing (venue,user) row is left UNTOUCHED — a
       // re-add never silently changes a member's role (matches the memory
@@ -358,6 +359,28 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(error, 'addVenueMember');
       return { venueId, userId, role };
     },
+    /**
+     * DONO É QUEM TEM O PAPEL DE DONO.
+     *
+     * A tabela nasceu (0003) com `role in ('owner','staff')` e as duas leituras
+     * — esta e `listVenuesForOwner` — nunca olharam a coluna: QUALQUER linha em
+     * `venue_members` abria o painel inteiro, o `/api/refund`, os repasses e o
+     * documento da casa. Hoje isso não vaza porque o único escritor é o
+     * `POST /api/venues`, que grava `'owner'` fixo: medido em produção em
+     * 2026-09-16, dez linhas, todas `owner`, zero `staff`. Então este conserto
+     * não muda o comportamento de ninguém HOJE.
+     *
+     * É justamente por isso que ele entra agora. O dia em que alguém inserir um
+     * `staff` — um convite de garçom, um INSERT à mão pra dar acesso "só de
+     * leitura" — essa pessoa vira dono em silêncio, e o defeito nasce com cara
+     * de feature nova funcionando. Uma coluna de papel que ninguém confere é um
+     * portão destrancado esperando alguém encostar.
+     *
+     * O que NÃO se faz aqui: um sistema de permissões. `staff` não tem tela, e
+     * o portão de adoção manda não construir v1 antes da hora. Ele fica de
+     * fora, e quando existir alguém terá que decidir o que ele pode ver — com o
+     * teste abaixo vermelho pra forçar a decisão.
+     */
     async userOwnsVenue(userId, venueId) {
       if (!isUuid(userId) || !isUuid(venueId)) return false; // malformed → not an owner
       const { data, error } = await client
@@ -365,6 +388,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .select('id')
         .eq('user_id', userId)
         .eq('venue_id', venueId)
+        .eq('role', PAPEL_DE_DONO)
         .maybeSingle();
       throwOn(error, 'userOwnsVenue');
       return !!data;
@@ -373,7 +397,8 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const { data, error } = await client
         .from('venue_members')
         .select('venues(id, name, city, servico_basis_points, psp_recipient_id, market)')
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .eq('role', PAPEL_DE_DONO);
       throwOn(error, 'listVenuesForOwner');
       return (data || []).map((r) => r.venues).filter(Boolean).map((v) => ({
         id: v.id, name: v.name, city: v.city,

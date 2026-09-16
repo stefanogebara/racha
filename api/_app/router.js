@@ -63,6 +63,7 @@ const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
 const { vigiarRetencao } = require('../_lib/checks/retention-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
+const { PAPEL_DE_DONO } = require('../_lib/store/papeis');
 
 // AS ENVS, NORMALIZADAS UMA VEZ SÓ — e é a única leitura delas no `api/`.
 //
@@ -2210,7 +2211,7 @@ async function route(req, res) {
         name: b.name, cnpj: doc.valor, city: b.city ?? null, market: mkt,
         servicoBp: Number.isInteger(b.servicoBp) ? b.servicoBp : 1000,
       });
-      await store.addVenueMember(venue.id, user.id, 'owner');
+      await store.addVenueMember(venue.id, user.id, PAPEL_DE_DONO);
       return json(res, 200, { success: true, data: venue });
     }
     if (req.method === 'GET' && url.pathname === '/api/tables') {
