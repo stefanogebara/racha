@@ -94,7 +94,10 @@ function Onboarding() {
           rotulo={t('admin.cnpjField')} inputMode="numeric" autoCapitalize="characters" autoComplete="off"
           // A FORMA sai do formatador, nunca de uma string pontuada à mão.
           placeholder={maskCpfCnpj('00000000000000')}
-          value={maskCpfCnpj(cnpj)}
+          // A máscara é do `Campo`: formatando no `value`, o cursor ia pro fim
+          // a cada tecla. Ver `mascara-caret.ts`.
+          mascara={maskCpfCnpj}
+          value={cnpj}
           ruim={cnpj !== '' && !cnpjValid}
           bom={cnpj !== '' && cnpjValid}
           recado={cnpj !== '' ? (cnpjValid ? t('admin.cnpjOk') : t('admin.cnpjBad')) : undefined}

@@ -206,7 +206,43 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
    *   conta vazia.
    */
   const IDS_POR_LOTE = 200;
-  const LINHAS_POR_PAGINA = 1000;
+  /**
+   * A PÁGINA É MENOR QUE O CORTE DO SERVIDOR, DE PROPÓSITO.
+   *
+   * O laço pára quando uma página vem CURTA. Se a página pedida for do mesmo
+   * tamanho do `db-max-rows` do projeto, "curta" e "cortada" viram a mesma
+   * coisa: baixar o "Max rows" do painel do Supabase pra 500 faria toda página
+   * voltar com 500, o laço leria isso como "acabou", e a conciliação diária
+   * passaria a comparar um razão truncado contra os pagamentos inteiros — e a
+   * dizer que bate. Uma configuração de painel não pode ter esse poder sobre o
+   * inegociável #8.
+   *
+   * Com 500 contra um corte de 1000, uma página cheia (500) prova que há mais,
+   * e uma curta prova que acabou. Se alguém baixar o corte pra menos de 500, o
+   * teto volta a ser ambíguo — por isso o número está aqui, nomeado, e não
+   * embutido no `range`. Achado pela revisão de compliance de 2026-09-16
+   * (MEDIUM-3).
+   */
+  const LINHAS_POR_PAGINA = 500;
+
+  /**
+   * UMA LEITURA PAGINADA. É o único lugar que fala `range` neste arquivo.
+   *
+   * @param {object} p
+   * @param {(de: number, ate: number) => any} p.consulta  monta a query da página.
+   * @param {string} p.op  nome pro erro.
+   * @returns {Promise<object[]>} todas as linhas, em ordem.
+   */
+  async function lerPaginado({ consulta, op }) {
+    const tudo = [];
+    for (let de = 0; ; de += LINHAS_POR_PAGINA) {
+      const { data, error } = await consulta(de, de + LINHAS_POR_PAGINA - 1);
+      throwOn(error, op);
+      const linhas = data || [];
+      tudo.push(...linhas);
+      if (linhas.length < LINHAS_POR_PAGINA) return tudo;
+    }
+  }
 
   /**
    * A leitura por lote, UMA vez. Todo `.in()` que pode trazer muitas linhas por
@@ -227,22 +263,20 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     for (const id of ids) mapa.set(id, []);
     for (let i = 0; i < ids.length; i += IDS_POR_LOTE) {
       const lote = ids.slice(i, i + IDS_POR_LOTE);
-      let de = 0;
-      for (;;) {
-        let q = client.from(tabela).select(colunas).in(coluna, lote);
-        for (const col of ordem) q = q.order(col, { ascending: true });
-        const { data, error } = await q.range(de, de + LINHAS_POR_PAGINA - 1);
-        throwOn(error, op);
-        const linhas = data || [];
-        for (const r of linhas) {
-          const balde = mapa.get(r[coluna]);
-          // Linha de um id que não foi pedido não existe (o filtro é do banco),
-          // mas um balde ausente viraria um TypeError no meio de uma leitura de
-          // dinheiro. Ignorar é a resposta segura; o teste cobre o caminho.
-          if (balde) balde.push(r);
-        }
-        if (linhas.length < LINHAS_POR_PAGINA) break;
-        de += LINHAS_POR_PAGINA;
+      const linhas = await lerPaginado({
+        op,
+        consulta: (de, ate) => {
+          let q = client.from(tabela).select(colunas).in(coluna, lote);
+          for (const col of ordem) q = q.order(col, { ascending: true });
+          return q.range(de, ate);
+        },
+      });
+      for (const r of linhas) {
+        const balde = mapa.get(r[coluna]);
+        // Linha de um id que não foi pedido não existe (o filtro é do banco),
+        // mas um balde ausente viraria um TypeError no meio de uma leitura de
+        // dinheiro. Ignorar é a resposta segura; o teste cobre o caminho.
+        if (balde) balde.push(r);
       }
     }
     return mapa;
@@ -1020,9 +1054,30 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
 
     async listChecksForReconcile(venueId) {
-      const { data: checks, error } = await client
-        .from('checks').select('id').eq('venue_id', venueId);
-      throwOn(error, 'listChecksForReconcile.checks');
+      /**
+       * A CONSULTA QUE DIRIGE AS OUTRAS TAMBÉM PAGINA.
+       *
+       * O commit anterior paginou os FILHOS (razão e pagamentos) e deixou esta
+       * — a lista de contas da casa — com um `select` seco. Acima de mil
+       * contas o PostgREST devolvia as primeiras mil com um 200, e a
+       * conciliação diária passava a rodar para sempre sobre um subconjunto
+       * arbitrário da história da casa, dizendo que bate. E não é só drift
+       * escondido: `reconcileVenueHouse` monta `checkLedgerTxids` a partir
+       * desta lista, então um resgate cujo razão ficou de fora vira um achado
+       * `critical` mandando RE-CREDITAR a conta da casa — o cliente fica com a
+       * refeição e com o saldo de volta. Saldo pré-pago é dinheiro do cliente.
+       *
+       * O docblock do `lerPorLote` já descrevia esse corte, o que fazia esta
+       * lacuna parecer coberta. Achado pela revisão de compliance de
+       * 2026-09-16 (HIGH-2).
+       */
+      const checks = await lerPaginado({
+        op: 'listChecksForReconcile.checks',
+        // `order('id')`: sem ordem total, duas páginas repetem e omitem a mesma
+        // linha — o mesmo motivo do `ordem` do `lerPorLote`.
+        consulta: (de, ate) => client.from('checks').select('id').eq('venue_id', venueId)
+          .order('id', { ascending: true }).range(de, ate),
+      });
       const out = [];
       // POR LOTE, os dois lados. Era UMA leitura de pagamentos MAIS uma do
       // razão POR CONTA, em série: 2N+1 idas pra conciliar uma casa, e a
@@ -1455,11 +1510,14 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(error, 'recordHousePaymentRow');
     },
     async listHouseAccountsForReconcile(venueId) {
-      const { data: accounts, error } = await client
-        .from('house_accounts')
-        .select('id, principal_cents')
-        .eq('venue_id', venueId);
-      throwOn(error, 'listHouseAccountsForReconcile');
+      // PAGINA, como a lista de contas acima — e aqui o teto é alcançável POR
+      // DESENHO: `MAX_ACCOUNTS_PER_VENUE` é 5000 (`house-service.js`), cinco
+      // vezes o corte do PostgREST. Ver o bloco em `listChecksForReconcile`.
+      const accounts = await lerPaginado({
+        op: 'listHouseAccountsForReconcile',
+        consulta: (de, ate) => client.from('house_accounts').select('id, principal_cents')
+          .eq('venue_id', venueId).order('id', { ascending: true }).range(de, ate),
+      });
       const out = [];
       // POR LOTE. Eram DUAS idas por conta da casa — os lotes de bônus e o
       // razão —, em série, dentro da conciliação diária. Mesmo motivo do

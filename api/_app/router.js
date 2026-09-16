@@ -2252,8 +2252,27 @@ async function route(req, res) {
         const t = await store.createTable(b.venueId, rotulo.valor);
         return json(res, 200, { success: true, data: t });
       } catch (e) {
-        const dup = /duplicate/.test(e.message);
-        return json(res, dup ? 409 : 400, { success: false, error: dup ? 'Já existe uma mesa com esse nome' : e.message });
+        /**
+         * DUAS COISAS DIFERENTES SAÍAM PELO MESMO BURACO.
+         *
+         * Era `dup ? 409 : 400` com a mensagem CRUA do store no ramo de baixo —
+         * `supabase store createTable: <texto do Postgres ou da rede>` —, e um
+         * 400 quer dizer "o que você mandou não serve". Desde que o banco ganhou
+         * prazo (10 s), essa rota passou a ter um terceiro desfecho comum: a
+         * ida ao banco não voltou. Isso chegava ao dono como 400 com um texto
+         * interno, ou seja, uma falha de infraestrutura vestida de erro de
+         * digitação — e numa frase fixa em português, num painel que existe em
+         * três idiomas. Achado pela revisão de compliance de 2026-09-16
+         * (MEDIUM-4).
+         *
+         * Agora: só a unicidade é 409 com código; o resto vai pelo contrato
+         * comum (`errorStatus`/`errorBody`), que devolve 500 + `internal` pra
+         * falha nossa e nunca repassa texto interno.
+         */
+        if (/duplicate/.test(e.message)) {
+          return json(res, 409, { success: false, code: 'table_label_duplicate' });
+        }
+        return json(res, errorStatus(e), errorBody(e));
       }
     }
     if (req.method === 'POST' && url.pathname === '/api/tables/rotate') {

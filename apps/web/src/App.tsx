@@ -916,10 +916,16 @@ export default function App() {
             // A PONTUAÇÃO que um humano escreve, enquanto ele digita: o mesmo
             // `maskCpfCnpj` do cadastro do dono. Sem isso a pessoa conferia
             // onze dígitos colados num campo de pagamento.
+            //
+            // A máscara passou a ser do `Campo` — é ele que formata E repõe o
+            // cursor. Formatando aqui, no `onChange`, o cursor ia pro fim a
+            // cada tecla, e corrigir um dígito do meio do CPF era impossível
+            // sem apagar tudo (medido no navegador; ver `mascara-caret.ts`).
+            mascara={maskCpfCnpj}
             ruim={cpfHint && !cpfOk}
             recado={cpfHint && !cpfOk ? t('payer.cpfHint') : undefined}
             value={cpf}
-            onChange={(e) => { setCpf(maskCpfCnpj(e.target.value)); if (isValidCPF(e.target.value)) setCpfHint(false); }}
+            onChange={(e) => { setCpf(e.target.value); if (isValidCPF(e.target.value)) setCpfHint(false); }}
           />
           )}
           {/* Por que o CPF. Um número de documento pedido numa tela de pagamento

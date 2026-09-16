@@ -18,7 +18,7 @@ const { normalizarTextoDaCasa, nomeDaCasa, rotuloDaMesa, cidadeDaCasa, LIMITES }
  * mesa. A ferramenta de shell desta sessão chegou a recusar o comando que os
  * continha, dizendo que "ficariam escondidos no diálogo de aprovação".
  */
-const RLO = '\u202E', LRO = '\u202D', ZWSP = '\u200B', BOM = '\uFEFF', PDI = '\u2069', NUL = '\u0000';
+const RLO = '\u202E', LRO = '\u202D', ZWSP = '\u200B', BOM = '\uFEFF', PDI = '\u2069', NUL = '\u0000', SHY = '\u00AD', HFILL = '\u3164', VS16 = '\uFE0F', ALM = '\u061C';
 
 describe('as palavras da casa atravessam inteiras', () => {
   // CLAUDE.md: conteúdo da casa nunca é traduzido nem reescrito. Um
@@ -94,6 +94,8 @@ describe('os caracteres que somem no diff', () => {
     ['BOM', BOM + 'Mesa 3', 'Mesa 3'],
     ['isolate', 'Mesa 4' + PDI, 'Mesa 4'],
     ['NUL', 'Mesa' + NUL + '5', 'Mesa5'],
+    ['hifen suave', 'Me' + SHY + 'sa 6', 'Mesa 6'],
+    ['preenchedor hangul', 'Mesa' + HFILL + ' 8', 'Mesa 8'],
   ])('%s some do rótulo', (_nome, entrada, esperado) => {
     expect(rotuloDaMesa(entrada)).toEqual({ ok: true, valor: esperado });
   });
@@ -102,8 +104,35 @@ describe('os caracteres que somem no diff', () => {
     expect(rotuloDaMesa('Mesa' + ZWSP + ' 12').valor).toBe(rotuloDaMesa('Mesa 12').valor);
   });
 
-  test('um rótulo que era SÓ invisível não vira mesa', () => {
-    expect(rotuloDaMesa(ZWSP + BOM + RLO).ok).toBe(false);
+  test.each([
+    ['largura zero + BOM + RLO', ZWSP + BOM + RLO],
+    ['hifen suave', SHY.repeat(3)],
+    ['preenchedor hangul', HFILL.repeat(3)],
+    ['marca de letra arabe', ALM.repeat(2)],
+    ['seletor de variacao solto', VS16.repeat(3)],
+    ['so pontuacao', '...'],
+    ['so travessao', '\u2014'],
+  ])('um rotulo feito so de %s nao vira mesa', (_nome, entrada) => {
+    expect(rotuloDaMesa(entrada).ok).toBe(false);
+  });
+
+  /**
+   * A LISTA DE RECUSA TEM BURACO — SEMPRE. Esta ja teve um: a primeira versao
+   * nao conhecia U+00AD nem U+3164, e a afirmacao acima era FALSA pros dois.
+   * O que segura de verdade e a pergunta INVERSA — sobrou algo que desenha? —,
+   * entao ela e testada com um caractere que a lista de recusa NAO conhece.
+   */
+  test('um invisivel que a lista nao conhece tambem nao vira mesa', () => {
+    const MVS = '\u180F';   // seletor de variacao mongol — fora da lista
+    expect(rotuloDaMesa(MVS.repeat(3)).ok).toBe(false);
+  });
+
+  test('mas o seletor de variacao NAO e removido — ele desenha a placa da casa', () => {
+    // Tirar o U+FE0F de "Bar (coracao) do Ze" muda as palavras do restaurante,
+    // que e a unica coisa que este modulo promete nao fazer.
+    const comCoracao = 'Bar \u2764' + VS16 + ' do Z\u00E9';
+    expect(nomeDaCasa(comCoracao)).toEqual({ ok: true, valor: comCoracao });
+    expect(rotuloDaMesa('Mesa \u{1F37B} 7')).toEqual({ ok: true, valor: 'Mesa \u{1F37B} 7' });
   });
 
   test('NFC: as duas formas de "é" viram a mesma', () => {

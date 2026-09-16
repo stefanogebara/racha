@@ -454,6 +454,37 @@ describe('censo do SELECT: a leitura tem que trazer o que o código usa', () => 
       expect(pedidas.size).toBeGreaterThanOrEqual(8);
       const faltando = [...lidos].filter((n) => !pedidas.has(camelParaSnake(n))).sort();
       expect(faltando).toEqual([]);
+
+      /**
+       * OS OUTROS CONSUMIDORES, NOMEADOS.
+       *
+       * O derivado acima cobre só o que `repararLinhasAtrasadas` lê — sete
+       * colunas. A leitura tem OUTROS dois leitores, e as colunas deles não
+       * estavam presas por nada: derrubar `method` do `select` esvaziaria o
+       * `housePayRows` do `reconcileVenueHouse` e faria ele emitir um achado
+       * `critical` mandando RE-CREDITAR a conta da casa por resgate — o cliente
+       * fica com a refeição E com o saldo —, tudo isso com a suíte verde.
+       * Achado pela revisão de compliance de 2026-09-16 (MEDIUM-1).
+       *
+       * Ficam por NOME e com o motivo do lado, porque são um contrato entre
+       * arquivos e não uma dedução: quem apagar uma delas tem que apagar uma
+       * linha que diz o que quebra.
+       */
+      const contrato = {
+        method: 'reconcileVenueHouse: `p.method === house_account` monta o housePayRows',
+        txid: 'reconcileVenueHouse: a chave do housePayRows, e o casamento com o razão',
+        status: 'acharServicoNuncaArrecadado: só conta o que está `confirmado`',
+        tip_cents: 'acharServicoNuncaArrecadado: o serviço COBRADO (Lei 13.419)',
+        confirmed_tip_cents: 'acharServicoNuncaArrecadado: o serviço ARRECADADO — base da folha',
+        amount_cents: 'a régua do que a mesa deve contra o que entrou',
+        confirmed_amount_cents: 'o que o adquirente confirmou, que pode diferir do pedido',
+        refunded_amount_cents: 'a conciliação soma LÍQUIDO dos dois lados',
+        refunded_tip_cents: 'idem, na gorjeta',
+        confirmed_at: 'faz a dívida de restituição envelhecer',
+        currency: 'a moeda do mercado — somar EUR com BRL é o erro silencioso',
+      };
+      const semContrato = Object.keys(contrato).filter((c) => !pedidas.has(c)).sort();
+      expect(semContrato).toEqual([]);
     });
   });
 

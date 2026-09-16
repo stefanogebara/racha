@@ -535,6 +535,13 @@ export const DICT = {
   // português fixa ("Nome é obrigatório (até 60 caracteres)") — numa tela que
   // existe em três idiomas. O número vem em `vars`, não na tradução: o limite
   // desta coluna é o CHECK da 0005, e repeti-lo aqui seria a quinta cópia.
+  // Unicidade da mesa, com código. Era uma frase fixa em português vinda do
+  // servidor, no mesmo `catch` que também devolvia o texto cru do Postgres pra
+  // qualquer outra falha — inclusive um prazo estourado, que virava "o que você
+  // mandou não serve" quando o problema era nosso.
+  'err.table_label_duplicate': { en: 'There is already a table with that name.',
+                                 pt: 'Já existe uma mesa com esse nome.',
+                                 es: 'Ya existe una mesa con ese nombre.' },
   'err.house_name_invalid': { en: 'Enter your name — up to {maxChars} characters.',
                               pt: 'Escreva seu nome — até {maxChars} caracteres.',
                               es: 'Escribe tu nombre — hasta {maxChars} caracteres.' },
