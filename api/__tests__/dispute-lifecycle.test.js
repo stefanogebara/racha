@@ -348,7 +348,7 @@ describe('pendência de dinheiro pode ser encerrada', () => {
     // para de olhar. Achado pela revisão de compliance de 2026-09-08.
     const { store, check, deps } = await mesaPaga();
     await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500 }, deps);
-    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500 }, deps);
+    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500, refundId: 're_d1' }, deps);
 
     const pagamentos = [{ txid: 'pi_x', amountCents: 3082, tipCents: 308, status: 'confirmado', method: 'card' }];
     let r = reconcileCheck({ checkId: check.id, events: await store.loadEvents(check.id), payments: pagamentos });
@@ -378,7 +378,7 @@ describe('pendência de dinheiro pode ser encerrada', () => {
     // "Resolvido" sem motivo é só a marca sumindo do painel.
     const { store, check, deps } = await mesaPaga();
     await applyConfirmedPayment({ kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 500 }, deps);
-    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500 }, deps);
+    await applyConfirmedPayment({ kind: 'refund_failed', txid: 'pi_x', amountCents: 500, refundId: 're_d1' }, deps);
     // Pelo caminho que a ROTA usa — o `store.appendEvent` cru não valida, e é
     // justamente por isso que existe o `appendValidated`: os appends diretos da
     // rota passavam por fora da validação e um evento inválido virava anomalia

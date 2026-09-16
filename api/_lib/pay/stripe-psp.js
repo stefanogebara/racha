@@ -630,6 +630,13 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         return {
           kind: r.status === 'failed' ? 'refund_failed' : 'refund_progress',
           eventId,
+          // O `re_` É A IDENTIDADE do estorno, e a mesma falha chega em DOIS
+          // eventos (`refund.failed` e `refund.updated` com status `failed`),
+          // com `evt_` diferentes — nem a chave do evento nem o índice único os
+          // separam. Sem este id, a segunda entrega revertia de novo: o razão
+          // apagava um estorno que SAIU, o telefone voltava a anunciar a dívida
+          // e a casa pagava duas vezes (segurança HIGH-1 de 11a0904).
+          refundId: typeof r.id === 'string' ? r.id : null,
           txid, amountCents: Number(r.amount) || 0, status: r.status || null, raw: r,
         };
       }

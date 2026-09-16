@@ -34,7 +34,8 @@ const { disputeCounts } = require('../checks/disputes');
  */
 
 const crypto = require('crypto');
-const { reduce, paidAfterClose, sobraPorPagamento } = require('../checks/check-state');
+const { reduce, paidAfterClose } = require('../checks/check-state');
+const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
 const { isTerminalRecipientStatus } = require('../recipient-status');
@@ -511,9 +512,7 @@ function createMemoryStore() {
           // contava como receita a mesma quantia que a linha ao lado chamava de
           // dívida (CC art. 876; segurança HIGH-1 de a95e15c). Eram CINCO
           // leitores do congelado, não quatro: eu contei à mão em vez de varrer.
-          for (const [txid, centavos] of sobraPorPagamento(state)) {
-            if (centavos > 0) sobraPorTxid.set(txid, centavos);
-          }
+          acumularSobra(state, sobraPorTxid);
           return {
             checkId: c.id,
             tableLabel: table ? table.label : '?',
@@ -560,9 +559,7 @@ function createMemoryStore() {
               // duplicidade que nasce depois, e o painel mostrava "a devolver"
               // sem nenhuma cobrança embaixo — com o runbook mandando devolver
               // "pelo valor ao lado da cobrança" (compliance HIGH-1 de 089e8a2).
-              overpaidTxids: [...sobraPorPagamento(state).entries()]
-                .map(([txid, restituteCents]) => ({ txid, restituteCents }))
-                .filter((x) => x.restituteCents > 0),
+              overpaidTxids: linhasDeSobra(state),
             } : {}),
               // Disputas por CONTAGEM: é a taxa de chargeback que o
               // adquirente julga, e o dono não tinha como ver a dele.

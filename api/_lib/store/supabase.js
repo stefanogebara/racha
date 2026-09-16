@@ -35,7 +35,8 @@ const { disputeCounts } = require('../checks/disputes');
  */
 
 const { createClient } = require('@supabase/supabase-js');
-const { reduce, paidAfterClose, sobraPorPagamento } = require('../checks/check-state');
+const { reduce, paidAfterClose } = require('../checks/check-state');
+const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const { RECIPIENT_TERMINAL } = require('../recipient-status');
 
@@ -1418,9 +1419,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         // cego justamente na sobra que nasce de uma reversão — a série contava
         // como receita a mesma quantia que a linha ao lado chamava de dívida
         // (CC art. 876; segurança HIGH-1 de a95e15c).
-        for (const [txid, centavos] of sobraPorPagamento(state)) {
-          if (centavos > 0) sobraPorTxid.set(txid, centavos);
-        }
+        acumularSobra(state, sobraPorTxid);
         rows.push({
           checkId: c.id,
           tableLabel: c.venue_tables ? c.venue_tables.label : '?',
@@ -1467,9 +1466,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
               // duplicidade que nasce depois, e o painel mostrava "a devolver"
               // sem nenhuma cobrança embaixo — com o runbook mandando devolver
               // "pelo valor ao lado da cobrança" (compliance HIGH-1 de 089e8a2).
-              overpaidTxids: [...sobraPorPagamento(state).entries()]
-                .map(([txid, restituteCents]) => ({ txid, restituteCents }))
-                .filter((x) => x.restituteCents > 0),
+              overpaidTxids: linhasDeSobra(state),
             } : {}),
             // Disputas por CONTAGEM: é a taxa de chargeback que o
             // adquirente julga, e o dono não tinha como ver a dele.

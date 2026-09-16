@@ -129,3 +129,42 @@ test('a série de faturamento desconta a dívida — medido, não por regex', as
   // invisível aqui e a série dizia 16000 (segurança HIGH-1 de 95f72a9).
   expect(painel.ativacao.semana.valorCents).toBe(10000);
 });
+
+test('os DOIS stores montam a sobra pela mesma implementação', () => {
+  /**
+   * A metade de saída deste censo passou a medir só o store de MEMÓRIA, e o de
+   * PRODUÇÃO ficou sem nada: a revisão de segurança plantou nele um segundo laço
+   * sobrescrevendo o mapa com a derivação errada, e a suíte inteira ficou verde
+   * — o painel mandaria o dono devolver ao pagador errado (segurança MEDIUM-2 de
+   * 11a0904). Agora a regra é um módulo com dois chamadores, e o censo confere
+   * que nenhum dos dois a reimplementa.
+   */
+  for (const arq of ['_lib/store/memory.js', '_lib/store/supabase.js']) {
+    const fonte = fs.readFileSync(path.join(RAIZ, arq), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(fonte).toMatch(/overpaidTxids: linhasDeSobra\(state\)/);
+    expect(fonte).toMatch(/acumularSobra\(state, sobraPorTxid\)/);
+    // E não chamam a regra crua por conta própria: quem quiser mudar a resposta
+    // muda o módulo, onde o teste de saída está.
+    expect(fonte).not.toMatch(/sobraPorPagamento\(/);
+  }
+});
+
+test('a regra do painel é medida na SAÍDA, não pela grafia', () => {
+  // O módulo é puro: dá pra perguntar direto, sem store.
+  const { linhasDeSobra, acumularSobra } = require('../_lib/checks/sobra-do-painel');
+  const { reduce } = require('../_lib/checks/check-state');
+  const ev = (type, payload) => ({ type, payload });
+  const st = reduce([
+    ev('OPENED', { totalCents: 10000 }),
+    ev('PAYMENT_CONFIRMED', { txid: 'ana', amountCents: 10000, tipCents: 0, method: 'pix' }),
+    ev('PAYMENT_REFUNDED', { txid: 'ana', amountCents: 6000, tipCents: 0 }),
+    ev('CLOSED', {}),
+    ev('PAYMENT_CONFIRMED', { txid: 'bruno', amountCents: 6000, tipCents: 0, method: 'pix' }),
+    ev('PAYMENT_REFUND_REVERSED', { txid: 'ana', amountCents: 6000, tipCents: 0, testemunhado: true }),
+  ]);
+  // A sobra é de quem perdeu o estorno — e é ESSA cobrança que o painel nomeia.
+  expect(linhasDeSobra(st)).toEqual([{ txid: 'ana', restituteCents: 6000 }]);
+  expect([...acumularSobra(st, new Map())]).toEqual([['ana', 6000]]);
+});

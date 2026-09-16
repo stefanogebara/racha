@@ -736,7 +736,43 @@ describe('os contadores da testemunha não derivam entre si', () => {
       refunded('t1', 0, 1000),                            // entregue 1000 de serviço
     ]);
     expect(st.payments.t1.reversedOpenTipCents).toBe(0);
-    expect(st.anomalies.some((a) => /além da testemunha/.test(a.reason || ''))).toBe(true);
+    const aviso = st.anomalies.find((a) => /além da testemunha/.test(a.reason || ''));
+    expect(aviso).toBeTruthy();
+    /**
+     * `high` porque a testemunha foi AFIRMADA: o adquirente contradisse o que
+     * nós dissemos que ele disse, e é o único sinal de que o casamento pegou o
+     * lançamento errado. `info` não acende o canário (compliance MEDIUM-3 de
+     * 11a0904, inegociável #8).
+     */
+    expect(aviso.severity).toBe('high');
+  });
+
+  test('e NÃO dispara no balde que a testemunha não descreve', () => {
+    /**
+     * Com testemunha de CONSUMO aberta, todo estorno de gorjeta — a mesa
+     * exercendo a remoção dos 10%, inegociável #3 — virava "além da testemunha":
+     * uma anomalia por estorno, num campo que a tela do cliente conta
+     * (segurança LOW-1 de 11a0904).
+     */
+    const st = reduce([
+      opened(10000), paid('t1', 10000, 1000),
+      refunded('t1', 5000, 0), revertido('t1', 5000, 0),   // testemunha: só consumo
+      refunded('t1', 0, 300), refunded('t1', 0, 300), refunded('t1', 0, 300),
+    ]);
+    expect(st.payments.t1.reversedOpenAmountCents).toBe(5000);
+    expect(st.anomalies.filter((a) => /além da testemunha/.test(a.reason || ''))).toEqual([]);
+  });
+
+  test('a marca de testemunho é do EPISÓDIO: some quando ele encerra', () => {
+    // Era um AND sobre a vida inteira do pagamento: a primeira reversão não
+    // testemunhada cravava `false` pra sempre (segurança HIGH-2 de 11a0904).
+    const encerrado = reduce([
+      opened(10000), paid('t1', 10000, 1000),
+      refunded('t1', 500, 0), revertidoSemCasar('t1', 500, 0),
+      refunded('t1', 500, 0),   // a casa refaz e sai: episódio encerrado
+    ]);
+    expect(encerrado.payments.t1.reversedOpenCents).toBe(0);
+    expect(encerrado.payments.t1.reversedOpenTestemunhado).toBeUndefined();
   });
 });
 

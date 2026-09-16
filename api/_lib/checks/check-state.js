@@ -464,18 +464,38 @@ function applyEvent(state, evt, seq = null) {
       // SÓ QUANDO HÁ TESTEMUNHA EM ABERTO. Sem esta guarda, todo estorno comum
       // — que tem os baldes em zero — "passava do balde" e virava anomalia.
       if (!(pay.reversedOpenCents > 0)) return recompute(next);
+      // ANTES do abate: o abate pode encerrar o episódio e apagar a marca de
+      // testemunho, e é ela que decide a gravidade do aviso.
+      const eraTestemunhado = pay.reversedOpenTestemunhado === true;
+      const antesA = pay.reversedOpenAmountCents || 0;
+      const antesT = pay.reversedOpenTipCents || 0;
       const sobrouA = Math.max(0, amount - (pay.reversedOpenAmountCents || 0));
       const sobrouT = Math.max(0, tip - (pay.reversedOpenTipCents || 0));
       pay.reversedOpenAmountCents = Math.max(0, (pay.reversedOpenAmountCents || 0) - amount);
       pay.reversedOpenTipCents = Math.max(0, (pay.reversedOpenTipCents || 0) - tip);
       pay.reversedOpenCents = pay.reversedOpenAmountCents + pay.reversedOpenTipCents;
+      // EPISÓDIO ENCERRADO limpa a marca de testemunho: ela é dele, não do
+      // pagamento (segurança HIGH-2 de 11a0904).
+      if (pay.reversedOpenCents === 0) delete pay.reversedOpenTestemunhado;
       // A anomalia sai MESMO com o balde exaurido — é justamente aí que o
       // excedente some se ninguém falar. A guarda que eu tinha escrito exigia
       // saldo restante e calava o único caso que importa.
-      if (sobrouA > 0 || sobrouT > 0) {
+      // SÓ NO BALDE QUE A TESTEMUNHA DESCREVE. Com testemunha de consumo aberta,
+      // todo estorno de GORJETA — a mesa exercendo a remoção dos 10%,
+      // inegociável #3 — virava "além da testemunha": ruído por estorno, num
+      // campo que a tela do cliente conta (segurança LOW-1 de 11a0904).
+      const excedeuOBalde = (sobrouA > 0 && (antesA > 0)) || (sobrouT > 0 && (antesT > 0));
+      if (excedeuOBalde) {
+        /**
+         * `high` quando a testemunha foi AFIRMADA: aí o adquirente contradisse
+         * o que nós dissemos que ele disse — é o único sinal de que o casamento
+         * pegou o lançamento errado, e `info` não acende o canário
+         * (compliance MEDIUM-3 de 11a0904, inegociável #8).
+         */
         return withAnomaly(recompute(next), seq, 'PAYMENT_ANOMALY',
           `estorno de ${p.txid} entregue além da testemunha daquele balde `
-          + `(consumo +${sobrouA}, serviço +${sobrouT})`, p.txid, 'info');
+          + `(consumo +${sobrouA}, serviço +${sobrouT})`, p.txid,
+          eraTestemunhado ? 'high' : 'info');
       }
       return recompute(next);
     }
@@ -530,6 +550,16 @@ function applyEvent(state, evt, seq = null) {
        * nosso não pode ter autoridade de adquirente pra tirar dinheiro da base
        * da folha (compliance HIGH-1 de 95f72a9). Um razão ANTIGO não tem o
        * campo: `undefined` é tratado como não testemunhado, que é o lado seguro.
+       */
+      /**
+       * DO EPISÓDIO, não do pagamento.
+       *
+       * Era um AND sobre a vida inteira do pagamento: a primeira reversão não
+       * testemunhada cravava `false` PRA SEMPRE, e uma reversão genuinamente
+       * casada meses depois — já com o saldo do episódio anterior zerado — caía
+       * no proporcional. Medido: R$ 8,26 de serviço que VOLTOU ao cliente
+       * ficando na base da folha, por causa de um episódio encerrado (segurança
+       * HIGH-2 de 11a0904). O campo é zerado junto com os baldes, no abate.
        */
       pay.reversedOpenTestemunhado = p.testemunhado === true
         && (pay.reversedOpenTestemunhado !== false);
@@ -822,6 +852,19 @@ function naoNecessarioDosAtrasados(state) {
   // reversão de GORJETA comia sobra de consumo de outro pagador: a duplicidade
   // dele encolhia e o serviço `sempreDevido` caía junto (segurança MEDIUM-1 e
   // compliance HIGH-3 de 95f72a9). O lado da gorjeta já é servido pelo teto.
+  /**
+   * E AQUI O BALDE ENTRA MESMO SEM TESTEMUNHO — de propósito, com o lado do erro
+   * escolhido.
+   *
+   * Quando a reversão não casou com um lançamento, o balde é a repartição
+   * proporcional: palpite nosso. Ele não manda no RATEIO de uma devolução (isso
+   * é `reversedOpenTestemunhado`), mas entra aqui, e por aqui chega ao
+   * `servicoDevido`. A divergência é a fração de gorjeta do que já foi estornado
+   * — da ordem de R$ 0,91 em R$ 10,00 — e ela cai para o lado de DEIXAR serviço
+   * na folha, não de tirar. É o lado defensável: a CLT art. 462 não deixa
+   * descontar depois, então errar para menos é o erro que se conserta
+   * (compliance MEDIUM-1 de 11a0904).
+   */
   const cobre = (p) => Math.max(0, liquido(p) - Math.max(0, p.reversedOpenAmountCents || 0));
   // TODOS os pagamentos, na ordem do razão — não só os atrasados. A sobra de uma
   // conta REDUZIDA no PDV, ou de uma duplicidade anterior ao fecho, também

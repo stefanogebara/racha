@@ -126,22 +126,20 @@ async function applyConfirmedPayment(parsed, deps) {
    * subtração.
    */
   /**
-   * Reversão: desfaz o que ESTE estorno tirou, na mesma proporção do que já
-   * saiu — `allocateRefund` sobre `refundedAmountCents`/`refundedTipCents`.
+   * Reversão: desfaz o que ESTE estorno tirou.
    *
-   * O texto aqui dizia que a ida e a volta "não podem divergir, pelo mesmo
-   * `allocateRefund`". Deixou de ser verdade quando a IDA ganhou três baldes:
-   * uma devolução que saiu 10000/1000 pelos baldes 1 e 2 e é revertida em 5000
-   * volta ~4546/454 pelo proporcional, e a base da folha sobe por um caminho e
-   * desce por outro (compliance MEDIUM-3 de d7f2683).
+   * O texto aqui já disse duas coisas falsas, e as duas autorizavam algo.
+   * Primeiro, que ida e volta "não podem divergir, pelo mesmo `allocateRefund`"
+   * — deixou de valer quando a ida ganhou três baldes (compliance MEDIUM-3 de
+   * d7f2683). Depois, que "o adquirente não manda" qual lançamento falhou — e
+   * manda: o `data.object` do `refund.failed` É o objeto Refund, e o adaptador
+   * já lia `status`, `amount` e `payment_intent` dele, jogando fora só o `id`
+   * (compliance MEDIUM-4 de 11a0904).
    *
-   * A reversão SEGUE proporcional, e de propósito: ela rateia sobre o que já
-   * foi estornado no TOTAL daquele pagamento, que é o saldo real a recompor —
-   * não sobre um lançamento específico, que o `refund.failed` não identifica.
-   * O que muda é a honestidade do comentário: a divergência existe, é contra o
-   * cliente em no máximo um arredondamento, e some quando a reversão é integral
-   * (o caso do MED e o comum). Fechar isso de verdade exige o estorno falho
-   * apontar QUAL lançamento falhou, e o adquirente não manda isso.
+   * Hoje: o `re_` identifica o estorno e fecha a reentrega; o rateio sai do
+   * LANÇAMENTO que falhou quando o valor casa com um só, e do proporcional
+   * quando não casa — e nesse caso o razão grava `testemunhado: false`, porque
+   * palpite nosso não pode mandar no rateio que tira da base da folha.
    */
   let reversalAllocated = null;
   if (type === 'PAYMENT_REFUND_REVERSED') {
@@ -149,6 +147,31 @@ async function applyConfirmedPayment(parsed, deps) {
     if (!pay) return { status: 'rejected', reason: `reversal for unknown txid ${parsed.txid}` };
     const jaEstornado = pay.refundedAmountCents + pay.refundedTipCents;
     const falhou = Number.isSafeInteger(parsed.amountCents) ? parsed.amountCents : jaEstornado;
+    if (parsed.refundId) {
+      const jaRevertido = events.some((e) => e.type === 'PAYMENT_REFUND_REVERSED'
+        && e.payload && e.payload.refundId === parsed.refundId);
+      if (jaRevertido) {
+        return { status: 'duplicate', checkId: check.id };
+      }
+    } else {
+      /**
+       * SEM IDENTIDADE, a reversão entra — e GRITA.
+       *
+       * Hoje só a Stripe emite este evento, e o objeto `Refund` sempre traz
+       * `id`: este ramo não devia acontecer. "Não devia acontecer" é o que esta
+       * série aprendeu a não confiar — e recusar seria pior (a Stripe reentrega
+       * até desabilitar o endpoint, e o dinheiro já se moveu). Então aplica, e
+       * deixa uma anomalia ALTA: sem o `re_` não há como distinguir a segunda
+       * entrega da mesma falha de uma falha nova, e o razão pode estar dobrado.
+       */
+      try {
+        await appendEvent(check.id, 'PAYMENT_ANOMALY', {
+          txid: parsed.txid,
+          reason: `reversão de estorno sem id do estorno (valor ${aReverter}) — não dá pra separar reentrega de falha nova`,
+          severity: 'high',
+        }, parsed.eventId ? `${parsed.eventId}:sem_refund_id` : null);
+      } catch { /* melhor esforço: a reversão em si não depende disto */ }
+    }
     if (jaEstornado === 0) {
       /**
        * O estorno ainda não entrou no razão. Reverter o que não existe não é
@@ -222,13 +245,54 @@ async function applyConfirmedPayment(parsed, deps) {
      * "o adquirente disse" sobre um palpite nosso é a mesma falha que esta
      * série já cometeu na cópia da tela: afirmação sem código atrás.
      */
+    /**
+     * ESTE `re_` JÁ FOI REVERTIDO? Então esta é a segunda entrega da MESMA
+     * falha, e não uma falha nova.
+     *
+     * A Stripe manda `refund.failed` E `refund.updated` com status `failed`,
+     * com `evt_` diferentes: nem `seenPspEvent` nem o índice único separam. O
+     * que separava era acidente — depois da primeira reversão `jaEstornado`
+     * virava 0 e a segunda caía em `out_of_order`. Bastava o adquirente REFAZER
+     * o estorno no meio (o desfecho desejado) pra `jaEstornado` inflar de novo e
+     * a segunda entrega apagar do razão um estorno que SAIU: o telefone voltava
+     * a anunciar a dívida, o painel reabria o teto, e a casa pagava duas vezes,
+     * com a conciliação verde (segurança HIGH-1 de 11a0904, inegociável #7).
+     */
     const lancamentos = events
-      .filter((e) => e.type === 'PAYMENT_REFUNDED' && e.payload && e.payload.txid === parsed.txid)
+      .filter((e) => e.type === 'PAYMENT_REFUNDED' && e.payload && e.payload.txid === parsed.txid
+        // A devolução que o DONO registrou não é candidata: o adquirente nunca a
+        // viu, e o rateio dela saiu do nosso próprio motor. Deixá-la no conjunto
+        // carimbava a atestação do dono como testemunha do adquirente — o
+        // defeito que a rodada passada fechou, voltando pela porta dos fundos
+        // (compliance HIGH-2 e segurança MEDIUM-1 de 11a0904).
+        && e.payload.offRail !== true)
       .map((e) => ({
         amountCents: Number(e.payload.amountCents) || 0,
         tipCents: Number(e.payload.tipCents) || 0,
       }));
-    const casam = lancamentos.filter((l) => l.amountCents + l.tipCents === aReverter);
+    /**
+     * E O LANÇAMENTO JÁ CONSUMIDO por uma reversão anterior sai do conjunto.
+     *
+     * Sem `refundId` (adquirente que não manda id, ou razão antigo) o casamento
+     * é por valor, e o razão é só-de-acréscimo: o lançamento revertido continua
+     * lá. A segunda entrega da mesma falha casava com ELE outra vez. Contar as
+     * reversões já aplicadas por valor é a defesa que sobra quando não há
+     * identidade.
+     */
+    const revertidosPorValor = new Map();
+    for (const e of events) {
+      if (e.type !== 'PAYMENT_REFUND_REVERSED' || !e.payload) continue;
+      const total = (Number(e.payload.amountCents) || 0) + (Number(e.payload.tipCents) || 0);
+      revertidosPorValor.set(total, (revertidosPorValor.get(total) || 0) + 1);
+    }
+    const casam = [];
+    for (const l of lancamentos) {
+      const total = l.amountCents + l.tipCents;
+      if (total !== aReverter) continue;
+      const consumidos = revertidosPorValor.get(total) || 0;
+      if (consumidos > 0) { revertidosPorValor.set(total, consumidos - 1); continue; }
+      casam.push(l);
+    }
     if (casam.length === 1) {
       reversalAllocated = { ...casam[0], testemunhado: true };
     } else {
@@ -374,7 +438,10 @@ async function applyConfirmedPayment(parsed, deps) {
      * MEDIUM-1 de 95f72a9). Ou a testemunha vale nos dois trilhos, ou em nenhum.
      */
     refundAllocated = alocarDevolucao(state, parsed.txid, pay, delta,
-      pay.reversedOpenTestemunhado === true ? {
+      // A MESMA guarda que o `tetoDaRestituicao` tem: testemunha zerada não é
+      // testemunha. Duas cópias da regra, e esta estava com três de quatro
+      // condições (segurança HIGH-2 de 11a0904).
+      (pay.reversedOpenTestemunhado === true && pay.reversedOpenCents > 0) ? {
         testemunha: {
           amountCents: Math.max(0, pay.reversedOpenAmountCents || 0),
           tipCents: Math.max(0, pay.reversedOpenTipCents || 0),
@@ -404,7 +471,12 @@ async function applyConfirmedPayment(parsed, deps) {
     // lançamento do razão. Sem isso o rateio é palpite nosso, e o razão precisa
     // dizer qual dos dois foi — é ele que autoriza tirar da base da folha.
     ...(type === 'PAYMENT_REFUND_REVERSED' && reversalAllocated
-      ? { testemunhado: reversalAllocated.testemunhado === true } : {}),
+      ? {
+        testemunhado: reversalAllocated.testemunhado === true,
+        // O id do estorno que falhou — a chave que separa a segunda entrega da
+        // mesma falha de uma falha nova.
+        ...(parsed.refundId ? { refundId: parsed.refundId } : {}),
+      } : {}),
   };
 
   if (type === 'PAYMENT_CONFIRMED' && state && state.payments[parsed.txid]) {

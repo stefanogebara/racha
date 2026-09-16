@@ -144,6 +144,17 @@ conciliação levanta `paid_after_close`.
 aparece como `critical` na primeira conciliação da noite. Avise as casas do
 piloto antes, e responda os antigos pelo painel.
 
+## Devolver SÓ o serviço
+
+A mesa pediu a remoção dos 10% depois de pagar? O estorno pelo adquirente
+funciona, mas o razão ainda reparte o valor proporcionalmente entre consumo e
+serviço — parte do serviço devolvido continua contada na base da folha. Está
+nomeado, com o porquê e o gatilho, em
+[`docs/decisions/2026-09-16-devolver-so-o-servico.md`](../decisions/2026-09-16-devolver-so-o-servico.md).
+Enquanto isso, o erro sobra na base de cálculo da folha que o restaurante
+distribui (nunca falta) — mas avise o time de produto quando acontecer, porque é
+o caso que decide o gatilho.
+
 ## Por onde o dinheiro sai
 
 **O excedente sai do consumo, nunca da gorjeta.** Ele entra registrado como

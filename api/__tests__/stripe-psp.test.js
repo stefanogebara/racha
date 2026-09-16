@@ -662,3 +662,20 @@ describe('a taxa da plataforma não incide sobre a GORJETA', () => {
     expect(r.txid).toBe('pi_x');
   });
 });
+
+test('o `refund.failed` leva o id do ESTORNO — é o que separa as duas entregas', async () => {
+  /**
+   * A mesma falha chega em `refund.failed` E `refund.updated` com status
+   * `failed`, com `evt_` DIFERENTES: nem a chave do evento nem o índice único os
+   * separam. Sem o `re_`, a segunda entrega revertia de novo e apagava do razão
+   * um estorno que SAIU — o telefone voltava a anunciar a dívida e a casa pagava
+   * duas vezes (segurança HIGH-1 de 11a0904).
+   */
+  const event = {
+    type: 'refund.failed', livemode: false,
+    data: { object: { id: 're_abc', object: 'refund', payment_intent: 'pi_1', amount: 900, status: 'failed' } },
+  };
+  const psp = mk({ webhookSecret: 'whsec_x' }, stubStripe({ event }));
+  const parsed = await psp.verifyAndParseWebhook('{raw}', { 'stripe-signature': 't=1,v1=abc' });
+  expect(parsed).toMatchObject({ kind: 'refund_failed', txid: 'pi_1', amountCents: 900, refundId: 're_abc' });
+});
