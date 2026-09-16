@@ -1401,6 +1401,21 @@ async function route(req, res) {
             kind: parsed.kind, txid: parsed.txid, checkId: result.checkId || null,
             amountCents: parsed.amountCents, detail: parsed.reason || null,
           });
+          /**
+           * O PDV TAMBÉM PRECISA SABER. Estas duas saídas voltavam antes do
+           * `writeBackToPos` genérico lá embaixo — uma assimetria não decidida,
+           * herdada de quando elas eram só alerta.
+           *
+           * Uma reversão de estorno RESTAURA `paidCents` e pode devolver a conta
+           * pra `paga`: sem a sinalização, o balcão segue achando que a mesa
+           * deve, e alguém vai cobrá-la. O `writeBackPayment` só sinaliza com a
+           * conta 100% paga, então numa disputa perdida (que reduz o pago) ele
+           * sai calado sozinho — a chamada é segura nos dois casos, e a regra de
+           * "quando sinalizar" fica num lugar só (segurança LOW-2 da rodada dez).
+           */
+          if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
+            await writeBackToPos(result.checkId);
+          }
           const st = result.status === 'rejected' ? 409 : 200;
           return json(res, st, { success: st === 200, data: result });
         }
@@ -1441,6 +1456,21 @@ async function route(req, res) {
               checkId: result.checkId || null,
               amountCents: parsed.amountCents, detail: parsed.status || null,
             });
+          }
+          /**
+           * O PDV TAMBÉM PRECISA SABER. Estas duas saídas voltavam antes do
+           * `writeBackToPos` genérico lá embaixo — uma assimetria não decidida,
+           * herdada de quando elas eram só alerta.
+           *
+           * Uma reversão de estorno RESTAURA `paidCents` e pode devolver a conta
+           * pra `paga`: sem a sinalização, o balcão segue achando que a mesa
+           * deve, e alguém vai cobrá-la. O `writeBackPayment` só sinaliza com a
+           * conta 100% paga, então numa disputa perdida (que reduz o pago) ele
+           * sai calado sozinho — a chamada é segura nos dois casos, e a regra de
+           * "quando sinalizar" fica num lugar só (segurança LOW-2 da rodada dez).
+           */
+          if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
+            await writeBackToPos(result.checkId);
           }
           const st = result.status === 'rejected' ? 409 : 200;
           return json(res, st, { success: st === 200, data: result });

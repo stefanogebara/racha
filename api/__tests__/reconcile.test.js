@@ -469,3 +469,69 @@ test('a conta com sobra e serviço em mais de um pagamento ganha um AVISO', () =
   expect(reconcileCheck({ checkId: 'c2', events: um, payments: [] }).findings
     .some((f) => f.code === 'overpaid_tip_check')).toBe(false);
 });
+
+describe('a conta que voltou a cobrar', () => {
+  /**
+   * Uma mesa paga em cheio, a casa devolve SÓ O SERVIÇO pelo painel do
+   * adquirente, e a conta volta de `paga` pra `parcial`: o rateio do estorno
+   * abate `paidCents` e o `totalCents` não se mexe. O telefone de quem está na
+   * mesa passa a mostrar R$ 9,09 "faltando" e o botão de pagar, num QR que
+   * qualquer um daquela mesa recarrega — cobrança de dívida já quitada (CDC
+   * art. 42; repetição em dobro no parágrafo único se alguém pagar).
+   *
+   * Silencioso: as duas projeções concordam, porque as duas derivam do mesmo
+   * razão. Não existia detector nenhum (compliance HIGH-3/MEDIUM-3 da rodada
+   * dez), e o runbook avisava da mesma mecânica cem linhas acima, só pro estorno
+   * TOTAL.
+   */
+  const { reconcileCheck } = require('../_lib/checks/reconcile');
+  const ev = (type, payload) => ({ type, payload });
+  const quitada = [
+    ev('OPENED', { totalCents: 10000 }),
+    ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'pix' }),
+  ];
+  const achado = (evs) => reconcileCheck({ checkId: 'c', events: evs, payments: [] })
+    .findings.filter((x) => x.code === 'reopened_by_refund');
+
+  test('quitada e reaberta por devolução: CRÍTICO, com o número que a mesa vê', () => {
+    const r = achado([...quitada, ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 })]);
+    expect(r.length).toBe(1);
+    // `high`: nada se perdeu, mas a operação não terminou — e o achado some
+    // quando alguém fecha ou ajusta.
+    expect(r[0].severity).toBe('high');
+    expect(r[0].deltaCents).toBe(909);
+    // O próximo passo tem que estar na mensagem: quem lê isto é quem vai ou não
+    // pedir o resto à mesa.
+    expect(r[0].message).toMatch(/não peça o resto à mesa/);
+  });
+
+  test('um ajuste para baixo é o remédio — e some do painel', () => {
+    // Não porque o achado ignore `ADJUSTED`: porque o ajuste devolve a conta
+    // pra `paga`, e é disso que o achado trata. Um ajuste que fechasse só parte
+    // da diferença continuaria acusando, e deve mesmo — a mesa continuaria
+    // vendo saldo.
+    expect(achado([...quitada,
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 }),
+      ev('ADJUSTED', { totalCents: 9091 })]).length).toBe(0);
+  });
+
+  test('um ajuste que fecha SÓ PARTE da diferença continua acusando', () => {
+    const r = achado([...quitada,
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 }),
+      ev('ADJUSTED', { totalCents: 9500 })]);
+    expect(r.length).toBe(1);
+    expect(r[0].deltaCents).toBe(409);
+  });
+
+  test('quitada sem devolução nenhuma não é achado', () => {
+    expect(achado(quitada).length).toBe(0);
+  });
+
+  test('conta que NUNCA foi quitada não é achado — falta é falta', () => {
+    expect(achado([
+      ev('OPENED', { totalCents: 10000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 5000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 100, tipCents: 0 }),
+    ]).length).toBe(0);
+  });
+});

@@ -199,3 +199,165 @@ test('a segunda entrega do MESMO `re_` também reconcilia a linha', async () => 
   expect(reversoes(await eventos(store, check.id), 'pi_ana').length).toBe(1);
   expect((await store.getPayment('pi_ana')).status).toBe('confirmado');
 });
+
+/**
+ * ── A RODADA DEZ ────────────────────────────────────────────────────────────
+ * Quatro achados ALTOS das duas revisões obrigatórias, cada um com o cenário que
+ * o produz. O casamento em si está enumerado em `reversal-match.test.js`; aqui
+ * é o que só se vê com o razão, a linha e o `validateEvent` no caminho.
+ */
+
+/** Uma conta com UM pagador — o cenário mais simples que ainda move dinheiro. */
+async function mesaSimples(itemCents = 10000, tipCents = 1000) {
+  const store = createMemoryStore();
+  const venue = await store.seedVenue({ name: 'Boteco', servicoBp: 1000, pspRecipientId: 'rcpt_x' });
+  const table = await store.seedTable(venue.id, 'Mesa 1');
+  const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Prato', priceCents: itemCents }]);
+  const deps = {
+    loadEvents: store.loadEvents.bind(store),
+    appendEvent: store.appendEvent.bind(store),
+    recordPayment: store.recordPayment.bind(store),
+    findCheckByTxid: store.findCheckByTxid.bind(store),
+    seenPspEvent: store.seenPspEvent.bind(store),
+    getPayment: store.getPayment.bind(store),
+    repairPaymentRow: store.repairPaymentRow.bind(store),
+  };
+  await store.registerCharge({
+    checkId: check.id, txid: 'pi_x', amountCents: itemCents, tipCents, payerLabel: null, method: 'card',
+  });
+  await applyConfirmedPayment({
+    kind: 'payment_confirmed', txid: 'pi_x', amountCents: itemCents, tipCents, method: 'card', eventId: 'evt_pago',
+  }, deps);
+  return { store, check, deps };
+}
+
+test('a segunda entrega da janela do deploy é REENTREGA — não "chegou antes do estorno"', async () => {
+  const { store, check, deps } = await mesaSimples(3000, 300);
+  await applyConfirmedPayment({
+    kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 1100, method: 'card', eventId: 'evt_e1',
+  }, deps);
+  // A primeira entrega é de ANTES do deploy: sem `re_` no razão, e sem como
+  // preencher depois.
+  await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 1100, eventId: 'evt_f1', refundId: null,
+  }, deps);
+  // A irmã (`refund.updated` com status `failed`) chega DEPOIS do deploy, com id.
+  const segunda = await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 1100, eventId: 'evt_f2', refundId: 're_x',
+  }, deps);
+
+  // Era `out_of_order`: 200, sem reparo da linha, com um segundo aviso ao
+  // fundador e uma frase FALSA e permanente no razão.
+  expect(segunda.status).toBe('duplicate');
+  const evs = await eventos(store, check.id);
+  expect(reversoes(evs, 'pi_x').length).toBe(1);
+  expect(anomalias(evs).filter((a) => /antes do estorno/.test(a.reason || ''))).toEqual([]);
+});
+
+test('uma reversão proporcional não consome candidato — nem vira 409 eterno', async () => {
+  /**
+   * Dois lançamentos de 1000 com repartições DIFERENTES. A falha de um chega,
+   * é ambígua, entra proporcional. A do outro chega depois: o código antigo
+   * consumia o primeiro candidato e casava com o segundo, carimbando testemunha
+   * sobre um valor maior do que o que restava estornado — `validateEvent`
+   * recusava, a rota devolvia 409, a Stripe reenviava até desabilitar o
+   * endpoint, e o dinheiro que voltou pra casa nunca entrava no razão
+   * (compliance HIGH-1 da rodada dez).
+   */
+  const { store, check, deps } = await mesaSimples(10000, 2000);
+  await store.appendEvent(check.id, 'PAYMENT_REFUNDED', { txid: 'pi_x', amountCents: 0, tipCents: 1000 });
+  await store.appendEvent(check.id, 'PAYMENT_REFUNDED', { txid: 'pi_x', amountCents: 600, tipCents: 400 });
+
+  const a = await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 1000, eventId: 'evt_fa', refundId: 're_a',
+  }, deps);
+  const b = await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 1000, eventId: 'evt_fb', refundId: 're_b',
+  }, deps);
+  // As duas ENTRAM. Nenhuma é recusada, e nenhuma carimba testemunha.
+  expect([a.status, b.status]).toEqual(['appended', 'appended']);
+  const evs = await eventos(store, check.id);
+  expect(reversoes(evs, 'pi_x').map((e) => e.payload.testemunhado)).toEqual([false, false]);
+  // E a segunda GRITA, porque é ambígua de verdade.
+  expect(anomalias(evs).some((a2) => /reentrega ou falha nova/.test(a2.reason || ''))).toBe(true);
+});
+
+test('uma falha MAIOR do que o razão conhece não é cortada em silêncio', async () => {
+  /**
+   * `falhou` é o `Refund.amount` da Stripe; `jaEstornado` é o que o nosso razão
+   * sabe. O `Math.min` cortava a diferença sem anomalia, sem log — e o número já
+   * cortado ia casar por valor, podendo casar exatamente com um estorno que deu
+   * CERTO: o razão revertia o estorno certo, com testemunha, e abria teto de
+   * devolução por fora sobre dinheiro que o cliente já tinha recebido
+   * (compliance HIGH-2 da rodada dez; CC art. 884, CDC art. 42).
+   */
+  const { store, check, deps } = await mesaSimples(3000, 300);
+  await applyConfirmedPayment({
+    kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 1100, method: 'card', eventId: 'evt_e1',
+  }, deps);
+  // O adquirente relata falha de 2000 — o razão só conhece 1100 estornados.
+  const r = await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 2000, eventId: 'evt_f1', refundId: 're_2',
+  }, deps);
+  expect(r.status).toBe('appended');
+
+  const evs = await eventos(store, check.id);
+  const grito = anomalias(evs).filter((a) => /relata falha de 2000/.test(a.reason || ''));
+  expect(grito.length).toBe(1);
+  expect(grito[0].severity).toBe('high');
+  // E o valor cortado NÃO sustenta testemunha: é, por construção, uma coisa que
+  // o adquirente não disse.
+  expect(reversoes(evs, 'pi_x').map((e) => e.payload.testemunhado)).toEqual([false]);
+});
+
+test('um chargeback parcial não faz o estorno seguinte virar reentrega', async () => {
+  /**
+   * `charge.amount_refunded` conta objetos `Refund`; uma disputa nunca o
+   * incrementa. Comparando com o nosso acumulado TOTAL — com o chargeback
+   * dentro — o nosso ficava permanentemente à frente, e todo estorno de verdade
+   * que viesse depois caía em `delta <= 0`: engolido, sem anomalia e sem log,
+   * com o cliente já com o dinheiro na mão (segurança HIGH-4 da rodada dez).
+   */
+  const { store, check, deps } = await mesaSimples(10000, 1000);
+  await applyConfirmedPayment({
+    kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 3000, method: 'dispute',
+    eventId: 'evt_d1', disputeId: 'dp_1',
+  }, deps);
+  const r = await applyConfirmedPayment({
+    kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 3000, method: 'card', eventId: 'evt_e1',
+  }, deps);
+  expect(r.status).toBe('appended');
+
+  const st = reduce(await eventos(store, check.id));
+  // Os dois saíram: 3000 pela rede, 3000 pelo estorno.
+  expect(st.payments.pi_x.refundedAmountCents + st.payments.pi_x.refundedTipCents).toBe(6000);
+  // E a reentrega DE VERDADE do estorno continua sendo reentrega.
+  const dnv = await applyConfirmedPayment({
+    kind: 'refund', txid: 'pi_x', cumulativeRefundedCents: 3000, method: 'card', eventId: 'evt_e2',
+  }, deps);
+  expect(dnv.status).toBe('duplicate');
+});
+
+test('uma falha de estorno não desfaz um chargeback que a rede levou', async () => {
+  /**
+   * Sem a exclusão da disputa do conjunto de candidatos, a linha do chargeback
+   * era "a única que casa": a conta voltava de `parcial` pra `paga` sobre
+   * dinheiro que não está mais na casa, com testemunha forjada abrindo teto de
+   * devolução por fora (segurança HIGH-3 da rodada dez).
+   */
+  const { store, check, deps } = await mesaSimples(10000, 1000);
+  await applyConfirmedPayment({
+    kind: 'dispute_lost', txid: 'pi_x', refundDeltaCents: 3000, method: 'dispute',
+    eventId: 'evt_d1', disputeId: 'dp_1',
+  }, deps);
+  const antes = reduce(await eventos(store, check.id));
+  expect(antes.status).toBe('parcial');
+
+  await applyConfirmedPayment({
+    kind: 'refund_failed', txid: 'pi_x', amountCents: 3000, eventId: 'evt_f1', refundId: 're_1',
+  }, deps);
+  const evs = await eventos(store, check.id);
+  // A reversão entra (o adquirente relatou algo), mas SEM autoridade: é ela que
+  // autorizaria a devolução por fora a passar por cima do rateio.
+  expect(reversoes(evs, 'pi_x').map((e) => e.payload.testemunhado)).toEqual([false]);
+});

@@ -46,8 +46,54 @@ abrir `record-restitution` para o caso "serviço devolvido", com a referência d
 adquirente como prova — a mesma forma que já existe para a devolução fora do
 trilho.
 
-Enquanto nenhum dos dois existir, o erro é **contra a casa**: o serviço fica na
-base de cálculo da folha, que o restaurante distribui à equipe por meio da folha
-de pagamento (Lei 13.419/2017). É o lado certo para errar — sobra na base, não
-falta —, e é por isso que isto é uma decisão registrada e não um conserto
-apressado.
+## A metade que esta decisão não tinha contado
+
+A frase anterior desta seção dizia que, enquanto nenhum dos dois existir, "o erro
+é contra a casa: sobra na base da folha, não falta — é o lado certo para errar".
+**Isso era falso, e a revisão de compliance da rodada dez mediu por quê.**
+
+O rateio proporcional não mexe só na gorjeta. Ele abate também o **consumo**, e
+`totalCents` não se mexe. Medido, com os números deste documento:
+
+```
+pago em cheio  : status= paga    paid= 10000  total= 10000  tip= 1000
+apos devolver  : status= parcial paid=  9091  total= 10000  tip=  909
+o telefone diz : faltam 909 centavos
+```
+
+Ou seja: a mesa que pagou tudo volta a ver **R$ 9,09 "faltando" e o botão de
+pagar**, num QR que qualquer um daquela mesa recarrega. Isso é cobrança de dívida
+já quitada — **CDC art. 42**, com a repetição em dobro do parágrafo único se
+alguém pagar —, e informação errada sobre o que se deve (**CDC art. 6º III**). Se
+alguém pagar, a casa recebe R$ 9,09 que não lhe são devidos, mais 10% de serviço
+sobre isso, e nasce um `overpaid_pending_restitution` que o runbook manda
+devolver: um laço.
+
+O lado da folha erra contra a casa. O lado do consumo erra **contra o cliente**,
+que é o lado errado para errar. A conclusão anterior olhava um eixo só.
+
+Três consequências, e nenhuma delas é "adiar sem dizer":
+
+1. **O gatilho acima fecha os dois de uma vez.** Um estorno com composição
+   explícita não tira nada do consumo, então não reabre a conta. Isto reforça o
+   gatilho em vez de enfraquecê-lo.
+2. **Existe detector desde a rodada dez.** `reopened_by_refund`, na conciliação:
+   conta que esteve quitada, tem devolução e não tem ajuste vira achado
+   **crítico**, com o número que a mesa está vendo. Era a diferença entre
+   descobrir isto num documento e descobrir num cliente.
+3. **O runbook passou a dizer o que fazer.** Ver
+   `docs/runbooks/devolver-dinheiro-a-mais.md` — fechar a conta, ou lançar um
+   ajuste para baixo no valor devolvido do consumo, e **nunca** pedir o resto à
+   mesa.
+
+## Isto não é do serviço: é de QUALQUER devolução pelo painel
+
+A mesma mecânica vale para uma devolução de **consumo** (item errado, cortesia):
+`paidCents` cai, `totalCents` fica, e a conta reabre. O único caso seguro é a
+devolução de EXCEDENTE, porque ali `paidCents > totalCents` desde o começo e o
+abate só consome a sobra.
+
+Enquanto o gatilho não chega, o erro é **repartido**: sobra na base da folha
+(contra a casa) e falta na conta do cliente (contra ele). O detector é o que
+impede o segundo de virar dinheiro; é por isso que esta decisão continua sendo
+uma decisão registrada, e não um conserto apressado.

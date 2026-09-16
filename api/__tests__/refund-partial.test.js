@@ -285,7 +285,7 @@ describe('o estorno parcial visto pelo RESTO do sistema', () => {
     return { store, venue, check };
   }
 
-  test('a conciliação NÃO acusa nada: a soma bate dos dois lados', async () => {
+  test('a conciliação não acusa DIVERGÊNCIA: a soma bate dos dois lados', async () => {
     const { store, venue, check } = await comEstornoParcial();
     const rows = (await store.listChecksForReconcile(venue.id))[0].payments;
     const r = reconcileCheck({
@@ -295,8 +295,26 @@ describe('o estorno parcial visto pelo RESTO do sistema', () => {
     // sem nada faltando de verdade. Um alerta que dispara em comportamento
     // correto está morto em duas semanas.
     expect(r.driftCents).toBe(0);
-    expect(r.findings).toEqual([]);
-    expect(r.ok).toBe(true);
+    expect(r.findings.filter((f) => f.code === 'status_lag' || f.code === 'ledger_drift')).toEqual([]);
+
+    /**
+     * O QUE ELA ACUSA, E POR QUE ESTE TESTE DIZIA `[]`.
+     *
+     * "Os dois registros somam igual" e "a tela da mesa está certa" eram a mesma
+     * pergunta neste teste, e não são. A conta foi paga em cheio (3082 de 3082),
+     * o estorno parcial abateu o consumo, `totalCents` não se mexeu — e o
+     * telefone de quem está na mesa voltou a mostrar saldo e o botão de pagar,
+     * num QR que qualquer um daquela mesa recarrega. Cobrança de dívida já
+     * quitada (CDC art. 42). As duas projeções concordam porque as duas derivam
+     * do mesmo razão: é exatamente onde a conciliação não enxerga sozinha.
+     *
+     * Achado pela revisão de compliance da rodada dez — num documento, não num
+     * cliente, e por pouco.
+     */
+    const reaberta = r.findings.filter((f) => f.code === 'reopened_by_refund');
+    expect(reaberta.length).toBe(1);
+    expect(reaberta[0].severity).toBe('high');
+    expect(r.ok).toBe(false);
   });
 
   test('a linha continua CONFIRMADA e diz quanto foi estornado', async () => {

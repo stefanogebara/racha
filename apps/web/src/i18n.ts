@@ -680,6 +680,18 @@ export const DICT = {
   'find.overpaid_tip_check': { en: 'the bill has surplus and more than one payment carried a service charge — check whether service was charged on the duplicated part',
                         pt: 'a conta tem sobra e mais de um pagamento trouxe serviço — confira se há serviço cobrado sobre a parte duplicada',
                         es: 'la cuenta tiene excedente y más de un pago trajo servicio — comprueba si se cobró servicio sobre la parte duplicada' },
+  /**
+   * A CONTA QUE VOLTOU A COBRAR. Quem lê isto é quem decide se pede o resto à
+   * mesa — então a frase tem que dizer NÃO PEÇA, e não só descrever o estado.
+   *
+   * Uma devolução pelo painel do adquirente é rateada entre consumo e serviço, e
+   * a parte do consumo abate o pago sem mexer no total: a conta volta de `paga`
+   * pra `parcial` e o telefone da mesa mostra saldo e o botão de pagar outra vez
+   * (CDC art. 42; compliance HIGH-3 da rodada dez).
+   */
+  'find.reopened_by_refund': { en: 'this bill was settled and a refund reopened it — the table now sees {amount} “still owed” and a pay button. Close the bill or adjust the total down; do not ask the table for the difference',
+                        pt: 'esta conta estava quitada e uma devolução a reabriu — a mesa está vendo {amount} “faltando” e o botão de pagar. Feche a conta ou ajuste o total para baixo; não peça a diferença à mesa',
+                        es: 'esta cuenta estaba saldada y una devolución la reabrió — la mesa ve {amount} «pendiente» y el botón de pagar. Cierra la cuenta o ajusta el total a la baja; no pidas la diferencia a la mesa' },
   'find.ledger_drift':{ en: 'the two money records disagree by {amount}',
                         pt: 'os dois registros de dinheiro divergem em {amount}',
                         es: 'los dos registros de dinero difieren en {amount}' },

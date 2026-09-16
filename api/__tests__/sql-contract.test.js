@@ -756,16 +756,11 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
     expect(chamadas.length).toBe(9);
     /**
      * Os testes de reentrega que guardam cada chamada. `jaEncerrada` é uma
-     * disputa já fechada — reentrega também, só que dita por outro nome.
+     * disputa já fechada — reentrega também, só que dita por outro nome; e
+     * `casamento.decisao === 'reentrega'` é a decisão do `reversal-match`, que
+     * cobre as duas formas de reentrega da reversão (por `re_` e por contagem).
      */
-    /**
-     * As duas DUPLICATAS novas da reversão (53c9ff0), nomeadas aqui porque é
-     * isto que o censo cobra: `refundId === parsed.refundId` é a segunda entrega
-     * da mesma falha identificada pelo `re_`; `algumConsumido` é a mesma coisa
-     * sem identidade — todo candidato daquele valor já foi revertido e nenhum
-     * sobrou, que só acontece em reentrega.
-     */
-    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada|algumConsumido/;
+    const DUPLICATA = /seenPspEvent|seq < 0|delta <= 0|=== parsed\.|refundDeltaCents === 0|jaEncerrada|decisao === 'reentrega'|jaEstornado === 0/;
     const semGuarda = [];
     for (const idx of chamadas) {
       // O trecho antes da chamada, até o `if` que a guarda.
@@ -774,6 +769,52 @@ test('nos dois chamadores, o append no razão vem ANTES da projeção', () => {
     }
     expect(semGuarda).toEqual([]);
   }
+});
+
+/**
+ * TODA SAÍDA QUE NÃO RECUSA OU APENDE OU RECONCILIA.
+ *
+ * O censo acima conta as chamadas de `repairRowFromLedger` e exige que cada uma
+ * esteja atrás de um teste de reentrega. Ele pega a DELEÇÃO de uma chamada — e é
+ * estruturalmente cego pra uma saída que nunca teve chamada nenhuma. Foi
+ * exatamente essa a cegueira: o `out_of_order` devolvia 200 sobre um pagamento
+ * cuja linha podia estar velha, e ficava velha pra sempre, porque nenhuma
+ * chamada foi DELETADA — ela nunca existiu (segurança LOW-1 da rodada dez).
+ *
+ * Este vai pelo outro lado: enumera as saídas de `applyConfirmedPayment` e
+ * exige, de cada uma que não seja `rejected`, ou um append (a entrega mudou o
+ * razão) ou uma reconciliação (a entrega não mudou o razão, então a linha é a
+ * única coisa que pode ter ficado para trás). Uma saída nova entra no censo
+ * sozinha, que é o que a contagem não faz.
+ */
+test('nenhuma saída de sucesso deixa a linha sem notícia do razão', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'webhook-handler.js'), 'utf8');
+  const inicio = fonte.indexOf('async function applyConfirmedPayment');
+  const fim = fonte.indexOf('\nasync function', inicio + 10);
+  expect(inicio).toBeGreaterThan(0);
+  const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
+
+  const saidas = [...corpo.matchAll(/return \{ status: '([a-z_]+)'/g)];
+  // Se a varredura devolver pouca coisa, ela quebrou — e um censo quebrado
+  // absolve tudo.
+  expect(saidas.length).toBeGreaterThanOrEqual(12);
+  const mudas = [];
+  for (const m of saidas) {
+    const status = m[1];
+    // `rejected` é 409: a entrega NÃO foi aceita, a Stripe reenvia, e não há o
+    // que reconciliar — o razão não mudou e a linha não mentiu.
+    if (status === 'rejected') continue;
+    // `appended`/`divergent_appended` são a saída do append: o razão mudou
+    // agora, e a projeção sai do mesmo caminho logo acima.
+    if (status === 'appended' || status === 'divergent_appended') continue;
+    const contexto = corpo.slice(Math.max(0, m.index - 900), m.index);
+    if (!/repairRowFromLedger\(|appendValidated\(|await appendEvent\(/.test(contexto)) {
+      mudas.push(`${status}: ${corpo.slice(m.index, m.index + 70).replace(/\s+/g, ' ')}`);
+    }
+  }
+  expect(mudas).toEqual([]);
 });
 
 

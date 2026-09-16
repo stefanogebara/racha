@@ -155,6 +155,36 @@ Enquanto isso, o erro sobra na base de cálculo da folha que o restaurante
 distribui (nunca falta) — mas avise o time de produto quando acontecer, porque é
 o caso que decide o gatilho.
 
+### E a conta VOLTA A COBRAR. Não peça o resto à mesa.
+
+O rateio não abate só a gorjeta: ele abate o **consumo** também, e o total da
+conta não muda. Numa conta de R$ 100,00 + R$ 10,00 de serviço, devolver os
+R$ 10,00 de serviço deixa a conta assim:
+
+| antes | depois |
+| --- | --- |
+| `paga` · pago R$ 100,00 de R$ 100,00 | `parcial` · pago R$ 90,91 de R$ 100,00 |
+
+O telefone de quem está na mesa volta a mostrar **"faltam R$ 9,09"** e o botão de
+pagar — e o QR da mesa é o mesmo, então qualquer pessoa daquela mesa recarrega e
+vê. Uma mesa que já pagou tudo.
+
+**O que fazer, na hora:**
+
+1. **Feche a conta** (ou lance um ajuste para baixo no valor devolvido do
+   consumo — R$ 9,09 no exemplo). Qualquer um dos dois tira o botão da tela.
+2. **Nunca peça o resto à mesa.** Isso é cobrança de dívida já quitada
+   (CDC art. 42); se alguém pagar, a casa deve de volta em dobro, mais o serviço
+   que entrou junto — e nasce um excedente para você devolver de novo.
+3. Se ninguém agiu e a conta ficou aberta, a conciliação avisa: o achado
+   **`reopened_by_refund`**, crítico, traz o número que a mesa está vendo.
+
+**Isto não é do serviço.** Vale para QUALQUER devolução pelo painel do
+adquirente que toque o consumo — item errado, cortesia, engano de valor. O único
+caso que não reabre a conta é a devolução de EXCEDENTE, porque ali o pagamento
+entrou acima do total e o abate só consome a sobra. É por isso que a instrução lá
+em cima manda devolver **pelo excedente** e não pelo total do pagamento.
+
 ## Por onde o dinheiro sai
 
 **O excedente sai do consumo, nunca da gorjeta.** Ele entra registrado como

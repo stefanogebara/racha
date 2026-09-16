@@ -142,6 +142,65 @@ function reconcileCheck({ checkId, events, payments }) {
 
 
   /**
+   * A CONTA QUE VOLTOU A COBRAR — quitada, e cobrando de novo.
+   *
+   * Um estorno pelo painel do adquirente é rateado entre consumo e serviço
+   * (`allocateRefund`), e a parte do CONSUMO abate `paidCents`. O
+   * `totalCents` não se mexe. Então uma mesa que pagou tudo e recebeu de volta
+   * só o serviço — R$ 10,00 numa conta de R$ 100,00 — volta de `paga` pra
+   * `parcial` com R$ 9,09 "faltando", e o telefone de quem está na mesa mostra
+   * o botão de pagar outra vez, num QR que qualquer um daquela mesa recarrega.
+   *
+   * Isso é cobrança de dívida já quitada (CDC art. 42, com a repetição em dobro
+   * do parágrafo único se alguém pagar) e informação errada sobre o que se deve
+   * (CDC art. 6º III). E é silencioso: as duas projeções concordam, porque as
+   * duas derivam do mesmo razão.
+   *
+   * O runbook já avisava disto no caso do estorno TOTAL ("devolver o pagamento
+   * inteiro reabre a conta e a mesa é cobrada de novo") e a mesma mecânica valia
+   * pro parcial, cem linhas abaixo, sem uma palavra. O remédio operacional é
+   * fechar a conta ou lançar um `ADJUSTED` pra baixo no valor devolvido — e
+   * NUNCA pedir o resto à mesa. Achado pela revisão de compliance da rodada dez.
+   *
+   * `high`, não `critical`, e não `info`. Não se perdeu dinheiro: perdeu-se a
+   * verdade da tela. E não é "alerta que dispara em comportamento correto" — a
+   * devolução é correta, deixar a conta reaberta depois dela é que não é, e o
+   * achado some no instante em que alguém fecha ou ajusta. É a mesma forma do
+   * `overpaid_pending_restitution`: uma operação começada e não terminada.
+   *
+   * ISTO VALE PRA QUALQUER DEVOLUÇÃO que toque o consumo — pelo painel do
+   * adquirente ou registrada pelo dono no caixa (`offRail`). Quem re-cobra a
+   * mesa é a aritmética, não a procedência; separar as duas seria escolher um
+   * cliente pra proteger.
+   */
+  if (state && state.status === 'parcial') {
+    const eventos = Array.isArray(events) ? events : [];
+    const houveEstorno = eventos.some((e) => e.type === 'PAYMENT_REFUNDED');
+    // NÃO há teste de `ADJUSTED` aqui, de propósito. Um ajuste para baixo que
+    // fecha a diferença devolve a conta pra `paga` e o `if` acima já não entra;
+    // um ajuste que fecha SÓ PARTE dela deixa saldo na tela da mesa, e aí o
+    // achado tem que sair. Um `!houveAjuste` faria as duas coisas erradas de
+    // uma vez: seria inalcançável no primeiro caso e daria perdão no segundo.
+    // (Medido: com o `!houveAjuste` no lugar, apagá-lo não quebrava teste
+    // nenhum — guarda que nunca dispara.)
+    // Quanto ENTROU, antes de qualquer devolução. Se isso já cobria a conta, ela
+    // esteve quitada — e o que a reabriu foi a devolução, não uma falta.
+    const entrou = eventos
+      .filter((e) => e.type === 'PAYMENT_CONFIRMED' && e.payload)
+      .reduce((acc, e) => acc + (Number(e.payload.amountCents) || 0), 0);
+    if (houveEstorno && entrou >= state.totalCents && state.totalCents > 0) {
+      add('high', 'reopened_by_refund',
+        `esta conta foi quitada (entrou ${entrou}¢ de ${state.totalCents}¢) e uma devolução a reabriu: `
+        + `o telefone da mesa mostra ${state.totalCents - state.paidCents}¢ "faltando" e o botão de pagar. `
+        + `Feche a conta ou lance um ajuste para baixo; não peça o resto à mesa (CDC art. 42)`,
+        // `deltaCents`, e não um nome novo: é o campo que a cadeia do painel lê
+        // (`overpaidCents ?? deltaCents ?? driftCents ?? amountCents`). Um campo
+        // fora da cadeia faria a tela do dono imprimir "{amount}" literal.
+        { deltaCents: state.totalCents - state.paidCents, entrouCents: entrou });
+    }
+  }
+
+  /**
    * DINHEIRO A MAIS na conta é uma DÍVIDA da casa, e ela tem que aparecer.
    *
    * O redutor já marcava `overpaidCents` e o número morria ali: nenhum achado,

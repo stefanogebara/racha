@@ -353,6 +353,24 @@ function applyEvent(state, evt, seq = null) {
         tipCents: tip,
         refundedAmountCents: 0,
         refundedTipCents: 0,
+        /**
+         * Quanto do estornado veio de CHARGEBACK, e não de estorno.
+         *
+         * Os dois saem do mesmo `PAYMENT_REFUNDED` — é dinheiro saindo nos dois
+         * casos — e por isso somam no mesmo acumulado. Mas o `amount_refunded`
+         * que a Stripe manda em `charge.refunded` conta OBJETOS `Refund`, e uma
+         * disputa não é um: ela nunca incrementa aquele número.
+         *
+         * Comparar o acumulado do adquirente com o NOSSO acumulado total, com
+         * um chargeback dentro, é comparar duas coisas que não medem o mesmo.
+         * Depois de um chargeback parcial o nosso ficava permanentemente à
+         * frente, e todo estorno de verdade que viesse depois era classificado
+         * como reentrega e ENGOLIDO — sem anomalia, sem log: o cliente com o
+         * dinheiro de volta e o razão dizendo que a casa ainda o tem, com o
+         * serviço dele na base de cálculo da folha (segurança HIGH-4 da rodada
+         * dez; Lei 13.419/2017, inegociável #8).
+         */
+        refundedPorDisputaCents: 0,
         disputedAmountCents: 0,
         /**
          * Quanto DESTE pagamento entrou a mais — DERIVADO, não recebido.
@@ -442,6 +460,12 @@ function applyEvent(state, evt, seq = null) {
       // segunda é perder de vista dinheiro que saiu de verdade.
       if (typeof p.disputeId === 'string' && p.disputeId) {
         pay.disputeIdsClosed = [...(pay.disputeIdsClosed || []), p.disputeId];
+      }
+      // O que veio de DISPUTA fica contado à parte — ver `refundedPorDisputaCents`.
+      // A marca é o `disputeId`, a mesma que já decide a idempotência do
+      // chargeback: um estorno comum nunca a traz.
+      if (typeof p.disputeId === 'string' && p.disputeId) {
+        pay.refundedPorDisputaCents = (pay.refundedPorDisputaCents || 0) + amount + tip;
       }
       next.paidCents -= amount;
       next.tipCents -= tip;
