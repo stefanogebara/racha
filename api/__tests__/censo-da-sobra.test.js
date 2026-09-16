@@ -143,6 +143,7 @@ test('o store de PRODUÇÃO monta a sobra igual à regra única — medido, não
    * dele é comparada com a regra única.
    */
   const { createSupabaseStore } = require('../_lib/store/supabase');
+  const { postgrestFalso } = require('../../test-helpers/postgrest-falso');
   const { reduce, sobraPorPagamento } = require('../_lib/checks/check-state');
 
   // UUID de verdade: `loadEvents` do Supabase recusa id malformado (devolve []).
@@ -164,29 +165,32 @@ test('o store de PRODUÇÃO monta a sobra igual à regra única — medido, não
     confirmed_amount_cents: cents, confirmed_tip_cents: 0,
     refunded_amount_cents: 0, refunded_tip_cents: 0,
     check_id: CONTA, confirmed_at: agora, method: 'pix',
+    // `venue_id` e `status`: a leitura do painel filtra pelos dois
+    // (`.eq('venue_id').eq('status','confirmado')`), e o dublê antigo ignorava
+    // filtro — então o fixture nunca precisou tê-los, e o teste passava sobre
+    // uma consulta que, de verdade, não devolveria nada.
+    venue_id: 'v1', status: 'confirmado',
   });
-  const from = (tabela) => {
-    const b = {
-      select() { return b; }, eq() { return b; }, order() { return b; }, limit() { return b; },
-      gte() { return b; }, in() { return b; }, not() { return b; }, range() { return b; },
-      maybeSingle() { return b; }, single() { return b; },
-      then(ok, falha) {
-        let data = [];
-        if (tabela === 'venues') data = { id: 'v1', name: 'Casa', market: 'BR' };
-        else if (tabela === 'checks') data = [{ id: CONTA, table_id: 't1', venue_tables: { label: 'Mesa 1' } }];
-        // `check_id` em cada linha: a leitura do razão é POR LOTE e agrupa
-        // pela coluna. Sem ela o falso devolveria eventos órfãos.
-        else if (tabela === 'check_events') data = eventos.map((e) => ({ ...e, check_id: CONTA }));
-        else if (tabela === 'payments') data = [pagamento('ana', 10000), pagamento('bruno', 6000)];
-        return Promise.resolve({ data, error: null }).then(ok, falha);
-      },
-    };
-    return b;
-  };
-  const store = createSupabaseStore({
-    url: 'http://falso', serviceRoleKey: 'x',
-    client: { from, rpc: async () => ({ data: [], error: null }) },
-  });
+  /**
+   * O dublê COMPARTILHADO (`test-helpers/postgrest-falso`), e não mais um local.
+   *
+   * O daqui não conhecia `neq`, e quando o painel passou a recortar as contas
+   * abertas (`.neq('status','fechada')`) ele estourou. Era o QUARTO dublê quase
+   * igual da suíte, divergindo justamente nos filtros — a mesma forma que já
+   * rendeu três cópias divergentes do predicado de estorno no código de
+   * produção, só que num lugar onde ela é mais difícil de ver: um dublê
+   * permissivo não quebra, ele só faz o teste dizer sim.
+   */
+  const { client } = postgrestFalso({
+    venues: [{ id: 'v1', name: 'Casa', market: 'BR' }],
+    venue_tables: [{ id: 't1', venue_id: 'v1', label: 'Mesa 1', training: false }],
+    checks: [{ id: CONTA, venue_id: 'v1', table_id: 't1', status: 'aberta', opened_at: agora, venue_tables: { label: 'Mesa 1' } }],
+    // `check_id` em cada linha: a leitura do razão é POR LOTE e agrupa pela
+    // coluna. Sem ela o falso devolveria eventos órfãos.
+    check_events: eventos.map((e) => ({ ...e, check_id: CONTA })),
+    payments: [pagamento('ana', 10000), pagamento('bruno', 6000)],
+  }, { projetar: false });
+  const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client });
 
   const painel = await store.getPanelView('v1');
   const esperado = sobraPorPagamento(reduce(eventos));

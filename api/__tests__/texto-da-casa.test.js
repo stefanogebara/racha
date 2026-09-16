@@ -127,6 +127,33 @@ describe('os caracteres que somem no diff', () => {
     expect(rotuloDaMesa(MVS.repeat(3)).ok).toBe(false);
   });
 
+  /**
+   * O RESIDUO COLADO NUM NOME DE VERDADE.
+   *
+   * O `TEM_CONTEUDO` pergunta "sobrou algum glifo?" — e por isso so pega a
+   * string inteiramente invisivel. `"Mesa 7" + tag` e `"Mesa" + CGJ` tem glifo
+   * de sobra e passavam pelos dois lados, dando duas mesas que o olho le igual
+   * e o `unique` le diferente. E o braille em branco (U+2800) passava ate
+   * SOZINHO, porque e `\p{So}` — um simbolo que nao desenha nada.
+   * Segunda revisao de seguranca de 2026-09-16 (LOW-2).
+   */
+  test.each([
+    ['caractere de tag anexado', 'Mesa 7\u{E0041}'],
+    ['juntor de grafemas (CGJ)', 'Mesa\u034F 7'],
+    ['braille em branco, sozinho', '\u2800\u2800\u2800'],
+    ['seletor de variacao suplementar', 'Mesa 7\u{E0100}'],
+  ])('%s e recusado — o olho nao ve, o `unique` ve', (_nome, entrada) => {
+    expect(rotuloDaMesa(entrada).ok).toBe(false);
+  });
+
+  test('o braille em branco ANEXADO some, e as duas mesas viram a MESMA string', () => {
+    // Recusar seria pior aqui: o que a lista de remocao alcanca ela LIMPA, e
+    // limpar e o que faz "Mesa 7" e "Mesa 7<braille>" colidirem — que e
+    // exatamente o que o `unique (venue_id, label)` precisa pra enxergar as
+    // duas como uma. A recusa fica pro residuo que a lista NAO conhece.
+    expect(rotuloDaMesa('Mesa 7\u2800').valor).toBe(rotuloDaMesa('Mesa 7').valor);
+  });
+
   test('mas o seletor de variacao NAO e removido — ele desenha a placa da casa', () => {
     // Tirar o U+FE0F de "Bar (coracao) do Ze" muda as palavras do restaurante,
     // que e a unica coisa que este modulo promete nao fazer.

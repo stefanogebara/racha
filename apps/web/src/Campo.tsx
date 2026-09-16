@@ -1,6 +1,5 @@
-import { useLayoutEffect, useRef } from 'react';
-import type { ChangeEvent, InputHTMLAttributes, ReactNode } from 'react';
-import { caretDepoisDaMascara } from './mascara-caret';
+import type { InputHTMLAttributes, ReactNode } from 'react';
+import { useMascara } from './useMascara';
 
 /**
  * UM CAMPO COM RÓTULO VISÍVEL — a moldura do Presence (`.ps-field-row label`).
@@ -49,45 +48,25 @@ export type CampoProps = {
 } & InputHTMLAttributes<HTMLInputElement>;
 
 export function Campo({ rotulo, recado, ruim, bom, mascara, value, onChange, ...resto }: CampoProps) {
-  const ref = useRef<HTMLInputElement>(null);
-  /** Onde o cursor deve parar depois que o React pintar o valor novo. */
-  const caretPendente = useRef<number | null>(null);
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    const pos = caretPendente.current;
-    caretPendente.current = null;
-    // Só mexe no cursor se ele for de QUEM ESTÁ DIGITANDO: repor a seleção num
-    // campo sem foco rouba o foco e rola a página até ele.
-    if (el && pos !== null && document.activeElement === el) {
-      el.setSelectionRange(pos, pos);
+  // O gancho roda SEMPRE (regra dos hooks); quando não há máscara, o que ele
+  // devolve é ignorado logo abaixo.
+  const mascarado = useMascara(mascara ?? ((v) => v), String(value ?? ''), () => {});
+  const comMascara = mascara
+    ? {
+      ref: mascarado.ref,
+      value: mascarado.value,
+      onChange: (e: Parameters<typeof mascarado.onChange>[0]) => {
+        mascarado.onChange(e);
+        onChange?.(e);
+      },
     }
-  });
-
-  const aoMudar = mascara
-    ? (e: ChangeEvent<HTMLInputElement>) => {
-      // Lido AQUI, antes de o React repintar: depois da repintura o
-      // `selectionStart` já é o do valor novo, que é justamente o fim.
-      caretPendente.current = caretDepoisDaMascara(
-        e.target.value,
-        e.target.selectionStart ?? e.target.value.length,
-        mascara(e.target.value),
-      );
-      onChange?.(e);
-    }
-    : onChange;
+    : { value, onChange };
 
   return (
     <div>
       <label className={`campo${ruim ? ' ruim' : ''}`}>
         <span>{rotulo}</span>
-        <input
-          {...resto}
-          ref={ref}
-          value={mascara ? mascara(String(value ?? '')) : value}
-          onChange={aoMudar}
-          aria-invalid={ruim || undefined}
-        />
+        <input {...resto} {...comMascara} aria-invalid={ruim || undefined} />
       </label>
       {recado && <span className={`campo-msg${ruim ? ' ruim' : bom ? ' bom' : ''}`}>{recado}</span>}
     </div>

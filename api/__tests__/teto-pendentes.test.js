@@ -364,10 +364,58 @@ describe('o atacante que o teto existe pra parar', () => {
     const ROUTER = ler('api', '_app', 'router.js');
     const ini = ROUTER.indexOf("url.pathname === '/api/pay/stripe-intent'");
     const rota = ROUTER.slice(ini, ROUTER.indexOf("url.pathname === '", ini + 30));
-    const rotulo = rota.indexOf('payerLabelValido(b.payerLabel)');
+    const rotulo = rota.indexOf('normalizarRotuloDoPagador(b.payerLabel)');
     expect({ rotulo: rotulo > 0, antesDaVaga: rotulo < rota.indexOf('assertChargeSlot('),
       antesDaStripe: rotulo < rota.search(/stripePsp\.create[A-Z]/) })
       .toEqual({ rotulo: true, antesDaVaga: true, antesDaStripe: true });
+  });
+
+  /**
+   * O VALOR CONFERIDO É O VALOR GRAVADO — nos DOIS caminhos de cobrança.
+   *
+   * O teste acima afirmava só a POSIÇÃO do portão, e por isso ficou verde
+   * enquanto a rota do intent conferia o rótulo normalizado e gravava o CRU.
+   * Enquanto o predicado era lista de recusa os dois coincidiam; quando ele
+   * passou a LIMPAR, deixaram de coincidir, e o portão passou a aprovar
+   * exatamente o que a escrita recusa: `"Ana" + cem espaços` passa aqui e
+   * estoura no `registerCharge` DEPOIS de a Stripe criar o intent — sem
+   * devolver a vaga. Duzentas requisições, de quem tem uma foto do QR, matavam
+   * o cartão e o Bizum daquela conta por quinze minutos e deixavam duzentos
+   * PaymentIntents órfãos. Segunda revisão de segurança de 2026-09-16 (NEW-1).
+   *
+   * Então o teste não pergunta "existe portão": pergunta o que FICOU GUARDADO,
+   * e pergunta nos dois sítios — um censo sobre os chamadores, não uma
+   * conferência do que foi consertado.
+   */
+  describe('o rótulo guardado é o rótulo limpo — nos dois chamadores', () => {
+    const CRUS = [
+      ['cem espaços no fim', `Ana${' '.repeat(100)}`, 'Ana'],
+      ['NUL', 'Ana\u0000', 'Ana'],
+      ['largura-zero', 'Ana\u200B', 'Ana'],
+      ['espaço duplo no meio', 'Ana  Maria', 'Ana Maria'],
+    ];
+
+    test.each(CRUS)('fábrica de cobrança (Pix/carteira): %s', async (_n, cru, limpo) => {
+      const { store, table, charge } = mundo();
+      const check = await contaAberta(store, table);
+      const r = await charge({ checkId: check.id, amountCents: 100, payerLabel: cru });
+      const linha = await store.getPayment(r.txid);
+      expect(linha.payerLabel).toBe(limpo);
+    });
+
+    test.each(CRUS)('o `registerCharge` do store, chamado DIRETO: %s', async (_n, cru, limpo) => {
+      // É por aqui que a rota do intent da Stripe entra, sem passar pela
+      // fábrica. Se a regra morasse só no portão, este caso guardaria o cru.
+      const { store, table } = mundo();
+      const check = await contaAberta(store, table);
+      await store.registerCharge({
+        checkId: check.id, txid: `tx_${Math.random()}`, amountCents: 100, tipCents: 0,
+        payerLabel: cru, method: 'card',
+      });
+      const ultimo = await store.getPayment((await store.listChecksForReconcile(check.venueId ?? 'v1'))
+        .flatMap((c) => c.payments).slice(-1)[0].txid);
+      expect(ultimo.payerLabel).toBe(limpo);
+    });
   });
 
   test('ponta a ponta no router: corpos inválidos e depois um cliente de verdade paga', async () => {

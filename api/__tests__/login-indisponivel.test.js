@@ -35,6 +35,14 @@ describe('o login indisponível não desloga ninguém', () => {
     });
   });
 
+  test('o 429 do GoTrue NÃO desloga — é o furo que a lista de recusa tinha', async () => {
+    const limitado = Object.assign(new Error('rate limit exceeded'), { name: 'AuthApiError', status: 429 });
+    const auth = createAuth({ authClient: comErro(limitado), store });
+    await expect(auth.requireUser(pedido('t'))).rejects.toMatchObject({
+      statusCode: 503, code: 'auth_unavailable',
+    });
+  });
+
   test('um token RECUSADO continua 401 — senão a guarda some junto', async () => {
     // Esta é a metade que uma correção apressada quebra: alargar o ramo de
     // transporte até ele engolir a recusa de verdade transforma um portão de
@@ -58,12 +66,29 @@ describe('o login indisponível não desloga ninguém', () => {
 
 describe('o predicado, medido caso a caso', () => {
   test.each([
-    ['abort do auth-js', abortado, true],
+    // O QUE O auth-js DE FATO PRODUZ. As formas abaixo foram lidas do
+    // `@supabase/auth-js/dist/main/lib/fetch.js`: ele converte 500-504 e
+    // 520-530 em `AuthRetryableFetchError`, e o resto em `AuthApiError` com o
+    // status da resposta. A primeira versão deste caso afirmava
+    // `{ name: 'AuthApiError', status: 500 }` — uma forma que o auth-js NUNCA
+    // constrói —, então o teste documentava o contrário do runtime e o próximo
+    // leitor "consertaria" o código pra casar com ele.
+    ['abort (sem resposta)', abortado, true],
+    ['500 → o auth-js chama de Retryable', { name: 'AuthRetryableFetchError', status: 500 }, true],
+    ['520 da Cloudflare', { name: 'AuthRetryableFetchError', status: 520 }, true],
     ['status 0 sem nome conhecido', { status: 0, message: 'socket hang up' }, true],
-    ['nome conhecido sem status', { name: 'AuthRetryableFetchError' }, true],
-    ['JWT inválido', { name: 'AuthApiError', status: 401 }, false],
-    ['proibido', { name: 'AuthApiError', status: 403 }, false],
-    ['erro 500 do GoTrue (ele RESPONDEU)', { name: 'AuthApiError', status: 500 }, false],
+    // Os dois furos que a lista de recusa tinha, e que a inversão fecha.
+    ['429 — limite de taxa do GoTrue, atingível DE PROPÓSITO', { name: 'AuthApiError', status: 429 }, true],
+    ['403 de WAF na frente do GoTrue', { name: 'AuthApiError', status: 403 }, true],
+    // A ÚNICA coisa que autoriza deslogar.
+    ['401 — o GoTrue olhou e disse não', { name: 'AuthApiError', status: 401 }, false],
+    ['401 como string', { name: 'AuthApiError', status: '401' }, false],
+    // Erro sem forma: não é 401, então não desloga ninguém.
+    // SEM status: não veio do auth-js (dublê, provedor diferente, versão
+    // velha). Continua sendo recusa de token — senão quem tem mesmo um token
+    // ruim veria "o login não respondeu" pra sempre, sem ser convidado a entrar.
+    ['erro sem status', { name: 'Sei lá' }, false],
+    ['erro que é string', 'quebrou', false],
     ['nulo', null, false],
   ])('%s → é falha de transporte? %p', (_nome, erro, esperado) => {
     expect(naoDeuPraPerguntar(erro)).toBe(esperado);

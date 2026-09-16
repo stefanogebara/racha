@@ -17,6 +17,7 @@ function badRequest(msg) {
 
 const { disputeCounts } = require('../checks/disputes');
 const { PAPEL_DE_DONO } = require('./papeis');
+const { rotuloDoPagador } = require('../texto-da-casa');
 
 /**
  * Supabase store — the production implementation of the store contract
@@ -291,10 +292,18 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     if (!colunas.split(',').map((c) => c.trim()).includes(coluna)) {
       throw new Error(`lerPorLote(${tabela}): o select precisa trazer '${coluna}' — é a chave do mapa`);
     }
+    // MINÚSCULA DOS DOIS LADOS. O `isUuid` aceita hexadecimal maiúsculo (a regex
+    // tem a flag `i`), e o Postgres devolve `uuid` sempre em minúscula: um id
+    // maiúsculo na entrada indexaria o mapa por uma chave que nenhuma linha
+    // devolvida casaria, e o `throw` do balde ausente derrubaria uma leitura
+    // legítima. Inalcançável hoje — todo `ids` daqui vem de uma leitura do banco
+    // na mesma função — e alcançável na primeira vez que um id vier de uma
+    // requisição. Apontado pela segunda revisão de segurança de 2026-09-16.
+    const emMinuscula = ids.map((id) => String(id).toLowerCase());
     const mapa = new Map();
-    for (const id of ids) mapa.set(id, []);
-    for (let i = 0; i < ids.length; i += IDS_POR_LOTE) {
-      const lote = ids.slice(i, i + IDS_POR_LOTE);
+    for (const id of emMinuscula) mapa.set(id, []);
+    for (let i = 0; i < emMinuscula.length; i += IDS_POR_LOTE) {
+      const lote = emMinuscula.slice(i, i + IDS_POR_LOTE);
       const linhas = await lerPaginado({
         op,
         consulta: (de, ate) => {
@@ -304,7 +313,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         },
       });
       for (const r of linhas) {
-        const balde = mapa.get(r[coluna]);
+        const balde = mapa.get(String(r[coluna]).toLowerCase());
         // GRITA em vez de descartar. O filtro é do banco, então uma linha de um
         // id que ninguém pediu não deveria existir — e se existir, ela é o
         // sintoma de alguma coisa errada na leitura, não ruído pra varrer. Um
@@ -502,7 +511,19 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .select('id, venue_id, label, qr_token, qr_rotated_at, active')
         .single();
       // unique_violation on (venue_id, label) surfaces as a clear message.
-      if (error && /duplicate|unique/i.test(error.message)) throw new Error('duplicate table label');
+      //
+      // E sai com CÓDIGO, não só com a frase. A rota decidia por
+      // `/duplicate/.test(e.message)` — uma decisão tomada sobre uma SUBSTRING
+      // que atravessa dois módulos, que é a forma que o inegociável #7 manda
+      // desconfiar. Basta uma mensagem futura conter a palavra ("duplicate key
+      // in cache", um texto de proxy) pra o dono ler "já existe uma mesa com
+      // esse nome" sobre uma falha que não é essa. Segunda revisão de segurança
+      // de 2026-09-16 (LOW-E).
+      if (error && /duplicate|unique/i.test(error.message)) {
+        const e = new Error('duplicate table label');
+        e.code = 'table_label_duplicate';
+        throw e;
+      }
       throwOn(error, 'createTable');
       return {
         id: data.id, venueId: data.venue_id, label: data.label,
@@ -845,12 +866,26 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         lerPaginado({ op: 'getAdoptionFunnel.pagos',
           consulta: (de, ate) => client.from('payments').select('check_id')
             .eq('venue_id', venueId).eq('status', 'confirmado').gte('confirmed_at', desde)
-            .order('check_id', { ascending: true }).range(de, ate) }),
+            // `check_id` NÃO é ordem total aqui (uma conta tem vários
+            // pagamentos), e é de propósito: as duas leituras colapsam num
+            // `Set` de `check_id`, então embaralhar empates dentro do mesmo
+            // grupo não muda o resultado. Vira defeito no dia em que alguma
+            // delas CONTAR linhas em vez de colapsar — que é exatamente o que a
+            // irmã aqui do lado (`contasCriadas`) faz. Se esta projeção mudar,
+            // a ordem tem que ficar total.
+            .order('check_id', { ascending: true }).order('txid', { ascending: true }).range(de, ate) }),
       ]);
-      const abertas = new Set((views || []).map((r) => r.check_id));
-      const pagas = new Set((pagos.data || []).map((r) => r.check_id));
+      // `lerPaginado` devolve um ARRAY, não `{ data }`. A conversão pra
+      // paginação trocou `views.data` por `views` e esqueceu os outros dois:
+      // `contasCriadas` e `contasPagas` viravam ZERO pra sempre, sem erro — e é
+      // deste número que sai o portão de adoção (≥25% em oito semanas) que o
+      // CLAUDE.md diz que estaciona o produto. A forma "conserto pela metade",
+      // dentro do commit que existe pra acabar com consertos pela metade.
+      // Segunda revisão de segurança de 2026-09-16 (NEW-2).
+      const abertas = new Set(views.map((r) => r.check_id));
+      const pagas = new Set(pagos.map((r) => r.check_id));
       return {
-        contasCriadas: (checks.data || []).length,
+        contasCriadas: checks.length,
         contasAbertasNaMesa: abertas.size,
         contasPagas: pagas.size,
         // A leitura do portão: das contas que alguém ABRIU, quantas fecharam
@@ -934,10 +969,19 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       // nomeia três vezes, e o conserto é o mesmo das outras: a regra desce
       // pro sítio que não dá pra contornar, em vez de virar mais um item num
       // censo de chamadores. Achado pela revisão de segurança de 2026-09-15.
-      if (payerLabel !== null && payerLabel !== undefined
-        && (typeof payerLabel !== 'string' || payerLabel.length > 60)) {
-        throw badRequest('payerLabel must be a string of at most 60 chars');
-      }
+      //
+      // E ele NORMALIZA, não só confere. Enquanto a regra era uma lista de
+      // recusa, "conferir aqui" e "conferir no portão" davam no mesmo. Quando o
+      // portão passou a LIMPAR, os dois deixaram de coincidir: o portão
+      // aprovava `"Ana" + cem espaços` (que normaliza pra `"Ana"`) e esta linha
+      // recusava o cru, DEPOIS de o adquirente já ter criado a cobrança — e a
+      // vaga do teto não voltava. Guardar o normalizado é o que faz "o valor
+      // conferido é o valor gravado" valer por construção, em vez de por
+      // disciplina de chamador. Segunda revisão de segurança de 2026-09-16
+      // (NEW-1).
+      const rotulo = rotuloDoPagador(payerLabel);
+      if (!rotulo.ok) throw badRequest('payerLabel must be a string of at most 60 chars');
+      payerLabel = rotulo.valor;
       const { data: check, error: cErr } = await client
         .from('checks').select('venue_id, venues(market)').eq('id', checkId).single();
       throwOn(cErr, 'registerCharge.check');
@@ -1651,95 +1695,14 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(vErr, 'getPanelView.venue');
       if (!venue) return null;
 
-      // PAGINA. `opened_at` é ASCENDENTE, então o corte derrubava as contas
-      // MAIS NOVAS: passando de mil contas na vida da casa, o painel parava de
-      // listar as mesas de hoje e a lista de restituição parava de mostrar
-      // obrigação nova (CC art. 876). `id` desempata — duas contas abrem no
-      // mesmo milissegundo e `opened_at` sozinho não é ordem total.
-      const checks = await lerPaginado({
-        op: 'getPanelView.checks',
-        consulta: (de, ate) => client.from('checks').select('id, table_id, venue_tables(label)')
-          .eq('venue_id', venueId)
-          .order('opened_at', { ascending: true }).order('id', { ascending: true })
-          .range(de, ate),
-      });
-
-      const rows = [];
       /**
-       * txid → quanto daquele pagamento entrou a MAIS e ainda falta restituir.
+       * A JANELA DE PAGAMENTOS SOBE, porque a lista de contas depende dela.
        *
-       * Sai daqui porque é aqui que os eventos são reduzidos: o excedente vive
-       * no RAZÃO, e `payments` não tem coluna pra ele. Serve pra série semanal
-       * não contar dívida como receita (CC art. 876) — o widget do dia já
-       * descontava, e a série ao lado dele não.
+       * O terceiro conjunto de contas ("as que receberam dinheiro na janela")
+       * sai dos `check_id` desta leitura, entao ela precisa acontecer antes.
+       * As mesas de TREINO sobem junto: e o filtro delas que decide o que
+       * conta como dinheiro de verdade.
        */
-      const sobraPorTxid = new Map();
-      // POR LOTE: era uma leitura do razão POR CONTA ABERTA, em série, e o
-      // painel do dono recarrega a cada 4 s. Ver `loadEventsPorLote`.
-      const razoes = await loadEventsPorLote((checks || []).map((c) => c.id));
-      for (const c of checks || []) {
-        const state = reduce(razoes.get(c.id) || []);
-        // PELA REGRA ÚNICA: este mapa desconta a dívida do FATURAMENTO da série
-        // semanal (ver `ativacao.js`), e lido do excedente congelado ele era
-        // cego justamente na sobra que nasce de uma reversão — a série contava
-        // como receita a mesma quantia que a linha ao lado chamava de dívida
-        // (CC art. 876; segurança HIGH-1 de a95e15c).
-        acumularSobra(state, sobraPorTxid);
-        rows.push({
-          checkId: c.id,
-          tableLabel: c.venue_tables ? c.venue_tables.label : '?',
-          state: {
-            status: state.status,
-            totalCents: state.totalCents,
-            paidCents: state.paidCents,
-            tipCents: state.tipCents,
-            anomalies: state.anomalies.length,
-            // A SOBRA a devolver, por conta. O redutor já a calculava e o
-            // número morria ali: nenhum painel, nenhuma tela. Ver
-            // `overpaid_pending_restitution` na conciliação.
-            overpaidCents: state.overpaidCents,
-            // PAGO DEPOIS DE FECHAR, na parte que a sobra não cobre — ver `paidAfterClose`. A equipe
-            // confere com a mesa se ela também pagou no caixa. (Compliance HIGH-1.)
-            paidAfterClose: paidAfterClose(state),
-            /**
-             * QUAL cobrança devolver — o painel não podia dizer.
-             *
-             * O dono lia "R$ 90,00 a devolver a clientes" e tinha que adivinhar
-             * qual cobrança abrir no painel do adquirente. Uma obrigação que a
-             * tela anuncia e não sabe endereçar não é acionável (CC art. 876:
-             * a restituição não espera o cliente pedir). O txid é do LADO DO
-             * DONO, atrás de auth — a leitura pública segue com ordinal.
-             */
-            /**
-             * QUAL cobrança devolver, e QUANTO.
-             *
-             * A primeira versão filtrava "tem consumo devolvível" e reportava
-             * o saldo devolvível INTEIRO — então numa conta rachada listava as
-             * cobranças de quem pagou exato, com o valor cheio do pagamento. O
-             * runbook manda o operador devolver "o valor que o painel indica":
-             * seguido à letra, ele estornava o pagador errado, ou estornava um
-             * pagamento inteiro e reabria uma conta quitada (a mesa cobrada de
-             * novo, CDC art. 42). Achado pela revisão de compliance de
-             * 2026-09-08.
-             *
-             * Agora: só quem TEM excedente, e o valor é o que falta restituir
-             * daquele pagamento. Fica do lado do dono, atrás de auth — a
-             * leitura pública segue com ordinal.
-             */
-            ...(state.overpaidCents > 0 ? {
-              // PELA REGRA ÚNICA do redutor: o excedente cru é zero na
-              // duplicidade que nasce depois, e o painel mostrava "a devolver"
-              // sem nenhuma cobrança embaixo — com o runbook mandando devolver
-              // "pelo valor ao lado da cobrança" (compliance HIGH-1 de 089e8a2).
-              overpaidTxids: linhasDeSobra(state),
-            } : {}),
-            // Disputas por CONTAGEM: é a taxa de chargeback que o
-            // adquirente julga, e o dono não tinha como ver a dele.
-            disputes: disputeCounts(state),
-          },
-        });
-      }
-
       // Mesas de TREINO ficam fora de todos os números (workshop pré-turno
       // não é movimento da casa) — espelha o memory store.
       // Mesa de treino que cai fora da página passa a contar como mesa DE
@@ -1818,6 +1781,145 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
           .order('txid', { ascending: true })
           .range(de, ate),
       });
+
+      /**
+       * AS CONTAS QUE O PAINEL PRECISA — e só elas.
+       *
+       * Paginar esta leitura consertou o número (antes ela era cortada em mil
+       * e o painel parava de listar as mesas de HOJE, porque `opened_at` é
+       * ascendente). Mas trocou "silenciosamente errado" por "sem teto": o
+       * painel passou a ler TODA conta que a casa já teve, e o
+       * `loadEventsPorLote` logo abaixo a ler TODO evento de cada uma — a cada
+       * volta do laço do painel. Numa casa com 120 contas/dia isso são dez mil
+       * contas em três meses, e dezenas de idas por carga até a função morrer
+       * no `maxDuration`. A troca foi na direção certa (o #8 prefere a tela
+       * parar a mostrar número errado), mas é um precipício com data marcada.
+       * Achado pelas duas revisões de 2026-09-16 (compliance MEDIUM-C,
+       * segurança NEW-3).
+       *
+       * O recorte NÃO pode ser uma janela de data seca: uma conta ABERTA de
+       * qualquer idade tem que aparecer, e uma obrigação de restituição
+       * (CC art. 876) não vence com o tempo. Então são três conjuntos:
+       *
+       *  1. **As abertas, de qualquer idade.** Provadamente pequeno: a 0004
+       *     mantém `status='fechada'` DENTRO do portão de append, e o índice
+       *     `checks_one_open_per_table` é único sobre `status <> 'fechada'` —
+       *     no máximo uma aberta POR MESA.
+       *  2. **As da janela**, pelo `opened_at`: o que o dono espera ver.
+       *  3. **As que receberam dinheiro na janela**, mesmo velhas e fechadas —
+       *     é delas que sai o `sobraPorTxid` que desconta dívida do faturamento
+       *     da série semanal. Sem este terceiro conjunto, a série voltaria a
+       *     contar como receita uma dívida (o defeito de a95e15c).
+       *
+       * O que sai da lista: conta fechada, velha e sem movimento na janela. Se
+       * ela tiver obrigação pendente, ela continua aparecendo — pelos ACHADOS
+       * da conciliação, que varre a casa inteira e grita `critical` depois de
+       * 48 h. O canal alto continua alto.
+       */
+      const idsComDinheiroNaJanela = [...new Set((confirmedRaw || []).map((p) => p.check_id))];
+      const [abertas, daJanela, comDinheiro] = await Promise.all([
+        lerPaginado({
+          op: 'getPanelView.checks.abertas',
+          consulta: (de, ate) => client.from('checks').select('id, table_id, venue_tables(label)')
+            .eq('venue_id', venueId).neq('status', 'fechada')
+            .order('id', { ascending: true }).range(de, ate),
+        }),
+        lerPaginado({
+          op: 'getPanelView.checks.janela',
+          consulta: (de, ate) => client.from('checks').select('id, table_id, venue_tables(label)')
+            .eq('venue_id', venueId).gte('opened_at', desde)
+            .order('opened_at', { ascending: true }).order('id', { ascending: true })
+            .range(de, ate),
+        }),
+        idsComDinheiroNaJanela.length === 0 ? Promise.resolve([]) : lerPorLote({
+          tabela: 'checks',
+          colunas: 'id, table_id, venue_tables(label)',
+          coluna: 'id',
+          ids: idsComDinheiroNaJanela.filter(isUuid),
+          ordem: ['id'],
+          op: 'getPanelView.checks.comDinheiro',
+        }).then((m) => [...m.values()].flat()),
+      ]);
+      const porId = new Map();
+      for (const c of [...abertas, ...daJanela, ...comDinheiro]) porId.set(c.id, c);
+      const checks = [...porId.values()];
+
+      const rows = [];
+      /**
+       * txid → quanto daquele pagamento entrou a MAIS e ainda falta restituir.
+       *
+       * Sai daqui porque é aqui que os eventos são reduzidos: o excedente vive
+       * no RAZÃO, e `payments` não tem coluna pra ele. Serve pra série semanal
+       * não contar dívida como receita (CC art. 876) — o widget do dia já
+       * descontava, e a série ao lado dele não.
+       */
+      const sobraPorTxid = new Map();
+      // POR LOTE: era uma leitura do razão POR CONTA ABERTA, em série, e o
+      // painel do dono recarrega a cada 4 s. Ver `loadEventsPorLote`.
+      const razoes = await loadEventsPorLote((checks || []).map((c) => c.id));
+      for (const c of checks || []) {
+        const state = reduce(razoes.get(c.id) || []);
+        // PELA REGRA ÚNICA: este mapa desconta a dívida do FATURAMENTO da série
+        // semanal (ver `ativacao.js`), e lido do excedente congelado ele era
+        // cego justamente na sobra que nasce de uma reversão — a série contava
+        // como receita a mesma quantia que a linha ao lado chamava de dívida
+        // (CC art. 876; segurança HIGH-1 de a95e15c).
+        acumularSobra(state, sobraPorTxid);
+        rows.push({
+          checkId: c.id,
+          tableLabel: c.venue_tables ? c.venue_tables.label : '?',
+          state: {
+            status: state.status,
+            totalCents: state.totalCents,
+            paidCents: state.paidCents,
+            tipCents: state.tipCents,
+            anomalies: state.anomalies.length,
+            // A SOBRA a devolver, por conta. O redutor já a calculava e o
+            // número morria ali: nenhum painel, nenhuma tela. Ver
+            // `overpaid_pending_restitution` na conciliação.
+            overpaidCents: state.overpaidCents,
+            // PAGO DEPOIS DE FECHAR, na parte que a sobra não cobre — ver `paidAfterClose`. A equipe
+            // confere com a mesa se ela também pagou no caixa. (Compliance HIGH-1.)
+            paidAfterClose: paidAfterClose(state),
+            /**
+             * QUAL cobrança devolver — o painel não podia dizer.
+             *
+             * O dono lia "R$ 90,00 a devolver a clientes" e tinha que adivinhar
+             * qual cobrança abrir no painel do adquirente. Uma obrigação que a
+             * tela anuncia e não sabe endereçar não é acionável (CC art. 876:
+             * a restituição não espera o cliente pedir). O txid é do LADO DO
+             * DONO, atrás de auth — a leitura pública segue com ordinal.
+             */
+            /**
+             * QUAL cobrança devolver, e QUANTO.
+             *
+             * A primeira versão filtrava "tem consumo devolvível" e reportava
+             * o saldo devolvível INTEIRO — então numa conta rachada listava as
+             * cobranças de quem pagou exato, com o valor cheio do pagamento. O
+             * runbook manda o operador devolver "o valor que o painel indica":
+             * seguido à letra, ele estornava o pagador errado, ou estornava um
+             * pagamento inteiro e reabria uma conta quitada (a mesa cobrada de
+             * novo, CDC art. 42). Achado pela revisão de compliance de
+             * 2026-09-08.
+             *
+             * Agora: só quem TEM excedente, e o valor é o que falta restituir
+             * daquele pagamento. Fica do lado do dono, atrás de auth — a
+             * leitura pública segue com ordinal.
+             */
+            ...(state.overpaidCents > 0 ? {
+              // PELA REGRA ÚNICA do redutor: o excedente cru é zero na
+              // duplicidade que nasce depois, e o painel mostrava "a devolver"
+              // sem nenhuma cobrança embaixo — com o runbook mandando devolver
+              // "pelo valor ao lado da cobrança" (compliance HIGH-1 de 089e8a2).
+              overpaidTxids: linhasDeSobra(state),
+            } : {}),
+            // Disputas por CONTAGEM: é a taxa de chargeback que o
+            // adquirente julga, e o dono não tinha como ver a dele.
+            disputes: disputeCounts(state),
+          },
+        });
+      }
+
       const confirmed = (confirmedRaw || [])
         .filter((p) => !trainingChecks.has(p.check_id))
         .map((p) => ({

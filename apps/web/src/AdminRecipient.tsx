@@ -3,6 +3,7 @@ import { authedReq as req } from './auth';
 import { type ApiError } from './api';
 import { useT } from './lang';
 import { onlyDigits, alnum, isValidCNPJ, docKind, maskCpfCnpj, isValidEmail, BR_BANKS, bankName, normalizarDocumento } from './br';
+import { useMascara } from './useMascara';
 
 /**
  * "Recebimento" — o recebedor Pagar.me (split) do restaurante, por venue.
@@ -40,6 +41,15 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   // Formulário — strings cruas; documento e campos bancários mascarados no onChange.
   const [name, setName] = useState('');
   const [doc, setDoc] = useState('');
+  /**
+   * O gancho da máscara mora AQUI, no topo do componente — não no JSX.
+   *
+   * O campo do documento está dentro de `{formVisible && (…)}`: chamar um hook
+   * lá dentro faz a CONTAGEM de hooks mudar quando o formulário abre e fecha, e
+   * o React quebra com "rendered fewer hooks than expected". O TypeScript não
+   * vê isso, e eu escrevi assim na primeira tentativa.
+   */
+  const campoDoDocumento = useMascara(maskCpfCnpj, doc, (v) => setDoc(normalizarDocumento(v)));
   const [email, setEmail] = useState('');
   const [notifyWhatsapp, setNotifyWhatsapp] = useState('');
   const [bankCode, setBankCode] = useState('');
@@ -267,10 +277,15 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
             <label style={{ gridColumn: '1 / -1' }}>
               {t('rcpt.docLabel')}
+              {/* A FORMA sai do formatador, nunca de uma string pontuada à mão —
+                  é a regra que o censo do `taxid.test.ts` existe pra impor, e um
+                  placeholder é pontuação escrita à mão. E o cursor vem do
+                  `useMascara`: sem ele, corrigir um dígito do meio do CNPJ da
+                  conta de repasse jogava o cursor pro fim a cada tecla. */}
               <input className="namefield" inputMode="text" autoCapitalize="characters" autoComplete="off"
-                placeholder="00.000.000/0000-00" value={maskCpfCnpj(doc)}
+                placeholder={maskCpfCnpj('00000000000000')}
                 onBlur={() => touch('doc')} style={errStyle('doc', valid.doc)}
-                onChange={(e) => setDoc(normalizarDocumento(e.target.value))} />
+                {...campoDoDocumento} />
               {fb('doc', valid.doc, docErr, t('rcpt.docHint'),
                 t('admin.cnpjOk'))}
               {/* A casa HERDA este documento quando ainda não tem um, e é ele

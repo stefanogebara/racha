@@ -221,16 +221,14 @@ function geracaoDoQr(token) {
  * PaymentIntent na Stripe e estourar no registro. O NUL agora é REMOVIDO em vez
  * de recusado; o surrogate continua recusado, porque não há o que limpar.
  */
-const { normalizarTextoDaCasa } = require('../texto-da-casa');
+const { rotuloDoPagador } = require('../texto-da-casa');
 
-const ROTULO_MAX = 60;
-
-function normalizarRotuloDoPagador(v) {
-  if (v === null || v === undefined) return { ok: true, valor: null };
-  if (typeof v !== 'string' || !v.isWellFormed()) return { ok: false };
-  const r = normalizarTextoDaCasa(v, { max: ROTULO_MAX, code: 'payer_label_invalid', opcional: true });
-  return r.ok ? { ok: true, valor: r.valor } : { ok: false };
-}
+/**
+ * O rótulo do pagador, pela regra ÚNICA — que mora no `texto-da-casa.js`
+ * porque os dois stores também precisam dela, e store não importa de `pay/`.
+ * Ver o bloco longo lá.
+ */
+const normalizarRotuloDoPagador = rotuloDoPagador;
 
 /** A pergunta antiga, agora derivada — o `store-contract` e as rotas a usam. */
 function payerLabelValido(v) {

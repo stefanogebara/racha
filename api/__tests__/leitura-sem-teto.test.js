@@ -70,11 +70,37 @@ function cadeiasDeLeitura(fonte) {
   return achadas;
 }
 
-/** O nome da função/método em que a linha `i` está. */
+/**
+ * O nome da função/método em que a linha `i` está.
+ *
+ * ATRIBUIR PELO NOME MAIS PRÓXIMO ACIMA ESTAVA ERRADO, e errado do jeito caro:
+ * a dispensa é indexada pelo nome, então uma leitura sem teto plantada DENTRO
+ * do `listChecksForReconcile`, logo depois da chamada a `lerPorLote({`, era
+ * atribuída a `lerPorLote` — que está dispensado — e o censo a absolvia. A
+ * guarda escrita pra pegar leitura sem teto na conciliação diária deixava
+ * passar uma leitura sem teto na conciliação diária. Segunda revisão de
+ * segurança de 2026-09-16 (LOW-3).
+ *
+ * Agora a atribuição é por INDENTAÇÃO: os métodos do store vivem todos em
+ * quatro espaços dentro do objeto devolvido, e as funções de topo do módulo em
+ * zero. Uma chamada aninhada (`lerPorLote({`, `consulta: (de, ate) =>`) está
+ * mais funda que isso e é ignorada. O teste `a atribuição é conferida` fixa
+ * pares linha→método conhecidos: um censo cuja atribuição não é testada tem a
+ * mesma forma de falha das leituras que ele policia.
+ */
 function donoDe(linhas, i) {
   for (let j = i; j >= 0; j--) {
-    const m = linhas[j].match(/^\s*(?:async\s+)?(?:function\s+)?([a-zA-Z_]\w*)\s*\(/);
-    if (m && !['if', 'for', 'while', 'switch', 'catch', 'return'].includes(m[1])) return m[1];
+    const m = linhas[j].match(/^(\s*)(?:async\s+)?(?:function\s+)?([a-zA-Z_]\w*)\s*\(/);
+    if (!m) continue;
+    const recuo = m[1].length;
+    // As TRÊS profundidades em que uma declaração vive neste arquivo: função de
+    // topo do módulo (0), ajudante dentro da fábrica (2), método do objeto
+    // devolvido (4). Mais fundo que isso é CHAMADA, não declaração — e era daí
+    // que vinha a atribuição errada. (Medido: apertar demais também erra, pro
+    // outro lado — os ajudantes de 2 espaços caíam na fábrica.)
+    if (recuo > 4) continue;
+    if (['if', 'for', 'while', 'switch', 'catch', 'return'].includes(m[2])) continue;
+    return m[2];
   }
   return '(desconhecido)';
 }
@@ -123,6 +149,46 @@ describe('nenhuma leitura do store volta sem teto', () => {
    * plantada no arquivo real — plantar no real e esquecer de tirar é como se
    * desliga um guarda sem querer.
    */
+  /**
+   * A ATRIBUIÇÃO É CONFERIDA — porque é ela que decide quem herda uma dispensa.
+   *
+   * Pares conhecidos, fixados à mão. Se a atribuição escorregar, uma leitura
+   * passa a herdar a dispensa de outra função e o censo absolve em silêncio:
+   * foi exatamente assim que ele deixava passar uma leitura sem teto plantada
+   * dentro do `listChecksForReconcile`.
+   */
+  test('a atribuição é conferida — o censo sabe de QUEM é cada leitura', () => {
+    const porLinha = new Map(leituras.map((l) => [l.linha, l.dono]));
+    const donosVistos = new Set(leituras.map((l) => l.dono));
+    // Os métodos que fazem leitura de dinheiro têm que aparecer como donos.
+    for (const metodo of ['getPanelView', 'listChecksForReconcile', 'getAdoptionFunnel',
+      'listHouseAccountsForReconcile', 'loadEvents', 'listTables']) {
+      expect({ metodo, dono: donosVistos.has(metodo) }).toEqual({ metodo, dono: true });
+    }
+    // E nenhuma leitura é atribuída a um ajudante de LOTE por estar dentro da
+    // chamada dele — o bug que esta função teve.
+    const dentroDeChamada = [...porLinha.values()].filter((d) => d === 'consulta' || d === 'lerPaginado');
+    expect(dentroDeChamada).toEqual([]);
+  });
+
+  test('uma leitura sem teto DENTRO de uma função dispensada não herda a dispensa', () => {
+    // O bypass medido pela revisão, como fonte sintética: um `.from()` sem teto
+    // plantado logo depois de uma chamada a `lerPorLote({` dentro de outro
+    // método. Antes ele era atribuído a `lerPorLote` e absolvido.
+    const sintetico = [
+      '    async listChecksForReconcile(venueId) {',
+      '      const razoes = await lerPorLote({',
+      "        tabela: 'check_events', coluna: 'check_id', ids, ordem: ['check_id', 'seq'],",
+      '      });',
+      "      const { data: x } = await client.from('payments').select('txid').eq('check_id', c.id);",
+      '    },',
+    ].join('\n');
+    const achadas = cadeiasDeLeitura(sintetico).filter((l) => classificar(l) === 'SEM TETO');
+    expect(achadas).toHaveLength(1);
+    expect(achadas[0].dono).toBe('listChecksForReconcile');
+    expect(DISPENSADAS[achadas[0].dono]).toBeUndefined();
+  });
+
   test('o censo acusa uma leitura nova sem teto — medido', () => {
     const sintetico = [
       'async function leituraNova(venueId) {',

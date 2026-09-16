@@ -39,6 +39,7 @@ const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
 const { PAPEL_DE_DONO } = require('./papeis');
+const { rotuloDoPagador } = require('../texto-da-casa');
 const { isTerminalRecipientStatus } = require('../recipient-status');
 
 /**
@@ -134,7 +135,10 @@ function createMemoryStore() {
     // blocked in both stores (reactivate the old one instead).
     for (const t of tableById.values()) {
       if (t.venueId === venueId && t.label === trimmed) {
-        throw new Error('duplicate table label');
+        // Com CÓDIGO, igual ao de produção: é o código que a rota lê, e um
+        // dublê que só tem a frase faz o teste da rota passar sobre um contrato
+        // que o store de verdade não cumpre.
+        throw Object.assign(new Error('duplicate table label'), { code: 'table_label_duplicate' });
       }
     }
     // A fixed token is a SEED-ONLY affordance: prod tables always rotate
@@ -840,10 +844,19 @@ function createMemoryStore() {
       // nomeia três vezes, e o conserto é o mesmo das outras: a regra desce
       // pro sítio que não dá pra contornar, em vez de virar mais um item num
       // censo de chamadores. Achado pela revisão de segurança de 2026-09-15.
-      if (payerLabel !== null && payerLabel !== undefined
-        && (typeof payerLabel !== 'string' || payerLabel.length > 60)) {
-        throw badRequest('payerLabel must be a string of at most 60 chars');
-      }
+      //
+      // E ele NORMALIZA, não só confere. Enquanto a regra era uma lista de
+      // recusa, "conferir aqui" e "conferir no portão" davam no mesmo. Quando o
+      // portão passou a LIMPAR, os dois deixaram de coincidir: o portão
+      // aprovava `"Ana" + cem espaços` (que normaliza pra `"Ana"`) e esta linha
+      // recusava o cru, DEPOIS de o adquirente já ter criado a cobrança — e a
+      // vaga do teto não voltava. Guardar o normalizado é o que faz "o valor
+      // conferido é o valor gravado" valer por construção, em vez de por
+      // disciplina de chamador. Segunda revisão de segurança de 2026-09-16
+      // (NEW-1).
+      const rotulo = rotuloDoPagador(payerLabel);
+      if (!rotulo.ok) throw badRequest('payerLabel must be a string of at most 60 chars');
+      payerLabel = rotulo.valor;
       txidToCheck.set(txid, checkId);
       const check = checks.get(checkId);
       const chargeVenue = check ? venues.get(check.venueId) : null;

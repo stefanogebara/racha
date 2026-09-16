@@ -550,8 +550,8 @@ export const DICT = {
    * tela sumiu.
    */
   'err.auth_unavailable': { en: 'We could not reach the sign-in service. Nothing was lost — try again in a moment.',
-                            pt: 'Nao conseguimos falar com o servico de login. Nada foi perdido — tente de novo em instantes.',
-                            es: 'No pudimos contactar con el servicio de acceso. No se perdio nada — intentalo de nuevo en un momento.' },
+                            pt: 'Não conseguimos falar com o serviço de login. Nada foi perdido — tente de novo em instantes.',
+                            es: 'No pudimos contactar con el servicio de acceso. No se perdió nada — inténtalo de nuevo en un momento.' },
   'err.table_label_duplicate': { en: 'There is already a table with that name.',
                                  pt: 'Já existe uma mesa com esse nome.',
                                  es: 'Ya existe una mesa con ese nombre.' },

@@ -78,6 +78,8 @@
  *   \u202A–\u202E  embutir e SOBREPOR direcao (RLO)
  *   \u2060–\u2064  juntor de palavra e operadores invisiveis
  *   \u2066–\u2069  isolar direcao
+ *   \u2800         braille em branco — DESENHA NADA e e \p{So}, entao passava
+ *                  pelos dois lados (lista de recusa e lista de permissao)
  *   \u3164         preenchedor hangul — o classico do nome em branco
  *   \uFEFF         BOM
  *   \u0000–\u0008  controle C0 — menos tab/LF/CR, que sao ESPACO
@@ -97,7 +99,7 @@
  *   \uFEFF         BOM
  *   \uFFA0         preenchedor hangul de meia largura
  */
-const INVISIVEIS = /[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F-\u009F\u00AD\u061C\u115F-\u1160\u17B4-\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u3164\uFEFF\uFFA0]/g;
+const INVISIVEIS = /[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F-\u009F\u00AD\u061C\u115F-\u1160\u17B4-\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u2800\u3164\uFEFF\uFFA0]/g;
 
 /**
  * E O CONTRARIO DA LISTA DE CIMA, que e o que de fato segura.
@@ -113,6 +115,29 @@ const INVISIVEIS = /[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F-\u009F\u00AD\
  * uma mesa, e "—" sozinho e o mesmo problema com outra cara.
  */
 const TEM_CONTEUDO = /[\p{L}\p{N}\p{S}]/u;
+
+/**
+ * E O RESÍDUO DE FORMATAÇÃO — a parte que o `TEM_CONTEUDO` não alcança.
+ *
+ * `TEM_CONTEUDO` pergunta "sobrou algum glifo?", e isso só pega a string
+ * INTEIRAMENTE invisível. Não pega o resíduo ANEXADO a um nome de verdade:
+ * medido, `"Mesa 7" + U+E0041` (um caractere de tag) e `"Mesa" + U+034F` (o
+ * juntor de grafemas) passavam pelos dois lados e davam duas mesas que o olho
+ * lê igual e o `unique (venue_id, label)` lê diferente — exatamente o dano que
+ * o bloco lá em cima descreve. Segunda revisão de segurança de 2026-09-16
+ * (LOW-2).
+ *
+ * `Default_Ignorable_Code_Point` é a propriedade que o Unicode mantém pra
+ * "isto não deve desenhar", então ela cobre o bloco de tags, o CGJ, o hífen
+ * suave e tudo que as próximas versões acrescentarem — sem lista pra manter.
+ * MENOS `\uFE00-\uFE0F`: os seletores de variação são a exceção decidida (eles
+ * desenham o caractere ANTERIOR, e tirá-los reescreve a placa do restaurante).
+ *
+ * Aqui RECUSA em vez de limpar: o que sobrou depois da limpeza é coisa que esta
+ * casa não conhece, e apagar em silêncio o desconhecido é como se perde um
+ * caractere que importava.
+ */
+const RESIDUO_IGNORAVEL = /[[\p{Default_Ignorable_Code_Point}]--[\uFE00-\uFE0F]]/v;
 
 /**
  * Os limites — lidos de um JSON que o CLIENTE também lê.
@@ -158,6 +183,9 @@ function normalizarTextoDaCasa(bruto, { max, code, opcional = false }) {
   // Vazio, ou sem nada que desenhe: as duas coisas sao "a pessoa nao escreveu
   // um nome", e a segunda e a que a lista de recusa sozinha deixaria passar.
   if (limpo === '' || !TEM_CONTEUDO.test(limpo)) return opcional ? { ok: true, valor: null } : nao;
+  // Resíduo de formatação COLADO num nome de verdade: o `TEM_CONTEUDO` acima
+  // acha o glifo e absolve. Ver `RESIDUO_IGNORAVEL`.
+  if (RESIDUO_IGNORAVEL.test(limpo)) return nao;
   // Pontos de código, como o `char_length` do Postgres conta.
   if ([...limpo].length > max) return nao;
   return { ok: true, valor: limpo };
@@ -167,4 +195,30 @@ const nomeDaCasa = (b) => normalizarTextoDaCasa(b, { max: LIMITES.nomeDaCasa, co
 const rotuloDaMesa = (b) => normalizarTextoDaCasa(b, { max: LIMITES.rotuloDaMesa, code: 'table_label_invalid' });
 const cidadeDaCasa = (b) => normalizarTextoDaCasa(b, { max: LIMITES.cidade, code: 'venue_city_invalid', opcional: true });
 
-module.exports = { normalizarTextoDaCasa, nomeDaCasa, rotuloDaMesa, cidadeDaCasa, LIMITES, INVISIVEIS };
+/**
+ * O RÓTULO DO PAGADOR — a mesma regra, e MORA AQUI de propósito.
+ *
+ * Ela nasceu no `create-charge.js`, e os stores não podem importar de
+ * `_lib/pay/` sem inverter a camada. Como a regra precisa valer no ponto que
+ * NÃO dá pra contornar (o `registerCharge` dos dois stores, que a rota do
+ * intent da Stripe chama direto), ela desce pra cá — onde a fábrica de
+ * cobrança, o router e os dois stores leem a MESMA função.
+ *
+ * O que não dá pra limpar continua recusado: UTF-16 mal formado (um surrogate
+ * solto é `22P02` no Postgres, e não há o que sanear) e tamanho.
+ */
+const ROTULO_DO_PAGADOR_MAX = 60;
+
+function rotuloDoPagador(v) {
+  if (v === null || v === undefined) return { ok: true, valor: null };
+  if (typeof v !== 'string' || !v.isWellFormed()) return { ok: false, code: 'payer_label_invalid' };
+  const r = normalizarTextoDaCasa(v, {
+    max: ROTULO_DO_PAGADOR_MAX, code: 'payer_label_invalid', opcional: true,
+  });
+  return r.ok ? { ok: true, valor: r.valor } : { ok: false, code: 'payer_label_invalid' };
+}
+
+module.exports = {
+  normalizarTextoDaCasa, nomeDaCasa, rotuloDaMesa, cidadeDaCasa,
+  rotuloDoPagador, ROTULO_DO_PAGADOR_MAX, LIMITES, INVISIVEIS,
+};

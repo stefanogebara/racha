@@ -18,6 +18,8 @@
  */
 
 const { createMemoryStore } = require('../_lib/store/memory');
+const { createSupabaseStore } = require('../_lib/store/supabase');
+const { postgrestFalso } = require('../../test-helpers/postgrest-falso');
 
 async function casaComMesa() {
   const store = createMemoryStore();
@@ -120,5 +122,60 @@ describe('a rota registra e nunca atrapalha quem paga', () => {
     // O de vendas continua existindo e continua dependendo do `pl` — são dois
     // instrumentos diferentes medindo coisas diferentes.
     expect(app).toMatch(/if \(!prospectPl\) return;/);
+  });
+});
+
+/**
+ * OS DOIS STORES CONTAM O MESMO — e é isto que faltava.
+ *
+ * Todo o resto deste arquivo roda contra o store de MEMÓRIA. O de produção
+ * ficou sem nenhum teste, e quando a leitura virou paginada a conversão trocou
+ * `views.data` por `views` e esqueceu as outras duas linhas: `contasCriadas` e
+ * `contasPagas` passaram a ser ZERO pra sempre, sem erro nenhum. É deste número
+ * que sai o portão de ≥25% na semana 8 — o que o CLAUDE.md diz que estaciona o
+ * produto. Ninguém consome o funil por rota ainda; alguém vai, confiando nele.
+ *
+ * Achado pela segunda revisão de segurança de 2026-09-16 (NEW-2). O conserto de
+ * CLASSE não é a linha: é este teste, que faz o store de produção responder à
+ * mesma pergunta que o de memória.
+ */
+describe('o funil do store de PRODUÇÃO conta como o da memória', () => {
+  const VENUE = 'v1';
+  const conta = (n) => `${String(n).padStart(8, '0')}-3333-4333-8333-333333333333`;
+  const agora = new Date().toISOString();
+
+  /** Três contas criadas, duas abertas na mesa por telefone, uma paga. */
+  const dados = {
+    check_views: [
+      { check_id: conta(0), venue_id: VENUE, at: agora, session_hash: 'a' },
+      { check_id: conta(0), venue_id: VENUE, at: agora, session_hash: 'b' },
+      { check_id: conta(1), venue_id: VENUE, at: agora, session_hash: 'c' },
+    ],
+    checks: [0, 1, 2].map((i) => ({ id: conta(i), venue_id: VENUE, opened_at: agora })),
+    payments: [
+      { check_id: conta(0), txid: 'tx0', venue_id: VENUE, status: 'confirmado', confirmed_at: agora },
+      { check_id: conta(0), txid: 'tx1', venue_id: VENUE, status: 'confirmado', confirmed_at: agora },
+      { check_id: conta(2), txid: 'tx2', venue_id: VENUE, status: 'pendente', confirmed_at: null },
+    ],
+  };
+
+  test('os três números, e a conversão', async () => {
+    const { client } = postgrestFalso(dados);
+    const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client });
+    const f = await store.getAdoptionFunnel(VENUE, {});
+    expect(f).toEqual({
+      contasCriadas: 3,          // era 0: `checks.data` num array
+      contasAbertasNaMesa: 2,    // duas contas vistas, três telefones
+      contasPagas: 1,            // uma conta com pagamento confirmado (dois txids)
+      conversao: 1 / 2,          // era 0: `pagos.data` num array
+    });
+  });
+
+  test('sem ninguém na mesa, a conversão é NULA e não zero', async () => {
+    // Zero é uma medida ("abriram e não pagaram"); nulo é a ausência dela. O
+    // portão de adoção lê os dois de forma diferente.
+    const { client } = postgrestFalso({ ...dados, check_views: [] });
+    const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client });
+    expect((await store.getAdoptionFunnel(VENUE, {})).conversao).toBeNull();
   });
 });

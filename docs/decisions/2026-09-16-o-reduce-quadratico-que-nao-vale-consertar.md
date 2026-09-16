@@ -41,6 +41,29 @@ verdade é o contrário — muitas contas pequenas —, e aí a conta é linear:
 Cinco mil contas com doze pagamentos cada — uma casa grande, um ano de história,
 a conciliação diária inteira — custam meio segundo. O `maxDuration` é 120 s.
 
+### O orçamento certo não é o da conciliação (correção)
+
+A primeira versão desta página comparava os 537 ms com os 120 s da conciliação
+diária, e a revisão de compliance apontou que esse é o orçamento errado: o mesmo
+`reduce` roda no `getPanelView`, que o `/api/panel` chama **a cada volta do laço
+do painel**, sem cache. Era esse o número que decidia, e ele não estava aqui.
+
+O que mudou desde então, e por que a decisão se sustenta melhor agora do que
+com o argumento errado:
+
+- O laço deixou de ser fixo em quatro segundos. Ele **para** na aba escondida e
+  **recua até um minuto** depois de uma falha (`Panel.tsx`), então o pior caso
+  deixou de ser "quinze vezes por minuto, para sempre, por aba aberta".
+- A lista de contas do painel deixou de ser "toda conta que a casa já teve" e
+  passou a ser três conjuntos pequenos: as ABERTAS (no máximo uma por mesa, pelo
+  índice único da 0004), as da janela de oito dias, e as que receberam dinheiro
+  na janela. O `reduce` do painel roda sobre isso — dezenas de contas numa casa
+  movimentada, não milhares.
+
+Ou seja: o número que a revisão pediu é o do painel, e o conserto do recorte
+tirou o painel da conta. A conciliação diária continua lendo a casa inteira, e é
+lá que os 537 ms valem — uma vez por dia.
+
 Do outro lado da balança: `check-state.js` é o redutor do dinheiro. É o módulo
 com testes de propriedade, provas de mutação e três rodadas de revisão em cima,
 e a mudança que tiraria o quadrático (parar de clonar por evento, mutar uma
@@ -51,9 +74,22 @@ mau negócio.
 
 ## O que faria isto voltar à mesa
 
-Uma conta real passar de algumas centenas de pagamentos. O sinal não é uma
-suspeita: é este mesmo script rodando contra a distribuição de produção. Se
-aparecer, o conserto certo é **estrutural** (o redutor guardando os pagamentos
-num mapa persistente, ou o estado sendo congelado uma vez no fim), não um
-`cloneState` mais esperto — e passa pelos dois revisores como qualquer outra
-mudança no caminho do dinheiro.
+Uma conta real passar de algumas centenas de pagamentos.
+
+**E o gatilho tem que disparar sozinho.** A primeira versão desta página dizia
+"é este mesmo script rodando contra a distribuição de produção" — o que, como a
+revisão de compliance observou, é um desejo e não um gatilho: não há métrica,
+achado nem alerta que emita pagamentos-por-conta, e depender de alguém lembrar,
+numa cadência que ninguém escreveu, é a mesma coisa que esta casa chama de
+"guarda que é caracterizada em produção, por um cliente em pé na mesa".
+
+A conciliação diária já carrega o razão completo de toda conta da casa. Fazer
+ela levar junto o `max(pagamentos por conta)` e emitir um achado `info` acima de
+uns 300 custa pouco e faz a decisão se reabrir sozinha. **Fica na fila com esta
+página como justificativa** — e é a única parte desta decisão que continua em
+aberto.
+
+Se aparecer, o conserto certo é **estrutural** (o redutor guardando os
+pagamentos num mapa persistente, ou o estado sendo congelado uma vez no fim),
+não um `cloneState` mais esperto — e passa pelos dois revisores como qualquer
+outra mudança no caminho do dinheiro.

@@ -33,17 +33,45 @@ function bearer(authorizationHeader) {
  * @param {object} deps.store  the data store (venue_members access)
  */
 /**
- * O erro do GoTrue é de TRANSPORTE — quer dizer que a pergunta não chegou, e
- * não que a resposta foi "não"?
+ * O GoTrue OLHOU O TOKEN E DISSE NÃO — ou só não deu pra perguntar?
  *
- * Duas marcas, porque uma sozinha envelhece: o `status: 0` (a convenção de "sem
- * resposta", a mesma do postgrest-js) e o NOME da classe do auth-js. Um token
- * recusado de verdade volta com 401/403 e outro nome.
+ * Isto era uma lista de RECUSA ("o que conta como falha de transporte"), e
+ * perdeu pro primeiro código que ela não listava. A segunda revisão de
+ * segurança de 2026-09-16 mediu dois furos:
+ *
+ *  · **429.** Não está no `NETWORK_ERROR_CODES` do auth-js (que cobre 500-504 e
+ *    520-530), então vem como `AuthApiError(429)` e caía no 401 — e o cliente
+ *    desloga em qualquer 401. Alguém sem autenticação nenhuma jogando tokens
+ *    falsos em qualquer rota de dono empurra o IP de saída compartilhado da
+ *    Vercel pro limite de taxa do GoTrue, e todo dono com o painel aberto é
+ *    deslogado no meio do turno. O mesmo dano de antes, agora DE PROPÓSITO.
+ *  · **403 de WAF** na frente do GoTrue: idem.
+ *
+ * Então inverte-se: a única coisa que conta como "o token não presta" é um
+ * **401**. Todo o resto — 0, 403, 429, 5xx, erro sem forma, transporte — é "não
+ * deu pra perguntar". Uma lista de permissão sobre o que autoriza a deslogar,
+ * pela mesma razão que a lista de invisíveis virou uma pergunta inversa: lista
+ * de recusa perde pro próximo valor.
+ *
+ * ERRAR PRA QUE LADO: classificar uma recusa de verdade como 503 devolve 503 e
+ * NÃO devolve usuário — o ramo lança. Ninguém entra; a pessoa vê "o login não
+ * respondeu" em vez de "entre de novo". Classificar uma indisponibilidade como
+ * 401 desloga a casa inteira. O lado seguro é este.
  */
 function naoDeuPraPerguntar(error) {
   if (!error) return false;
-  if (error.status === 0) return true;
-  return error.name === 'AuthRetryableFetchError';
+  // SÓ DECIDE QUANDO HÁ UM STATUS PRA JULGAR.
+  //
+  // O auth-js sempre põe um: `0` quando a ida não voltou, o código da resposta
+  // quando voltou (lido em `@supabase/auth-js/.../lib/fetch.js`). Um erro SEM
+  // status não veio dele — é um dublê, um provedor de auth diferente, uma
+  // versão mais velha — e aí a resposta honesta é a antiga: trate como recusa
+  // de token. O contrário estragaria o outro lado: quem tem mesmo um token
+  // ruim veria "o login não respondeu" pra sempre, sem nunca ser convidado a
+  // entrar de novo.
+  const status = Number(error.status);
+  if (!Number.isFinite(status)) return false;
+  return status !== 401;
 }
 
 function createAuth({ authClient, store }) {

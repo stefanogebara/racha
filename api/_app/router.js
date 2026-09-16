@@ -44,7 +44,7 @@ const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { reduce, remainingCents, paidAfterClose } = require('../_lib/checks/check-state');
 const {
-  createChargeService, assertChargeSlot, geracaoDoQr, payerLabelValido, JANELA_VIVA_MS,
+  createChargeService, assertChargeSlot, geracaoDoQr, normalizarRotuloDoPagador, JANELA_VIVA_MS,
 } = require('../_lib/pay/create-charge');
 const { escolherPsp } = require('../_lib/pay/psp-indisponivel');
 const { errorStatus, errorBody } = require('../_lib/http-error');
@@ -1036,7 +1036,31 @@ async function route(req, res) {
       // intent: um rótulo de 61 caracteres gastava uma vaga do teto e deixava
       // um PaymentIntent que o `payments` não conhece. Mesma regra da fábrica,
       // mesma função. Revisão de compliance de 2026-09-15 (MEDIUM-1).
-      if (!payerLabelValido(b.payerLabel)) {
+      /**
+       * O VALOR CONFERIDO É O VALOR GRAVADO.
+       *
+       * Esta rota chamava `payerLabelValido(b.payerLabel)` e gravava
+       * `b.payerLabel` CRU. Enquanto o predicado era uma lista de recusa, os
+       * dois coincidiam. Quando ele passou a ser baseado em LIMPEZA (o rótulo
+       * do pagador virou o normalizador compartilhado), pararam de coincidir —
+       * e o portão passou a aprovar exatamente o que a escrita não aceita:
+       * `"Ana" + cem espaços` normaliza pra `"Ana"`, passa aqui, e estoura no
+       * `registerCharge` DEPOIS de a Stripe ter criado o intent.
+       *
+       * O estouro não devolve a vaga (o `finally` só devolve se a Stripe não
+       * foi chamada), então duzentas requisições — de qualquer um com uma foto
+       * do QR — matavam o trilho de cartão e o Bizum daquela conta por quinze
+       * minutos, e deixavam duzentos PaymentIntents órfãos no adquirente, sem
+       * linha de `payments` atrás deles. Objetos de dinheiro que a conciliação
+       * não enxerga, pela rota que não passa pelo portão compartilhado.
+       *
+       * Regressão minha, achada pela segunda revisão de segurança de
+       * 2026-09-16 (NEW-1): eu troquei o predicado e consertei o `create-charge`
+       * — que reatribui o normalizado —, e não este chamador. É a terceira vez
+       * nesta série que a régua certa não chega sozinha ao segundo sítio.
+       */
+      const rotuloDoPagador = normalizarRotuloDoPagador(b.payerLabel);
+      if (!rotuloDoPagador.ok) {
         // Só o código: quem traduz é o cliente. (Compliance LOW-4 de 7a65e93.)
         return json(res, 400, { success: false, code: 'payer_label_invalid' });
       }
@@ -1100,7 +1124,7 @@ async function route(req, res) {
           // Bizum NÃO é cartão: rotular errado aqui contamina o painel, a
           // ativação por método e a conciliação. É pagamento em tempo real,
           // como o Pix — mesma família, moeda diferente.
-          payerLabel: b.payerLabel ?? null, method: rail === 'bizum' ? 'bizum' : 'card',
+          payerLabel: rotuloDoPagador.valor, method: rail === 'bizum' ? 'bizum' : 'card',
         });
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
         // logo acima já gravava 'bizum' certo, e a resposta dizia 'card' —
@@ -2274,7 +2298,10 @@ async function route(req, res) {
          * comum (`errorStatus`/`errorBody`), que devolve 500 + `internal` pra
          * falha nossa e nunca repassa texto interno.
          */
-        if (/duplicate/.test(e.message)) {
+        // Pelo CÓDIGO que o store carimba, não por uma substring da mensagem
+        // dele: decisão tomada sobre texto que atravessa módulo é o que o
+        // inegociável #7 manda desconfiar. (LOW-E de 2026-09-16.)
+        if (e.code === 'table_label_duplicate') {
           return json(res, 409, { success: false, code: 'table_label_duplicate' });
         }
         return json(res, errorStatus(e), errorBody(e));
