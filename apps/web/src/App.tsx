@@ -517,6 +517,10 @@ export default function App() {
           // revisão de compliance de 2026-09-15 (HIGH-3).
           limit: String(err.vars.limit ?? ''),
           windowMinutes: String(err.vars.windowMinutes ?? ''),
+      // `maxChars` é CONTAGEM DE CARACTERES, não dinheiro — e `max` já está
+      // tomado pelo `money(maxCents)` logo acima. Serve as recusas das palavras
+      // da casa (nome, rótulo de mesa, cidade).
+      maxChars: String(err.vars.maxChars ?? ''),
         } : undefined));
       void refresh();
     }

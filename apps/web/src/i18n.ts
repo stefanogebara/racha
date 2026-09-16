@@ -503,6 +503,41 @@ export const DICT = {
                             pt: 'Valor acima do que falta ({left}).',
                         es: 'El importe supera lo que falta ({left}).' },
   'err.tax_id_invalid': { en: 'Check the document number.', pt: 'Confira o número do documento.', es: 'Revisa el número del documento.' },
+  /**
+   * AS PALAVRAS DA CASA, recusadas com CÓDIGO.
+   *
+   * As três frases dizem o LIMITE em número, porque "nome inválido" não diz a
+   * quem digitou o que fazer a seguir — e o motivo mais provável da recusa é
+   * colagem longa demais, não caractere estranho. O `maxLength` do campo já
+   * impede a digitação; estas frases são pra quando a recusa vem do servidor
+   * (colagem programática, formulário antigo em cache, script de importação).
+   *
+   * NÃO dizem "caracteres inválidos": os invisíveis são REMOVIDOS em silêncio,
+   * não recusados — quem colou "Mesa 7" de um PDF com marca de direção vê a
+   * mesa criada como "Mesa 7", que é o que ela queria. Só um rótulo que era SÓ
+   * invisível cai aqui, e aí "não pode ficar em branco" é a frase certa.
+   *
+   * O marcador é `{maxChars}` e NÃO `{max}`: `{max}` já está tomado pelos dois
+   * mapeadores de `vars`, onde ele é DINHEIRO (`money(maxCents)`). Reusá-lo
+   * faria "tem que caber em R$ 0,00 caracteres" — que é a mesma regressão que
+   * este arquivo já registra duas vezes, de cabeça pra baixo.
+   */
+  'err.venue_name_invalid': { en: 'Check the restaurant name — it cannot be blank, and it has to fit in {maxChars} characters.',
+                              pt: 'Confira o nome do restaurante — não pode ficar em branco, e tem que caber em {maxChars} caracteres.',
+                              es: 'Revisa el nombre del restaurante — no puede quedar en blanco, y tiene que caber en {maxChars} caracteres.' },
+  'err.table_label_invalid': { en: 'Check the table name — it cannot be blank, and it has to fit in {maxChars} characters.',
+                               pt: 'Confira o nome da mesa — não pode ficar em branco, e tem que caber em {maxChars} caracteres.',
+                               es: 'Revisa el nombre de la mesa — no puede quedar en blanco, y tiene que caber en {maxChars} caracteres.' },
+  'err.venue_city_invalid': { en: 'Check the city — it has to fit in {maxChars} characters.',
+                              pt: 'Confira a cidade — tem que caber em {maxChars} caracteres.',
+                              es: 'Revisa la ciudad — tiene que caber en {maxChars} caracteres.' },
+  // A conta da casa é tela de CLIENTE, e esta recusa saía como frase em
+  // português fixa ("Nome é obrigatório (até 60 caracteres)") — numa tela que
+  // existe em três idiomas. O número vem em `vars`, não na tradução: o limite
+  // desta coluna é o CHECK da 0005, e repeti-lo aqui seria a quinta cópia.
+  'err.house_name_invalid': { en: 'Enter your name — up to {maxChars} characters.',
+                              pt: 'Escreva seu nome — até {maxChars} caracteres.',
+                              es: 'Escribe tu nombre — hasta {maxChars} caracteres.' },
   // SEM PRAZO PROMETIDO. A frase anterior dizia "espere até {windowMinutes}
   // minutos", e as duas revisões de 2026-09-15 mediram que é falso: um script
   // que repõe cada vaga ao vencer tranca a mesa enquanto rodar. O que funciona

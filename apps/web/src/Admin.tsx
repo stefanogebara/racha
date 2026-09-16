@@ -12,6 +12,7 @@ import { type Venue, type VenueTable } from './api';
 import { authedReq as req, signOut } from './auth';
 import { isValidCNPJ, maskCpfCnpj, normalizarDocumento } from './br';
 import { setupComplete, useVenueAdmin, type VenueAdmin } from './useVenueAdmin';
+import { LIMITES } from './limites';
 
 /**
  * Painel de gestão do restaurante — onboarding + mesas/QR. Warm Glass.
@@ -82,10 +83,12 @@ function Onboarding() {
         {/* `maxLength` no nome da casa: ele vai no cartão do QR, no painel e no
             recibo, e sem teto uma colagem acidental de trezentos caracteres
             passava — o servidor guardava e as três telas quebravam o layout.
-            Sessenta cabe em "Restaurante Fulano de Tal — Unidade Centro". */}
-        <Campo rotulo={t('admin.venueName')} maxLength={60} autoComplete="organization"
+            O NÚMERO vem de `limites.ts`, que é o mesmo do servidor e o mesmo do
+            CHECK da 0035: este campo nasceu com um 60 escrito à mão contra um
+            servidor que aceitava outro número. */}
+        <Campo rotulo={t('admin.venueName')} maxLength={LIMITES.nomeDaCasa} autoComplete="organization"
           placeholder={t('admin.venueNameEg')} value={name} onChange={(e) => setName(e.target.value)} />
-        <Campo rotulo={t('admin.city')} maxLength={60} autoComplete="address-level2"
+        <Campo rotulo={t('admin.city')} maxLength={LIMITES.cidade} autoComplete="address-level2"
           value={city} onChange={(e) => setCity(e.target.value)} />
         <Campo
           rotulo={t('admin.cnpjField')} inputMode="numeric" autoCapitalize="characters" autoComplete="off"
@@ -215,7 +218,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
           {/* O rótulo da mesa é PALAVRA DA CASA ("Mesa 7", "Varanda 2") e nunca
               se traduz — mas o campo que o coleta é nosso, e ganha rótulo. */}
           <div style={{ flex: 1 }}>
-            <Campo rotulo={t('admin.tableLabel')} maxLength={40} placeholder={t('admin.tableEg')} value={newLabel}
+            <Campo rotulo={t('admin.tableLabel')} maxLength={LIMITES.rotuloDaMesa} placeholder={t('admin.tableEg')} value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
           </div>
           <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>

@@ -64,6 +64,7 @@ const { vigiarRetencao } = require('../_lib/checks/retention-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 const { PAPEL_DE_DONO } = require('../_lib/store/papeis');
+const { nomeDaCasa, rotuloDaMesa, cidadeDaCasa } = require('../_lib/texto-da-casa');
 
 // AS ENVS, NORMALIZADAS UMA VEZ SÓ — e é a única leitura delas no `api/`.
 //
@@ -2186,7 +2187,13 @@ async function route(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/venues') {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
-      if (!b.name || !String(b.name).trim()) return json(res, 400, { success: false, error: 'Nome é obrigatório' });
+      // AS PALAVRAS DA CASA, conferidas onde elas entram — tipo, tamanho em
+      // pontos de código e caracteres invisíveis. Era só "não está vazio", e
+      // estes campos saem no `/api/check` público. Ver `texto-da-casa.js`.
+      const nome = nomeDaCasa(b.name);
+      if (!nome.ok) return json(res, 400, { success: false, code: nome.code, vars: nome.vars });
+      const cidade = cidadeDaCasa(b.city);
+      if (!cidade.ok) return json(res, 400, { success: false, code: cidade.code, vars: cidade.vars });
       // O DOCUMENTO DA CASA É CONFERIDO AQUI, no caminho de ESCRITA.
       //
       // Era `b.cnpj ?? null`: sem tipo, sem tamanho, sem dígito verificador —
@@ -2208,7 +2215,7 @@ async function route(req, res) {
       // (CLAUDE.md). `err.tax_id_invalid` já existe nos três idiomas.
       if (!doc.ok) return json(res, 400, { success: false, code: doc.code });
       const venue = await store.createVenue({
-        name: b.name, cnpj: doc.valor, city: b.city ?? null, market: mkt,
+        name: nome.valor, cnpj: doc.valor, city: cidade.valor, market: mkt,
         servicoBp: Number.isInteger(b.servicoBp) ? b.servicoBp : 1000,
       });
       await store.addVenueMember(venue.id, user.id, PAPEL_DE_DONO);
@@ -2237,11 +2244,12 @@ async function route(req, res) {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.venueId) return json(res, 400, { success: false, error: 'venueId é obrigatório' });
-      if (!b.label || !String(b.label).trim()) return json(res, 400, { success: false, error: 'Rótulo da mesa é obrigatório' });
+      const rotulo = rotuloDaMesa(b.label);
+      if (!rotulo.ok) return json(res, 400, { success: false, code: rotulo.code, vars: rotulo.vars });
       try { await auth.requireVenueOwner(user, b.venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       try {
-        const t = await store.createTable(b.venueId, b.label);
+        const t = await store.createTable(b.venueId, rotulo.valor);
         return json(res, 200, { success: true, data: t });
       } catch (e) {
         const dup = /duplicate/.test(e.message);

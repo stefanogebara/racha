@@ -6,6 +6,9 @@ const { isDemoVenue } = require('../demo');
 // lá, não de um número repetido aqui: duas janelas que deviam ser uma já
 // divergiram neste repositório por um acento e por um `\b`.
 const { JANELA_VIVA_MS } = require('../pay/create-charge');
+const { normalizarTextoDaCasa } = require('../texto-da-casa');
+/** O CHECK da 0005: `house_accounts.name` é `char_length between 1 and 60`. */
+const NOME_DA_CONTA_MAX = 60;
 const TETO_CARGAS = 10;
 
 /**
@@ -236,9 +239,19 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     if (!cfg.enabled) throw badRequest('house balance is off for this venue', 'house_off');
     const digits = normalizePhone(phone);
     if (!digits) throw badRequest('Telefone inválido');
-    if (typeof name !== 'string' || !name.trim() || name.trim().length > 60) {
-      throw badRequest('Nome é obrigatório (até 60 caracteres)');
-    }
+    // PELO MESMO NORMALIZADOR das palavras da casa. Este nome aparece na tela
+    // do balcão, então ele carrega o mesmo risco de marca bidi e zero-width; e
+    // o `.length` que estava aqui conta unidades UTF-16 enquanto o CHECK da
+    // 0005 conta pontos de código — sessenta emoji passavam num lado e não no
+    // outro.
+    //
+    // E sai com CÓDIGO, não com a frase em português que estava aqui: o
+    // CLAUDE.md diz que o servidor manda código e o cliente escolhe a língua, e
+    // esta é uma tela de CLIENTE — a pessoa que abre a conta da casa pode estar
+    // lendo em inglês ou espanhol. O número do limite viaja em `vars` pra frase
+    // não ter que repeti-lo (seria a quinta cópia).
+    const nome = normalizarTextoDaCasa(name, { max: NOME_DA_CONTA_MAX, code: 'house_name_invalid' });
+    if (!nome.ok) throw badRequest('house account name invalid', nome.code, nome.vars);
     // Abuse bound: a public endpoint must not allow unbounded row creation
     // (each account also costs the owner panel a ledger read).
     const MAX_ACCOUNTS_PER_VENUE = 5000;
@@ -249,7 +262,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     let account;
     try {
       account = await store.createHouseAccount({
-        venueId: hit.venue.id, phone: digits, name: name.trim(),
+        venueId: hit.venue.id, phone: digits, name: nome.valor,
       });
     } catch (e) {
       if (/duplicate/i.test(e.message)) {

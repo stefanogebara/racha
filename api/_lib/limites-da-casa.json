@@ -1,0 +1,6 @@
+{
+  "_porque": "Os limites das palavras da casa, num arquivo que os DOIS runtimes leem. O servidor (api/_lib/texto-da-casa.js, CommonJS) e o cliente (apps/web/src/limites.ts, TS/ESM) nao compartilham modulo, e o CHECK da migracao 0035 e um terceiro lugar. Tres numeros iguais escritos tres vezes divergem; escritos uma vez, nao. O teste apps/web/test/limites.test.ts e o api/__tests__/texto-da-casa.test.js amarram os tres.",
+  "nomeDaCasa": 80,
+  "rotuloDaMesa": 40,
+  "cidade": 60
+}
