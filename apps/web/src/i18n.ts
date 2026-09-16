@@ -1034,6 +1034,15 @@ export const DICT = {
   'gate.google':      { en: 'Continue with Google',            pt: 'Continuar com Google', es: 'Continuar con Google' },
   'gate.orEmail':     { en: 'or with e-mail',                  pt: 'ou com e-mail', es: 'o con correo' },
   'gate.email':       { en: 'e-mail',                          pt: 'e-mail', es: 'correo' },
+  // O exemplo tem DOMINIO de cada mercado: um dono espanhol lendo
+  // "nome@restaurante.com.br" ve a tela de outro pais.
+  'gate.emailPlaceholder': { en: 'name@restaurant.com', pt: 'nome@restaurante.com.br', es: 'nombre@restaurante.es' },
+  // Diz o que falta, nao "invalido": um endereco sem @ e um endereco sem
+  // dominio sao erros diferentes pra quem digitou, e a frase generica manda
+  // a pessoa olhar o campo inteiro de novo.
+  'gate.emailInvalid': { en: 'This does not look like an e-mail — check the @ and the domain.',
+                        pt: 'Isto não parece um e-mail — confira o @ e o domínio.',
+                        es: 'Esto no parece un correo — revisa la @ y el dominio.' },
   'gate.password':    { en: 'password',                        pt: 'senha', es: 'contraseña' },
   'gate.signIn':      { en: 'Sign in',                         pt: 'Entrar', es: 'Entrar' },
   'gate.ownerPanel':  { en: 'owner panel',                     pt: 'painel do dono', es: 'panel del dueño' },
@@ -1051,6 +1060,10 @@ export const DICT = {
   'admin.registerFirst': { en: 'Register your restaurant',     pt: 'Cadastre seu restaurante', es: 'Registra tu restaurante' },
   'admin.registerAnother': { en: 'Register another restaurant', pt: 'Cadastrar outro restaurante', es: 'Registrar otro restaurante' },
   'admin.venueName':  { en: 'Restaurant name',                 pt: 'Nome do restaurante', es: 'Nombre del restaurante' },
+  // O EXEMPLO mora no placeholder e o NOME do campo no rotulo — antes os dois
+  // eram a mesma string, fazendo cada um dos dois trabalhos pela metade.
+  'admin.venueNameEg': { en: 'e.g. Bar do Zé', pt: 'ex.: Bar do Zé', es: 'p. ej. Bar Pepe' },
+  'admin.tableLabel': { en: 'Table label', pt: 'Nome da mesa', es: 'Nombre de la mesa' },
   'admin.city':       { en: 'City (optional)',                 pt: 'Cidade (opcional)', es: 'Ciudad (opcional)' },
   'admin.cnpjField':  { en: 'CNPJ (optional)',                 pt: 'CNPJ (opcional)', es: 'CIF/NIF (opcional)' },
   'admin.cnpjOk':     { en: 'CNPJ valid ✓',                    pt: 'CNPJ válido ✓', es: 'CIF/NIF válido ✓' },

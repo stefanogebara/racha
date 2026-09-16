@@ -1,5 +1,6 @@
 
 import { LangToggle, useT } from './lang';
+import { Campo } from './Campo';
 import PrivacyNotice from './PrivacyNotice';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, parseBrlToCents, HouseAccountView, HouseConfig, HouseLedgerEntry, HouseLoadResult } from './api';
@@ -325,13 +326,14 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
             ? t('wallet.pitchBonus', { pct: bonusPct })
             : t('wallet.pitch')}
         </p>
-        <input
-          className="namefield" maxLength={60} placeholder={t('wallet.yourName')}
+        <Campo
+          rotulo={t('wallet.yourName')} maxLength={60} autoComplete="name"
           value={name} onChange={(e) => setName(e.target.value)}
         />
-        <input
-          className="namefield" type="tel" inputMode="numeric"
-          placeholder={t('wallet.phone')}
+        {/* `autoComplete="tel"`: o telefone É a chave da carteira do cliente, e
+            digitar treze dígitos à mão num bar é onde a pessoa desiste. */}
+        <Campo
+          rotulo={t('wallet.phone')} type="tel" inputMode="numeric" autoComplete="tel"
           value={phone}
           onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 13))}
         />

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Campo } from './Campo';
 import AdminRecipient from './AdminRecipient';
 import AdminStripe from './AdminStripe';
 import type { VenueTable } from './api';
@@ -91,8 +92,10 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
           <StepHead title={t('wiz.t1')} sub={t('wiz.t1sub')} />
           <section className="panel">
             <div style={{ display: 'flex', gap: 8 }}>
-              <input className="namefield" style={{ flex: 1 }} placeholder={t('admin.tableEg')} value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+              <div style={{ flex: 1 }}>
+                <Campo rotulo={t('admin.tableLabel')} maxLength={40} placeholder={t('admin.tableEg')} value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+              </div>
               <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>
             </div>
             {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}

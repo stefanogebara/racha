@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useT, LangToggle } from './lang';
+import { Campo } from './Campo';
+import { isValidEmail } from './br';
 import { onSession, signIn, signUp, signInWithGoogle, resetPassword, supabase } from './auth';
 
 /**
@@ -83,15 +85,38 @@ function Login({ onDone }: { onDone: () => void }) {
         </button>
         <div className="muted small" style={{ textAlign: 'center', margin: '2px 0' }}>{t('gate.orEmail')}</div>
 
-        <input className="namefield" type="email" placeholder={t('gate.email')} value={email}
-          onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
-        <input className="namefield" type="password" placeholder={mode === 'up' ? t('gate.newPassword') : t('gate.password')} value={password}
-          onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
+        {/* `autoComplete` de verdade nos dois: é o que faz o gerenciador de
+            senhas preencher e, no cadastro, OFERECER uma senha forte. Sem
+            `username`/`new-password` o navegador guarda a senha na conta
+            errada — e este formulário é o único caminho pro painel do dono. */}
+        <Campo
+          rotulo={t('gate.email')} type="email" inputMode="email"
+          autoComplete="username" placeholder={t('gate.emailPlaceholder')}
+          // Só depois de digitar algo: acusar um campo vazio que a pessoa nem
+          // tocou é gritar antes de haver erro.
+          ruim={email.trim().length > 0 && !isValidEmail(email.trim())}
+          recado={email.trim().length > 0 && !isValidEmail(email.trim()) ? t('gate.emailInvalid') : undefined}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()}
+        />
+        <Campo
+          rotulo={mode === 'up' ? t('gate.newPassword') : t('gate.password')} type="password"
+          autoComplete={mode === 'up' ? 'new-password' : 'current-password'}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()}
+        />
 
-        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
-        {notice && <p className="muted small" style={{ color: 'var(--green, #15803d)' }}>{notice}</p>}
+        {/* `aria-live`: quem usa leitor de tela não vê a frase aparecer. Sem
+            isto o único retorno de uma senha errada é visual. */}
+        <p className="muted small" role="status" aria-live="polite" style={{ margin: 0 }}>
+          {error && <span style={{ color: 'var(--erro)' }}>{error}</span>}
+          {notice && <span style={{ color: 'var(--ok)' }}>{notice}</span>}
+        </p>
 
-        <button className="cta" disabled={busy || !email.trim() || !password} onClick={submit}>
+        {/* O botão exige e-mail VÁLIDO, não só preenchido: antes um endereço
+            com erro de digitação ia até o servidor e voltava como frase de
+            autenticação genérica, que não diz qual campo consertar. */}
+        <button className="cta" disabled={busy || !isValidEmail(email.trim()) || !password} onClick={submit}>
           {busy ? '…' : (mode === 'in' ? t('gate.signIn') : t('gate.signUp'))}
         </button>
 

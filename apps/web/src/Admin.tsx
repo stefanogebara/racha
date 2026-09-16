@@ -1,5 +1,6 @@
 
 import { LangToggle, useT } from './lang';
+import { Campo } from './Campo';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
@@ -78,17 +79,23 @@ function Onboarding() {
       )}
       <section className="card">
         <p className="label">{mine.length > 0 ? t('admin.registerAnother') : t('admin.registerFirst')}</p>
-        <input className="namefield" placeholder={t('admin.venueName')} value={name} onChange={(e) => setName(e.target.value)} />
-        <input className="namefield" placeholder={t('admin.city')} value={city} onChange={(e) => setCity(e.target.value)} />
-        <input className="namefield" inputMode="text" autoCapitalize="characters" autoComplete="off"
-          placeholder={t('admin.cnpjField')} value={maskCpfCnpj(cnpj)}
-          style={cnpj && !cnpjValid ? { borderColor: 'var(--erro)' } : undefined}
+        {/* `maxLength` no nome da casa: ele vai no cartão do QR, no painel e no
+            recibo, e sem teto uma colagem acidental de trezentos caracteres
+            passava — o servidor guardava e as três telas quebravam o layout.
+            Sessenta cabe em "Restaurante Fulano de Tal — Unidade Centro". */}
+        <Campo rotulo={t('admin.venueName')} maxLength={60} autoComplete="organization"
+          placeholder={t('admin.venueNameEg')} value={name} onChange={(e) => setName(e.target.value)} />
+        <Campo rotulo={t('admin.city')} maxLength={60} autoComplete="address-level2"
+          value={city} onChange={(e) => setCity(e.target.value)} />
+        <Campo
+          rotulo={t('admin.cnpjField')} inputMode="numeric" autoCapitalize="characters" autoComplete="off"
+          // A FORMA sai do formatador, nunca de uma string pontuada à mão.
+          placeholder={maskCpfCnpj('00000000000000')}
+          value={maskCpfCnpj(cnpj)}
+          ruim={cnpj !== '' && !cnpjValid}
+          bom={cnpj !== '' && cnpjValid}
+          recado={cnpj !== '' ? (cnpjValid ? t('admin.cnpjOk') : t('admin.cnpjBad')) : undefined}
           onChange={(e) => setCnpj(normalizarDocumento(e.target.value))} />
-        {cnpj !== '' && (
-          <span className="small" style={{ color: cnpjValid ? 'var(--emerald)' : 'var(--erro)' }}>
-            {cnpjValid ? t('admin.cnpjOk') : t('admin.cnpjBad')}
-          </span>
-        )}
         <label className="servico" style={{ alignItems: 'center' }}>
           <span style={{ flex: 1 }}>{t('admin.suggested')}</span>
           <div className="stepper">
@@ -205,8 +212,12 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
           {t('admin.tablesHelp', { training: t('admin.training') })}
         </p>
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <input className="namefield" style={{ flex: 1 }} placeholder={t('admin.tableEg')} value={newLabel}
-            onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+          {/* O rótulo da mesa é PALAVRA DA CASA ("Mesa 7", "Varanda 2") e nunca
+              se traduz — mas o campo que o coleta é nosso, e ganha rótulo. */}
+          <div style={{ flex: 1 }}>
+            <Campo rotulo={t('admin.tableLabel')} maxLength={40} placeholder={t('admin.tableEg')} value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+          </div>
           <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>
         </div>
         {/* CRU, porque JÁ VEM TRADUZIDO. O `useVenueAdmin` traduz no setter

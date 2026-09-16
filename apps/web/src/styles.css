@@ -147,7 +147,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .mesa  { font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
 
 /* ── superficies: papel alto sobre papel, fio de 1px, 24px ─────────────── */
-.card, .pixcard, .paid, .stat, .qrcard {
+.card, .pixcard, .paid, .qrcard {
   background: var(--papel-alto);
   border: 1px solid var(--fio);
   border-radius: var(--rad);
@@ -252,21 +252,21 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .stepper {
   display: flex; align-items: center; gap: 12px;
   border: 1px solid var(--fio); border-radius: var(--rad-s);
-  background: var(--papel-alto); padding: 5px 8px;
+  background: var(--papel); padding: 5px 8px;
 }
 .stepper button {
   /* 44px é o mínimo do HIG e do WCAG 2.5.5, e este é o controle que decide
      entre quantas pessoas a conta é dividida — com o telefone numa mão só,
      num bar, apertado. Era 32. */
   width: 44px; height: 44px; border-radius: 8px; border: 0;
-  background: var(--fundo2); font-size: 19px; color: var(--ink); cursor: pointer;
+  background: var(--papel-alto); font-size: 19px; color: var(--ink); cursor: pointer;
 }
 .stepper strong { min-width: 22px; text-align: center; font: 500 17px/1 var(--ui); font-variant-numeric: tabular-nums; }
 
 .customrow {
   display: flex; align-items: center; gap: 8px;
   border: 1px solid var(--fio); border-radius: var(--rad-c);
-  background: var(--papel-alto); padding: 12px 14px;
+  background: var(--papel); padding: 12px 14px;
 }
 .customrow label { color: var(--grafite); font-size: 13px; }
 .customrow input {
@@ -284,7 +284,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    que e o minimo que o Safari do iPhone aceita sem dar zoom ao focar. */
 .namefield {
   border: 1px solid var(--fio); border-radius: var(--rad-c); padding: 14px 14px; min-height: 48px;
-  font: 400 16px/22px var(--ui); background: var(--papel-alto); color: var(--ink);
+  font: 400 16px/22px var(--ui); background: var(--papel); color: var(--ink);
 }
 .namefield::placeholder { color: var(--faint); }
 .namefield:focus-visible { outline: none; border-color: var(--azul); box-shadow: 0 0 0 3px var(--azul-suave); }
@@ -302,8 +302,13 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    — num formulario de "CNPJ / agencia / conta / CPF do responsavel" — nao tinha
    como saber em qual campo estava. O `aria-label` resolvia pro leitor de tela e
    nao pra quem enxerga. Aqui o rotulo fica. */
+/* O campo fica um degrau ABAIXO do cartão, não no mesmo tom.
+   No Presence a moldura de campo é `--raised` sobre a seção, que é `--paper`:
+   um degrau ACIMA do chão. Aqui o cartão já é o degrau de cima, então o campo
+   desce pro papel — mesma distância, direção invertida. Com os dois no mesmo
+   tom o campo sumia dentro do cartão e só o fio de 1px dizia onde ele começa. */
 .campo { display: block; border: 1px solid var(--fio); border-radius: var(--rad-c);
-  background: var(--papel-alto); padding: 10px 14px 12px; cursor: text; }
+  background: var(--papel); padding: 10px 14px 12px; cursor: text; }
 .campo > span { display: block; color: var(--grafite);
   font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 8px; }
 .campo input, .campo select, .campo textarea {
@@ -397,7 +402,12 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 
 /* ── painel ─────────────────────────────────────────────────────────────── */
 .statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.stat { padding: 18px 16px; gap: 4px; }
+/* Os números do dia moram DENTRO do painel, então descem um degrau, pela mesma
+   regra dos campos: no papel, com fio. */
+.stat {
+  background: var(--papel); border: 1px solid var(--fio); border-radius: var(--rad-c);
+  padding: 18px 16px; gap: 4px; display: flex; flex-direction: column;
+}
 .stat b { font: italic 400 28px/1 var(--serif); font-variant-numeric: tabular-nums; }
 .stat span { font: 500 10px/16px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
 
@@ -457,7 +467,33 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .pos { color: var(--verde); font-weight: 600; }
 .cfggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.cfggrid label { display: flex; flex-direction: column; gap: 6px; font: 500 10px/16px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--grafite); }
+/* A GRADE DE CONFIGURAÇÃO vira a moldura do Presence sem mexer no markup.
+   `AdminRecipient` já era o único formulário com rótulo visível de verdade (e
+   com validação por campo, e com aviso no `blur`): ele não precisava do
+   componente `Campo`, precisava da moldura. Aqui a `<label>` inteira é a caixa
+   e o `<input>` de dentro perde a dele — mesmo desenho, zero refatoração num
+   formulário que move dados bancários. */
+.cfggrid label {
+  display: flex; flex-direction: column; gap: 8px;
+  border: 1px solid var(--fio); border-radius: var(--rad-c);
+  background: var(--papel); padding: 10px 14px 12px; cursor: text;
+  font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--grafite);
+}
+.cfggrid label:focus-within { border-color: var(--azul); box-shadow: 0 0 0 3px var(--azul-suave); }
+.cfggrid label > .namefield,
+.cfggrid label > select.namefield {
+  border: 0; border-radius: 0; background: transparent; padding: 0; min-height: 26px;
+  font: 400 16px/22px var(--ui); letter-spacing: normal; text-transform: none; color: var(--ink);
+}
+.cfggrid label > .namefield:focus-visible { box-shadow: none; border: 0; }
+/* O recado e a dica voltam a ser frase: a `<label>` inteira está em versalete. */
+.cfggrid label > .muted, .cfggrid label > .small, .cfggrid label > span:not(:first-child) {
+  letter-spacing: normal; text-transform: none; font-weight: 400;
+}
+/* O campo do código do banco, que aparece por baixo do `select`: ele é um
+   segundo campo dentro da mesma moldura, então ganha um fio de separação em
+   vez de flutuar. */
+.cfggrid label > .namefield + .namefield { border-top: 1px solid var(--fio); padding-top: 10px; }
 
 @media (prefers-reduced-motion: reduce) { .progressbar span { transition: none; } }
 

@@ -67,6 +67,14 @@ const NOTICE_KEY: Record<string, Key> = {
  */
 const POLL_BASE_MS = 4000;
 
+/**
+ * As recusas que significam "A CONTA MUDOU DEBAIXO DE VOCÊ" — as únicas em que
+ * "confira o valor e tente de novo" é conselho e não ruído. Todas nascem de
+ * outra pessoa da mesma mesa ter pago primeiro, ou de o garçom ter mexido na
+ * conta enquanto esta tela estava aberta.
+ */
+const CONTA_MUDOU = new Set(['amount_over', 'zero_charge', 'check_closed', 'check_not_found']);
+
 export default function App() {
   const { t, lang, pct, adotarPadraoDaCasa, dmy, hm, tErr } = useT();
   // O `?t=` da mesa, ou — na volta de um trilho que redireciona (Bizum) — o
@@ -164,6 +172,20 @@ export default function App() {
   // novo com o valor novo, não um beco sem saída.
   const [error, setError] = useState<string | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
+  /**
+   * O CÓDIGO da recusa, ao lado da frase — porque nem toda recusa se conserta
+   * tentando de novo.
+   *
+   * A tela colava "— a conta foi atualizada, confira o valor e tente de novo"
+   * em TODA recusa. Numa casa com o pagamento desligado
+   * (`platform_misconfigured`) o cliente lia "pague no caixa" e, na mesma
+   * linha, "confira o valor e tente de novo": duas instruções opostas, e a
+   * segunda manda a pessoa insistir num botão que não vai funcionar.
+   *
+   * A lista é de quem PODE tentar de novo, não de quem não pode: um código novo
+   * entra no lado seguro sozinho — mostra o erro e cala a boca sobre repetir.
+   */
+  const [payErrorCode, setPayErrorCode] = useState<string | null>(null);
   // TOQUE DUPLO. O botão só desligava com o total zerado, então dois toques
   // numa rede lenta mandavam dois POSTs: dois pedidos na Pagar.me e duas vagas
   // do teto por conta. Revisão de compliance de 2026-09-15 (MEDIUM-4).
@@ -416,6 +438,7 @@ export default function App() {
     }
     setCpfHint(false);
     setPayError(null);
+    setPayErrorCode(null);
     try {
       setOwnRef(null); // a marca da cobrança NOVA chega com ela, abaixo
       // `undefined`, não '' — não pedimos documento neste mercado, então não
@@ -441,6 +464,7 @@ export default function App() {
       const err = e as ApiError;
       // Os valores vêm do servidor em centavos crus; quem formata é quem sabe
       // o idioma. Ver o comentário do amount_over no router.
+      setPayErrorCode(err.code || null);
       setPayError(tError(lang, err.code, err.message,
         // Todos os limites que o servidor manda em CENTAVOS, formatados aqui na
         // moeda da casa. Antes só `leftCents` era mapeado, então a mensagem do
@@ -859,8 +883,10 @@ export default function App() {
           {taxIdRequired && <p className="muted small" id="cpf-why">{t('payer.cpfWhy')}</p>}
 
           {payError && (
-            <p className="small" style={{ color: 'var(--erro)' }}>
-              {t('pay.retry', { error: payError })}
+            // `role="alert"`: a frase aparece depois de um toque, e quem usa
+            // leitor de tela não vê nada aparecer.
+            <p className="small" role="alert" style={{ color: 'var(--erro)' }}>
+              {CONTA_MUDOU.has(payErrorCode || '') ? t('pay.retry', { error: payError }) : payError}
             </p>
           )}
           {/* O trilho decide a TELA, não só o rótulo. Em Espanha o Bizum tem o
