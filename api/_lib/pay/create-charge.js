@@ -197,17 +197,44 @@ function geracaoDoQr(token) {
  * Stripe já ter criado o intent, gastando uma vaga e deixando um PaymentIntent
  * órfão (revisão de compliance de 2026-09-15, MEDIUM-1).
  */
+/**
+ * O RÓTULO DO PAGADOR PASSA PELO MESMO NORMALIZADOR DAS PALAVRAS DA CASA.
+ *
+ * Este é o ÚNICO texto livre que um cliente NÃO AUTENTICADO escreve, e ele é
+ * desenhado pra todo mundo naquela mesa e pro dono no painel — e vai ainda pro
+ * adquirente como `description`, ou seja, pro extrato bancário de alguém.
+ *
+ * Mesmo assim ele tinha regra PRÓPRIA — uma lista de recusa de C0 e DEL —,
+ * enquanto o nome da casa, o rótulo da mesa e o nome da conta da casa, todos
+ * escritos por quem está LOGADO, ganharam o normalizador que existe justamente
+ * por causa de marca bidi e largura-zero. O campo do atacante ficou com a regra
+ * fraca; os campos do dono, com a forte. Concretamente: `"Ana\u200B"` desenha
+ * duas linhas idênticas na lista de pagantes, e quem está do lado acredita que
+ * a parte dele já foi paga. Achado pela revisão de segurança de 2026-09-16
+ * (MEDIUM-3).
+ *
+ * Uma regra pra "texto que um humano vai ler num telefone", não duas.
+ *
+ * O que NÃO muda: a recusa de UTF-16 mal formado. O Postgres recusa guardar um
+ * surrogate solto (22P02) e o `normalizarTextoDaCasa` não olha pra isso — e foi
+ * um NUL num rótulo que, numa rodada anterior, fazia TODO pedido criar um
+ * PaymentIntent na Stripe e estourar no registro. O NUL agora é REMOVIDO em vez
+ * de recusado; o surrogate continua recusado, porque não há o que limpar.
+ */
+const { normalizarTextoDaCasa } = require('../texto-da-casa');
+
+const ROTULO_MAX = 60;
+
+function normalizarRotuloDoPagador(v) {
+  if (v === null || v === undefined) return { ok: true, valor: null };
+  if (typeof v !== 'string' || !v.isWellFormed()) return { ok: false };
+  const r = normalizarTextoDaCasa(v, { max: ROTULO_MAX, code: 'payer_label_invalid', opcional: true });
+  return r.ok ? { ok: true, valor: r.valor } : { ok: false };
+}
+
+/** A pergunta antiga, agora derivada — o `store-contract` e as rotas a usam. */
 function payerLabelValido(v) {
-  if (v === null || v === undefined) return true;
-  // Caractere de controle e UTF-16 mal formado também saem. Não é estética: o
-  // Postgres recusa guardar um NUL (22P05) ou um surrogate solto (22P02), e o
-  // store em memória aceita os dois. Com a regra de devolução da rodada
-  // anterior — a vaga voltava quando o registro falhava —, um rótulo com um NUL
-  // fazia TODO pedido criar um PaymentIntent na Stripe, estourar no registro e
-  // devolver a vaga: mil pedidos, mil e uma cobranças no adquirente, zero 429.
-  // Medido pela revisão de segurança (stand-in) de 2026-09-15, HIGH-1.
-  return typeof v === 'string' && v.length <= 60
-    && !/[\u0000-\u001f\u007f]/.test(v) && v.isWellFormed();
+  return normalizarRotuloDoPagador(v).ok;
 }
 
 const WALLETS = Object.freeze(['apple_pay', 'google_pay']);
@@ -238,11 +265,15 @@ function createChargeService({ store, psp }) {
     if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw badRequest('amountCents must be a non-negative integer');
     if (!Number.isSafeInteger(tipCents) || tipCents < 0) throw badRequest('tipCents must be a non-negative integer');
     if (amountCents + tipCents === 0) throw badRequest('zero-value charge');
-    if (!payerLabelValido(payerLabel)) {
+    const rotulo = normalizarRotuloDoPagador(payerLabel);
+    if (!rotulo.ok) {
       // Com CÓDIGO: sem ele o `errorBody` devolvia a frase interna em inglês, e a
       // mesma regra respondia diferente conforme o trilho. (Compliance, M1.)
       throw badRequest('payerLabel must be a string of at most 60 chars', 'payer_label_invalid');
     }
+    // Daqui pra baixo vale o NORMALIZADO — é ele que vai pro banco e pro
+    // adquirente. Validar o cru e gravar o cru deixava a limpeza inerte.
+    payerLabel = rotulo.valor;
     if (wallet !== null && !WALLETS.includes(wallet)) throw badRequest(`carteira desconhecida: ${wallet}`);
 
     const venue = await store.getVenueForCheck(checkId);
@@ -400,6 +431,6 @@ function createChargeService({ store, psp }) {
 }
 
 module.exports = {
-  createChargeService, assertChargeSlot, geracaoDoQr, payerLabelValido,
+  createChargeService, assertChargeSlot, geracaoDoQr, payerLabelValido, normalizarRotuloDoPagador,
   TETO_PENDENTES, JANELA_VIVA_MS, MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
 };

@@ -85,13 +85,30 @@ function fetchComPrazo(prazoMs, fetchBase = fetch) {
     // `AbortSignal.timeout` multiplica o teto por quatro sem mudar o número.
     const corte = setTimeout(() => ac.abort(), prazoMs);
     if (typeof corte.unref === 'function') corte.unref();
-    // O sinal de QUEM CHAMOU continua valendo: se o chamador já cancelou, o
-    // nosso prazo não pode ressuscitar a requisição.
-    if (init.signal) init.signal.addEventListener('abort', () => ac.abort(), { once: true });
+    /**
+     * O sinal de QUEM CHAMOU continua valendo — inclusive quando ele JÁ abortou.
+     *
+     * Escrito só como `addEventListener('abort', ...)`, o caso que o comentário
+     * nomeava era exatamente o que não funcionava: num sinal já abortado o
+     * evento já disparou, o ouvinte nunca roda, e a requisição saía no nosso
+     * `ac.signal`, que não está abortado. A guarda não disparava pra entrada que
+     * a própria frase citava. E o ouvinte nunca era removido, então um sinal
+     * longevo acumulava um por requisição até o aviso de vazamento do Node.
+     * Achado pela revisão de segurança de 2026-09-16 (LOW-4).
+     */
+    const repassar = () => ac.abort();
+    if (init.signal) {
+      if (init.signal.aborted) ac.abort();
+      else init.signal.addEventListener('abort', repassar, { once: true });
+    }
+    const soltar = () => {
+      clearTimeout(corte);
+      if (init.signal) init.signal.removeEventListener('abort', repassar);
+    };
     return fetchBase(entrada, { ...init, signal: ac.signal }).then(
-      (r) => { clearTimeout(corte); return r; },
+      (r) => { soltar(); return r; },
       (e) => {
-        clearTimeout(corte);
+        soltar();
         if (ac.signal.aborted && !(init.signal && init.signal.aborted)) {
           let onde = String(entrada);
           try { onde = `${init.method || 'GET'} ${new URL(onde).pathname}`; } catch { /* entrada não-URL */ }

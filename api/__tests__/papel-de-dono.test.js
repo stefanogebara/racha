@@ -26,6 +26,9 @@ function clienteComMembros(linhas) {
     const f = {};
     const b = {
       select() { return b; }, order() { return b; }, limit() { return b; }, in() { return b; },
+      // `range`: `listVenuesForOwner` pagina. O falso devolve a fatia, que é o
+      // que faz o laço de paginação terminar.
+      range(de, ate) { f.__de = de; f.__ate = ate; return b; },
       eq(col, val) { f[col] = val; return b; },
       maybeSingle() { return casam().then((d) => ({ data: d[0] ?? null, error: null })); },
       single() { return b.maybeSingle(); },
@@ -33,7 +36,9 @@ function clienteComMembros(linhas) {
     };
     function casam() {
       if (tabela !== 'venue_members') return Promise.resolve([]);
-      return Promise.resolve(linhas.filter((r) => Object.entries(f).every(([c, v]) => r[c] === v)));
+      const filtros = Object.entries(f).filter(([c]) => !c.startsWith('__'));
+      const casadas = linhas.filter((r) => filtros.every(([c, v]) => r[c] === v));
+      return Promise.resolve(f.__de === undefined ? casadas : casadas.slice(f.__de, f.__ate + 1));
     }
     return b;
   };

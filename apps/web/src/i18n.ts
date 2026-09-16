@@ -539,6 +539,19 @@ export const DICT = {
   // servidor, no mesmo `catch` que também devolvia o texto cru do Postgres pra
   // qualquer outra falha — inclusive um prazo estourado, que virava "o que você
   // mandou não serve" quando o problema era nosso.
+  /**
+   * O BANCO NAO RESPONDEU — e isso NAO e "sua sessao expirou".
+   *
+   * O servidor colapsava toda falha do GoTrue num 401, e o `authedReq` desloga
+   * em qualquer 401: uma lentidao de dez segundos no login derrubava a sessao
+   * de todo dono com o painel aberto, no meio do turno. Agora vem 503 com este
+   * codigo, e a frase diz o que e — inclusive que nada foi perdido, porque a
+   * primeira pergunta de quem esta no meio de um turno e se o que estava na
+   * tela sumiu.
+   */
+  'err.auth_unavailable': { en: 'We could not reach the sign-in service. Nothing was lost — try again in a moment.',
+                            pt: 'Nao conseguimos falar com o servico de login. Nada foi perdido — tente de novo em instantes.',
+                            es: 'No pudimos contactar con el servicio de acceso. No se perdio nada — intentalo de nuevo en un momento.' },
   'err.table_label_duplicate': { en: 'There is already a table with that name.',
                                  pt: 'Já existe uma mesa com esse nome.',
                                  es: 'Ya existe una mesa con ese nombre.' },

@@ -18,9 +18,12 @@ const recebedor = require('../_lib/pay/recebedor');
 function clienteFalso({ mesas, contas, fechadas }) {
   const idas = [];
   const from = (tabela) => {
-    const f = { tabela, filtros: {}, lista: null };
+    const f = { tabela, filtros: {}, lista: null, de: undefined, ate: undefined };
     const b = {
       select() { return b; }, update() { return b; }, order() { return b; }, limit() { return b; },
+      // `range`: as leituras deste store paginam. O falso devolve a fatia, que é
+      // o que faz o laço de paginação terminar.
+      range(de, ate) { f.de = de; f.ate = ate; return b; },
       single() { return b; }, maybeSingle() { return b; },
       eq(col, val) { f.filtros[col] = val; return b; },
       in(col, vals) { f.lista = vals; return b; },
@@ -30,6 +33,7 @@ function clienteFalso({ mesas, contas, fechadas }) {
         if (tabela === 'venue_tables') data = mesas;
         else if (tabela === 'checks') data = contas;
         else if (tabela === 'check_events') data = (f.lista || []).filter((id) => fechadas.has(id)).map((id) => ({ check_id: id }));
+        if (f.de !== undefined) data = data.slice(f.de, f.ate + 1);
         return Promise.resolve({ data, error: null }).then(ok, falha);
       },
     };

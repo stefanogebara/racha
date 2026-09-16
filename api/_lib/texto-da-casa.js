@@ -61,6 +61,11 @@
  * branco) nao e pego por lista de recusa nenhuma de qualquer jeito: e pego
  * pelo `TEM_CONTEUDO` abaixo, que pergunta o contrario.
  *
+ * TAB, LF e CR ficam de FORA de proposito: eles sao ESPACO, e quem trata
+ * deles e o colapso logo abaixo. Removidos aqui, "Ana<tab>Maria" virava
+ * "AnaMaria" — duas palavras coladas — em vez de "Ana Maria". Achado por um
+ * teste, nao por leitura.
+ *
  * Cada faixa e o que ela e:
  *   \u0000–\u001F  controle C0
  *   \u007F–\u009F  DEL e controle C1
@@ -75,9 +80,24 @@
  *   \u2066–\u2069  isolar direcao
  *   \u3164         preenchedor hangul — o classico do nome em branco
  *   \uFEFF         BOM
+ *   \u0000–\u0008  controle C0 — menos tab/LF/CR, que sao ESPACO
+ *   \u000B–\u000C  tabulacao vertical e form feed
+ *   \u000E–\u001F  o resto do C0
+ *   \u007F–\u009F  DEL e controle C1
+ *   \u00AD         hifen suave — nao desenha nada
+ *   \u061C         marca de letra arabe — marca de direcao
+ *   \u115F–\u1160  preenchedores jamo — largura zero
+ *   \u17B4–\u17B5  vogais khmer inerentes — nao renderizam
+ *   \u180E         separador de vogal mongol
+ *   \u200B–\u200F  largura zero e marcas LRM/RLM
+ *   \u202A–\u202E  embutir e SOBREPOR direcao (RLO)
+ *   \u2060–\u2064  juntor de palavra e operadores invisiveis
+ *   \u2066–\u2069  isolar direcao
+ *   \u3164         preenchedor hangul — o classico do nome em branco
+ *   \uFEFF         BOM
  *   \uFFA0         preenchedor hangul de meia largura
  */
-const INVISIVEIS = /[\u0000-\u001F\u007F-\u009F\u00AD\u061C\u115F-\u1160\u17B4-\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u3164\uFEFF\uFFA0]/g;
+const INVISIVEIS = /[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F-\u009F\u00AD\u061C\u115F-\u1160\u17B4-\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u3164\uFEFF\uFFA0]/g;
 
 /**
  * E O CONTRARIO DA LISTA DE CIMA, que e o que de fato segura.

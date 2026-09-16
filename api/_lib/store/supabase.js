@@ -233,10 +233,31 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
    * @param {string} p.op  nome pro erro.
    * @returns {Promise<object[]>} todas as linhas, em ordem.
    */
+  /**
+   * O TETO DE PÁGINAS existe porque o laço depende de um CABEÇALHO chegar.
+   *
+   * `range` viaja como `Range: 0-499` + `Range-Unit: items`, e um proxy que
+   * descarte uma unidade de Range que não seja `bytes` faz toda página voltar
+   * inteira: o laço nunca vê uma página curta e gira pra sempre. Medido — tirar
+   * o `.range()` como controle positivo não deixou o teste vermelho, PENDUROU o
+   * runner, sem nem o timeout do jest conseguir matá-lo (o laço mata o event
+   * loop). Em produção a forma é "função morta no `maxDuration`, sem resposta e
+   * sem o `catch`", que é exatamente a falha que o prazo do banco foi escrito
+   * pra apagar. Um laço de rede sem teto é a mesma classe de defeito que uma
+   * chamada sem prazo. Achado pela revisão de segurança de 2026-09-16 (LOW-3).
+   *
+   * 2000 páginas × 500 linhas é um milhão de linhas numa leitura só: muito
+   * acima de qualquer caso real, e finito.
+   */
+  const TETO_DE_PAGINAS = 2000;
   async function lerPaginado({ consulta, op }) {
     const tudo = [];
-    for (let de = 0; ; de += LINHAS_POR_PAGINA) {
-      const { data, error } = await consulta(de, de + LINHAS_POR_PAGINA - 1);
+    for (let pagina = 0; ; pagina += 1) {
+      if (pagina >= TETO_DE_PAGINAS) {
+        throw new Error(`supabase store ${op}: teto de ${TETO_DE_PAGINAS} páginas atingido `
+          + '— o servidor não está honrando o Range, ou a leitura não tem filtro');
+      }
+      const { data, error } = await consulta(pagina * LINHAS_POR_PAGINA, (pagina + 1) * LINHAS_POR_PAGINA - 1);
       throwOn(error, op);
       const linhas = data || [];
       tudo.push(...linhas);
@@ -259,6 +280,17 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
    * @param {string} p.op       nome pro erro.
    */
   async function lerPorLote({ tabela, colunas, coluna, ids, ordem, op }) {
+    // O CONTRATO VIRA ASSERÇÃO. Era uma frase de JSDoc ("PRECISA conter
+    // `p.coluna`"), e o custo de quebrá-la era mudo: sem a coluna-chave no
+    // `select`, TODA linha cai em `mapa.get(undefined)`, o `if (balde)` abaixo
+    // descarta cada uma, e a função devolve um mapa de listas vazias — sem erro.
+    // Medido: tirar `check_id` do select do razão deixava a suíte INTEIRA verde
+    // (2268 passando), porque todo dublê devolve o objeto completo
+    // independentemente do `select` — só o PostgREST de verdade projeta.
+    // Achado pela revisão de segurança de 2026-09-16 (LOW-2).
+    if (!colunas.split(',').map((c) => c.trim()).includes(coluna)) {
+      throw new Error(`lerPorLote(${tabela}): o select precisa trazer '${coluna}' — é a chave do mapa`);
+    }
     const mapa = new Map();
     for (const id of ids) mapa.set(id, []);
     for (let i = 0; i < ids.length; i += IDS_POR_LOTE) {
@@ -273,10 +305,16 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       });
       for (const r of linhas) {
         const balde = mapa.get(r[coluna]);
-        // Linha de um id que não foi pedido não existe (o filtro é do banco),
-        // mas um balde ausente viraria um TypeError no meio de uma leitura de
-        // dinheiro. Ignorar é a resposta segura; o teste cobre o caminho.
-        if (balde) balde.push(r);
+        // GRITA em vez de descartar. O filtro é do banco, então uma linha de um
+        // id que ninguém pediu não deveria existir — e se existir, ela é o
+        // sintoma de alguma coisa errada na leitura, não ruído pra varrer. Um
+        // descarte silencioso numa leitura de DINHEIRO é como a função devolvia
+        // um mapa vazio sem avisar.
+        if (!balde) {
+          throw new Error(`lerPorLote(${tabela}): linha com ${coluna}=${JSON.stringify(r[coluna])} `
+            + 'que não estava no lote — leitura inconsistente');
+        }
+        balde.push(r);
       }
     }
     return mapa;
@@ -295,7 +333,13 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
 
   async function loadEvents(checkId) {
     if (!isUuid(checkId)) return []; // malformed id → empty log → "not found"
-    const { data, error } = await client
+    // PAGINA. Um razão cortado não é erro de leitura, é estado derivado ERRADO:
+    // some o `CLOSED` e a conta volta a parecer aberta, some o
+    // `PAYMENT_CONFIRMED` e ela parece não paga. E esta é a leitura dos
+    // caminhos de ESCRITA (ajustar, fechar, devolver), não só de tela.
+    const data = await lerPaginado({
+      op: 'loadEvents',
+      consulta: (de, ate) => client
       .from('check_events')
       // `created_at`: a DATA do evento, que é o que decide se o trilho de
       // devolução daquele pagamento ainda está aberto. Sem ela, a única fonte da
@@ -305,9 +349,10 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       // MEDIUM-4 de d7f2683).
       .select('seq, type, payload, created_at')
       .eq('check_id', checkId)
-      .order('seq', { ascending: true });
-    throwOn(error, 'loadEvents');
-    return data || [];
+      .order('seq', { ascending: true })
+      .range(de, ate),
+    });
+    return data;
   }
 
   return {
@@ -428,13 +473,14 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       return !!data;
     },
     async listVenuesForOwner(userId) {
-      const { data, error } = await client
-        .from('venue_members')
-        .select('venues(id, name, city, servico_basis_points, psp_recipient_id, market)')
-        .eq('user_id', userId)
-        .eq('role', PAPEL_DE_DONO);
-      throwOn(error, 'listVenuesForOwner');
-      return (data || []).map((r) => r.venues).filter(Boolean).map((v) => ({
+      const data = await lerPaginado({
+        op: 'listVenuesForOwner',
+        consulta: (de, ate) => client.from('venue_members')
+          .select('venues(id, name, city, servico_basis_points, psp_recipient_id, market)')
+          .eq('user_id', userId).eq('role', PAPEL_DE_DONO)
+          .order('venue_id', { ascending: true }).range(de, ate),
+      });
+      return data.map((r) => r.venues).filter(Boolean).map((v) => ({
         id: v.id, name: v.name, city: v.city,
         servicoBp: v.servico_basis_points, pspRecipientId: v.psp_recipient_id,
         market: v.market ?? DEFAULT_MARKET,
@@ -479,18 +525,23 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       };
     },
     async listTables(venueId) {
-      const { data: tabs, error } = await client
-        .from('venue_tables')
-        .select('id, label, qr_token, qr_rotated_at, active, training')
-        .eq('venue_id', venueId);
-      throwOn(error, 'listTables');
+      // `label` não é ordem total, então o `id` desempata: sem ordem total,
+      // duas páginas repetem e omitem a mesma mesa.
+      const tabs = await lerPaginado({
+        op: 'listTables',
+        consulta: (de, ate) => client.from('venue_tables')
+          .select('id, label, qr_token, qr_rotated_at, active, training')
+          .eq('venue_id', venueId)
+          .order('label', { ascending: true }).order('id', { ascending: true })
+          .range(de, ate),
+      });
       // hasOpenCheck by DERIVED state (the checks.status cache is unmaintained
       // in v0 — reading it left the badge stuck TRUE forever; review finding).
-      const { data: allChecks, error: cErr } = await client
-        .from('checks')
-        .select('id, table_id')
-        .eq('venue_id', venueId);
-      throwOn(cErr, 'listTables.checks');
+      const allChecks = await lerPaginado({
+        op: 'listTables.checks',
+        consulta: (de, ate) => client.from('checks').select('id, table_id')
+          .eq('venue_id', venueId).order('id', { ascending: true }).range(de, ate),
+      });
       // As FECHADAS numa leitura por lote, não o razão de cada conta: ver
       // `idsDeContasFechadas`.
       const fechadas = await idsDeContasFechadas((allChecks || []).map((c) => c.id));
@@ -538,9 +589,13 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       // Refuse to deactivate a table with an open check — no new token to fall
       // back to, so a mid-payment diner would be stranded (review finding).
       if (!active) {
-        const { data: checkRows, error: cErr } = await client
-          .from('checks').select('id').eq('table_id', tableId);
-        throwOn(cErr, 'setTableActive.checks');
+        // Truncada, esta leitura faz o guarda FALHAR ABERTO: a conta aberta
+        // fica fora das primeiras mil e a mesa é desativada com gente sentada.
+        const checkRows = await lerPaginado({
+          op: 'setTableActive.checks',
+          consulta: (de, ate) => client.from('checks').select('id')
+            .eq('table_id', tableId).order('id', { ascending: true }).range(de, ate),
+        });
         // As fechadas numa leitura por lote — ver `idsDeContasFechadas`.
         const fechadas = await idsDeContasFechadas((checkRows || []).map((c) => c.id));
         if ((checkRows || []).some((c) => !fechadas.has(c.id))) {
@@ -777,14 +832,22 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      */
     async getAdoptionFunnel(venueId, { sinceIso } = {}) {
       const desde = sinceIso || new Date(Date.now() - 30 * 86400000).toISOString();
+      // As TRÊS paginam: é este funil que mede o portão de adoção (≥25% em oito
+      // semanas), e uma leitura cortada mede a casa pela metade — decisão de
+      // roteiro tomada sobre um número truncado, sem erro nenhum na tela.
       const [views, checks, pagos] = await Promise.all([
-        client.from('check_views').select('check_id').eq('venue_id', venueId).gte('at', desde),
-        client.from('checks').select('id').eq('venue_id', venueId).gte('opened_at', desde),
-        client.from('payments').select('check_id').eq('venue_id', venueId)
-          .eq('status', 'confirmado').gte('confirmed_at', desde),
+        lerPaginado({ op: 'getAdoptionFunnel.views',
+          consulta: (de, ate) => client.from('check_views').select('check_id')
+            .eq('venue_id', venueId).gte('at', desde).order('check_id', { ascending: true }).range(de, ate) }),
+        lerPaginado({ op: 'getAdoptionFunnel.checks',
+          consulta: (de, ate) => client.from('checks').select('id')
+            .eq('venue_id', venueId).gte('opened_at', desde).order('id', { ascending: true }).range(de, ate) }),
+        lerPaginado({ op: 'getAdoptionFunnel.pagos',
+          consulta: (de, ate) => client.from('payments').select('check_id')
+            .eq('venue_id', venueId).eq('status', 'confirmado').gte('confirmed_at', desde)
+            .order('check_id', { ascending: true }).range(de, ate) }),
       ]);
-      throwOn(views.error || checks.error || pagos.error, 'getAdoptionFunnel');
-      const abertas = new Set((views.data || []).map((r) => r.check_id));
+      const abertas = new Set((views || []).map((r) => r.check_id));
       const pagas = new Set((pagos.data || []).map((r) => r.check_id));
       return {
         contasCriadas: (checks.data || []).length,
@@ -1209,13 +1272,16 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      * vez e o venue sair da varredura.
      */
     async listVenuesPendingRecipient() {
-      const { data, error } = await client
-        .from('venues')
-        .select(VENUE_COLS)
-        .not('psp_recipient_status', 'is', null)
-        .not('psp_recipient_status', 'in', `(${RECIPIENT_TERMINAL.join(',')})`);
-      throwOn(error, 'listVenuesPendingRecipient');
-      return (data || []).map(mapVenue);
+      // Plataforma inteira, não uma casa: este é o cron que persegue recebedor
+      // pendente, e uma casa que não cabe na primeira página nunca é perseguida.
+      const data = await lerPaginado({
+        op: 'listVenuesPendingRecipient',
+        consulta: (de, ate) => client.from('venues').select(VENUE_COLS)
+          .not('psp_recipient_status', 'is', null)
+          .not('psp_recipient_status', 'in', `(${RECIPIENT_TERMINAL.join(',')})`)
+          .order('id', { ascending: true }).range(de, ate),
+      });
+      return data.map(mapVenue);
     },
     /**
      * Números do funil de ativação, um registro por restaurante (RPC
@@ -1388,13 +1454,14 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
     async loadHouseEvents(accountId) {
       if (!isUuid(accountId)) return [];
-      const { data, error } = await client
-        .from('house_account_events')
-        .select('seq, type, payload')
-        .eq('account_id', accountId)
-        .order('seq', { ascending: true });
-      throwOn(error, 'loadHouseEvents');
-      return data || [];
+      // Pagina pelo mesmo motivo do `loadEvents`: razão cortado é saldo errado,
+      // e aqui o saldo é dinheiro pré-pago do cliente.
+      return lerPaginado({
+        op: 'loadHouseEvents',
+        consulta: (de, ate) => client.from('house_account_events')
+          .select('seq, type, payload').eq('account_id', accountId)
+          .order('seq', { ascending: true }).range(de, ate),
+      });
     },
     async rotateHouseAccountToken(accountId) {
       if (!isUuid(accountId)) return null;
@@ -1410,13 +1477,18 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
     async listHouseAccounts(venueId) {
       if (!isUuid(venueId)) return [];
-      const { data, error } = await client
-        .from('house_accounts')
-        .select('id, venue_id, phone, name, account_token, created_at')
-        .eq('venue_id', venueId)
-        .order('created_at', { ascending: true });
-      throwOn(error, 'listHouseAccounts');
-      return (data || []).map(mapHouseAccount);
+      // `MAX_ACCOUNTS_PER_VENUE` é 5000: o teto do PostgREST é alcançável POR
+      // DESENHO. `created_at` não é ordem total (duas contas no mesmo
+      // milissegundo), então o `id` desempata.
+      const data = await lerPaginado({
+        op: 'listHouseAccounts',
+        consulta: (de, ate) => client.from('house_accounts')
+          .select('id, venue_id, phone, name, account_token, created_at')
+          .eq('venue_id', venueId)
+          .order('created_at', { ascending: true }).order('id', { ascending: true })
+          .range(de, ate),
+      });
+      return data.map(mapHouseAccount);
     },
     async registerHouseLoad({ accountId, txid, amountCents, bonusCents, validityDays }) {
       const { error } = await client.from('house_loads').insert({
@@ -1579,12 +1651,18 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(vErr, 'getPanelView.venue');
       if (!venue) return null;
 
-      const { data: checks, error: cErr } = await client
-        .from('checks')
-        .select('id, table_id, venue_tables(label)')
-        .eq('venue_id', venueId)
-        .order('opened_at', { ascending: true });
-      throwOn(cErr, 'getPanelView.checks');
+      // PAGINA. `opened_at` é ASCENDENTE, então o corte derrubava as contas
+      // MAIS NOVAS: passando de mil contas na vida da casa, o painel parava de
+      // listar as mesas de hoje e a lista de restituição parava de mostrar
+      // obrigação nova (CC art. 876). `id` desempata — duas contas abrem no
+      // mesmo milissegundo e `opened_at` sozinho não é ordem total.
+      const checks = await lerPaginado({
+        op: 'getPanelView.checks',
+        consulta: (de, ate) => client.from('checks').select('id, table_id, venue_tables(label)')
+          .eq('venue_id', venueId)
+          .order('opened_at', { ascending: true }).order('id', { ascending: true })
+          .range(de, ate),
+      });
 
       const rows = [];
       /**
@@ -1664,21 +1742,23 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
 
       // Mesas de TREINO ficam fora de todos os números (workshop pré-turno
       // não é movimento da casa) — espelha o memory store.
-      const { data: trainingTables, error: ttErr } = await client
-        .from('venue_tables')
-        .select('id')
-        .eq('venue_id', venueId)
-        .eq('training', true);
-      throwOn(ttErr, 'getPanelView.trainingTables');
+      // Mesa de treino que cai fora da página passa a contar como mesa DE
+      // VERDADE: o faturamento do painel soma dinheiro de treinamento.
+      const trainingTables = await lerPaginado({
+        op: 'getPanelView.trainingTables',
+        consulta: (de, ate) => client.from('venue_tables').select('id')
+          .eq('venue_id', venueId).eq('training', true)
+          .order('id', { ascending: true }).range(de, ate),
+      });
       const trainingChecks = new Set();
       if ((trainingTables || []).length > 0) {
-        const { data: tChecks, error: tcErr } = await client
-          .from('checks')
-          .select('id')
-          .eq('venue_id', venueId)
-          .in('table_id', trainingTables.map((t) => t.id));
-        throwOn(tcErr, 'getPanelView.trainingChecks');
-        for (const c of tChecks || []) trainingChecks.add(c.id);
+        const tChecks = await lerPaginado({
+          op: 'getPanelView.trainingChecks',
+          consulta: (de, ate) => client.from('checks').select('id')
+            .eq('venue_id', venueId).in('table_id', trainingTables.map((t) => t.id))
+            .order('id', { ascending: true }).range(de, ate),
+        });
+        for (const c of tChecks) trainingChecks.add(c.id);
       }
 
       /**
@@ -1696,18 +1776,40 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
        * `buildAtivacao`, pra as duas linhas do painel nunca discordarem.
        */
       const desde = new Date(Date.parse(nowIso) - 8 * 86400000).toISOString();
-      const { data: confirmedRaw, error: pErr } = await client
-        .from('payments')
-        // `txid` é a CHAVE do mapa de sobras que o `buildAtivacao` usa. Sem
-        // ele, `sobraDe()` devolvia 0 pra toda linha e a série semanal seguia
-        // contando dívida (CC art. 876) como receita — a correção existia e não
-        // rodava. É a mesma armadilha documentada 120 linhas acima, onde eu
-        // acrescentei `currency` ao mapeador e não ao select.
-        .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, check_id, confirmed_at, method')
-        .eq('venue_id', venueId)
-        .eq('status', 'confirmado')
-        .gte('confirmed_at', desde);
-      throwOn(pErr, 'getPanelView.payments');
+      /**
+       * A LEITURA QUE VIRA O NÚMERO DA FOLHA — e ela não paginava.
+       *
+       * Daqui saem `today.tipsCents` (o "serviço da equipe" que o dono leva
+       * pra folha, Lei 13.419 e inegociável #2) e o faturamento do dia. Sem
+       * `range`, mil pagamentos confirmados na janela de oito dias — cerca de
+       * 125 por dia, uma casa de quarenta mesas rachando em três — faziam o
+       * PostgREST devolver mil com um 200, e a gorjeta chegava CURTA na tela.
+       * Sem `order`, quais mil chegam é escolha do planejador: o número podia
+       * mudar entre duas recargas de quatro segundos sem nada acontecer.
+       *
+       * E a conciliação NÃO enxergava: `listChecksForReconcile` pagina certo,
+       * então o canário noturno ficava verde enquanto a tela do dono estava
+       * errada — o sucesso silencioso que o inegociável #8 existe pra proibir.
+       * Achado pela revisão de segurança de 2026-09-16 (HIGH-1).
+       */
+      const confirmedRaw = await lerPaginado({
+        op: 'getPanelView.payments',
+        consulta: (de, ate) => client
+          .from('payments')
+          // `txid` é a CHAVE do mapa de sobras que o `buildAtivacao` usa. Sem
+          // ele, `sobraDe()` devolvia 0 pra toda linha e a série semanal seguia
+          // contando dívida (CC art. 876) como receita — a correção existia e não
+          // rodava. É a mesma armadilha documentada 120 linhas acima, onde eu
+          // acrescentei `currency` ao mapeador e não ao select.
+          .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, check_id, confirmed_at, method')
+          .eq('venue_id', venueId)
+          .eq('status', 'confirmado')
+          .gte('confirmed_at', desde)
+          // `txid` é único (0001): ordem total, sem repetir nem omitir linha
+          // entre páginas.
+          .order('txid', { ascending: true })
+          .range(de, ate),
+      });
       const confirmed = (confirmedRaw || [])
         .filter((p) => !trainingChecks.has(p.check_id))
         .map((p) => ({

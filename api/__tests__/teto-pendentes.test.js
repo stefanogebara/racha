@@ -215,19 +215,63 @@ describe('o atacante que o teto existe pra parar', () => {
     expect({ noPsp, peloTeto }).toEqual({ noPsp: TETO_PENDENTES, peloTeto: 1000 - TETO_PENDENTES });
   });
 
-  test('o rótulo recusa o que o Postgres não guarda — e o erro tem CÓDIGO', async () => {
-    const { payerLabelValido } = require('../_lib/pay/create-charge');
+  /**
+   * O QUE O POSTGRES NÃO GUARDA NÃO CHEGA NELE — e agora por LIMPEZA, não por
+   * recusa.
+   *
+   * A versão anterior RECUSAVA o NUL, o tab e o DEL. O perigo que ela fechava
+   * era real e está documentado logo acima: o Postgres recusa um NUL (22P05), o
+   * registro estourava DEPOIS de a Stripe criar o intent, a vaga voltava, e mil
+   * pedidos viravam mil e uma cobranças no adquirente com zero 429.
+   *
+   * Agora o rótulo passa pelo mesmo normalizador das palavras da casa
+   * (segurança MEDIUM-3 de 2026-09-16: era o único texto livre de quem NÃO está
+   * autenticado, e era o que tinha a regra mais fraca). O invisível é REMOVIDO
+   * antes de chegar ao banco, então o 22P05 deixa de ser alcançável — o perigo
+   * some pela raiz em vez de por um portão. E quem colou um caractere estranho
+   * junto com o nome consegue pagar, em vez de levar um erro que não explica.
+   *
+   * O que CONTINUA recusado é o que não dá pra limpar: UTF-16 mal formado (um
+   * surrogate solto, 22P02) e tamanho. Esses ainda precisam do código de erro.
+   */
+  test('o rótulo LIMPA o que o Postgres não guarda, e recusa o que não dá pra limpar', async () => {
+    const { payerLabelValido, normalizarRotuloDoPagador } = require('../_lib/pay/create-charge');
     const C = String.fromCharCode;
-    for (const [nome, v, ok] of [
-      ['nome comum', 'Ana', true], ['sessenta', 'x'.repeat(60), true], ['ausente', null, true],
-      ['sessenta e um', 'x'.repeat(61), false], ['NUL', `x${C(0)}`, false], ['tab', `a${C(9)}b`, false],
-      ['DEL', `x${C(127)}`, false], ['surrogate solto', C(0xD800), false],
-    ]) expect({ nome, ok: payerLabelValido(v) }).toEqual({ nome, ok });
+    // O que é limpo e passa — com o valor que de fato vai pro banco.
+    for (const [nome, v, valor] of [
+      ['nome comum', 'Ana', 'Ana'],
+      ['sessenta', 'x'.repeat(60), 'x'.repeat(60)],
+      ['ausente', null, null],
+      ['NUL', `x${C(0)}`, 'x'],
+      ['tab vira espaço', `a${C(9)}b`, 'a b'],
+      ['DEL', `x${C(127)}`, 'x'],
+      ['largura-zero — o sósia da lista de pagantes', `Ana${C(0x200B)}`, 'Ana'],
+      ['RLO', `${C(0x202E)}Ana`, 'Ana'],
+      ['só invisível vira anônimo', C(0x200B).repeat(3), null],
+    ]) expect({ nome, r: normalizarRotuloDoPagador(v) }).toEqual({ nome, r: { ok: true, valor } });
+
+    // O que não dá pra limpar continua recusado.
+    for (const [nome, v] of [
+      ['sessenta e um', 'x'.repeat(61)],
+      ['surrogate solto', C(0xD800)],
+      ['não-string', 42],
+    ]) expect({ nome, ok: payerLabelValido(v) }).toEqual({ nome, ok: false });
+
     const { store, table, charge } = mundo();
     const check = await contaAberta(store, table);
     // O trilho Pix respondia a frase interna em inglês, sem código. (Compliance, M1.)
-    await expect(charge({ checkId: check.id, amountCents: 100, payerLabel: `x${C(0)}` }))
+    await expect(charge({ checkId: check.id, amountCents: 100, payerLabel: C(0xD800) }))
       .rejects.toMatchObject({ statusCode: 400, code: 'payer_label_invalid' });
+  });
+
+  test('e é o rótulo LIMPO que chega ao store — validar o cru e gravar o cru deixaria a limpeza inerte', async () => {
+    const { store, table, charge } = mundo();
+    const check = await contaAberta(store, table);
+    let visto;
+    const registrar = store.registerCharge.bind(store);
+    store.registerCharge = async (p) => { visto = p.payerLabel; return registrar(p); };
+    await charge({ checkId: check.id, amountCents: 100, payerLabel: `Ana${String.fromCharCode(0x200B)}` });
+    expect(visto).toBe('Ana');
   });
 
   test('a janela DESLIZA: passados quinze minutos a mesa volta a ter vaga', async () => {

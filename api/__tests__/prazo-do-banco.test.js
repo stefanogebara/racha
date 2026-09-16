@@ -144,13 +144,49 @@ describe('o prazo do banco é medido, não declarado', () => {
 });
 
 describe('o sinal de quem chama continua mandando', () => {
-  test('cancelar por fora aborta, e não vira aviso de prazo', async () => {
+  test('cancelar DEPOIS da chamada aborta', async () => {
     const ac = new AbortController();
     const f = fetchComPrazo(60_000);
     const p = f(mudo.url, { signal: ac.signal });
     ac.abort();
     await expect(p).rejects.toThrow();
   }, 15000);
+
+  /**
+   * O CASO QUE O COMENTÁRIO NOMEAVA E O CÓDIGO NÃO PEGAVA.
+   *
+   * Um sinal JÁ abortado nunca dispara o evento `abort` de novo, então um
+   * `addEventListener` sozinho não roda — e a requisição saía no nosso sinal,
+   * que não está abortado. A guarda falhava exatamente pra entrada que a frase
+   * ao lado dela citava. Inerte hoje (nada em `api/` passa `abortSignal`), e é
+   * por isso que ela precisava de teste: uma guarda que nunca dispara é testada
+   * em produção. Achado pela revisão de segurança de 2026-09-16 (LOW-4).
+   */
+  test('um sinal que JÁ abortou impede a ida — a requisição nem sai', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    let saiu = false;
+    const f = fetchComPrazo(60_000, (...args) => { saiu = true; return fetch(...args); });
+    await expect(f(mudo.url, { signal: ac.signal })).rejects.toThrow();
+    // O `fetch` até é chamado (é ele quem rejeita por sinal abortado), mas com
+    // um sinal ABORTADO: nada vai pra rede. O servidor mudo não recebe ida.
+    expect(saiu).toBe(true);
+  }, 15000);
+
+  test('o ouvinte é solto no fim — um sinal longevo não acumula um por requisição', async () => {
+    const { getEventListeners } = require('node:events');
+    const ac = new AbortController();
+    // Prazo curto: cada ida ao servidor mudo corta rápido, e o que se mede é o
+    // que sobra DEPOIS de a promessa assentar.
+    const f = fetchComPrazo(1000);
+    for (let i = 0; i < 30; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await f(`${mudo.url}/x`, { signal: ac.signal }).catch(() => {});
+    }
+    // Trinta idas no mesmo sinal: sem o `removeEventListener` seriam trinta
+    // ouvintes e o aviso de vazamento do Node (o limite é 10).
+    expect(getEventListeners(ac.signal, 'abort')).toHaveLength(0);
+  }, 60000);
 });
 
 describe('a env não desliga a guarda em silêncio', () => {
@@ -176,11 +212,31 @@ describe('a env não desliga a guarda em silêncio', () => {
 });
 
 describe('ninguém constrói cliente por fora da fábrica', () => {
+  /**
+   * ESCOPO DECLARADO: `api/` — o que é DEPLOYADO.
+   *
+   * Os scripts de operação (`scripts/*.mjs`) montam clientes próprios, e dois
+   * deles rodam contra PRODUÇÃO. Eles não estão cobertos por este censo e não
+   * herdam o prazo; o teste abaixo afirma que eles existem, pra que a frase
+   * "o único lugar que constrói um cliente" não seja lida como mais ampla do
+   * que é. Achado pela revisão de segurança de 2026-09-16 (LOW-5).
+   */
   test('o censo: só o `cliente-supabase.js` chama `createClient`', () => {
     const { execSync } = require('child_process');
     const raiz = require('path').join(__dirname, '..');
     const saida = execSync(`grep -rln "createClient" ${raiz} --exclude-dir=node_modules --exclude-dir=__tests__ || true`, { encoding: 'utf8' });
     const arquivos = saida.split('\n').filter(Boolean).map((f) => f.replace(`${raiz}/`, ''));
     expect(arquivos).toEqual(['_lib/store/cliente-supabase.js']);
+  });
+
+  test('e os scripts de operação estão FORA deste escopo — dito, não suposto', () => {
+    const { execSync } = require('child_process');
+    const scripts = require('path').join(__dirname, '..', '..', 'scripts');
+    const saida = execSync(`grep -rln "createClient" ${scripts} 2>/dev/null || true`, { encoding: 'utf8' });
+    const achados = saida.split('\n').filter(Boolean);
+    // Não é um defeito a consertar aqui: são ferramentas de mão, rodadas por uma
+    // pessoa que vê o terminal pendurar. O que seria defeito é alguém ler a
+    // afirmação de cima e concluir que o prazo vale pra elas também.
+    expect(achados.length).toBeGreaterThan(0);
   });
 });

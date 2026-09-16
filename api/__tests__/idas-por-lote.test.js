@@ -262,6 +262,52 @@ describe('o lote não perde nem troca linha', () => {
     expect(out.every((c) => c.events.length === 1)).toBe(true);
   });
 
+  /**
+   * A LINHA DA FOLHA, CURTA, COM UM 200 NA FRENTE.
+   *
+   * `today.tipsCents` e o que o painel rotula "servico da equipe (folha)" — a
+   * base da Lei 13.419 e do inegociavel #2. Ela sai de uma leitura de
+   * `payments` na janela de oito dias que NAO paginava: mil pagamentos
+   * confirmados na janela (~125/dia, uma casa de quarenta mesas rachando em
+   * tres) e o PostgREST devolvia mil com um 200. O dono distribuia o que a tela
+   * dizia.
+   *
+   * E a conciliacao nao via: `listChecksForReconcile` pagina certo, entao o
+   * canario noturno ficava VERDE enquanto a tela estava errada — o sucesso
+   * silencioso que o inegociavel #8 existe pra proibir. Achado pela revisao de
+   * seguranca de 2026-09-16 (HIGH-1).
+   */
+  test('a GORJETA do painel nao encolhe quando a casa passa do corte do servidor', async () => {
+    const N = 1200;
+    const agora = new Date().toISOString();
+    const checks = [], payments = [], check_events = [];
+    for (let i = 0; i < N; i++) {
+      checks.push(conta(i));
+      // Um OPENED por conta: `reduce([])` devolve null e o painel quebra antes
+      // de chegar na soma — o razao vazio nao e o caso que este teste mede.
+      check_events.push(evento(i, 1, 'OPENED'));
+      payments.push({
+        ...pagamento(i, `tx_${i}`),
+        amount_cents: 1000, tip_cents: 100,
+        confirmed_amount_cents: 1000, confirmed_tip_cents: 100,
+        venue_id: 'v1', status: 'confirmado', confirmed_at: agora,
+      });
+    }
+    const dados = { ...casa(0), checks, payments, check_events };
+    const { client } = clienteContador(dados, { maxLinhas: 1000 });
+    const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client });
+    const painel = await store.getPanelView('v1', agora);
+
+    // R$ 1,00 de gorjeta em 1200 pagamentos = R$ 1.200,00. Truncado em mil,
+    // chegava R$ 1.000,00 — duzentos reais a menos na folha, sem erro nenhum.
+    expect(painel.today.tipsCents).toBe(N * 100);
+    expect(painel.today.confirmedCents).toBe(N * 1000);
+    // E a lista de mesas do painel tambem: `opened_at` e ASCENDENTE, entao o
+    // corte derrubava as contas MAIS NOVAS — o painel parava de listar as mesas
+    // de hoje.
+    expect(painel.checks).toHaveLength(N);
+  });
+
   test('mais de 200 ids viram vários lotes — e nenhuma conta fica pra trás', async () => {
     const { client, idas } = clienteContador(casa(450));
     const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client });

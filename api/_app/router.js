@@ -629,7 +629,12 @@ async function avisarTetoDisparado(err) {
 async function guardUser(req, res) {
   if (!auth) { json(res, 501, { success: false, error: 'auth não configurado' }); return null; }
   try { return await auth.requireUser(req); }
-  catch (e) { json(res, e.statusCode || 401, { success: false, error: e.message }); return null; }
+  catch (e) {
+    // O CÓDIGO viaja: um 503 `auth_unavailable` tem que chegar ao cliente
+    // distinguível de um 401, senão ele desloga o dono do mesmo jeito.
+    json(res, e.statusCode || 401, { success: false, error: e.message, ...(e.code ? { code: e.code } : {}) });
+    return null;
+  }
 }
 
 // Instance-local rate limit for the one public row-creating endpoint
