@@ -714,6 +714,19 @@ export const DICT = {
   'find.reopened_by_refund': { en: 'this bill was settled and a refund reopened it — the table now sees {amount} “still owed” and a pay button. Close the bill or adjust the total down; do not ask the table for the difference',
                         pt: 'esta conta estava quitada e uma devolução a reabriu — a mesa está vendo {amount} “faltando” e o botão de pagar. Feche a conta ou ajuste o total para baixo; não peça a diferença à mesa',
                         es: 'esta cuenta estaba saldada y una devolución la reabrió — la mesa ve {amount} «pendiente» y el botón de pagar. Cierra la cuenta o ajusta el total a la baja; no pidas la diferencia a la mesa' },
+  /**
+   * DOIS NÚMEROS, porque são duas coisas — e a versão de uma frase só afirmava
+   * que eram a mesma.
+   *
+   * `{amount}` é o que a MESA vê faltando; `{refundable}` é a parte que veio de
+   * DEVOLUÇÃO, que é o que o dono pode dar baixa. O resto é chargeback: dívida
+   * que a casa perdeu de verdade, e apagá-la dos livros é apagar um prejuízo.
+   * Com um número só, o dono ajustava pelo menor e a mesa continuava vendo o
+   * maior, com o botão de pagar ligado (CDC art. 42 § único).
+   */
+  'find.reopened_by_refund_mixed': { en: 'this bill was settled and a refund reopened it — the table now sees {amount} “still owed” and a pay button, of which {refundable} came from a refund; the rest is a chargeback the house actually lost. Close the bill or adjust the total down by the refunded part; do not ask the table for the difference',
+                        pt: 'esta conta estava quitada e uma devolução a reabriu — a mesa está vendo {amount} “faltando” e o botão de pagar, dos quais {refundable} vieram de devolução; o resto é chargeback, que a casa perdeu mesmo. Feche a conta ou ajuste o total para baixo na parte devolvida; não peça a diferença à mesa',
+                        es: 'esta cuenta estaba saldada y una devolución la reabrió — la mesa ve {amount} «pendiente» y el botón de pagar, de los cuales {refundable} vinieron de una devolución; el resto es un contracargo que el local sí perdió. Cierra la cuenta o ajusta el total a la baja por la parte devuelta; no pidas la diferencia a la mesa' },
   'find.ledger_drift':{ en: 'the two money records disagree by {amount}',
                         pt: 'os dois registros de dinheiro divergem em {amount}',
                         es: 'los dos registros de dinero difieren en {amount}' },

@@ -293,6 +293,10 @@ function textoDoAchado(
   f: {
     code: string;
     overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
+    // A SEGUNDA quantia de um achado, quando ele tem duas. O `reopened_by_refund`
+    // com chargeback no meio tem: o que a mesa VÊ e o que o dono pode dar BAIXA.
+    // Sem ela, a frase teria que escolher um dos dois e mentir sobre o outro.
+    refundableCents?: number;
   },
   t: (k: Key, v?: Record<string, string | number>) => string,
   brl: (c: number) => string,
@@ -302,7 +306,12 @@ function textoDoAchado(
   // fora da subconta da casa). Sem ele, a frase saía com "{amount}" literal na
   // tela — que é pior que não ter frase.
   const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents ?? f.amountCents;
-  const vars = valor !== undefined ? { amount: brl(Math.abs(valor)) } : undefined;
+  const vars = valor !== undefined
+    ? {
+      amount: brl(Math.abs(valor)),
+      ...(f.refundableCents !== undefined ? { refundable: brl(Math.abs(f.refundableCents)) } : {}),
+    }
+    : undefined;
   // Pergunta, não exceção: `t()` de chave desconhecida estoura num
   // `undefined[lang]`, e depender disso é depender de um acidente.
   if (!(chave in DICT)) return t('find.other', { code: f.code });

@@ -60,6 +60,14 @@ const { estornoDoTrilho } = require('./check-state');
  * infla, e grita" por "às vezes não há remédio, e cala" é o lado errado pra
  * errar quando o dinheiro é do cliente.
  *
+ * E DE QUEM É O PREJUÍZO quando o teto infla: da CASA, não do cliente. Ele
+ * recebe o que lhe é devido de qualquer jeito; quem pode pagar duas vezes, por
+ * fora, é o restaurante. Dito assim a escolha fica onde a política deste
+ * repositório inteiro a põe — errar para o lado do consumidor. Sem dizer, o
+ * parágrafo soa como se a inflação não custasse nada a ninguém, e é essa leitura
+ * que faz alguém tirar o `reversao_ambigua` do caminho num commit futuro por
+ * achar que é ruído.
+ *
  * Fica aberto, então, com o que dá pra afirmar: a inflação é limitada pelo valor
  * do pagamento (o `validateEvent` não deixa reverter mais do que o trilho tem),
  * sai `sem_refund_id` em CADA entrega (chave por entrega, não por valor) mais

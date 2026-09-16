@@ -302,16 +302,30 @@ function reconcileCheck({ checkId, events, payments }) {
     const buraco = state.totalCents - state.paidCents;
     const porDevolucao = buraco - Math.max(0, porDisputa);
     if (houveEstorno && entrou >= state.totalCents && state.totalCents > 0 && porDevolucao > 0) {
-      add('high', 'reopened_by_refund',
+      /**
+       * `deltaCents` É O BURACO — o número que a MESA está vendo.
+       *
+       * Ele é o campo que a cadeia do painel lê
+       * (`overpaidCents ?? deltaCents ?? driftCents ?? amountCents`), e a frase
+       * que o dono lê diz "a mesa está vendo {amount} faltando". Quando eu pus
+       * ali a parte devolvível, a frase passou a afirmar que dois números
+       * diferentes eram o mesmo: numa conta com chargeback de R$ 110 e estorno
+       * de R$ 20, o painel dizia "a mesa está vendo R$ 20,00" e a mesa estava
+       * vendo R$ 130,00. O dono ajusta R$ 20, fecha o caixa, e quem senta ali
+       * paga R$ 110 que a rede já levou — dívida inexistente, com repetição do
+       * indébito (CDC art. 42 § único; segurança HIGH-1 da rodada treze).
+       *
+       * A parte devolvível continua existindo, com nome próprio e frase própria:
+       * quando há chargeback no meio, o código do achado muda, e a outra frase
+       * nomeia os dois números.
+       */
+      const misto = porDisputa > 0;
+      add('high', misto ? 'reopened_by_refund_mixed' : 'reopened_by_refund',
         `esta conta foi quitada (entrou ${entrou}¢ de ${state.totalCents}¢) e uma devolução a reabriu: `
         + `o telefone da mesa mostra ${buraco}¢ "faltando" e o botão de pagar`
-        + (porDisputa > 0 ? `, dos quais ${porDevolucao}¢ vieram de devolução (o resto é chargeback, que a casa perdeu mesmo)` : '')
+        + (misto ? `, dos quais ${porDevolucao}¢ vieram de devolução (o resto é chargeback, que a casa perdeu mesmo)` : '')
         + `. Feche a conta ou lance um ajuste para baixo; não peça o resto à mesa (CDC art. 42)`,
-        // `deltaCents`, e não um nome novo: é o campo que a cadeia do painel lê
-        // (`overpaidCents ?? deltaCents ?? driftCents ?? amountCents`). Um campo
-        // fora da cadeia faria a tela do dono imprimir "{amount}" literal. E ele
-        // carrega a parte da DEVOLUÇÃO, que é o que o dono pode dar baixa.
-        { deltaCents: porDevolucao, buracoCents: buraco, entrouCents: entrou });
+        { deltaCents: buraco, refundableCents: porDevolucao, entrouCents: entrou });
     }
   }
 

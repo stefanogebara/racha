@@ -584,19 +584,38 @@ function applyEvent(state, evt, seq = null) {
        *
        * SOBRE O RAZÃO JÁ GRAVADO: apertar este teto pode recusar, no replay,
        * uma reversão que o teto antigo aceitou — e aí uma conta vira de `paga`
-       * pra `parcial` no instante do deploy. Medido em produção antes de subir,
-       * com esta consulta:
+       * pra `parcial` no instante do deploy. Medido em produção antes de subir:
        *
-       *   select count(*) filter (where type = 'PAYMENT_REFUND_REVERSED')  as reversoes,
-       *          count(*) filter (where type = 'PAYMENT_REFUNDED'
-       *                             and payload->>'method' = 'dispute'
-       *                             and not (payload ? 'disputeId')
-       *                             and not (payload ? 'deDisputa'))       as disputa_sem_marca
-       *   from check_events;
+       *   with disputados as (
+       *     select distinct payload->>'txid' as txid from check_events
+       *     where type in ('PAYMENT_DISPUTED', 'PAYMENT_DISPUTE_CLOSED')
+       *   )
+       *   select
+       *     (select count(*) from check_events where type = 'PAYMENT_REFUND_REVERSED') as reversoes,
+       *     (select count(*) from check_events where type = 'PAYMENT_REFUNDED')        as estornos,
+       *     (select count(*) from check_events where type = 'PAYMENT_REFUNDED'
+       *          and (payload->>'offRail')::boolean is true)                           as fora_do_trilho,
+       *     (select count(*) from disputados)                                          as pagamentos_disputados,
+       *     (select count(*) from check_events e where e.type = 'PAYMENT_REFUNDED'
+       *          and e.payload->>'txid' in (select txid from disputados)
+       *          and not (e.payload ? 'disputeId') and not (e.payload ? 'deDisputa'))  as disputa_sem_marca;
        *
-       * Em 2026-09-16: `reversoes = 0`, `disputa_sem_marca = 0`, `estornos = 1`.
-       * Raio de alcance zero. Se um dia não for zero, o número tem que sair
-       * desta consulta ANTES do deploy, e não da primeira mesa que reclamar.
+       * Em 2026-09-16: reversoes 0, estornos 1, fora_do_trilho 0,
+       * pagamentos_disputados 0, disputa_sem_marca 0. Raio de alcance zero.
+       *
+       * A PRIMEIRA VERSÃO DESTA CONSULTA MEDIA VÁCUO. Ela filtrava
+       * `payload->>'method' = 'dispute'`, e `method` NUNCA é gravado num payload
+       * de `PAYMENT_REFUNDED` — o construtor só o acrescenta em
+       * `PAYMENT_CONFIRMED`. O filtro era `NULL` pra toda linha que este código
+       * já escreveu, então ela devolveria zero com um milhão de linhas sujas no
+       * banco — e esse zero estava citado aqui como a evidência que autoriza
+       * apertar o teto (segurança HIGH-3 da rodada treze). A versão acima acha a
+       * procedência pelo único lugar onde ela existe de verdade no razão antigo:
+       * os eventos de DISPUTA do mesmo txid. `pagamentos_disputados = 0` é o que
+       * torna o `disputa_sem_marca = 0` uma medição e não um artefato.
+       *
+       * Se um dia não for zero, o número sai daqui ANTES do deploy, e não da
+       * primeira mesa que reclamar.
        */
       pay.refundedPeloTrilhoAmountCents = (pay.refundedPeloTrilhoAmountCents || 0) - amount;
       pay.refundedPeloTrilhoTipCents = (pay.refundedPeloTrilhoTipCents || 0) - tip;

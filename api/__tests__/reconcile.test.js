@@ -490,8 +490,10 @@ describe('a conta que voltou a cobrar', () => {
     ev('OPENED', { totalCents: 10000 }),
     ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'pix' }),
   ];
+  // Os DOIS códigos: o simples e o do caso misto (com chargeback no meio), que
+  // tem frase própria porque carrega dois números.
   const achado = (evs) => reconcileCheck({ checkId: 'c', events: evs, payments: [] })
-    .findings.filter((x) => x.code === 'reopened_by_refund');
+    .findings.filter((x) => /^reopened_by_refund/.test(x.code));
 
   test('quitada e reaberta por devolução: CRÍTICO, com o número que a mesa vê', () => {
     const r = achado([...quitada, ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 })]);
@@ -545,7 +547,7 @@ describe('a conta que voltou a cobrar', () => {
    * parte disputada, é instruir a apagar dos livros um prejuízo real
    * (compliance MEDIUM-B da rodada doze).
    */
-  test('no caso MISTO, o número é o da devolução — não o do chargeback', () => {
+  test('no caso MISTO, o achado carrega os DOIS números e usa a frase dos dois', () => {
     const r = achado([
       ev('OPENED', { totalCents: 20000 }),
       ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 2000, method: 'pix' }),
@@ -553,10 +555,18 @@ describe('a conta que voltou a cobrar', () => {
       ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 1818, tipCents: 182 }),
     ]);
     expect(r.length).toBe(1);
-    // O buraco é 11818; a parte da DEVOLUÇÃO é 1818. É essa que o dono pode
-    // dar baixa, e é essa que vai no número.
-    expect(r[0].deltaCents).toBe(1818);
-    expect(r[0].buracoCents).toBe(11818);
+    /**
+     * `deltaCents` é o BURACO (11818) — é ele que a cadeia do painel imprime, e a
+     * frase diz "a mesa está vendo {amount} faltando". Pôr ali a parte devolvível
+     * fazia o painel afirmar que dois números diferentes eram o mesmo: o dono lia
+     * R$ 18,18, a mesa via R$ 118,18, ele ajustava pelo menor e quem sentasse ali
+     * pagava o resto — que a rede já tinha levado (CDC art. 42 § único;
+     * segurança HIGH-1 da rodada treze).
+     */
+    expect(r[0].deltaCents).toBe(11818);
+    // A parte devolvível tem nome próprio, e a frase do caso misto nomeia as duas.
+    expect(r[0].refundableCents).toBe(1818);
+    expect(r[0].code).toBe('reopened_by_refund_mixed');
     expect(r[0].message).toMatch(/chargeback, que a casa perdeu mesmo/);
   });
 

@@ -912,16 +912,25 @@ describe('nenhuma saída de sucesso deixa a linha sem notícia do razão', () =>
     const fim = fonte.indexOf('\nasync function', inicio + 10);
     const corpo = fonte.slice(inicio, fim > inicio ? fim : undefined);
     /**
-     * `status:` e não `status: '…'`: a regex anterior exigia literal com aspas, e
-     * uma saída com o status numa variável (`return { status: MUDO }`) não
-     * entrava na contagem — foi assim que a revisão escondeu uma saída muda
-     * dentro do próprio censo.
+     * DOIS NÚMEROS, porque uma regex sozinha só vê a forma que ela desenha.
+     *
+     * `return { status:` exige `status` como PRIMEIRA chave. A revisão plantou
+     * `return { checkId: null, status: 'duplicate' }` — as mesmas duas chaves na
+     * ordem inversa, que é o que sai da mão de quem copia o vizinho — e o censo
+     * ficou verde: a contagem não mexeu e o status não entrou no inventário.
+     *
+     * Então conta-se o conjunto MAIOR (todo `return {` do corpo) e, à parte,
+     * quantos desses carregam `status` em qualquer posição. Uma saída nova de
+     * qualquer forma move o primeiro número; uma saída com o status escondido
+     * move a diferença entre os dois. Nenhuma AST.
      */
-    const sitios = [...corpo.matchAll(/return \{\s*status:/g)].length;
-    // Medido em 0feccdf: 20 sítios, 8 alcançados pelos cenários acima. Mexer
-    // neste número é decidir: ou o cenário novo entra, ou a dívida sobe — e as
-    // duas coisas passam por alguém olhar.
-    expect(sitios).toBe(20);
+    const retornos = [...corpo.matchAll(/return\s*\{/g)].length;
+    const comStatus = [...corpo.matchAll(/return\s*\{[^}]*\bstatus\s*:/g)].length;
+    // Medido em ccf0659: 20 retornos de objeto no corpo, os 20 com `status`, e
+    // 8 alcançados pelos cenários acima. Mexer em qualquer um destes números é
+    // decidir: ou o cenário novo entra, ou a dívida sobe — e as duas coisas
+    // passam por alguém olhar.
+    expect({ retornos, comStatus }).toEqual({ retornos: 20, comStatus: 20 });
   });
 
   test('todo `status` que o fonte devolve tem cenário aqui', async () => {

@@ -328,19 +328,40 @@ async function applyConfirmedPayment(parsed, deps) {
      * Não cabendo, a testemunha cai e o proporcional entra — que por construção
      * cabe, porque é calculado SOBRE os baldes vivos.
      */
+    /**
+     * E `cabeNosBaldes` EXIGE INTEIRO SEGURO nos dois baldes, com o `if` abaixo
+     * disparando sempre que ela é falsa — é o que faz a forma impossível cair no
+     * lado seguro em vez de escapar.
+     *
+     * Eu tinha posto `isSafeInteger` nas DUAS condições e removido o mesmo teste
+     * do `casaOValor` chamando-o de guarda morta ("apagá-lo não quebra teste
+     * nenhum"). Nenhum teste quebrar significa que nenhum teste cobre a forma —
+     * esta série inteira é sobre essa diferença. Com um `amountCents`
+     * fracionário: `cabeNosBaldes` dava `false`, o `if` NÃO rodava (exigia o
+     * mesmo `isSafeInteger`), a testemunha sobrevivia, e `casaOValor` virava uma
+     * soma solta — `{10.5, 9.5}` casaria com `aReverter = 20` e entraria no
+     * razão. Centavo fracionário, inegociável #5 (segurança LOW-2 da rodada
+     * treze).
+     *
+     * Não há entrada alcançável hoje (todo lançamento nasce de `allocateRefund`,
+     * que é inteiro) — e é exatamente por isso que é defesa em profundidade, que
+     * é o que não se remove por "não quebrou teste". Ainda mais aqui: o
+     * `appendEvent` do store de produção não chama `validateEvent`, então no
+     * caminho do webhook o portão é o RPC e esta função.
+     */
     const cabeNosBaldes = Number.isSafeInteger(casamento.amountCents)
+      && Number.isSafeInteger(casamento.tipCents)
       && casamento.amountCents <= estornadoAmount && casamento.tipCents <= estornadoTip;
-    if (testemunhado && Number.isSafeInteger(casamento.amountCents) && !cabeNosBaldes) {
+    if (testemunhado && casamento.amountCents !== undefined && !cabeNosBaldes) {
       await gritar('testemunha_excede_o_balde', 'high',
         `o adquirente aponta um estorno de ${casamento.amountCents}+${casamento.tipCents} e o razão só tem `
         + `${estornadoAmount}+${estornadoTip} vivos neste pagamento — revertendo pelo proporcional, `
         + `confira os estornos deste pagamento no adquirente`);
       testemunhado = false;
     }
-    // `cabeNosBaldes` NÃO se repete aqui: o `if` acima já derrubou a testemunha
-    // quando não cabia. Repetir seria um termo que nunca muda o resultado —
-    // medido: apagá-lo não quebra teste nenhum, que é a definição de guarda
-    // morta, e este arquivo já tem achados demais dessa família.
+    // `cabeNosBaldes` não se repete aqui: o `if` acima já derruba a testemunha
+    // sempre que ela não cabe — INCLUSIVE quando o valor não é inteiro seguro,
+    // que é o caso que a versão anterior deixava escapar.
     const casaOValor = testemunhado
       && casamento.amountCents + casamento.tipCents === aReverter;
     reversalAllocated = casaOValor

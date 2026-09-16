@@ -793,6 +793,7 @@ test('todo achado com {amount} na frase tem um campo de centavos que o painel l�
     'find.paid_after_close': 'amountCents',
     'find.paid_after_close_tip': 'amountCents',
     'find.reopened_by_refund': 'deltaCents',
+    'find.reopened_by_refund_mixed': 'deltaCents',
   };
   for (const [chave, campo] of Object.entries(comValor)) {
     assert.ok(chave in DICT, `${chave} não está no dicionário`);
@@ -944,4 +945,57 @@ test('todo marcador de toda chave err.* é servido pelos DOIS mapeadores', () =>
     }
   }
   assert.deepEqual(orfaos, []);
+});
+
+/**
+ * A FRASE DO PAINEL E O NÚMERO QUE ELA IMPRIME SÃO A MESMA COISA?
+ *
+ * O achado `reopened_by_refund` carrega DOIS números: o buraco que a mesa vê, e
+ * a parte dele que veio de devolução. A frase diz "a mesa está vendo {amount}
+ * faltando" — e num commit o `deltaCents` passou a carregar a parte devolvível,
+ * sem que a frase mudasse. O painel passou a afirmar que dois números diferentes
+ * eram o mesmo: o dono lia R$ 20,00, a mesa via R$ 130,00, ele ajustava R$ 20 e
+ * quem sentasse ali pagava R$ 110 que a rede já tinha levado (segurança HIGH-1
+ * da rodada treze).
+ *
+ * Nenhum teste ligava o campo do achado à string renderizada — o teste do
+ * servidor afirmava os dois números no mesmo `expect` e não perguntava qual
+ * deles a tela usa. Este pergunta.
+ */
+test('o {amount} do achado de conta reaberta é o BURACO, o que a mesa vê', async () => {
+  // `createRequire`: este arquivo é ESM (o runner é `node --test` sobre `.ts`) e
+  // a conciliação é CommonJS. É a ponte, não um atalho.
+  const { createRequire } = await import('node:module');
+  const req = createRequire(import.meta.url);
+  const { reconcileCheck } = req('../../../api/_lib/checks/reconcile');
+  const ev = (type: string, payload: unknown) => ({ type, payload });
+  // Conta de R$ 200,00: chargeback de R$ 110,00 e estorno do trilho de R$ 20,00.
+  const achados = reconcileCheck({
+    checkId: 'c',
+    events: [
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 11000, tipCents: 0, disputeId: 'dp_1' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2000, tipCents: 0 }),
+    ],
+    payments: [],
+  }).findings.filter((f: { code: string }) => /^reopened_by_refund/.test(f.code));
+
+  assert.equal(achados.length, 1);
+  const f = achados[0] as { code: string; deltaCents: number; refundableCents: number };
+  // O BURACO é 13000 — é o que o telefone da mesa mostra.
+  assert.equal(f.deltaCents, 13000);
+  // A parte devolvível é 2000 — é o que o dono pode dar baixa.
+  assert.equal(f.refundableCents, 2000);
+  // E a frase é a do caso MISTO, que nomeia os dois.
+  assert.equal(f.code, 'reopened_by_refund_mixed');
+
+  // A CADEIA do painel (`overpaidCents ?? deltaCents ?? …`) tem que devolver o
+  // buraco, porque é isso que a frase afirma.
+  const valor = (f as Record<string, number>).overpaidCents ?? f.deltaCents;
+  assert.equal(valor, 13000, 'o {amount} renderizado tem que ser o buraco que a mesa vê');
+  for (const lang of ['en', 'pt', 'es'] as const) {
+    assert.match(DICT['find.reopened_by_refund_mixed'][lang], /\{amount\}[\s\S]*\{refundable\}/,
+      `${lang}: a frase do caso misto tem que nomear os dois números, nessa ordem`);
+  }
 });
