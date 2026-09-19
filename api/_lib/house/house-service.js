@@ -1,3 +1,4 @@
+const { gravarAposCobrar } = require('../pay/gravar-apos-cobrar');
 'use strict';
 
 const { isDemoVenue } = require('../demo');
@@ -361,12 +362,31 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       recipientId: venue.pspRecipientId, // venue is the issuer — funds go direct
       description: `Saldo ${venue.name}`.slice(0, 40),
     });
-    await store.registerHouseLoad({
-      accountId: account.id,
-      txid: charge.txid,
-      amountCents,
-      bonusCents,                       // quoted NOW; webhook applies this, not live config
-      validityDays: cfg.validityDays,   // snapshot too
+    /**
+     * O MESMO PORTÃO DOS OUTROS DOIS CAMINHOS.
+     *
+     * Aqui também se fala com o adquirente ANTES de gravar, então aqui também
+     * um prazo de 10 s do banco devolvia 500 `internal` → "algo deu errado,
+     * tente de novo", que é a frase exata que `gravar-apos-cobrar` existe pra
+     * substituir. O dano é menor que no cartão (o Pix não captura nada, e o
+     * copia-e-cola nem chegou a quem pediu), mas é a MESMA forma — e o censo
+     * que devia impedir um terceiro caminho só lia o `router.js`, então não viu
+     * este. Achado pela sexta revisão de compliance (2026-09-19, MEDIUM-1).
+     *
+     * Sem `nossa`: o `chargeRef` daqui carrega um UUID aleatório de propósito
+     * (ver acima), então dois carregamentos idênticos são cobranças
+     * DIFERENTES e não há colisão de txid pra desfazer.
+     */
+    await gravarAposCobrar({
+      gravar: () => store.registerHouseLoad({
+        accountId: account.id,
+        txid: charge.txid,
+        amountCents,
+        bonusCents,                     // quoted NOW; webhook applies this, not live config
+        validityDays: cfg.validityDays, // snapshot too
+      }),
+      capturou: false,                  // Pix: a cobrança existe, ninguém foi debitado
+      txid: charge.txid, alvo: `conta-da-casa=${account.id}`, rail: 'pix',
     });
     return {
       txid: charge.txid, copiaECola: charge.copiaECola, expiresAt: charge.expiresAt,

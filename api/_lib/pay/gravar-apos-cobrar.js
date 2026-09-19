@@ -37,9 +37,13 @@ const { linhaJaGravada, valeRepetir } = require('../checks/reconcile');
  * dinheiro oposta, e é por isso que quem chama informa `capturou` em vez de
  * este módulo adivinhar pelo trilho.
  */
-function erroDeNaoGravou({ capturou, txid, checkId, rail, causa }) {
+function erroDeNaoGravou({ capturou, txid, alvo, rail, causa }) {
   process.stderr.write(
-    `[cobranca] LINHA NAO GRAVADA apos falar com o adquirente txid=${txid} check=${checkId} `
+    // `alvo` e nao `check=`: o carregamento de saldo da casa passa por aqui e
+    // nao tem conta de mesa nenhuma. Um runbook que mande grepar `check=` acha
+    // um id de conta-da-casa e manda o operador procurar uma mesa que nao
+    // existe.
+    `[cobranca] LINHA NAO GRAVADA apos falar com o adquirente txid=${txid} ${alvo} `
     + `rail=${rail} capturou=${capturou ? 'sim' : 'nao'}: `
     + `${String((causa && causa.message) || causa).slice(0, 160)}\n`,
   );
@@ -74,8 +78,11 @@ function erroDeNaoGravou({ capturou, txid, checkId, rail, causa }) {
  *
  * @param {() => Promise<any>} gravar  a ida ao store, já com os campos prontos
  * @param {boolean} capturou           a chamada anterior TIROU dinheiro de alguém?
+ * @param {null|() => Promise<boolean>} nossa  numa unicidade na PRIMEIRA ida:
+ *   a linha que já está lá é a NOSSA? Sem esta pergunta, uma colisão de txid
+ *   vira sucesso e devolve a cobrança de outra pessoa.
  */
-async function gravarAposCobrar({ gravar, capturou, txid, checkId, rail }) {
+async function gravarAposCobrar({ gravar, capturou, txid, alvo, rail, nossa = null }) {
   try {
     await gravar();
     return;
@@ -91,7 +98,34 @@ async function gravarAposCobrar({ gravar, capturou, txid, checkId, rail }) {
      * `paidCents`: duas pessoas tocando "pagar R$ 50,00" na mesma conta antes
      * de qualquer uma confirmar produzem o MESMO txid, e a segunda batia aqui.
      */
-    if (linhaJaGravada(primeiraFalha)) return;
+    if (linhaJaGravada(primeiraFalha)) {
+      /**
+       * …MAS "a linha existe" NÃO É "a linha é nossa", na PRIMEIRA ida.
+       *
+       * Na SEGUNDA, é: a primeira tentativa foi nossa, então a unicidade só
+       * pode ter vindo dela. Na primeira não houve tentativa anterior nossa —
+       * a linha que está lá foi escrita por OUTRA cobrança.
+       *
+       * E o caso é alcançável: o MockPsp deriva o txid de
+       * `sha256(chargeRef|valor|gorjeta|recebedor)` e o `chargeRef` carrega o
+       * `paidCents`, então duas pessoas tocando "pagar R$ 50,00" na mesma conta
+       * antes de qualquer uma confirmar recebem o MESMO txid. Declarar sucesso
+       * ali devolvia à segunda pessoa o BR Code da PRIMEIRA — que é a coisa que
+       * o `create-charge` diz em voz alta não poder acontecer ("o mesmo BR Code
+       * pras duas faria a segunda ser recusada pelo banco depois de a nossa
+       * tela dizer que deu certo") — e, pior, o `refDoPagamento` deriva do txid
+       * o marcador de "este pagamento é meu", então os dois telefones
+       * reivindicariam a única confirmação e os dois desenhariam recibo. Recibo
+       * de pagamento que a pessoa não fez é CDC art. 6º III, não um arranhão de
+       * UX.
+       *
+       * Achado pela sexta revisão de compliance (2026-09-19, MEDIUM-2).
+       */
+      if (typeof nossa === 'function' && !(await nossa())) {
+        throw erroDeNaoGravou({ capturou, txid, alvo, rail, causa: primeiraFalha });
+      }
+      return;
+    }
 
     /**
      * REPETE QUANDO A SEGUNDA IDA TEM CHANCE — que NÃO é "quando não se sabe".
@@ -115,14 +149,14 @@ async function gravarAposCobrar({ gravar, capturou, txid, checkId, rail }) {
      * 2026-09-16, MEDIUM-1).
      */
     if (!valeRepetir(primeiraFalha)) {
-      throw erroDeNaoGravou({ capturou, txid, checkId, rail, causa: primeiraFalha });
+      throw erroDeNaoGravou({ capturou, txid, alvo, rail, causa: primeiraFalha });
     }
 
     try {
       await gravar();
     } catch (segundaFalha) {
       if (linhaJaGravada(segundaFalha)) return;  // a primeira escreveu, só a resposta se perdeu
-      throw erroDeNaoGravou({ capturou, txid, checkId, rail, causa: segundaFalha });
+      throw erroDeNaoGravou({ capturou, txid, alvo, rail, causa: segundaFalha });
     }
   }
 }

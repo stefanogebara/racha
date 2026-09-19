@@ -431,7 +431,33 @@ function createChargeService({ store, psp }) {
       }),
       // Pagar.me: a carteira captura na chamada; o Pix só cria a cobrança.
       capturou: Boolean(wallet),
-      txid: charge.txid, checkId, rail,
+      txid: charge.txid, alvo: `check=${checkId}`, rail,
+      /**
+       * Colisão de txid na primeira ida: a linha que já está lá é NOSSA?
+       *
+       * Conta, valor e gorjeta NÃO bastam, e é justamente por isso que eles
+       * quase me enganaram: o caso que colide é duas pessoas na MESMA conta
+       * pelo MESMO valor, então os três batem. Quem separa é o RÓTULO — Ana e
+       * Bruno são dois pagadores, e a linha só é nossa se o rótulo for o nosso.
+       *
+       * Comparado JÁ NORMALIZADO, com a mesma função que o `registerCharge`
+       * aplica antes de gravar: comparar o cru contra o gravado acusaria
+       * " Ana " de ser outra pessoa que "Ana".
+       *
+       * Quando os dois rótulos são nulos (ninguém se identificou), a pergunta
+       * não tem resposta e isto devolve verdadeiro — é o mesmo pedido repetido
+       * ou duas pessoas anônimas, e não dá pra distinguir daqui. O que fecha
+       * esse resto é o `chargeRef` carregar o `paidCents`: assim que a primeira
+       * confirma, o `chargeRef` muda e o txid deixa de colidir.
+       */
+      nossa: async () => {
+        const linha = await store.getPayment(charge.txid);
+        if (!linha) return false;
+        const meu = rotuloDoPagador(payerLabel);
+        return linha.checkId === checkId
+          && linha.amountCents === amountCents && linha.tipCents === tipCents
+          && (linha.payerLabel ?? null) === (meu.ok ? meu.valor : null);
+      },
     });
 
     return {

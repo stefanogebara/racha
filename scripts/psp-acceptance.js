@@ -108,6 +108,30 @@ async function legDecline() {
     payerLabel: 'Aceite Decline', wallet: 'google_pay', paymentToken: tok,
     payerDocument: '39053344705',
   });
+  /**
+   * A RECUSA TEM QUE VIR DO ADQUIRENTE, não do nosso portão.
+   *
+   * `pay.data.success !== false` aceitava QUALQUER falha nossa como se fosse a
+   * recusa do emissor — e foi o que aconteceu quando o interruptor da carteira
+   * passou a valer no caminho do dinheiro: um 400 `rail_unsupported` tem
+   * `success: false`, então esta perna ficava VERDE sem nunca falar com a
+   * Pagar.me. Um aceite que para de medir e relata sucesso é a forma de falha
+   * que este repositório mais paga pra aprender (sexta revisão de compliance,
+   * 2026-09-19, HIGH-1).
+   *
+   * Os códigos abaixo são NOSSOS — quer dizer que o pedido nem saiu daqui.
+   */
+  const NAO_CHEGOU_NO_ADQUIRENTE = new Set([
+    'rail_unsupported', 'market_not_live', 'psp_unavailable', 'platform_misconfigured',
+    'too_many_pending_charges', 'amount_over', 'check_not_found', 'demo_busy',
+  ]);
+  if (NAO_CHEGOU_NO_ADQUIRENTE.has(pay.data.code)) {
+    throw new Error(
+      `a perna de recusa nem chegou no adquirente: ${pay.status} ${pay.data.code}. `
+      + 'Se for `rail_unsupported`, ponha o id da casa-piloto em RACHA_WALLET_VENUES e redeploye '
+      + '(a env é ligada ao DEPLOY na Vercel — mexer no painel não alcança o que está no ar).',
+    );
+  }
   if (pay.status !== 402 && pay.data.success !== false) {
     throw new Error(`esperava recusa, veio: ${pay.status} ${JSON.stringify(pay.data).slice(0, 160)}`);
   }

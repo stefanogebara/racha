@@ -608,9 +608,56 @@ describe('o atalho da recusa provada (CRITICAL-2)', () => {
   });
 });
 
+/**
+ * "A LINHA EXISTE" NÃO É "A LINHA É NOSSA", na primeira ida.
+ *
+ * Na segunda é: a primeira tentativa foi nossa. Na primeira não houve tentativa
+ * anterior nossa, então a linha que está lá foi escrita por OUTRA cobrança — e
+ * devolver sucesso ali entrega à segunda pessoa o BR Code da primeira. O
+ * `refDoPagamento` deriva do txid o marcador de "este pagamento é meu", então
+ * os dois telefones reivindicariam a única confirmação e os dois desenhariam
+ * recibo (CDC art. 6º III). Sexta revisão de compliance, 2026-09-19, MEDIUM-2.
+ */
+describe('colisão de txid na primeira ida não vira sucesso de outra pessoa', () => {
+  const colisao = async (rotuloDaOutra, meuRotulo) => {
+    const { store, check, psp } = await mundo();
+    const original = store.registerCharge.bind(store);
+    // A OUTRA pessoa já gravou, com o mesmo txid que o mock vai nos dar.
+    await original({
+      checkId: check.id, txid: 'ch_1', amountCents: 1000, tipCents: 0,
+      payerLabel: rotuloDaOutra, method: 'pix',
+    });
+    store.registerCharge = async () => {
+      throw Object.assign(new Error('duplicate key'), { pgCode: '23505' });
+    };
+    store.getPayment = async (txid) => (txid === 'ch_1'
+      ? { txid, checkId: check.id, amountCents: 1000, tipCents: 0, payerLabel: rotuloDaOutra }
+      : null);
+    const charge = createChargeService({ store, psp });
+    return charge({
+      checkId: check.id, amountCents: 1000, tipCents: 0,
+      wallet: 'google_pay', paymentToken: 'tok', payerDocument: '52998224725',
+      rail: 'pix', payerLabel: meuRotulo,
+    }).catch((e) => e);
+  };
+
+  test('o BR Code da Ana NÃO é devolvido pro Bruno', async () => {
+    const r = await colisao('Ana', 'Bruno');
+    expect(r).toBeInstanceOf(Error);
+    expect(r.code).toBe('charge_maybe_captured');
+  });
+
+  test('o rótulo é comparado NORMALIZADO — " Ana " é a Ana', async () => {
+    const r = await colisao('Ana', '  Ana  ');
+    expect(r).not.toBeInstanceOf(Error);
+    expect(r.txid).toBe('ch_1');
+  });
+});
+
 describe('o trilho da Stripe passa pelo MESMO portão (MEDIUM)', () => {
   const fs = require('node:fs');
   const path = require('node:path');
+  const API = path.join(__dirname, '..');
   const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 
@@ -621,13 +668,42 @@ describe('o trilho da Stripe passa pelo MESMO portão (MEDIUM)', () => {
    * Sem comentário antes de medir — a prosa que explica um `registerCharge` já
    * inflou um censo deste repositório três vezes.
    */
-  test('nenhum `registerCharge` pelado no roteador', () => {
-    const pelados = ROUTER.split('\n')
-      .map((linha, i) => [i + 1, linha])
-      .filter(([, linha]) => /\bstore\.registerCharge\(/.test(linha))
-      .filter(([, linha]) => !/gravar:/.test(linha));
-    // Se esta lista crescer, alguém escreveu o terceiro caminho.
-    expect(pelados.map(([n]) => n)).toEqual([]);
+  /**
+   * VARRE `api/` INTEIRO, e não o `router.js`.
+   *
+   * A versão anterior lia só o roteador — e o TERCEIRO caminho estava em
+   * `_lib/house/house-service.js` o tempo todo, escrevendo `registerHouseLoad`
+   * pelado depois de falar com o adquirente. O censo escrito pra impedir um
+   * terceiro caminho não enxergava a pasta onde ele morava (sexta revisão de
+   * compliance, 2026-09-19).
+   */
+  test('nenhuma escrita PELADA depois de falar com o adquirente, em api/ inteiro', () => {
+    const ESCRITAS = /\bstore\.(registerCharge|registerHouseLoad)\(/;
+    const pelados = [];
+    const varrer = (dir) => {
+      for (const nome of fs.readdirSync(dir)) {
+        const cheio = path.join(dir, nome);
+        if (fs.statSync(cheio).isDirectory()) {
+          if (nome !== '__tests__' && nome !== 'node_modules') varrer(cheio);
+          continue;
+        }
+        if (!nome.endsWith('.js')) continue;
+        const fonte = fs.readFileSync(cheio, 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+        fonte.split('\n').forEach((linha, i) => {
+          // `gravar:` é a assinatura de estar DENTRO do portão compartilhado.
+          // `\bgravar:` com fronteira: a versão sem ela casava a SUBSTRING, e
+          // um `xgravar:` — ou qualquer campo terminado em "gravar" — absolvia
+          // a linha. Foi um mutante plantado que mostrou isso.
+          if (ESCRITAS.test(linha) && !/(^|[^A-Za-z])gravar:/.test(linha)) {
+            pelados.push(`${path.relative(API, cheio)}:${i + 1}`);
+          }
+        });
+      }
+    };
+    varrer(API);
+    // Se esta lista crescer, alguém escreveu o quarto caminho.
+    expect(pelados).toEqual([]);
   });
 
   test('o trilho da Stripe informa `capturou: false` — e isso é VERDADE', () => {
@@ -663,13 +739,13 @@ describe('o interruptor da carteira desliga o DINHEIRO (HIGH-4)', () => {
     // Uma na vitrine (`acceptsWallet`), uma no caminho do dinheiro, uma na
     // própria definição. Menos que isso quer dizer que um lado ficou de fora.
     expect(chamadas).toBeGreaterThanOrEqual(3);
-    const i = ROUTER.indexOf('body.wallet && !carteiraLiberada');
+    const i = ROUTER.indexOf('body.wallet && !isDemo && !carteiraLiberada');
     expect(i).toBeGreaterThan(0);
     expect(ROUTER.slice(i, i + 300)).toMatch(/rail_unsupported/);
   });
 
   test('o guarda vem ANTES de o dinheiro sair', () => {
-    const guarda = ROUTER.indexOf('body.wallet && !carteiraLiberada');
+    const guarda = ROUTER.indexOf('body.wallet && !isDemo && !carteiraLiberada');
     const cobra = ROUTER.indexOf('wallet: body.wallet');
     expect(guarda).toBeGreaterThan(0);
     expect(cobra).toBeGreaterThan(0);
@@ -680,6 +756,51 @@ describe('o interruptor da carteira desliga o DINHEIRO (HIGH-4)', () => {
     const i = ROUTER.indexOf("cru === '*'");
     expect(i).toBeGreaterThan(0);
     expect(ROUTER.slice(i, i + 120)).toMatch(/RACHA_PSP\s*!==\s*'pagarme'/);
+  });
+
+  /**
+   * …MAS A DEMO PASSA.
+   *
+   * O conserto do HIGH-4 não tinha esta cláusula, e o botão de carteira da
+   * landing passou a recusar TODO tap com `rail_unsupported` — o anti-padrão
+   * escrito no próprio `WalletPay.tsx` ("botão morto que recusa todo tap é pior
+   * que não ter botão"), na tela que prospect vê. A demo cobra pelo MockPsp
+   * próprio e nunca toca dinheiro de verdade, então o interruptor não tem o que
+   * dizer sobre ela (sexta revisão de compliance, 2026-09-19, HIGH-1).
+   */
+  test('a demo não é barrada pelo interruptor — ela nem toca dinheiro de verdade', () => {
+    const i = ROUTER.indexOf('body.wallet && !isDemo && !carteiraLiberada');
+    expect(i).toBeGreaterThan(0);
+    // E o `isDemo` precisa estar decidido ANTES do guarda, senão a cláusula é
+    // um `undefined` que absolve todo mundo.
+    expect(ROUTER.indexOf('const isDemo =')).toBeLessThan(i);
+  });
+
+  /**
+   * O ACEITE DE PRODUÇÃO precisa provar que falou com o adquirente.
+   *
+   * `pay.data.success !== false` aceitava qualquer falha NOSSA como se fosse a
+   * recusa do emissor: um 400 `rail_unsupported` tem `success: false`, então a
+   * perna de recusa ficava verde sem nunca sair daqui. Um aceite que para de
+   * medir e relata sucesso é a forma de falha que este repositório mais paga.
+   */
+  test('a perna de recusa do `psp-acceptance` recusa os códigos NOSSOS', () => {
+    const aceite = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'psp-acceptance.js'), 'utf8');
+    const i = aceite.indexOf('NAO_CHEGOU_NO_ADQUIRENTE');
+    expect(i).toBeGreaterThan(0);
+    const bloco = aceite.slice(i, i + 900);
+    for (const codigo of ['rail_unsupported', 'market_not_live', 'psp_unavailable']) {
+      expect(bloco).toContain(codigo);
+    }
+    /**
+     * E o Set precisa ser CONSULTADO e LANÇAR. A primeira versão deste teste
+     * só conferia que ele existia — trocar o `if` por `if (false)` deixava a
+     * lista intacta no arquivo e o teste verde, que é exatamente o tipo de
+     * guarda inerte que esta suíte existe pra não ter.
+     */
+    expect(aceite).toMatch(/if \(NAO_CHEGOU_NO_ADQUIRENTE\.has\(pay\.data\.code\)\)/);
+    const usado = aceite.indexOf('if (NAO_CHEGOU_NO_ADQUIRENTE.has(pay.data.code))');
+    expect(aceite.slice(usado, usado + 400)).toMatch(/throw new Error/);
   });
 });
 

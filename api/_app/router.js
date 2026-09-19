@@ -1093,7 +1093,19 @@ async function route(req, res) {
        * alguém lembrar" que este repositório já pagou pra aprender três vezes.
        * Achado pela quinta revisão de compliance (2026-09-19, HIGH-4).
        */
-      if (body.wallet && !carteiraLiberada(view.venue && view.venue.id)) {
+      /**
+       * A DEMO PASSA. Ela cobra pelo MockPsp próprio (`isDemo` acima) e nunca
+       * toca dinheiro de verdade, então o interruptor — que existe pra decidir
+       * QUAIS CASAS podem capturar cartão — não tem o que dizer sobre ela.
+       *
+       * Sem esta cláusula o botão de carteira da landing recusava TODO tap com
+       * `rail_unsupported`, que é o anti-padrão escrito no próprio
+       * `WalletPay.tsx`: "botão morto que recusa todo tap é pior que não ter
+       * botão". E é a tela que prospect vê na demo de vendas. Achado pela sexta
+       * revisão de compliance (2026-09-19, HIGH-1) — introduzido pelo conserto
+       * do HIGH-4 da revisão anterior.
+       */
+      if (body.wallet && !isDemo && !carteiraLiberada(view.venue && view.venue.id)) {
         throw Object.assign(new Error('wallet rail not enabled for this venue'), {
           statusCode: 400, code: 'rail_unsupported',
         });
@@ -1282,7 +1294,7 @@ async function route(req, res) {
             payerLabel: rotuloDoPagador.valor, method: rail === 'bizum' ? 'bizum' : 'card',
           }),
           capturou: false,
-          txid: charge.txid, checkId: view.check.id, rail,
+          txid: charge.txid, alvo: `check=${view.check.id}`, rail,
         });
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
         // logo acima já gravava 'bizum' certo, e a resposta dizia 'card' —

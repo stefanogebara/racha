@@ -18,7 +18,7 @@ entre a captura e a linha é pequena e era invisível — até o banco ganhar pr
 de 10 s, que transformou "isso nunca acontece" em "isso acontece quando o banco
 está lento".
 
-## O que foi feito (9389695)
+## O que foi feito (9389695, depois 85f8414)
 
 1. A escrita tenta **duas vezes** quando a segunda ida tem chance — o que
    inclui tanto o transitório (`57014` prazo, `40P01` deadlock, `53300` pooler
@@ -33,10 +33,19 @@ está lento".
    capturado — deixando MAIS comum o `charge_maybe_captured` que este conserto
    existe pra tornar raro. Uma regra, duas perguntas, um predicado só. A unicidade do `txid` conta como **sucesso** em qualquer das
    duas idas: a linha que se queria existe.
-2. Esgotadas as tentativas, o erro sai com código próprio (`charge_maybe_captured`
-   no trilho que CAPTUROU, `charge_not_started` nos que só criaram a cobrança) e
-   a tela **desarma o botão**. Antes era 500 `internal` → "algo deu errado, tente
-   de novo" com o botão armado, que é convite à segunda cobrança (CDC art. 42).
+2. Esgotadas as tentativas, o erro sai com código próprio, e **os dois códigos
+   pedem coisas opostas da tela** — que é o motivo de serem dois:
+   - `charge_maybe_captured` (o trilho que CAPTUROU) **desarma o botão** e diz
+     pra não pagar de novo. Antes era 500 `internal` → "algo deu errado, tente
+     de novo" com o botão armado, que é convite à segunda cobrança (CDC art. 42).
+   - `charge_not_started` (Pix, Bizum, Stripe — onde a cobrança existe mas
+     ninguém foi debitado) **mantém o botão armado** e diz "nada foi cobrado,
+     tente de novo", porque ali tentar de novo é a resposta certa.
+
+   (A frase anterior aqui dizia que a tela desarma o botão nos dois casos. Era
+   um branch mais larga que o código, e a terceira vez nesta série que uma
+   sentença de documento afirma comportamento que só metade do código tem —
+   sexta revisão de compliance, 2026-09-19.)
 
    Toda essa decisão mora em `api/_lib/pay/gravar-apos-cobrar.js`, num lugar só.
    Ela já esteve escrita dentro de um caminho, e aí os caminhos irmãos não a
