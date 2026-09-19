@@ -128,6 +128,17 @@ Nenhuma bloqueia o merge. Todas bloqueiam o primeiro id em
   Limitado a uma ida extra, então não é alavanca de amplificação. **Gatilho:**
   se o aviso de prazo do banco ficar frequente, estreitar pra `/^53300$/`.
 
+### O censo cujo nome promete mais do que ele anda
+
+- **`erro-com-codigo.test.js` varre só `_lib/pay`.** Há contraexemplos vivos
+  fora: `_lib/store/supabase.js` tem quatro sítios no GASTO de saldo
+  (`saldo insuficiente` 409, `invalid amount` 400, `Conta não encontrada` 404)
+  que chegam ao cliente como texto cru em pt-BR pelo catch geral do
+  `POST /api/house/redeem`. Nada interno vaza — é quebra do contrato de i18n,
+  não divulgação. **Gatilho:** alargar a varredura pra `_lib/store`,
+  `_lib/house` e `_app/router.js`. O risco de deixar como está não é o texto:
+  é o nome do censo fazer o próximo leitor acreditar que a classe está fechada.
+
 ### Contratos que degradam abertos
 
 - **`nossa` tem padrão `null`.** Um quarto chamador de `gravarAposCobrar` que

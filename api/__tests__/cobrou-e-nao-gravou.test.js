@@ -54,6 +54,9 @@ async function mundo({ falharGravacao = 0 } = {}) {
      * Um dublê que não declara o que é prova o dublê, não a regra.
      */
     provider: 'pagarme',
+    // E declara a CAPACIDADE, não só o nome: a `createWalletCharge` da Pagar.me
+    // captura dentro da chamada, que é a premissa inteira destes testes.
+    walletCaptures: true,
     currencies: ['brl'],
     async createWalletCharge({ chargeRef }) {
       capturas.push(chargeRef);
@@ -903,27 +906,67 @@ describe('o `orderCode` gravado tem a FORMA de um orderCode', () => {
  * evitar, vindo do outro lado.
  */
 describe('o alarme de cartão capturado depende de haver captura', () => {
-  const comProvider = async (provider) => {
+  const comAdaptador = async (extra) => {
     const { store, check, psp } = await mundo();
     store.registerCharge = async () => {
       throw Object.assign(new Error('prazo'), { pgCode: '57014' });
     };
-    const charge = createChargeService({ store, psp: { ...psp, provider } });
+    const base = { ...psp };
+    delete base.walletCaptures;
+    const charge = createChargeService({ store, psp: { ...base, ...extra } });
     return pagar(charge, check).catch((e) => e);
   };
 
-  test('Pagar.me captura na chamada — o botão desarma', async () => {
-    expect((await comProvider('pagarme')).code).toBe('charge_maybe_captured');
+  test('quem captura desarma o botão', async () => {
+    expect((await comAdaptador({ provider: 'pagarme', walletCaptures: true })).code)
+      .toBe('charge_maybe_captured');
   });
 
-  test('o mock não captura — ninguém é avisado de uma cobrança que não houve', async () => {
-    expect((await comProvider('mock')).code).toBe('charge_not_started');
+  test('quem NÃO captura não assusta ninguém com cobrança que não houve', async () => {
+    expect((await comAdaptador({ provider: 'mock', walletCaptures: false })).code)
+      .toBe('charge_not_started');
   });
 
-  test('e um adaptador NOVO precisa se declarar — lista de permissão, não de exclusão', async () => {
-    // Duas listas de exclusão minhas tiveram buraco nesta mesma rodada. Um PSP
-    // que ainda não se declarou não assusta ninguém até alguém escrever que ele
-    // captura.
-    expect((await comProvider('zoop')).code).toBe('charge_not_started');
+  /**
+   * UM ADAPTADOR QUE NÃO DECLARA É RECUSADO — e esta asserção já esteve ao
+   * contrário.
+   *
+   * A versão anterior exigia `charge_not_started` de um `zoop` não declarado, e
+   * eu chamei isso de "lista de permissão". Era o ramo ERRADO: `charge_not_started`
+   * diz "nada foi cobrado, tente de novo", que num PSP que captura é convite à
+   * SEGUNDA CAPTURA (CDC art. 42 § único). O teste transformava a segurança num
+   * "o próximo autor precisa lembrar de se declarar", que é a forma que este
+   * repositório mais paga pra aprender. Oitava revisão de segurança, MEDIUM-3.
+   */
+  test('um adaptador que não se declara é RECUSADO, não presumido', async () => {
+    const e = await comAdaptador({ provider: 'zoop' });
+    expect(e.code).toBe('platform_misconfigured');
+    // E nenhum dos dois desfechos de dinheiro: a pergunta não foi respondida.
+    expect(['charge_maybe_captured', 'charge_not_started']).not.toContain(e.code);
+  });
+
+  /**
+   * O CASO QUE SEPARA AS DUAS REGRAS — e sem ele a asserção é vácua.
+   *
+   * Enquanto `provider: 'pagarme'` e `walletCaptures: true` andarem juntos nos
+   * dublês, "pergunta o nome" e "pergunta a capacidade" dão a MESMA resposta, e
+   * um mutante que volte pro nome passa verde. Estes dois casos são os únicos em
+   * que as duas regras divergem — e são exatamente os do mundo real: o
+   * adaptador NOVO que captura, e o adaptador conhecido que deixa de capturar
+   * (o dia em que a inversão `capture: false` for feita na Pagar.me).
+   */
+  test('um adaptador NOVO que captura desarma o botão — mesmo sem se chamar pagarme', async () => {
+    expect((await comAdaptador({ provider: 'zoop', walletCaptures: true })).code)
+      .toBe('charge_maybe_captured');
+  });
+
+  test('e a Pagar.me deixando de capturar (`capture: false`) para de assustar', async () => {
+    expect((await comAdaptador({ provider: 'pagarme', walletCaptures: false })).code)
+      .toBe('charge_not_started');
+  });
+
+  test('declarar coisa que não é booleano também é recusa', async () => {
+    expect((await comAdaptador({ provider: 'zoop', walletCaptures: 'sim' })).code)
+      .toBe('platform_misconfigured');
   });
 });

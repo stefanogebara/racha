@@ -239,6 +239,9 @@ describe('portões de dinheiro por mercado', () => {
     const seen = [];
     const spy = {
       provider: 'spy',
+      // Dublê de um adaptador que captura na chamada (o caso da Pagar.me):
+      // sem declarar, a fábrica o recusa — de propósito.
+      walletCaptures: true,
       // Um dublê declara o que atende, como um adaptador de verdade: a guarda
       // do `create-charge` falha FECHADO quando `currencies` está ausente, e um
       // dublê que passasse sem declarar seria um dublê mais permissivo que a

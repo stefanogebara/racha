@@ -1,7 +1,19 @@
 'use strict';
 
 /**
- * TODO ERRO QUE CHEGA NO CLIENTE CARREGA UM `code`.
+ * TODO ERRO 4xx DE `_lib/pay` CARREGA UM `code`.
+ *
+ * O título deste arquivo dizia "todo erro que chega no cliente", e ele anda só
+ * em `_lib/pay`. A diferença não é pedantismo: existem contraexemplos vivos
+ * fora do caminho varrido — `_lib/store/supabase.js` tem quatro sítios no gasto
+ * de saldo (`saldo insuficiente` 409, `invalid amount` 400, `Conta não
+ * encontrada` 404) que chegam ao cliente como texto cru em pt-BR pelo catch
+ * geral do `POST /api/house/redeem`. Nada interno vaza ali, então é quebra do
+ * contrato de i18n e não divulgação — mas um censo cujo NOME promete a classe
+ * inteira faz o próximo leitor acreditar que a classe está fechada, que é
+ * precisamente como um guarda deixa de ser lido. Oitava revisão de segurança
+ * (2026-09-19, LOW-2); alargar a varredura está na lista do
+ * `2026-09-19-o-que-oito-rodadas-deixaram-aberto.md`.
  *
  * O acordo do CLAUDE.md: "o servidor nunca manda texto de tela para erros;
  * manda um `code` estável e centavos crus; quem traduz e formata é o cliente".

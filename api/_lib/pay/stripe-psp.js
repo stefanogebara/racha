@@ -154,6 +154,8 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
 
   return {
     provider: 'stripe',
+    // devolve `clientSecret` — quem confirma é a sheet no front
+    walletCaptures: false,
     /** As moedas que este adaptador atende. Ver `currencies` no Pagar.me. */
     currencies: Object.freeze(['brl', 'eur']),
 

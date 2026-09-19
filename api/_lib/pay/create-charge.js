@@ -328,6 +328,33 @@ function createChargeService({ store, psp }) {
     if (typeof psp[creator] !== 'function') {
       throw badRequest(`psp ${psp.provider || '?'} não serve o trilho ${rail}`, 'rail_unsupported');
     }
+    /**
+     * O ADAPTADOR DECLARA SE A CARTEIRA DELE CAPTURA — e não declarar é
+     * configuração errada, não passe livre.
+     *
+     * Isto era `psp.provider === 'pagarme'`: uma lista de permissão por NOME,
+     * que eu defendi como o lado seguro. É o lado errado, e a razão é que os
+     * dois modos de errar não custam a mesma coisa.
+     *
+     * Errar pra "capturou" num PSP que não captura: alarme falso, "seu cartão
+     * pode já ter sido cobrado" sem cartão em jogo. Chato, e ninguém paga duas
+     * vezes. Errar pra "não capturou" num PSP que captura: `charge_not_started`
+     * → "nada foi cobrado, tente de novo" → SEGUNDA CAPTURA no mesmo cartão
+     * (CDC art. 42 § único). A lista por nome punha todo adaptador futuro
+     * nesse segundo ramo — e o teste que eu escrevi PRENDIA esse padrão,
+     * transformando a segurança num "o próximo autor precisa lembrar".
+     *
+     * O idioma certo está duas guardas acima, escrito pelo mesmo motivo:
+     * "FALHA FECHADO: adaptador sem `currencies` declarado é configuração
+     * errada, não passe livre". Achado pela oitava revisão de segurança
+     * (2026-09-19, MEDIUM-3).
+     */
+    if (wallet && typeof psp.walletCaptures !== 'boolean') {
+      throw badRequest(
+        `psp ${psp.provider || '?'} não declara walletCaptures`,
+        'platform_misconfigured',
+      );
+    }
     if (!venue.pspRecipientId) {
       // Compliance gate: without a settlement recipient the funds would land
       // on the platform account (BACEN Res. 494 custody territory).
@@ -440,13 +467,13 @@ function createChargeService({ store, psp }) {
        * alarme falso é o mesmo dano que a separação dos dois códigos existe pra
        * evitar, pelo outro lado.
        *
-       * Lista de PERMISSÃO e não de exclusão, porque nesta mesma rodada duas
-       * listas de exclusão minhas tiveram buraco: só a `createWalletCharge` da
-       * Pagar.me captura dentro da chamada (v5 captura por padrão, sem
-       * `capture: false`). Um adaptador novo precisa se declarar aqui, e até lá
-       * ninguém é avisado de uma cobrança que não houve.
+       * Quem responde é o ADAPTADOR, por `walletCaptures` — e um adaptador que
+       * não declara nem chega aqui, porque a guarda acima o recusa. A versão
+       * anterior perguntava `psp.provider === 'pagarme'`, o que parecia lista
+       * de permissão e na prática mandava todo adaptador futuro pro ramo de
+       * "não capturou", que é o ramo que convida a segunda cobrança.
        */
-      capturou: Boolean(wallet) && psp.provider === 'pagarme',
+      capturou: Boolean(wallet) && psp.walletCaptures,
       txid: charge.txid, alvo: `check=${checkId}`, rail,
       /**
        * Colisão de txid na primeira ida: a linha que já está lá é NOSSA?

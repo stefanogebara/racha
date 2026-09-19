@@ -50,6 +50,9 @@ class MockPsp {
 
   get provider() { return 'mock'; }
 
+  /** dinheiro de mentira: nada é capturado em lugar nenhum */
+  get walletCaptures() { return false; }
+
   /** @param {{webhookSecret: string}} opts */
   constructor({ webhookSecret }) {
     if (!webhookSecret || webhookSecret.length < 16) {
@@ -167,6 +170,9 @@ class MockPsp {
     if (typeof paymentToken !== 'string' || !/^tok_[A-Za-z0-9_-]{8,}$/.test(paymentToken)) {
       const err = new Error('cartão recusado — token de pagamento inválido');
       err.statusCode = 402; // decline, not a server error
+      // O mock também simula a recusa do EMISSOR (CVV 6xx), então aqui
+      // `card_declined` é o código certo — ver `pagarme-psp` pro caso em que
+      // a recusa é NOSSA e leva `card_token_invalid`.
       err.code = 'card_declined'; // o cliente traduz; o servidor não manda frase
       throw err;
     }

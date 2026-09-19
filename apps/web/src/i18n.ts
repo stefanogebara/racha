@@ -801,6 +801,15 @@ export const DICT = {
     pt: 'Não deu pra criar o pagamento. Nada foi cobrado — tente o Pix, ou fale com o balcão.',
     es: 'No se pudo crear el pago. No se cobró nada — prueba con Pix, o habla con el personal.',
   },
+  /**
+   * A recusa é NOSSA (formato do token), não do emissor — e a diferença
+   * importa: é ela que deixa `card_declined` provar que um emissor negou.
+   */
+  'err.card_token_invalid': {
+    en: 'The card could not be read. Try again, or pay with Pix.',
+    pt: 'Não deu pra ler o cartão. Tente de novo, ou pague com Pix.',
+    es: 'No se pudo leer la tarjeta. Inténtalo de nuevo, o paga con Pix.',
+  },
   'err.card_declined': {
     en: 'Your bank declined the card. Try another card, or pay with Pix.',
     pt: 'O banco recusou o cartão. Tente outro cartão, ou pague com Pix.',

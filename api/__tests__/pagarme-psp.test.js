@@ -776,6 +776,7 @@ describe('o nome da casa CHEGA ao descritor — a fábrica passa, o adaptador us
     let recebido = null;
     const psp = {
       provider: 'pagarme',
+      walletCaptures: true,   // a v5 captura dentro da chamada
       currencies: ['brl'],
       createWalletCharge: async (args) => { recebido = args; return { txid: 'ch_1' }; },
       createPixCharge: async () => { throw new Error('não era pra usar o Pix'); },

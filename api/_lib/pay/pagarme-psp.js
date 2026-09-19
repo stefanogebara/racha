@@ -340,6 +340,8 @@ function createPagarmePsp({
 
   return {
     provider: 'pagarme',
+    // v5 captura por padrão: o dinheiro sai dentro da chamada
+    walletCaptures: true,
     /**
      * As moedas que este adquirente atende. Declarado, não suposto.
      *
@@ -394,9 +396,19 @@ function createPagarmePsp({
         throw new TypeError(`createWalletCharge: unknown wallet ${wallet}`);
       }
       if (typeof paymentToken !== 'string' || paymentToken.length < 8) {
+        /**
+         * CÓDIGO PRÓPRIO — esta recusa é NOSSA, não do emissor.
+         *
+         * É uma pré-checagem de formato de token, antes de a Pagar.me ver
+         * qualquer coisa. Usar `card_declined` aqui fazia o aceite de produção
+         * — que agora exige esse código como prova de que um emissor negou —
+         * ficar verdadeiro por acidente: a quarta versão seguida daquela linha
+         * a ser verdade por sorte em vez de por construção. Achado pela oitava
+         * revisão de segurança (2026-09-19, LOW-1).
+         */
         const err = new Error('cartão recusado — token de pagamento inválido');
         err.statusCode = 402;
-        err.code = 'card_declined';
+        err.code = 'card_token_invalid';
         throw err;
       }
       const order = await api('POST', '/orders', {
