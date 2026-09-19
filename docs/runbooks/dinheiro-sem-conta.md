@@ -55,6 +55,17 @@ Racha mandou pro adquirente, e tem esta forma:
 O primeiro campo é o **id da conta**. Ou seja: o órfão sabe de que mesa veio,
 mesmo quando a linha de pagamento não existe.
 
+Há uma segunda forma, do carregamento de saldo da casa (`/api/house/load`), que
+passa pelo mesmo portão e **não tem conta de mesa nenhuma**:
+
+```
+hload:<accountId>:<uuid>
+```
+
+Aí o endereço é a CONTA DA CASA, não a mesa — e o passo 2 abaixo vira "abra a
+conta da casa". Ela foi rejeitada em silêncio por um commit, quando a forma da
+conta de mesa virou exigência e esta não estava escrita em lugar nenhum.
+
 ```sql
 select id, at, txid, amount_cents, payload->>'orderCode' as order_code
 from public.orphan_money_events
@@ -62,8 +73,11 @@ where kind = 'money_without_check' and resolved_at is null
 order by at desc;
 ```
 
-Se `orderCode` estiver nulo (adquirente que não devolve o pedido, ou linha
-gravada antes de 2026-09-16), o caminho é o painel do adquirente: procure o
+Se `orderCode` estiver nulo, as razões possíveis são três: adquirente que não
+devolve o pedido, linha gravada antes de 2026-09-16, ou um valor que não tinha a
+forma de um orderCode nosso e foi descartado no registro (o filtro existe porque
+esse campo pode vir de `metadata` que a casa conectada escreve — ver
+`orderCodeUtil`). Nesses casos o caminho é o painel do adquirente: procure o
 `txid` e leia o `code` do pedido lá.
 
 > **Este campo já foi uma promessa vazia.** A primeira versão deste documento

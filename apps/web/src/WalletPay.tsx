@@ -1,6 +1,6 @@
 
 import { useT } from './lang';import { useEffect, useState } from 'react';
-import { api, ApiError, type ChargeResult } from './api';
+import { api, type ChargeResult } from './api';
 
 /**
  * Apple Pay / Google Pay — cobrança de CARTÃO tokenizada pelo mesmo portão de
@@ -169,12 +169,29 @@ export default function WalletButtons({
 
   async function settle(wallet: Wallet, paymentToken: string, payerDocument?: string) {
     const charge = await api.payWallet(token, amountCents, tipCents, payerLabel, wallet, paymentToken, payerDocument);
+    /**
+     * DAQUI PRA BAIXO O CARTÃO JÁ FOI CAPTURADO. Nada pode lançar.
+     *
+     * `devConfirm` é uma conveniência de DEMO — em produção a rota não existe e
+     * a confirmação chega pelo webhook `charge.paid`. Mas o `catch` só engolia
+     * 404, e uma falha de REDE rejeita sem `status` nenhum (`api.ts`: "falha de
+     * rede rejeita aqui, sem status"), então `undefined !== 404` relançava: o
+     * `onPaid` não rodava, a tela mostrava "algo deu errado, tente de novo" e o
+     * botão do Google Pay ficava ARMADO sobre um cartão capturado. O `travado`
+     * também não salvava, porque o código não era `charge_maybe_captured`.
+     *
+     * É o convite à segunda cobrança (CDC art. 42 § único) que este branch
+     * inteiro existe pra remover, alcançado pela linha DEPOIS da cobrança em
+     * vez da linha antes. E o servidor não segura: até o webhook chegar, o
+     * `remaining` não mudou, então o segundo toque é uma segunda captura pelo
+     * valor cheio. Achado pela sétima revisão de compliance (2026-09-19).
+     *
+     * Uma afordância de demo não pode ter poder de reprovar um pagamento real.
+     */
     try {
       await api.devConfirm(charge.txid); // demo: confirma na hora
-    } catch (e) {
-      // PSP real: /api/dev/confirm não existe (404) — a confirmação chega
-      // pelo webhook charge.paid e o polling da conta atualiza o progresso.
-      if ((e as ApiError).status !== 404) throw e;
+    } catch {
+      // Qualquer falha aqui é irrelevante pro pagamento: ele já aconteceu.
     }
     onPaid(charge);
   }

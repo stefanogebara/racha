@@ -1136,9 +1136,24 @@ async function route(req, res) {
        * o selecionou. Achado pela sexta revisão de segurança (2026-09-19,
        * HIGH-1), que mediu a rota inteira em vez de ler a linha.
        */
-      const casaDaCobranca = body.wallet && !isDemo
+      /**
+       * O NOME DO TRILHO É CONFERIDO ANTES DA IDA AO BANCO.
+       *
+       * `body.wallet` só precisava ser truthy pra custar um `getVenueForCheck`:
+       * `{token, wallet: 1}` gastava duas idas ao banco sem consumir vaga de
+       * cobrança, numa rota pública que qualquer um com uma foto do QR alcança
+       * (o nome só era recusado lá dentro, no `charge()`). Sétima revisão de
+       * segurança, 2026-09-19 (LOW-5).
+       */
+      const pediuCarteira = body.wallet === 'google_pay' || body.wallet === 'apple_pay';
+      if (body.wallet && !pediuCarteira) {
+        throw Object.assign(new Error('unknown wallet'), {
+          statusCode: 400, code: 'rail_unsupported',
+        });
+      }
+      const casaDaCobranca = pediuCarteira && !isDemo
         ? await store.getVenueForCheck(view.check.id) : null;
-      if (body.wallet && !isDemo && !carteiraLiberada(casaDaCobranca && casaDaCobranca.id)) {
+      if (pediuCarteira && !isDemo && !carteiraLiberada(casaDaCobranca && casaDaCobranca.id)) {
         throw Object.assign(new Error('wallet rail not enabled for this venue'), {
           statusCode: 400, code: 'rail_unsupported',
         });

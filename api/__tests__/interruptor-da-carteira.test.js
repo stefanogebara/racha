@@ -23,6 +23,31 @@
  */
 
 const { Readable } = require('node:stream');
+
+/**
+ * ANTES DE IMPORTAR O ROTEADOR: ele resolve `store` e `psp` no LOAD do módulo,
+ * a partir da env.
+ *
+ * Este arquivo monta o `route()` de verdade e SEMEIA casas, mesas e contas. Com
+ * `RACHA_STORE=supabase RACHA_PSP=pagarme` exportados no shell — o que não é
+ * hipótese, é exatamente o que o `scripts/psp-acceptance.js` precisa — um
+ * `npx jest` inseria casas no banco de PRODUÇÃO e mandava uma cobrança de
+ * carteira de verdade pra Pagar.me.
+ *
+ * Os outros testes que montam o roteador ou injetam o próprio store ou isolam o
+ * módulo. Este não fazia nem um nem outro (sétima revisão de segurança,
+ * 2026-09-19, LOW-1). O guarda vem ANTES do `require`, porque depois dele o
+ * cliente já foi construído.
+ */
+for (const [chave, proibido] of [['RACHA_STORE', 'supabase'], ['RACHA_PSP', 'pagarme']]) {
+  if ((process.env[chave] || '').trim() === proibido) {
+    throw new Error(
+      `${chave}=${proibido} no ambiente: este arquivo SEMEIA dados e COBRA pelo roteador real. `
+      + 'Rode a suíte sem essa env.',
+    );
+  }
+}
+
 const { route, store } = require('../_app/router');
 
 function pedir(method, url, body) {
@@ -76,7 +101,21 @@ const pagarComCarteira = (token, tok) => pedir('POST', '/api/pay', {
 describe('o interruptor tem posição LIGADO', () => {
   test('com o id da casa na env, o POST CHEGA no adquirente', async () => {
     const { venue, table } = await mesa();
-    const r = await com(venue.id, () => pagarComCarteira(table.qrToken, 'tok-invalido'));
+    /**
+     * ESPIÃO, e não dupla negativa. A versão anterior afirmava só
+     * `code !== 'rail_unsupported'` e `status !== 400` — um 500 de qualquer
+     * lugar, ou a rejeição do próprio harness, deixava o teste verde enquanto
+     * o nome dele prometia "chega no adquirente". Agora o adaptador é medido.
+     */
+    const psp = require('../_app/router').psp;
+    const original = psp.createWalletCharge.bind(psp);
+    const chamadas = [];
+    psp.createWalletCharge = async (a) => { chamadas.push(a); return original(a); };
+    let r;
+    try {
+      r = await com(venue.id, () => pagarComCarteira(table.qrToken, 'tok-invalido'));
+    } finally { psp.createWalletCharge = original; }
+    expect(chamadas).toHaveLength(1);
     /**
      * 402 é o adquirente RECUSANDO o token — ou seja, o pedido passou do nosso
      * portão e chegou lá, que é exatamente o que se quer provar. O que NÃO pode
@@ -109,6 +148,65 @@ describe('o interruptor tem posição LIGADO', () => {
     const r = await com(undefined, () => pedir('POST', '/api/pay', {
       token: table.qrToken, amountCents: 1000, tipCents: 0, payerDocument: '52998224725',
     }));
+    expect(r.corpo.code).not.toBe('rail_unsupported');
+  });
+});
+
+/**
+ * A DEMO, MEDIDA PELA ROTA.
+ *
+ * O conserto que isentou a demo era guardado só por um censo de texto — que é
+ * exatamente a cegueira que este arquivo foi escrito pra encerrar. E o defeito
+ * que ele deveria pegar (botão morto na landing) é comportamento, não texto.
+ * Sétima revisão de compliance, 2026-09-19 (MEDIUM-1).
+ */
+/**
+ * O NOME DO TRILHO É CONFERIDO ANTES DE IR AO BANCO.
+ *
+ * `body.wallet` só precisava ser truthy pra custar um `getVenueForCheck`:
+ * `{token, wallet: 1}` gastava duas idas ao banco sem consumir vaga de
+ * cobrança nenhuma, numa rota pública que qualquer um com uma foto do QR
+ * alcança. Sétima revisão de segurança, 2026-09-19 (LOW-5).
+ */
+describe('um trilho que não existe é recusado sem custar ida ao banco', () => {
+  test.each([['lixo'], [1], [true], [{}]])(
+    'wallet=%p é recusado, e o store não é consultado', async (wallet) => {
+      const { table } = await mesa();
+      const { store: s } = require('../_app/router');
+      const original = s.getVenueForCheck.bind(s);
+      let idas = 0;
+      s.getVenueForCheck = async (...a) => { idas += 1; return original(...a); };
+      let r;
+      try {
+        r = await com('qualquer-casa', () => pedir('POST', '/api/pay', {
+          token: table.qrToken, amountCents: 500, tipCents: 0,
+          wallet, paymentToken: 'tok', payerDocument: '52998224725',
+        }));
+      } finally { s.getVenueForCheck = original; }
+      expect(r.corpo.code).toBe('rail_unsupported');
+      expect(idas).toBe(0);
+    },
+  );
+
+  test('e os dois nomes de verdade seguem em frente', async () => {
+    // Senão o teste acima seria satisfeito por recusar TUDO.
+    const { venue, table } = await mesa();
+    const r = await com(venue.id, () => pagarComCarteira(table.qrToken, 'tok-x'));
+    expect(r.corpo.code).not.toBe('rail_unsupported');
+  });
+});
+
+describe('a demo não é barrada pelo interruptor', () => {
+  const { DEMO_TABLE_TOKEN } = require('../_lib/demo');
+
+  test('carteira na mesa de demonstração passa, com a lista VAZIA', async () => {
+    const r = await com(undefined, () => pedir('POST', '/api/pay', {
+      token: DEMO_TABLE_TOKEN, amountCents: 500, tipCents: 0,
+      wallet: 'google_pay', paymentToken: 'tok_demo_0123456789',
+      payerDocument: '52998224725',
+    }));
+    // O que NÃO pode acontecer é o nosso portão barrar. O que o MockPsp faz
+    // com o token depois é outro assunto.
     expect(r.corpo.code).not.toBe('rail_unsupported');
   });
 });

@@ -42,6 +42,18 @@ async function mundo({ falharGravacao = 0 } = {}) {
   const capturas = [];
   const pixCriados = [];
   const psp = {
+    /**
+     * O DUBLÊ DECLARA QUEM ELE É.
+     *
+     * Ele modela a Pagar.me — é o único adaptador cujo `createWalletCharge`
+     * CAPTURA dentro da chamada, que é a premissa inteira destes testes. Sem
+     * o `provider`, o `capturou` (que passou a vir do adaptador e não do nome
+     * do trilho) o lia como um PSP que não captura, e os testes exigiam
+     * `charge_maybe_captured` de um dublê que dizia não ter capturado nada.
+     *
+     * Um dublê que não declara o que é prova o dublê, não a regra.
+     */
+    provider: 'pagarme',
     currencies: ['brl'],
     async createWalletCharge({ chargeRef }) {
       capturas.push(chargeRef);
@@ -387,11 +399,11 @@ describe('o que a quarta revisão mediu', () => {
     const tratar = createNonLedgerHandler({ store, notify: async () => ({ ok: true }) });
     await tratar({
       status: 'money_without_check', txid: 'ch_z',
-      raw: { eventId: 'evt_z', amountCents: 6000, orderCode: 'conta-9:0:5500:500', raw: { id: 'ch_z', amount: 6000 } },
+      raw: { eventId: 'evt_z', amountCents: 6000, orderCode: '11111111-2222-4333-8444-555555555555:0:5500:500', raw: { id: 'ch_z', amount: 6000 } },
     }, { psp: 'pagarme' });
 
     expect(gravados).toHaveLength(1);
-    expect(gravados[0].payload.orderCode).toBe('conta-9:0:5500:500');
+    expect(gravados[0].payload.orderCode).toBe('11111111-2222-4333-8444-555555555555:0:5500:500');
     expect(gravados[0].amountCents).toBe(6000);
   });
 
@@ -600,7 +612,14 @@ describe('o atalho da recusa provada (CRITICAL-2)', () => {
       throw new Error('não devia haver segunda ida: a linha já estava lá');
     };
     const charge = createChargeService({ store, psp });
-    const r = await pagar(charge, check).catch((e) => e);
+    // COM rótulo: é o mesmo pedido repetido, e o rótulo é o que prova isso. Sem
+    // rótulo dos dois lados a posse não tem como ser provada, e aí o portão
+    // fecha — que é o caso dos dois anônimos, coberto logo abaixo.
+    const r = await charge({
+      checkId: check.id, amountCents: 1000, tipCents: 0,
+      wallet: 'google_pay', paymentToken: 'tok', payerDocument: '52998224725',
+      rail: 'pix', payerLabel: 'Ana',
+    }).catch((e) => e);
     expect(r).not.toBeInstanceOf(Error);
     expect(r.txid).toBe('ch_1');
     expect(n).toBe(1);
@@ -651,6 +670,43 @@ describe('colisão de txid na primeira ida não vira sucesso de outra pessoa', (
     const r = await colisao('Ana', '  Ana  ');
     expect(r).not.toBeInstanceOf(Error);
     expect(r.txid).toBe('ch_1');
+  });
+
+  /**
+   * DOIS ANÔNIMOS é o caso COMUM, não a borda: `payerLabel` é opcional em todo
+   * caminho e a PWA manda `trim() || null`. A versão anterior devolvia sucesso
+   * aqui, com uma justificativa errada — "o `chargeRef` carrega o `paidCents`,
+   * então quando a primeira confirmar o txid deixa de colidir" — que aponta
+   * pra DEPOIS da janela que o próprio parágrafo define (antes de qualquer uma
+   * confirmar). Sétima revisão de segurança, MEDIUM-3.
+   */
+  test('dois anônimos: não dá pra provar posse, então NÃO entrega a cobrança alheia', async () => {
+    const r = await colisao(null, null);
+    expect(r).toBeInstanceOf(Error);
+    expect(r.code).toBe('charge_maybe_captured');
+  });
+
+  /**
+   * A pergunta é uma LEITURA ao banco, logo depois de uma escrita que falhou,
+   * no mesmo cliente com prazo de 10 s. Sem `try`, a exceção subia crua — sem
+   * `code`, sem `statusCode` — virando 500 `internal` → "tente de novo" com o
+   * botão ARMADO sobre um cartão capturado. O defeito que este módulo existe
+   * pra eliminar, reaberto pela linha acrescentada pra fechar outro.
+   * Sétima revisão de segurança, MEDIUM-2.
+   */
+  test('se a pergunta da posse FALHA, fecha pro lado seguro — não vira 500 `internal`', async () => {
+    const { store, check, psp } = await mundo();
+    store.registerCharge = async () => {
+      throw Object.assign(new Error('duplicate key'), { pgCode: '23505' });
+    };
+    store.getPayment = async () => {
+      throw Object.assign(new Error('supabase store getPayment: 57014'), { pgCode: '57014' });
+    };
+    const charge = createChargeService({ store, psp });
+    const r = await pagar(charge, check).catch((e) => e);
+    expect(r).toBeInstanceOf(Error);
+    expect(r.code).toBe('charge_maybe_captured');
+    expect(r.statusCode).toBe(502);
   });
 });
 
@@ -721,98 +777,21 @@ describe('o trilho da Stripe passa pelo MESMO portão (MEDIUM)', () => {
   });
 });
 
-describe('o interruptor da carteira desliga o DINHEIRO (HIGH-4)', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
-
-  /**
-   * `carteiraLiberada` era consultada num lugar só — o `acceptsWallet` da
-   * resposta do `/api/check`. O caminho do dinheiro não a consultava, então um
-   * POST com `wallet` + `paymentToken` capturava cartão em QUALQUER casa com
-   * recebedor real, com a lista vazia. E "desligar" só mudava as respostas
-   * novas: todo PWA já aberto na mesa seguia com o botão por mais 30-90 min.
-   */
-  test('`carteiraLiberada` é consultada no POST, não só na vitrine', () => {
-    const chamadas = (ROUTER.match(/carteiraLiberada\(/g) || []).length;
-    // Uma na vitrine (`acceptsWallet`), uma no caminho do dinheiro, uma na
-    // própria definição. Menos que isso quer dizer que um lado ficou de fora.
-    expect(chamadas).toBeGreaterThanOrEqual(3);
-    const i = ROUTER.indexOf('body.wallet && !isDemo && !carteiraLiberada');
-    expect(i).toBeGreaterThan(0);
-    expect(ROUTER.slice(i, i + 300)).toMatch(/rail_unsupported/);
-  });
-
-  test('o guarda vem ANTES de o dinheiro sair', () => {
-    const guarda = ROUTER.indexOf('body.wallet && !isDemo && !carteiraLiberada');
-    const cobra = ROUTER.indexOf('wallet: body.wallet');
-    expect(guarda).toBeGreaterThan(0);
-    expect(cobra).toBeGreaterThan(0);
-    expect(guarda).toBeLessThan(cobra);
-  });
-
-  test('`*` não vale contra a Pagar.me de verdade — escape de staging fica na staging', () => {
-    const i = ROUTER.indexOf("cru === '*'");
-    expect(i).toBeGreaterThan(0);
-    expect(ROUTER.slice(i, i + 120)).toMatch(/RACHA_PSP\s*!==\s*'pagarme'/);
-  });
-
-  /**
-   * …MAS A DEMO PASSA.
-   *
-   * O conserto do HIGH-4 não tinha esta cláusula, e o botão de carteira da
-   * landing passou a recusar TODO tap com `rail_unsupported` — o anti-padrão
-   * escrito no próprio `WalletPay.tsx` ("botão morto que recusa todo tap é pior
-   * que não ter botão"), na tela que prospect vê. A demo cobra pelo MockPsp
-   * próprio e nunca toca dinheiro de verdade, então o interruptor não tem o que
-   * dizer sobre ela (sexta revisão de compliance, 2026-09-19, HIGH-1).
-   */
-  test('a demo não é barrada pelo interruptor — ela nem toca dinheiro de verdade', () => {
-    const i = ROUTER.indexOf('body.wallet && !isDemo && !carteiraLiberada');
-    expect(i).toBeGreaterThan(0);
-    // E o `isDemo` precisa estar decidido ANTES do guarda, senão a cláusula é
-    // um `undefined` que absolve todo mundo.
-    expect(ROUTER.indexOf('const isDemo =')).toBeLessThan(i);
-  });
-
-  /**
-   * O ACEITE DE PRODUÇÃO precisa provar que falou com o adquirente.
-   *
-   * `pay.data.success !== false` aceitava qualquer falha NOSSA como se fosse a
-   * recusa do emissor: um 400 `rail_unsupported` tem `success: false`, então a
-   * perna de recusa ficava verde sem nunca sair daqui. Um aceite que para de
-   * medir e relata sucesso é a forma de falha que este repositório mais paga.
-   */
-  test('a perna de recusa do `psp-acceptance` recusa os códigos NOSSOS', () => {
-    const aceite = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'psp-acceptance.js'), 'utf8');
-    const i = aceite.indexOf('NAO_CHEGOU_NO_ADQUIRENTE');
-    expect(i).toBeGreaterThan(0);
-    const bloco = aceite.slice(i, i + 900);
-    for (const codigo of ['rail_unsupported', 'market_not_live', 'psp_unavailable']) {
-      expect(bloco).toContain(codigo);
-    }
-    /**
-     * E o Set precisa ser CONSULTADO e LANÇAR. A primeira versão deste teste
-     * só conferia que ele existia — trocar o `if` por `if (false)` deixava a
-     * lista intacta no arquivo e o teste verde, que é exatamente o tipo de
-     * guarda inerte que esta suíte existe pra não ter.
-     */
-    expect(aceite).toMatch(/if \(NAO_CHEGOU_NO_ADQUIRENTE\.has\(pay\.data\.code\)\)/);
-    const usado = aceite.indexOf('if (NAO_CHEGOU_NO_ADQUIRENTE.has(pay.data.code))');
-    expect(aceite.slice(usado, usado + 400)).toMatch(/throw new Error/);
-  });
-});
-
 /**
- * O `orderCode` NÃO É NOSSO quando importa (quinta revisão de segurança, M3).
+ * OS CENSOS DE TEXTO DESTE PORTÃO FORAM APAGADOS, de propósito.
  *
- * `money_without_check` existe por definição quando não há linha nossa. Na
- * Stripe Connect o campo vem de `pi.metadata.charge_ref`, que a casa conectada
- * escreve à vontade (500 chars de UTF-8, quebra de linha permitida), e ele era
- * mesclado DEPOIS do mascarador — por fora do corte de 128 e do filtro de tipo
- * que o `data-map.md` afirma como controle vivo, e direto pro aviso do fundador,
- * onde um `\n` fabrica linhas dentro de um alerta de dinheiro.
+ * Eram três `ROUTER.indexOf(...)` provando que a linha existe e que vem antes
+ * da cobrança. A sétima revisão de segurança plantou o mutante que encerra o
+ * assunto: manteve o literal INTACTO — então os três censos seguiam satisfeitos
+ * — e acrescentou uma disjunção paralela que barrava a demo de novo, isto é,
+ * reintroduziu por inteiro o HIGH da rodada anterior. Suíte completa: 79 suítes,
+ * 2.498 testes, zero falhas.
+ *
+ * Um guarda que passa por ser lido e não medido é pior que nenhum: ele consome
+ * a atenção que o guarda de verdade precisaria. A cobertura deste portão mora
+ * agora em `interruptor-da-carteira.test.js`, que monta o `route()` e mede o
+ * que a linha AVALIA — ligado, desligado, outra casa, o Pix que não passa por
+ * aqui, a demo que é isenta, e o nome de trilho inválido.
  */
 describe('o `orderCode` gravado tem a FORMA de um orderCode', () => {
   const { createNonLedgerHandler } = require('../_lib/pay/non-ledger');
@@ -831,10 +810,33 @@ describe('o `orderCode` gravado tem a FORMA de um orderCode', () => {
     return gravados[0] && gravados[0].payload;
   };
 
-  const BOM = 'conta-9:0:5500:500';
+  // UUID porque é a forma do NOSSO `checks.id` — e a fixture anterior
+  // ('conta-9') não era um id de conta nenhum, então provava um formato
+  // que a produção nunca emite.
+  const BOM = '11111111-2222-4333-8444-555555555555:0:5500:500';
+  // A segunda forma que a gente cunha: `/api/house/load` passou pelo mesmo
+  // portão e o `chargeRef` dele é `hload:<accountId>:<uuid>`. A exigência da
+  // forma da conta de mesa o rejeitava em silêncio, e o órfão de carregamento
+  // ficava sem endereço enquanto o runbook prometia que ele sabia de onde veio.
+  const BOM_HOUSE = 'hload:acc-1:3f2b7a10-0d9e-4c1a-9f88-1d2e3f4a5b6c';
 
-  test('o nosso passa', async () => {
-    expect((await gravado(BOM)) || {}).toHaveProperty('orderCode', BOM);
+  test.each([['conta de mesa', '11111111-2222-4333-8444-555555555555:0:5500:500'],
+    ['carregamento da casa', 'hload:acc-1:3f2b7a10-0d9e-4c1a-9f88-1d2e3f4a5b6c']])(
+    'a forma do %s passa', async (_nome, valor) => {
+      expect((await gravado(valor)) || {}).toHaveProperty('orderCode', valor);
+    },
+  );
+
+  test('as DUAS formas são as duas que a gente cunha — nem uma a mais', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    // O `chargeRef` de cada caminho, lido da fonte: se alguém cunhar uma
+    // terceira forma sem acrescentá-la ao filtro, o órfão dela nasce sem
+    // endereço e ninguém percebe até o runbook falhar de madrugada.
+    const cc = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'create-charge.js'), 'utf8');
+    const hs = fs.readFileSync(path.join(__dirname, '..', '_lib', 'house', 'house-service.js'), 'utf8');
+    expect(cc).toContain('const chargeRef = `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`');
+    expect(hs).toContain('chargeRef: `hload:${account.id}:${crypto.randomUUID()}`');
   });
 
   test.each([
@@ -856,6 +858,16 @@ describe('o `orderCode` gravado tem a FORMA de um orderCode', () => {
     ['um PAN', '4111111111111111'],
     ['um telefone', '5511987654321'],
     ['um recado com CPF dentro', 'DEMITA-O-GERENTE-JOAO-CPF-52998224725'],
+    /**
+     * E OS MESMOS, COM SUFIXO. "Três grupos de inteiros separa um orderCode de
+     * um documento" era falso por seis caracteres: `52998224725:0:0:0` passava,
+     * e o aviso do fundador imprimia `conta 52998224725`. Os casos anteriores
+     * eram todos sem dois-pontos, ou seja, provavam o que o filtro já pegava.
+     */
+    ['um CPF com sufixo de orderCode', '52998224725:0:0:0'],
+    ['um PAN com sufixo de orderCode', '4111111111111111:0:0:0'],
+    ['um recado inteiro com sufixo', 'DEMITA-O-GERENTE-JOAO-CPF-52998224725:0:0:0'],
+    ['a conta de OUTRA casa, sem forma de id nosso', 'mesa-do-vizinho:0:0:0'],
   ])('%s NÃO entra', async (_nome, valor) => {
     const p = (await gravado(valor)) || {};
     expect(p.orderCode).toBeUndefined();
@@ -869,5 +881,41 @@ describe('o `orderCode` gravado tem a FORMA de um orderCode', () => {
         if (typeof valor === 'string') expect(valor.length).toBeLessThanOrEqual(128);
       }
     }
+  });
+});
+
+/**
+ * QUEM CAPTURA É O ADAPTADOR (sétima revisão de compliance, LOW-2 / segurança L7).
+ *
+ * `capturou: Boolean(wallet)` decidia pelo nome do trilho, contra o que o
+ * docblock do `gravar-apos-cobrar` afirma. Na mesa de DEMONSTRAÇÃO o PSP é o
+ * MockPsp, que não captura nada — e uma falha de escrita mandava "Seu cartão
+ * pode já ter sido cobrado, não pague de novo" pra um prospect sem cartão em
+ * jogo. É o mesmo alarme falso que a separação dos dois códigos existe pra
+ * evitar, vindo do outro lado.
+ */
+describe('o alarme de cartão capturado depende de haver captura', () => {
+  const comProvider = async (provider) => {
+    const { store, check, psp } = await mundo();
+    store.registerCharge = async () => {
+      throw Object.assign(new Error('prazo'), { pgCode: '57014' });
+    };
+    const charge = createChargeService({ store, psp: { ...psp, provider } });
+    return pagar(charge, check).catch((e) => e);
+  };
+
+  test('Pagar.me captura na chamada — o botão desarma', async () => {
+    expect((await comProvider('pagarme')).code).toBe('charge_maybe_captured');
+  });
+
+  test('o mock não captura — ninguém é avisado de uma cobrança que não houve', async () => {
+    expect((await comProvider('mock')).code).toBe('charge_not_started');
+  });
+
+  test('e um adaptador NOVO precisa se declarar — lista de permissão, não de exclusão', async () => {
+    // Duas listas de exclusão minhas tiveram buraco nesta mesma rodada. Um PSP
+    // que ainda não se declarou não assusta ninguém até alguém escrever que ele
+    // captura.
+    expect((await comProvider('zoop')).code).toBe('charge_not_started');
   });
 });

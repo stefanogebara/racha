@@ -109,31 +109,44 @@ async function legDecline() {
     payerDocument: '39053344705',
   });
   /**
-   * A RECUSA TEM QUE VIR DO ADQUIRENTE, não do nosso portão.
+   * A RECUSA TEM QUE SER IDENTIFICADA POSITIVAMENTE — não "qualquer falha".
    *
-   * `pay.data.success !== false` aceitava QUALQUER falha nossa como se fosse a
-   * recusa do emissor — e foi o que aconteceu quando o interruptor da carteira
-   * passou a valer no caminho do dinheiro: um 400 `rail_unsupported` tem
-   * `success: false`, então esta perna ficava VERDE sem nunca falar com a
-   * Pagar.me. Um aceite que para de medir e relata sucesso é a forma de falha
-   * que este repositório mais paga pra aprender (sexta revisão de compliance,
-   * 2026-09-19, HIGH-1).
+   * Duas versões erradas antes desta, e as duas pela mesma razão: eu descrevia
+   * o que NÃO conta, e a lista sempre tinha buraco.
    *
-   * Os códigos abaixo são NOSSOS — quer dizer que o pedido nem saiu daqui.
+   *  1ª: `pay.status !== 402 && pay.data.success !== false`. Qualquer falha
+   *      nossa passava — e foi o que aconteceu quando o interruptor da carteira
+   *      passou a valer: um 400 `rail_unsupported` tem `success: false`, então
+   *      esta perna ficava verde sem nunca falar com a Pagar.me.
+   *  2ª: uma lista de códigos NOSSOS pra recusar. Também tinha buraco, e o
+   *      buraco era o pior possível: `charge_maybe_captured` é um 502 que quer
+   *      dizer **o cartão FOI capturado e a linha não foi escrita**. Ele não
+   *      estava na lista, o ledger de fato não se mexe (não há linha), e o
+   *      script imprimia "✓ recusado como esperado" e seguia pro `ACEITE OK`.
+   *      Um aceite relatando cartão capturado como recusa limpa.
+   *
+   * Agora é prova positiva: a recusa do emissor é `402`, e só. O adaptador da
+   * Pagar.me põe esse status nos dois pontos em que o adquirente nega
+   * (`pagarme-psp.js:376,418`); nada nosso responde 402. Qualquer outra coisa
+   * é uma pergunta não respondida, e uma pergunta não respondida não é um
+   * aceite. Sétima revisão de compliance, 2026-09-19 (HIGH-2), depois da sexta
+   * (HIGH-1) ter consertado a mesma linha pela metade.
    */
-  const NAO_CHEGOU_NO_ADQUIRENTE = new Set([
-    'rail_unsupported', 'market_not_live', 'psp_unavailable', 'platform_misconfigured',
-    'too_many_pending_charges', 'amount_over', 'check_not_found', 'demo_busy',
-  ]);
-  if (NAO_CHEGOU_NO_ADQUIRENTE.has(pay.data.code)) {
+  if (pay.data.code === 'charge_maybe_captured') {
     throw new Error(
-      `a perna de recusa nem chegou no adquirente: ${pay.status} ${pay.data.code}. `
-      + 'Se for `rail_unsupported`, ponha o id da casa-piloto em RACHA_WALLET_VENUES e redeploye '
-      + '(a env é ligada ao DEPLOY na Vercel — mexer no painel não alcança o que está no ar).',
+      'PARE. `charge_maybe_captured`: o cartão foi CAPTURADO e a linha não foi gravada. '
+      + `txid=${pay.data.txid || '?'} — isto não é uma recusa. Siga `
+      + 'docs/runbooks/dinheiro-sem-conta.md antes de rodar o aceite de novo.',
     );
   }
-  if (pay.status !== 402 && pay.data.success !== false) {
-    throw new Error(`esperava recusa, veio: ${pay.status} ${JSON.stringify(pay.data).slice(0, 160)}`);
+  if (pay.status !== 402) {
+    throw new Error(
+      `a recusa não veio do adquirente: ${pay.status} ${JSON.stringify(pay.data).slice(0, 200)}. `
+      + 'Só 402 prova que o pedido chegou na Pagar.me e o emissor negou. '
+      + 'Se for 400 `rail_unsupported`, ponha o id da casa-piloto em RACHA_WALLET_VENUES e '
+      + 'REDEPLOYE — na Vercel a env é ligada ao deploy, mexer no painel não alcança o que '
+      + 'está no ar.',
+    );
   }
   const after = (await checkState()).paidCents;
   if (after !== before) throw new Error(`recusa moveu dinheiro?! ${before} → ${after}`);

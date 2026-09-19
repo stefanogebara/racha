@@ -787,6 +787,15 @@ export const DICT = {
     pt: 'Não conseguimos iniciar o pagamento. Nada foi cobrado — tente de novo.',
     es: 'No pudimos iniciar el pago. No se cobró nada — inténtalo de nuevo.',
   },
+  /**
+   * O emissor recusou. O motivo do adquirente fica no stderr, não aqui: ele vem
+   * em português, vem de terceiro, e quem está lendo a tela escolheu um idioma.
+   */
+  'err.card_declined': {
+    en: 'Your bank declined the card. Try another card, or pay with Pix.',
+    pt: 'O banco recusou o cartão. Tente outro cartão, ou pague com Pix.',
+    es: 'Tu banco rechazó la tarjeta. Prueba con otra tarjeta, o paga con Pix.',
+  },
   'err.restitution_unavailable': { en: 'The refund could not be recorded now. Open the bill and check before recording it again.',
                         pt: 'Não deu pra registrar a devolução agora. Abra a conta e confira antes de registrar de novo.',
                         es: 'No se pudo registrar la devolución ahora. Abre la cuenta y comprueba antes de registrarla otra vez.' },

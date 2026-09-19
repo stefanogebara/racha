@@ -18,7 +18,7 @@ entre a captura e a linha é pequena e era invisível — até o banco ganhar pr
 de 10 s, que transformou "isso nunca acontece" em "isso acontece quando o banco
 está lento".
 
-## O que foi feito (9389695, depois 85f8414)
+## O que foi feito (9389695, depois 85f8414, 8f6b48c e 16043b2)
 
 1. A escrita tenta **duas vezes** quando a segunda ida tem chance — o que
    inclui tanto o transitório (`57014` prazo, `40P01` deadlock, `53300` pooler
@@ -31,8 +31,15 @@ está lento".
    prazo e o deadlock. O efeito era desligar a segunda tentativa justamente nos
    erros que ela conserta — pooler saturado numa noite cheia, com o cartão já
    capturado — deixando MAIS comum o `charge_maybe_captured` que este conserto
-   existe pra tornar raro. Uma regra, duas perguntas, um predicado só. A unicidade do `txid` conta como **sucesso** em qualquer das
-   duas idas: a linha que se queria existe.
+   existe pra tornar raro. Uma regra, duas perguntas, um predicado só.
+
+   A unicidade do `txid` conta como **sucesso** na SEGUNDA ida: ali a primeira
+   tentativa foi nossa, então a linha que está lá só pode ser a que se queria
+   escrever. Na PRIMEIRA, não — não houve tentativa anterior nossa, logo a linha
+   é de OUTRA cobrança, e devolver sucesso entregaria à segunda pessoa da mesa a
+   cobrança da primeira. Ali o `gravarAposCobrar` só segue depois de confirmar o
+   dono pelo rótulo do pagador. (Esta frase dizia "em qualquer das duas idas" e
+   afirmava exatamente a premissa que o `nossa` existe pra refutar.)
 2. Esgotadas as tentativas, o erro sai com código próprio, e **os dois códigos
    pedem coisas opostas da tela** — que é o motivo de serem dois:
    - `charge_maybe_captured` (o trilho que CAPTUROU) **desarma o botão** e diz
@@ -86,6 +93,14 @@ Fazer meia inversão seria pior que nenhuma: uma autorização que ninguém capt
 
 **Antes de a carteira (Google Pay) servir uma casa que cobra de verdade.**
 
+A lista do que precisa estar fechado ANTES de `RACHA_WALLET_VENUES` nomear uma
+casa de verdade — nenhum deles bloqueia o merge, todos bloqueiam o primeiro id:
+
+1. O balcão ter onde olhar (abaixo, em "o que ficou ABERTO").
+2. A ponte de avisos aceitar `money_without_check` (idem).
+3. O `psp-acceptance` rodar verde de ponta a ponta contra a casa-piloto — o que
+   exige o id dela na env e um redeploy.
+
 A primeira versão desta página dizia que isso era "um evento de produto, e quem
 o aciona sabe que o aciona". Era falso, e uma revisão mediu: o `acceptsWallet`
 era verdadeiro para QUALQUER casa com recebedor de verdade, então a primeira
@@ -104,7 +119,8 @@ dinheiro não o consultava. Um `POST /api/pay` com `wallet` + `paymentToken`
 capturava cartão em qualquer casa com recebedor real, com a lista vazia — e
 "desligar" só mudava as respostas novas, enquanto todo PWA já aberto na mesa
 seguia com o botão por mais 30-90 min. Hoje o `POST /api/pay` recusa com
-`rail_unsupported`, e o curinga `*` (que é de staging) não vale quando o PSP é a
+`rail_unsupported` (a mesa de DEMONSTRAÇÃO é isenta — ela cobra pelo MockPsp
+próprio e não toca dinheiro de verdade), e o curinga `*` (que é de staging) não vale quando o PSP é a
 Pagar.me de verdade. Achado pela quinta revisão, 2026-09-19.
 
 Vale registrar o limite honesto do mecanismo: na Vercel a env é ligada ao
@@ -127,6 +143,16 @@ medir; ver o runbook.)
   que ENTRA vira órfão registrável. A assimetria foi herdada, não decidida.
 - **Não há caminho automático de volta**: recriar a linha a partir do órfão é
   trabalho manual de banco (o runbook diz isso em voz alta).
+- **O balcão não tem onde olhar.** A tela diz a quem está na mesa "fale com o
+  balcão se a conta não atualizar" — e não existe superfície nenhuma no painel
+  que mostre um órfão. Procure por `orphan` em `apps/web/src` e não há nada. O
+  órfão sai só no aviso diário do fundador, de madrugada. Ou seja: a nossa
+  mensagem, que está certa, termina num beco no balcão. Isto vive em thread de
+  revisão desde a quinta rodada e não estava escrito em lugar nenhum — que é a
+  "guarda que depende de alguém lembrar" nomeada três vezes nestes arquivos.
+  **É precondição pra ligar a primeira casa**, não pro merge: uma linha na
+  lista de contas dizendo "pagamento recebido sem registro, R$ X, fale com a
+  Racha", movida pelo `checkId` que o `orderCode` já carrega.
 - **A ponte de avisos ainda não aceita `money_without_check`** — ela deploya de
   outro repositório. Até lá o alerta do mesmo dia é recusado e o fundador só
   sabe pela conciliação da madrugada. O evento fica durável aqui de qualquer

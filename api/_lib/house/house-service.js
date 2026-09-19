@@ -1,5 +1,6 @@
-const { gravarAposCobrar } = require('../pay/gravar-apos-cobrar');
 'use strict';
+
+const { gravarAposCobrar } = require('../pay/gravar-apos-cobrar');
 
 const { isDemoVenue } = require('../demo');
 

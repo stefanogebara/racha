@@ -374,6 +374,7 @@ function createPagarmePsp({
       if (typeof paymentToken !== 'string' || paymentToken.length < 8) {
         const err = new Error('cartão recusado — token de pagamento inválido');
         err.statusCode = 402;
+        err.code = 'card_declined';
         throw err;
       }
       const order = await api('POST', '/orders', {
@@ -414,8 +415,29 @@ function createPagarmePsp({
         const reason = tx.acquirer_message
           || (Array.isArray(gw.errors) && gw.errors.map((e) => e.message || e).join('; '))
           || gw.code || tx.status || status;
-        const err = new Error(`cartão recusado (${String(reason).slice(0, 140)})`);
+        /**
+         * CÓDIGO, e não a frase do adquirente.
+         *
+         * Sem `code`, o `errorBody` cai no ramo `<500` sem nada pra suprimir e
+         * manda `err.message` — que carrega até 140 caracteres de
+         * `acquirer_message` cru. O cliente então cai na última linha do
+         * `tError` ("servidor antigo, sem código: o texto cru é melhor que
+         * nada") e desenha a frase EM PORTUGUÊS pra quem escolheu inglês ou
+         * espanhol, com texto de terceiro dentro.
+         *
+         * Isso quebra o acordo do CLAUDE.md ao pé da letra — "o servidor nunca
+         * manda texto de tela; manda um `code` estável" — e estava inalcançável
+         * em produção só porque o interruptor da carteira não tinha posição
+         * ligado. Consertar o interruptor tornou isto alcançável junto (sétima
+         * revisão de segurança, 2026-09-19, MEDIUM-5).
+         *
+         * O motivo do adquirente continua indo pro stderr, que é onde ele
+         * serve: quem está de plantão lê, o cliente não.
+         */
+        process.stderr.write(`[pagarme] cartão recusado: ${String(reason).slice(0, 140)}\n`);
+        const err = new Error('cartão recusado pelo emissor');
         err.statusCode = 402;
+        err.code = 'card_declined';
         throw err;
       }
       return { txid: charge.id };

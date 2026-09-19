@@ -121,7 +121,27 @@ async function gravarAposCobrar({ gravar, capturou, txid, alvo, rail, nossa = nu
        *
        * Achado pela sexta revisão de compliance (2026-09-19, MEDIUM-2).
        */
-      if (typeof nossa === 'function' && !(await nossa())) {
+      /**
+       * A PERGUNTA PODE FALHAR, e falhar não é "sim".
+       *
+       * `nossa()` faz uma LEITURA ao banco — logo depois de uma escrita que
+       * acabou de falhar, no mesmo cliente com prazo de 10 s. Sem este `try`, a
+       * exceção subia crua: sem `code`, sem `statusCode`, virando 500
+       * `internal` → "algo deu errado, tente de novo" com o botão ARMADO sobre
+       * um cartão capturado. Ou seja, o defeito que este módulo inteiro existe
+       * pra eliminar, citado no cabeçalho dele, reaberto pela linha que eu
+       * acrescentei pra fechar outro (sétima revisão de segurança,
+       * 2026-09-19, MEDIUM-2).
+       *
+       * Não conseguir estabelecer a posse é tratado como NÃO É NOSSA: fecha
+       * pro lado seguro. Na carteira isso desarma o botão; no Pix manda tentar
+       * de novo. Os dois são a resposta certa pra "não sei".
+       */
+      let ehNossa = true;
+      if (typeof nossa === 'function') {
+        try { ehNossa = await nossa(); } catch { ehNossa = false; }
+      }
+      if (!ehNossa) {
         throw erroDeNaoGravou({ capturou, txid, alvo, rail, causa: primeiraFalha });
       }
       return;

@@ -429,8 +429,24 @@ function createChargeService({ store, psp }) {
         checkId, txid: charge.txid, amountCents, tipCents, payerLabel,
         method: rail,
       }),
-      // Pagar.me: a carteira captura na chamada; o Pix só cria a cobrança.
-      capturou: Boolean(wallet),
+      /**
+       * QUEM CAPTURA É O ADAPTADOR, não o nome do trilho.
+       *
+       * Era `Boolean(wallet)`, e o docblock do `gravar-apos-cobrar` já dizia
+       * que isso está errado em princípio. Na mesa de DEMONSTRAÇÃO estava
+       * errado na prática: o PSP ali é o MockPsp, que não captura nada, e uma
+       * falha de escrita mandava "Seu cartão pode já ter sido cobrado — não
+       * pague de novo" pra um prospect que não tem cartão nenhum em jogo. O
+       * alarme falso é o mesmo dano que a separação dos dois códigos existe pra
+       * evitar, pelo outro lado.
+       *
+       * Lista de PERMISSÃO e não de exclusão, porque nesta mesma rodada duas
+       * listas de exclusão minhas tiveram buraco: só a `createWalletCharge` da
+       * Pagar.me captura dentro da chamada (v5 captura por padrão, sem
+       * `capture: false`). Um adaptador novo precisa se declarar aqui, e até lá
+       * ninguém é avisado de uma cobrança que não houve.
+       */
+      capturou: Boolean(wallet) && psp.provider === 'pagarme',
       txid: charge.txid, alvo: `check=${checkId}`, rail,
       /**
        * Colisão de txid na primeira ida: a linha que já está lá é NOSSA?
@@ -444,19 +460,35 @@ function createChargeService({ store, psp }) {
        * aplica antes de gravar: comparar o cru contra o gravado acusaria
        * " Ana " de ser outra pessoa que "Ana".
        *
-       * Quando os dois rótulos são nulos (ninguém se identificou), a pergunta
-       * não tem resposta e isto devolve verdadeiro — é o mesmo pedido repetido
-       * ou duas pessoas anônimas, e não dá pra distinguir daqui. O que fecha
-       * esse resto é o `chargeRef` carregar o `paidCents`: assim que a primeira
-       * confirma, o `chargeRef` muda e o txid deixa de colidir.
+       * Quando os DOIS rótulos são nulos, a pergunta não tem resposta — e a
+       * resposta segura é NÃO. Esta versão devolvia verdadeiro, com uma
+       * justificativa que estava errada: eu escrevi que "o `chargeRef` carrega
+       * o `paidCents`, então assim que a primeira confirma o txid deixa de
+       * colidir" — mas a janela de colisão que o parágrafo acima define é
+       * exatamente ANTES de qualquer uma confirmar, quando o `paidCents` é
+       * idêntico por construção. A defesa apontava pra depois do dano.
+       *
+       * E anônimo é o CASO COMUM, não a borda: `payerLabel` é opcional em todo
+       * caminho, e a PWA manda `trim() || null`. Devolver verdadeiro ali
+       * entregava à segunda pessoa o copia-e-cola da primeira, e como o
+       * `refDoPagamento` deriva do txid, os dois telefones desenhavam recibo do
+       * mesmo pagamento (CDC art. 6º III) com a conta paga pela metade.
+       *
+       * O custo de fechar é uma retentativa à toa; o de abrir é um recibo de
+       * pagamento que a pessoa não fez. Sétima revisão de segurança
+       * (2026-09-19, MEDIUM-3).
        */
       nossa: async () => {
         const linha = await store.getPayment(charge.txid);
         if (!linha) return false;
         const meu = rotuloDoPagador(payerLabel);
+        const meuRotulo = meu.ok ? meu.valor : null;
+        const rotuloDaLinha = linha.payerLabel ?? null;
+        // Sem rótulo dos dois lados não dá pra provar posse — e não provar é não.
+        if (meuRotulo === null && rotuloDaLinha === null) return false;
         return linha.checkId === checkId
           && linha.amountCents === amountCents && linha.tipCents === tipCents
-          && (linha.payerLabel ?? null) === (meu.ok ? meu.valor : null);
+          && rotuloDaLinha === meuRotulo;
       },
     });
 

@@ -167,6 +167,7 @@ class MockPsp {
     if (typeof paymentToken !== 'string' || !/^tok_[A-Za-z0-9_-]{8,}$/.test(paymentToken)) {
       const err = new Error('cartão recusado — token de pagamento inválido');
       err.statusCode = 402; // decline, not a server error
+      err.code = 'card_declined'; // o cliente traduz; o servidor não manda frase
       throw err;
     }
     const txid = 'mockw' + crypto

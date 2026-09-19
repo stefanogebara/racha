@@ -79,9 +79,48 @@ const SEM_ALARDE = new Set(['refund_progress', 'payment_failed']);
  *
  * Devolve objeto pra ser espalhado: vazio quando não serve.
  */
-const FORMA_DO_ORDER_CODE = /^[A-Za-z0-9_-]{1,64}(?::\d{1,9}){3}$/;
+const FORMAS_DO_ORDER_CODE = [
+  /**
+   * A conta de mesa: `<checkId>:<paidCents>:<amountCents>:<tipCents>`.
+   *
+   * O primeiro segmento é UUID porque é o NOSSO `checks.id`, e porque "três
+   * grupos de inteiros separa um orderCode de um documento" — a justificativa
+   * da versão anterior — é falsa por seis caracteres de sufixo. Medido:
+   *
+   *     52998224725:0:0:0        → passava, e o aviso imprimia `conta 52998224725`
+   *     4111111111111111:0:0:0   → passava (PAN)
+   *
+   * O POS de uma casa escrevendo `<documento>:<pedido>:<x>:<y>` no `charge_ref`
+   * — forma que parece inteiramente razoável pra quem a escreve — punha um CPF
+   * cru na única tabela que o `data-map.md` descreve como "só escalares
+   * mascarados", e no aviso do fundador.
+   *
+   * E há um segundo motivo, que não é de dado pessoal: o aviso renderiza esse
+   * segmento como **`conta <segmento>`**. Sem exigir a nossa forma, uma conta
+   * conectada podia apontar o operador de plantão pra uma conta de OUTRA casa
+   * no meio de um incidente de dinheiro. O UUID faz o rótulo `conta` ser
+   * verdade em vez de afirmação do adquirente.
+   *
+   * Sétima revisão de segurança (2026-09-19, MEDIUM-4).
+   */
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?::\d{1,9}){3}$/i,
+  /**
+   * O carregamento de saldo: `hload:<accountId>:<uuid>`.
+   *
+   * Ele entrou no mesmo caminho quando o `/api/house/load` passou a usar o
+   * portão compartilhado, e a forma da conta de mesa o rejeitava — então o
+   * órfão de carregamento era gravado SEM endereço, enquanto o runbook
+   * prometia que "o órfão sabe de que mesa veio". O documento alargou e o
+   * código estreitou, no mesmo par de commits (sétima revisão de compliance,
+   * 2026-09-19, MEDIUM-3).
+   *
+   * O prefixo literal é o que segura: um CPF ou um PAN cru não tem como casar
+   * esta alternativa, que é a razão de a lista de caracteres ter caído.
+   */
+  /^hload:[A-Za-z0-9-]{1,64}:[A-Za-z0-9-]{1,64}$/,
+];
 function orderCodeUtil(valor) {
-  return typeof valor === 'string' && FORMA_DO_ORDER_CODE.test(valor)
+  return typeof valor === 'string' && FORMAS_DO_ORDER_CODE.some((re) => re.test(valor))
     ? { orderCode: valor } : {};
 }
 
