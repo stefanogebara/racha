@@ -765,18 +765,33 @@ describe('o trilho da Stripe passa pelo MESMO portão (MEDIUM)', () => {
     expect(pelados).toEqual([]);
   });
 
-  test('o trilho da Stripe informa `capturou: false` — e isso é VERDADE', () => {
+  test('o trilho da Stripe lê `walletCaptures` do adaptador — e ele declara false', () => {
     // Ancorado na CHAMADA, não na primeira aparição de `stripeAccountId` —
     // que fica noutro trecho e absolvia o trilho sem medi-lo.
-    const i = ROUTER.indexOf('stripePsp.createWalletCharge');
+    // Ancorado no que a rota REALMENTE chama — hoje o adaptador passa pela
+    // recusa-se-não-declarar antes, então o literal antigo não existe mais.
+    const i = ROUTER.indexOf('comContratoDeCaptura(stripePsp).createWalletCharge');
     expect(i).toBeGreaterThan(0);
     const trecho = ROUTER.slice(i, i + 2000);
     expect(trecho).toMatch(/gravarAposCobrar/);
-    expect(trecho).toMatch(/capturou:\s*false/);
-    // O `createWalletCharge` da Stripe devolve `clientSecret` pro front
-    // confirmar — ao contrário do homônimo da Pagar.me, que captura na chamada.
+    /**
+     * O CONTRATO, não o literal.
+     *
+     * Esta linha exigia `capturou: false` cravado — e com isso REJEITAVA o
+     * conserto: trocar pelo `stripePsp.walletCaptures` correto deixava o teste
+     * vermelho. Um guarda que impede a correção é pior que nenhum. Nona revisão
+     * de segurança (2026-09-19, MEDIUM-1).
+     */
+    expect(trecho).toMatch(/capturou:\s*stripePsp\.walletCaptures/);
+    // E o adaptador declara `false` porque é verdade: o `createWalletCharge` da
+    // Stripe devolve `clientSecret` pro front confirmar, ao contrário do
+    // homônimo da Pagar.me, que captura dentro da chamada.
     const STRIPE = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'stripe-psp.js'), 'utf8');
     expect(STRIPE).toMatch(/clientSecret:\s*pi\.client_secret/);
+    expect(STRIPE).toMatch(/walletCaptures:\s*false/);
+    // E a rota recusa um adaptador que não declare — o mesmo "falha fechado"
+    // que a fábrica já fazia, que esta rota contornava por chamar direto.
+    expect(ROUTER).toMatch(/comContratoDeCaptura\(stripePsp\)/);
   });
 });
 

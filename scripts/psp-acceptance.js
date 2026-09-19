@@ -20,7 +20,12 @@
  *            o "Simular pagamento" é um clique no dashboard (test mode não
  *            tem API pública pra isso) — o script detecta o webhook chegar.
  *
- * Cartões de teste Pagar.me: final 0010 aprova, 0002 recusa (docs).
+ * Cartões de teste Pagar.me (Simulador de Cartão de Crédito, conferido
+ * 2026-09-19): `4000000000000010` APROVA e `4000000000000028` RECUSA — aquela
+ * página decide pelo NÚMERO e não menciona CVV. A regra do CVV começando em 6
+ * existe noutra página (Simulador PSP). Como as duas estão no ar, a perna de
+ * recusa usa o número que recusa E o CVV que recusa: assim ela é recusa nos
+ * dois simuladores, em vez de depender de qual deles a conta usa.
  */
 
 const args = Object.fromEntries(
@@ -48,7 +53,7 @@ async function j(method, url, body) {
 
 async function checkState() {
   const r = await j('GET', `${BASE}/api/check?t=${MESA}`);
-  if (!r.data.success) throw new Error(`check indisponível: ${r.data.error}`);
+  if (!r.data.success) throw new Error(`check indisponível: ${r.data.code || r.data.error}`);
   return r.data.data.state;
 }
 
@@ -102,7 +107,11 @@ async function legCard() {
 async function legDecline() {
   process.stdout.write('\n== CARD (recusado) ==\n');
   const before = (await checkState()).paidCents;
-  const tok = await tokenizeTestCard('4000000000000010', '600'); // CVV 6xx = recusa do emissor
+  // NÚMERO que recusa + CVV que recusa: a perna não depende de qual simulador
+  // a conta usa. Antes era `…0010`, que é o cartão de SUCESSO da tabela — numa
+  // conta no simulador por número isto CAPTURAVA R$ 3,00 em vez de recusar
+  // (nona revisão de compliance, 2026-09-19).
+  const tok = await tokenizeTestCard('4000000000000028', '600');
   const pay = await j('POST', `${BASE}/api/pay`, {
     token: MESA, amountCents: 300, tipCents: 0,
     payerLabel: 'Aceite Decline', wallet: 'google_pay', paymentToken: tok,

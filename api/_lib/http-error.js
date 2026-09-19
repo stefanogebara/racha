@@ -64,6 +64,15 @@ const CODIGOS_QUE_ATRAVESSAM_5XX = new Set([
   // A cobrança NÃO chegou a ser criada: nada saiu, e aqui "tente de novo" é a
   // resposta certa — o oposto do de cima, e é por isso que são dois códigos.
   'charge_not_started',
+  // O adquirente não respondeu, e NADA saiu de conta nenhuma — dizer isso é
+  // melhor que "algo deu errado", que num caminho de dinheiro é convite a
+  // tentar de novo sem saber o que aconteceu. Quem tinha captura em voo não
+  // chega aqui: aquele caminho troca por `charge_maybe_captured` antes.
+  'psp_unavailable',
+  // Configuração nossa, não do adquirente. Está aqui porque ele é lançado com
+  // 400 num sítio e 503 noutros dois — e no dia em que alguém uniformizar pra
+  // 503 "por consistência", sem esta linha ele viraria `internal` em silêncio.
+  'platform_misconfigured',
   // O login não respondeu. Sem o código o cliente trata como 401 e desloga o
   // dono no meio do turno.
   'auth_unavailable',

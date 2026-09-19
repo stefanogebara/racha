@@ -170,10 +170,25 @@ class MockPsp {
     if (typeof paymentToken !== 'string' || !/^tok_[A-Za-z0-9_-]{8,}$/.test(paymentToken)) {
       const err = new Error('cartão recusado — token de pagamento inválido');
       err.statusCode = 402; // decline, not a server error
-      // O mock também simula a recusa do EMISSOR (CVV 6xx), então aqui
-      // `card_declined` é o código certo — ver `pagarme-psp` pro caso em que
-      // a recusa é NOSSA e leva `card_token_invalid`.
-      err.code = 'card_declined'; // o cliente traduz; o servidor não manda frase
+      /**
+       * `card_token_invalid`, igual ao adaptador real — esta é uma recusa
+       * NOSSA, de formato de token, antes de qualquer emissor ver nada.
+       *
+       * O mock ficou com `card_declined` quando o adaptador real foi renomeado,
+       * e os dois passaram a discordar na única semântica de que o aceite de
+       * produção depende: ele exige `card_declined` como prova de que um
+       * emissor negou. Com a discordância, apontar o script pra um deploy de
+       * PREVIEW (que roda o MockPsp, porque preview está fora de `EM_PRODUCAO`)
+       * imprimia `✓ recusado como esperado` e `ACEITE OK` sem nunca falar com a
+       * Pagar.me. Quarta iteração do mesmo buraco, na mesma linha.
+       *
+       * O comentário que estava aqui também afirmava que o mock simula recusa
+       * do emissor por "CVV 6xx". A única ocorrência de `cvv` neste arquivo era
+       * esse comentário: `createWalletCharge` nem recebe CVV.
+       *
+       * Achado pela nona revisão de compliance (2026-09-19, HIGH-3).
+       */
+      err.code = 'card_token_invalid';
       throw err;
     }
     const txid = 'mockw' + crypto

@@ -43,6 +43,23 @@ const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { gravarAposCobrar } = require('../_lib/pay/gravar-apos-cobrar');
+
+/**
+ * O MESMO "falha fechado" do `create-charge`, na rota irmã.
+ *
+ * `/api/pay/stripe-intent` chama `createWalletCharge` DIRETO, sem passar pela
+ * fábrica — então a guarda que recusa adaptador sem `walletCaptures` declarado
+ * não valia aqui. Um adaptador é dinheiro; não declarar o que ele faz com o
+ * cartão é configuração errada, não passe livre.
+ */
+function comContratoDeCaptura(adaptador) {
+  if (typeof adaptador.walletCaptures !== 'boolean') {
+    throw Object.assign(new Error('psp stripe não declara walletCaptures'), {
+      statusCode: 400, code: 'platform_misconfigured',
+    });
+  }
+  return adaptador;
+}
 const { reduce, remainingCents, paidAfterClose } = require('../_lib/checks/check-state');
 const {
   createChargeService, assertChargeSlot, geracaoDoQr, normalizarRotuloDoPagador, JANELA_VIVA_MS,
@@ -1216,10 +1233,17 @@ async function route(req, res) {
     // STRIPE_SECRET_KEY (503) ou sem conta Stripe no venue (400). Mesmos portões
     // de dinheiro do Pix (espelha create-charge): nunca passa do que falta.
     if (req.method === 'POST' && url.pathname === '/api/pay/stripe-intent') {
-      if (!stripePsp) return json(res, 503, { success: false, error: 'cartão/Apple Pay indisponível — Stripe não configurado' });
+      /**
+       * SEM FRASE. Isto dizia a qualquer chamador não autenticado qual
+       * adquirente usamos e que ele está desconfigurado neste deploy — e antes
+       * do `readBody`, então bastava um POST vazio. Os outros sítios da mesma
+       * condição já respondiam só o código; estes eram os esquecidos (nona
+       * revisão de segurança, 2026-09-19, LOW-2).
+       */
+      if (!stripePsp) return json(res, 503, { success: false, code: 'platform_misconfigured' });
       const b = JSON.parse(await readBody(req) || '{}');
       if (typeof b.token !== 'string') return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
-      if (b.token === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, error: 'a demo não usa cartão' });
+      if (b.token === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, code: 'rail_unsupported' });
       const view = await store.getCheckByQrToken(b.token);
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       const venue = await store.getVenueForCheck(view.check.id);
@@ -1229,7 +1253,7 @@ async function route(req, res) {
       const amountCents = b.amountCents;
       const tipCents = b.tipCents ?? 0;
       if (!Number.isSafeInteger(amountCents) || amountCents < 0) return json(res, 400, { success: false, error: 'amountCents inválido', code: 'amount_invalid' });
-      if (!Number.isSafeInteger(tipCents) || tipCents < 0) return json(res, 400, { success: false, error: 'tipCents inválido' });
+      if (!Number.isSafeInteger(tipCents) || tipCents < 0) return json(res, 400, { success: false, error: 'tipCents inválido', code: 'amount_invalid' });
       if (amountCents + tipCents === 0) return json(res, 400, { success: false, error: 'cobrança de valor zero', code: 'zero_charge' });
       // O RÓTULO É CONFERIDO ANTES DA VAGA E ANTES DA STRIPE. Só o
       // `registerCharge` conferia, e ele roda DEPOIS de a Stripe criar o
@@ -1311,7 +1335,7 @@ async function route(req, res) {
             chargeRef, amountCents, tipCents,
             recipientId: venue.stripeAccountId,
           })
-          : await stripePsp.createWalletCharge({
+          : await comContratoDeCaptura(stripePsp).createWalletCharge({
             chargeRef, amountCents, tipCents,
             recipientId: venue.stripeAccountId,
             wallet: b.wallet ?? null, payerDocument: b.payerDocument ?? null,
@@ -1343,7 +1367,23 @@ async function route(req, res) {
             // como o Pix — mesma família, moeda diferente.
             payerLabel: rotuloDoPagador.valor, method: rail === 'bizum' ? 'bizum' : 'card',
           }),
-          capturou: false,
+          /**
+           * PELO CONTRATO, não pelo literal.
+           *
+           * Isto era `false` cravado, e o `walletCaptures` que a Stripe declara
+           * não era lido por ninguém — declaração decorativa. Hoje os dois
+           * valores coincidem, então nada quebra; eles deixam de coincidir no
+           * dia em que o adaptador confirmar no servidor (`confirm: true`), que
+           * é uma linha. Aí um `registerCharge` que falhasse aqui diria
+           * `charge_not_started` — "nada foi cobrado, tente de novo" — sobre um
+           * cartão capturado.
+           *
+           * É a forma "o próximo autor precisa lembrar" que o commit anterior
+           * dizia ter encerrado, reinstalada na rota irmã. E um teste MEU
+           * segurava o literal no lugar: trocar por esta linha o deixava
+           * vermelho. Nona revisão de segurança (2026-09-19, MEDIUM-1).
+           */
+          capturou: stripePsp.walletCaptures,
           txid: charge.txid, alvo: `check=${view.check.id}`, rail,
         });
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
@@ -1864,7 +1904,7 @@ async function route(req, res) {
       if (!b.venueId) return json(res, 400, { success: false, error: 'venueId é obrigatório' });
       try { await auth.requireVenueOwner(user, b.venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
-      if (!stripePsp) return json(res, 503, { success: false, error: 'cartão/Apple Pay indisponível — Stripe não configurado' });
+      if (!stripePsp) return json(res, 503, { success: false, code: 'platform_misconfigured' });
       const venue = await store.getVenue(b.venueId);
       if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
       try {

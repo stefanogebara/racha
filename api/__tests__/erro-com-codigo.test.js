@@ -84,7 +84,11 @@ function sitiosDe(fonte) {
      * regra agora é pelo VALOR POSSÍVEL — qualquer 4xx que apareça no lado
      * direito põe o sítio sob a exigência.
      */
-    const atrib = linha.match(/\b([A-Za-z_$][\w$]*)\.statusCode\s*=\s*([^;]+)/);
+    // `=\s*` sem excluir `==` casava `err.statusCode === 404` — uma COMPARAÇÃO —
+    // como atribuição, e três dos dez sítios encontrados eram fantasmas. Um
+    // censo que conta fantasma infla o piso de vivacidade e esconde a perda de
+    // um sítio real.
+    const atrib = linha.match(/\b([A-Za-z_$][\w$]*)\.statusCode\s*=(?!=)\s*([^;]+)/);
     // `Object.assign(new Error(…), { statusCode: 400, code: '…' })` — um só termo.
     const literal = linha.match(/statusCode:\s*(\d{3})/);
 
@@ -92,12 +96,42 @@ function sitiosDe(fonte) {
       const quatroXx = (atrib[2].match(/\b\d{3}\b/g) || [])
         .map(Number).filter((n) => n >= 400 && n < 500);
       if (!quatroXx.length) return;
-      const status = quatroXx[0];
+      /**
+       * O ÚLTIMO 4xx da expressão, não o primeiro.
+       *
+       * Em `res.status >= 400 && res.status < 500 ? 402 : 502` o primeiro é
+       * `400`, que é um LIMITE, não um status — e o censo reportava
+       * `(400)` sobre um sítio que responde 402. Mesma classe do erro de
+       * numeração que este arquivo já consertou: apontar pro lugar errado manda
+       * a pessoa olhar pro lugar errado.
+       */
+      const status = quatroXx[quatroXx.length - 1];
       const nome = atrib[1];
       // Do ponto da atribuição até o `throw <nome>` — o fim de vida do objeto.
-      let fim = linhas.length;
+      /**
+       * A JANELA PRECISA DE FIM. Sem `throw <nome>`, ela virava o arquivo
+       * inteiro — e aí o velho "companheiro errado" voltava pela porta dos
+       * fundos: um `err.code` de OUTRO erro, cem linhas adiante, absolvia este.
+       * `err` é o nome mais comum de `_lib/pay`, então isso não é raro.
+       *
+       * Saídas reais que não são `throw <nome>` e escapavam: `return
+       * Promise.reject(err)`, `return err` de uma fábrica (o repositório já faz
+       * isso), `reject(err)` dentro de um executor.
+       *
+       * Não achar a saída passou a ser ACUSAÇÃO, não absolvição: "não sei
+       * julgar" nunca pode ser lido como "está tudo bem". Nona revisão de
+       * segurança (2026-09-19, MEDIUM-3).
+       */
+      let fim = -1;
       for (let k = i + 1; k < linhas.length; k += 1) {
-        if (new RegExp(`\\bthrow\\s+${nome}\\b`).test(linhas[k])) { fim = k; break; }
+        const l = linhas[k];
+        if (new RegExp(`\\b(?:throw|return|reject\\()\\s*[^;]*\\b${nome}\\b`).test(l)) { fim = k; break; }
+        // Outro erro começa a ser montado: a vida deste acabou sem saída clara.
+        if (new RegExp(`\\b(?:const|let|var)\\s+\\w+\\s*=\\s*new Error`).test(l)) break;
+      }
+      if (fim < 0) {
+        fora.push({ linha: i + 1, status, temCodigo: false, motivo: 'saída do erro não encontrada' });
+        return;
       }
       const corpo = linhas.slice(i, fim + 1).join('\n');
       const temCodigo = new RegExp(`\\b${nome}\\.code\\s*=`).test(corpo);
@@ -146,8 +180,34 @@ function fabricasMudas(fonte) {
         if (linha[k] === '(') nivel += 1;
         else if (linha[k] === ')') { nivel -= 1; if (nivel === 0) { fim = k; break; } }
       }
-      if (fim < 0) continue;  // chamada quebrada em várias linhas: não julga
-      const args = linha.slice(abre + 1, fim);
+      /**
+       * CHAMADA QUEBRADA EM VÁRIAS LINHAS não é "não julga" — é julga junto.
+       *
+       * Isto era `continue`, e uma revisão reintroduziu o defeito da rodada
+       * anterior só quebrando a linha:
+       *
+       *     throw badRequest(
+       *       `carteira desconhecida: ${wallet}`,
+       *     );
+       *
+       * Suíte verde. E não é formatação hipotética: o `create-charge.js` do
+       * commit anterior tem exatamente essa forma, e qualquer prettier a produz
+       * numa linha longa. Agora as linhas são juntadas até os parênteses
+       * fecharem. Nona revisão de segurança (2026-09-19, MEDIUM-2).
+       */
+      let trecho = linha;
+      let ate = i;
+      while (fim < 0 && ate + 1 < linhas.length && ate - i < 12) {
+        ate += 1;
+        trecho += `\n${linhas[ate]}`;
+        let d = 0;
+        for (let k = trecho.indexOf('(', m.index); k < trecho.length; k += 1) {
+          if (trecho[k] === '(') d += 1;
+          else if (trecho[k] === ')') { d -= 1; if (d === 0) { fim = k; break; } }
+        }
+      }
+      if (fim < 0) { fora.push(i + 1); continue; }  // não fechou: acusa
+      const args = trecho.slice(trecho.indexOf('(', m.index) + 1, fim);
       /**
        * Vírgula de TOPO: o segundo argumento é o código.
        *
@@ -174,7 +234,14 @@ function fabricasMudas(fonte) {
         if (ch === "'" || ch === '"' || ch === '`') { dentro = ch; continue; }
         if ('([{'.includes(ch)) n += 1;
         else if (')]}'.includes(ch)) n -= 1;
-        else if (ch === ',' && n === 0) { temSegundo = true; break; }
+        else if (ch === ',' && n === 0) {
+          // VÍRGULA FINAL NÃO É ARGUMENTO. Numa chamada quebrada em linhas,
+          // `badRequest(\n  `msg`,\n)` tem vírgula de topo e UM argumento só —
+          // e contá-la absolvia exatamente a forma que este teste existe pra
+          // pegar. Só conta se sobrar conteúdo depois dela.
+          temSegundo = /\S/.test(args.slice(k + 1));
+          break;
+        }
       }
       if (!temSegundo) fora.push(i + 1);
     }
@@ -263,4 +330,66 @@ test('o censo ENXERGA — medido sobre fonte sintética', () => {
     'throw outro;',
   ].join('\n');
   expect(sitiosDe(vizinhoAlheio)[0].temCodigo).toBe(false);
+});
+
+/**
+ * OS DOIS PONTOS CEGOS QUE A NONA REVISÃO PLANTOU — fixados aqui pra não
+ * voltarem. Os dois passavam com a suíte inteira verde.
+ */
+describe('as formas que já enganaram este censo', () => {
+  test('chamada de fábrica quebrada em várias linhas é julgada, não ignorada', () => {
+    const quebrada = [
+      'if (x) {',
+      '  throw badRequest(',
+      '    `carteira desconhecida: ${wallet}`,',
+      '  );',
+      '}',
+    ].join('\n');
+    expect(fabricasMudas(quebrada)).toEqual([2]);
+
+    const quebradaComCodigo = [
+      '  throw badRequest(',
+      '    `carteira desconhecida: ${wallet}`,',
+      "    'rail_unsupported',",
+      '  );',
+    ].join('\n');
+    expect(fabricasMudas(quebradaComCodigo)).toEqual([]);
+  });
+
+  test('erro que sai por `return Promise.reject` não é absolvido por vizinho', () => {
+    // A janela sem fim virava o arquivo inteiro, e o `code` de OUTRO erro
+    // cem linhas adiante absolvia este.
+    const porReject = [
+      "const err = new Error('x');",
+      'err.statusCode = 409;',
+      'return Promise.reject(err);',
+      '}',
+      "const outro = new Error('y');",
+      "outro.code = 'nao_e_meu';",
+      'throw outro;',
+    ].join('\n');
+    expect(sitiosDe(porReject)[0].temCodigo).toBe(false);
+
+    const porRejectComCodigo = [
+      "const err = new Error('x');",
+      'err.statusCode = 409;',
+      "err.code = 'meu';",
+      'return Promise.reject(err);',
+    ].join('\n');
+    expect(sitiosDe(porRejectComCodigo)[0].temCodigo).toBe(true);
+  });
+
+  test('saída não encontrada ACUSA — "não sei julgar" não é "está tudo bem"', () => {
+    const semSaida = ["const err = new Error('x');", 'err.statusCode = 409;', 'algumaOutraCoisa();'].join('\n');
+    expect(sitiosDe(semSaida)[0].temCodigo).toBe(false);
+  });
+
+  test('`=== 404` é comparação, não atribuição — nada de sítio fantasma', () => {
+    expect(sitiosDe('if (err.statusCode === 404) return null;\n')).toEqual([]);
+  });
+
+  test('o status relatado é o que a linha RESPONDE, não um limite dela', () => {
+    const ternario = 'err.statusCode = res.status >= 400 && res.status < 500 ? 402 : 502;\nthrow err;\n';
+    expect(sitiosDe(ternario)[0].status).toBe(402);
+  });
 });

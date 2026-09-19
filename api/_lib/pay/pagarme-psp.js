@@ -251,6 +251,15 @@ function createPagarmePsp({
       const e = new Error(`pagarme ${method} ${path}: ${netErr.name === 'TimeoutError' ? `timeout ${timeoutMs}ms` : netErr.message}`);
       e.statusCode = 502;
       e.httpStatus = 0; // rede/timeout — nunca "recusa" nem "inexistente"
+      /**
+       * CÓDIGO até no 5xx, senão vira `internal` → "tente de novo".
+       *
+       * Este é o caminho GENÉRICO: quem captura (`createWalletCharge`) intercepta
+       * antes e troca por `charge_maybe_captured`, porque lá "não sei" não pode
+       * virar "tente de novo". Aqui — Pix, leitura, estorno — nada saiu de
+       * conta nenhuma, e `psp_unavailable` diz isso com honestidade.
+       */
+      e.code = 'psp_unavailable';
       throw e;
     }
     const text = await res.text();
@@ -411,7 +420,31 @@ function createPagarmePsp({
         err.code = 'card_token_invalid';
         throw err;
       }
-      const order = await api('POST', '/orders', {
+      /**
+       * A CHAMADA QUE CAPTURA — e o que dizer quando ela não responde.
+       *
+       * Esta é a única chamada do adaptador que tira dinheiro de alguém dentro
+       * dela (v5 captura por padrão). O `api()` dá 15 s e, no estouro, lança
+       * 502 SEM `code` — que o `errorBody` transforma em `internal`, e a tela
+       * lê "algo deu errado, tente de novo". Só que o timeout não quer dizer
+       * "não capturou": quer dizer "não sei", e a captura pode ter completado
+       * com a resposta perdida. O segundo toque monta o MESMO `chargeRef` (o
+       * `paidCents` não se moveu, webhook nenhum chegou), a Pagar.me não
+       * deduplica por ele, e vira um SEGUNDO `POST /orders` — segunda captura
+       * no mesmo cartão (CDC art. 42 § único).
+       *
+       * É a mesma ambiguidade que o `gravarAposCobrar` resolve doze linhas
+       * adiante — capturou e a ESCRITA falhou — com a resposta oposta. A
+       * diferença é só onde a resposta se perdeu, e pra quem está na mesa isso
+       * não muda nada. Achado pela nona revisão de segurança (2026-09-19,
+       * HIGH-1).
+       *
+       * Quem sabe que havia captura em voo é só quem a iniciou, então a
+       * decisão mora aqui e não no `api()` genérico.
+       */
+      let order;
+      try {
+        order = await api('POST', '/orders', {
         ...baseOrder({ chargeRef, amountCents, tipCents, recipientId, description: `Racha ${wallet}`, payerDocument }),
         payments: [{
           payment_method: 'credit_card',
@@ -437,7 +470,16 @@ function createPagarmePsp({
             },
           },
         }],
-      });
+        });
+      } catch (falha) {
+        // 5xx e rede/timeout: desfecho DESCONHECIDO sobre uma captura em voo.
+        // O 4xx já tem `psp_rejected` e quer dizer que o pedido nem foi aceito.
+        if (!falha || falha.statusCode !== 402) {
+          falha.statusCode = 502;
+          falha.code = 'charge_maybe_captured';
+        }
+        throw falha;
+      }
       const charge = order.charges && order.charges[0];
       if (!charge) throw new Error('pagarme: resposta sem charge — cobrança de cartão não criada');
       const status = charge.status;

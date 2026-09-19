@@ -77,7 +77,12 @@ Pagar.me: MDR não-negociável acima do mercado quando houver volume.
 - A `sk_` NUNCA entra no repo nem no chat — só Vercel env / `.env` local.
 - O endpoint de webhook não confia no corpo: re-busca por id. **O webhook do
   Pagar.me chega SEM Authorization** (verificado nos logs, 2026-07-20) —
-  `PAGARME_WEBHOOK_AUTH` foi removido; a defesa é o verify-by-refetch.
+  `PAGARME_WEBHOOK_AUTH` **continua obrigatório** — sem ele o adaptador recusa
+  TODO webhook com 401 (`pagarme-psp.js`, `verifyAndParseWebhook`), a Pagar.me
+  reentrega, desiste e desabilita o endpoint, e a confirmação de Pix morre. O
+  verify-by-refetch é a segunda camada, não a substituta. (Esta linha já disse
+  "foi removido", contradizendo o passo 4 do mesmo arquivo — nona revisão de
+  compliance, 2026-09-19.)
 - Loads do saldo da casa continuam **só Pix** mesmo com cartão ligado
   (fraude de chargeback em crédito pré-pago).
 

@@ -1,4 +1,4 @@
-# O que oito rodadas de revisão deixaram aberto, e o que reabre cada coisa
+# O que nove rodadas de revisão deixaram aberto, e o que reabre cada coisa
 
 **Decisão:** estes achados são reais, foram medidos, e nenhum deles bloqueia o
 merge. Ficam aqui com o gatilho que os reabre, porque um achado que vive só em
@@ -8,9 +8,10 @@ repositório já pagou pra aprender quatro vezes.
 ## Por que existe esta página
 
 Entre 16 e 19 de setembro de 2026 o portão de revisão (fintech-compliance +
-security-reviewer) rodou oito vezes sobre o mesmo branch. **Sete dessas rodadas
-acharam defeito real no conserto da rodada anterior** — três CRITICAL, e a
-maioria em código escrito durante a própria sequência de consertos.
+security-reviewer) rodou nove vezes sobre o mesmo branch. **Todas as oito
+rodadas depois da primeira acharam defeito real no conserto da rodada
+anterior** — três CRITICAL, e a maioria em código escrito durante a própria
+sequência de consertos.
 
 Vale registrar o padrão, porque ele é mais útil que qualquer um dos achados:
 
@@ -127,6 +128,23 @@ Nenhuma bloqueia o merge. Todas bloqueiam o primeiro id em
   `53200 out_of_memory`, que são exaustão sustentada e não "tenta 30 ms depois".
   Limitado a uma ida extra, então não é alavanca de amplificação. **Gatilho:**
   se o aviso de prazo do banco ficar frequente, estreitar pra `/^53300$/`.
+
+### O que a nona rodada acrescentou ao padrão
+
+Dois achados novos que valem ficar escritos, porque nenhum deles é sobre o
+defeito e sim sobre a forma de errar:
+
+- **Um teste meu IMPEDIA o próprio conserto.** A rota da Stripe tinha
+  `capturou: false` cravado, e o censo exigia esse literal — trocar pelo
+  contrato correto (`stripePsp.walletCaptures`) deixava o teste vermelho. Um
+  guarda que rejeita a correção é pior que nenhum, porque custa uma discussão
+  antes de cada conserto.
+- **Dois pontos cegos do censo de código de erro eram formas que o commit
+  anterior tinha acabado de introduzir.** Quebrar a chamada de `badRequest(` em
+  várias linhas — que é o que qualquer prettier faz numa linha longa, e o que o
+  `create-charge.js` passou a ter — saía do censo por um `continue` comentado
+  como "não julga". "Não sei julgar" tinha sido escrito como se fosse "está
+  tudo bem".
 
 ### O censo cujo nome promete mais do que ele anda
 

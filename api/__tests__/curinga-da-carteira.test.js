@@ -21,7 +21,28 @@
  * velho e passaria sem provar nada.
  */
 
-function comEnv(vars, f) {
+/**
+ * O `require` ISOLADO re-executa o bootstrap INTEIRO do roteador — construção
+ * do store (`router.js`) e do PSP — sete vezes, lendo env que este arquivo não
+ * põe. Com um ambiente de staging exportado (o de quem acabou de rodar o
+ * `psp-acceptance`), isso construía um cliente Supabase de verdade e um
+ * adaptador Pagar.me de verdade contra a `PAGARME_SECRET_KEY`, porque
+ * `RACHA_PSP: 'pagarme'` chega no `buildPsp()` sem guarda nenhuma em teste.
+ *
+ * Então `comEnv` também APAGA o que não quer que o bootstrap encontre. Achado
+ * pela nona revisão de segurança (2026-09-19, LOW-1).
+ */
+const NEUTRALIZAR = {
+  RACHA_STORE: undefined,
+  SUPABASE_URL: undefined,
+  SUPABASE_SERVICE_ROLE_KEY: undefined,
+  PAGARME_SECRET_KEY: undefined,
+  PAGARME_WEBHOOK_AUTH: undefined,
+  STRIPE_SECRET_KEY: undefined,
+};
+
+function comEnv(pedidas, f) {
+  const vars = { ...NEUTRALIZAR, ...pedidas };
   const antes = {};
   for (const [k, v] of Object.entries(vars)) {
     antes[k] = process.env[k];

@@ -797,23 +797,23 @@ export const DICT = {
    * rotacionada, então a saída honesta é o outro trilho e o balcão.
    */
   'err.psp_rejected': {
-    en: 'The payment could not be created. Nothing was charged — try Pix, or ask the staff.',
-    pt: 'Não deu pra criar o pagamento. Nada foi cobrado — tente o Pix, ou fale com o balcão.',
-    es: 'No se pudo crear el pago. No se cobró nada — prueba con Pix, o habla con el personal.',
+    en: 'The payment could not be created. Nothing was charged — please ask the staff.',
+    pt: 'Não deu pra criar o pagamento. Nada foi cobrado — fale com o balcão.',
+    es: 'No se pudo crear el pago. No se cobró nada — habla con el personal.',
   },
   /**
    * A recusa é NOSSA (formato do token), não do emissor — e a diferença
    * importa: é ela que deixa `card_declined` provar que um emissor negou.
    */
   'err.card_token_invalid': {
-    en: 'The card could not be read. Try again, or pay with Pix.',
-    pt: 'Não deu pra ler o cartão. Tente de novo, ou pague com Pix.',
-    es: 'No se pudo leer la tarjeta. Inténtalo de nuevo, o paga con Pix.',
+    en: 'We could not use that card. Try again, or choose another payment method.',
+    pt: 'Não deu pra usar esse cartão. Tente de novo, ou escolha outro meio de pagamento.',
+    es: 'No pudimos usar esa tarjeta. Inténtalo de nuevo, o elige otro medio de pago.',
   },
   'err.card_declined': {
-    en: 'Your bank declined the card. Try another card, or pay with Pix.',
-    pt: 'O banco recusou o cartão. Tente outro cartão, ou pague com Pix.',
-    es: 'Tu banco rechazó la tarjeta. Prueba con otra tarjeta, o paga con Pix.',
+    en: 'Your bank declined the card. Try another card, or another payment method.',
+    pt: 'O banco recusou o cartão. Tente outro cartão, ou outro meio de pagamento.',
+    es: 'Tu banco rechazó la tarjeta. Prueba con otra tarjeta, u otro medio de pago.',
   },
   'err.restitution_unavailable': { en: 'The refund could not be recorded now. Open the bill and check before recording it again.',
                         pt: 'Não deu pra registrar a devolução agora. Abra a conta e confira antes de registrar de novo.',

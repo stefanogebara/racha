@@ -814,8 +814,10 @@ function formatReconcileAlert(report) {
        *
        * A linha dizia `money_without_check ch_x` e mais nada: quem lesse o aviso
        * às quatro da manhã não sabia QUANTO nem de QUAL mesa, e tinha que abrir
-       * o painel do adquirente pra descobrir as duas coisas. O `orderCode`
-       * começa com o `checkId`, então o primeiro campo dele é o endereço.
+       * o painel do adquirente pra descobrir as duas coisas. Qual campo do
+       * `orderCode` é o endereço depende da FORMA dele — ver
+       * `enderecoDoOrfao`, que existe porque o carregamento de saldo
+       * (`hload:<conta>:<uuid>`) não tem conta de mesa nenhuma.
        * Achado pela quarta revisão de compliance de 2026-09-16 (HIGH-2).
        */
       + (report.orphans || []).slice(0, 5)
