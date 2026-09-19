@@ -843,13 +843,26 @@ describe('o `orderCode` gravado tem a FORMA de um orderCode', () => {
     ['uma quebra de linha que fabrica alerta', 'x:0:0:0\n1 evento(s) de dinheiro SEM conta'],
     ['um CPF que a casa escreveu no metadata', 'cliente 529.982.247-25'],
     ['um número', 12345],
+    /**
+     * OS TRÊS CRUS — e é por eles que a lista de caracteres não bastava.
+     *
+     * A primeira versão deste censo recusava cinco casos, e todos eram
+     * pontuados, aninhados, grandes demais ou não-string. Nenhum era uma
+     * sequência de dígitos crua, que é justamente a forma em que CPF e PAN
+     * costumam ser guardados — e a forma que passava. O teste provava o caminho
+     * que já estava consertado.
+     */
+    ['um CPF sem pontuação', '52998224725'],
+    ['um PAN', '4111111111111111'],
+    ['um telefone', '5511987654321'],
+    ['um recado com CPF dentro', 'DEMITA-O-GERENTE-JOAO-CPF-52998224725'],
   ])('%s NÃO entra', async (_nome, valor) => {
     const p = (await gravado(valor)) || {};
     expect(p.orderCode).toBeUndefined();
   });
 
   test('e o que entra é sempre escalar curto — a propriedade, não o caso', async () => {
-    for (const v of [BOM, { a: 1 }, 'a'.repeat(600), 'x\ny', null]) {
+    for (const v of [BOM, { a: 1 }, 'a'.repeat(600), 'x\ny', null, '52998224725', '4111111111111111']) {
       const p = (await gravado(v)) || {};
       for (const valor of Object.values(p)) {
         expect(['string', 'number', 'boolean']).toContain(typeof valor);

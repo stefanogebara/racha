@@ -54,17 +54,32 @@ const SEM_ALARDE = new Set(['refund_progress', 'payment_failed']);
 /**
  * O `orderCode` que a gente aceita gravar: `<uuid>:<n>:<n>:<n>`.
  *
- * Lista de permissão de CARACTERES, e não o formato exato de propósito: o que
- * se está defendendo é a quebra de linha que fabrica uma linha dentro do aviso
- * do fundador, o objeto aninhado que o filtro de tipo da máscara derrubava, o
- * CPF (que tem ponto, traço e espaço) e os 500 caracteres que a Stripe deixa a
- * casa escrever no `metadata`. Prender ao formato `<uuid>:<n>:<n>:<n>` também
- * fecharia tudo isso, e ao custo de derrubar em silêncio o dia em que o id da
- * conta mudar de forma — um controle que só quem lê o código descobriria.
+ * O SEGMENTO DO ID FICA OPACO; O RESTO DO CONTRATO É EXIGIDO.
+ *
+ * A primeira versão disto era só lista de caracteres — `[A-Za-z0-9:_-]{1,80}` —
+ * escolhida pra não prender ao formato do id, e ela deixava passar EXATAMENTE
+ * as classes de dado que o comentário dizia estar defendendo. Medido:
+ *
+ *     52998224725        (CPF sem pontuação)  → passava
+ *     4111111111111111   (PAN)                → passava
+ *     5511987654321      (telefone)           → passava
+ *     cliente 529.982.247-25                  → recusado
+ *
+ * Sistemas brasileiros guardam CPF como onze dígitos crus muito mais do que
+ * pontuado, e um PAN são dezesseis dígitos crus. O `reconcile-daily` imprime
+ * `String(orderCode).split(':')[0]` no aviso do fundador — sem dois-pontos,
+ * isso é a string inteira. Ou seja: o inegociável #9 derrotado na única tabela
+ * que o `data-map.md` descreve como "só escalares mascarados" (sexta revisão de
+ * segurança, 2026-09-19, MEDIUM-1).
+ *
+ * Os três grupos de inteiros são o que separa um orderCode de um documento: o
+ * id continua opaco (um formato novo de id ainda passa), mas
+ * `<algo>:<n>:<n>:<n>` é o contrato que o runbook e o aviso já repartem por
+ * `:` — agora exigido em vez de suposto.
  *
  * Devolve objeto pra ser espalhado: vazio quando não serve.
  */
-const FORMA_DO_ORDER_CODE = /^[A-Za-z0-9:_-]{1,80}$/;
+const FORMA_DO_ORDER_CODE = /^[A-Za-z0-9_-]{1,64}(?::\d{1,9}){3}$/;
 function orderCodeUtil(valor) {
   return typeof valor === 'string' && FORMA_DO_ORDER_CODE.test(valor)
     ? { orderCode: valor } : {};

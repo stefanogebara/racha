@@ -404,6 +404,17 @@ function projetarAchados(findings) {
  * env entre casos, não porque existe um interruptor vivo.
  */
 function carteiraLiberada(venueId) {
+  /**
+   * SEM ID, SEM CARTEIRA — e recusando em vez de coagir.
+   *
+   * `String(undefined)` é `'undefined'`, uma string legítima que entraria na
+   * comparação com a lista. Hoje isso é inerte (ninguém põe `undefined` na
+   * env), mas é o tipo de coerção que transforma um deslize de template num
+   * interruptor aberto pra TODAS as casas. E foi um `undefined` chegando aqui
+   * que deixou o guarda sem posição de ligado por um commit inteiro, sem que
+   * nada acusasse.
+   */
+  if (typeof venueId !== 'string' || !venueId.trim()) return false;
   const cru = String(process.env.RACHA_WALLET_VENUES || '').trim();
   if (!cru) return false;
   /**
@@ -1105,7 +1116,29 @@ async function route(req, res) {
        * revisão de compliance (2026-09-19, HIGH-1) — introduzido pelo conserto
        * do HIGH-4 da revisão anterior.
        */
-      if (body.wallet && !isDemo && !carteiraLiberada(view.venue && view.venue.id)) {
+      /**
+       * O ID VEM DO `getVenueForCheck`, e NÃO de `view.venue`.
+       *
+       * `view.venue` é a projeção PÚBLICA — `{name, taxId, ...publicMarketView}`
+       * — e ela não tem `id` de propósito: `/api/check` não tem autenticação.
+       * Então `carteiraLiberada(view.venue.id)` era `carteiraLiberada(undefined)`,
+       * que vira a string `'undefined'` e nunca está na lista.
+       *
+       * O efeito é pior que o furo que este guarda veio fechar: o interruptor
+       * ficou SEM POSIÇÃO "LIGADO". Com o id da casa-piloto na env, o POST
+       * respondia 400 `rail_unsupported` do mesmo jeito — e o `*` não salva,
+       * porque ele é desligado contra a Pagar.me de verdade. O `psp-acceptance`
+       * manda pôr o id na env e redeployar, e esse remédio não funcionava. Um
+       * guarda que não dá pra ligar é apagado com a mesma facilidade de um que
+       * nunca dispara.
+       *
+       * É a forma "conserto pela metade" — campo lido de uma projeção que nunca
+       * o selecionou. Achado pela sexta revisão de segurança (2026-09-19,
+       * HIGH-1), que mediu a rota inteira em vez de ler a linha.
+       */
+      const casaDaCobranca = body.wallet && !isDemo
+        ? await store.getVenueForCheck(view.check.id) : null;
+      if (body.wallet && !isDemo && !carteiraLiberada(casaDaCobranca && casaDaCobranca.id)) {
         throw Object.assign(new Error('wallet rail not enabled for this venue'), {
           statusCode: 400, code: 'rail_unsupported',
         });
