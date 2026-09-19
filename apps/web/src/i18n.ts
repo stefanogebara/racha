@@ -791,6 +791,16 @@ export const DICT = {
    * O emissor recusou. O motivo do adquirente fica no stderr, não aqui: ele vem
    * em português, vem de terceiro, e quem está lendo a tela escolheu um idioma.
    */
+  /**
+   * O GATEWAY recusou o pedido — e não um emissor recusando cartão. Quem está
+   * na mesa não tem o que fazer sobre um recebedor desativado ou uma chave
+   * rotacionada, então a saída honesta é o outro trilho e o balcão.
+   */
+  'err.psp_rejected': {
+    en: 'The payment could not be created. Nothing was charged — try Pix, or ask the staff.',
+    pt: 'Não deu pra criar o pagamento. Nada foi cobrado — tente o Pix, ou fale com o balcão.',
+    es: 'No se pudo crear el pago. No se cobró nada — prueba con Pix, o habla con el personal.',
+  },
   'err.card_declined': {
     en: 'Your bank declined the card. Try another card, or pay with Pix.',
     pt: 'O banco recusou o cartão. Tente outro cartão, ou pague com Pix.',

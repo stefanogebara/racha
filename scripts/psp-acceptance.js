@@ -92,7 +92,7 @@ async function legCard() {
     payerLabel: 'Aceite Card', wallet: 'google_pay', paymentToken: tok,
     payerDocument: '39053344705', // CPF de teste com dígitos válidos (docs)
   });
-  if (!pay.data.success) throw new Error(`pay falhou: ${pay.status} ${pay.data.error}`);
+  if (!pay.data.success) throw new Error(`pay falhou: ${pay.status} ${pay.data.code || pay.data.error}`);
   process.stdout.write(`charge criada: ${pay.data.data.txid} (method=${pay.data.data.method})\naguardando webhook charge.paid`);
   const st = await pollPaidDelta(before);
   if (!st) throw new Error('webhook não confirmou em 90s — confira o endpoint no dashboard');
@@ -125,32 +125,41 @@ async function legDecline() {
    *      script imprimia "✓ recusado como esperado" e seguia pro `ACEITE OK`.
    *      Um aceite relatando cartão capturado como recusa limpa.
    *
-   * Agora é prova positiva: a recusa do emissor é `402`, e só. O adaptador da
-   * Pagar.me põe esse status nos dois pontos em que o adquirente nega
-   * (`pagarme-psp.js:376,418`); nada nosso responde 402. Qualquer outra coisa
-   * é uma pergunta não respondida, e uma pergunta não respondida não é um
-   * aceite. Sétima revisão de compliance, 2026-09-19 (HIGH-2), depois da sexta
-   * (HIGH-1) ter consertado a mesma linha pela metade.
+   *  3ª: `status === 402` sozinho. Também errado, e por um motivo que eu tinha
+   *      escrito no comentário como se fosse verdade: o adaptador mapeia TODO
+   *      4xx do gateway pra 402, então uma `sk_` rotacionada, um recebedor
+   *      desativado ou uma recusa de esquema imprimiam "recusado como
+   *      esperado" — e o `after === before` passava trivialmente, porque
+   *      cobrança nenhuma chegou a existir. A outra frase do comentário,
+   *      "nada nosso responde 402", também era falsa: a nossa pré-checagem de
+   *      formato de token responde.
+   *
+   * A prova positiva de verdade é o CÓDIGO: `card_declined` só é posto onde um
+   * emissor de fato negou. O caminho genérico do gateway ganhou `psp_rejected`
+   * na mesma rodada, justamente pra que esta linha pudesse distinguir os dois.
+   * Oitava revisão de compliance, 2026-09-19 (HIGH-2) — terceira forma do mesmo
+   * buraco, na mesma linha.
    */
   if (pay.data.code === 'charge_maybe_captured') {
     throw new Error(
       'PARE. `charge_maybe_captured`: o cartão foi CAPTURADO e a linha não foi gravada. '
-      + `txid=${pay.data.txid || '?'} — isto não é uma recusa. Siga `
+      + 'o txid NÃO vem no corpo (o `errorBody` só deixa `error` e `code` passarem num 5xx) — '
+      + 'procure `LINHA NAO GRAVADA` no stderr da função. Siga '
       + 'docs/runbooks/dinheiro-sem-conta.md antes de rodar o aceite de novo.',
     );
   }
-  if (pay.status !== 402) {
+  if (pay.status !== 402 || pay.data.code !== 'card_declined') {
     throw new Error(
-      `a recusa não veio do adquirente: ${pay.status} ${JSON.stringify(pay.data).slice(0, 200)}. `
-      + 'Só 402 prova que o pedido chegou na Pagar.me e o emissor negou. '
-      + 'Se for 400 `rail_unsupported`, ponha o id da casa-piloto em RACHA_WALLET_VENUES e '
-      + 'REDEPLOYE — na Vercel a env é ligada ao deploy, mexer no painel não alcança o que '
-      + 'está no ar.',
+      `a recusa não veio do EMISSOR: ${pay.status} ${pay.data.code || JSON.stringify(pay.data).slice(0, 160)}. `
+      + 'Se for `psp_rejected`, o gateway recusou o pedido (chave rotacionada, recebedor '
+      + 'desativado, esquema) e nenhum emissor viu cartão nenhum. Se for `rail_unsupported`, '
+      + 'ponha o id da casa-piloto em RACHA_WALLET_VENUES e REDEPLOYE — na Vercel a env é '
+      + 'ligada ao deploy, mexer no painel não alcança o que está no ar.',
     );
   }
   const after = (await checkState()).paidCents;
   if (after !== before) throw new Error(`recusa moveu dinheiro?! ${before} → ${after}`);
-  process.stdout.write(`✓ recusado como esperado (${pay.status}: ${pay.data.error}) e ledger intacto\n`);
+  process.stdout.write(`✓ recusado como esperado (${pay.status}: ${pay.data.code || pay.data.error}) e ledger intacto\n`);
 }
 
 async function legPix() {
@@ -160,7 +169,7 @@ async function legPix() {
     token: MESA, amountCents: 700, tipCents: 70, payerLabel: 'Aceite Pix',
     payerDocument: '39053344705',
   });
-  if (!pay.data.success) throw new Error(`pix falhou: ${pay.status} ${pay.data.error}`);
+  if (!pay.data.success) throw new Error(`pix falhou: ${pay.status} ${pay.data.code || pay.data.error}`);
   const d = pay.data.data;
   process.stdout.write(`txid: ${d.txid}\nBR Code (real, começa com 000201): ${String(d.copiaECola).slice(0, 44)}…\n`);
   if (!String(d.copiaECola).startsWith('000201')) {

@@ -818,10 +818,10 @@ describe('o `orderCode` gravado tem a FORMA de um orderCode', () => {
   // portão e o `chargeRef` dele é `hload:<accountId>:<uuid>`. A exigência da
   // forma da conta de mesa o rejeitava em silêncio, e o órfão de carregamento
   // ficava sem endereço enquanto o runbook prometia que ele sabia de onde veio.
-  const BOM_HOUSE = 'hload:acc-1:3f2b7a10-0d9e-4c1a-9f88-1d2e3f4a5b6c';
+  const BOM_HOUSE = 'hload:aa11bb22-cc33-4d44-8e55-ff6677889900:3f2b7a10-0d9e-4c1a-9f88-1d2e3f4a5b6c';
 
   test.each([['conta de mesa', '11111111-2222-4333-8444-555555555555:0:5500:500'],
-    ['carregamento da casa', 'hload:acc-1:3f2b7a10-0d9e-4c1a-9f88-1d2e3f4a5b6c']])(
+    ['carregamento da casa', 'hload:aa11bb22-cc33-4d44-8e55-ff6677889900:3f2b7a10-0d9e-4c1a-9f88-1d2e3f4a5b6c']])(
     'a forma do %s passa', async (_nome, valor) => {
       expect((await gravado(valor)) || {}).toHaveProperty('orderCode', valor);
     },
@@ -868,6 +868,14 @@ describe('o `orderCode` gravado tem a FORMA de um orderCode', () => {
     ['um PAN com sufixo de orderCode', '4111111111111111:0:0:0'],
     ['um recado inteiro com sufixo', 'DEMITA-O-GERENTE-JOAO-CPF-52998224725:0:0:0'],
     ['a conta de OUTRA casa, sem forma de id nosso', 'mesa-do-vizinho:0:0:0'],
+    /**
+     * A forma do `hload` reabriu o buraco uma vez: a primeira versão aceitava
+     * `[A-Za-z0-9-]{1,64}` nos dois segmentos, então `hload:<CPF>:<CPF>`
+     * passava — exatamente o que a exigência de UUID na forma irmã acabara de
+     * fechar (oitava revisão de compliance, MEDIUM-1).
+     */
+    ['um CPF vestido de carregamento', 'hload:52998224725:52998224725'],
+    ['um PAN vestido de carregamento', 'hload:4111111111111111:4111111111111111'],
   ])('%s NÃO entra', async (_nome, valor) => {
     const p = (await gravado(valor)) || {};
     expect(p.orderCode).toBeUndefined();

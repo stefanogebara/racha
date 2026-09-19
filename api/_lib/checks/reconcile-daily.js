@@ -35,6 +35,23 @@ const RANK = { ok: 0, info: 1, high: 2, critical: 3 };
 const LEVELS = ['ok', 'info', 'high', 'critical'];
 
 /** O pior de dois níveis, por nome. */
+/**
+ * O ENDEREÇO QUE O ÓRFÃO CARREGA — e ele não é sempre uma conta de mesa.
+ *
+ * `split(':')[0]` valia pra `<checkId>:<n>:<n>:<n>`. Quando o carregamento de
+ * saldo passou pelo mesmo portão, o `orderCode` dele virou
+ * `hload:<accountId>:<uuid>` — e a linha passou a paginar o plantão com o
+ * literal `conta hload`, que é a mesma "rótulo que afirma em vez de dizer a
+ * verdade" que a exigência de UUID veio encerrar. Achado pela oitava revisão de
+ * compliance (2026-09-19, MEDIUM-1).
+ */
+function enderecoDoOrfao(orderCode) {
+  if (!orderCode) return null;
+  const partes = String(orderCode).split(':');
+  if (partes[0] === 'hload') return partes[1] ? `conta-da-casa ${partes[1]}` : null;
+  return `conta ${partes[0]}`;
+}
+
 function worse(a, b) {
   return LEVELS[Math.max(RANK[a] || 0, RANK[b] || 0)];
 }
@@ -806,7 +823,7 @@ function formatReconcileAlert(report) {
           o.kind,
           o.txid || null,
           Number.isFinite(o.amountCents) ? `${o.amountCents}¢` : null,
-          o.orderCode ? `conta ${String(o.orderCode).split(':')[0]}` : null,
+          enderecoDoOrfao(o.orderCode),
         ].filter(Boolean).join(' ')).join(', ')
     : '';
   if (report.venuesRed === 0) {

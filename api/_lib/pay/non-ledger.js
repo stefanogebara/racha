@@ -52,7 +52,7 @@ const { maskPixPayload } = require('./mask');
 const SEM_ALARDE = new Set(['refund_progress', 'payment_failed']);
 
 /**
- * O `orderCode` que a gente aceita gravar: `<uuid>:<n>:<n>:<n>`.
+ * As DUAS formas de `orderCode` que a gente cunha, e só elas.
  *
  * O SEGMENTO DO ID FICA OPACO; O RESTO DO CONTRATO É EXIGIDO.
  *
@@ -114,10 +114,14 @@ const FORMAS_DO_ORDER_CODE = [
    * código estreitou, no mesmo par de commits (sétima revisão de compliance,
    * 2026-09-19, MEDIUM-3).
    *
-   * O prefixo literal é o que segura: um CPF ou um PAN cru não tem como casar
-   * esta alternativa, que é a razão de a lista de caracteres ter caído.
+   * OS DOIS SEGMENTOS SÃO UUID, pelo mesmo motivo do irmão acima — e eu já
+   * errei isto uma vez: a primeira versão aceitava `[A-Za-z0-9-]{1,64}`, então
+   * `hload:52998224725:52998224725` passava, reabrindo exatamente o buraco que
+   * a forma da conta de mesa tinha acabado de fechar. Os ids reais são UUID
+   * (`account.id` + `crypto.randomUUID()`), então não há custo. Achado pela
+   * oitava revisão de compliance (2026-09-19, MEDIUM-1).
    */
-  /^hload:[A-Za-z0-9-]{1,64}:[A-Za-z0-9-]{1,64}$/,
+  /^hload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
 ];
 function orderCodeUtil(valor) {
   return typeof valor === 'string' && FORMAS_DO_ORDER_CODE.some((re) => re.test(valor))

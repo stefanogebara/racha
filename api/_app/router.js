@@ -1146,7 +1146,9 @@ async function route(req, res) {
        * segurança, 2026-09-19 (LOW-5).
        */
       const pediuCarteira = body.wallet === 'google_pay' || body.wallet === 'apple_pay';
-      if (body.wallet && !pediuCarteira) {
+      // `!= null` e não truthiness: `wallet: 0`, `false` e `''` escapavam do
+      // corte e morriam lá dentro com uma frase em português sem código.
+      if (body.wallet != null && body.wallet !== '' && !pediuCarteira) {
         throw Object.assign(new Error('unknown wallet'), {
           statusCode: 400, code: 'rail_unsupported',
         });

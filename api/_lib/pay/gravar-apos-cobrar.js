@@ -139,7 +139,18 @@ async function gravarAposCobrar({ gravar, capturou, txid, alvo, rail, nossa = nu
        */
       let ehNossa = true;
       if (typeof nossa === 'function') {
-        try { ehNossa = await nossa(); } catch { ehNossa = false; }
+        try {
+          ehNossa = await nossa();
+        } catch (falhaDaPergunta) {
+          // SEM ESTA LINHA, quem lê o stderr vê só o `23505` que vem como
+          // `causa` e conclui que a linha é nossa — quando na verdade não deu
+          // pra perguntar. São dois estados diferentes e o log dizia um só.
+          process.stderr.write(
+            `[cobranca] NAO DEU PRA CONFERIR A POSSE txid=${txid} ${alvo}: `
+            + `${String(falhaDaPergunta && falhaDaPergunta.message).slice(0, 160)}\n`,
+          );
+          ehNossa = false;
+        }
       }
       if (!ehNossa) {
         throw erroDeNaoGravou({ capturou, txid, alvo, rail, causa: primeiraFalha });

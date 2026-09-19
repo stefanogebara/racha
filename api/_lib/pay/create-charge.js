@@ -247,7 +247,7 @@ function createChargeService({ store, psp }) {
    * @param {string} [args.paymentToken]  wallet-sheet token (required for wallets)
    */
   return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null, payerDocument = null, rail: requestedRail = 'pix', qrGeneration = undefined }) {
-    if (typeof checkId !== 'string' || !checkId) throw badRequest('checkId required');
+    if (typeof checkId !== 'string' || !checkId) throw badRequest('checkId required', 'check_not_found');
     // Documento do pagador. Exigido no Pix (o gateway pede `customer.document`)
     // e ausente no Bizum, onde quem autentica é o banco do pagador.
     //
@@ -261,9 +261,9 @@ function createChargeService({ store, psp }) {
     } else {
       payerDocument = null;
     }
-    if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw badRequest('amountCents must be a non-negative integer');
-    if (!Number.isSafeInteger(tipCents) || tipCents < 0) throw badRequest('tipCents must be a non-negative integer');
-    if (amountCents + tipCents === 0) throw badRequest('zero-value charge');
+    if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw badRequest('amountCents must be a non-negative integer', 'amount_invalid');
+    if (!Number.isSafeInteger(tipCents) || tipCents < 0) throw badRequest('tipCents must be a non-negative integer', 'amount_invalid');
+    if (amountCents + tipCents === 0) throw badRequest('zero-value charge', 'zero_charge');
     const rotulo = normalizarRotuloDoPagador(payerLabel);
     if (!rotulo.ok) {
       // Com CÓDIGO: sem ele o `errorBody` devolvia a frase interna em inglês, e a
@@ -273,10 +273,10 @@ function createChargeService({ store, psp }) {
     // Daqui pra baixo vale o NORMALIZADO — é ele que vai pro banco e pro
     // adquirente. Validar o cru e gravar o cru deixava a limpeza inerte.
     payerLabel = rotulo.valor;
-    if (wallet !== null && !WALLETS.includes(wallet)) throw badRequest(`carteira desconhecida: ${wallet}`);
+    if (wallet !== null && !WALLETS.includes(wallet)) throw badRequest(`carteira desconhecida: ${wallet}`, 'rail_unsupported');
 
     const venue = await store.getVenueForCheck(checkId);
-    if (!venue) throw badRequest('unknown check');
+    if (!venue) throw badRequest('unknown check', 'check_not_found');
     // O MERCADO manda, e a conferência é AQUI — no portão de dinheiro
     // compartilhado, não só na rota. A revisão de compliance apontou que
     // `/api/pay` chegava ao `createPixCharge` sem nenhuma conferência de
@@ -474,8 +474,11 @@ function createChargeService({ store, psp }) {
        * `refDoPagamento` deriva do txid, os dois telefones desenhavam recibo do
        * mesmo pagamento (CDC art. 6º III) com a conta paga pela metade.
        *
-       * O custo de fechar é uma retentativa à toa; o de abrir é um recibo de
-       * pagamento que a pessoa não fez. Sétima revisão de segurança
+       * O custo de fechar: num PSP de txid aleatório (Pagar.me, Stripe) é uma
+       * retentativa que passa. Num PSP de txid determinístico — o mock — ela
+       * reproduz a mesma colisão até o `paidCents` mudar, então a pessoa
+       * insiste até a outra confirmar. O custo de abrir é um recibo de
+       * pagamento que a pessoa não fez, e uma conta paga pela metade. Sétima revisão de segurança
        * (2026-09-19, MEDIUM-3).
        */
       nossa: async () => {

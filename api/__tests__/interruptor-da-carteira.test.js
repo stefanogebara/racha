@@ -6,9 +6,11 @@
  * Este arquivo existe por causa de um defeito que TRÊS testes não viram, e a
  * forma deles é a lição:
  *
- *  - dois censos de texto (`ROUTER.indexOf('body.wallet && !carteiraLiberada')`)
- *    provavam que a linha EXISTE e que vem antes da cobrança. Nenhum dos dois
- *    consegue ver o que ela AVALIA;
+ *  - três censos de texto (`ROUTER.indexOf('body.wallet && !carteiraLiberada')`)
+ *    provavam que a linha EXISTE e que vem antes da cobrança. Nenhum deles
+ *    consegue ver o que ela AVALIA — e os três foram apagados em `a3178da`,
+ *    depois de uma revisão plantar o mutante que os mantinha satisfeitos
+ *    enquanto reintroduzia o defeito;
  *  - os testes unitários chamavam `carteiraLiberada('casa-a')` com o id passado
  *    à mão, então nunca repararam que quem chama NÃO TEM id pra passar.
  *
@@ -93,6 +95,26 @@ async function mesa() {
   return { venue, table };
 }
 
+/**
+ * Conta as idas ao adquirente durante a chamada.
+ *
+ * Os censos de texto apagados afirmavam uma coisa que o arquivo novo não
+ * afirmava: que o guarda vem ANTES da cobrança. Sem isto, um portão movido pra
+ * DEPOIS do `charge()` continuaria verde — os testes de bloqueio só olhavam o
+ * `code` da resposta, e ele seguiria `rail_unsupported`. Hoje passa por sorte,
+ * porque o token da fixture (`'tok'`) é recusado pelo MockPsp antes; no dia em
+ * que alguém "melhorar" a fixture pra um `tok_…` bem formado, o teste ficaria
+ * verde sobre uma CAPTURA numa casa com o interruptor desligado.
+ * Oitava revisão de compliance (2026-09-19, MEDIUM-2).
+ */
+async function contandoCobrancas(f) {
+  const { psp } = require('../_app/router');
+  const original = psp.createWalletCharge.bind(psp);
+  const chamadas = [];
+  psp.createWalletCharge = async (...a) => { chamadas.push(a[0]); return original(...a); };
+  try { return { r: await f(), chamadas }; } finally { psp.createWalletCharge = original; }
+}
+
 const pagarComCarteira = (token, tok) => pedir('POST', '/api/pay', {
   token, amountCents: 1000, tipCents: 0,
   wallet: 'google_pay', paymentToken: tok, payerDocument: '52998224725',
@@ -107,14 +129,9 @@ describe('o interruptor tem posição LIGADO', () => {
      * lugar, ou a rejeição do próprio harness, deixava o teste verde enquanto
      * o nome dele prometia "chega no adquirente". Agora o adaptador é medido.
      */
-    const psp = require('../_app/router').psp;
-    const original = psp.createWalletCharge.bind(psp);
-    const chamadas = [];
-    psp.createWalletCharge = async (a) => { chamadas.push(a); return original(a); };
-    let r;
-    try {
-      r = await com(venue.id, () => pagarComCarteira(table.qrToken, 'tok-invalido'));
-    } finally { psp.createWalletCharge = original; }
+    const { r, chamadas } = await contandoCobrancas(
+      () => com(venue.id, () => pagarComCarteira(table.qrToken, 'tok-invalido')),
+    );
     expect(chamadas).toHaveLength(1);
     /**
      * 402 é o adquirente RECUSANDO o token — ou seja, o pedido passou do nosso
@@ -125,18 +142,26 @@ describe('o interruptor tem posição LIGADO', () => {
     expect(r.status).not.toBe(400);
   });
 
-  test('sem a env, o POST é barrado — e a lista é o que decide', async () => {
+  test('sem a env, o POST é barrado ANTES do adquirente', async () => {
     const { table } = await mesa();
-    const r = await com(undefined, () => pagarComCarteira(table.qrToken, 'tok'));
+    const { r, chamadas } = await contandoCobrancas(
+      () => com(undefined, () => pagarComCarteira(table.qrToken, 'tok')),
+    );
     expect(r.status).toBe(400);
     expect(r.corpo.code).toBe('rail_unsupported');
+    // O guarda vem ANTES da cobrança — é isto que o `code` da resposta sozinho
+    // não distingue de um guarda movido pra depois do `charge()`.
+    expect(chamadas).toHaveLength(0);
   });
 
-  test('com OUTRA casa na lista, esta segue barrada', async () => {
+  test('com OUTRA casa na lista, esta segue barrada e nada é cobrado', async () => {
     const { table } = await mesa();
-    const r = await com('11111111-1111-1111-1111-111111111111',
-      () => pagarComCarteira(table.qrToken, 'tok'));
+    const { r, chamadas } = await contandoCobrancas(
+      () => com('11111111-1111-1111-1111-111111111111',
+        () => pagarComCarteira(table.qrToken, 'tok')),
+    );
     expect(r.corpo.code).toBe('rail_unsupported');
+    expect(chamadas).toHaveLength(0);
   });
 
   /**

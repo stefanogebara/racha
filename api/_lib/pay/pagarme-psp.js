@@ -261,6 +261,28 @@ function createPagarmePsp({
       const err = new Error(`pagarme ${method} ${path}: ${msg}`);
       // 4xx do gateway em cobrança = recusa (402 pro diner), não bug nosso.
       err.statusCode = res.status >= 400 && res.status < 500 ? 402 : 502;
+      /**
+       * O TERCEIRO SÍTIO DE 402 — e o que a rodada anterior esqueceu.
+       *
+       * O conserto do `card_declined` cobriu os dois sítios que falam de
+       * cartão e deixou ESTE, que é o caminho genérico de erro do gateway.
+       * Sem `code`, o `errorBody` cai no ramo `<500`, não tem o que suprimir e
+       * manda `err.message` — que aqui é `pagarme POST /orders: <texto da
+       * Pagar.me>`: o nome do adquirente, o nosso verbo, o nosso caminho e
+       * texto de terceiro, num idioma escolhido pra um leitor que a gente não
+       * vê.
+       *
+       * E não é do trilho de carteira: o `createPixCharge` passa por aqui, o
+       * Pix está NO AR, e o interruptor não protege nada disto. Um recebedor
+       * desativado e quem está na mesa lê "The recipient is not active".
+       * Achado pela oitava revisão de compliance (2026-09-19, HIGH-1).
+       *
+       * `psp_rejected` e não `card_declined`: aqui não houve emissor nenhum
+       * negando cartão. A diferença também é o que deixa o aceite de produção
+       * provar que falou com o emissor, em vez de aceitar qualquer 4xx.
+       */
+      err.code = err.statusCode === 402 ? 'psp_rejected' : 'psp_unavailable';
+      process.stderr.write(`[pagarme] ${method} ${path} ${res.status}: ${String(msg).slice(0, 200)}\n`);
       err.httpStatus = res.status; // status exato — getCharge precisa separar 404 de 401/403
       throw err;
     }
