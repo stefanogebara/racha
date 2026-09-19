@@ -42,6 +42,7 @@ const { createNonLedgerHandler, needsRetry, SEM_ALARDE } = require('../_lib/pay/
 const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
+const { gravarAposCobrar } = require('../_lib/pay/gravar-apos-cobrar');
 const { reduce, remainingCents, paidAfterClose } = require('../_lib/checks/check-state');
 const {
   createChargeService, assertChargeSlot, geracaoDoQr, normalizarRotuloDoPagador, JANELA_VIVA_MS,
@@ -394,14 +395,27 @@ function projetarAchados(findings) {
 /**
  * A LISTA DE CASAS COM CARTEIRA LIBERADA — vazia por padrão.
  *
- * Lida a cada chamada, e não uma vez no boot: uma instância quente da Vercel
- * viveria com a lista velha depois de a env mudar, e "liguei e não ligou" é o
- * jeito de alguém desistir do interruptor e tirar o interruptor.
+ * Lida a cada chamada, e não uma vez no boot — mas NÃO se engane sobre o que
+ * isso compra. Na Vercel a env é ligada ao DEPLOY: mexer na variável no painel
+ * não alcança o deploy que está no ar até haver um redeploy. Então "desligar a
+ * carteira" é um redeploy, não um botão, e o comentário anterior aqui dizia o
+ * contrário — o que deixaria alguém achando que desligou (quinta revisão de
+ * compliance, 2026-09-19). A leitura por chamada fica porque os testes trocam a
+ * env entre casos, não porque existe um interruptor vivo.
  */
 function carteiraLiberada(venueId) {
   const cru = String(process.env.RACHA_WALLET_VENUES || '').trim();
   if (!cru) return false;
-  if (cru === '*') return true;   // escape explícito, pra staging
+  /**
+   * O CURINGA NÃO VALE CONTRA O PSP DE VERDADE.
+   *
+   * `*` existe pra staging, onde o PSP é o mock e nada cobra ninguém. Um escape
+   * de staging que funciona em produção é um escape de staging que vai ser
+   * usado em produção às duas da manhã — e aqui ele liberaria a captura de
+   * cartão em TODAS as casas de uma vez, que é o oposto exato do que esta lista
+   * existe pra fazer.
+   */
+  if (cru === '*') return RACHA_PSP !== 'pagarme';
   return cru.split(',').map((x) => x.trim()).filter(Boolean).includes(String(venueId));
 }
 
@@ -1063,6 +1077,27 @@ async function route(req, res) {
       // `market_not_live`. A cópia existia só porque o catch geral perdia o
       // `code`; agora não perde.
       const payRail = body.rail === 'bizum' ? 'bizum' : 'pix';
+      /**
+       * O INTERRUPTOR DA CARTEIRA, NO CAMINHO DO DINHEIRO — não só na vitrine.
+       *
+       * `carteiraLiberada` era consultada num lugar só: o `acceptsWallet` da
+       * resposta do `GET /api/check`. O caminho do dinheiro não a consultava,
+       * então um POST com `wallet` + `paymentToken` capturava o cartão de
+       * QUALQUER casa com recebedor real, com a lista vazia. O cenário pro qual
+       * a decisão foi escrita é "ligamos numa casa, apareceram órfãos,
+       * desliga" — e desligar só mudava as respostas NOVAS do `/api/check`:
+       * todo PWA já carregado na mesa continuava com o botão, e o servidor
+       * continuava capturando. Sessões de mesa duram 30-90 min.
+       *
+       * Um interruptor que não desliga nada é a forma de "guarda que depende de
+       * alguém lembrar" que este repositório já pagou pra aprender três vezes.
+       * Achado pela quinta revisão de compliance (2026-09-19, HIGH-4).
+       */
+      if (body.wallet && !carteiraLiberada(view.venue && view.venue.id)) {
+        throw Object.assign(new Error('wallet rail not enabled for this venue'), {
+          statusCode: 400, code: 'rail_unsupported',
+        });
+      }
       let result;
       try {
         result = await (isDemo ? demoCharge : charge)({
@@ -1222,12 +1257,32 @@ async function route(req, res) {
             // no `create-charge`, e o padrão do adaptador cobria os dois.
             currency: pspCurrency(venue.market),
           });
-        await store.registerCharge({
-          checkId: view.check.id, txid: charge.txid, amountCents, tipCents,
-          // Bizum NÃO é cartão: rotular errado aqui contamina o painel, a
-          // ativação por método e a conciliação. É pagamento em tempo real,
-          // como o Pix — mesma família, moeda diferente.
-          payerLabel: rotuloDoPagador.valor, method: rail === 'bizum' ? 'bizum' : 'card',
+        /**
+         * MESMO PORTÃO DO TRILHO BRASILEIRO.
+         *
+         * Esta linha era um `registerCharge` pelado: sem nova tentativa, sem
+         * código próprio, sem nada. O prazo de 10 s estourando aqui devolvia
+         * 500 `internal` → "algo deu errado, tente de novo", enquanto o MESMO
+         * evento no trilho do Pix devolvia `charge_not_started` com a frase
+         * honesta. Um evento, duas frases, conforme o trilho — a forma de
+         * "chamador esquecido" que este arquivo nomeia três vezes (quinta
+         * revisão de compliance, 2026-09-19).
+         *
+         * `capturou: false` aqui e é VERDADE: o `createWalletCharge` da Stripe
+         * devolve um `clientSecret` pro front confirmar com a sheet, ao
+         * contrário do homônimo da Pagar.me, que captura na chamada. Nada saiu
+         * da conta de ninguém neste ponto.
+         */
+        await gravarAposCobrar({
+          gravar: () => store.registerCharge({
+            checkId: view.check.id, txid: charge.txid, amountCents, tipCents,
+            // Bizum NÃO é cartão: rotular errado aqui contamina o painel, a
+            // ativação por método e a conciliação. É pagamento em tempo real,
+            // como o Pix — mesma família, moeda diferente.
+            payerLabel: rotuloDoPagador.valor, method: rail === 'bizum' ? 'bizum' : 'card',
+          }),
+          capturou: false,
+          txid: charge.txid, checkId: view.check.id, rail,
         });
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
         // logo acima já gravava 'bizum' certo, e a resposta dizia 'card' —

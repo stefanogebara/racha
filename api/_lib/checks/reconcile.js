@@ -922,6 +922,51 @@ function recusaProvadaDoErro(err) {
   return recusaProvada(err && err.pgCode);
 }
 
+/**
+ * VALE TENTAR DE NOVO? — a pergunta que NÃO é `recusaProvada`.
+ *
+ * UMA REGRA, DUAS PERGUNTAS, e por muito tempo um predicado só.
+ *
+ * `recusaProvada` responde "está PROVADO que a escrita não aconteceu?" — é o
+ * que a conciliação precisa pra escolher `ackLost` em vez de repetir um
+ * lançamento. A gravação da cobrança precisa de outra coisa: "uma segunda ida
+ * tem chance de dar certo?". E os dois conjuntos diferem exatamente nas classes
+ * TRANSITÓRIAS.
+ *
+ * `53300 too_many_connections`, `40001 serialization_failure`,
+ * `40P01 deadlock_detected`, `57014 query_canceled`, `55P03 lock_not_available`
+ * são todos rollback PROVADO — e são também os SQLSTATEs canônicos de
+ * "tenta de novo 30 ms depois e passa". Reusar `recusaProvada` pra decidir o
+ * retry desligava a nova tentativa justo nos erros que ela conserta.
+ *
+ * O caso que decide a discussão é o `53300`: pooler do Supabase saturado numa
+ * noite cheia. O cartão FOI capturado, a segunda ida quase certamente passaria,
+ * e sem esta distinção a pessoa na mesa lê "seu cartão pode já ter sido
+ * cobrado, não pague de novo", o dinheiro vira `orphan_money_events` e alguém
+ * reconstrói a linha à mão. O conserto cujo objetivo declarado é tornar
+ * `charge_maybe_captured` RARO o deixaria mais comum.
+ *
+ * Achado pela quinta revisão de segurança (2026-09-19, MEDIUM-1). Mora aqui, e
+ * não na fábrica de cobrança, pelo motivo de sempre: decisão por SQLSTATE mora
+ * num lugar só (censo do `sql-contract`).
+ */
+const TRANSITORIO = [
+  /^40001$/,  // serialization_failure
+  /^40P01$/,  // deadlock_detected
+  /^53/,      // insufficient_resources (53300 too_many_connections é o realista)
+  /^55P03$/,  // lock_not_available
+  /^57014$/,  // query_canceled / statement timeout
+];
+function valeRepetir(err) {
+  const codigo = err && err.pgCode;
+  // Desfecho DESCONHECIDO (`08*`, `40003`, `57P01`, `58030`, ou erro de
+  // transporte sem SQLSTATE nenhum) também vale: a primeira pode ter entrado e
+  // só a resposta se perdido, e é lá que o `23505` da segunda ida quer dizer
+  // "a primeira escreveu".
+  if (!recusaProvada(codigo)) return true;
+  return TRANSITORIO.some((re) => re.test(codigo));
+}
+
 function resumoDoReparo(pia = {}) {
   const reparados = pia.repaired || [];
   const corridas = pia.raced || [];
@@ -1598,4 +1643,4 @@ async function reconcileVenueHouse(store, venueId) {
 
 module.exports = {
   acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, recusaProvada,
-  desfechoDoLancamento, podeSerReentrega, linhaJaGravada, recusaProvadaDoErro, INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+  desfechoDoLancamento, podeSerReentrega, linhaJaGravada, recusaProvadaDoErro, valeRepetir, INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };

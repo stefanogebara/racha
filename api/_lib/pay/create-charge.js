@@ -16,7 +16,7 @@ const { marketGate, pspCurrency } = require('../markets');
  */
 
 const { reduce, remainingCents } = require('../checks/check-state');
-const { linhaJaGravada, recusaProvadaDoErro } = require('../checks/reconcile');
+const { gravarAposCobrar } = require('./gravar-apos-cobrar');
 
 /**
  * `code` opcional porque o servidor NÃO manda texto de tela (CLAUDE.md): quem
@@ -410,92 +410,29 @@ function createChargeService({ store, psp }) {
     }
 
     /**
-     * A ESCRITA DEPOIS DO DINHEIRO — e o que dizer quando ela falha.
+     * A ESCRITA DEPOIS DO DINHEIRO.
      *
-     * No trilho de carteira o `createWalletCharge` CAPTURA o cartão dentro da
-     * chamada acima (Pagar.me v5 captura por padrão). Se esta linha falha, o
+     * No trilho de carteira o `createWalletCharge` da Pagar.me CAPTURA o cartão
+     * dentro da chamada acima (v5 captura por padrão). Se a linha não grava, o
      * dinheiro saiu e nós não temos onde pendurá-lo.
      *
-     * Três coisas, nesta ordem:
-     *
-     *  1. **TENTA DE NOVO.** A falha típica é o prazo de 10 s do banco, e uma
-     *     segunda ida costuma passar. Se a primeira tiver escrito e só a
-     *     resposta ter se perdido, a segunda bate na unicidade do `txid` — e
-     *     isso é SUCESSO, não erro: a linha existe, que é tudo que se queria.
-     *  2. **NÃO DIZ "tente de novo".** O erro sai com código próprio, e a tela
-     *     desarma o botão. Um "algo deu errado, tente de novo" com o botão
-     *     armado sobre um cartão que JÁ foi capturado é convite a pagar duas
-     *     vezes (CDC art. 42), e este produto já tem o vocabulário certo pra
-     *     isso noutras telas ("se o pagamento passou, ele já está aí").
-     *  3. **O webhook vira a rede.** Quando a cobrança confirmar, o
-     *     `charge.paid` chega pra um txid sem linha e o portão devolve
-     *     `money_without_check`, que é gravado em `orphan_money_events` com o
-     *     `orderCode` — e o `code` do pedido carrega o `checkId`. Ou seja: o
-     *     dinheiro fica rastreável mesmo tendo perdido a corrida aqui.
-     *
-     * Achado pela revisão de compliance de 2026-09-16 (HIGH-1).
+     * Toda a decisão — tentar de novo, o que é sucesso disfarçado de erro, e o
+     * que a pessoa na mesa lê — mora em `gravarAposCobrar`, num lugar só,
+     * porque ela já foi reescrita em três caminhos e os três divergiram. O
+     * webhook continua sendo a rede: quando a cobrança confirmar, o
+     * `charge.paid` chega pra um txid sem linha, o portão devolve
+     * `money_without_check` e o evento vira linha em `orphan_money_events` com
+     * o `orderCode`, que carrega o `checkId`.
      */
-    const gravarLinha = () => store.registerCharge({
-      checkId, txid: charge.txid, amountCents, tipCents, payerLabel,
-      method: rail,
+    await gravarAposCobrar({
+      gravar: () => store.registerCharge({
+        checkId, txid: charge.txid, amountCents, tipCents, payerLabel,
+        method: rail,
+      }),
+      // Pagar.me: a carteira captura na chamada; o Pix só cria a cobrança.
+      capturou: Boolean(wallet),
+      txid: charge.txid, checkId, rail,
     });
-    try {
-      await gravarLinha();
-    } catch (primeiraFalha) {
-      /**
-       * SÓ REPETE O QUE PODE DAR CERTO NA SEGUNDA.
-       *
-       * A nova tentativa existe pro prazo estourado, que é transitório. Uma
-       * recusa PROVADA — CHECK violado, grant revogado, coluna que não existe —
-       * é determinística: repetir só dobra a espera e a carga contra um banco
-       * que já está mal. E esta rota é pública (token de mesa, sem sessão), com
-       * `registerCharge` fazendo duas idas de 10 s: sem este corte, o pior caso
-       * ia de 20 s pra 40 s por requisição, numa superfície que qualquer um com
-       * uma foto do QR alcança. Achado pela quarta revisão de segurança de
-       * 2026-09-16 (MEDIUM-1).
-       *
-       * Quem decide o que é recusa provada é o classificador, pelo mesmo motivo
-       * de sempre: decisão por SQLSTATE mora num lugar só.
-       */
-      if (recusaProvadaDoErro(primeiraFalha)) throw primeiraFalha;
-      try {
-        await gravarLinha();
-      } catch (segundaFalha) {
-        // Pelo CLASSIFICADOR, não lendo o SQLSTATE aqui: decisão por código do
-        // Postgres mora num lugar só (censo do `sql-contract`).
-        if (!linhaJaGravada(segundaFalha)) {
-          process.stderr.write(
-            `[cobranca] LINHA NAO GRAVADA apos cobrar txid=${charge.txid} check=${checkId} `
-            + `rail=${rail} wallet=${wallet || 'nao'}: ${String(segundaFalha.message).slice(0, 160)}\n`,
-          );
-          /**
-           * DOIS DESFECHOS, porque só UM trilho move dinheiro aqui.
-           *
-           * `createWalletCharge` CAPTURA o cartão dentro da chamada; o Pix e o
-           * Bizum só criam uma cobrança que o pagador ainda vai autorizar no app
-           * do banco dele. Um código só, para os três, dizia a quem pagou por
-           * Pix que "seu cartão pode já ter sido cobrado" — não há cartão, nada
-           * foi cobrado, e a conta nunca vai atualizar sozinha. Alarme falso no
-           * trilho principal do Brasil, e com o botão de pagar ainda vivo ao
-           * lado (CDC art. 6º III e art. 31). Achado pela quarta revisão de
-           * compliance de 2026-09-16 (HIGH-1).
-           *
-           * No Pix, "tente de novo" é a resposta CERTA — e é por isso que os
-           * dois códigos existem em vez de uma frase mais vaga que servisse aos
-           * dois.
-           */
-          const capturou = Boolean(wallet);
-          const e = new Error(capturou
-            ? 'charge captured at the acquirer but not recorded'
-            : 'charge could not be created');
-          e.statusCode = 502;
-          e.code = capturou ? 'charge_maybe_captured' : 'charge_not_started';
-          e.txid = charge.txid;
-          throw e;
-        }
-        // Unicidade na segunda: a primeira escreveu e só a resposta se perdeu.
-      }
-    }
 
     return {
       txid: charge.txid,

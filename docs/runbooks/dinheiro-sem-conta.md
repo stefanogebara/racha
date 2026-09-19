@@ -12,8 +12,29 @@ O adquirente confirmou um pagamento para um `txid` que **não tem linha em
 `createWalletCharge` (Google Pay, Pagar.me) **captura o cartão dentro da
 chamada** — o dinheiro sai ali. A linha de `payments` é escrita logo depois. Se
 essa escrita falha (o banco tem prazo de 10 s), o dinheiro saiu e o nosso lado
-ficou sem onde pendurá-lo. A cobrança serviço tenta escrever duas vezes antes de
-desistir, então uma linha aqui quer dizer que as duas falharam.
+ficou sem onde pendurá-lo.
+
+Quantas vezes a gente tenta **depende do erro**, e vale saber qual você tem na
+mão antes de investigar:
+
+- **Transitório** — `57014` prazo de 10 s, `40P01` deadlock, `53300` pooler
+  cheio, `40001`, `55P03` — ou **desfecho desconhecido** (`08*` conexão caindo,
+  `40003`, `57P01`, `58030`, ou erro de transporte sem SQLSTATE): tenta **duas
+  vezes**. Uma linha aqui quer dizer que as duas falharam; procure carga ou
+  lentidão do banco na janela do `at`.
+- **Recusa determinística** — `42501` grant revogado, `42703` coluna que sumiu,
+  `23514` CHECK violado, `22001` texto longo demais: tenta **uma vez só**, de
+  propósito. O banco já recusou por escrito e repetir só dobra a espera numa
+  rota pública. Uma linha aqui quer dizer que o esquema ou as permissões
+  mudaram — vá olhar a migração ou o grant, não a carga.
+
+> A distinção não é "permanente x transitório", e é aí que a intuição erra
+> duas vezes seguidas. O predicado que decide chama-se `valeRepetir` e pergunta
+> *"uma segunda ida tem chance?"*. Ele existe separado de `recusaProvada`, que
+> pergunta outra coisa — *"está provado que nada foi gravado?"* — e onde o
+> prazo estourado e o deadlock entram, porque o Postgres garante o rollback
+> deles. Usar o segundo no lugar do primeiro desligava o retry exatamente nos
+> erros que ele conserta (quinta revisão, 2026-09-19).
 
 **O dinheiro não está perdido, e não está com a gente.** Ele foi para a
 subconta do restaurante pelas regras de split, como qualquer outra cobrança

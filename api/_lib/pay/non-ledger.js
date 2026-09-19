@@ -51,6 +51,25 @@ const { maskPixPayload } = require('./mask');
 // Achado pelas duas revisões de 2026-09-12.
 const SEM_ALARDE = new Set(['refund_progress', 'payment_failed']);
 
+/**
+ * O `orderCode` que a gente aceita gravar: `<uuid>:<n>:<n>:<n>`.
+ *
+ * Lista de permissão de CARACTERES, e não o formato exato de propósito: o que
+ * se está defendendo é a quebra de linha que fabrica uma linha dentro do aviso
+ * do fundador, o objeto aninhado que o filtro de tipo da máscara derrubava, o
+ * CPF (que tem ponto, traço e espaço) e os 500 caracteres que a Stripe deixa a
+ * casa escrever no `metadata`. Prender ao formato `<uuid>:<n>:<n>:<n>` também
+ * fecharia tudo isso, e ao custo de derrubar em silêncio o dia em que o id da
+ * conta mudar de forma — um controle que só quem lê o código descobriria.
+ *
+ * Devolve objeto pra ser espalhado: vazio quando não serve.
+ */
+const FORMA_DO_ORDER_CODE = /^[A-Za-z0-9:_-]{1,80}$/;
+function orderCodeUtil(valor) {
+  return typeof valor === 'string' && FORMA_DO_ORDER_CODE.test(valor)
+    ? { orderCode: valor } : {};
+}
+
 function createNonLedgerHandler({ store, notify, append = appendValidated }) {
   if (!store || typeof notify !== 'function') {
     throw new Error('createNonLedgerHandler: missing dependencies');
@@ -192,11 +211,34 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
            * `<checkId>:<n>:<n>:<n>` — chave interna e três inteiros, sem dado
            * pessoal — então acrescentá-lo à lista de permissão do mascarador
            * afrouxaria um controle de segurança pra carregar um campo que não
-           * vem do PSP. Aqui ele é explícito e auditável numa linha.
+           * vem do PSP.
+           *
+           * MAS PASSAR POR FORA DA MÁSCARA É PASSAR POR FORA DO QUE ELA FAZ.
+           *
+           * `maskPixPayload` faz duas coisas que o espalhamento não fazia:
+           * corta em 128 caracteres e DERRUBA o que não é escalar. O
+           * `data-map.md` afirma esse filtro de tipo como controle vivo —
+           * "todo objeto aninhado morre no filtro de TIPO" — e a mesclagem
+           * reabria os dois buracos para esta chave.
+           *
+           * E a chave não é nossa quando importa: `money_without_check` existe
+           * por definição quando NÃO há linha nossa. Na Stripe Connect o
+           * `orderCode` vem de `pi.metadata.charge_ref`, que a casa conectada
+           * escreve à vontade — até 500 caracteres de UTF-8, com quebra de
+           * linha. E o `reconcile-daily` imprime esse valor direto no aviso do
+           * fundador, então um `\n` fabrica linhas DENTRO de um alerta de
+           * dinheiro, e um CPF escrito ali ficaria gravado na única tabela que
+           * o mapa de dados descreve como "só escalares mascarados".
+           *
+           * O formato é contrato — o runbook e o aviso o repartem por `:` —
+           * então validar não é enfeite: o que não tem a forma não entra, e
+           * quem procurar cai no caminho do painel do adquirente, que o
+           * runbook já descreve. Achado pela quinta revisão de segurança
+           * (2026-09-19, MEDIUM-3).
            */
           payload: {
             ...maskPixPayload(result.raw && result.raw.raw ? result.raw.raw : result.raw),
-            ...(result.raw && result.raw.orderCode ? { orderCode: result.raw.orderCode } : {}),
+            ...(orderCodeUtil(result.raw && result.raw.orderCode)),
           },
         });
         persisted = true;

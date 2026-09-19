@@ -457,3 +457,283 @@ describe('o que a quarta revisão mediu', () => {
     expect(idas).toBe(2);
   });
 });
+
+/**
+ * O QUE A QUINTA REVISÃO MEDIU (2026-09-19) — três achados, uma raiz só.
+ *
+ * A raiz: a decisão "o que a pessoa na mesa lê quando a escrita falha depois de
+ * já termos falado com o adquirente" estava escrita DENTRO de um caminho, e os
+ * caminhos irmãos não a conheciam. Ela agora mora em `gravar-apos-cobrar.js`, e
+ * é isso que este bloco prende.
+ *
+ * Os testes acima passavam todos — 2.372 deles — com os três defeitos no ar.
+ * Eles exercitavam a falha de TRANSPORTE (sem `pgCode`), que é o caminho que
+ * chega na segunda tentativa. Nenhum plantava um SQLSTATE na PRIMEIRA ida, que
+ * é por onde o dano passava.
+ */
+describe('o atalho da recusa provada (CRITICAL-2)', () => {
+  /** Um erro do store de produção: `pgCode` posto, e mais nada. */
+  const comSqlstate = (pgCode) => Object.assign(
+    new Error(`supabase store registerCharge: ${pgCode}`), { pgCode },
+  );
+
+  const mundoQueRecusa = async (pgCode) => {
+    const { store, check, psp } = await mundo();
+    const idas = [];
+    store.registerCharge = async () => { idas.push(pgCode); throw comSqlstate(pgCode); };
+    return { check, idas, charge: createChargeService({ store, psp }) };
+  };
+
+  /**
+   * `57014` é o prazo de 10 s do banco — o modo de falha mais provável deste
+   * caminho — e ele É recusa provada (o Postgres garante o rollback), então
+   * cai no atalho de UMA tentativa. Era exatamente aí que o erro CRU do
+   * Supabase subia: sem `code`, sem `statusCode`, virava 500 `internal` →
+   * "algo deu errado, tente de novo" com o botão do Google Pay ARMADO, sobre um
+   * cartão que já tinha sido capturado. O dano que o conserto anterior dizia ter
+   * fechado, de volta pela linha ao lado.
+   */
+  test.each([
+    ['57014', 'prazo de 10 s estourado'],
+    ['40P01', 'deadlock'],
+    ['53300', 'pooler do Supabase cheio'],
+    ['42501', 'grant revogado'],
+    ['23514', 'CHECK violado'],
+    ['22001', 'texto longo demais'],
+  ])('%s (%s) desarma o botão — não vira 500 `internal`', async (pgCode) => {
+    const { check, charge } = await mundoQueRecusa(pgCode);
+    const erro = await pagar(charge, check).catch((e) => e);
+    expect(erro.code).toBe('charge_maybe_captured');
+    expect(erro.statusCode).toBe(502);
+    expect(erro.txid).toBe('ch_1');
+  });
+
+  /**
+   * A CONTAGEM DE IDAS, que é o que ninguém estava medindo.
+   *
+   * O bloco acima passa com UMA ida ou com DUAS — ele só olha o desfecho. Era
+   * exatamente essa cegueira que deixava o retry desligado nos erros que ele
+   * conserta: `recusaProvada` responde "está provado que nada foi gravado", e
+   * `53300`/`40P01`/`57014` estão nela porque o Postgres garante o rollback —
+   * mas são também os SQLSTATEs canônicos de "tenta de novo e passa". O
+   * `53300` é o realista: pooler saturado numa noite cheia, com o cartão já
+   * capturado (quinta revisão de segurança, 2026-09-19).
+   */
+  test.each([
+    ['40001', 'serialization_failure'],
+    ['40P01', 'deadlock'],
+    ['53300', 'pooler cheio'],
+    ['55P03', 'lock_not_available'],
+    ['57014', 'prazo estourado'],
+  ])('%s (%s) é TRANSITÓRIO: tenta duas vezes', async (pgCode) => {
+    const { check, charge, idas } = await mundoQueRecusa(pgCode);
+    await pagar(charge, check).catch((e) => e);
+    expect(idas).toHaveLength(2);
+  });
+
+  test.each([
+    ['42501', 'grant revogado'],
+    ['42703', 'coluna que sumiu'],
+    ['23514', 'CHECK violado'],
+    ['22001', 'texto longo demais'],
+  ])('%s (%s) é recusa DETERMINÍSTICA: tenta uma vez só', async (pgCode) => {
+    const { check, charge, idas } = await mundoQueRecusa(pgCode);
+    await pagar(charge, check).catch((e) => e);
+    // Repetir contra um banco que já recusou por escrito só dobra a espera numa
+    // rota pública com idas de 10 s.
+    expect(idas).toHaveLength(1);
+  });
+
+  test('um erro de transporte SEM sqlstate também merece a segunda ida', async () => {
+    const { store, check, psp } = await mundo();
+    const idas = [];
+    store.registerCharge = async () => {
+      idas.push(1);
+      throw new Error('supabase store registerCharge: AbortError: This operation was aborted');
+    };
+    const charge = createChargeService({ store, psp });
+    await pagar(createChargeService({ store, psp }), check).catch(() => {});
+    expect(idas).toHaveLength(2);
+    expect(charge).toBeInstanceOf(Function);
+  });
+
+  test('e o código de fato ATRAVESSA o 5xx — é o corpo da resposta que desarma', async () => {
+    const { errorStatus, errorBody } = require('../_lib/http-error');
+    const { check, charge } = await mundoQueRecusa('57014');
+    const erro = await pagar(charge, check).catch((e) => e);
+    // Medido DEPOIS do `errorBody`, que já apagou um código nesta mesma sessão.
+    expect(errorStatus(erro)).toBe(502);
+    expect(errorBody(erro, 502).code).toBe('charge_maybe_captured');
+    // A mensagem interna continua sem viajar.
+    expect(errorBody(erro, 502).error).not.toMatch(/supabase|57014/);
+  });
+
+  test('no Pix a recusa provada diz `charge_not_started` — nada foi capturado', async () => {
+    const { store, check, psp } = await mundo();
+    store.registerCharge = async () => { throw comSqlstate('57014'); };
+    const charge = createChargeService({ store, psp });
+    const erro = await charge({
+      checkId: check.id, amountCents: 1000, tipCents: 0, rail: 'pix',
+      payerDocument: '52998224725',
+    }).catch((e) => e);
+    expect(erro.code).toBe('charge_not_started');
+  });
+
+  /**
+   * O `23505` da PRIMEIRA ida quer dizer que a linha JÁ ESTÁ LÁ — sucesso. Ele
+   * cai dentro de `^23`, que é classe de recusa provada, então a ordem dos dois
+   * testes no `gravarAposCobrar` é a diferença entre "pronto, segue" e um 500
+   * permanente. E não é hipótese: o MockPsp deriva o txid de
+   * `sha256(chargeRef|valor|gorjeta|recebedor)` e o `chargeRef` carrega o
+   * `paidCents` — duas pessoas tocando "pagar R$ 50,00" na mesma conta antes de
+   * qualquer uma confirmar produzem o MESMO txid. Como o store de memória passou
+   * a impor a unicidade (a produção impõe), isso passou a prender quem tentava
+   * pagar, no demo público da landing e no canário de staging.
+   */
+  test('`23505` na PRIMEIRA ida é SUCESSO, não recusa — senão prende quem paga', async () => {
+    const { store, check, psp } = await mundo();
+    const original = store.registerCharge.bind(store);
+    let n = 0;
+    store.registerCharge = async (p) => {
+      n += 1;
+      if (n === 1) { await original(p); throw comSqlstate('23505'); }
+      throw new Error('não devia haver segunda ida: a linha já estava lá');
+    };
+    const charge = createChargeService({ store, psp });
+    const r = await pagar(charge, check).catch((e) => e);
+    expect(r).not.toBeInstanceOf(Error);
+    expect(r.txid).toBe('ch_1');
+    expect(n).toBe(1);
+    expect((await store.getPayment('ch_1')).txid).toBe('ch_1');
+  });
+});
+
+describe('o trilho da Stripe passa pelo MESMO portão (MEDIUM)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  /**
+   * Censo, e não teste de comportamento, porque o que se quer prender é a
+   * AUSÊNCIA de um segundo caminho: `registerCharge` chamado direto depois de
+   * falar com o adquirente é a forma do defeito, onde quer que ela reapareça.
+   * Sem comentário antes de medir — a prosa que explica um `registerCharge` já
+   * inflou um censo deste repositório três vezes.
+   */
+  test('nenhum `registerCharge` pelado no roteador', () => {
+    const pelados = ROUTER.split('\n')
+      .map((linha, i) => [i + 1, linha])
+      .filter(([, linha]) => /\bstore\.registerCharge\(/.test(linha))
+      .filter(([, linha]) => !/gravar:/.test(linha));
+    // Se esta lista crescer, alguém escreveu o terceiro caminho.
+    expect(pelados.map(([n]) => n)).toEqual([]);
+  });
+
+  test('o trilho da Stripe informa `capturou: false` — e isso é VERDADE', () => {
+    // Ancorado na CHAMADA, não na primeira aparição de `stripeAccountId` —
+    // que fica noutro trecho e absolvia o trilho sem medi-lo.
+    const i = ROUTER.indexOf('stripePsp.createWalletCharge');
+    expect(i).toBeGreaterThan(0);
+    const trecho = ROUTER.slice(i, i + 2000);
+    expect(trecho).toMatch(/gravarAposCobrar/);
+    expect(trecho).toMatch(/capturou:\s*false/);
+    // O `createWalletCharge` da Stripe devolve `clientSecret` pro front
+    // confirmar — ao contrário do homônimo da Pagar.me, que captura na chamada.
+    const STRIPE = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'stripe-psp.js'), 'utf8');
+    expect(STRIPE).toMatch(/clientSecret:\s*pi\.client_secret/);
+  });
+});
+
+describe('o interruptor da carteira desliga o DINHEIRO (HIGH-4)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  /**
+   * `carteiraLiberada` era consultada num lugar só — o `acceptsWallet` da
+   * resposta do `/api/check`. O caminho do dinheiro não a consultava, então um
+   * POST com `wallet` + `paymentToken` capturava cartão em QUALQUER casa com
+   * recebedor real, com a lista vazia. E "desligar" só mudava as respostas
+   * novas: todo PWA já aberto na mesa seguia com o botão por mais 30-90 min.
+   */
+  test('`carteiraLiberada` é consultada no POST, não só na vitrine', () => {
+    const chamadas = (ROUTER.match(/carteiraLiberada\(/g) || []).length;
+    // Uma na vitrine (`acceptsWallet`), uma no caminho do dinheiro, uma na
+    // própria definição. Menos que isso quer dizer que um lado ficou de fora.
+    expect(chamadas).toBeGreaterThanOrEqual(3);
+    const i = ROUTER.indexOf('body.wallet && !carteiraLiberada');
+    expect(i).toBeGreaterThan(0);
+    expect(ROUTER.slice(i, i + 300)).toMatch(/rail_unsupported/);
+  });
+
+  test('o guarda vem ANTES de o dinheiro sair', () => {
+    const guarda = ROUTER.indexOf('body.wallet && !carteiraLiberada');
+    const cobra = ROUTER.indexOf('wallet: body.wallet');
+    expect(guarda).toBeGreaterThan(0);
+    expect(cobra).toBeGreaterThan(0);
+    expect(guarda).toBeLessThan(cobra);
+  });
+
+  test('`*` não vale contra a Pagar.me de verdade — escape de staging fica na staging', () => {
+    const i = ROUTER.indexOf("cru === '*'");
+    expect(i).toBeGreaterThan(0);
+    expect(ROUTER.slice(i, i + 120)).toMatch(/RACHA_PSP\s*!==\s*'pagarme'/);
+  });
+});
+
+/**
+ * O `orderCode` NÃO É NOSSO quando importa (quinta revisão de segurança, M3).
+ *
+ * `money_without_check` existe por definição quando não há linha nossa. Na
+ * Stripe Connect o campo vem de `pi.metadata.charge_ref`, que a casa conectada
+ * escreve à vontade (500 chars de UTF-8, quebra de linha permitida), e ele era
+ * mesclado DEPOIS do mascarador — por fora do corte de 128 e do filtro de tipo
+ * que o `data-map.md` afirma como controle vivo, e direto pro aviso do fundador,
+ * onde um `\n` fabrica linhas dentro de um alerta de dinheiro.
+ */
+describe('o `orderCode` gravado tem a FORMA de um orderCode', () => {
+  const { createNonLedgerHandler } = require('../_lib/pay/non-ledger');
+
+  const gravado = async (orderCode) => {
+    const gravados = [];
+    const store = {
+      recordOrphanMoneyEvent: async (e) => { gravados.push(e); return true; },
+      findCheckByTxid: async () => null,
+    };
+    const tratar = createNonLedgerHandler({ store, notify: async () => ({ ok: true }) });
+    await tratar({
+      status: 'money_without_check', txid: 'ch_z',
+      raw: { eventId: 'evt_z', amountCents: 6000, orderCode, raw: { id: 'ch_z', amount: 6000 } },
+    }, { psp: 'pagarme' });
+    return gravados[0] && gravados[0].payload;
+  };
+
+  const BOM = 'conta-9:0:5500:500';
+
+  test('o nosso passa', async () => {
+    expect((await gravado(BOM)) || {}).toHaveProperty('orderCode', BOM);
+  });
+
+  test.each([
+    ['um objeto aninhado', { nested: 'x' }],
+    ['600 caracteres', 'a'.repeat(600)],
+    ['uma quebra de linha que fabrica alerta', 'x:0:0:0\n1 evento(s) de dinheiro SEM conta'],
+    ['um CPF que a casa escreveu no metadata', 'cliente 529.982.247-25'],
+    ['um número', 12345],
+  ])('%s NÃO entra', async (_nome, valor) => {
+    const p = (await gravado(valor)) || {};
+    expect(p.orderCode).toBeUndefined();
+  });
+
+  test('e o que entra é sempre escalar curto — a propriedade, não o caso', async () => {
+    for (const v of [BOM, { a: 1 }, 'a'.repeat(600), 'x\ny', null]) {
+      const p = (await gravado(v)) || {};
+      for (const valor of Object.values(p)) {
+        expect(['string', 'number', 'boolean']).toContain(typeof valor);
+        if (typeof valor === 'string') expect(valor.length).toBeLessThanOrEqual(128);
+      }
+    }
+  });
+});

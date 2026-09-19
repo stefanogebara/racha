@@ -20,13 +20,30 @@ está lento".
 
 ## O que foi feito (9389695)
 
-1. A escrita **tenta duas vezes**, e a unicidade do `txid` na segunda conta como
-   sucesso (a primeira escreveu, só a resposta se perdeu).
-2. Falhando as duas, o erro sai com código próprio (`charge_maybe_captured`,
-   502) e a tela **desarma o botão**, dizendo que o cartão pode já ter sido
-   cobrado e que não pague de novo. Antes era 500 `internal` → "algo deu errado,
-   tente de novo" com o botão armado, que é convite à segunda cobrança
-   (CDC art. 42).
+1. A escrita tenta **duas vezes** quando a segunda ida tem chance — o que
+   inclui tanto o transitório (`57014` prazo, `40P01` deadlock, `53300` pooler
+   cheio) quanto o desfecho desconhecido (`08*`, `40003`) — e **uma vez só**
+   na recusa determinística (CHECK, grant, coluna). Quem decide é `valeRepetir`,
+   no classificador.
+
+   Esse predicado nasceu de um erro meu: eu reusei `recusaProvada`, que responde
+   *outra* pergunta ("está provado que nada foi gravado?") e por isso inclui o
+   prazo e o deadlock. O efeito era desligar a segunda tentativa justamente nos
+   erros que ela conserta — pooler saturado numa noite cheia, com o cartão já
+   capturado — deixando MAIS comum o `charge_maybe_captured` que este conserto
+   existe pra tornar raro. Uma regra, duas perguntas, um predicado só. A unicidade do `txid` conta como **sucesso** em qualquer das
+   duas idas: a linha que se queria existe.
+2. Esgotadas as tentativas, o erro sai com código próprio (`charge_maybe_captured`
+   no trilho que CAPTUROU, `charge_not_started` nos que só criaram a cobrança) e
+   a tela **desarma o botão**. Antes era 500 `internal` → "algo deu errado, tente
+   de novo" com o botão armado, que é convite à segunda cobrança (CDC art. 42).
+
+   Toda essa decisão mora em `api/_lib/pay/gravar-apos-cobrar.js`, num lugar só.
+   Ela já esteve escrita dentro de um caminho, e aí os caminhos irmãos não a
+   conheciam: o atalho da recusa provada lançava o erro cru (500 `internal`, o
+   dano de volta pela linha ao lado), o trilho da Stripe chamava `registerCharge`
+   pelado, e o `23505` da PRIMEIRA ida — que quer dizer sucesso — virava 500
+   permanente. Três achados da quinta revisão, 2026-09-19, com uma raiz só.
 3. O `charge.paid` que chega depois deixou de ser um 409 que some: vira
    `money_without_check`, gravado em `orphan_money_events` com o `orderCode`
    — que carrega o `checkId`. Procedimento em
@@ -70,7 +87,20 @@ repositório já pagou pra aprender duas vezes.
 
 Agora existe interruptor: `RACHA_WALLET_VENUES`, lista de ids separados por
 vírgula, **ausente quer dizer nenhuma**. Ligar a carteira numa casa passou a ser
-um ato — e é esse ato que dispara esta decisão. Quando a carteira for de
+um ato — e é esse ato que dispara esta decisão.
+
+A primeira versão DESTE interruptor também não interruptava: ele era consultado
+só para montar o `acceptsWallet` da resposta do `/api/check`, e o caminho do
+dinheiro não o consultava. Um `POST /api/pay` com `wallet` + `paymentToken`
+capturava cartão em qualquer casa com recebedor real, com a lista vazia — e
+"desligar" só mudava as respostas novas, enquanto todo PWA já aberto na mesa
+seguia com o botão por mais 30-90 min. Hoje o `POST /api/pay` recusa com
+`rail_unsupported`, e o curinga `*` (que é de staging) não vale quando o PSP é a
+Pagar.me de verdade. Achado pela quinta revisão, 2026-09-19.
+
+Vale registrar o limite honesto do mecanismo: na Vercel a env é ligada ao
+DEPLOY. Mexer em `RACHA_WALLET_VENUES` no painel não alcança o que está no ar
+até um redeploy. Desligar a carteira é um redeploy, não um botão. Quando a carteira for de
 verdade, isto vira `venues.wallet_enabled` (coluna, não env).
 
 Enquanto não estiver, o que segura é o de cima: o cliente não é convidado a

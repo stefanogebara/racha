@@ -1268,7 +1268,7 @@ function foraDoClassificador(fonteDoClassificador, decisoes) {
    * ninguém olhar.
    */
   const corpos = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega', 'linhaJaGravada',
-    'recusaProvadaDoErro']
+    'recusaProvadaDoErro', 'valeRepetir']
     .map(corpo).filter(Boolean);
   /**
    * "O `pgCode` é ARGUMENTO de um predicado do classificador" — com qualquer
@@ -1280,7 +1280,16 @@ function foraDoClassificador(fonteDoClassificador, decisoes) {
    * pede. A regra é sobre ONDE a decisão mora, não sobre como o autor chamou a
    * variável; um censo preso a nomes empurra o código pra nomes piores.
    */
-  const naChamada = (antes) => /(?:recusaProvada|desfechoDoLancamento|podeSerReentrega|linhaJaGravada)\(\s*(?:[A-Za-z_$][\w$]*)?\s*(?:&&\s*[A-Za-z_$][\w$]*)?\s*\.?$/.test(antes);
+  /**
+   * MAIS LONGO PRIMEIRO. `recusaProvada` é PREFIXO de `recusaProvadaDoErro`, e
+   * numa alternação o regex casa a primeira alternativa que serve: com a ordem
+   * ingênua, `recusaProvadaDoErro(` nunca casava — a âncora `\(` vinha logo
+   * depois de `recusaProvada` e encontrava um `D`. Inerte hoje (todo chamador
+   * passa o erro inteiro), mas acusaria o inocente no primeiro
+   * `recusaProvadaDoErro(e.pgCode)` que alguém escrevesse (quinta revisão de
+   * segurança, 2026-09-19).
+   */
+  const naChamada = (antes) => /(?:recusaProvadaDoErro|recusaProvada|desfechoDoLancamento|podeSerReentrega|linhaJaGravada|valeRepetir)\(\s*(?:[A-Za-z_$][\w$]*)?\s*(?:&&\s*[A-Za-z_$][\w$]*)?\s*\.?$/.test(antes);
   return {
     corpos,
     fora: decisoes.filter((d) => !(d.arquivo === '_lib/checks/reconcile.js'
@@ -1365,7 +1374,7 @@ test('`pgCode` e `pgConstraint` só são lidos pelo classificador', () => {
     }
     return [inicio, j];
   };
-  const NOMES = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega'];
+  const NOMES = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega', 'valeRepetir'];
   const CLASSIFICADORES = NOMES.map(corpoDe).filter(Boolean);
   expect(CLASSIFICADORES.length).toBe(NOMES.length);
 
@@ -1385,13 +1394,16 @@ test('`pgCode` e `pgConstraint` só são lidos pelo classificador', () => {
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
   const { corpos, fora } = foraDoClassificador(fonteDoClassificador, decisoes);
-  // CINCO predicados desde 2026-09-16 (`linhaJaGravada` e `recusaProvadaDoErro`). O número é
+  // SEIS predicados desde 2026-09-19 (`valeRepetir`, que responde "vale uma
+  // segunda ida?" — pergunta DIFERENTE de "está provado que nada foi
+  // gravado?", e reusar a segunda pela primeira desligava o retry justo nos
+  // erros que ele conserta). O número é
   // fixo de propósito: se um deles for renomeado ou apagado, o `corpo()` devolve
   // null, o corpo dele deixa de ser isento, e todas as leituras de `pgCode` lá
   // dentro passariam a ser acusadas — o censo acusaria o inocente em vez de
   // absolver o culpado, que é a direção certa de falhar, mas só se alguém
   // perceber. Este número é o que faz perceber.
-  expect(corpos.length).toBe(5);
+  expect(corpos.length).toBe(6);
   expect(decisoes.length).toBeGreaterThan(0);
   expect(fora.map((d) => `${d.arquivo}: ${d.linha}`)).toEqual([]);
 });
