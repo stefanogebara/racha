@@ -1,0 +1,87 @@
+# O PORTÃO. Antes disto, 2.477 testes só protegiam quem lembrasse de rodá-los.
+#
+# Entre 16 e 19 de setembro de 2026 o portão de revisão rodou nove vezes sobre
+# um branch só, e todas as oito rodadas depois da primeira acharam defeito real
+# no conserto da rodada anterior. O que segurou foi a disciplina de quem estava
+# olhando — e disciplina que depende de alguém lembrar é exatamente o que o
+# CLAUDE.md deste repositório manda desconfiar.
+#
+# Nada aqui precisa de segredo: a suíte roda contra o store de memória e o
+# MockPsp. Se algum dia precisar de um, ele NÃO entra neste arquivo sem passar
+# pelos dois revisores — um workflow com credencial de produção é uma rota de
+# dinheiro nova.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Um push novo no mesmo branch cancela o anterior: ninguém lê o resultado de um
+# commit que já foi substituído, e a fila fica honesta.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API (jest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'          # o `engines` do repositório
+          cache: npm
+      - run: npm ci --ignore-scripts
+
+      # AS DUAS METADES RODAM SEPARADAS, de propósito.
+      #
+      # `mutacoes-afirmacao` compila Swift e come memória; junto com o resto ele
+      # derruba o runner. E o `--runInBand` dele não é gosto: a suíte inteira em
+      # banda seria lenta à toa.
+      - name: Suíte
+        run: npx jest api/__tests__ --maxWorkers=2 --testPathIgnorePatterns mutacoes-afirmacao
+
+      - name: Provas de mutação
+        run: npx jest api/__tests__/mutacoes-afirmacao.test.js --runInBand
+
+  web:
+    name: Web (lint, tsc, build, node:test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm --prefix apps/web ci --ignore-scripts
+      # `npm test` do web já é lint + build + node --test. O typecheck das duas
+      # tsconfigs é um passo à parte porque o `build` só olha uma delas.
+      - run: npm --prefix apps/web run typecheck
+      - run: npm --prefix apps/web test
+
+  # O `npm audit` NÃO reprova o build.
+  #
+  # As quatro advisories de hoje estão todas na cadeia de build (Vite/PostCSS),
+  # nenhuma no bundle que o cliente executa. Reprovar por elas treinaria a
+  # equipe a ignorar vermelho — que é o oposto do que este arquivo existe pra
+  # fazer. Fica como relatório, visível, sem poder de veto.
+  advisories:
+    name: npm audit (relatório)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm audit --audit-level=high || true
+      - run: npm --prefix apps/web audit --audit-level=high || true

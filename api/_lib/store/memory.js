@@ -921,9 +921,30 @@ function createMemoryStore() {
        * revisão de segurança de 2026-09-16 (MEDIUM-4).
        */
       if (payments.has(txid)) {
+        /**
+         * O NOME DA RESTRIÇÃO É EXTRAÍDO, não entregue de bandeja.
+         *
+         * Este sítio escrevia `pgConstraint: 'payments_txid_key'` direto,
+         * enquanto o irmão vinte linhas acima já passava por
+         * `nomeDaRestricao(mensagemDeUnicidade(...))` — e o motivo de aquele
+         * passar está escrito no `pg-erro.js`: o ramo de FALHA da extração não
+         * existe em teste nenhum se o dublê receber o nome pronto. Um
+         * `lc_messages` não-inglês, ou um PostgREST que remonte a mensagem, e a
+         * produção devolve `pgConstraint: null` onde o dublê devolvia o nome.
+         *
+         * Os dois revisores pediram pra promover isto duas rodadas seguidas, e
+         * pelo mesmo motivo: duas decisões de dinheiro vivas hoje — a posse da
+         * linha na primeira ida e o `linhaJaGravada` — dependem de um `23505`
+         * que só este dublê e o MockPsp produzem. Ou seja, o dublê virou o
+         * ÚNICO executor delas, e um dublê que não erra como a produção erra
+         * prova o dublê.
+         */
         throw Object.assign(
           new Error(`memory store registerCharge: ${mensagemDeUnicidade('payments_txid_key')}`),
-          { pgCode: '23505', pgConstraint: 'payments_txid_key' },
+          {
+            pgCode: '23505',
+            pgConstraint: nomeDaRestricao(mensagemDeUnicidade('payments_txid_key')),
+          },
         );
       }
       txidToCheck.set(txid, checkId);

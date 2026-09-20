@@ -120,3 +120,52 @@ describe('o corte do servidor e a paginação', () => {
     expect(a).not.toEqual(b);
   });
 });
+
+/**
+ * O DUBLÊ TEM QUE ERRAR COMO A PRODUÇÃO ERRA.
+ *
+ * O `pg-erro.js` existe porque o nome da restrição é EXTRAÍDO da mensagem do
+ * Postgres por regex. Um dublê que entrega o nome de bandeja nunca exercita o
+ * ramo de FALHA dessa extração — e esse ramo é alcançável em produção: um
+ * `lc_messages` não-inglês, ou um PostgREST que remonte a mensagem, e a
+ * produção devolve `pgConstraint: null` onde o dublê devolvia o nome.
+ *
+ * Isto não é higiene abstrata. Duas decisões de dinheiro VIVAS hoje — a posse
+ * da linha na primeira ida (`nossa`) e o `linhaJaGravada` — dependem de um
+ * `23505` que só o store de memória e o MockPsp produzem. O dublê é o único
+ * executor delas, então um dublê que mente sobre a forma do erro prova o dublê
+ * e não a regra. Os dois revisores pediram pra promover isto duas rodadas
+ * seguidas.
+ */
+describe('o dublê deriva o nome da restrição, não o entrega de bandeja', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  const MEMORIA = fs.readFileSync(path.join(__dirname, '..', '_lib', 'store', 'memory.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, (b) => b.replace(/[^\n]/g, ' '))
+    .replace(/^([ \t]*)\/\/.*$/gm, '$1');
+
+  test('nenhum `pgConstraint` com nome literal no store de memória', () => {
+    const literais = MEMORIA.split('\n')
+      .map((linha, i) => [i + 1, linha])
+      .filter(([, l]) => /pgConstraint:\s*'/.test(l))
+      .map(([n]) => n);
+    expect(literais).toEqual([]);
+  });
+
+  test('e todos passam por `nomeDaRestricao`', () => {
+    const sitios = MEMORIA.split('\n').filter((l) => /pgConstraint:/.test(l));
+    expect(sitios.length).toBeGreaterThanOrEqual(2);   // se cair pra zero, o censo ficou cego
+    for (const l of sitios) expect(l).toMatch(/nomeDaRestricao\(/);
+  });
+
+  test('a extração DE VERDADE falha quando a mensagem não é inglesa', () => {
+    const { nomeDaRestricao, mensagemDeUnicidade } = require('../_lib/store/pg-erro');
+    // O caminho feliz, que é o que o dublê exercita hoje.
+    expect(nomeDaRestricao(mensagemDeUnicidade('payments_txid_key'))).toBe('payments_txid_key');
+    // E o ramo que só existe porque o dublê passa pelo extrator: sem isto,
+    // ninguém nunca vê `null` sair daqui.
+    expect(nomeDaRestricao('llave duplicada viola restricción de unicidad «payments_txid_key»')).toBeNull();
+    expect(nomeDaRestricao(undefined)).toBeNull();
+  });
+});
