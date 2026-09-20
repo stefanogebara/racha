@@ -63,16 +63,27 @@ pro trilho principal, no ar, sem passar por `RACHA_WALLET_VENUES`.
    (As anotações do primeiro run também pedem: `actions/checkout@v4` e
    `setup-node@v4` ainda miram Node 20 e o GitHub os força pro 24, e o
    `ubuntu-latest` vira Ubuntu 26 em 19/10/2026.)
-4. **Tornar `api` e `web` checks OBRIGATÓRIOS — e isso hoje é impossível.**
-   `stefanogebara/racha` é privado num plano Free; a proteção de branch clássica
-   e os rulesets respondem 403 "Upgrade to GitHub Pro or make this repository
-   public" (medido em 2026-09-20, pelas duas APIs). Não é configuração
-   esquecida: são dois caminhos, **GitHub Pro** ou repositório **público** — e
-   público está fora de questão aqui. Até um deles acontecer, o `ci.yml`
-   informa e não impede, e quem segura um merge vermelho é uma pessoa lendo o
-   PR. Vale escrever porque a versão anterior desta linha dizia "marcar como
-   obrigatórios" como se fosse uma caixinha que alguém tinha esquecido de
-   marcar.
+4. ~~Tornar `api` e `web` checks obrigatórios~~ — **FEITO em 2026-09-20.**
+   Num plano Free a proteção de branch e os rulesets respondem 403 em
+   repositório privado; os dois caminhos eram GitHub Pro ou abrir o
+   repositório, e o dono escolheu **abrir**. O `racha` é público desde então, e
+   `API (jest)` + `Web (lint, tsc, build, node:test)` são obrigatórios na `main`
+   com `strict` ligado.
+
+   **O que isso muda pra esta página, e é o motivo de estar escrito aqui:**
+   ela é pública agora. Lida de fora, ela é um mapa de onde o caminho do
+   dinheiro ainda está mole — com três bloqueadores de go-live abertos e os
+   gatilhos de cada um. Isso não é motivo pra apagá-la (um achado que some da
+   página volta a depender de alguém lembrar), é motivo pra **subir a
+   prioridade dos três itens acima**: enquanto eles estiverem abertos, estão
+   abertos em público.
+
+   Duas consequências de virar público que não dá pra desfazer com um commit:
+   o histórico inteiro (364 commits) foi junto, e a URL do projeto Supabase de
+   produção aparece nos documentos e no histórico. Nenhum segredo jamais foi
+   commitado — conferido nos 364 commits antes da mudança — e a URL não é
+   credencial, com RLS só por service-role. Mas é um ponteiro, e apagá-la da
+   árvore de hoje seria teatro enquanto o histórico existir.
 
 ## Precondições pra ligar a carteira na primeira casa
 

@@ -10,15 +10,20 @@
 # checks pelo nome. Enquanto isso ele informa, não impede — e o título acima
 # seria promessa vazia sem esta linha.
 #
-# E HOJE ISSO NÃO É UM ESQUECIMENTO, É UM LIMITE DE PLANO: `stefanogebara/racha`
-# é privado num plano Free, e tanto a proteção de branch clássica quanto os
-# rulesets respondem 403 "Upgrade to GitHub Pro or make this repository
-# public" (medido em 2026-09-20). Só há dois caminhos: GitHub Pro, ou tornar o
-# repositório público — e público está fora de questão num repositório com
-# documento de compliance e mapa de dados.
+# ISTO VIROU PORTÃO DE VERDADE EM 2026-09-20. `API (jest)` e
+# `Web (lint, tsc, build, node:test)` são checks OBRIGATÓRIOS na `main`, com
+# `strict` ligado — um branch verde mas desatualizado em relação à main também
+# não entra. Force push e deleção da main estão desligados.
 #
-# Enquanto for assim, o que impede um merge vermelho é uma pessoa olhar o PR. O
-# vermelho aparece lá e o GitHub avisa antes do merge; ele só não recusa.
+# O caminho até aqui vale ficar escrito: num plano Free, proteção de branch e
+# rulesets respondem 403 em repositório privado. Os dois caminhos eram GitHub
+# Pro ou abrir o repositório, e o dono escolheu ABRIR — então este repositório é
+# público desde 2026-09-20, com os documentos de compliance, os runbooks e a
+# lista de achados em aberto junto.
+#
+# `enforce_admins` fica FALSE de propósito: num repositório de uma pessoa só,
+# um portão sem escotilha é um portão que vira `--force` na primeira urgência.
+# A escotilha existe, é nominal, e fica no log de auditoria do GitHub.
 #
 # Nada aqui precisa de segredo: a suíte roda contra o store de memória e o
 # MockPsp. Se algum dia precisar de um, ele NÃO entra neste arquivo sem passar
