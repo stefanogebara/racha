@@ -1,0 +1,318 @@
+{
+  "_leia": "O MESMO corpo de documentos, exercitado pelos dois lados. A conferência de CPF/CNPJ existe duas vezes — `api/_lib/br/documento.js` (CommonJS, servidor) e `apps/web/src/br.ts` (TS/ESM, cliente) — porque os runtimes não compartilham módulo. Cópia é dívida; o que impede a divergência é este arquivo: `api/__tests__/documento.test.js` e `apps/web/test/taxid.test.ts` rodam os dois contra ele.",
+  "_o_que_cada_secao_cobre": "A revisão de segurança de 2026-09-13 chamou o fixture de 'metade real, metade teatro', e tinha razão: `validos`/`invalidos` cobriam o dígito verificador, e NADA cobria a política de PONTUAÇÃO do cliente — dava pra reverter o `formatTaxId` pro comportamento antigo, com a regressão de volta por inteiro, e os oito testes passavam. `exibicao_nao_pontua` é a seção que faltava.",
+  "validos": [
+    {
+      "doc": "65087663000130",
+      "tipo": "cnpj",
+      "nota": "o CNPJ da Racha, o que a landing e o recibo mostram"
+    },
+    {
+      "doc": "11222333000181",
+      "tipo": "cnpj"
+    },
+    {
+      "doc": "12345678000195",
+      "tipo": "cnpj"
+    },
+    {
+      "doc": "11444777000161",
+      "tipo": "cnpj"
+    },
+    {
+      "doc": "52998224725",
+      "tipo": "cpf"
+    },
+    {
+      "doc": "11144477735",
+      "tipo": "cpf"
+    },
+    {
+      "doc": "12345678909",
+      "tipo": "cpf"
+    },
+    {
+      "doc": "12ABC34501DE35",
+      "tipo": "cnpj",
+      "nota": "CNPJ ALFANUMÉRICO, o exemplo da Receita (IN RFB 2.229/2024, em vigor desde julho de 2026): doze posições de 0-9A-Z e dois dígitos verificadores, cada posição valendo o código do caractere menos 48. O validador tirava as letras e toda casa nova ficava sem cadastro (auditoria de onboarding, C1)."
+    }
+  ],
+  "_sobre_validos": "São documentos VÁLIDOS, o que não quer dizer aceitáveis em qualquer campo. `isValidCpfCnpj` aceita os dois tipos de propósito: o documento do RECEBEDOR pode ser um CPF (pessoa física recebe). O documento da CASA não pode — ver `documento_da_casa`. A primeira versão desta seção foi lida como 'CPF serve de documento de casa', e as três camadas passaram a tratá-lo assim.",
+  "invalidos": [
+    {
+      "doc": "00000000000000",
+      "porque": "o ÚNICO CNPJ de dígito repetido que passa na conta do DV — enumerei os dez. Sem a guarda de repetidos ele entra, é guardado, e sai no /api/check como 00.000.000/0000-00. Estava faltando aqui, e a razão escrita ao lado do 99999999999999 dizia o contrário do verdadeiro, que é o que impede a próxima pessoa de conferir. Achado pela revisão de segurança de 2026-09-13."
+    },
+    {
+      "doc": "99999999999999",
+      "porque": "catorze dígitos repetidos. NÃO passa no DV — a guarda de repetidos é que o recusa antes, e é ela que este par de casos existe pra testar"
+    },
+    {
+      "doc": "00000000000",
+      "porque": "onze dígitos repetidos; o CPF tem a mesma armadilha e aqui o DV realmente passa"
+    },
+    {
+      "doc": "11111111111",
+      "porque": "idem, outro dígito"
+    },
+    {
+      "doc": "65087663000131",
+      "porque": "o CNPJ da Racha com um dígito trocado — é o typo que o DV existe pra pegar"
+    },
+    {
+      "doc": "52998224726",
+      "porque": "CPF válido com o último dígito trocado"
+    },
+    {
+      "doc": "5299822472",
+      "porque": "dez dígitos: incompleto"
+    },
+    {
+      "doc": "529982247251",
+      "porque": "doze dígitos: nem CPF nem CNPJ"
+    },
+    {
+      "doc": "",
+      "porque": "vazio"
+    },
+    {
+      "doc": "12ABC34501DE36",
+      "porque": "o alfanumérico com o segundo dígito verificador trocado — a conta com letras tem que recusar como a numérica"
+    },
+    {
+      "doc": "12ABC34501DEAB",
+      "porque": "letra nas posições do dígito verificador: o DV do CNPJ alfanumérico é sempre NUMÉRICO"
+    }
+  ],
+  "documento_da_casa": {
+    "_leia": "Só o servidor tem esta função (`normalizarDocumentoDaCasa`): é o portão de ESCRITA do `POST /api/venues`. `ok:true` com `valor:null` é ausência legítima — o documento é pedido no passo do recebedor, não no de abrir a casa.",
+    "casos": [
+      {
+        "entrada": "65087663000130",
+        "market": "br",
+        "ok": true,
+        "valor": "65087663000130"
+      },
+      {
+        "entrada": "65.087.663/0001-30",
+        "market": "br",
+        "ok": true,
+        "valor": "65087663000130",
+        "nota": "pontuação canônica é aceita e some no armazenamento"
+      },
+      {
+        "entrada": " 65087663000130 ",
+        "market": "br",
+        "ok": true,
+        "valor": "65087663000130"
+      },
+      {
+        "entrada": null,
+        "market": "br",
+        "ok": true,
+        "valor": null
+      },
+      {
+        "entrada": "",
+        "market": "br",
+        "ok": true,
+        "valor": null
+      },
+      {
+        "entrada": "52998224725",
+        "market": "br",
+        "ok": false,
+        "nota": "CPF VÁLIDO, e recusado: documento de casa é documento de empresa. `venues.cnpj` sai no /api/check, que não tem autenticação e cujo token viaja em QR fotografado — um dono MEI que mandasse o próprio CPF teria o documento pessoal na tela de todo cliente. É o argumento que o markets.js já fazia pra Espanha (o NIF do autónomo é o DNI dele), aplicado ao Brasil, que tem a mesma população"
+      },
+      {
+        "entrada": "529.982.247-25",
+        "market": "br",
+        "ok": false,
+        "nota": "idem, pontuado"
+      },
+      {
+        "entrada": "CNPJ em analise 11222333000181",
+        "market": "br",
+        "ok": false,
+        "nota": "o número é válido; a RESSALVA não pode sumir. Era aceito porque a validação rodava em cima de um extrator de dígitos"
+      },
+      {
+        "entrada": "12.345.678/0001-95 (em regularizacao)",
+        "market": "br",
+        "ok": false,
+        "nota": "mesmo caso, com parênteses"
+      },
+      {
+        "entrada": "MEI 12345678000195 — nao verificado",
+        "market": "br",
+        "ok": false
+      },
+      {
+        "entrada": "99999999999999",
+        "market": "br",
+        "ok": false
+      },
+      {
+        "entrada": "00000000000000",
+        "market": "br",
+        "ok": false,
+        "nota": "o repetido que passa no DV"
+      },
+      {
+        "entrada": "65087663000131",
+        "market": "br",
+        "ok": false
+      },
+      {
+        "entrada": "B12345678",
+        "market": "es",
+        "ok": true,
+        "valor": "B12345678",
+        "nota": "CIF de sociedade espanhola. Antes NENHUMA casa espanhola podia ser criada com documento: o portão só aceitava dígitos e todo NIF começa ou termina em letra. Achado pela revisão de compliance de 2026-09-13"
+      },
+      {
+        "entrada": "b-12345678",
+        "market": "es",
+        "ok": true,
+        "valor": "B12345678",
+        "nota": "normaliza caixa e tira pontuação"
+      },
+      {
+        "entrada": "12345678Z",
+        "market": "es",
+        "ok": false,
+        "nota": "DNI — documento de PESSOA FÍSICA. Recusado pelo mesmo motivo que o CPF é recusado no Brasil: documento de casa é documento de empresa, e o split liquidaria no documento pessoal de alguém. Achado pela revisão de segurança de 2026-09-13."
+      },
+      {
+        "entrada": "65087663000130",
+        "market": "es",
+        "ok": false,
+        "nota": "CNPJ não é NIF"
+      },
+      {
+        "entrada": "B1234567",
+        "market": "es",
+        "ok": false,
+        "nota": "sete dígitos"
+      },
+      {
+        "entrada": "X1234567L",
+        "market": "es",
+        "ok": true,
+        "valor": "X1234567L",
+        "nota": "NIE — estrangeiro residente, comuníssimo entre donos de bar em Espanha. A primeira forma exigia 8 dígitos depois da letra e recusava todo NIE"
+      },
+      {
+        "entrada": "Q2826000H",
+        "market": "es",
+        "ok": true,
+        "valor": "Q2826000H",
+        "nota": "CIF cujo caractere de controle é LETRA (tipos P,Q,R,S,N,W)"
+      },
+      {
+        "entrada": "B1234567H",
+        "market": "es",
+        "ok": true,
+        "valor": "B1234567H",
+        "nota": "CIF de sociedade limitada"
+      },
+      {
+        "entrada": "X1234567L",
+        "market": "es",
+        "ok": true,
+        "valor": "X1234567L",
+        "nota": "NIE — o que um autónomo usa pra operar"
+      },
+      {
+        "entrada": "12345678Z",
+        "market": "es",
+        "ok": false,
+        "nota": "DNI outra vez, explícito: pessoa física não é documento de casa"
+      },
+      {
+        "entrada": "12.ABC.345/01DE-35",
+        "market": "br",
+        "ok": true,
+        "valor": "12ABC34501DE35",
+        "nota": "alfanumérico com a pontuação canônica: aceito, e guardado sem pontuação"
+      },
+      {
+        "entrada": "12.abc.345/01de-35",
+        "market": "br",
+        "ok": true,
+        "valor": "12ABC34501DE35",
+        "nota": "colado em minúsculas: guardado em MAIÚSCULAS — senão a comparação com o documento do recebedor divergiria pra sempre"
+      }
+    ]
+  },
+  "publicacao": {
+    "_leia": "`documentoPublicavelDaCasa` responde pelo VALOR; `showsVenueTaxId` responde pelo MERCADO. Os dois são precisos, porque linhas antigas foram escritas antes do portão de escrita existir e a política de mercado não sabe o que está guardado na coluna.",
+    "casos": [
+      {
+        "market": "br",
+        "valor": "65087663000130",
+        "mostra": true,
+        "sai": "65087663000130"
+      },
+      {
+        "market": "br",
+        "valor": "65.087.663/0001-30",
+        "mostra": true,
+        "sai": "65087663000130",
+        "nota": "linha antiga com a pontuação que a máscara do Admin.tsx produz — guardada assim antes do portão de escrita existir. A primeira versão testava a forma da string crua e devolvia null: o recibo perdia o documento em silêncio e pra sempre, porque não há rota que reescreva o campo"
+      },
+      {
+        "market": "br",
+        "valor": "52998224725",
+        "mostra": true,
+        "sai": null,
+        "nota": "CPF legado na coluna: não sai, por mais que o mercado publique documento"
+      },
+      {
+        "market": "br",
+        "valor": "99999999999999",
+        "mostra": true,
+        "sai": null,
+        "nota": "catorze dígitos que não passam no DV não são um CNPJ"
+      },
+      {
+        "market": "br",
+        "valor": null,
+        "mostra": true,
+        "sai": null
+      },
+      {
+        "market": "es",
+        "valor": "B12345678",
+        "mostra": false,
+        "sai": null
+      },
+      {
+        "market": "es",
+        "valor": "B12345678",
+        "mostra": true,
+        "sai": "B12345678",
+        "nota": "o dia em que showsVenueTaxId('es') virar true: a regra dos catorze dígitos é BRASILEIRA e apagaria um NIF perfeito"
+      },
+      {
+        "market": "br",
+        "valor": "12ABC34501DE35",
+        "mostra": true,
+        "sai": "12ABC34501DE35",
+        "nota": "o alfanumérico sai no recibo como qualquer CNPJ conferido"
+      }
+    ]
+  },
+  "exibicao_nao_pontua": {
+    "_leia": "O que o `formatTaxId` (cliente) tem que devolver CRU. A pontuação é, ela mesma, uma afirmação de forma: pontuar `CNPJ em analise 11222333000181` apaga a ressalva e veste o número de documento conferido. Esta seção existe porque sem ela dava pra reverter a política inteira — `limpo.replace(/[^0-9]/g,'')`, uma expressão — com os oito testes do cliente passando verdes.",
+    "entradas": [
+      "CNPJ em analise 11222333000181",
+      "12.345.678/0001-95 (em regularizacao)",
+      "MEI 12345678000195 — nao verificado",
+      "CNPJ: 65087663000130 (provisorio)",
+      "65087663000130 / filial 2",
+      "6‮5087663000130"
+    ],
+    "_sobre_o_ultimo": "U+202E é o RIGHT-TO-LEFT OVERRIDE. Ele não é dígito, então o gate de pontuação canônica o recusa e a string volta crua — que é o certo: o React escapa, não há XSS, e o que sobra é a falsificação visual, fechada no caminho de escrita."
+  }
+}

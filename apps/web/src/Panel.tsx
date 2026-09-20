@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { DICT, LangToggle, useT } from './lang';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LangToggle, useT } from './lang';
 import { type PanelAtivacao } from './api';
-import { type CurrencyCode, type Key } from './i18n';
+import { textoDoAchado, type CurrencyCode } from './i18n';
 import { authedReq, signOut } from './auth';
 
 /**
@@ -21,6 +21,13 @@ interface Reconcile {
     message?: string;
     /** Os centavos, crus, pra o cliente formatar no idioma do leitor. */
     overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
+    // A SEGUNDA quantia de um achado, quando ele tem duas. Acrescentada ao achado,
+    // à projeção da rota, ao tipo do `textoDoAchado` e à frase — e esquecida AQUI,
+    // que é o tipo declarado do objeto entregue à função. Compila (tudo opcional,
+    // atribuição estrutural) e renderiza certo, então nada acusava: o próximo a
+    // escrever `f.refundableCents` neste arquivo levava erro de compilação sem
+    // pista de onde o campo mora (segurança LOW-1 da rodada quinze).
+    refundableCents?: number;
     chargedTipCents?: number; txid?: string; chargeId?: string; recipientId?: string;
   }>;
   at: string;
@@ -45,6 +52,8 @@ interface PanelData {
        * uma obrigação que a tela anuncia e não sabe endereçar.
        */
       overpaidTxids?: Array<{ txid: string; restituteCents: number }>;
+      /** Pago DEPOIS de a conta fechar, na parte que a sobra não cobre — ver `paidAfterClose` no redutor. */
+      paidAfterClose?: Array<{ txid: string; amountCents: number; sempreDevido?: boolean }>;
     };
   }>;
   today: {
@@ -80,16 +89,84 @@ export default function Panel() {
     try {
       setData(await authedReq<PanelData>(`/api/panel?v=${encodeURIComponent(venueId)}`));
       setError(null);
+      return true;
     } catch (e) {
       setError(tErr(e));
+      return false;
     }
   }, [venueId, tErr]);
 
+  /**
+   * O PAINEL PARA DE PERGUNTAR QUANDO NINGUÉM ESTÁ OLHANDO.
+   *
+   * Eram quatro segundos, para sempre, em toda aba aberta — e cada volta é uma
+   * leitura do razão de toda conta aberta da casa MAIS a conciliação. Uma aba
+   * esquecida num tablet do balcão custava 21.600 cargas por dia sem ninguém
+   * ler nenhuma delas, e o custo não é só servidor: foi esse laço que
+   * transformou uma lentidão de dez segundos no login numa deslogada de todo
+   * dono do sistema (o 401 de cada volta chamava `signOut`).
+   *
+   * `visibilitychange` é o sinal certo: a aba escondida não pinta, então a
+   * carga que ela busca não é vista por ninguém. Ao voltar, recarrega NA HORA —
+   * quem volta pro tablet quer o estado de agora, não o de daqui a quatro
+   * segundos.
+   *
+   * E o recuo depois de uma falha: numa queda, cada aba aberta batia a cada
+   * quatro segundos, o que é exatamente o contrário do que ajuda a plataforma
+   * a se levantar. Dobra até um minuto e volta ao normal no primeiro acerto.
+   */
+  const falhas = useRef(0);
   useEffect(() => {
-    void refresh();
-    const id = setInterval(refresh, 4000);
-    return () => clearInterval(id);
+    let vivo = true;
+    let id: ReturnType<typeof setTimeout>;
+
+    const proximoIntervalo = () => Math.min(4000 * 2 ** falhas.current, 60_000);
+    const uma = async () => {
+      if (!vivo) return;
+      if (document.visibilityState === 'visible') {
+        const ok = await refresh();
+        falhas.current = ok ? 0 : falhas.current + 1;
+      }
+      if (vivo) id = setTimeout(uma, proximoIntervalo());
+    };
+    void uma();
+
+    const aoVoltar = () => {
+      if (document.visibilityState !== 'visible') return;
+      // Volta na hora, e zera o recuo: a pessoa está olhando de novo.
+      falhas.current = 0;
+      clearTimeout(id);
+      void uma();
+    };
+    document.addEventListener('visibilitychange', aoVoltar);
+    return () => { vivo = false; clearTimeout(id); document.removeEventListener('visibilitychange', aoVoltar); };
   }, [refresh]);
+
+  // RESPONDER a pergunta do pago-depois-de-fechar, com a resposta FIXA "não
+  // pagou no caixa" — escopada, pra não apagar junto a falha de um estorno, e
+  // sem texto livre no razão. Se a mesa pagou no caixa, a resposta NÃO é esta:
+  // é devolver pelo adquirente, e a marca sai sozinha. (Compliance HIGH-1,
+  // MEDIUM-1 e MEDIUM-3 de 41d1244.)
+  // Um clique por vez: dois cliques escreviam duas respostas, e a segunda virava
+  // uma marca que nada limpava (compliance LOW-A de 57c0d2e).
+  const [respondendo, setRespondendo] = useState<string | null>(null);
+  const naoPagouNoCaixa = useCallback(async (checkId: string, txid: string) => {
+    if (respondendo) return;
+    if (!window.confirm(t('panel.resolveConfirm'))) return;
+    setRespondendo(txid);
+    try {
+      await authedReq('/api/checks/resolve-issue', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ checkId, txid, scope: 'paid_after_close' }),
+      });
+      await refresh();
+    } catch (e) {
+      window.alert(tErr(e));
+    } finally {
+      setRespondendo(null);
+    }
+  }, [t, refresh, tErr, respondendo]);
 
   if (error) return <main className="shell wide"><p className="muted center">{error}</p></main>;
   if (!data) return <main className="shell wide"><p className="muted center">{t('panel.loading')}</p></main>;
@@ -142,7 +219,7 @@ export default function Panel() {
             do faturamento: quem recebeu o indevido tem que restituir. */}
         {(data.today.overpaidCents || 0) > 0 && (
           <div className="stat">
-            <b className="mono" style={{ color: 'var(--burgundy)' }}>{brl(data.today.overpaidCents || 0)}</b>
+            <b className="mono" style={{ color: 'var(--erro)' }}>{brl(data.today.overpaidCents || 0)}</b>
             <span>{t('panel.toRefund')}</span>
           </div>
         )}
@@ -196,11 +273,37 @@ export default function Panel() {
                   equipe não dizia qual mesa, nem qual cobrança. Ver
                   `docs/runbooks/devolver-dinheiro-a-mais.md`. */}
               {(c.state.overpaidCents || 0) > 0 && (
-                <span className="owed" style={{ color: 'var(--burgundy)', fontSize: 12 }}>
+                <span className="owed" style={{ color: 'var(--erro)', fontSize: 12 }}>
                   {t('panel.owedBack', { amount: brl(c.state.overpaidCents || 0) })}
                   {(c.state.overpaidTxids || []).map((x) => (
                     <em key={x.txid} className="mono" style={{ display: 'block', opacity: 0.75 }}>
                       {x.txid} · {brl(x.restituteCents)}
+                    </em>
+                  ))}
+                </span>
+              )}
+              {/* PAGO DEPOIS DE FECHAR. O Racha não registra o caixa: um Pix que
+                  confirma depois de a mesa pagar no caixa e a conta fechar só
+                  completa a conta, e a dívida não aparecia em lugar nenhum. A
+                  frase de girar o QR manda a equipe olhar AQUI. (Compliance
+                  HIGH-1 de 40d5c50.) */}
+              {(c.state.paidAfterClose || []).length > 0 && (
+                <span className="owed" style={{ color: 'var(--erro)', fontSize: 12 }}>
+                  {(c.state.paidAfterClose || []).map((x) => (
+                    <em key={`${x.txid}:${x.sempreDevido ? 'devido' : 'pergunta'}`} style={{ display: 'block' }}>
+                      {x.sempreDevido
+                        ? t('panel.duplicateTip', { amount: brl(x.amountCents) })
+                        : t('panel.paidAfterClose', { amount: brl(x.amountCents) })}{' '}
+                      <span className="mono" style={{ opacity: 0.75 }}>{x.txid}</span>
+                      {!x.sempreDevido && (
+                        <>{' '}
+                          <button className="linklike" style={{ fontSize: 12 }}
+                            disabled={respondendo !== null}
+                            onClick={() => void naoPagouNoCaixa(c.checkId, x.txid)}>
+                            {t('panel.notPaidAtTill')}
+                          </button>
+                        </>
+                      )}
                     </em>
                   ))}
                 </span>
@@ -228,32 +331,6 @@ export default function Panel() {
  * ele, "não apareceu nada" e "não conferi nada" são a mesma tela, e a segunda é
  * a que quebra restaurante.
  */
-/**
- * Achado da conciliação → frase, no idioma do leitor.
- *
- * Mapa com genérico, nunca ternário: um código novo tem que sair como código,
- * e não como a frase do vizinho. Os centavos vêm crus do servidor e são
- * formatados aqui, onde se sabe quem está lendo.
- */
-function textoDoAchado(
-  f: {
-    code: string;
-    overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
-  },
-  t: (k: Key, v?: Record<string, string | number>) => string,
-  brl: (c: number) => string,
-): string {
-  const chave = `find.${f.code}` as Key;
-  // `amountCents` entra na cadeia: é o campo do `custody_leak` (quanto foi pra
-  // fora da subconta da casa). Sem ele, a frase saía com "{amount}" literal na
-  // tela — que é pior que não ter frase.
-  const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents ?? f.amountCents;
-  const vars = valor !== undefined ? { amount: brl(Math.abs(valor)) } : undefined;
-  // Pergunta, não exceção: `t()` de chave desconhecida estoura num
-  // `undefined[lang]`, e depender disso é depender de um acidente.
-  if (!(chave in DICT)) return t('find.other', { code: f.code });
-  return t(chave, vars);
-}
 
 function Conciliacao({ r, currency }: { r: Reconcile | undefined; currency: CurrencyCode }) {
   const { t, brl: fmtMoney, hm } = useT();
@@ -265,7 +342,10 @@ function Conciliacao({ r, currency }: { r: Reconcile | undefined; currency: Curr
       <p className="label">{t('panel.recon')}</p>
       {vermelho ? (
         <>
-          <p className="small" style={{ color: 'var(--red, #a3231f)' }}>
+          {/* `--red` não existe no sistema: o canário de divergência — o número
+              mais alto do inegociável #8 — saía num bordô órfão, fora da
+              paleta, porque o CSS degrada em silêncio quando a variável falta. */}
+          <p className="small" style={{ color: 'var(--erro)' }}>
             <strong>
               {r.driftCents > 0
                 ? t('panel.reconDriftAmt', { amount: brl(r.driftCents) })

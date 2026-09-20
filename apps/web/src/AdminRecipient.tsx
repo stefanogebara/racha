@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authedReq as req } from './auth';
+import { type ApiError } from './api';
 import { useT } from './lang';
-import { onlyDigits, alnum, isValidCpfCnpj, docKind, maskCpfCnpj, isValidEmail, BR_BANKS, bankName } from './br';
+import { onlyDigits, alnum, isValidCNPJ, docKind, maskCpfCnpj, isValidEmail, BR_BANKS, bankName, normalizarDocumento } from './br';
+import { useMascara } from './useMascara';
 
 /**
  * "Recebimento" — o recebedor Pagar.me (split) do restaurante, por venue.
@@ -26,9 +28,12 @@ interface CreatedRecipient { recipientId: string; status: string }
 const shortId = (id: string) => (id.length > 11 ? `${id.slice(0, 11)}…` : id);
 
 export default function AdminRecipient({ venueId, onChanged }: { venueId: string; onChanged?: () => void }) {
-  const { t } = useT();
+  const { t, tErr } = useT();
   const [info, setInfo] = useState<RecipientInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // O recebedor cadastrado NÃO EXISTE MAIS no adquirente (um 404 de verdade): a
+  // criação que vier daqui é SUBSTITUIÇÃO explícita (`replace: true`).
+  const [substituir, setSubstituir] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [created, setCreated] = useState<CreatedRecipient | null>(null);
   const [idCopied, setIdCopied] = useState(false);
@@ -36,6 +41,15 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   // Formulário — strings cruas; documento e campos bancários mascarados no onChange.
   const [name, setName] = useState('');
   const [doc, setDoc] = useState('');
+  /**
+   * O gancho da máscara mora AQUI, no topo do componente — não no JSX.
+   *
+   * O campo do documento está dentro de `{formVisible && (…)}`: chamar um hook
+   * lá dentro faz a CONTAGEM de hooks mudar quando o formulário abre e fecha, e
+   * o React quebra com "rendered fewer hooks than expected". O TypeScript não
+   * vê isso, e eu escrevi assim na primeira tentativa.
+   */
+  const campoDoDocumento = useMascara(maskCpfCnpj, doc, (v) => setDoc(normalizarDocumento(v)));
   const [email, setEmail] = useState('');
   const [notifyWhatsapp, setNotifyWhatsapp] = useState('');
   const [bankCode, setBankCode] = useState('');
@@ -65,10 +79,25 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
       // app já em live → "Recipient not found") NÃO pode travar o painel: cai num
       // sentinel sem id pra o formulário aparecer e o dono criar um novo (que
       // sobrescreve o id morto). O aviso explica o porquê logo abaixo.
-      setLoadError((e as Error).message);
-      setInfo((prev) => prev ?? { recipientId: null, status: null });
+      // `tErr`, não `.message`: o servidor manda CÓDIGO e quem escolhe a
+      // língua é o cliente. Esta tela era um dos chamadores esquecidos da
+      // conversão que o `lang.tsx` descreve — e as duas chaves novas
+      // (`tax_id_invalid`, `recipient_doc_mismatch`) chegavam aqui como
+      // "HTTP 400", porque o 4xx vem só com `code` e o `api.ts` cai no
+      // status quando não há `error`. Dicionário preenchido, frase nunca
+      // exibida. Achado pela revisão de segurança de 2026-09-13.
+      setLoadError(tErr(e));
+      // SÓ o "recebedor não existe" abre o formulário de criar outro — e aí a
+      // criação vai como substituição explícita. Uma falha passageira do
+      // adquirente (rede, 5xx) mostrava "crie um novo; ele substitui o antigo"
+      // e o formulário: um envio trocava pra onde o dinheiro da casa liquida
+      // (auditoria de onboarding, C3). Agora ela só mostra o erro.
+      if ((e as ApiError).code === 'recipient_not_found') {
+        setSubstituir(true);
+        setInfo((prev) => prev ?? { recipientId: null, status: null });
+      }
     }
-  }, [venueId]);
+  }, [venueId, tErr]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -76,7 +105,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
     return (
       <section className="panel" id="recebimento">
         <p className="label">{t('rcpt.section')}</p>
-        <p className="muted small">{loadError ?? 'carregando…'}</p>
+        <p className="muted small">{loadError ?? t('admin.loading')}</p>
       </section>
     );
   }
@@ -91,7 +120,13 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
   const valid = {
     name: name.trim().length >= 2,
     // CPF/CNPJ com dígito verificador — pega quase todo erro de digitação.
-    doc: isValidCpfCnpj(doc),
+    // CNPJ, não "CPF ou CNPJ": o servidor recusa CPF desde 2026-09-13
+    // (documento de casa é documento de empresa), e o formulário dizia
+    // "CPF válido ✓" em verde, liberava o botão, e o dono levava
+    // "Confira o número do documento" — o produto afirmando que o número
+    // está certo e mandando conferir o número, sem caminho adiante e sem
+    // dizer a regra. Cliente MAIS FROUXO que o servidor é sempre um beco.
+    doc: isValidCNPJ(doc),
     // E-mail é OBRIGATÓRIO no Pagar.me (POST /recipients recusa sem ele).
     email: isValidEmail(email),
     bank: bankCode.length === 3,
@@ -107,16 +142,24 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
   // Borda vermelha só quando o campo foi tocado e está inválido.
   const errStyle = (key: string, ok: boolean) =>
-    (showErr(key) && !ok ? { borderColor: 'var(--burgundy)' } : undefined);
+    (showErr(key) && !ok ? { borderColor: 'var(--erro)' } : undefined);
   // Feedback abaixo do input: erro (vermelho) > confirmação (verde) > dica (cinza).
   const fb = (key: string, ok: boolean, errMsg: string, hint: string, okMsg?: string) => {
-    if (showErr(key) && !ok) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--burgundy)' }}>{errMsg}</span>;
-    if (ok && okMsg) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--emerald)' }}>{okMsg}</span>;
+    if (showErr(key) && !ok) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--erro)' }}>{errMsg}</span>;
+    if (ok && okMsg) return <span className="small" style={{ display: 'block', marginTop: 4, color: 'var(--ok)' }}>{okMsg}</span>;
     return <span className="muted small" style={{ display: 'block', marginTop: 4 }}>{hint}</span>;
   };
-  const docErr = kind === null
-    ? t('rcpt.docIncomplete')
-    : t('rcpt.docDvBad');
+  // UM CPF BEM FORMADO não é "dígito verificador errado" — os dígitos batem.
+  // Dizer isso era o produto afirmando uma falsidade sobre o número da pessoa
+  // e mandando conferir o que está certo, sem caminho adiante: o `fb` acima
+  // troca a DICA pelo ERRO quando o campo está tocado e inválido, então a
+  // única frase que explicava a regra sumia exatamente no estado que precisa
+  // dela. Achado pelas duas revisões de 2026-09-13.
+  const docErr = kind === 'cpf'
+    ? t('rcpt.docCpfNo')
+    : kind === null
+      ? t('rcpt.docIncomplete')
+      : t('rcpt.docDvBad');
 
   async function copyId() {
     if (!realId) return;
@@ -137,6 +180,9 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           venueId,
+          // Trocar um recebedor de verdade é EXPLÍCITO: o servidor recusa sem
+          // isto (409 `recipient_exists`).
+          ...(substituir || realId ? { replace: true } : {}),
           name: name.trim(),
           ...(email.trim() ? { email: email.trim() } : {}),
           ...(notifyWhatsapp.trim() ? { notifyWhatsapp: notifyWhatsapp.trim() } : {}),
@@ -157,7 +203,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
       await refresh(); // reflete o status novo (registration/active)
       onChanged?.(); // o aviso âmbar do topo da página some sem F5
     } catch (e) {
-      setSubmitError((e as Error).message);
+      setSubmitError(tErr(e));
     } finally {
       setBusy(false);
     }
@@ -165,15 +211,19 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
   return (
     <section className="panel" id="recebimento" style={{ scrollMarginTop: 16 }}>
-      <p className="label">Recebimento</p>
+      <p className="label">{t('rcpt.sectionTitle')}</p>
 
+      {/* O âmbar saiu do sistema quando a pílula "parcial" saiu: o Presence não
+          tem âmbar, e este era o amber-500 do Tailwind, num fio de 1,33:1 contra
+          o papel (WCAG 1.4.11 pede 3). "Sem recebedor real" é uma pendência que
+          trava o dinheiro: coral. */}
       {!realId && (
-        <div style={{ border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.08)', borderRadius: 12, padding: '10px 12px' }}>
+        <div style={{ border: '1px solid var(--erro-fio)', background: 'var(--erro-bg)', borderRadius: 'var(--rad-s)', padding: '10px 12px' }}>
           {loadError
             ? <p className="small">{t('rcpt.notFound')}</p>
             : <p className="small">{t('rcpt.none')}</p>}
           {info.recipientId && (
-            <p className="muted small">O id atual ({info.recipientId}) é de demonstração — não recebe de verdade.</p>
+            <p className="muted small">{t('rcpt.demoId', { id: info.recipientId })}</p>
           )}
         </div>
       )}
@@ -197,9 +247,9 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
         </div>
       )}
 
-      {loadError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{loadError}</p>}
+      {loadError && <p className="muted small" style={{ color: 'var(--erro)' }}>{loadError}</p>}
       {created && (
-        <p className="small" style={{ color: 'var(--emerald)' }}>
+        <p className="small" style={{ color: 'var(--ok)' }}>
           {t('rcpt.created', { id: created.recipientId, status: created.status })}
         </p>
       )}
@@ -227,11 +277,25 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
             <label style={{ gridColumn: '1 / -1' }}>
               {t('rcpt.docLabel')}
-              <input className="namefield" inputMode="numeric" placeholder="00.000.000/0000-00" value={maskCpfCnpj(doc)}
+              {/* A FORMA sai do formatador, nunca de uma string pontuada à mão —
+                  é a regra que o censo do `taxid.test.ts` existe pra impor, e um
+                  placeholder é pontuação escrita à mão. E o cursor vem do
+                  `useMascara`: sem ele, corrigir um dígito do meio do CNPJ da
+                  conta de repasse jogava o cursor pro fim a cada tecla. */}
+              <input className="namefield" inputMode="text" autoCapitalize="characters" autoComplete="off"
+                placeholder={maskCpfCnpj('00000000000000')}
                 onBlur={() => touch('doc')} style={errStyle('doc', valid.doc)}
-                onChange={(e) => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
+                {...campoDoDocumento} />
               {fb('doc', valid.doc, docErr, t('rcpt.docHint'),
-                kind === 'cpf' ? t('admin.cpfOk') : t('admin.cnpjOk'))}
+                t('admin.cnpjOk'))}
+              {/* A casa HERDA este documento quando ainda não tem um, e é ele
+                  que o cliente lê no comprovante. Herança silenciosa num campo
+                  que vai pra tela de terceiro é coisa que se descobre em
+                  revisão; dizer custa uma linha. */}
+              {/* `--ink-3` não existe: o `<span>` herdava a cor do pai, e dentro
+                  de `.cfggrid label` o pai está em versalete grafite — a frase
+                  saía em caixa-alta espaçada. */}
+              <span className="small" style={{ color: 'var(--grafite)' }}>{t('rcpt.docOnReceipt')}</span>
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
@@ -324,7 +388,7 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
 
           <p className="muted small">{t('rcpt.sameDoc')}</p>
 
-          {submitError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{submitError}</p>}
+          {submitError && <p className="muted small" style={{ color: 'var(--erro)' }}>{submitError}</p>}
           {marketplaceHint && <p className="muted small">{marketplaceHint}</p>}
 
           <button className="cta" style={{ padding: '12px 20px' }} disabled={busy} onClick={submit}>

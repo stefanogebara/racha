@@ -1,5 +1,7 @@
 'use strict';
 
+const { nomeDaRestricao, mensagemDeUnicidade } = require('./pg-erro');
+
 /**
  * Métodos que confirmam INLINE, sem webhook de gateway — e por isso ficam fora
  * da reconciliação ativa. Todo o resto entra, inclusive trilhos que ainda não
@@ -8,7 +10,18 @@
 const INLINE_METHODS = new Set(['house_account']);
 
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
+const { documentoPublicavelDaCasa } = require('../br/documento.js');
 const { confirmedMoney } = require('./confirmed-money');
+/**
+ * Erro 400 local — os dois stores precisam do mesmo, e o `http-error.js` só
+ * exporta o mapa de status. Mesma forma do `create-charge.js:25`.
+ */
+function badRequest(msg) {
+  const e = new Error(msg);
+  e.statusCode = 400;
+  return e;
+}
+
 const { disputeCounts } = require('../checks/disputes');
 
 /**
@@ -21,10 +34,28 @@ const { disputeCounts } = require('../checks/disputes');
  */
 
 const crypto = require('crypto');
-const { reduce } = require('../checks/check-state');
+const { reduce, paidAfterClose } = require('../checks/check-state');
+const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
+const { PAPEL_DE_DONO } = require('./papeis');
+const { rotuloDoPagador } = require('../texto-da-casa');
 const { isTerminalRecipientStatus } = require('../recipient-status');
+
+/**
+ * A CHAVE do índice único parcial da 0034 — a mesma normalização do SQL
+ * (`lower(btrim(...))`): "PIX E2E123" e "pix e2e123 " são o mesmo comprovante.
+ */
+function chaveDaDevolucaoForaDoTrilho(type, payload) {
+  if (type !== 'PAYMENT_REFUNDED' || !payload || payload.offRail !== true) return null;
+  // `btrim` do Postgres tira SÓ o espaço ASCII — e o dublê usava `trim()` do
+  // JS, que tira tabulação, quebra de linha e NBSP também. Dublê mais restritivo
+  // que o banco esconde o furo em vez de mostrá-lo (segurança LOW-1 de
+  // d7f2683). Aqui ele imita o `btrim`; quem tira o resto é a rota, na entrada.
+  const ref = String(payload.reference == null ? '' : payload.reference)
+    .replace(/^ +| +$/g, '').toLowerCase();
+  return `${payload.txid}\u0000${ref}`;
+}
 
 function createMemoryStore() {
   const venues = new Map();
@@ -46,6 +77,7 @@ function createMemoryStore() {
   const houseAccounts = new Map(); // id → { id, venueId, phone, name, accountToken, createdAt }
   const houseByToken = new Map();  // accountToken → accountId
   const houseEvents = new Map();   // accountId → [{seq, type, payload}]
+  const vagas = [];               // teto de cobranças vivas — ver `claimSlots`
   const houseLoads = new Map();    // txid → { txid, accountId, amountCents, bonusCents, validityDays, status }
   // O registro de execução da retenção (migração 0032). Aqui é lista; no
   // Postgres é tabela com prazo próprio de 5 anos.
@@ -103,7 +135,10 @@ function createMemoryStore() {
     // blocked in both stores (reactivate the old one instead).
     for (const t of tableById.values()) {
       if (t.venueId === venueId && t.label === trimmed) {
-        throw new Error('duplicate table label');
+        // Com CÓDIGO, igual ao de produção: é o código que a rota lê, e um
+        // dublê que só tem a frase faz o teste da rota passar sobre um contrato
+        // que o store de verdade não cumpre.
+        throw Object.assign(new Error('duplicate table label'), { code: 'table_label_duplicate' });
       }
     }
     // A fixed token is a SEED-ONLY affordance: prod tables always rotate
@@ -124,19 +159,30 @@ function createMemoryStore() {
     // --- onboarding / venue -------------------------------------------------
     async createVenue(args) { return _mkVenue(args); },
     // Demo/test alias (SYNC — existing helpers call it without await).
-    seedVenue({ name, cnpj = null, servicoBp = 1000, pspRecipientId = 'rcpt_demo', isTest = false, market = DEFAULT_MARKET }) {
+    seedVenue({ name, cnpj, servicoBp = 1000, pspRecipientId = 'rcpt_demo', isTest = false, market = DEFAULT_MARKET }) {
       // `cnpj` estava faltando aqui, então a semente passava o documento e ele
       // se perdia entre a chamada e a venue — a `_mkVenue` sempre aceitou.
       // Uma lista de campos escrita à mão, de novo: o mesmo jeito que o
       // localStorage esqueceu o espanhol.
-      return _mkVenue({ name, cnpj, servicoBp, pspRecipientId, isTest, market });
+      //
+      // E o PADRÃO deixou de ser `null`. Uma casa semeada é uma casa
+      // CONFIGURADA — é o que a semente existe pra representar — e desde que o
+      // serviço só corre onde há documento de empresa provado
+      // (`create-charge.js`, portão `venue_no_tip_document`), semear sem
+      // documento é semear uma casa que não pode cobrar serviço. Oito suítes
+      // ficaram vermelhas quando o portão entrou, e estavam certas: elas
+      // cobravam 10% de casas sem CNPJ, que é exatamente o estado que o
+      // portão passou a recusar. Quem quiser esse estado pede por ele,
+      // passando `cnpj: null` — e há teste que faz isso.
+      const padrao = market === 'es' ? 'B12345678' : '11444777000161';
+      return _mkVenue({ name, cnpj: cnpj === undefined ? padrao : cnpj, servicoBp, pspRecipientId, isTest, market });
     },
     async getVenue(venueId) {
       return venues.get(venueId) || null;
     },
 
     // --- ownership / membership ---------------------------------------------
-    async addVenueMember(venueId, userId, role = 'owner') {
+    async addVenueMember(venueId, userId, role = PAPEL_DE_DONO) {
       if (!venues.has(venueId)) throw new Error('unknown venue');
       if (!userId) throw new Error('userId required');
       if (members.some((m) => m.venueId === venueId && m.userId === userId)) {
@@ -145,12 +191,14 @@ function createMemoryStore() {
       members.push({ venueId, userId, role });
       return { venueId, userId, role };
     },
+    // Ver o comentário longo em `store/supabase.js`: o papel É conferido, nos
+    // dois stores, e o contrato entre eles é o que impede a divergência.
     async userOwnsVenue(userId, venueId) {
-      return members.some((m) => m.userId === userId && m.venueId === venueId);
+      return members.some((m) => m.userId === userId && m.venueId === venueId && m.role === PAPEL_DE_DONO);
     },
     async listVenuesForOwner(userId) {
       return members
-        .filter((m) => m.userId === userId)
+        .filter((m) => m.userId === userId && m.role === PAPEL_DE_DONO)
         .map((m) => venues.get(m.venueId))
         .filter(Boolean);
     },
@@ -282,8 +330,13 @@ function createMemoryStore() {
           // Nomeado `taxId` e não `cnpj` porque o campo é o mesmo nos dois
           // mercados e a tela é uma só. Nulo é normal (migração 0002: um CNPJ
           // de mentira num recibo real é pior que a ausência dele).
-          taxId: showsVenueTaxId(venue.market) ? (venue.cnpj || null) : null,
-          ...publicMarketView(venue.market, { servicoBp: venue.servicoBp }),
+          // O VALOR também decide, não só o mercado: onze dígitos nesta coluna
+            // numa casa brasileira é CPF de alguém, e `/api/check` não tem
+            // autenticação. Linhas antigas foram escritas antes do portão do
+            // `createVenue` existir. Ver `documentoPublicavelDaCasa`.
+            taxId: documentoPublicavelDaCasa(venue.market, venue.cnpj, showsVenueTaxId(venue.market)),
+          // `cnpj` vai junto — ver supabase.js.
+          ...publicMarketView(venue.market, { servicoBp: venue.servicoBp, cnpj: venue.cnpj }),
         },
         table: { label: table.label },
         check: { id: check.id, items: check.items },
@@ -311,6 +364,55 @@ function createMemoryStore() {
      * expiry stop being polled without any write). house_account rows are
      * excluded — they confirm inline, never via the gateway.
      */
+    /**
+     * O TETO DE COBRANÇAS VIVAS, gêmeo em memória do `claim_slots` (0033).
+     *
+     * Conta e reserva numa passada SÍNCRONA — em JS nada intercala dentro de
+     * uma função sem `await`, e é essa a trava da memória. A janela é
+     * deslizante: cada vaga carrega o próprio instante. Mesma ordem de
+     * decisão do SQL: para na primeira chave cheia e devolve o índice dela.
+     */
+    async claimSlots({ keys, limits, windowMs } = {}) {
+      // AS MESMAS RECUSAS DO SQL. O gêmeo aceitava limite nulo (e o tratava como
+      // cheio, ao contrário do SQL, que o tratava como infinito) e janela de um
+      // segundo, que o SQL recusa. Revisão de segurança de 2026-09-15 (LOW-1).
+      if (!Array.isArray(keys) || !keys.length || !Array.isArray(limits)
+        || keys.length !== limits.length
+        || !limits.every((n) => Number.isSafeInteger(n) && n > 0)
+        || !Number.isFinite(windowMs) || windowMs < 60_000 || windowMs > 86_400_000) {
+        throw new Error('claimSlots: argumentos inválidos');
+      }
+      if (new Set(keys).size !== keys.length) throw new Error('claimSlots: chave repetida');
+      const now = Date.now();
+      for (let i = vagas.length - 1; i >= 0; i -= 1) {
+        const v = vagas[i];
+        if (now - v.createdAt > 86_400_000 || (keys.includes(v.key) && now - v.createdAt > windowMs)) {
+          vagas.splice(i, 1);
+        }
+      }
+      const counts = [];
+      for (let i = 0; i < keys.length; i += 1) {
+        const n = vagas.filter((v) => v.key === keys[i] && now - v.createdAt <= windowMs).length;
+        counts.push(n);
+        if (n >= limits[i]) return { claimId: null, fullIndex: i, counts };
+      }
+      const claimId = require('node:crypto').randomUUID();
+      for (const key of keys) vagas.push({ claimId, key, createdAt: now });
+      return { claimId, fullIndex: null, counts };
+    },
+    /** Devolve as vagas de uma cobrança que o PSP NUNCA criou. Ver 0033. */
+    async releaseSlots(claimId) {
+      const antes = vagas.length;
+      for (let i = vagas.length - 1; i >= 0; i -= 1) if (vagas[i].claimId === claimId) vagas.splice(i, 1);
+      return antes - vagas.length;
+    },
+    /**
+     * O gêmeo não tem migração que envelheça: o "esquema" dele é este arquivo.
+     * Devolve a impressão esperada, e o cron compara igual nos dois stores.
+     */
+    async slotsFingerprint() {
+      return require('./impressao-0033').IMPRESSAO_0033;
+    },
     async listPendingCharges({ checkId = null, graceMs = 0, windowMs = Infinity, limit = 100 } = {}) {
       const now = Date.now();
       return [...payments.values()]
@@ -406,15 +508,43 @@ function createMemoryStore() {
       /** txid → quanto falta restituir daquele pagamento. Ver o store do
        *  Supabase: o excedente vive no razão, não numa coluna. */
       const sobraPorTxid = new Map();
+      /**
+       * O MESMO RECORTE DO STORE DE PRODUÇÃO — abertas de qualquer idade, as da
+       * janela, e as que receberam dinheiro na janela.
+       *
+       * Este store devolvia TODA conta da casa. Enquanto o de produção fazia o
+       * mesmo, tudo bem; desde o recorte, os dois passaram a desenhar painéis
+       * diferentes — e todo teste de painel escrito contra a memória passaria a
+       * provar um comportamento que a produção não tem. É a armadilha que este
+       * arquivo documenta sobre si mesmo em três lugares ("um dublê que oferece
+       * campo que a produção não tem"), aplicada ao recorte em vez de ao campo.
+       * Achado pela terceira revisão de compliance de 2026-09-16.
+       */
+      const desdeAJanela = new Date(Date.parse(nowIso) - 8 * 86400000).toISOString();
+      const comDinheiroNaJanela = new Set(
+        [...payments.values()]
+          .filter((p) => p.status === 'confirmado' && p.confirmedAt && p.confirmedAt >= desdeAJanela)
+          .map((p) => p.checkId),
+      );
+      const noRecorte = (c) => {
+        const st = reduce(events.get(c.id) || []);
+        if (st && st.status !== 'fechada') return true;          // aberta, qualquer idade
+        if (c.openedAt && c.openedAt >= desdeAJanela) return true; // aberta na janela
+        return comDinheiroNaJanela.has(c.id);                     // recebeu na janela
+      };
       const rows = [...checks.values()]
         .filter((c) => c.venueId === venueId)
+        .filter(noRecorte)
         .map((c) => {
           const table = [...tables.values()].find((t) => t.id === c.tableId);
           const state = reduce(events.get(c.id) || []);
-          for (const [txid, pg] of Object.entries(state.payments || {})) {
-            const falta = Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0));
-            if (falta > 0) sobraPorTxid.set(txid, falta);
-          }
+          // PELA REGRA ÚNICA: este mapa desconta a dívida do FATURAMENTO da
+          // série semanal (ver `ativacao.js`), e lido do excedente congelado ele
+          // era cego justamente na sobra que nasce de uma reversão — a série
+          // contava como receita a mesma quantia que a linha ao lado chamava de
+          // dívida (CC art. 876; segurança HIGH-1 de a95e15c). Eram CINCO
+          // leitores do congelado, não quatro: eu contei à mão em vez de varrer.
+          acumularSobra(state, sobraPorTxid);
           return {
             checkId: c.id,
             tableLabel: table ? table.label : '?',
@@ -428,6 +558,9 @@ function createMemoryStore() {
             // número morria ali: nenhum painel, nenhuma tela. Ver
             // `overpaid_pending_restitution` na conciliação.
             overpaidCents: state.overpaidCents,
+            // PAGO DEPOIS DE FECHAR, na parte que a sobra não cobre — ver `paidAfterClose`. A equipe
+            // confere com a mesa se ela também pagou no caixa. (Compliance HIGH-1.)
+            paidAfterClose: paidAfterClose(state),
             /**
              * QUAL cobrança devolver — o painel não podia dizer.
              *
@@ -454,12 +587,11 @@ function createMemoryStore() {
              * leitura pública segue com ordinal.
              */
             ...(state.overpaidCents > 0 ? {
-              overpaidTxids: Object.entries(state.payments)
-                .map(([txid, pg]) => ({
-                  txid,
-                  restituteCents: Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-                }))
-                .filter((x) => x.restituteCents > 0),
+              // PELA REGRA ÚNICA do redutor: o excedente cru é zero na
+              // duplicidade que nasce depois, e o painel mostrava "a devolver"
+              // sem nenhuma cobrança embaixo — com o runbook mandando devolver
+              // "pelo valor ao lado da cobrança" (compliance HIGH-1 de 089e8a2).
+              overpaidTxids: linhasDeSobra(state),
             } : {}),
               // Disputas por CONTAGEM: é a taxa de chargeback que o
               // adquirente julga, e o dono não tinha como ver a dele.
@@ -581,6 +713,41 @@ function createMemoryStore() {
      *   que três tipos de evento chegaram a produção recusados por um CHECK
      *   que nenhum teste lia.
      */
+    /**
+     * COMPARE-AND-APPEND (migração 0034): só grava se o razão daquela conta
+     * ainda estiver no `seq` que o chamador viu.
+     *
+     * O dublê precisa ser tão restritivo quanto o banco — inclusive o ÍNDICE
+     * ÚNICO parcial das devoluções fora do trilho, porque um dublê que aceita
+     * o que o Postgres recusa é armadilha, não dublê. Os erros saem com
+     * `pgCode`, na mesma forma que o `throwOn` do Supabase produz.
+     */
+    async appendEventIfUnchanged(checkId, type, payload, pspEventId = null, expectedSeq = null) {
+      if (!Number.isInteger(expectedSeq) || expectedSeq < 0) {
+        throw Object.assign(new Error('memory store appendEventIfUnchanged: expected_seq obrigatório'), { pgCode: '22023' });
+      }
+      if (!events.has(checkId)) throw new Error('unknown check');
+      const log = events.get(checkId);
+      const atual = log.length ? log[log.length - 1].seq : 0;
+      if (atual !== expectedSeq) {
+        throw Object.assign(
+          new Error(`memory store appendEventIfUnchanged: o razão mudou (esperado ${expectedSeq}, atual ${atual})`),
+          { pgCode: '40001' },
+        );
+      }
+      const chave = chaveDaDevolucaoForaDoTrilho(type, payload);
+      if (chave && log.some((e) => chaveDaDevolucaoForaDoTrilho(e.type, e.payload) === chave)) {
+        throw Object.assign(
+          new Error('memory store appendEventIfUnchanged: devolução fora do trilho já registrada'),
+          // Pelo MESMO extrator da produção: o dublê escreve a mensagem que o
+          // Postgres escreveria e deixa o parser tirar o nome dela. Receber o
+          // nome de bandeja deixava o ramo de falha da extração sem teste
+          // nenhum (segurança LOW-3 de 41b188a).
+          { pgCode: '23505', pgConstraint: nomeDaRestricao(mensagemDeUnicidade('check_events_offrail_refund_uidx')) },
+        );
+      }
+      return this.appendEvent(checkId, type, payload, pspEventId);
+    },
     async appendEvent(checkId, type, payload, pspEventId = null) {
       if (!events.has(checkId)) throw new Error('unknown check');
       if (pspEventId != null) {
@@ -591,7 +758,13 @@ function createMemoryStore() {
       }
       const log = events.get(checkId);
       const seq = log.length + 1;
-      log.push({ seq, type, payload, ...(pspEventId != null ? { pspEventId } : {}) });
+      // `created_at` como no Postgres: o dublê tem que devolver o razão com a
+      // mesma forma, senão a data que decide o prazo do trilho só existe em
+      // produção (compliance MEDIUM-4 de d7f2683).
+      log.push({
+        seq, type, payload, created_at: new Date().toISOString(),
+        ...(pspEventId != null ? { pspEventId } : {}),
+      });
       return seq;
     },
     /** Ver a 0028: quem abriu a conta na mesa. Idempotente por conta+sessão. */
@@ -614,11 +787,27 @@ function createMemoryStore() {
           && Date.parse(p.confirmedAt) >= corte
           && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId)
         .map((p) => p.checkId));
+      /** O numerador INTERSECTADO: quem pagou E foi visto na mesa. */
+      const convertidas = new Set([...pagas].filter((id) => abertas.has(id)));
       return {
         contasCriadas: criadas.length,
         contasAbertasNaMesa: abertas.size,
         contasPagas: pagas.size,
-        conversao: abertas.size > 0 ? pagas.size / abertas.size : null,
+        /**
+       * A CONVERSÃO É SOBRE QUEM ABRIU — e o numerador tem que ser subconjunto
+       * do denominador.
+       *
+       * Era `pagas.size / abertas.size` com os dois conjuntos medidos
+       * INDEPENDENTES. O `recordCheckView` é telemetria de navegador, melhor
+       * esforço: bloqueada, limitada por taxa ou perdida, a conta entra em
+       * `pagas` e não em `abertas`. Com duas contas — A vista e não paga, B paga
+       * com o beacon bloqueado — a conta dava 1.0, ou seja 100% de conversão,
+       * onde a verdadeira é 0%. E é este número que o portão de adoção lê pra
+       * decidir se o produto continua (CLAUDE.md, ≥25% na semana 8): inflado,
+       * ele mantém vivo um piloto que fracassou. Achado pela terceira revisão de
+       * segurança de 2026-09-16 (M4).
+       */
+      conversao: abertas.size > 0 ? convertidas.size / abertas.size : null,
       };
     },
 
@@ -630,7 +819,13 @@ function createMemoryStore() {
     },
     /** Só pra teste/inspeção: a lista de órfãos deste store. */
     async listOrphanMoneyEvents() { return [...orphanEvents]; },
-    async listOpenOrphanMoneyEvents() { return orphanEvents.filter((o) => !o.resolvedAt); },
+    async listOpenOrphanMoneyEvents() {
+      // `orderCode` na mesma forma do store de produção — ele vem dentro do
+      // `payload` e a leitura o eleva, senão os dois stores descrevem órfãos
+      // diferentes.
+      return orphanEvents.filter((o) => !o.resolvedAt)
+        .map((o) => ({ ...o, orderCode: (o.payload && o.payload.orderCode) || null }));
+    },
 
     /**
      * Ver a migração 0023: só escreve se a linha ainda estiver como foi lida.
@@ -687,6 +882,82 @@ function createMemoryStore() {
       return false;
     },
     async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel, method = 'pix' }) {
+      // O RÓTULO DO PAGADOR É CONFERIDO AQUI, no único ponto por onde TODA
+      // cobrança passa. A regra existia só no `create-charge`, e o
+      // `/api/pay/stripe-intent` — pública, token de mesa, sem sessão — chama
+      // o `registerCharge` DIRETO: um `payerLabel` de 900 KB, ou um objeto no
+      // lugar de uma string, chegava intacto à coluna que o painel do dono lê
+      // de volta. É a forma "chamador esquecido" que este repositório já
+      // nomeia três vezes, e o conserto é o mesmo das outras: a regra desce
+      // pro sítio que não dá pra contornar, em vez de virar mais um item num
+      // censo de chamadores. Achado pela revisão de segurança de 2026-09-15.
+      //
+      // E ele NORMALIZA, não só confere. Enquanto a regra era uma lista de
+      // recusa, "conferir aqui" e "conferir no portão" davam no mesmo. Quando o
+      // portão passou a LIMPAR, os dois deixaram de coincidir: o portão
+      // aprovava `"Ana" + cem espaços` (que normaliza pra `"Ana"`) e esta linha
+      // recusava o cru, DEPOIS de o adquirente já ter criado a cobrança — e a
+      // vaga do teto não voltava. Guardar o normalizado é o que faz "o valor
+      // conferido é o valor gravado" valer por construção, em vez de por
+      // disciplina de chamador. Segunda revisão de segurança de 2026-09-16
+      // (NEW-1).
+      const rotulo = rotuloDoPagador(payerLabel);
+      if (!rotulo.ok) throw badRequest('payerLabel must be a string of at most 60 chars');
+      payerLabel = rotulo.valor;
+      /**
+       * `payments.txid` É ÚNICO NO BANCO (0001), e este dublê não recusava.
+       *
+       * Um segundo `registerCharge` com o mesmo txid SOBRESCREVIA a linha —
+       * medido: uma cobrança já confirmada voltava a `pendente`, perdendo
+       * `confirmedAt` e `confirmedAmountCents`. É exatamente a janela que a nova
+       * tentativa de escrita abriu (o webhook confirma enquanto a primeira ida
+       * de 10 s ainda está no ar), e em produção o `payments_txid_key` a fecha.
+       *
+       * Este arquivo já enuncia a regra sobre outro método — "o duplo tem que
+       * recusar o que o banco recusa, senão a corrida que ele deveria demonstrar
+       * passa verde aqui e falha lá" — e ela não tinha sido aplicada aqui. Sem
+       * isto, o ramo "unicidade na segunda tentativa é sucesso" do
+       * `create-charge` era inexercitável por dublê nenhum. Achado pela quarta
+       * revisão de segurança de 2026-09-16 (MEDIUM-4).
+       */
+      if (payments.has(txid)) {
+        /**
+         * O NOME DA RESTRIÇÃO É EXTRAÍDO, não entregue de bandeja.
+         *
+         * Este sítio escrevia `pgConstraint: 'payments_txid_key'` direto,
+         * enquanto o irmão vinte linhas acima já passava por
+         * `nomeDaRestricao(mensagemDeUnicidade(...))` — e o motivo de aquele
+         * passar está escrito no `pg-erro.js`: o ramo de FALHA da extração não
+         * existe em teste nenhum se o dublê receber o nome pronto. Um
+         * `lc_messages` não-inglês, ou um PostgREST que remonte a mensagem, e a
+         * produção devolve `pgConstraint: null` onde o dublê devolvia o nome.
+         *
+         * Os dois revisores pediram pra promover isto duas rodadas seguidas, e
+         * pelo mesmo motivo: duas decisões de dinheiro vivas hoje — a posse da
+         * linha na primeira ida e o `linhaJaGravada` — dependem de um `23505`
+         * que só este dublê e o MockPsp produzem. Ou seja, o dublê virou o
+         * ÚNICO executor delas.
+         *
+         * SEJA HONESTO SOBRE O QUE ISTO COMPRA, porque eu já exagerei uma vez:
+         * `nomeDaRestricao(mensagemDeUnicidade(x))` é a IDENTIDADE nesse input,
+         * então o dublê continua sempre devolvendo o nome e nunca `null` — ele
+         * não passou a errar como a produção erra, só passou a usar o extrator.
+         * E o ramo de falha do extrator já tinha teste (`pg-erro.test.js`, o
+         * caso em espanhol); a minha mensagem de commit dizia que não tinha.
+         *
+         * O que o censo irmão compra de verdade é impedir que um sítio NOVO
+         * volte a escrever o nome à mão. O que ainda falta é um dublê com botão
+         * de locale, que devolva `pgConstraint: null` e force o caminho de
+         * `podeSerReentrega` — está no `o-que-dez-rodadas...md`.
+         */
+        throw Object.assign(
+          new Error(`memory store registerCharge: ${mensagemDeUnicidade('payments_txid_key')}`),
+          {
+            pgCode: '23505',
+            pgConstraint: nomeDaRestricao(mensagemDeUnicidade('payments_txid_key')),
+          },
+        );
+      }
       txidToCheck.set(txid, checkId);
       const check = checks.get(checkId);
       const chargeVenue = check ? venues.get(check.venueId) : null;
@@ -757,6 +1028,7 @@ function createMemoryStore() {
       if (opts.status !== undefined) venue.pspRecipientStatus = opts.status;
       if (opts.notifyEmail !== undefined) venue.notifyEmail = opts.notifyEmail;
       if (opts.notifyWhatsapp !== undefined) venue.notifyWhatsapp = opts.notifyWhatsapp;
+      if (opts.cnpj !== undefined) venue.cnpj = opts.cnpj;
       return { id: venue.id, pspRecipientId: recipientId };
     },
     async setVenueStripeAccount(venueId, accountId) {
@@ -970,7 +1242,13 @@ function createMemoryStore() {
       // Mirrors the supabase PK: a txid re-register must fail loudly, never
       // silently replace money amounts (review finding).
       if (houseLoads.has(txid)) throw new Error('duplicate house load txid');
-      houseLoads.set(txid, { txid, accountId, amountCents, bonusCents, validityDays, status: 'pendente' });
+      houseLoads.set(txid, {
+        txid, accountId, amountCents, bonusCents, validityDays, status: 'pendente',
+        // `createdAt` existe pro TETO de cargas vivas — a coluna já existia no
+        // Postgres (`house_loads.created_at`) e faltava aqui, então o gêmeo em
+        // memória não podia medir a mesma janela. Ver `assertLoadSlot` no `house-service.js`.
+        createdAt: new Date().toISOString(),
+      });
     },
     async findHouseLoadByTxid(txid) {
       const l = houseLoads.get(txid);
@@ -1059,7 +1337,14 @@ function createMemoryStore() {
         const e = new Error('excede o que falta pagar'); e.statusCode = 409; throw e;
       }
       const seq = log.length + 1;
-      log.push({ seq, type: 'PAYMENT_CONFIRMED', payload: { txid, amountCents, tipCents: 0, method: 'house_account' } });
+      // `created_at` aqui também: no Postgres a coluna tem `default now()`, e o
+      // dublê sem ela devolvia `confirmedAt: null` onde a produção devolve data
+      // — dublê MENOS informado que o banco é a inversão do defeito que a rodada
+      // passada consertou no outro sentido (segurança LOW-5 de 41b188a).
+      log.push({
+        seq, type: 'PAYMENT_CONFIRMED', created_at: new Date().toISOString(),
+        payload: { txid, amountCents, tipCents: 0, method: 'house_account' },
+      });
       return seq;
     },
     async refundHousePrincipal({ accountId, amountCents, nowIso }) {

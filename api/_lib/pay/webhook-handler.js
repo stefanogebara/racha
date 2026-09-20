@@ -25,7 +25,9 @@
 
 const { reduce, validateEvent, EventValidationError } = require('../checks/check-state');
 const { maskPixPayload } = require('./mask');
-const { allocateRefund, allocateRestitution } = require('../checks/split-engine');
+const { allocateRefund } = require('../checks/split-engine');
+const { alocarDevolucaoDoPagamento } = require('../checks/refund-allocation');
+const { casarReversao } = require('../checks/reversal-match');
 
 /**
  * Fold a verified+parsed PSP charge into the check ledger. Pure orchestration
@@ -46,46 +48,16 @@ const { allocateRefund, allocateRestitution } = require('../checks/split-engine'
  * @returns {Promise<{status:'appended'|'duplicate'|'divergent_appended'|'rejected', checkId?:string, seq?:number, reason?:string}>}
  */
 /**
- * O rateio de uma devolução, considerando o EXCEDENTE da conta.
- *
- * Se a conta recebeu mais do que pedia, a primeira parte do que volta é
- * RESTITUIÇÃO de excedente e sai toda do consumo — foi por ali que entrou (ver
- * `allocateRestitution`). Sem excedente, é estorno comum e vai proporcional.
+ * O rateio de uma devolução. A regra inteira — e o porquê de cada balde — mora
+ * em `checks/refund-allocation.js`, compartilhada com a devolução que o dono
+ * registra fora do trilho. Eram duas cópias da mesma conta, e uma delas não
+ * conhecia o serviço devido do pago-depois-de-fechar.
  */
-/**
- * O rateio de uma devolução, considerando o EXCEDENTE deste pagamento.
- *
- * Se parte do que este pagamento trouxe era sobra, a primeira parte do que
- * volta é RESTITUIÇÃO e sai toda do consumo — foi por ali que entrou (ver
- * `allocateRestitution`). O resto é estorno comum e vai proporcional.
- *
- * O excedente é DERIVADO pelo redutor (ver `PAYMENT_CONFIRMED`), então aqui
- * ele nunca falta: a reserva histórica que existia neste lugar era código
- * morto, porque o redutor já normalizava o campo antes dela poder olhar.
- *
- * Quanto ainda falta restituir sai por subtração, e é exato por construção: o
- * excedente sai do consumo PRIMEIRO, então os primeiros `refundedAmountCents`
- * centavos devolvidos foram exatamente ele. Nada de teto pela sobra da CONTA —
- * ela é reduzida por qualquer coisa que mexa no total, e um teto assim vazava
- * entre pagadores: compensar a dívida de um com o crédito de outro não existe
- * (CC art. 876).
- *
- * A conta que ENCOLHEU depois de paga (`ADJUSTED` pra baixo) também produz
- * sobra, e nela nenhum pagamento tem excedente — corretamente: ninguém pagou a
- * mais, a conta diminuiu. Aí o estorno é comum e proporcional, o que devolve
- * junto a fatia de serviço do item que saiu.
- */
-function alocarDevolucao(state, pay, delta) {
-  void state;
-  const consumo = pay.amountCents - pay.refundedAmountCents;
-  const gorjeta = pay.tipCents - pay.refundedTipCents;
-  const excedente = Math.min(
-    Math.max(0, (pay.excessCents || 0) - (pay.refundedAmountCents || 0)),
-    Math.max(0, consumo),
-  );
-  return excedente > 0
-    ? allocateRestitution(consumo, gorjeta, delta, excedente)
-    : allocateRefund(consumo, gorjeta, delta);
+function alocarDevolucao(state, txid, pay, delta, opcoes) {
+  // A regra mora em `refund-allocation.js` — a mesma que a devolução fora do
+  // trilho usa. O `state` deixou de ser ignorado: é dele que sai o serviço
+  // DEVIDO de um pagamento atrasado (balde 2).
+  return alocarDevolucaoDoPagamento(state, txid, pay, delta, opcoes);
 }
 
 
@@ -101,8 +73,71 @@ async function applyConfirmedPayment(parsed, deps) {
       const alt = await fallback(parsed);
       if (alt) return alt;
     }
-    // A webhook for a txid we never issued: reject loudly. Never 200 an
-    // unknown money event — that is how funds disappear from ledgers.
+    /**
+     * UM TXID QUE NUNCA EMITIMOS — e a resposta depende de ter MOVIDO DINHEIRO.
+     *
+     * "Never 200 an unknown money event — that is how funds disappear from
+     * ledgers" continua certo, e a conclusão que estava aqui era o contrário
+     * dela: um 409 não guarda nada. O adquirente reenvia algumas vezes, desiste,
+     * e o evento some — que é exatamente o sumiço que a frase proíbe.
+     *
+     * O caso que importa é real e tem nome: o `createWalletCharge` CAPTURA o
+     * cartão dentro da chamada, e a linha de `payments` só é escrita depois. Se
+     * essa escrita falha (o banco tem prazo de 10 s desde 2026-09-16), o dinheiro
+     * saiu e nós não temos linha nenhuma — e este webhook é a única notícia que
+     * o mundo nos dá disso. 409 nele é jogar a notícia fora.
+     *
+     * Então: evento que MOVEU dinheiro vira `money_without_check`, que é uma
+     * espécie do `NON_LEDGER_KINDS` — gravada em `orphan_money_events` com o
+     * `orderCode` (que carrega o id da conta), contada pela conciliação diária e
+     * relatada no aviso do fundador. O resto — um `charge.pending` de outro
+     * ambiente, ruído — segue recusado, porque aí não há dinheiro pra perder.
+     * Achado pela revisão de compliance de 2026-09-16 (HIGH-1).
+     */
+    if (parsed.paid === true || parsed.kind === 'payment_confirmed') {
+      // A FORMA é a que o `handleNonLedgerMoneyEvent` já lê: ele tira o valor, o
+      // id do evento e o corpo de dentro de `raw`. Montar um formato próprio aqui
+      // gravaria o órfão com `amountCents: null` — um alerta que diz "sumiu
+      // dinheiro" sem dizer quanto.
+      return {
+        status: 'money_without_check',
+        txid: parsed.txid,
+        type: parsed.type || null,
+        reason: `dinheiro confirmado para um txid sem linha de pagamento: ${parsed.txid}`,
+        raw: {
+          eventId: parsed.eventId || null,
+          // SEM um `status:` aqui, de propósito: o censo do `sql-contract`
+          // recusa `status` não-literal dentro de um `return` ("um ternário
+          // esconde dois valores atrás de um"), e a regra é boa. O status cru do
+          // adquirente já viaja no `raw.raw`, que é o corpo mascarado que vai
+          // pro `orphan_money_events`.
+          /**
+           * O QUE CHEGOU — e o excedente NÃO entra duas vezes.
+           *
+           * O `parseCharge` já soma o excedente dentro de `amountCents`
+           * (`amountCents: partes.amountCents + excedente`) e ainda o reporta
+           * à parte em `excessCents`, porque a devolução precisa saber de qual
+           * pagamento ele veio. Somar os três contava o excedente duas vezes:
+           * medido numa conta de R$ 50,00 paga com R$ 60,00, o órfão dizia
+           * 7000¢ para 6000¢ que de fato entraram.
+           *
+           * O próprio adaptador escreve a invariante, e é ela que dá a conta
+           * certa: `partes.amountCents + excedente + partes.tipCents ===
+           * recebido`, ou seja **`amountCents + tipCents`**.
+           *
+           * Um número errado é pior que nenhum aqui: esta linha é o ÚNICO
+           * registro que existe desse dinheiro (inegociável #5), e ela vai pro
+           * aviso do fundador. Achado pela quarta revisão de segurança de
+           * 2026-09-16 (HIGH-1).
+           */
+          amountCents: (parsed.amountCents || 0) + (parsed.tipCents || 0),
+          // O `code` do pedido carrega o `checkId`: é ele que torna o órfão
+          // RESOLVÍVEL em vez de só visível.
+          orderCode: parsed.orderCode || null,
+          raw: parsed.raw || null,
+        },
+      };
+    }
     return { status: 'rejected', reason: `unknown txid ${parsed.txid}` };
   }
 
@@ -155,64 +190,116 @@ async function applyConfirmedPayment(parsed, deps) {
    * subtração.
    */
   /**
-   * Reversão: desfaz o que ESTE estorno tirou, na mesma proporção.
+   * Reversão: desfaz o que ESTE estorno tirou.
    *
-   * O `refund.failed` traz o valor do estorno que falhou. Rateá-lo contra o
-   * que já foi estornado devolve exatamente as partes que foram tiradas —
-   * pelo mesmo `allocateRefund`, então a ida e a volta não podem divergir.
+   * O texto aqui já disse duas coisas falsas, e as duas autorizavam algo.
+   * Primeiro, que ida e volta "não podem divergir, pelo mesmo `allocateRefund`"
+   * — deixou de valer quando a ida ganhou três baldes (compliance MEDIUM-3 de
+   * d7f2683). Depois, que "o adquirente não manda" qual lançamento falhou — e
+   * manda: o `data.object` do `refund.failed` É o objeto Refund, e o adaptador
+   * já lia `status`, `amount` e `payment_intent` dele, jogando fora só o `id`
+   * (compliance MEDIUM-4 de 11a0904).
+   *
+   * Hoje: o `re_` identifica o estorno e fecha a reentrega; o rateio sai do
+   * LANÇAMENTO que falhou quando o valor casa com um só, e do proporcional
+   * quando não casa — e nesse caso o razão grava `testemunhado: false`, porque
+   * palpite nosso não pode mandar no rateio que tira da base da folha.
    */
   let reversalAllocated = null;
   if (type === 'PAYMENT_REFUND_REVERSED') {
     const pay = state && state.payments[parsed.txid];
     if (!pay) return { status: 'rejected', reason: `reversal for unknown txid ${parsed.txid}` };
-    const jaEstornado = pay.refundedAmountCents + pay.refundedTipCents;
+    /**
+     * O TETO DA REVERSÃO conta só o que o ADQUIRENTE estornou.
+     *
+     * `falhou` é o `Refund.amount` da Stripe — a mesma régua do
+     * `charge.amount_refunded`, que nunca conta disputa. Comparar com o nosso
+     * acumulado TOTAL, com o chargeback dentro, é a mesma "duas réguas
+     * diferentes" que o ramo do estorno cumulativo já corrige cem linhas abaixo
+     * — e aqui ela fazia coisa pior do que errar a conta: o saldo da disputa
+     * MASCARAVA o `jaEstornado === 0`, então uma reversão de um estorno que o
+     * razão nunca viu não caía em `out_of_order`, era aplicada contra o
+     * chargeback, devolvia pra conta dinheiro que a rede levou e subia a
+     * gorjeta junto — na base de cálculo da folha (Lei 13.419/2017). Sem uma
+     * anomalia sequer (compliance HIGH-1 da rodada onze).
+     */
+    const estornadoAmount = pay.refundedPeloTrilhoAmountCents || 0;
+    const estornadoTip = pay.refundedPeloTrilhoTipCents || 0;
+    const jaEstornado = estornadoAmount + estornadoTip;
     const falhou = Number.isSafeInteger(parsed.amountCents) ? parsed.amountCents : jaEstornado;
+
+    /**
+     * QUEM DECIDE É O `casarReversao`, e ele é puro.
+     *
+     * Esta decisão morava aqui, em três guardas com ordens diferentes, e as duas
+     * revisões da rodada dez acharam sete defeitos nela. O pior era de ORDEM: a
+     * guarda de identidade tinha sido movida pra cima pra cobrir a janela do
+     * deploy, e a janela do deploy é definida pela reversão do razão não ter
+     * `re_` — ela não podia disparar ali. A segunda entrega caía em
+     * `jaEstornado === 0` e saía por `out_of_order`, gravando no razão, para
+     * sempre, que "a reversão chegou antes do estorno". Chegou depois, e já
+     * estava aplicada (segurança HIGH-1 da rodada dez).
+     *
+     * A decisão por CONTAGEM não depende de o estorno ainda estar vivo no razão,
+     * então ela alcança a janela — e vem antes de tudo.
+     */
+    const casamento = casarReversao(events, parsed.txid, falhou, parsed.refundId || null);
+
+    // A ANOMALIA leva a chave da ENTREGA, com sufixo.
+    //
+    // A rodada nove chaveou por `txid:motivo:valor`, o que deduplica a
+    // reentrega — e também deduplica PARA SEMPRE: uma segunda falha cega, de
+    // verdade, do mesmo valor no mesmo pagamento passava calada (segurança
+    // MEDIUM-1, compliance LOW-1). Agora a reentrega é barrada acima, por
+    // identidade ou por contagem, então cada entrega que CHEGA aqui é um
+    // acontecimento distinto e merece o próprio registro.
+    //
+    // O sufixo não é enfeite: com `parsed.eventId` puro a anomalia queimava a
+    // chave de idempotência do próprio evento (`psp_event_id` é único no banco
+    // inteiro, migração 0018) e a reentrega saía como `duplicate` sem nunca
+    // aplicar a reversão.
+    const gritar = async (chave, severity, reason) => {
+      try {
+        await appendEvent(check.id, 'PAYMENT_ANOMALY', { txid: parsed.txid, reason, severity },
+          parsed.eventId ? `${parsed.eventId}:${chave}` : `${parsed.txid}:${chave}:${falhou}`);
+      } catch (e) {
+        // FALA. Um `catch` mudo foi o que transformou um `ReferenceError` numa
+        // guarda morta por um commit inteiro (segurança HIGH-1 de 53c9ff0).
+        process.stderr.write(`[webhook] anomalia ${chave} não gravada: ${String(e && e.message).slice(0, 160)}\n`);
+      }
+    };
+
+    if (casamento.decisao === 'reentrega') {
+      await repairRowFromLedger(check.id, parsed.txid, deps);
+      return { status: 'duplicate', checkId: check.id };
+    }
+
     if (jaEstornado === 0) {
       /**
        * O estorno ainda não entrou no razão. Reverter o que não existe não é
-       * desfazer, é inventar (inegociável #6) — mas RECUSAR também está errado.
+       * desfazer, é inventar (inegociável #6) — mas RECUSAR também está errado:
+       * a Stripe não garante ordem, 409 vira reenvio, e reenvio esgotado vira
+       * endpoint desabilitado. Então registra a ANOMALIA e devolve 200.
        *
-       * A Stripe não garante ordem: `refund.failed` pode chegar antes do
-       * `charge.refunded`. Recusar vira 409, a Stripe reenvia, e o normal é
-       * convergir quando o estorno chega. O que não é normal: se os reenvios
-       * se esgotarem, a reversão some pra sempre e o razão fica dizendo
-       * "estornado" pra um dinheiro que voltou. E 409 repetido é o caminho pro
-       * endpoint ser desabilitado.
+       * `high`, e não `info`. O texto aqui dizia que o caso "converge sozinho
+       * quando a reentrega aplica a reversão" — não há reentrega: esta saída
+       * devolve 200, e a Stripe só reentrega em resposta de falha. O irmão
+       * (`refund.updated` com status `failed`) é emitido no MESMO instante,
+       * então numa ordem trocada os dois caem aqui e os dois somem: dinheiro do
+       * cliente sem dono no razão, com a conciliação comparando duas projeções
+       * que contam a mesma mentira (compliance HIGH-2 de 53c9ff0).
        *
-       * Então: registra a ANOMALIA e devolve 200. Alto no NOSSO sistema, e não
-       * no contador de falhas da Stripe. Achado pela revisão de segurança de
-       * 2026-09-08.
+       * E RECONCILIA a linha antes de sair. Este era o único caminho em forma de
+       * `duplicate` sem reparo: uma linha que ficou velha entre duas entregas em
+       * voo ficava velha pra sempre, dizendo "devolvido" sobre dinheiro que está
+       * na casa (segurança HIGH-1 da rodada dez, item 2).
        */
-      /**
-       * A CHAVE LEVA SUFIXO, e é isso que faz a convergência acima existir.
-       *
-       * Escrita assim, com `parsed.eventId` puro, esta anomalia QUEIMAVA a
-       * chave de idempotência do próprio evento: `psp_event_id` é único no
-       * banco inteiro (migração 0018), então a reentrega do mesmo `evt_` —
-       * que é exatamente o mecanismo em que o comentário acima confia — batia
-       * no curto-circuito lá em cima e saía como `duplicate`. A reversão nunca
-       * era aplicada. O dinheiro voltava pro restaurante, o razão seguia
-       * dizendo "estornado", a linha também, e a conciliação comparava os dois
-       * e concordava.
-       *
-       * O sufixo é o mesmo recurso que o fecho de disputa usa: uma entrega que
-       * produz DOIS lançamentos precisa de duas chaves.
-       * Achado pela revisão de segurança de 2026-09-08.
-       */
-      try {
-        await appendEvent(check.id, 'PAYMENT_ANOMALY', {
-          txid: parsed.txid,
-          reason: `reversão de estorno chegou antes do estorno (valor ${parsed.amountCents ?? '?'})`,
-          // `info`: este caso CONVERGE sozinho quando o estorno chega e a
-          // reentrega aplica a reversão. Deixá-lo `high` mantinha a casa
-          // vermelha por algo que se curou — o canário que grita pra sempre, e
-          // que este commit corrige em três outros lugares. O log fica com o
-          // registro de que a ordem veio trocada.
-          severity: 'info',
-        }, parsed.eventId ? `${parsed.eventId}:out_of_order` : null);
-      } catch { /* o registro é o melhor esforço; a resposta 200 não muda */ }
+      await gritar('out_of_order', 'high',
+        `reversão de estorno chegou antes do estorno (valor ${parsed.amountCents ?? '?'})`);
+      await repairRowFromLedger(check.id, parsed.txid, deps);
       return { status: 'out_of_order', checkId: check.id, reason: `reversal before refund for txid ${parsed.txid}` };
     }
+
     // Valor NEGATIVO ou zero é recusa, não exceção.
     //
     // O `allocateRefund` estoura em `refundCents` negativo — de propósito, é o
@@ -224,7 +311,136 @@ async function applyConfirmedPayment(parsed, deps) {
     if (!Number.isSafeInteger(aReverter) || aReverter <= 0) {
       return { status: 'rejected', reason: `reversal amount inválido (${parsed.amountCents}) para ${parsed.txid}` };
     }
-    reversalAllocated = allocateRefund(pay.refundedAmountCents, pay.refundedTipCents, aReverter);
+
+    for (const a of casamento.anomalias) await gritar(a.chave, a.severity, a.reason);
+
+    /**
+     * O `Math.min` ESCONDIA uma divergência entre o adquirente e o razão.
+     *
+     * `falhou` é o `Refund.amount` da Stripe; `jaEstornado` é o que o NOSSO
+     * razão sabe. Quando o adquirente relata uma falha maior do que o estorno
+     * que a gente registrou, a diferença sumia sem anomalia, sem log, sem nada —
+     * e o número JÁ CORTADO ia casar por valor, podendo casar exatamente com um
+     * estorno que deu CERTO. O razão então revertia o estorno certo, com
+     * testemunha, e abria teto de devolução por fora sobre dinheiro que o
+     * cliente já tinha recebido: pagamento em dobro (CC art. 884, CDC art. 42) e
+     * base da folha movida sobre uma ficção (compliance HIGH-2 da rodada dez).
+     *
+     * Um valor cortado é, por construção, uma coisa que o adquirente NÃO disse.
+     * Então não pode sustentar testemunha nenhuma.
+     *
+     * A ZERAGEM ABAIXO É CINTO SOBRE SUSPENSÓRIO — e o suspensório é o
+     * `casaOValor` logo adiante, não o que eu escrevi aqui antes.
+     *
+     * A versão anterior deste parágrafo dizia que a zeragem era redundante por
+     * causa de uma invariante: "se existe um candidato vivo somando `falhou`,
+     * então `jaEstornado >= falhou`". As duas revisões da rodada onze mostraram
+     * que ela é FALSA, com um contraexemplo que este próprio arquivo produz — a
+     * reversão é gravada pelo valor CORTADO e rateada proporcionalmente, então
+     * ela não soma o total de candidato nenhum, e um corte com testemunha é
+     * perfeitamente alcançável.
+     *
+     * O que realmente segura é a aritmética do `casaOValor`: a repartição que o
+     * casador devolve quando testemunha soma EXATAMENTE `falhou` (é a de um
+     * candidato daquele valor), e `casaOValor` a compara com `aReverter`. Num
+     * corte os dois são diferentes por definição, então o proporcional entra.
+     * Essa invariante é sobre o casador sozinho, é verdadeira, e está provada
+     * por propriedade em `reversal-match.test.js` — com um gerador que ALCANÇA
+     * o corte com testemunha, que é o que a prova anterior não fazia.
+     *
+     * Um parágrafo que chama de redundante a guarda errada é um convite escrito
+     * pra alguém remover a que está segurando o dinheiro.
+     */
+    let testemunhado = casamento.testemunhado === true;
+    if (aReverter !== falhou) {
+      await gritar('reversao_maior_que_o_razao', 'high',
+        `adquirente relata falha de ${falhou} e o razão só conhece ${jaEstornado} estornado — `
+        + `revertendo ${aReverter} e conferindo o estorno no adquirente`);
+      testemunhado = false;
+    }
+
+    /**
+     * A repartição, e QUEM a afirma.
+     *
+     * Com testemunha: os baldes são os do lançamento que o adquirente nomeou —
+     * o razão sabe quanto daquele estorno era consumo e quanto era serviço.
+     * Sem: volta o proporcional, e o razão grava `testemunhado: false`, porque
+     * palpite nosso não pode mandar no rateio que tira da base da folha.
+     */
+    /**
+     * A TESTEMUNHA TEM QUE CABER NOS BALDES VIVOS, não só somar o valor certo.
+     *
+     * O casador olha o razão INTEIRO: a repartição que ele devolve é a de um
+     * lançamento HISTÓRICO, e os baldes vivos do trilho já podem ter sido
+     * drenados por reversões anteriores de OUTRO valor — que a guarda da
+     * testemunha não enxerga, porque ela filtra por valor.
+     *
+     * Medido: estorno A de {0,1000} e B de {1800,200}; uma falha de 1500 (que
+     * não casa com nenhum) entra proporcional e deixa o trilho em {900,600};
+     * depois a falha de 1000, que É o A, ganha testemunha {0,1000} — e o
+     * `validateEvent` recusa, porque 1000 de gorjeta não cabe em 600. A rota
+     * devolvia 409 SEM UMA ANOMALIA: a Stripe reenvia, o endpoint acaba
+     * desabilitado, e o razão segue dizendo que o cliente foi reembolsado de um
+     * dinheiro que nunca saiu (compliance HIGH-1 da rodada doze; inegociável #8,
+     * CDC art. 6º III, Lei 13.419/2017).
+     *
+     * `falhou` que não casa com um lançamento é o caso NORMAL, não exótico: o
+     * razão grava deltas de um acumulado, então dois estornos com um
+     * `charge.refunded` perdido viram um lançamento só.
+     *
+     * Não cabendo, a testemunha cai e o proporcional entra — que por construção
+     * cabe, porque é calculado SOBRE os baldes vivos.
+     */
+    /**
+     * E `cabeNosBaldes` EXIGE INTEIRO SEGURO nos dois baldes, com o `if` abaixo
+     * disparando sempre que ela é falsa — é o que faz a forma impossível cair no
+     * lado seguro em vez de escapar.
+     *
+     * Eu tinha posto `isSafeInteger` nas DUAS condições e removido o mesmo teste
+     * do `casaOValor` chamando-o de guarda morta ("apagá-lo não quebra teste
+     * nenhum"). Nenhum teste quebrar significa que nenhum teste cobre a forma —
+     * esta série inteira é sobre essa diferença. Com um `amountCents`
+     * fracionário: `cabeNosBaldes` dava `false`, o `if` NÃO rodava (exigia o
+     * mesmo `isSafeInteger`), a testemunha sobrevivia, e `casaOValor` virava uma
+     * soma solta — `{10.5, 9.5}` casaria com `aReverter = 20` e entraria no
+     * razão. Centavo fracionário, inegociável #5 (segurança LOW-2 da rodada
+     * treze).
+     *
+     * Não há entrada alcançável hoje (todo lançamento nasce de `allocateRefund`,
+     * que é inteiro) — e é exatamente por isso que é defesa em profundidade, que
+     * é o que não se remove por "não quebrou teste". Ainda mais aqui: o
+     * `appendEvent` do store de produção não chama `validateEvent`, então no
+     * caminho do webhook o portão é o RPC e esta função.
+     */
+    const cabeNosBaldes = Number.isSafeInteger(casamento.amountCents)
+      // O `tipCents` está aqui por SIMETRIA, e fica dito que ele não pode ser o
+      // que segura: `casaOValor` exige `amountCents + tipCents === aReverter`
+      // com `aReverter` inteiro, e inteiro + não-inteiro nunca é inteiro — então
+      // o balde do consumo já derruba sozinho toda forma fracionária. Apagá-lo
+      // não quebra teste nenhum, e desta vez isso é uma observação, não uma
+      // licença: a próxima rodada não precisa redescobrir que ele é redundante
+      // pela mesma evidência que este arquivo acabou de recusar como prova
+      // (segurança LOW-2 da rodada catorze).
+      && Number.isSafeInteger(casamento.tipCents)
+      && casamento.amountCents <= estornadoAmount && casamento.tipCents <= estornadoTip;
+    if (testemunhado && casamento.amountCents !== undefined && !cabeNosBaldes) {
+      await gritar('testemunha_excede_o_balde', 'high',
+        `o adquirente aponta um estorno de ${casamento.amountCents}+${casamento.tipCents} e o razão só tem `
+        + `${estornadoAmount}+${estornadoTip} vivos neste pagamento — revertendo pelo proporcional, `
+        + `confira os estornos deste pagamento no adquirente`);
+      testemunhado = false;
+    }
+    // `cabeNosBaldes` não se repete aqui: o `if` acima já derruba a testemunha
+    // sempre que ela não cabe — INCLUSIVE quando o valor não é inteiro seguro,
+    // que é o caso que a versão anterior deixava escapar.
+    const casaOValor = testemunhado
+      && casamento.amountCents + casamento.tipCents === aReverter;
+    reversalAllocated = casaOValor
+      ? { amountCents: casamento.amountCents, tipCents: casamento.tipCents, testemunhado: true }
+      // O proporcional é sobre o que o ADQUIRENTE estornou, não sobre o que
+      // saiu do pagamento: com o chargeback na base, o rateio tirava da gorjeta
+      // uma proporção calculada sobre dinheiro que a rede levou.
+      : { ...allocateRefund(estornadoAmount, estornadoTip, aReverter), testemunhado: false };
   }
 
   let refundAllocated = null;
@@ -293,7 +509,9 @@ async function applyConfirmedPayment(parsed, deps) {
             reason: `disputa perdida recusada como reentrega SEM id de disputa `
               + `(delta ${parsed.refundDeltaCents}¢) — conferir no adquirente`,
           }, parsed.eventId ? `${parsed.eventId}:blind_belt` : null);
-        } catch { /* melhor esforço: a recusa segue */ }
+        } catch (e) {
+          process.stderr.write(`[webhook] anomalia de recusa não gravada: ${String(e && e.message).slice(0, 160)}\n`);
+        }
       }
       await repairRowFromLedger(check.id, parsed.txid, deps);
       return { status: 'duplicate', checkId: check.id };
@@ -327,14 +545,30 @@ async function applyConfirmedPayment(parsed, deps) {
     // deixá-la nos livros como paga mentiria pra folha — mas o excedente nunca
     // foi gorjeta nem receita, e não pode virar desconto na folha por ordem de
     // subtração.
-    refundAllocated = alocarDevolucao(state, pay, parsed.refundDeltaCents);
+    //
+    // `forcada`: aqui o dinheiro foi TIRADO, não devolvido. O balde do consumo
+    // primeiro existe pra quem ESCOLHE devolver; num chargeback a rede decidiu,
+    // e o proporcional é o que diz a verdade sobre de onde o dinheiro saiu
+    // (compliance MEDIUM-2 de d7f2683).
+    refundAllocated = alocarDevolucao(state, parsed.txid, pay, parsed.refundDeltaCents, { forcada: true });
   }
   if (type === 'PAYMENT_REFUNDED' && Number.isSafeInteger(parsed.cumulativeRefundedCents)) {
     const pay = state && state.payments[parsed.txid];
     if (!pay) {
       return { status: 'rejected', reason: `refund for unknown txid ${parsed.txid}` };
     }
-    const jaEstornado = pay.refundedAmountCents + pay.refundedTipCents;
+    /**
+     * O ACUMULADO DO ADQUIRENTE conta objetos `Refund`. A DISPUTA não é um.
+     *
+     * `charge.amount_refunded` nunca é incrementado por um chargeback, então
+     * comparar com o nosso acumulado TOTAL — que tem o chargeback dentro —
+     * é comparar duas réguas diferentes. Depois de um chargeback parcial o
+     * nosso ficava permanentemente à frente e todo estorno de verdade que
+     * viesse depois caía em `delta <= 0`: engolido como reentrega, sem
+     * anomalia e sem log, com o cliente já com o dinheiro na mão (segurança
+     * HIGH-4 da rodada dez).
+     */
+    const jaEstornado = (pay.refundedPeloTrilhoAmountCents || 0) + (pay.refundedPeloTrilhoTipCents || 0);
     const delta = parsed.cumulativeRefundedCents - jaEstornado;
     if (delta <= 0) {
       // Reenvio do mesmo estorno, ou um acumulado mais velho que o que já
@@ -351,7 +585,24 @@ async function applyConfirmedPayment(parsed, deps) {
         reason: `refund ${parsed.cumulativeRefundedCents} exceeds paid ${paidTotal} for txid ${parsed.txid}`,
       };
     }
-    refundAllocated = alocarDevolucao(state, pay, delta);
+    /**
+     * A REFAÇÃO do estorno também segue a testemunha.
+     *
+     * Ela caía no proporcional: com uma falha só de serviço (R$ 10,00), refazer
+     * o estorno pelo trilho devolvia R$ 10,00 ao cliente e o razão registrava
+     * R$ 0,91 — R$ 9,09 ficando na folha sobre serviço que voltou (compliance
+     * MEDIUM-1 de 95f72a9). Ou a testemunha vale nos dois trilhos, ou em nenhum.
+     */
+    refundAllocated = alocarDevolucao(state, parsed.txid, pay, delta,
+      // A MESMA guarda que o `tetoDaRestituicao` tem: testemunha zerada não é
+      // testemunha. Duas cópias da regra, e esta estava com três de quatro
+      // condições (segurança HIGH-2 de 11a0904).
+      (pay.reversedOpenTestemunhado === true && pay.reversedOpenCents > 0) ? {
+        testemunha: {
+          amountCents: Math.max(0, pay.reversedOpenAmountCents || 0),
+          tipCents: Math.max(0, pay.reversedOpenTipCents || 0),
+        },
+      } : undefined);
   }
 
   const payload = type === 'PAYMENT_DISPUTE_CLOSED' ? {
@@ -372,6 +623,32 @@ async function applyConfirmedPayment(parsed, deps) {
     // O `dp_` fica no LOG: é o que distingue a reentrega de uma derrota da
     // segunda derrota de verdade, e o log é o único lugar durável.
     ...(type === 'PAYMENT_REFUNDED' && parsed.disputeId ? { disputeId: parsed.disputeId } : {}),
+    /**
+     * E A PROCEDÊNCIA fica marcada MESMO SEM O `dp_`.
+     *
+     * "É uma disputa" e "qual disputa" são perguntas diferentes, e o razão
+     * gravava só a segunda. Um `dispute_lost` sem `dp_` — o cinto cego, que este
+     * arquivo já trata cem linhas acima — produzia um `PAYMENT_REFUNDED` que
+     * nenhum leitor conseguia distinguir de um estorno do adquirente: entrava no
+     * acumulado do trilho, virava candidato a "o estorno que falhou", e o
+     * chargeback podia ser desfeito no razão (segurança HIGH-3 da rodada dez,
+     * HIGH-1 da rodada onze).
+     *
+     * A marca é derivada do KIND, que a gente sempre tem. Os lançamentos
+     * gravados ANTES desta linha continuam sem ela — e pra esses o `dp_`, quando
+     * existe, ainda responde.
+     */
+    ...(type === 'PAYMENT_REFUNDED' && parsed.kind === 'dispute_lost' ? { deDisputa: true } : {}),
+    // A TESTEMUNHA É VERDADEIRA? Só quando o valor revertido casou com UM
+    // lançamento do razão. Sem isso o rateio é palpite nosso, e o razão precisa
+    // dizer qual dos dois foi — é ele que autoriza tirar da base da folha.
+    ...(type === 'PAYMENT_REFUND_REVERSED' && reversalAllocated
+      ? {
+        testemunhado: reversalAllocated.testemunhado === true,
+        // O id do estorno que falhou — a chave que separa a segunda entrega da
+        // mesma falha de uma falha nova.
+        ...(parsed.refundId ? { refundId: parsed.refundId } : {}),
+      } : {}),
   };
 
   if (type === 'PAYMENT_CONFIRMED' && state && state.payments[parsed.txid]) {
@@ -575,6 +852,9 @@ const ROW_STATUS_FOR_KIND = Object.freeze({
  * aplicador — lá dentro tudo que não é `refund` é tratado como pagamento.
  */
 const NON_LEDGER_KINDS = new Set([
+  // Dinheiro CONFIRMADO para um txid sem linha — o caso do cartão capturado
+  // cuja escrita falhou. Ver o bloco no `!check` acima.
+  'money_without_check',
   'dispute_opened', 'refund_progress', 'unusable_money_event',
   // Mudança de estado da disputa (prazo, prova enviada) e movimento do valor
   // disputado no SALDO. Nenhum dos dois muda o que a mesa deve; os dois

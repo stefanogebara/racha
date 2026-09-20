@@ -195,6 +195,10 @@ describe('os dois stores devolvem a MESMA forma', () => {
     const sup = createSupabaseStore({
       client: fakeClient([{
         id: check.id,
+        // `check_id`: as duas leituras (razão e pagamentos) vêm POR LOTE e
+        // agrupam por esta coluna — sem ela a linha cai num balde inexistente
+        // e a forma comparada aqui seria a de uma lista vazia.
+        check_id: check.id,
         txid: 'ch_1', amount_cents: 5000, tip_cents: 500,
         confirmed_amount_cents: 5000, confirmed_tip_cents: 500,
         refunded_amount_cents: 0, refunded_tip_cents: 0,

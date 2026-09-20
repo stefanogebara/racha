@@ -97,11 +97,22 @@ describe('censo das espécies de evento de webhook', () => {
     // NENHUM deles chegou ao aplicador — é o ponto todo.
     expect(aplicou).toEqual([]);
 
-    // Os do razão chegam. Aqui o txid é desconhecido, então é recusa alta,
-    // que é o comportamento certo pra um txid que não emitimos.
+    /**
+     * Os do razão chegam ao aplicador. O txid é desconhecido, e aí o desfecho
+     * depende de o evento ter MOVIDO DINHEIRO:
+     *
+     *  · `payment_confirmed` → `money_without_check`. Dinheiro confirmado e
+     *    nenhuma linha onde pendurá-lo é o caso do cartão capturado cuja
+     *    escrita falhou: 409 ali joga fora a única notícia que o mundo nos dá
+     *    (compliance HIGH-1 de 2026-09-16). Vai pra `orphan_money_events`.
+     *  · O resto → `rejected`. Sem dinheiro confirmado não há o que perder, e
+     *    registrar todo evento desconhecido encheria a fila de órfãos que
+     *    ninguém fecha.
+     */
     for (const kind of LEDGER_KINDS) {
       const r = await handleWith({ kind, txid: 'pi_y', amountCents: 3390, tipCents: 0 });
-      expect(r.status).toBe('rejected');
+      const esperado = kind === 'payment_confirmed' ? 'money_without_check' : 'rejected';
+      expect({ kind, status: r.status }).toEqual({ kind, status: esperado });
     }
     // Uma entrada por espécie do razão — contagem derivada da lista, não
     // escrita à mão: `refund_failed` mudou de lado quando ganhou evento
@@ -133,13 +144,84 @@ test('a rota do Stripe conhece exatamente as mesmas espécies que o portão', ()
   // O bloco de despacho da rota do Stripe: `parsed.kind === '…'` dentro dela.
   const inicio = src.indexOf("url.pathname === '/api/webhooks/stripe'");
   expect(inicio).toBeGreaterThan(0);
-  const bloco = src.slice(inicio, inicio + 12000);
+  /**
+   * ATÉ A PRÓXIMA ROTA, e não uma janela de N caracteres.
+   *
+   * Era `slice(inicio, inicio + 12000)`. Um comentário acrescentado no meio da
+   * rota empurrou parte do despacho pra fora da janela e o censo passou a
+   * acusar espécies "faltando" que estão lá — uma janela fixa envelhece junto
+   * com o arquivo, e o jeito dela falhar é acusar o inocente, que morre igual a
+   * absolver o culpado. É o mesmo recorte que o `non-ledger.test.js` já usa.
+   */
+  const fimDaRota = src.indexOf("url.pathname === '", inicio + 40);
+  const bloco = src.slice(inicio, fimDaRota > inicio ? fimDaRota : undefined);
   const naRota = new Set([...bloco.matchAll(/parsed\.kind === '([a-z_]+)'/g)].map((m) => m[1]));
 
-  // Toda espécie que NÃO move o razão precisa estar tratada na rota — senão
-  // cai no aplicador, que só conhece as do razão.
-  const faltando = [...NON_LEDGER_KINDS].filter((k) => !naRota.has(k)).sort();
+  /**
+   * Toda espécie que NÃO move o razão precisa estar tratada na rota — senão cai
+   * no aplicador, que só conhece as do razão.
+   *
+   * MAS SÓ AS QUE UM ADAPTADOR EMITE. `NON_LEDGER_KINDS` tem duas
+   * procedências: a maioria vem do `parsed.kind` que os adaptadores constroem
+   * ao ler o webhook, e essas a rota precisa nomear. O `money_without_check`
+   * vem do TRATADOR — ele nasce quando não há conta pro txid, depois do parse —
+   * e por isso nunca aparece como `parsed.kind`; exigir que a rota o nomeie era
+   * pedir uma linha impossível.
+   *
+   * A procedência é DERIVADA dos adaptadores, e não uma lista à mão: uma
+   * espécie nova que um adaptador passe a emitir entra na exigência sozinha.
+   */
+  const adaptadores = ['pagarme-psp.js', 'stripe-psp.js', 'mock-psp.js']
+    .map((f) => path.join(__dirname, '..', '_lib', 'pay', f))
+    .filter((f) => fs.existsSync(f))
+    .map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+  /**
+   * A DERIVAÇÃO TEM QUE VER A EMISSÃO POR TERNÁRIO.
+   *
+   * A primeira versão casava só `kind: '…'` LITERAL, e o `stripe-psp.js` emite
+   * uma delas assim:
+   *
+   *     kind: r.status === 'failed' ? 'refund_failed' : 'refund_progress',
+   *
+   * Então o `refund_progress` era classificado como "derivado do tratador" e
+   * PERDIA a exigência de estar nomeado na rota da Stripe — uma guarda que eu
+   * afrouxei sem querer ao consertar outra coisa. A revisão plantou o mutante
+   * (tirar `parsed.kind === 'refund_progress'` do despacho) e mediu: censo
+   * antigo VERMELHO, censo novo VERDE. Em produção esse kind cairia no
+   * aplicador, que não tem evento pra ele, e a rota estouraria 500 → a Stripe
+   * reenvia → endpoint desabilitado → toda confirmação daquele trilho perdida.
+   *
+   * Agora casa qualquer literal citada num adaptador junto de `kind`, ternário
+   * incluído — e o teste abaixo prova que `refund_progress` está entre elas.
+   * Achado pela quarta revisão de segurança de 2026-09-16 (MEDIUM-3).
+   */
+  const emitidosPorAdaptador = new Set([
+    ...[...adaptadores.matchAll(/kind:\s*'([a-z_]+)'/g)].map((m) => m[1]),
+    // `kind: <cond> ? 'a' : 'b'` — as duas pontas do ternário.
+    ...[...adaptadores.matchAll(/kind:[^,\n]*\?\s*'([a-z_]+)'\s*:\s*'([a-z_]+)'/g)]
+      .flatMap((m) => [m[1], m[2]]),
+  ]);
+  // O censo tem que ENXERGAR os adaptadores: zero emitidos absolveria tudo.
+  expect(emitidosPorAdaptador.size).toBeGreaterThanOrEqual(5);
+  // E tem que enxergar A EMISSÃO POR TERNÁRIO especificamente: sem esta linha,
+  // a regressão que a revisão plantou volta em silêncio.
+  expect([...emitidosPorAdaptador]).toContain('refund_progress');
+  expect([...emitidosPorAdaptador]).toContain('refund_failed');
+
+  const faltando = [...NON_LEDGER_KINDS]
+    .filter((k) => emitidosPorAdaptador.has(k))
+    .filter((k) => !naRota.has(k))
+    .sort();
   expect(faltando).toEqual([]);
+
+  // E o que o TRATADOR deriva é despachado por pertencimento, não por nome —
+  // o `responderDoAplicador` trata o conjunto. Sem esta conferência, mudar o
+  // despacho pra uma enumeração deixaria estes órfãos sem rota e o censo mudo.
+  const derivados = [...NON_LEDGER_KINDS].filter((k) => !emitidosPorAdaptador.has(k));
+  if (derivados.length > 0) {
+    const router = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+    expect(router).toMatch(/NON_LEDGER_KINDS\.has\(result\.status\)/);
+  }
 
   // E a rota não pode inventar espécie que o portão não conhece.
   const classificadas = new Set([...LEDGER_KINDS, ...NON_LEDGER_KINDS, 'ignored']);
@@ -304,33 +386,53 @@ describe('censo das chaves de idempotência', () => {
     expect(arquivos.length).toBeGreaterThanOrEqual(4);
     const semSufixo = [];
     for (const rel of arquivos) {
-      const src = fs.readFileSync(path.join(raiz, rel), 'utf8');
-      // Appends de ANOMALIA e de FECHO: os dois tipos que acompanham outro
-      // lançamento na mesma entrega. O lançamento principal usa a chave pura,
-      // e é assim que tem que ser.
-      const alvos = [/PAYMENT_ANOMALY[\s\S]{0,600}?\}\s*,\s*([^)]*)\)/g,
-        /PAYMENT_DISPUTE_CLOSED[\s\S]{0,300}?\}\s*,\s*([^)]*)\)/g];
-      for (const re of alvos) {
-        for (const m of src.matchAll(re)) {
-          const chave = m[1];
-          if (!/eventId/.test(chave)) continue;      // não passa evento: nada a conferir
-          if (!/`\$\{[^}]*eventId[^}]*\}:/.test(chave)) {
-            semSufixo.push(`${rel}: ${chave.trim().slice(0, 60)}`);
-          }
-        }
-      }
+      semSufixo.push(...varrerChaves(rel, fs.readFileSync(path.join(raiz, rel), 'utf8')));
     }
     expect(semSufixo).toEqual([]);
   });
 
-  test('o censo não passa por regex quebrado — ele ENXERGA os dois sufixos de hoje', () => {
-    const src = arquivos();
-    expect(src).toMatch(/`\$\{parsed\.eventId\}:closed`/);
-    expect(src).toMatch(/`\$\{parsed\.eventId\}:out_of_order`/);
-  });
-
-  function arquivos() {
-    return ['_lib/pay/webhook-handler.js', '_app/router.js']
-      .map((rel) => fs.readFileSync(path.join(raiz, rel), 'utf8')).join('\n');
+  /**
+   * O SCANNER, extraído — porque a prova de que ele enxerga é rodá-lo.
+   *
+   * A versão anterior desta prova era `expect(fonte).toMatch(/:out_of_order`/)`:
+   * ela afirmava a GRAFIA de duas chaves de hoje pra mostrar que o censo não
+   * estava cego. Testar grafia é o que morre primeiro — o dia em que as chaves
+   * passaram a sair de um ajudante (`gritar(chave, …)`), as duas grafias
+   * sumiram do arquivo, o censo continuou correto e a prova dele quebrou. Pior
+   * seria o contrário: as grafias ficarem e o censo quebrar.
+   */
+  function varrerChaves(rel, src) {
+    // Appends de ANOMALIA e de FECHO: os dois tipos que acompanham outro
+    // lançamento na mesma entrega. O lançamento principal usa a chave pura,
+    // e é assim que tem que ser.
+    const alvos = [/PAYMENT_ANOMALY[\s\S]{0,600}?\}\s*,\s*([^)]*)\)/g,
+      /PAYMENT_DISPUTE_CLOSED[\s\S]{0,300}?\}\s*,\s*([^)]*)\)/g];
+    const fora = [];
+    for (const re of alvos) {
+      for (const m of src.matchAll(re)) {
+        const chave = m[1];
+        if (!/eventId/.test(chave)) continue;      // não passa evento: nada a conferir
+        if (!/`\$\{[^}]*eventId[^}]*\}:/.test(chave)) {
+          fora.push(`${rel}: ${chave.trim().slice(0, 60)}`);
+        }
+      }
+    }
+    return fora;
   }
+
+  test('o censo ENXERGA — medido sobre fontes sintéticas, não pela grafia', () => {
+    // A chave PURA é o defeito: ela queima a idempotência do próprio evento.
+    const cru = `await appendEvent(id, 'PAYMENT_ANOMALY', { txid, reason: 'x' }, parsed.eventId);`;
+    expect(varrerChaves('falso.js', cru).length).toBe(1);
+    // Com sufixo, literal — a forma antiga.
+    const literal = 'await appendEvent(id, \'PAYMENT_ANOMALY\', { txid, reason: \'x\' }, `${parsed.eventId}:out_of_order`);';
+    expect(varrerChaves('falso.js', literal)).toEqual([]);
+    // Com sufixo VINDO DE VARIÁVEL — a forma de hoje, que a prova por grafia
+    // não conseguia ver.
+    const ajudante = 'await appendEvent(id, \'PAYMENT_ANOMALY\', { txid, reason }, `${parsed.eventId}:${chave}`);';
+    expect(varrerChaves('falso.js', ajudante)).toEqual([]);
+    // E uma chave que nem passa o evento continua fora do censo.
+    const semEvento = `await appendEvent(id, 'PAYMENT_ANOMALY', { txid, reason: 'x' }, null);`;
+    expect(varrerChaves('falso.js', semEvento)).toEqual([]);
+  });
 });

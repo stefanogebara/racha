@@ -16,6 +16,7 @@ const { marketGate, pspCurrency } = require('../markets');
  */
 
 const { reduce, remainingCents } = require('../checks/check-state');
+const { gravarAposCobrar } = require('./gravar-apos-cobrar');
 
 /**
  * `code` opcional porque o servidor NÃO manda texto de tela (CLAUDE.md): quem
@@ -32,6 +33,209 @@ function badRequest(msg, code, vars) {
   return err;
 }
 
+/**
+ * O TETO DE COBRANÇAS VIVAS POR CONTA — e esta é a TERCEIRA forma dele.
+ *
+ * O PROBLEMA. O teto de VALOR existe (`amount_over`) e não limita a CONTAGEM:
+ * o `remainingCents` é `totalCents - paidCents`, `paidCents` conta evento
+ * CONFIRMADO, e o `registerCharge` grava linha pendente sem lançar evento —
+ * então N cobranças pendentes podem ser cada uma pelo valor INTEIRO que falta.
+ * E o `chargeRef`, apesar de determinístico, não é idempotência no adquirente:
+ * quem deriva o `txid` dele é só o MockPsp (por isso o corpo de testes era
+ * cego); a Pagar.me o recebe como referência de comerciante. Um token de mesa
+ * — que viaja em QR fotografado — emitia BR Codes sem limite.
+ *
+ * AS DUAS FORMAS ANTERIORES, ambas medidas ao contrário pela revisão de
+ * segurança de 2026-09-15, e é por isso que esta mora no BANCO:
+ *
+ *  · contar pendentes e comparar. Não atômico — a janela entre ler e gravar é
+ *    uma ida inteira ao PSP: trezentos pedidos simultâneos, trezentas
+ *    cobranças, zero recusas. E sessenta cobranças de um centavo trancavam a
+ *    mesa inteira;
+ *  · um balde por ORIGEM na memória da função, mais uma reserva "em voo"
+ *    local. O balde vivia por instância (três instâncias e um IP trancavam a
+ *    mesa), tinha janela de dez minutos contra quinze de vida da cobrança
+ *    (uma origem atravessava três janelas), contava pedido INVÁLIDO (noventa
+ *    corpos lixo do wi-fi do salão trancavam a mesa com zero cobrança criada)
+ *    — e a reserva não era atômica nem dentro da instância.
+ *
+ * ESTA: `store.claimSlots`, que no Postgres é a RPC `claim_slots` (0033) —
+ * contar e reservar numa instrução só, sob trava consultiva, com janela
+ * DESLIZANTE, no único lugar que todas as instâncias compartilham. É chamada
+ * DEPOIS de toda a validação e logo antes do PSP, então pedido inválido não
+ * ocupa vaga. E a vaga FICA a partir do momento em que o PSP é chamado — dê
+ * certo o resto ou não. Ela só volta quando o PSP nem chegou a ser chamado.
+ *
+ * A regra da rodada anterior era "a vaga fica quando um código pagável chega ao
+ * cliente", e ela era furável por construção: quem decide se o registro dá certo
+ * depois do PSP é o CHAMADOR. Um rótulo com um NUL passa a validação em JS, o
+ * Postgres recusa guardar, o registro estoura — e a vaga voltava, com o
+ * PaymentIntent já criado na Stripe. Mil pedidos, mil e uma cobranças no
+ * adquirente, zero 429 (revisão de segurança stand-in, 2026-09-15, HIGH-1). A
+ * pergunta certa não é "o cliente recebeu um código?", é "o adquirente PODE ter
+ * criado algo?" — e depois de chamado, pode: no timeout, no 5xx, na falha do
+ * registro. O preço: um pedido legítimo que o PSP recusa gasta uma vaga por
+ * quinze minutos. Uma mesa legítima gasta sessenta de duzentas.
+ *
+ * É um teto de RITMO DE CRIAÇÃO, não de cobranças "vivas": conta as criadas nos
+ * últimos quinze minutos, inclusive as já pagas, e os intents da Stripe que
+ * vivem mais que isso saem da conta aos quinze. (Revisão de compliance, LOW-2.)
+ *
+ * O NÚMERO. Uma mesa legítima gasta no máximo vinte pessoas (o passo a passo
+ * da divisão para em vinte) vezes três tentativas: sessenta cobranças criadas
+ * em quinze minutos. Duzentos deixa mais que o triplo de folga — toque duplo,
+ * troca de trilho, tirar o serviço — e continua sendo um teto que importa.
+ *
+ * O QUE CONTINUA ABERTO, dito de frente:
+ *
+ *  · numa rota de token portador, qualquer recurso por conta é esgotável por
+ *    quem tem o token — e com a janela deslizante, por TEMPO INDETERMINADO: um
+ *    script que repõe cada vaga ao vencer (a de um centavo basta) tranca a mesa
+ *    enquanto rodar. A primeira versão desta prosa, a da tela e a do censo de
+ *    saída diziam "até quinze minutos", e as duas revisões de 2026-09-15
+ *    mediram que era falso. O que existe contra isso: a chave leva a GERAÇÃO
+ *    do QR (`geracaoDoQr`), então girar o QR da mesa corta o token do atacante
+ *    E começa um balde novo na hora; e o primeiro 429 de cada conta PAGINA o
+ *    operador, uma vez por janela (`avisarTetoDisparado` no router). A tela não
+ *    promete prazo: diz pra tentar mais tarde ou fechar no caixa, que sempre
+ *    funciona. Separar o atacante da mesa por ORIGEM exigiria guardar uma chave
+ *    de rede no banco, e ela não funcionaria onde importa: no wi-fi do salão o
+ *    atacante e a mesa são o mesmo NAT, e no NAT das operadoras móveis um IP
+ *    novo sai no modo avião (revisão de compliance);
+ *  · não é idempotência: pedidos idênticos criam cobranças distintas até o
+ *    teto. Fundir pela FORMA (mesmo valor, mesma gorjeta) seria pior: numa
+ *    divisão igual duas pessoas pedem o mesmo valor ao mesmo tempo, e o mesmo
+ *    BR Code pras duas faria a segunda ser recusada pelo banco depois de a
+ *    nossa tela dizer que deu certo. Idempotência de verdade precisa de chave
+ *    vinda do cliente.
+ */
+const JANELA_VIVA_MS = 15 * 60 * 1000;
+/** O máximo de pessoas que o passo a passo da divisão permite. Ver o teste. */
+const MAX_PESSOAS_NA_DIVISAO = 20;
+const TENTATIVAS_POR_PESSOA = 3;
+const TETO_PENDENTES = 200;
+
+/**
+ * Reivindica uma vaga pra uma cobrança nova desta conta e devolve a função que
+ * a DEVOLVE — o chamador a chama SÓ se o PSP nem chegou a ser chamado.
+ *
+ * Mora aqui e é EXPORTADA porque há dois sítios que criam cobrança de conta: o
+ * `createCharge` e a rota `/api/pay/stripe-intent`, que monta a cobrança
+ * sozinha. Um teste estrutural exige que toda criação de cobrança seja
+ * precedida por esta — a forma "chamador esquecido" já custou a validação do
+ * `payerLabel` e o portão de mercado dessa mesma rota.
+ */
+async function assertChargeSlot(store, checkId, qrGeneration = undefined) {
+  // Por conta E pela geração do QR — ver `geracaoDoQr`. Geração NULA é token
+  // que não era string (um array que a PostgREST resolve e o `Map` do gêmeo em
+  // memória não): cair na chave sem geração daria a esse pedido um SEGUNDO
+  // balde. Recusa em vez de cair. (Segurança stand-in, LOW-1.) `undefined` —
+  // quem nem passou geração — é chamador de biblioteca, e fica na chave simples.
+  if (qrGeneration === null) {
+    const e = new Error('assertChargeSlot: token de mesa inválido'); e.statusCode = 404; e.code = 'check_not_found';
+    throw e;
+  }
+  const chave = qrGeneration ? `check:${checkId}:${qrGeneration}` : `check:${checkId}`;
+  const r = await store.claimSlots({
+    keys: [chave], limits: [TETO_PENDENTES], windowMs: JANELA_VIVA_MS,
+  });
+  if (r.claimId === null) {
+    // UM GUARDA QUE NINGUÉM VÊ É CARACTERIZADO EM PRODUÇÃO, por um cliente de
+    // pé na mesa. Uma mesa legítima não chega a duzentas: se isto dispara, é
+    // ataque, e a linha tem que existir. Id da conta e mais nada.
+    process.stderr.write(`[teto] cobranças vivas check=${checkId} ocupadas=${r.counts[0]} teto=${TETO_PENDENTES}\n`);
+    const err = new Error(`too many live pending charges for this check (${r.counts[0]})`);
+    // 429, não 400: o pedido está bem formado e a resposta é "agora não".
+    err.statusCode = 429;
+    err.code = 'too_many_pending_charges';
+    // Pro aviso ao operador (router, `avisarTetoDisparado`). NÃO vai pro
+    // corpo: o `errorBody` só serializa `code` e `vars`.
+    err.checkId = checkId;
+    // E a geração: o aviso deduplica por conta E geração, então girar o QR e
+    // ver o ataque voltar na geração nova pagina de novo, na hora.
+    err.qrGeneration = qrGeneration || null;
+    // Só o limite. SEM `windowMinutes`: com a janela deslizante a espera não
+    // tem prazo, e o `windowMinutes` virava `Retry-After: 900` — uma promessa de
+    // prazo pelo cabeçalho que a frase da tela já tinha parado de fazer.
+    // (Compliance, L2.)
+    err.vars = { limit: TETO_PENDENTES };
+    throw err;
+  }
+  let devolvida = false;
+  return async function devolver() {
+    if (devolvida) return;
+    devolvida = true;
+    try {
+      await store.releaseSlots(r.claimId);
+    } catch (e) {
+      // Falhar em DEVOLVER é falhar fechado: a vaga fica ocupada até a janela
+      // passar. Loga e segue — o erro que importa é o do PSP, que já subiu.
+      process.stderr.write(`[teto] vaga não devolvida claim=${r.claimId}: ${String(e && e.message).slice(0, 80)}\n`);
+    }
+  };
+}
+
+/**
+ * A GERAÇÃO DO QR DA MESA — a chave que faz o giro do QR ser um remédio.
+ *
+ * O teto é esgotável por quem tem o token da mesa, e com a janela deslizante
+ * um script que repõe cada vaga ao vencer tranca a mesa pelo tempo que quiser
+ * (as duas revisões de 2026-09-15 mediram). O dono já tem o remédio certo —
+ * girar o QR (`/api/tables/rotate`) corta o token do atacante —, mas a conta
+ * continuava a mesma e as duzentas vagas dele continuavam ocupando o balde.
+ * Com a geração na chave, o QR novo começa um balde novo NA HORA, e o atacante
+ * sem o token novo não alcança ele. Hash de um token aleatório de alta
+ * entropia: não volta a ser o token.
+ */
+function geracaoDoQr(token) {
+  if (typeof token !== 'string' || !token) return null;
+  return require('node:crypto').createHash('sha256').update(token).digest('hex').slice(0, 16);
+}
+
+/**
+ * O rótulo do pagador: string de até 60, ou ausente. UM sítio, chamado pelos
+ * dois caminhos que cobram — a rota do intent da Stripe conferia só depois de a
+ * Stripe já ter criado o intent, gastando uma vaga e deixando um PaymentIntent
+ * órfão (revisão de compliance de 2026-09-15, MEDIUM-1).
+ */
+/**
+ * O RÓTULO DO PAGADOR PASSA PELO MESMO NORMALIZADOR DAS PALAVRAS DA CASA.
+ *
+ * Este é o ÚNICO texto livre que um cliente NÃO AUTENTICADO escreve, e ele é
+ * desenhado pra todo mundo naquela mesa e pro dono no painel — e vai ainda pro
+ * adquirente como `description`, ou seja, pro extrato bancário de alguém.
+ *
+ * Mesmo assim ele tinha regra PRÓPRIA — uma lista de recusa de C0 e DEL —,
+ * enquanto o nome da casa, o rótulo da mesa e o nome da conta da casa, todos
+ * escritos por quem está LOGADO, ganharam o normalizador que existe justamente
+ * por causa de marca bidi e largura-zero. O campo do atacante ficou com a regra
+ * fraca; os campos do dono, com a forte. Concretamente: `"Ana\u200B"` desenha
+ * duas linhas idênticas na lista de pagantes, e quem está do lado acredita que
+ * a parte dele já foi paga. Achado pela revisão de segurança de 2026-09-16
+ * (MEDIUM-3).
+ *
+ * Uma regra pra "texto que um humano vai ler num telefone", não duas.
+ *
+ * O que NÃO muda: a recusa de UTF-16 mal formado. O Postgres recusa guardar um
+ * surrogate solto (22P02) e o `normalizarTextoDaCasa` não olha pra isso — e foi
+ * um NUL num rótulo que, numa rodada anterior, fazia TODO pedido criar um
+ * PaymentIntent na Stripe e estourar no registro. O NUL agora é REMOVIDO em vez
+ * de recusado; o surrogate continua recusado, porque não há o que limpar.
+ */
+const { rotuloDoPagador } = require('../texto-da-casa');
+
+/**
+ * O rótulo do pagador, pela regra ÚNICA — que mora no `texto-da-casa.js`
+ * porque os dois stores também precisam dela, e store não importa de `pay/`.
+ * Ver o bloco longo lá.
+ */
+const normalizarRotuloDoPagador = rotuloDoPagador;
+
+/** A pergunta antiga, agora derivada — o `store-contract` e as rotas a usam. */
+function payerLabelValido(v) {
+  return normalizarRotuloDoPagador(v).ok;
+}
+
 const WALLETS = Object.freeze(['apple_pay', 'google_pay']);
 
 function createChargeService({ store, psp }) {
@@ -42,8 +246,8 @@ function createChargeService({ store, psp }) {
    * @param {'pix'|'apple_pay'|'google_pay'} [args.wallet]  omitted → Pix.
    * @param {string} [args.paymentToken]  wallet-sheet token (required for wallets)
    */
-  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null, payerDocument = null, rail: requestedRail = 'pix' }) {
-    if (typeof checkId !== 'string' || !checkId) throw badRequest('checkId required');
+  return async function createCharge({ checkId, amountCents, tipCents = 0, payerLabel = null, wallet = null, paymentToken = null, payerDocument = null, rail: requestedRail = 'pix', qrGeneration = undefined }) {
+    if (typeof checkId !== 'string' || !checkId) throw badRequest('checkId required', 'check_not_found');
     // Documento do pagador. Exigido no Pix (o gateway pede `customer.document`)
     // e ausente no Bizum, onde quem autentica é o banco do pagador.
     //
@@ -57,16 +261,22 @@ function createChargeService({ store, psp }) {
     } else {
       payerDocument = null;
     }
-    if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw badRequest('amountCents must be a non-negative integer');
-    if (!Number.isSafeInteger(tipCents) || tipCents < 0) throw badRequest('tipCents must be a non-negative integer');
-    if (amountCents + tipCents === 0) throw badRequest('zero-value charge');
-    if (payerLabel !== null && (typeof payerLabel !== 'string' || payerLabel.length > 60)) {
-      throw badRequest('payerLabel must be a string of at most 60 chars');
+    if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw badRequest('amountCents must be a non-negative integer', 'amount_invalid');
+    if (!Number.isSafeInteger(tipCents) || tipCents < 0) throw badRequest('tipCents must be a non-negative integer', 'amount_invalid');
+    if (amountCents + tipCents === 0) throw badRequest('zero-value charge', 'zero_charge');
+    const rotulo = normalizarRotuloDoPagador(payerLabel);
+    if (!rotulo.ok) {
+      // Com CÓDIGO: sem ele o `errorBody` devolvia a frase interna em inglês, e a
+      // mesma regra respondia diferente conforme o trilho. (Compliance, M1.)
+      throw badRequest('payerLabel must be a string of at most 60 chars', 'payer_label_invalid');
     }
-    if (wallet !== null && !WALLETS.includes(wallet)) throw badRequest(`carteira desconhecida: ${wallet}`);
+    // Daqui pra baixo vale o NORMALIZADO — é ele que vai pro banco e pro
+    // adquirente. Validar o cru e gravar o cru deixava a limpeza inerte.
+    payerLabel = rotulo.valor;
+    if (wallet !== null && !WALLETS.includes(wallet)) throw badRequest(`carteira desconhecida: ${wallet}`, 'rail_unsupported');
 
     const venue = await store.getVenueForCheck(checkId);
-    if (!venue) throw badRequest('unknown check');
+    if (!venue) throw badRequest('unknown check', 'check_not_found');
     // O MERCADO manda, e a conferência é AQUI — no portão de dinheiro
     // compartilhado, não só na rota. A revisão de compliance apontou que
     // `/api/pay` chegava ao `createPixCharge` sem nenhuma conferência de
@@ -85,7 +295,7 @@ function createChargeService({ store, psp }) {
     // já divergiram: esta função tinha três e a rota do Stripe tinha duas
     // outras. Uma função é uma linha de esquecer; quatro regras são quatro.
     const rail = wallet ? 'card' : requestedRail;
-    const gate = marketGate(venue.market, { rail, amountCents, tipCents });
+    const gate = marketGate(venue.market, { rail, amountCents, tipCents, venue });
     if (gate) throw badRequest(`market ${venue.market}: ${gate.code}`, gate.code, gate.vars);
 
     // O PSP injetado atende ESTE mercado e ESTE trilho?
@@ -118,6 +328,33 @@ function createChargeService({ store, psp }) {
     if (typeof psp[creator] !== 'function') {
       throw badRequest(`psp ${psp.provider || '?'} não serve o trilho ${rail}`, 'rail_unsupported');
     }
+    /**
+     * O ADAPTADOR DECLARA SE A CARTEIRA DELE CAPTURA — e não declarar é
+     * configuração errada, não passe livre.
+     *
+     * Isto era `psp.provider === 'pagarme'`: uma lista de permissão por NOME,
+     * que eu defendi como o lado seguro. É o lado errado, e a razão é que os
+     * dois modos de errar não custam a mesma coisa.
+     *
+     * Errar pra "capturou" num PSP que não captura: alarme falso, "seu cartão
+     * pode já ter sido cobrado" sem cartão em jogo. Chato, e ninguém paga duas
+     * vezes. Errar pra "não capturou" num PSP que captura: `charge_not_started`
+     * → "nada foi cobrado, tente de novo" → SEGUNDA CAPTURA no mesmo cartão
+     * (CDC art. 42 § único). A lista por nome punha todo adaptador futuro
+     * nesse segundo ramo — e o teste que eu escrevi PRENDIA esse padrão,
+     * transformando a segurança num "o próximo autor precisa lembrar".
+     *
+     * O idioma certo está duas guardas acima, escrito pelo mesmo motivo:
+     * "FALHA FECHADO: adaptador sem `currencies` declarado é configuração
+     * errada, não passe livre". Achado pela oitava revisão de segurança
+     * (2026-09-19, MEDIUM-3).
+     */
+    if (wallet && typeof psp.walletCaptures !== 'boolean') {
+      throw badRequest(
+        `psp ${psp.provider || '?'} não declara walletCaptures`,
+        'platform_misconfigured',
+      );
+    }
     if (!venue.pspRecipientId) {
       // Compliance gate: without a settlement recipient the funds would land
       // on the platform account (BACEN Res. 494 custody territory).
@@ -127,6 +364,12 @@ function createChargeService({ store, psp }) {
       // e era a própria que saía. Achado da revisão de compliance de 2026-09-10.
       throw badRequest('venue has no settlement recipient configured', 'venue_no_recipient');
     }
+
+    // A gorjeta sem documento de empresa é recusada pelo `marketGate`, logo
+    // acima (código `venue_no_tip_document`). Estava AQUI e só aqui, e por
+    // isso não valia no `POST /api/pay/stripe-intent`, que monta a cobrança
+    // sozinho — mesma casa, mesma gorjeta, duas respostas conforme o trilho.
+    // Uma regra, um lugar: ver `api/_lib/markets.js`.
 
     const state = reduce(await store.loadEvents(checkId));
     if (!state) throw badRequest('check has no events', 'check_not_found');
@@ -145,8 +388,14 @@ function createChargeService({ store, psp }) {
         'amount_over', { leftCents: remaining });
     }
 
+    const devolverVaga = await assertChargeSlot(store, checkId, qrGeneration);
+    let pspChamado = false;
+    try {
     const chargeRef = `${checkId}:${state.paidCents}:${amountCents}:${tipCents}`;
     let charge;
+    // A PARTIR DAQUI O ADQUIRENTE PODE TER CRIADO ALGO, e a vaga fica — dê o
+    // resto certo ou não. Ver `assertChargeSlot`.
+    pspChamado = true;
     if (wallet) {
       // Apple/Google Pay = tokenized CARD charge. Same money gates as Pix;
       // tips ride along exactly the same (Lei 13.419 tracking downstream).
@@ -154,6 +403,19 @@ function createChargeService({ store, psp }) {
         chargeRef, amountCents, tipCents,
         recipientId: venue.pspRecipientId,
         wallet, paymentToken, payerDocument,
+        /**
+         * O NOME DA CASA, pro descritor da fatura.
+         *
+         * O adaptador cravava `statement_descriptor: 'RACHA'`: a pessoa jantava
+         * no Bar do Zé, pagava com Google Pay, e a fatura do cartão dizia
+         * RACHA. Identificação errada do fornecedor (CDC art. 6º III), motor de
+         * contestação "não reconheço a compra", e o mesmo traço de "quem está no
+         * fluxo" que o inegociável #4 governa. O princípio já estava escrito no
+         * adaptador da Stripe ("quem cobrou tem que ser quem o cliente
+         * reconhece") e não tinha atravessado pro adquirente de produção
+         * (compliance MEDIUM-1 da rodada quinze).
+         */
+        venueName: venue.name,
         // A moeda é do MERCADO. Este argumento faltava, e o adaptador tinha
         // 'brl' de padrão: uma mesa espanhola no trilho de cartão cobrava em
         // real. A Stripe aceita isso sem reclamar (medido) — a defesa é aqui.
@@ -174,9 +436,90 @@ function createChargeService({ store, psp }) {
       });
     }
 
-    await store.registerCharge({
-      checkId, txid: charge.txid, amountCents, tipCents, payerLabel,
-      method: rail,
+    /**
+     * A ESCRITA DEPOIS DO DINHEIRO.
+     *
+     * No trilho de carteira o `createWalletCharge` da Pagar.me CAPTURA o cartão
+     * dentro da chamada acima (v5 captura por padrão). Se a linha não grava, o
+     * dinheiro saiu e nós não temos onde pendurá-lo.
+     *
+     * Toda a decisão — tentar de novo, o que é sucesso disfarçado de erro, e o
+     * que a pessoa na mesa lê — mora em `gravarAposCobrar`, num lugar só,
+     * porque ela já foi reescrita em três caminhos e os três divergiram. O
+     * webhook continua sendo a rede: quando a cobrança confirmar, o
+     * `charge.paid` chega pra um txid sem linha, o portão devolve
+     * `money_without_check` e o evento vira linha em `orphan_money_events` com
+     * o `orderCode`, que carrega o `checkId`.
+     */
+    await gravarAposCobrar({
+      gravar: () => store.registerCharge({
+        checkId, txid: charge.txid, amountCents, tipCents, payerLabel,
+        method: rail,
+      }),
+      /**
+       * QUEM CAPTURA É O ADAPTADOR, não o nome do trilho.
+       *
+       * Era `Boolean(wallet)`, e o docblock do `gravar-apos-cobrar` já dizia
+       * que isso está errado em princípio. Na mesa de DEMONSTRAÇÃO estava
+       * errado na prática: o PSP ali é o MockPsp, que não captura nada, e uma
+       * falha de escrita mandava "Seu cartão pode já ter sido cobrado — não
+       * pague de novo" pra um prospect que não tem cartão nenhum em jogo. O
+       * alarme falso é o mesmo dano que a separação dos dois códigos existe pra
+       * evitar, pelo outro lado.
+       *
+       * Quem responde é o ADAPTADOR, por `walletCaptures` — e um adaptador que
+       * não declara nem chega aqui, porque a guarda acima o recusa. A versão
+       * anterior perguntava `psp.provider === 'pagarme'`, o que parecia lista
+       * de permissão e na prática mandava todo adaptador futuro pro ramo de
+       * "não capturou", que é o ramo que convida a segunda cobrança.
+       */
+      capturou: Boolean(wallet) && psp.walletCaptures,
+      txid: charge.txid, alvo: `check=${checkId}`, rail,
+      /**
+       * Colisão de txid na primeira ida: a linha que já está lá é NOSSA?
+       *
+       * Conta, valor e gorjeta NÃO bastam, e é justamente por isso que eles
+       * quase me enganaram: o caso que colide é duas pessoas na MESMA conta
+       * pelo MESMO valor, então os três batem. Quem separa é o RÓTULO — Ana e
+       * Bruno são dois pagadores, e a linha só é nossa se o rótulo for o nosso.
+       *
+       * Comparado JÁ NORMALIZADO, com a mesma função que o `registerCharge`
+       * aplica antes de gravar: comparar o cru contra o gravado acusaria
+       * " Ana " de ser outra pessoa que "Ana".
+       *
+       * Quando os DOIS rótulos são nulos, a pergunta não tem resposta — e a
+       * resposta segura é NÃO. Esta versão devolvia verdadeiro, com uma
+       * justificativa que estava errada: eu escrevi que "o `chargeRef` carrega
+       * o `paidCents`, então assim que a primeira confirma o txid deixa de
+       * colidir" — mas a janela de colisão que o parágrafo acima define é
+       * exatamente ANTES de qualquer uma confirmar, quando o `paidCents` é
+       * idêntico por construção. A defesa apontava pra depois do dano.
+       *
+       * E anônimo é o CASO COMUM, não a borda: `payerLabel` é opcional em todo
+       * caminho, e a PWA manda `trim() || null`. Devolver verdadeiro ali
+       * entregava à segunda pessoa o copia-e-cola da primeira, e como o
+       * `refDoPagamento` deriva do txid, os dois telefones desenhavam recibo do
+       * mesmo pagamento (CDC art. 6º III) com a conta paga pela metade.
+       *
+       * O custo de fechar: num PSP de txid aleatório (Pagar.me, Stripe) é uma
+       * retentativa que passa. Num PSP de txid determinístico — o mock — ela
+       * reproduz a mesma colisão até o `paidCents` mudar, então a pessoa
+       * insiste até a outra confirmar. O custo de abrir é um recibo de
+       * pagamento que a pessoa não fez, e uma conta paga pela metade. Sétima revisão de segurança
+       * (2026-09-19, MEDIUM-3).
+       */
+      nossa: async () => {
+        const linha = await store.getPayment(charge.txid);
+        if (!linha) return false;
+        const meu = rotuloDoPagador(payerLabel);
+        const meuRotulo = meu.ok ? meu.valor : null;
+        const rotuloDaLinha = linha.payerLabel ?? null;
+        // Sem rótulo dos dois lados não dá pra provar posse — e não provar é não.
+        if (meuRotulo === null && rotuloDaLinha === null) return false;
+        return linha.checkId === checkId
+          && linha.amountCents === amountCents && linha.tipCents === tipCents
+          && rotuloDaLinha === meuRotulo;
+      },
     });
 
     return {
@@ -187,7 +530,14 @@ function createChargeService({ store, psp }) {
       method: rail,
       wallet: wallet ?? null,
     };
+    } finally {
+      // A vaga volta SÓ se o PSP nem chegou a ser chamado. Ver `assertChargeSlot`.
+      if (!pspChamado) await devolverVaga();
+    }
   };
 }
 
-module.exports = { createChargeService };
+module.exports = {
+  createChargeService, assertChargeSlot, geracaoDoQr, payerLabelValido, normalizarRotuloDoPagador,
+  TETO_PENDENTES, JANELA_VIVA_MS, MAX_PESSOAS_NA_DIVISAO, TENTATIVAS_POR_PESSOA,
+};

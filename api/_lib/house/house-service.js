@@ -1,5 +1,104 @@
 'use strict';
 
+const { gravarAposCobrar } = require('../pay/gravar-apos-cobrar');
+
+const { isDemoVenue } = require('../demo');
+
+// A janela é a MESMA da conta da mesa — validade do Pix, 15 minutos — e vem de
+// lá, não de um número repetido aqui: duas janelas que deviam ser uma já
+// divergiram neste repositório por um acento e por um `\b`.
+const { JANELA_VIVA_MS } = require('../pay/create-charge');
+const { normalizarTextoDaCasa } = require('../texto-da-casa');
+/** O CHECK da 0005: `house_accounts.name` é `char_length between 1 and 60`. */
+const NOME_DA_CONTA_MAX = 60;
+const TETO_CARGAS = 10;
+
+/**
+ * Há vaga pra mais uma carga de saldo nesta conta?
+ *
+ * TEM NOME PRÓPRIO, como o `assertChargeSlot`, por dois motivos: a prosa dos
+ * dois stores já apontava pra um `assertLoadSlot` que não existia — o defeito
+ * que este repositório passou rodadas removendo, cometido no commit que o
+ * removia —, e um censo estrutural que procura um SÍMBOLO é mais honesto que
+ * um que procura a chamada de contagem.
+ *
+ * Dez, e não cinco. O `Wallet.tsx` cunha uma cobrança por toque: os atalhos de
+ * R$ 50 / 100 / 200 mais um valor digitado já são quatro, e a quinta tentativa
+ * de verdade batia no teto. E aqui o remédio "pague uma das abertas" é pior que
+ * na mesa: as abertas são todas da própria pessoa, e são valores que ela já
+ * descartou. Achado pela revisão de compliance de 2026-09-15 (MEDIUM-2).
+ *
+ * ANTES da chamada ao PSP, como o gêmeo: o ponto é não falar com o adquirente.
+ */
+/**
+ * E O TETO POR CASA, porque conta de saldo é DE GRAÇA.
+ *
+ * Um teto por conta num endpoint em que contas são geradas, não obtidas, é um
+ * teto sobre nada: o `openAccount` aceita qualquer sequência de 10 a 13
+ * dígitos como telefone, sem verificação, e o limite é um balde local de dez
+ * por IP e as cinco mil contas por casa. 5000 × 10 = cinquenta mil BR Codes de
+ * recarga vivos por casa, cada um até o teto de carga, e cada conta ainda
+ * grava um nome e um telefone — é também uma questão de minimização da LGPD,
+ * não só de carga. O teto por casa limita o agregado independentemente de
+ * quantas contas existam. Achado pela revisão de segurança de 2026-09-15
+ * (MEDIUM-3).
+ *
+ * Duzentos: uma casa movimentada numa noite de promoção vê algumas dezenas de
+ * recargas em quinze minutos. O preço, dito: um atacante com vinte contas
+ * esgota as recargas da casa por quinze minutos. Recarga não é pagar a conta,
+ * e é a troca certa contra cinquenta mil cobranças vivas.
+ */
+const TETO_CARGAS_POR_CASA = 200;
+
+/**
+ * Reivindica uma vaga de carga nesta CONTA e nesta CASA de uma vez, e devolve
+ * a função que as devolve se o PSP nem chegou a ser chamado. Ver
+ * `assertChargeSlot` no `create-charge.js` e a migração 0033: a contagem e a
+ * reserva são uma instrução só no banco, com janela deslizante.
+ *
+ * DOIS CÓDIGOS, porque os prazos são diferentes. Por CONTA, quem enche o balde
+ * é o próprio dono da carteira (o token é dele), então a espera tem prazo e ele
+ * vai na frase. Por CASA, contas de saldo são de graça e quem as gera pode manter
+ * o balde cheio: sem prazo. A versão anterior deste texto chamava "pague uma
+ * delas" de remédio da conta — não é: a carteira não lista recarga pendente,
+ * voltar descarta o código, e pagar não libera vaga. (Compliance, L3.)
+ *
+ * A CHAVE DA CASA VEM PRIMEIRO: com os dois baldes cheios, a recusa que sai é a
+ * sem prazo. Na ordem inversa a pessoa lia "tente em até 15 minutos", esperava, e
+ * recebia a recusa da casa. (Compliance, L4.)
+ */
+async function assertLoadSlot(store, account) {
+  const r = await store.claimSlots({
+    keys: [`venue:${account.venueId}`, `account:${account.id}`],
+    limits: [TETO_CARGAS_POR_CASA, TETO_CARGAS],
+    windowMs: JANELA_VIVA_MS,
+  });
+  if (r.claimId === null) {
+    const porCasa = r.fullIndex === 0;
+    const limite = porCasa ? TETO_CARGAS_POR_CASA : TETO_CARGAS;
+    // Ver o gêmeo: guarda que ninguém vê é guarda caracterizado em produção.
+    process.stderr.write(`[teto] cargas vivas ${porCasa ? `casa=${account.venueId}` : `conta=${account.id}`} ocupadas=${r.counts[r.fullIndex]} teto=${limite}\n`);
+    const err = new Error(`too many live pending loads (${r.counts[r.fullIndex]})`);
+    err.statusCode = 429;
+    err.code = porCasa ? 'too_many_pending_loads_venue' : 'too_many_pending_loads';
+    // Prazo só por conta — ver o docblock. E a casa vai no erro pro aviso ao
+    // operador (`avisarTetoDisparado`), nunca pro corpo.
+    err.vars = porCasa ? { limit: limite } : { limit: limite, windowMinutes: JANELA_VIVA_MS / 60000 };
+    if (porCasa) err.venueId = account.venueId;
+    throw err;
+  }
+  let devolvida = false;
+  return async function devolver() {
+    if (devolvida) return;
+    devolvida = true;
+    try {
+      await store.releaseSlots(r.claimId);
+    } catch (e) {
+      process.stderr.write(`[teto] vaga de carga não devolvida claim=${r.claimId}: ${String(e && e.message).slice(0, 80)}\n`);
+    }
+  };
+}
+
 /**
  * House Accounts — saldo da casa. Orchestrates the account ledger, the check
  * ledger, and the PSP. Store + psp injected → runs against both stores.
@@ -142,9 +241,19 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     if (!cfg.enabled) throw badRequest('house balance is off for this venue', 'house_off');
     const digits = normalizePhone(phone);
     if (!digits) throw badRequest('Telefone inválido');
-    if (typeof name !== 'string' || !name.trim() || name.trim().length > 60) {
-      throw badRequest('Nome é obrigatório (até 60 caracteres)');
-    }
+    // PELO MESMO NORMALIZADOR das palavras da casa. Este nome aparece na tela
+    // do balcão, então ele carrega o mesmo risco de marca bidi e zero-width; e
+    // o `.length` que estava aqui conta unidades UTF-16 enquanto o CHECK da
+    // 0005 conta pontos de código — sessenta emoji passavam num lado e não no
+    // outro.
+    //
+    // E sai com CÓDIGO, não com a frase em português que estava aqui: o
+    // CLAUDE.md diz que o servidor manda código e o cliente escolhe a língua, e
+    // esta é uma tela de CLIENTE — a pessoa que abre a conta da casa pode estar
+    // lendo em inglês ou espanhol. O número do limite viaja em `vars` pra frase
+    // não ter que repeti-lo (seria a quinta cópia).
+    const nome = normalizarTextoDaCasa(name, { max: NOME_DA_CONTA_MAX, code: 'house_name_invalid' });
+    if (!nome.ok) throw badRequest('house account name invalid', nome.code, nome.vars);
     // Abuse bound: a public endpoint must not allow unbounded row creation
     // (each account also costs the owner panel a ledger read).
     const MAX_ACCOUNTS_PER_VENUE = 5000;
@@ -155,7 +264,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     let account;
     try {
       account = await store.createHouseAccount({
-        venueId: hit.venue.id, phone: digits, name: name.trim(),
+        venueId: hit.venue.id, phone: digits, name: nome.valor,
       });
     } catch (e) {
       if (/duplicate/i.test(e.message)) {
@@ -183,7 +292,10 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       : [];
     const cfg = venue ? venueHouseConfig(venue) : { bonusBp: 0, validityDays: 90 };
     return {
-      venue: { name: venue ? venue.name : '?' },
+      // `demo`: a carteira só mostra o botão de SIMULAR a confirmação do banco na
+      // casa de demonstração — aparecia pra todo cliente de verdade (auditorias
+      // de fluxo H2 e de UI H3). A decisão é a da casa, a mesma do `isDemoVenue`.
+      venue: { name: venue ? venue.name : '?', demo: isDemoVenue(venue) },
       // The load screen must disclose the bonus validity BEFORE money moves
       // (CDC art. 31 — review finding): the frontend renders these.
       config: { bonusBp: cfg.bonusBp, validityDays: cfg.validityDays },
@@ -235,7 +347,13 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const gate = marketGate(venue.market, { rail: 'pix', amountCents, tipCents: 0 });
     if (gate) throw badRequest(`mercado ${venue.market}: ${gate.code}`, gate.code, gate.vars);
 
+    const devolverVaga = await assertLoadSlot(store, account);
+    let pspChamado = false;
+    try {
     const bonusCents = quoteBonusCents(amountCents, cfg.bonusBp);
+    // Daqui em diante o adquirente pode ter criado algo: a vaga fica. Ver
+    // `assertChargeSlot` no `create-charge.js` — a regra anterior era furável.
+    pspChamado = true;
     const charge = await psp.createPixCharge({
       // Random nonce: two identical loads are DIFFERENT charges (the mock PSP
       // derives txid from chargeRef; a deterministic ref would collide).
@@ -245,17 +363,39 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       recipientId: venue.pspRecipientId, // venue is the issuer — funds go direct
       description: `Saldo ${venue.name}`.slice(0, 40),
     });
-    await store.registerHouseLoad({
-      accountId: account.id,
-      txid: charge.txid,
-      amountCents,
-      bonusCents,                       // quoted NOW; webhook applies this, not live config
-      validityDays: cfg.validityDays,   // snapshot too
+    /**
+     * O MESMO PORTÃO DOS OUTROS DOIS CAMINHOS.
+     *
+     * Aqui também se fala com o adquirente ANTES de gravar, então aqui também
+     * um prazo de 10 s do banco devolvia 500 `internal` → "algo deu errado,
+     * tente de novo", que é a frase exata que `gravar-apos-cobrar` existe pra
+     * substituir. O dano é menor que no cartão (o Pix não captura nada, e o
+     * copia-e-cola nem chegou a quem pediu), mas é a MESMA forma — e o censo
+     * que devia impedir um terceiro caminho só lia o `router.js`, então não viu
+     * este. Achado pela sexta revisão de compliance (2026-09-19, MEDIUM-1).
+     *
+     * Sem `nossa`: o `chargeRef` daqui carrega um UUID aleatório de propósito
+     * (ver acima), então dois carregamentos idênticos são cobranças
+     * DIFERENTES e não há colisão de txid pra desfazer.
+     */
+    await gravarAposCobrar({
+      gravar: () => store.registerHouseLoad({
+        accountId: account.id,
+        txid: charge.txid,
+        amountCents,
+        bonusCents,                     // quoted NOW; webhook applies this, not live config
+        validityDays: cfg.validityDays, // snapshot too
+      }),
+      capturou: false,                  // Pix: a cobrança existe, ninguém foi debitado
+      txid: charge.txid, alvo: `conta-da-casa=${account.id}`, rail: 'pix',
     });
     return {
       txid: charge.txid, copiaECola: charge.copiaECola, expiresAt: charge.expiresAt,
       amountCents, bonusCents,
     };
+    } finally {
+      if (!pspChamado) await devolverVaga();
+    }
   }
 
   /**

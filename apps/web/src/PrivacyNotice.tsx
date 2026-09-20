@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useT } from './lang';
+import { formatTaxId } from './br';
 
 /**
  * O aviso do art. 9º, na tela da conta.
@@ -45,14 +46,16 @@ const CONTATO = (import.meta.env.VITE_PRIVACY_CONTACT as string | undefined)?.tr
  */
 export const RETENCAO_DIAS = { rotulo: 90, carteira: 90 };
 
-export default function PrivacyNotice({ venue, taxId }: { venue: string; taxId?: string | null }) {
+export default function PrivacyNotice(
+  { venue, taxId, market }: { venue: string; taxId?: string | null; market?: string },
+) {
   const { t } = useT();
   const [aberto, setAberto] = useState(false);
   // Sem documento da casa a frase não pode ficar com um parêntese vazio.
   // Sem documento da casa, a frase sai SEM o parêntese — `Casa (—)` parece bug,
   // e um aviso que parece quebrado não informa ninguém.
   const quem = taxId
-    ? t('priv.who', { venue, taxId })
+    ? t('priv.who', { venue, taxId: formatTaxId(taxId, market) })
     // Sem `taxId` o `fill` deixa `{taxId}` literal; o parêntese sai inteiro.
     : t('priv.who', { venue }).replace(/\s*\(\{taxId\}\)/, '');
 

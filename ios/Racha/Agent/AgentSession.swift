@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Observation
 
 /// One racha's conversation.
@@ -40,6 +41,25 @@ final class AgentSession {
     private let toolbox: AgentToolbox
     private var wire: [WireMessage] = []
     private var task: Task<Void, Never>?
+    /// Chegou algum caractere do modelo nesta volta? Do acumulador CRU, não da
+    /// tela — ver `cancel()`. Zerado no começo de cada volta.
+    private var recebeuAlgo = false
+
+    /// `.public` só no NÚMERO: o texto recusado não vai pro log. Ele é o que
+    /// o modelo escreveu sobre a conta de alguém.
+    private let logger = Logger(subsystem: "app.racha", category: "agente")
+
+    /// Quantas voltas foram RECUSADAS nesta sessão.
+    ///
+    /// Era um `var` local de `streamOneTurn`, incrementado e lido por ninguém
+    /// — morria com a volta, sob um comentário que invocava o inegociável #8
+    /// ("sucesso silencioso é o inimigo") e contava coisa nenhuma. Um modelo
+    /// que insiste na afirmação proibida — prompt que regrediu, modelo
+    /// trocado, alguém empurrando — era indistinguível de uma sessão sadia.
+    private(set) var recusas = 0
+
+    /// Tudo que o agente escreveu desde a última mensagem da pessoa.
+    private var textoDoTurno = ""
 
     init(rachaID: UUID, repository: RachaRepository, client: AnthropicClient,
          transcripts: TranscriptStore, history: @escaping @MainActor () -> HistoryIndex) {
@@ -62,7 +82,18 @@ final class AgentSession {
         streamPhase = .idle
         if let last = messages.indices.last, messages[last].isStreaming {
             messages[last].isStreaming = false
-            if messages[last].text.isEmpty && messages[last].edits.isEmpty {
+            // NÃO apaga a bolha por ela estar VAZIA NA TELA. `text` aqui é a
+            // EXIBIÇÃO, e desde que o guarda congela o que mostra enquanto
+            // julga, uma resposta longa e inteiramente legítima fica com a
+            // tela vazia por segundos. Parar nesse instante removia a bolha, e
+            // aí `bubbleIndex` apontava pro fim do array: a escrita seguinte
+            // estourava o índice e derrubava o app, perdendo a volta. O
+            // acumulador cru é quem sabe se veio alguma coisa.
+            //
+            // O chamador esquecido da separação acumulador/exibição — o
+            // `cancel()` ficou de fora quando o resto foi convertido. Achado
+            // pela revisão de segurança de 2026-09-13.
+            if !recebeuAlgo && messages[last].edits.isEmpty {
                 messages.removeLast()
             }
         }
@@ -93,6 +124,15 @@ final class AgentSession {
 
         task = Task { [weak self] in
             guard let self else { return }
+            // O TEXTO DO AGENTE DESDE A ÚLTIMA FALA DO USUÁRIO. A unidade do
+            // guarda era a VOLTA; a unidade de quem lê é a conversa. Com uma
+            // chamada de ferramenta no meio, "Deixa eu conferir a gorjeta
+            // aqui." e "Fica com os garçons, sim." são duas voltas — nenhuma
+            // afirma nada sozinha, e as duas ficam na tela juntas. É o mesmo
+            // "trecho anterior preso" que o congelamento do stream já tratava,
+            // não carregado pro julgamento. Achado pela revisão de segurança
+            // de 2026-09-13.
+            self.textoDoTurno = ""
             var rounds = 0
             var hitLimit = true
             // A hard ceiling on the loop. A model that keeps calling tools forever
@@ -136,6 +176,17 @@ final class AgentSession {
         messages.append(ChatMessage(role: .agent, text: "", isStreaming: true))
 
         var assistantBlocks: [WireMessage.Block] = []
+        // POR VOLTA, não por sessão. Sendo instância e nunca zerado, a partir
+        // da segunda volta ele ficava permanentemente `true` e o `cancel()`
+        // voltava a nunca remover bolha vazia — o conserto valia só pra volta
+        // 1, que é justamente a que estourava o índice.
+        recebeuAlgo = false
+        /// Texto já mostrado, e os últimos caracteres do pedaço anterior — o
+        /// substantivo pode ficar a cavalo de dois deltas.
+        var exibido = ""
+        var fimAnterior = ""
+        /// Ver o uso lá embaixo: uma vez perto do assunto, sempre perto.
+        var guardaArmado = false
         var pendingTools: [(id: String, name: String, input: JSONValue)] = []
         var text = ""
         var failure: String?
@@ -149,7 +200,32 @@ final class AgentSession {
             case .textDelta(let chunk):
                 if streamPhase != .writing { streamPhase = .writing }
                 text += chunk
-                messages[bubbleIndex].text = text
+                // O ACUMULADOR FICA CRU; a exibição é DERIVADA dele, e
+                // CONGELA assim que o texto chega perto do assunto.
+                //
+                // Nada é recortado nem acrescentado: a volta inteira passa ou
+                // a volta inteira não passa, julgada quando fecha. Era um
+                // conserto cirúrgico e apagava valores da tela — ver o
+                // cabeçalho de `RevisaoDeAfirmacoes`.
+                recebeuAlgo = true
+                if !guardaArmado { guardaArmado = RevisaoDeAfirmacoes.chegouPertoDoAssunto(fimAnterior + chunk) }
+                if !guardaArmado {
+                    exibido = RevisaoDeAfirmacoes.parcialExibivel(text)
+                    // Idem: `cancel()` pode ter removido a bolha entre um
+                    // pedaço e o próximo.
+                    if messages.indices.contains(bubbleIndex) { messages[bubbleIndex].text = exibido }
+                }
+                // Só os últimos caracteres entram na próxima checagem: o
+                // substantivo pode ficar a cavalo de dois pedaços, e reler o
+                // acumulado a cada delta era o O(n²) na thread principal.
+                //
+                // A ORDEM IMPORTA e estava invertida: `chunk + fimAnterior`
+                // junta o FIM do pedaço novo com o COMEÇO do rastro velho — a
+                // fronteira ao contrário, onde nenhuma palavra partida existe.
+                // O comentário descrevia um caso que o código não tratava, e o
+                // teste, streamando caractere a caractere, era o único tamanho
+                // de pedaço em que a inversão é invisível.
+                fimAnterior = String(text.suffix(40))
 
             case .thinkingDelta:
                 streamPhase = .thinking
@@ -171,21 +247,44 @@ final class AgentSession {
             }
         }
 
+        // Fechada a volta, dá pra julgar. Recusa é da VOLTA INTEIRA: o texto
+        // do modelo não é editado nem carimbado — some, e entra no lugar dele
+        // uma frase que é nossa e diz isso. E é o texto RECUSADO que vai pro
+        // histórico, não o cru: devolver o cru ensinaria o modelo que aquilo
+        // passou, e ele repetiria com mais convicção na volta seguinte.
+        // Julga o ACUMULADO da conversa, não só esta volta.
+        textoDoTurno += (textoDoTurno.isEmpty ? "" : "\n") + text
+        if RevisaoDeAfirmacoes.afirmaDestinoSemDistribuidor(textoDoTurno) {
+            recusas += 1
+            // A volta que fecha a afirmação é a que some. As anteriores já
+            // estão na tela; a recusa troca esta e o contador registra.
+            textoDoTurno = ""
+            logger.warning("volta do agente recusada — \(self.recusas, privacy: .public) nesta sessão")
+            text = RevisaoDeAfirmacoes.respostaSegura
+        }
+        // A bolha pode ter sido removida por um `cancel()` no meio do stream.
+        if messages.indices.contains(bubbleIndex) { messages[bubbleIndex].text = text }
         if !text.isEmpty { assistantBlocks.append(.text(text)) }
         for call in pendingTools {
             assistantBlocks.append(.toolUse(id: call.id, name: call.name, input: call.input))
         }
-        messages[bubbleIndex].isStreaming = false
+        if messages.indices.contains(bubbleIndex) { messages[bubbleIndex].isStreaming = false }
 
         if let failure {
             // Keep an empty bubble out of the thread; the failure is attached to the
             // last real message so the person sees it in context.
-            if text.isEmpty && pendingTools.isEmpty { messages.remove(at: bubbleIndex) }
+            // Guardado como as ESCRITAS: `cancel()` pode ter tirado a bolha.
+            if text.isEmpty && pendingTools.isEmpty && messages.indices.contains(bubbleIndex) {
+                messages.remove(at: bubbleIndex)
+            }
             return .failed(failure)
         }
 
         if text.isEmpty && pendingTools.isEmpty {
-            messages.remove(at: bubbleIndex)
+            // Guardado como o irmão seis linhas acima — este ficou de fora
+            // quando o outro recebeu a checagem, e é alcançável pelo mesmo
+            // caminho: `cancel()` tirou a bolha e a volta fecha sem texto.
+            if messages.indices.contains(bubbleIndex) { messages.remove(at: bubbleIndex) }
             return .finished
         }
 

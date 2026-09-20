@@ -37,9 +37,39 @@ struct SettingsSheet: View {
                                 secureField("Chave Anthropic", text: $settings.anthropicKey)
                                 Text(settings.hasAgentKey
                                      ? "O agente responde de verdade."
-                                     : "Sem chave, o app roda em modo demonstração — as contas continuam reais, só as frases são do script.")
+                                     : "Sem chave, o app roda em modo demonstração — as contas continuam reais, só as frases são do script. Nada sai do aparelho.")
                                     .font(Typo.caption)
                                     .foregroundStyle(Palette.stone)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                /// O QUE SAI DO APARELHO, dito onde se decide.
+                                ///
+                                /// O `data-map.md` já registrava a lacuna com estas
+                                /// palavras: "a tela de Ajustes informa modo e custo,
+                                /// e nada sobre quem recebe o quê". O art. 9º da LGPD
+                                /// pede a informação ANTES da decisão, e a decisão é
+                                /// esta: colar a chave. Numa página de política ela
+                                /// chega tarde.
+                                ///
+                                /// A segunda frase é a parte desconfortável e por isso
+                                /// fica. Quem cola a chave consente por si; os nomes na
+                                /// conversa e os rostos e o CNPJ na foto da nota são de
+                                /// OUTRAS pessoas, e o consentimento do art. 8º é
+                                /// pessoal. O dono do aparelho não consente por elas —
+                                /// o mínimo honesto é dizer isso a ele.
+                                Text("Com chave, a conversa da mesa vai pra Anthropic, nos EUA: os nomes que você digitou e os itens da conta — e a FOTO da nota, quando você pede pra ler uma. Uma nota carrega CNPJ, endereço, data e o que mais estiver no enquadramento.")
+                                    .font(Typo.caption)
+                                    .foregroundStyle(Palette.stone)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                /// `ink2`, não `stone`: esta é a frase que a pessoa
+                                /// precisa ler, e `stone` É `ink3` — pôr o aviso de
+                                /// consentimento no mesmo cinza do resto seria
+                                /// escrevê-lo pra não ser lido. Tinta mais clara, e
+                                /// não uma cor nova: o âmbar tem um significado só
+                                /// neste app (pergunta em aberto) e emprestá-lo aqui
+                                /// gastaria os dois.
+                                Text("Os nomes são de outras pessoas, e quem consente é você. Só ligue com a mesa sabendo.")
+                                    .font(Typo.caption)
+                                    .foregroundStyle(Palette.ink2)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
@@ -53,7 +83,12 @@ struct SettingsSheet: View {
                                 .tint(Palette.emerald)
                                 secureField("Chave OpenAI", text: $settings.openAIKey)
                                 secureField("Chave Google", text: $settings.googleKey)
-                                Text("Sem chave, o app desenha os pratos localmente. Com chave, usa gpt-image-1-mini (US$ 0,005 por imagem) e guarda cada prato pra sempre — a segunda picanha da sua vida é de graça.")
+                                /// Aqui sai MENOS, e dizer isso importa tanto quanto
+                                /// dizer o que sai: o que vai pra OpenAI/Google é o
+                                /// nome do PRATO, não nome de pessoa e não a foto.
+                                /// Um aviso que trata os três fornecedores como o
+                                /// mesmo risco ensina a ignorar os três.
+                                Text("Sem chave, o app desenha os pratos localmente. Com chave, só o NOME do prato vai pra OpenAI ou Google, nos EUA — nome de pessoa e foto da nota não vão. Usa gpt-image-1-mini (US$ 0,005 por imagem) e guarda cada prato pra sempre — a segunda picanha da sua vida é de graça.")
                                     .font(Typo.caption)
                                     .foregroundStyle(Palette.stone)
                                     .fixedSize(horizontal: false, vertical: true)

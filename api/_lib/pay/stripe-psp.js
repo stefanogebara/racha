@@ -13,11 +13,23 @@ const BIZUM_MAX_CENTS = 500000;
  * tem Apple Pay web (o token Apple Pay é criptografado e só um processador que
  * suporta decripta — Stripe/Adyen/etc. sim, Pagar.me não).
  *
- * MODELO DE FUNDOS (regra nº4 — nunca custodiar): DESTINATION CHARGE. O
- * PaymentIntent liquida direto na conta CONECTADA do restaurante
- * (`transfer_data.destination = acct_...`); o Racha só tira sua margem via
- * `application_fee_amount` (0 por ora). Dinheiro nunca para na plataforma —
- * mesma garantia do split do Pagar.me, do jeito Stripe.
+ * MODELO DE FUNDOS (inegociável #4): DESTINATION CHARGE, e ela NÃO é a mesma
+ * coisa que o split do Pagar.me.
+ *
+ * O PaymentIntent é criado NA PLATAFORMA e a Stripe transfere pra conta
+ * conectada do restaurante (`transfer_data.destination = acct_...`); o Racha só
+ * tira sua margem via `application_fee_amount` (0 por ora). Não há conta-bolsão
+ * e a plataforma não saca — mas o dinheiro do consumidor TRANSITA pelo saldo da
+ * plataforma antes da transferência, e isso é território do inegociável #4.
+ *
+ * Este parágrafo dizia "dinheiro nunca para na plataforma — mesma garantia do
+ * split do Pagar.me". Era falso, e duzentas linhas abaixo, no mesmo arquivo, o
+ * comentário do estorno já dizia o contrário ("dinheiro parado no saldo da
+ * PLATAFORMA, que é território do inegociável #4"). A copy da tela do dono
+ * seguiu ESTE, o errado, e prometeu "sem custódia nossa" por meses. É o
+ * parágrafo que alguém lê antes de decidir se uma mudança é mudança de fluxo de
+ * fundos — ou seja, antes de decidir se precisa do parecer que o inegociável #4
+ * exige ANTES. Corrigido junto com a copy (compliance MEDIUM-A da rodada treze).
  *
  * ⚠️ CÓDIGO, NÃO FLUXO VIVO: nada aqui roteia dinheiro real até (a) existir uma
  * conta Stripe do Racha como plataforma Connect, (b) cada restaurante ter uma
@@ -94,6 +106,16 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
     const amountCents = Math.max(0, totalCents - tipCents);
     return {
       txid: pi.id,
+      /**
+       * O MESMO `orderCode` do rail da Pagar.me — o dado sempre esteve aqui.
+       *
+       * `createWalletCharge` grava `metadata.charge_ref`, que é o mesmo
+       * `<checkId>:<n>:<n>:<n>`. O conserto do órfão passou pelo adaptador da
+       * Pagar.me e esqueceu este — num commit cujo censo central é sobre os dois
+       * rails divergirem. Baixo hoje só porque a Espanha está desligada.
+       * Achado pela quarta revisão de segurança de 2026-09-16 (LOW-2).
+       */
+      orderCode: (pi.metadata && pi.metadata.charge_ref) || null,
       status: pi.status,
       paid: pi.status === 'succeeded',
       /**
@@ -132,6 +154,8 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
 
   return {
     provider: 'stripe',
+    // devolve `clientSecret` — quem confirma é a sheet no front
+    walletCaptures: false,
     /** As moedas que este adaptador atende. Ver `currencies` no Pagar.me. */
     currencies: Object.freeze(['brl', 'eur']),
 
@@ -220,8 +244,26 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         currency,
         // Apple/Google Pay entram pelo Payment/Express Checkout Element no front.
         automatic_payment_methods: { enabled: true },
-        // DESTINATION CHARGE: liquida na conta do restaurante, não na plataforma.
+        // DESTINATION CHARGE: a cobrança nasce na PLATAFORMA e a Stripe
+        // transfere pra conta conectada do restaurante. Ver o cabeçalho — não é
+        // o mesmo que o split do Pagar.me, e a diferença é do inegociável #4.
         transfer_data: { destination: recipientId },
+        /**
+         * E O COMERCIANTE QUE APARECE NA FATURA É O RESTAURANTE.
+         *
+         * A regra está escrita no cabeçalho do Bizum — "quem cobrou tem que ser
+         * quem o cliente reconhece" — e estava aplicada só lá. Sem
+         * `on_behalf_of`, numa destination charge, quem aparece no app do banco
+         * de quem pagou é a PLATAFORMA: a pessoa jantou no Bar do Zé e vê
+         * "Racha" na fatura do cartão. Isso é identificação errada do fornecedor
+         * (CDC art. 6º III) e é justamente o traço que caracteriza quem está no
+         * fluxo, que é o que o inegociável #4 governa (BACEN Res. 494/2025).
+         *
+         * Princípio escrito num método e ausente no outro — a mesma família das
+         * três cópias divergentes do predicado de estorno. Achado pela revisão
+         * de compliance da rodada catorze, e é uma linha.
+         */
+        on_behalf_of: recipientId,
         ...(applicationFeeCents > 0 ? { application_fee_amount: applicationFeeCents } : {}),
         // Gorjeta viaja na MESMA cobrança e fica rastreável (Lei 13.419) — o
         // ledger lê tip_cents daqui, igual ao Pagar.me.
@@ -630,6 +672,13 @@ function createStripePsp({ secretKey, webhookSecret = null, stripeClient = null 
         return {
           kind: r.status === 'failed' ? 'refund_failed' : 'refund_progress',
           eventId,
+          // O `re_` É A IDENTIDADE do estorno, e a mesma falha chega em DOIS
+          // eventos (`refund.failed` e `refund.updated` com status `failed`),
+          // com `evt_` diferentes — nem a chave do evento nem o índice único os
+          // separam. Sem este id, a segunda entrega revertia de novo: o razão
+          // apagava um estorno que SAIU, o telefone voltava a anunciar a dívida
+          // e a casa pagava duas vezes (segurança HIGH-1 de 11a0904).
+          refundId: typeof r.id === 'string' ? r.id : null,
           txid, amountCents: Number(r.amount) || 0, status: r.status || null, raw: r,
         };
       }

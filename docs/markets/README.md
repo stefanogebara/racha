@@ -251,7 +251,7 @@ O resultado era o pior possível: cliente com dinheiro a receber, os dois
 registros nossos dizendo que ele foi pago, e a conciliação comparando um com o
 outro, concordando, e reportando VERDE. Agora existe `PAYMENT_REFUND_REVERSED`,
 que devolve o saldo e MARCA a conta — e a marca só sai quando o dono registra,
-pelo painel, que reembolsou por outro caminho, com o motivo e o autor.
+pela rota `resolve-issue` — hoje sem tela, chamada à mão (ver `docs/runbooks/devolver-dinheiro-a-mais.md`) —, que reembolsou por outro caminho, com o motivo e o autor.
 
 **E o ESTORNO tem o mesmo mecanismo, o que a nota anterior não dizia.** Numa
 destination charge — com ou sem `on_behalf_of` — a Stripe debita o estorno do

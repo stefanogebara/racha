@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Campo } from './Campo';
 import AdminRecipient from './AdminRecipient';
 import AdminStripe from './AdminStripe';
 import type { VenueTable } from './api';
@@ -60,20 +61,28 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           {STEP_KEYS.map((stepKey, i) => {
             const state = done[i] ? 'done' : i === step ? 'current' : 'pending';
-            const bg = state === 'done' ? 'var(--emerald)' : state === 'current' ? 'var(--burgundy)' : 'transparent';
-            const fg = state === 'pending' ? 'var(--stone)' : '#fff';
+            // Musgo = feito, azul = onde voce esta, papel = ainda nao.
+            // O passo ATUAL saia na cor de erro (era `--burgundy`, que apontava
+            // pra tinta): agora que erro e coral de verdade, o passo atual pintado
+            // de erro diria que ha algo errado com ele. Azul e a cor de 'em curso'
+            // no Presence, e e o que o passo atual e.
+            const bg = state === 'done' ? 'var(--ok)' : state === 'current' ? 'var(--emcurso)' : 'transparent';
+            const fg = state === 'pending' ? 'var(--grafite)' : '#fff';
             const reachable = canJump(i);
             return (
               <div key={stepKey} style={{ display: 'flex', alignItems: 'flex-start', flex: i < STEP_KEYS.length - 1 ? 1 : '0 0 auto', minWidth: 0 }}>
                 <button onClick={() => reachable && setStep(i)} disabled={!reachable} aria-current={i === step}
                   style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: reachable ? 'pointer' : 'not-allowed', opacity: reachable ? 1 : 0.5, padding: 0 }}>
-                  <span style={{ width: 28, height: 28, borderRadius: 999, background: bg, color: fg, border: state === 'pending' ? '1px solid var(--glass-border-input)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>
+                  <span style={{ width: 28, height: 28, borderRadius: 999, background: bg, color: fg, border: state === 'pending' ? '1px solid var(--fio)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>
                     {done[i] ? '✓' : i + 1}
                   </span>
-                  <span className="small" style={{ color: i === step ? 'var(--charcoal)' : 'var(--stone)', fontWeight: i === step ? 600 : 400 }}>{t(stepKey)}</span>
+                  <span className="small" style={{ color: i === step ? 'var(--ink)' : 'var(--grafite)', fontWeight: i === step ? 600 : 400 }}>{t(stepKey)}</span>
                 </button>
+                {/* O fio ENTRE os passos é um conector, não uma barra de progresso:
+                    1px, a régua do sistema. Estava em 2px, que era a terceira
+                    medida do mesmo objeto neste produto. */}
                 {i < STEP_KEYS.length - 1 && (
-                  <div style={{ flex: 1, height: 2, background: done[i] ? 'var(--emerald)' : 'var(--glass-border-input)', margin: '13px 6px 0' }} />
+                  <div style={{ flex: 1, height: 1, background: done[i] ? 'var(--ok-fio)' : 'var(--fio)', margin: '14px 6px 0' }} />
                 )}
               </div>
             );
@@ -86,11 +95,13 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
           <StepHead title={t('wiz.t1')} sub={t('wiz.t1sub')} />
           <section className="panel">
             <div style={{ display: 'flex', gap: 8 }}>
-              <input className="namefield" style={{ flex: 1 }} placeholder={t('admin.tableEg')} value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+              <div style={{ flex: 1 }}>
+                <Campo rotulo={t('admin.tableLabel')} maxLength={40} placeholder={t('admin.tableEg')} value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+              </div>
               <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>
             </div>
-            {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+            {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
             {tables.length === 0 && <p className="muted small">{t('admin.noTables')}</p>}
             {tables.map((table) => (
               <div className="checkrow" key={table.id}>
@@ -158,7 +169,7 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
             </div>
             <div className="checkrow">
               <span>{done[1] ? '✓' : '○'} {t('wiz.donePayout')}</span>
-              <span className="muted small" style={!recebedorOk ? { color: 'var(--burgundy)' } : undefined}>{recebedorOk ? t('wiz.connected') : t('wiz.pending')}</span>
+              <span className="muted small" style={!recebedorOk ? { color: 'var(--erro)' } : undefined}>{recebedorOk ? t('wiz.connected') : t('wiz.pending')}</span>
             </div>
             <div className="checkrow">
               <span>{done[2] ? '✓' : '○'} {t('wiz.doneTraining')}</span>

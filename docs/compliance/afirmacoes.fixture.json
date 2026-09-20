@@ -1,0 +1,1730 @@
+{
+  "_leia": "O MESMO corpo de frases, com o MESMO veredito, exercitado pelos dois guardas: o censo de build (api/__tests__/claims.test.js) e a revisão de runtime (ios/RachaTests/RevisaoDeAfirmacoesTests.swift). Os padrões já são gerados de uma fonte só; a LÓGICA em volta deles não era, e divergiu em três pontos — num deles o censo de build ficou MAIS FROUXO que o runtime, que é a direção que o gerador existe pra impedir, no guarda que governa o roteiro IMPRESSO entregue ao garçom. `mesmaRegraDoCenso` comparava strings de padrão e não podia ver que os dois `nega` eram funções diferentes. Mesma forma do documentos.fixture.json: cópia declarada, não cópia esquecida. ATENÇÃO AO QUE ELE NÃO PROVA: os dois lados podem errar IGUAL, e aí o corpo fica verde por concordância. Ele prova CONVERGÊNCIA, não correção — e a correção continua vindo de fora, das revisões.",
+  "casos": [
+    {
+      "texto": "Sem dúvida, o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Sem dúvida, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Sem dúvida, quem te atendeu recebe os 10%.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Não precisa deixar mais nada, o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Não precisa deixar mais nada, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Não precisa deixar mais nada, quem te atendeu recebe os 10%.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Você não paga taxa nenhuma, o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Você não paga taxa nenhuma, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Você não paga taxa nenhuma, quem te atendeu recebe os 10%.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Nem esquenta, o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Nem esquenta, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "Nem esquenta, quem te atendeu recebe os 10%.",
+      "recusa": true,
+      "porque": "preâmbulo com negador + DESTINATÁRIO ANTES do substantivo: a âncora da gorjeta só valia quando ela vinha primeiro, e a janela virava o prefixo inteiro"
+    },
+    {
+      "texto": "O serviço não fica com o salão, fica com o garçom.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "A gorjeta não fica só com o barman, vai pra equipe toda.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "Os 10% não vão pro sommelier, vão pro garçom.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "A caixinha não é do maître, é do garçom que te atendeu.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "A gorjeta não fica com a copa, fica com o atendente.",
+      "recusa": true,
+      "porque": "nega um destinatário e afirma outro na mesma oração — só o PRIMEIRO era considerado"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "divisão SEM VERBO: a frase de destino estava ancorada no começo da oração, e qualquer palavra antes da preposição derrubava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- tudo pro garçom",
+      "recusa": true,
+      "porque": "divisão SEM VERBO: a frase de destino estava ancorada no começo da oração, e qualquer palavra antes da preposição derrubava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- direto pra equipe",
+      "recusa": true,
+      "porque": "divisão SEM VERBO: a frase de destino estava ancorada no começo da oração, e qualquer palavra antes da preposição derrubava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- pro garçom",
+      "recusa": true,
+      "porque": "divisão SEM VERBO: a frase de destino estava ancorada no começo da oração, e qualquer palavra antes da preposição derrubava"
+    },
+    {
+      "texto": "A gorjeta não fica com o garçom.",
+      "recusa": false,
+      "porque": "negação de verdade — a resposta mais direta que existe pra a pergunta"
+    },
+    {
+      "texto": "O serviço não vai pro garçom, vai pro CNPJ da casa.",
+      "recusa": false,
+      "porque": "negação de verdade — a resposta mais direta que existe pra a pergunta"
+    },
+    {
+      "texto": "Já tirei o serviço. Chama o atendente pra fechar a conta.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Tirei o serviço. Pergunta pro garçom se dá pra dividir a conta.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "O serviço de 10% está na conta. O garçom já trouxe a maquininha?",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Sua parte com serviço é R$ 61,00. Se quiser, mostra pro garçom.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Tirei os 10%. Fala com o maître na saída.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Adicionei o couvert. O serviço continua ligado — R$ 28,00. Chama a atendente pra confirmar.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "A equipe da mesa 7 já fechou. O serviço saiu da sua parte.",
+      "recusa": false,
+      "porque": "conversa comum: os dois substantivos se encontram sem prometer nada. Recusar apaga a resposta — a quarta leva o VALOR junto"
+    },
+    {
+      "texto": "Inclui R$ 12,00 de serviço. O restaurante distribui à equipe, como manda a lei.",
+      "recusa": false,
+      "porque": "a frase sancionada e a resposta segura — recusar a própria saída põe o guarda em laço"
+    },
+    {
+      "texto": "A gorjeta arrecadada é remuneração do time e passa pela folha de pagamento da casa.",
+      "recusa": false,
+      "porque": "a frase sancionada e a resposta segura — recusar a própria saída põe o guarda em laço"
+    },
+    {
+      "texto": "Sobre o serviço: o restaurante distribui à equipe, como manda a lei. Pode perguntar de novo que eu respondo.",
+      "recusa": false,
+      "porque": "a frase sancionada e a resposta segura — recusar a própria saída põe o guarda em laço"
+    },
+    {
+      "texto": "A gorjeta não é taxa. O serviço fica com a equipe.",
+      "recusa": true,
+      "porque": "âncora do SUBSTANTIVO: sem ela a janela começaria em 0 e o `não` da oração anterior... — aqui o `não` está ANTES do substantivo, então não alcança a afirmação"
+    },
+    {
+      "texto": "A gorjeta, que não é obrigatória, fica com o garçom.",
+      "recusa": true,
+      "porque": "âncora do SEPARADOR (vírgula): o `não` fica na oração intercalada e não alcança o destinatário"
+    },
+    {
+      "texto": "O serviço não é obrigatório e vai 100% pro garçom.",
+      "recusa": true,
+      "porque": "âncora DIRECIONAL: o `não` é da frase que o CDC OBRIGA a dizer (o serviço é removível); sem o `%` no preenchimento do direcional, a obrigação legal virava a chave que desligava o guarda"
+    },
+    {
+      "texto": "Sem dúvida o garçom fica com a gorjeta",
+      "recusa": true,
+      "porque": "preâmbulo com negador, destinatário ANTES do substantivo e SEM vírgula: nenhum candidato ancorava e a janela virava o prefixo inteiro. Deletar o laço da gorjeta deixava o corpo verde — o caso reportado tinha sido fechado pelo separador, por acidente de pontuação"
+    },
+    {
+      "texto": "Não se preocupe o garçom recebe a gorjeta inteira",
+      "recusa": true,
+      "porque": "preâmbulo com negador, destinatário ANTES do substantivo e SEM vírgula: nenhum candidato ancorava e a janela virava o prefixo inteiro. Deletar o laço da gorjeta deixava o corpo verde — o caso reportado tinha sido fechado pelo separador, por acidente de pontuação"
+    },
+    {
+      "texto": "Sem exceção a equipe recebe a caixinha",
+      "recusa": true,
+      "porque": "preâmbulo com negador, destinatário ANTES do substantivo e SEM vírgula: nenhum candidato ancorava e a janela virava o prefixo inteiro. Deletar o laço da gorjeta deixava o corpo verde — o caso reportado tinha sido fechado pelo separador, por acidente de pontuação"
+    },
+    {
+      "texto": "A equipe da mesa 7 já fechou. Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "prefixo BENIGNO com substantivo de equipe: o `findIndex` pegava a primeira oração com destinatário, falhava o teste de destino e desarmava a classe inteira"
+    },
+    {
+      "texto": "Chama o garçom pra fechar. Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "prefixo BENIGNO com substantivo de equipe: o `findIndex` pegava a primeira oração com destinatário, falhava o teste de destino e desarmava a classe inteira"
+    },
+    {
+      "texto": "Sobre a gorjeta\n100% pro garçom",
+      "recusa": true,
+      "porque": "sem marcador de lista: `(marcado || fraseDeDestino)` exigia `- ` ou a preposição no começo da oração, e a alternativa `\\d+[.)]` do marcador era morta por construção (a oração já vem cortada no ponto)"
+    },
+    {
+      "texto": "Sobre a gorjeta\n**tudo pro garçom**",
+      "recusa": true,
+      "porque": "sem marcador de lista: `(marcado || fraseDeDestino)` exigia `- ` ou a preposição no começo da oração, e a alternativa `\\d+[.)]` do marcador era morta por construção (a oração já vem cortada no ponto)"
+    },
+    {
+      "texto": "Detalhe do serviço\n2. 100% pro garçom",
+      "recusa": true,
+      "porque": "sem marcador de lista: `(marcado || fraseDeDestino)` exigia `- ` ou a preposição no começo da oração, e a alternativa `\\d+[.)]` do marcador era morta por construção (a oração já vem cortada no ponto)"
+    },
+    {
+      "texto": "Se quiser, mostra pro garçom.",
+      "recusa": false,
+      "porque": "objeto indireto de uma AÇÃO, não dinheiro indo: exigir só a frase de destino recusava isto — e a frase anterior costuma carregar o valor"
+    },
+    {
+      "texto": "Fala com o maître na saída.",
+      "recusa": false,
+      "porque": "objeto indireto de uma AÇÃO, não dinheiro indo: exigir só a frase de destino recusava isto. A QUANTIDADE (ou o marcador de lista, que traz o contexto da linha de cima) é o que separa '100% pro garçom' de 'fala com o maître' sem precisar modelar o verbo."
+    },
+    {
+      "texto": "Pergunta pro garçom se dá pra dividir a conta.",
+      "recusa": false,
+      "porque": "objeto indireto de uma AÇÃO, não dinheiro indo: exigir só a frase de destino recusava isto. A QUANTIDADE (ou o marcador de lista, que traz o contexto da linha de cima) é o que separa '100% pro garçom' de 'fala com o maître' sem precisar modelar o verbo."
+    },
+    {
+      "texto": "Não, o garçom não fica com a gorjeta.",
+      "recusa": false,
+      "porque": "NEGADOR DEPOIS do destinatário, colado no verbo — a janela só olhava pra trás e acusava a resposta certa. O limite é o próximo separador, que é o que mantém 'vai pro garçom, SEM passar pela folha' sendo recusado"
+    },
+    {
+      "texto": "O serviço nunca fica com o atendente.",
+      "recusa": false,
+      "porque": "negação simples com `nunca`, destinatário fora da lista curta do runtime mas dentro da completa"
+    },
+    {
+      "texto": "A caixinha não é do barman nem do sommelier.",
+      "recusa": false,
+      "porque": "negação de dois destinatários na mesma oração — o laço tem que reconhecer os dois"
+    },
+    {
+      "texto": "a gorjeta vai pro garçom fora da folha",
+      "recusa": true,
+      "porque": "EVASÃO, não negação: `fora` qualifica a cláusula do distribuidor e não nega o destino. Enquanto as duas listas eram a mesma, a própria evasão contava como negação da afirmação que ela qualifica"
+    },
+    {
+      "texto": "Não é taxa o serviço pertence ao garçom",
+      "recusa": true,
+      "porque": "ÂNCORA DO SUBSTANTIVO: sem vírgula e sem forma direcional (`pertence` não é uma), é o substantivo da gorjeta que empurra a janela pra depois do `Não`. Sem essa âncora a janela ficaria vazia e o veredito seria o mesmo — mas com ela errada (em 0) o `Não` entraria e a afirmação escaparia"
+    },
+    {
+      "texto": "A gorjeta, que não é nossa, fica com o garçom.",
+      "recusa": true,
+      "porque": "ÂNCORA DO SEPARADOR: o `não` está numa oração intercalada entre vírgulas e não alcança a afirmação que vem depois"
+    },
+    {
+      "texto": "Olha, não é taxa e a gorjeta pertence ao garçom",
+      "recusa": true,
+      "porque": "ISOLA A ÂNCORA DO SUBSTANTIVO: a vírgula ancora cedo, `pertence` não é forma direcional, e é o substantivo da gorjeta que empurra a janela pra depois do `não`. Sem essa âncora a janela começa na vírgula, engole o negador e a afirmação escapa"
+    },
+    {
+      "texto": "A gorjeta não é taxa, fica com o garçom",
+      "recusa": true,
+      "porque": "ISOLA A ÂNCORA DO SEPARADOR: o substantivo ancora ANTES do `não`, e é a vírgula que empurra a janela pra depois dele. Sem o separador a janela pega o `não` e a afirmação escapa"
+    },
+    {
+      "texto": "A gorjeta não é do maître, é do garçom",
+      "recusa": true,
+      "porque": "ISOLA A ÂNCORA DO DESTINATÁRIO ANTERIOR: o `não` pertence ao primeiro destinatário; sem a âncora ele cobriria o segundo também e a afirmação escaparia"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- vai direto pro garçom",
+      "recusa": true,
+      "porque": "ISOLA A REGRA 1b (forma direcional decisiva): a oração tem forma direcional mas NÃO tem o substantivo da gorjeta — ele ficou na linha de cima —, então a regra 1 não a alcança"
+    },
+    {
+      "texto": "a gorjeta é um agrado simpático pro garçom. O restaurante distribui à equipe, como manda a lei.",
+      "recusa": true,
+      "porque": "ISOLA A DISPENSA POR ORAÇÃO: os dois substantivos estão na MESMA oração e o preenchimento de três palavras impede a forma direcional, então só a regra 1 pega — e ela tem que olhar o distribuidor DA ORAÇÃO, não da janela, senão a cauda sancionada lava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom\nO restaurante distribui à equipe, como manda a lei.",
+      "recusa": true,
+      "porque": "ISOLA A ORDEM DO DISTRIBUIDOR: ele é nomeado DEPOIS da oração que nomeia o destinatário, e pelo CDC art. 30 vale a primeira metade — a promessa já foi feita"
+    },
+    {
+      "texto": "Olha, não é o garçom que fica com a gorjeta.",
+      "recusa": false,
+      "porque": "ISOLA A ÂNCORA DO SEPARADOR: o destinatário vem antes do substantivo e não há forma direcional, então a vírgula é a ÚNICA âncora — sem ela a janela fica vazia (falha fechada) e esta negação legítima vira acusação"
+    },
+    {
+      "texto": "A gorjeta. Fica com o garçom.",
+      "recusa": true,
+      "porque": "ISOLA A REGRA 1b: a oração tem forma direcional e NÃO tem o substantivo (ficou na anterior), e não traz marcador nem quantidade — então nem a regra 1 nem a 3 a alcançam"
+    },
+    {
+      "texto": "A gorjeta pertence à equipe e o restaurante distribui, mas não pela folha.",
+      "recusa": true,
+      "porque": "O `temDistribuidor` do runtime olhava só a PRIMEIRA cláusula de distribuidor e só pra trás; o do censo olhava todas e ±30. Esta frase era recusada no build e passava no runtime — o guarda mais frouxo na única direção que chega ao cliente, e na classe de evasão que o `revoga_dispensa` existe pra pegar (`pertence` não é forma direcional, então a regra 1b não salvava). Achado pela revisão de compliance de 2026-09-13"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom\nA gorjeta pertence à equipe e o restaurante distribui pela folha.",
+      "recusa": true,
+      "porque": "A CAUDA SANCIONADA COM UM SUBSTANTIVO DE GORJETA DENTRO cancelava a regra 3 pro texto todo: a regra 1 absolvia a cauda (traz o distribuidor), e o retorno precoce transformava essa absolvição no veredito do texto inteiro — o `- 100% pro garçom` nunca era olhado. Os DOIS guardas falhavam igual, então o corpo compartilhado ficava verde POR CONCORDÂNCIA: ele prova convergência, não correção. Achado pela revisão de compliance de 2026-09-13"
+    },
+    {
+      "texto": "Não é taxa nenhuma. Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "Negador numa oração e a afirmação SEM VERBO noutra: só a regra 3 alcança, e a negação não pode dispensar o texto inteiro — ela nega a oração dela. Existe pra prender o atalho 'negação em qualquer lugar dispensa', que o portão de mutação insere"
+    },
+    {
+      "texto": "A gorjeta vai direto pro garçom sem passar pela folha.",
+      "recusa": true,
+      "porque": "CRÍTICO: a CAUDA da própria frase virava negação da promessa que ela acabara de fazer, porque `sem` está em `negadores` e a janela pós-destinatário aceitava negador em qualquer ponto até o separador. O arranjo que o inegociável #2 existe pra impedir, sem qualificação, na tela. O corpo não via porque o único caso de evasão pós-destinatário usava `fora`, a única palavra de evasão que NÃO está em `negadores`"
+    },
+    {
+      "texto": "Os 10% vão pro garçom e você não paga nada a mais.",
+      "recusa": true,
+      "porque": "idem, e esta é frase que o inegociável #1 (nenhuma taxa pro cliente) faz o modelo produzir o tempo todo"
+    },
+    {
+      "texto": "O serviço fica com a equipe e não passa pela folha de pagamento.",
+      "recusa": true,
+      "porque": "idem, com o negador na segunda metade da mesma oração"
+    },
+    {
+      "texto": "A gorjeta fica com o garçom sem desconto nenhum.",
+      "recusa": true,
+      "porque": "idem, com `sem` sem vírgula — a versão COM vírgula estava no corpo e a sem vírgula não, e só a segunda escapava"
+    },
+    {
+      "texto": "O restaurante distribui a gorjeta à equipe, como manda a lei. Como funciona:\n- 10% de serviço\n- 100% pro garçom",
+      "recusa": true,
+      "porque": "ABRIR com a frase sancionada liberava a classe sem verbo: a dispensa por ORDEM valia só na regra 3, enquanto a 1b diz que nada resgata afirmação já feita. A regra 9 do SystemPrompt MANDA o modelo dizer essa frase, então abrir com ela é o caso provável. As mesmas duas frases, trocadas de ordem, davam vereditos opostos"
+    },
+    {
+      "texto": "A gorjeta não fica com o maître. Sobre a gorjeta\n100% pro garçom",
+      "recusa": true,
+      "porque": "PREFIXO NEGATIVO desarmava a regra 3 pro texto inteiro — a classe do prefixo inocente reaberta com negação, e o assunto faz do prefixo negativo a abertura mais provável"
+    },
+    {
+      "texto": "Como funciona:\n10% de serviço\npro garçom",
+      "recusa": true,
+      "porque": "a classe sem verbo sobrevivia só na renderização COM marcador de Markdown: o exemplo canônico do comentário, sem os dois traços, escapava. A quantidade mora na oração anterior"
+    },
+    {
+      "texto": "Gorjeta: 10% — pra equipe.",
+      "recusa": true,
+      "porque": "idem, no formato de uma linha só com travessão"
+    },
+    {
+      "texto": "Tirei os 10%. Fala com o maître na saída.",
+      "recusa": false,
+      "porque": "a quantidade na oração ANTERIOR só conta se ESTA for frase de destino inteira (começa na preposição). Senão esta resposta certa, com o valor na oração de trás, vira achado"
+    },
+    {
+      "texto": "Gorjeta: R$ 12,00 — pra equipe.",
+      "recusa": true,
+      "porque": "A MOEDA era a única notação de quantidade que a lista não conhecia — e é a que toda linha real usa: a própria frase sancionada é 'Inclui R$ 12,00 de serviço'. Escapava dos três caminhos (regra 1 não alcança, 1b não alcança sem verbo, 3 não disparava porque R$ 12,00 não era quantidade). Achado pela revisão de compliance de 2026-09-14"
+    },
+    {
+      "texto": "Inclui R$ 12,00 de serviço\npro garçom",
+      "recusa": true,
+      "porque": "a mesma falta de moeda, em duas linhas — que é o formato do roteiro IMPRESSO entregue ao garçom, onde a afirmação vale como oferta do CDC art. 30."
+    },
+    {
+      "texto": "Como funciona:\n- 10% service charge\n- 100% to the staff",
+      "recusa": true,
+      "porque": "a classe SEM VERBO existia só em português: as preposições de destino eram só `pra|para|com|de|ao|no`. O censo governa a metade `en` do i18n.ts e os documentos em inglês"
+    },
+    {
+      "texto": "Cómo funciona:\n- 10% de servicio\n- 100% al equipo",
+      "recusa": true,
+      "porque": "idem em espanhol: as preposições eram só portuguesas e os ARTIGOS também, então `al equipo` e `to the staff` não casavam. A preposição tinha sido traduzida numa rodada e o artigo não — meia tradução é a mesma forma de meio conserto."
+    },
+    {
+      "texto": "A gorjeta fica com a equipe não com a casa.",
+      "recusa": true,
+      "porque": "NEGAÇÃO CONTRASTIVA DO PRÓXIMO TERMO, não da promessa: afirma que fica com a equipe. É o espelho do caso 'nega um e afirma outro' — os cinco que o corpo tinha punham a negação NA FRENTE, que a janela `antes` já tratava, e nenhum tinha a ordem invertida. Numa grade de 625, passavam 625. É a resposta mais provável à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "A gorjeta vai pro garçom não pro restaurante.",
+      "recusa": true,
+      "porque": "idem, com verbo de movimento e destinatário oblíquo"
+    },
+    {
+      "texto": "O serviço é da equipe não da casa.",
+      "recusa": true,
+      "porque": "idem na forma genitiva ('é da equipe'): a cauda contrastiva nega o próximo termo e não a atribuição feita antes dela"
+    },
+    {
+      "texto": "A caixinha fica com o garçom nunca com o dono.",
+      "recusa": true,
+      "porque": "idem com `nunca` no lugar de `não` — o negador muda e a estrutura da laundering não, que é por que a regra tem que olhar a REGÊNCIA e não o lexema"
+    },
+    {
+      "texto": "A gorjeta fica com a equipe, não com a casa.",
+      "recusa": true,
+      "porque": "o par COM VÍRGULA do caso acima — a vírgula corta a oração, então esta já era recusada; fica no corpo pra que o par vírgula/sem-vírgula esteja escrito, que é onde a rodada anterior tinha errado na direção oposta"
+    },
+    {
+      "texto": "Já tirei o serviço todo.\nCom o atendente você confirma na saída.",
+      "recusa": false,
+      "porque": "A oração anterior tem quantidade (`todo`) mas a frase não promete destino nenhum. Só a quantidade não basta pra carregar a regra 3 entre orações: `tudo`/`todo` aparecem fora de contexto de dinheiro o tempo todo, e três de cinco respostas certas sumiam atrás da resposta segura. Achado pela revisão de segurança de 2026-09-14"
+    },
+    {
+      "texto": "Você pagou tudo, serviço incluso.\nCom o garçom tá tudo certo.",
+      "recusa": false,
+      "porque": "idem — a oração anterior tem `tudo` e o substantivo, mas a seguinte é confirmação operacional, não destino do dinheiro. Por isso a exigência é quantidade E substantivo na anterior, mais frase de destino inteira na atual"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nCom o garçom você acerta na maquininha.",
+      "recusa": false,
+      "porque": "o caso que PIORA quando a moeda entra na lista de quantidades: a oração anterior passa a ter quantidade, e sem a exigência do substantivo esta resposta certa — com o valor — viraria recusa"
+    },
+    {
+      "texto": "O garçom sem dúvida fica com a gorjeta.",
+      "recusa": true,
+      "porque": "ISOLA O NEGADOR COLADO: o `sem` vem DEPOIS do destinatário mas não colado nele — é preâmbulo do verbo, não negação. Com um negador solto (sem âncora) isto passaria; com a âncora, afirma. O destinatário aqui é SUJEITO, então o caminho `depois` está ativo e é ele que o caso exercita"
+    },
+    {
+      "texto": "Tirei o serviço.\nCom o garçom, ok.",
+      "recusa": false,
+      "porque": "ISOLA A EXIGÊNCIA DE MARCADOR-OU-QUANTIDADE: oração curta, começa na preposição, nomeia o garçom — e não promete nada. Sem essa exigência viraria achado, e é confirmação operacional comum"
+    },
+    {
+      "texto": "O serviço:\n- 100% pra equipe do salão",
+      "recusa": true,
+      "porque": "teto de aridade: a contagem de palavras (`<= 4`) caía com um genitivo a mais, e inglês/espanhol carregam artigo obrigatório onde o português não carrega — `- 100% to the staff` eram exatamente quatro palavras, o corpus trilíngue sentado em cima do teto. A oração toda tem que ser frase de destino, sem teto"
+    },
+    {
+      "texto": "O serviço:\n- 100% to the floor staff",
+      "recusa": true,
+      "porque": "teto de aridade: a contagem de palavras (`<= 4`) caía com um genitivo a mais, e inglês/espanhol carregam artigo obrigatório onde o português não carrega — `- 100% to the staff` eram exatamente quatro palavras, o corpus trilíngue sentado em cima do teto. A oração toda tem que ser frase de destino, sem teto"
+    },
+    {
+      "texto": "O serviço:\n- 100% al equipo de sala",
+      "recusa": true,
+      "porque": "teto de aridade: a contagem de palavras (`<= 4`) caía com um genitivo a mais, e inglês/espanhol carregam artigo obrigatório onde o português não carrega — `- 100% to the staff` eram exatamente quatro palavras, o corpus trilíngue sentado em cima do teto. A oração toda tem que ser frase de destino, sem teto"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- 10% de serviço\n- 100% pro garçom do salão",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "Gorjeta: 10%\n100% direto pra equipe do salão",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "Gorjeta: R$ 12,00\n- integralmente pros garçons da casa",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "Sobre o serviço: 10%\n- 100% pra equipe, sem desconto nenhum",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pros garçons do salão da casa",
+      "recusa": true,
+      "porque": "teto de aridade da regra 3: a frase de destino sem verbo não é curta por natureza — `100% direto pra equipe do salão` tem seis palavras e nenhum verbo. Grade de 64 medida pela revisão: 48 escapavam com o teto de quatro palavras"
+    },
+    {
+      "texto": "A gorjeta vai pros nossos garçons não pra casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (possessivo)"
+    },
+    {
+      "texto": "A caixinha vai pra nossa equipe não pra empresa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (possessivo)"
+    },
+    {
+      "texto": "O serviço fica com toda equipe não com a casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (quantificador)"
+    },
+    {
+      "texto": "O serviço é dos próprios garçons não da casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (adjetivo)"
+    },
+    {
+      "texto": "A gorjeta é destinada aos nossos garçons não à casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (possessivo, particípio)"
+    },
+    {
+      "texto": "O serviço fica com alguns garçons não com a casa.",
+      "recusa": true,
+      "porque": "REGÊNCIA NÃO É ADJACÊNCIA: com um modificador entre a preposição e o núcleo, o olho mágico de 14 caracteres perdia o oblíquo e a cauda contrastiva voltava a lavar a promessa — 1250 de 3125 na grade da revisão (quantificador)"
+    },
+    {
+      "texto": "Com o garçom não tem gorjeta nenhuma.",
+      "recusa": false,
+      "porque": "NEGAÇÃO DE VERDADE, não cauda contrastiva: o destinatário vem sem nada que o reja na janela, então não é oblíquo e o negador colado resgata a frase. O olho mágico dizia oblíquo e engolia uma resposta certa"
+    },
+    {
+      "texto": "Serviço: 10%\ntudo pra equipe que te atendeu hoje",
+      "recusa": true,
+      "porque": "relativa pendurada no núcleo: verbo dentro da frase de destino, nenhuma predicação nova — a oração continua sendo destino puro e a regra 3 desligava"
+    },
+    {
+      "texto": "Serviço: 10%\nCom o garçom que te atendeu você acerta na maquininha.",
+      "recusa": false,
+      "porque": "a relativa é do núcleo, mas `você acerta` é predicação NOVA: a resposta é operacional e certa. A linha de valor na frente é o que põe a oração no caminho da regra 3 — sem ela o caso não exercita nada, e é este caso que impede a relativa de engolir até o fim da oração"
+    },
+    {
+      "texto": "Serviço: 10%\nno fim da conta você chama o garçom",
+      "recusa": false,
+      "porque": "seis palavras entre a preposição e o núcleo, e uma delas é o SUJEITO de um verbo: é oração, não frase de destino. É este caso que prende a aridade do modificador em dois — com nove, a oração inteira vira 'frase pura' e uma resposta operacional certa some atrás da resposta segura"
+    },
+    {
+      "texto": "The tip goes to the staff not to the house.",
+      "recusa": true,
+      "porque": "cauda contrastiva em inglês: o destinatário é oblíquo e não se retira depois. Era inalcançável enquanto o `negador_colado` só falava português — meia tradução"
+    },
+    {
+      "texto": "La propina va al equipo nunca a la casa.",
+      "recusa": true,
+      "porque": "cauda contrastiva em espanhol, pela mesma razão"
+    },
+    {
+      "texto": "The waiter never keeps the tip.",
+      "recusa": false,
+      "porque": "negação de verdade em inglês, colada no destinatário: resposta certa, e só passa a ser avaliada porque o `negador_colado` deixou de ser só português"
+    },
+    {
+      "texto": "El mozo nunca se queda con la propina.",
+      "recusa": false,
+      "porque": "negação de verdade em espanhol, pela mesma razão"
+    },
+    {
+      "texto": "Gorjeta: R$ 12,00 pra equipe.",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- R$ 12,00 pra equipe",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Propina: € 12,00 al equipo.",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Serviço:\n- R$ 25,00 pro garçom",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Serviço:\n- 25,00 pro garçom",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Inclui R$ 24,00 de serviço\n- R$ 24,00 pra equipe do salão",
+      "recusa": true,
+      "porque": "MOEDA CONSUMIDA: `R\\$\\s*\\d` come `R$ 1` e o padrão cobra `\\s+` do `2`, e a vírgula decimal era separador de oração. A moeda é a notação que toda linha real usa e era a única que não atravessava a peça que a citava"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom não pra casa",
+      "recusa": true,
+      "porque": "cauda CONTRASTIVA na regra 3 — a classe sem verbo não tem nada ancorando a janela, e o teste de oblíquo falhava ABERTO justamente ali: 3125 de 3125"
+    },
+    {
+      "texto": "Gorjeta: 10%\n100% pra equipe não pra casa",
+      "recusa": true,
+      "porque": "cauda CONTRASTIVA na regra 3 — a classe sem verbo não tem nada ancorando a janela, e o teste de oblíquo falhava ABERTO justamente ali: 3125 de 3125"
+    },
+    {
+      "texto": "Pro garçom não pra casa vai toda a gorjeta.",
+      "recusa": true,
+      "porque": "cauda CONTRASTIVA na regra 3 — a classe sem verbo não tem nada ancorando a janela, e o teste de oblíquo falhava ABERTO justamente ali: 3125 de 3125"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom hoje",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom em dinheiro",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- 100% pro garçom 🙂",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pra equipe do salão principal",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Service charge: 10%\n- 100% to the staff on duty",
+      "recusa": true,
+      "porque": "ADJUNTO não é predicação: a pureza era whitelist ancorada nos dois lados e desligava a regra 3 em tudo que não modelava — 165 de 180 numa grade de adjuntos"
+    },
+    {
+      "texto": "Sobre o serviço: 10%\n+ 100% pro garçom",
+      "recusa": true,
+      "porque": "marcador de lista que o CommonMark tem e o padrão não tinha"
+    },
+    {
+      "texto": "Sobre o serviço: 10%\n> 100% pro garçom",
+      "recusa": true,
+      "porque": "marcador de lista que o CommonMark tem e o padrão não tinha"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pro time",
+      "recusa": true,
+      "porque": "`time` estava escrito com o artigo embutido e era inalcançável em toda a classe sem verbo"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% ao time",
+      "recusa": true,
+      "porque": "`time` estava escrito com o artigo embutido e era inalcançável em toda a classe sem verbo"
+    },
+    {
+      "texto": "Serviço: 10%\ntudo pra equipe que cuidou de você",
+      "recusa": true,
+      "porque": "relativa sem enumerar o verbo dela: `serv*|atend*` perdia pra `cuidou`, `trabalharam`, `montou`, `took care of`"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pros garçons que trabalharam hoje",
+      "recusa": true,
+      "porque": "relativa sem enumerar o verbo dela: `serv*|atend*` perdia pra `cuidou`, `trabalharam`, `montou`, `took care of`"
+    },
+    {
+      "texto": "Service charge: 10%\n- 100% to the staff who took care of you",
+      "recusa": true,
+      "porque": "relativa sem enumerar o verbo dela: `serv*|atend*` perdia pra `cuidou`, `trabalharam`, `montou`, `took care of`"
+    },
+    {
+      "texto": "Serviço: 10%\nCom o garçom que te atendeu você acerta.",
+      "recusa": false,
+      "porque": "relativa sem enumerar o verbo dela: `serv*|atend*` perdia pra `cuidou`, `trabalharam`, `montou`, `took care of`"
+    },
+    {
+      "texto": "Já tirei o serviço.\nCom o garçom, tudo certo.",
+      "recusa": false,
+      "porque": "evidência FRACA (quantidade só na linha de cima) exige forma estrita: a oração inteira tem que ser a frase de destino e mais nada, senão a resposta certa COM o dinheiro dela some atrás da resposta segura"
+    },
+    {
+      "texto": "Tirei os 10%.\nCom o garçom, você acerta na maquininha.",
+      "recusa": false,
+      "porque": "evidência FRACA (quantidade só na linha de cima) exige forma estrita: a oração inteira tem que ser a frase de destino e mais nada, senão a resposta certa COM o dinheiro dela some atrás da resposta segura"
+    },
+    {
+      "texto": "O serviço é R$ 24,00.\nCom a equipe, tudo certo.",
+      "recusa": false,
+      "porque": "evidência FRACA (quantidade só na linha de cima) exige forma estrita: a oração inteira tem que ser a frase de destino e mais nada, senão a resposta certa COM o dinheiro dela some atrás da resposta segura"
+    },
+    {
+      "texto": "Sua parte com serviço é R$ 61,00.\nCom o garçom, ok.",
+      "recusa": false,
+      "porque": "evidência FRACA (quantidade só na linha de cima) exige forma estrita: a oração inteira tem que ser a frase de destino e mais nada, senão a resposta certa COM o dinheiro dela some atrás da resposta segura"
+    },
+    {
+      "texto": "A gorjeta de hoje o garçom não recebe.",
+      "recusa": false,
+      "porque": "a preposição rege a GORJETA, não o destinatário — o teste por presença no vão falhava FECHADO aqui, 6 de 6"
+    },
+    {
+      "texto": "A caixinha do almoço o garçom não leva.",
+      "recusa": false,
+      "porque": "a preposição rege a GORJETA, não o destinatário — o teste por presença no vão falhava FECHADO aqui, 6 de 6"
+    },
+    {
+      "texto": "Marquei como remuneração da equipe (serviço).",
+      "recusa": false,
+      "porque": "GENITIVO DESCRITIVO: o genitivo do próprio dinheiro diz de quem ele é. É o texto que o AgentTool ensina ao modelo, e o runtime recusava o turno toda vez que ele o repetia"
+    },
+    {
+      "texto": "A gorjeta arrecadada é remuneração da equipe e passa pela folha de pagamento da casa.",
+      "recusa": false,
+      "porque": "GENITIVO DESCRITIVO: o genitivo do próprio dinheiro diz de quem ele é. É o texto que o AgentTool ensina ao modelo, e o runtime recusava o turno toda vez que ele o repetia"
+    },
+    {
+      "texto": "A remuneração da equipe sai por folha, como manda a lei.",
+      "recusa": false,
+      "porque": "GENITIVO DESCRITIVO: o genitivo do próprio dinheiro diz de quem ele é. É o texto que o AgentTool ensina ao modelo, e o runtime recusava o turno toda vez que ele o repetia"
+    },
+    {
+      "texto": "A gorjeta vai pro bolso da equipe.",
+      "recusa": true,
+      "porque": "e o genitivo de um RECIPIENTE não é descritivo — `bolso` não é o dinheiro, é onde ele vai parar"
+    },
+    {
+      "texto": "A gorjeta vai pra mão do garçom.",
+      "recusa": true,
+      "porque": "e o genitivo de um RECIPIENTE não é descritivo — `bolso` não é o dinheiro, é onde ele vai parar"
+    },
+    {
+      "texto": "A gorjeta é da equipe.",
+      "recusa": true,
+      "porque": "e o genitivo de um RECIPIENTE não é descritivo — `bolso` não é o dinheiro, é onde ele vai parar"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pra equipe, e você não paga nada a mais",
+      "recusa": true,
+      "porque": "promessa proibida com cláusula inocente pendurada: pelo CDC art. 30 é a primeira metade que vincula"
+    },
+    {
+      "texto": "Serviço da equipe (10%) — opcional",
+      "recusa": false,
+      "porque": "genitivo descritivo na cópia que o produto MOSTRA — era dispensa escrita à mão no censo e recusa no runtime, a assimetria que o cabeçalho do gerador nomeia como dano"
+    },
+    {
+      "texto": "O serviço da equipe (gorjeta) vai separado, pelo Pix.",
+      "recusa": false,
+      "porque": "genitivo descritivo na cópia que o produto MOSTRA — era dispensa escrita à mão no censo e recusa no runtime, a assimetria que o cabeçalho do gerador nomeia como dano"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- 100% pra equipe mas você não paga nada a mais",
+      "recusa": true,
+      "porque": "metade LEXICAL do separador interno, e este caso é quem a faz carregar peso: sem o corte no `mas`, o `você não paga` atrás dele conta como predicação nova, a oração deixa de ser frase de destino e a regra 3 desliga. Pelo CDC art. 30 é a primeira metade que vincula. A versão anterior deste caso recusava com corte e sem corte — media nada"
+    },
+    {
+      "texto": "Sobre a gorjeta\n__tudo pro garçom__",
+      "recusa": true,
+      "porque": "ênfase de markdown com SUBLINHADO, e é o membro que quebrou o `\\b`: `_` é caractere de palavra, então `\\btudo\\b` não casa logo depois de `__`"
+    },
+    {
+      "texto": "Sobre a gorjeta\n~~100% pro garçom~~",
+      "recusa": true,
+      "porque": "ênfase de markdown RISCADA: a classe de ênfase tem cinco membros e só o asterisco tinha caso"
+    },
+    {
+      "texto": "Sobre a gorjeta\n`100% pro garçom`",
+      "recusa": true,
+      "porque": "ênfase de markdown em CÓDIGO (crase): mesma classe, mesmo motivo — cada membro é uma decisão"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- 100% pra equipe você combina com ela",
+      "recusa": true,
+      "porque": "ESTE CASO ESTAVA ERRADO, e o veredito virou. `- 100% pra equipe` JÁ fez a promessa: pelo CDC art. 30 a oferta obriga no momento em que é feita, e o que vem pendurado atrás qualifica, não desdiz — é a mesma razão pela qual a regra 1b é decisiva. Enquanto ele era `recusa: false`, ele obrigava o caminho da quantidade consumida a perguntar por predicação, e era a aridade do retirador de relativa que decidia dinheiro: `- 100% pro garçom QUE HOJE RECEBE DIRETO` escapava porque o `hoje` gastava a única palavra que o retirador tira. Apontado pela revisão de compliance"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- com a equipe tá tudo certo",
+      "recusa": false,
+      "porque": "PREDICAÇÃO DE SUJEITO NULO no caminho forte: sem pronome, é o `verbo_finito` que decide. É a enumeração cuja polaridade está do lado certo, e este é o caso que a faz carregar peso"
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pra equipe que fica na varanda",
+      "recusa": true,
+      "porque": "a RELATIVA sai antes do teste de predicação: `fica` é verbo da relativa, não da oração. Sem a retirada, a promessa proibida escapa por trazer um verbo pendurado no núcleo"
+    },
+    {
+      "texto": "Os 10%: caem no bolso do garçom.",
+      "recusa": true,
+      "porque": "a alternativa que nomeia BOLSO/CONTA/MÃO — o arranjo que o inegociável #2 existe pra impedir — estava escrita `cai(em)?`, que não casa `caem`, e vivia coberta pela primeira alternativa. Agora o corpo compartilhado prende essa, e não a vizinha dela"
+    },
+    {
+      "texto": "A gorjeta cai na conta do garçom.",
+      "recusa": true,
+      "porque": "idem, com CONTA no lugar de bolso"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- 100% pra equipe MAS você não paga nada a mais",
+      "recusa": true,
+      "porque": "separador interno em CAIXA ALTA: o corte do censo era feito sem a bandeira `i` enquanto o do runtime é sempre insensível a caixa, e o censo — que governa o roteiro IMPRESSO — ficava mais frouxo que o guarda, na única direção que o gerador existe pra impedir"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- com o garçom você acerta na maquininha",
+      "recusa": false,
+      "porque": "PREDICAÇÃO POR SUJEITO no ramo do marcador SEM quantidade, que é onde ela decide de verdade. Substitui o caso que virou recusa: sem ele, o teste de pronome ficava sem quem o prendesse"
+    },
+    {
+      "texto": "Sobre a gorjeta\nSim, 100% pro garçom.",
+      "recusa": true,
+      "porque": "ADJUNTO NA FRENTE do separador: o corte no primeiro separador jogava fora a promessa em vez do qualificador, e `sim` nu disparava no deslocamento zero. É a resposta direta à pergunta direta"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- Na prática, 100% pro garçom",
+      "recusa": true,
+      "porque": "idem, com vírgula de verdade e sem o `sim`: o marcador ficava no segmento 1 e a promessa no 2"
+    },
+    {
+      "texto": "Sobre o serviço:\n- 100% pro garçom que hoje recebe direto.",
+      "recusa": true,
+      "porque": "o retirador de relativa tira UMA palavra; um advérbio gasta o orçamento e o verbo da relativa sobra, virando `predicação` da oração principal. Teto de aridade um nível abaixo"
+    },
+    {
+      "texto": "Service charge: 10%\n- 100% to the staff who served you.",
+      "recusa": true,
+      "porque": "e com verbo FORA da lista a conta se inverte: `served` gasta o orçamento e `you` sobra exposto, sem preposição regendo. Pronome enclítico é livre em inglês e em português"
+    },
+    {
+      "texto": "Sobre o serviço: 10%. \npro garçom.",
+      "recusa": true,
+      "porque": "espaço sobrando antes da quebra de linha: o `oracoes` do Swift guardava a oração `\" \"` que o gêmeo JS descartava, e o caminho fraco lê `partes[i - 1]`. Censo recusava, runtime passava"
+    },
+    {
+      "texto": "O serviço vira o pagamento da equipe no fim do turno.",
+      "recusa": true,
+      "porque": "`pagamento` é nome de EVENTO, não de identidade: é o ato de transferir, que é o que a Lei 13.419 regula. Estava no núcleo de atribuição e dispensava um repasse"
+    },
+    {
+      "texto": "Vai sim, 100% pro garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "Vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "Fica com a equipe, sim.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "É todo do garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "100% pra equipe.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "Cai na conta do garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "É repassado ao time.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "10% pro garçom.",
+      "recusa": true,
+      "porque": "ANÁFORA: o guarda só lê o texto do MODELO, e a pergunta do cliente não entra nele. Um prompt que manda escrever frases curtas produz a resposta que não repete o substantivo — e a pré-condição exigia o substantivo. Quinze respostas curtas naturais, quinze escapes, com todo o resto do desenho inalcançável atrás daquela linha"
+    },
+    {
+      "texto": "Gorjeta: 10%\nHoje 100% pro garçom",
+      "recusa": true,
+      "porque": "PREÂMBULO à esquerda da cabeça: o lado direito deixou de ser whitelist, o esquerdo continuava sendo, e uma palavra na frente desligava a regra 3 inteira — 60 de 65"
+    },
+    {
+      "texto": "Sobre a gorjeta\nEntão tudo pro garçom",
+      "recusa": true,
+      "porque": "PREÂMBULO à esquerda da cabeça: o lado direito deixou de ser whitelist, o esquerdo continuava sendo, e uma palavra na frente desligava a regra 3 inteira — 60 de 65"
+    },
+    {
+      "texto": "Gorjeta: 10%\nNo fim, 100% pra equipe",
+      "recusa": true,
+      "porque": "PREÂMBULO à esquerda da cabeça: o lado direito deixou de ser whitelist, o esquerdo continuava sendo, e uma palavra na frente desligava a regra 3 inteira — 60 de 65"
+    },
+    {
+      "texto": "A gorjeta fica com a equipe não só com o garçom.",
+      "recusa": true,
+      "porque": "cauda contrastiva que é ORAÇÃO INTEIRA, não sintagma: o que separa contraste de negação é o OBJETO da preposição, não a distância até ela"
+    },
+    {
+      "texto": "A gorjeta vai pro garçom não vai pro caixa.",
+      "recusa": true,
+      "porque": "cauda contrastiva que é ORAÇÃO INTEIRA, não sintagma: o que separa contraste de negação é o OBJETO da preposição, não a distância até ela"
+    },
+    {
+      "texto": "O serviço é da equipe não é da casa.",
+      "recusa": true,
+      "porque": "cauda contrastiva que é ORAÇÃO INTEIRA, não sintagma: o que separa contraste de negação é o OBJETO da preposição, não a distância até ela"
+    },
+    {
+      "texto": "A gorjeta pertence à equipe e o restaurante distribui pela folha.",
+      "recusa": true,
+      "porque": "NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA, e a regra 1 não aplicava isso: bastava colar a frase sancionada depois. A segunda metade é o texto que a regra 9 do prompt MANDA escrever, então era a cláusula mais provável de aparecer colada na promessa"
+    },
+    {
+      "texto": "O serviço destina-se à equipe e o restaurante distribui pela folha.",
+      "recusa": true,
+      "porque": "NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA, e a regra 1 não aplicava isso: bastava colar a frase sancionada depois. A segunda metade é o texto que a regra 9 do prompt MANDA escrever, então era a cláusula mais provável de aparecer colada na promessa"
+    },
+    {
+      "texto": "A gorjeta beneficia a equipe e o restaurante distribui pela folha.",
+      "recusa": true,
+      "porque": "NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA, e a regra 1 não aplicava isso: bastava colar a frase sancionada depois. A segunda metade é o texto que a regra 9 do prompt MANDA escrever, então era a cláusula mais provável de aparecer colada na promessa"
+    },
+    {
+      "texto": "Sua parte com serviço é R$ 61,00.\n- Com o garçom, ok.",
+      "recusa": false,
+      "porque": "MARCADOR NU não é evidência forte: um traço não dirige dinheiro. Cinco casos `recusa: false` invertiam só de ganhar `- ` na frente, e marcador é como um modelo renderiza resposta de dois itens"
+    },
+    {
+      "texto": "Tirei os 10%.\n- Com o garçom, você acerta na maquininha.",
+      "recusa": false,
+      "porque": "MARCADOR NU não é evidência forte: um traço não dirige dinheiro. Cinco casos `recusa: false` invertiam só de ganhar `- ` na frente, e marcador é como um modelo renderiza resposta de dois itens"
+    },
+    {
+      "texto": "O serviço é R$ 24,00.\n- Com a equipe, tudo certo.",
+      "recusa": false,
+      "porque": "MARCADOR NU não é evidência forte: um traço não dirige dinheiro. Cinco casos `recusa: false` invertiam só de ganhar `- ` na frente, e marcador é como um modelo renderiza resposta de dois itens"
+    },
+    {
+      "texto": "O serviço cai na conta do garçom.",
+      "recusa": true,
+      "porque": "CONTA: mesma família do bolso e da mão, e cada uma precisa do seu caso"
+    },
+    {
+      "texto": "A verba da equipe é a gorjeta que você deixa na mão dela.",
+      "recusa": true,
+      "porque": "EVASÃO REVOGA A DISPENSA do genitivo descritivo: `verba da equipe` seria atribuição, mas `na mão dela` é o caminho direto. É o único lugar em que o `evasao_de_caminho` decide, e cada recipiente da família precisa do seu caso"
+    },
+    {
+      "texto": "O pagamento da equipe é o que cai no bolso do garçom.",
+      "recusa": true,
+      "porque": "idem com BOLSO: sem a revogação, o genitivo atributivo dispensava a promessa inteira"
+    },
+    {
+      "texto": "A renda dos garçons é o que entra na conta deles.",
+      "recusa": true,
+      "porque": "idem com CONTA, e com o possessivo contraído (`deles`), que precisa de alternativa própria"
+    },
+    {
+      "texto": "Gorjeta: 10%\nPra equipe você avisa na saída.",
+      "recusa": false,
+      "porque": "PREDICAÇÃO no caminho FRACO: a cabeça é direcional e a quantidade está na linha de cima, mas `você avisa` é oração nova. Era o único ramo em que o teste de predicação decide e ele não tinha caso próprio"
+    },
+    {
+      "texto": "Tirei o serviço.\nVocê confirma tudo com o garçom.",
+      "recusa": false,
+      "porque": "SUJEITO ANTES da cabeça: `tudo com o garçom` é cabeça forte, e sem julgar o prefixo o guarda recusava uma frase operacional. É o caso que prende o teste do prefixo"
+    },
+    {
+      "texto": "Pro garçom, por favor.",
+      "recusa": false,
+      "porque": "cabeça direcional sem quantidade em lugar nenhum: evidência fraca é FRACA, e sem a exigência da quantidade na oração anterior o caminho fraco vira um sim pra qualquer frase de destino"
+    },
+    {
+      "texto": "Gorjeta: 10%\nPra equipe que fica na varanda.",
+      "recusa": true,
+      "porque": "a RELATIVA sai antes do teste de predicação, e agora só o caminho fraco pergunta por predicação — sem a retirada, `fica` derruba a regra e a promessa escapa"
+    },
+    {
+      "texto": "Gorjeta: 10%\nPra equipe que cuidou de você.",
+      "recusa": true,
+      "porque": "pronome REGIDO por preposição não é sujeito: `de você` é objeto. Sem essa distinção a promessa escapa por trazer um pronome na cauda da relativa"
+    },
+    {
+      "texto": "O restaurante distribui a gorjeta à equipe, mas não pela folha.",
+      "recusa": true,
+      "porque": "REVOGAÇÃO DEPOIS do distribuidor: a janela do `temDistribuidor` tem que olhar PRA FRENTE. Com o distribuidor vindo primeiro, ele resgataria — e o `mas não pela folha` é a evasão que o `revoga_dispensa` existe pra pegar"
+    },
+    {
+      "texto": "Gorjeta: 10%\nPra equipe tá tudo certo.",
+      "recusa": false,
+      "porque": "SUJEITO NULO no caminho fraco: sem pronome, é o `verbo_finito` que decide, e era o único ramo em que ele muda veredito — sem este caso, desligar a lista inteira deixava o corpo verde"
+    },
+    {
+      "texto": "A caixinha é o bolso dos garçons.",
+      "recusa": true,
+      "porque": "o núcleo de atribuição tem que ser CURTO: com qualquer substantivo valendo como núcleo, `bolso dos garçons` vira genitivo descritivo e a dispensa engole a promessa. É o caso que mede o alargamento do núcleo na direção do ESCAPE"
+    },
+    {
+      "texto": "A gorjeta fica com a equipe não precisa deixar mais nada.",
+      "recusa": true,
+      "porque": "ESCOPO do negador: `não precisa deixar mais nada` nega OUTRA coisa. Nada resgata uma afirmação já feita (CDC art. 30), e a forma direcional antes do negador prova que ela foi feita — 90 de 90 numa grade, regressão de dois commits"
+    },
+    {
+      "texto": "Os 10% vão pro garçom não tem taxa nenhuma.",
+      "recusa": true,
+      "porque": "ESCOPO do negador: `não precisa deixar mais nada` nega OUTRA coisa. Nada resgata uma afirmação já feita (CDC art. 30), e a forma direcional antes do negador prova que ela foi feita — 90 de 90 numa grade, regressão de dois commits"
+    },
+    {
+      "texto": "O serviço é da equipe não é obrigatório.",
+      "recusa": true,
+      "porque": "ESCOPO do negador: `não precisa deixar mais nada` nega OUTRA coisa. Nada resgata uma afirmação já feita (CDC art. 30), e a forma direcional antes do negador prova que ela foi feita — 90 de 90 numa grade, regressão de dois commits"
+    },
+    {
+      "texto": "A caixinha fica com o garçom não tem pegadinha.",
+      "recusa": true,
+      "porque": "ESCOPO do negador: `não precisa deixar mais nada` nega OUTRA coisa. Nada resgata uma afirmação já feita (CDC art. 30), e a forma direcional antes do negador prova que ela foi feita — 90 de 90 numa grade, regressão de dois commits"
+    },
+    {
+      "texto": "O garçom não fica com a gorjeta da mesa.",
+      "recusa": false,
+      "porque": "ESCOPO do negador: `não precisa deixar mais nada` nega OUTRA coisa. Nada resgata uma afirmação já feita (CDC art. 30), e a forma direcional antes do negador prova que ela foi feita — 90 de 90 numa grade, regressão de dois commits"
+    },
+    {
+      "texto": "A equipe não recebe nada do valor do serviço.",
+      "recusa": false,
+      "porque": "ESCOPO do negador: `não precisa deixar mais nada` nega OUTRA coisa. Nada resgata uma afirmação já feita (CDC art. 30), e a forma direcional antes do negador prova que ela foi feita — 90 de 90 numa grade, regressão de dois commits"
+    },
+    {
+      "texto": "A comanda vai pro garçom conferir.",
+      "recusa": false,
+      "porque": "TURNO INOCENTE que nomeia garçom: sem contexto de dinheiro, `vai pro garçom` é sobre a comanda, não sobre a gorjeta. Cair a pré-condição sem pôr o contexto nas regras custou 34 de 47 — e um deles apagava o valor da conta da tela"
+    },
+    {
+      "texto": "O Gui paga tudo pro garçom.",
+      "recusa": false,
+      "porque": "TURNO INOCENTE que nomeia garçom: sem contexto de dinheiro, `vai pro garçom` é sobre a comanda, não sobre a gorjeta. Cair a pré-condição sem pôr o contexto nas regras custou 34 de 47 — e um deles apagava o valor da conta da tela"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00. Mostra tudo pro garçom.",
+      "recusa": false,
+      "porque": "TURNO INOCENTE que nomeia garçom: sem contexto de dinheiro, `vai pro garçom` é sobre a comanda, não sobre a gorjeta. Cair a pré-condição sem pôr o contexto nas regras custou 34 de 47 — e um deles apagava o valor da conta da tela"
+    },
+    {
+      "texto": "Confirma o valor todo com a atendente.",
+      "recusa": false,
+      "porque": "TURNO INOCENTE que nomeia garçom: sem contexto de dinheiro, `vai pro garçom` é sobre a comanda, não sobre a gorjeta. Cair a pré-condição sem pôr o contexto nas regras custou 34 de 47 — e um deles apagava o valor da conta da tela"
+    },
+    {
+      "texto": "Tudo certo com a equipe do salão.",
+      "recusa": false,
+      "porque": "TURNO INOCENTE que nomeia garçom: sem contexto de dinheiro, `vai pro garçom` é sobre a comanda, não sobre a gorjeta. Cair a pré-condição sem pôr o contexto nas regras custou 34 de 47 — e um deles apagava o valor da conta da tela"
+    },
+    {
+      "texto": "Eu acerto tudo com o garçom.",
+      "recusa": false,
+      "porque": "TURNO INOCENTE que nomeia garçom: sem contexto de dinheiro, `vai pro garçom` é sobre a comanda, não sobre a gorjeta. Cair a pré-condição sem pôr o contexto nas regras custou 34 de 47 — e um deles apagava o valor da conta da tela"
+    },
+    {
+      "texto": "Divide tudo com a equipe da mesa 3.",
+      "recusa": false,
+      "porque": "TURNO INOCENTE que nomeia garçom: sem contexto de dinheiro, `vai pro garçom` é sobre a comanda, não sobre a gorjeta. Cair a pré-condição sem pôr o contexto nas regras custou 34 de 47 — e um deles apagava o valor da conta da tela"
+    },
+    {
+      "texto": "O restaurante distribui à equipe, como manda a lei, e a gorjeta pertence ao garçom.",
+      "recusa": true,
+      "porque": "a dispensa do distribuidor vale no SEGMENTO dele, não pela ordem: com a frase sancionada na frente ela virava interruptor de absolvição"
+    },
+    {
+      "texto": "O restaurante distribui à equipe, como manda a lei, e a gorjeta beneficia o garçom.",
+      "recusa": true,
+      "porque": "a dispensa do distribuidor vale no SEGMENTO dele, não pela ordem: com a frase sancionada na frente ela virava interruptor de absolvição"
+    },
+    {
+      "texto": "A equipe recebe a gorjeta pela folha de pagamento da casa.",
+      "recusa": false,
+      "porque": "a moldura CERTA do português põe o destinatário como sujeito e o distribuidor depois: o teste de ordem recusava a frase legalmente correta"
+    },
+    {
+      "texto": "Os garçons recebem a gorjeta pela folha de pagamento do restaurante.",
+      "recusa": false,
+      "porque": "a moldura CERTA do português põe o destinatário como sujeito e o distribuidor depois: o teste de ordem recusava a frase legalmente correta"
+    },
+    {
+      "texto": "A gorjeta vai toda pra cozinha.",
+      "recusa": true,
+      "porque": "destinatário que o CENSO acusava e o runtime não via: a pré-condição nunca disparava e o guarda ficava inerte — acusado no build, vivo na tela do cliente"
+    },
+    {
+      "texto": "A gorjeta vai direto pro moço que traz a comida.",
+      "recusa": true,
+      "porque": "destinatário que o CENSO acusava e o runtime não via: a pré-condição nunca disparava e o guarda ficava inerte — acusado no build, vivo na tela do cliente"
+    },
+    {
+      "texto": "A caixinha fica com a moça do bar.",
+      "recusa": true,
+      "porque": "destinatário que o CENSO acusava e o runtime não via: a pré-condição nunca disparava e o guarda ficava inerte — acusado no build, vivo na tela do cliente"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- **100%** pro garçom",
+      "recusa": true,
+      "porque": "ênfase de markdown NO MEIO da frase: a classe morava num lugar só do padrão e todos os casos do corpo embrulhavam a frase inteira"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- 100% pro **garçom**",
+      "recusa": true,
+      "porque": "ênfase de markdown NO MEIO da frase: a classe morava num lugar só do padrão e todos os casos do corpo embrulhavam a frase inteira"
+    },
+    {
+      "texto": "Sobre a gorjeta\n- _100%_ pro garçom",
+      "recusa": true,
+      "porque": "ênfase de markdown NO MEIO da frase: a classe morava num lugar só do padrão e todos os casos do corpo embrulhavam a frase inteira"
+    },
+    {
+      "texto": "Sobre a gorjeta: 10%\nEla, 100% pro garçom.",
+      "recusa": true,
+      "porque": "anáfora de PRONOME antes da cabeça: pronome sozinho não é oração, e julgar o prefixo por sujeito deixava a promessa escapar"
+    },
+    {
+      "texto": "Serviço: 10%\nEles, 100% pro garçom.",
+      "recusa": true,
+      "porque": "anáfora de PRONOME antes da cabeça: pronome sozinho não é oração, e julgar o prefixo por sujeito deixava a promessa escapar"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- sem desconto\n- pro garçom",
+      "recusa": true,
+      "porque": "a quantidade pode estar a mais de uma oração de distância: `partes[i-1]` era adjacência posicional e um bullet a mais desligava a regra"
+    },
+    {
+      "texto": "Gorjeta: 10%\nOu seja:\npra equipe",
+      "recusa": true,
+      "porque": "a quantidade pode estar a mais de uma oração de distância: `partes[i-1]` era adjacência posicional e um bullet a mais desligava a regra"
+    },
+    {
+      "texto": "A caixinha dos garçons cai no Pix deles.",
+      "recusa": true,
+      "porque": "o TRILHO de pagamento é container de evasão como bolso e mão — e o deck de vendas nomeia exatamente esta frase como a que nunca se diz"
+    },
+    {
+      "texto": "A gorjeta da equipe sai no Pix na hora.",
+      "recusa": true,
+      "porque": "o TRILHO de pagamento é container de evasão como bolso e mão — e o deck de vendas nomeia exatamente esta frase como a que nunca se diz"
+    },
+    {
+      "texto": "A renda dos garçons é o que entra na conta pessoal deles.",
+      "recusa": true,
+      "porque": "`na conta PESSOAL dela`: a única peça do arquivo sem slot de modificador, e uma palavra invertia o veredito"
+    },
+    {
+      "texto": "O pagamento da conta fica com o garçom.",
+      "recusa": false,
+      "porque": "`pagamento` só é substantivo de gorjeta quando é DE ALGUÉM: num produto de pagar a conta o genitivo quase nunca é uma pessoa"
+    },
+    {
+      "texto": "Confirmei o pagamento da mesa com o garçom.",
+      "recusa": false,
+      "porque": "`pagamento` só é substantivo de gorjeta quando é DE ALGUÉM: num produto de pagar a conta o genitivo quase nunca é uma pessoa"
+    },
+    {
+      "texto": "A conta da mesa 12 do salão está aberta.",
+      "recusa": false,
+      "porque": "rótulo de mesa é a palavra do restaurante: inteiro nu não é dinheiro dirigido"
+    },
+    {
+      "texto": "São 2 cervejas do barman.",
+      "recusa": false,
+      "porque": "rótulo de mesa é a palavra do restaurante: inteiro nu não é dinheiro dirigido"
+    },
+    {
+      "texto": "A gorjeta nunca mais vai pro garçom.",
+      "recusa": false,
+      "porque": "`nunca MAIS vai`: a janela do `nega` voltava dez CARACTERES e começava no meio do negador"
+    },
+    {
+      "texto": "A caixinha nunca mais fica com o garçom.",
+      "recusa": false,
+      "porque": "`nunca MAIS vai`: a janela do `nega` voltava dez CARACTERES e começava no meio do negador"
+    },
+    {
+      "texto": "Gorjeta: 10%\n- no bolso do garçom",
+      "recusa": true,
+      "porque": "a pista de EVASÃO vale como direcionalidade no caminho fraco: `no bolso`/`em espécie` é a promessa proibida sem verbo, e `com` sozinho não podia decidir"
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- em espécie, com o garçom",
+      "recusa": true,
+      "porque": "a pista de EVASÃO vale como direcionalidade no caminho fraco: `no bolso`/`em espécie` é a promessa proibida sem verbo, e `com` sozinho não podia decidir"
+    },
+    {
+      "texto": "Serviço: 10%\nCom a equipe, sem passar pela casa.",
+      "recusa": true,
+      "porque": "a pista de EVASÃO vale como direcionalidade no caminho fraco: `no bolso`/`em espécie` é a promessa proibida sem verbo, e `com` sozinho não podia decidir"
+    },
+    {
+      "texto": "Sobre a gorjeta\nSim, pra equipe.",
+      "recusa": true,
+      "porque": "sem quantidade em lugar nenhum, o substantivo da gorjeta na oração anterior é a evidência"
+    },
+    {
+      "texto": "Sobre a gorjeta\nEntão, pro garçom.",
+      "recusa": true,
+      "porque": "sem quantidade em lugar nenhum, o substantivo da gorjeta na oração anterior é a evidência"
+    },
+    {
+      "texto": "Sobre a gorjeta\nEla, pra equipe.",
+      "recusa": true,
+      "porque": "pronome sozinho antes da cabeça DIRECIONAL, sem quantidade nenhuma: é o caso que faz o teste de pronome carregar peso no caminho fraco"
+    },
+    {
+      "texto": "Gorjeta: R$ 24,00\npra equipe",
+      "recusa": true,
+      "porque": "moeda como DETECTORA na oração anterior, sem o substantivo da gorjeta por perto pra cobrir"
+    },
+    {
+      "texto": "Gorjeta: 10%\nPra equipe você combina depois.",
+      "recusa": false,
+      "porque": "SUJEITO no resto com verbo FORA da lista: é o único caso em que o teste de pronome muda veredito, e sem ele desligar `pronome_sujeito` inteiro deixava o corpo verde"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\npra equipe",
+      "recusa": true,
+      "porque": "moeda como DETECTORA sem nenhum substantivo de gorjeta na janela: é o caso que faz a `quantidade` carregar peso sozinha, em vez de ser coberta pelo substantivo"
+    },
+    {
+      "texto": "Sim, vai pro garçom.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Claro, fica com a equipe.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Ela fica com o garçom.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Hoje fica com a equipe.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Sure, it goes to the staff.",
+      "recusa": true,
+      "porque": "PREFIXO JULGADO, não contado: `comecaNaForma` exigia zero caracteres antes do verbo, e uma palavra de discurso desligava a regra 1b — 150 de 150, na resposta de uma volta à pergunta mais provável da mesa"
+    },
+    {
+      "texto": "Sim, sem dúvida o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "INTERJEIÇÃO CRIA A ÂNCORA: a vírgula do `Sim,` abria a janela do `antes` e ela engolia o negador do preâmbulo, que nega OUTRA coisa — 144 de 144, cada uma recusada sem a partícula"
+    },
+    {
+      "texto": "Claro, não precisa deixar mais nada o garçom fica com a gorjeta.",
+      "recusa": true,
+      "porque": "INTERJEIÇÃO CRIA A ÂNCORA: a vírgula do `Sim,` abria a janela do `antes` e ela engolia o negador do preâmbulo, que nega OUTRA coisa — 144 de 144, cada uma recusada sem a partícula"
+    },
+    {
+      "texto": "Beleza, você não paga taxa nenhuma a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "INTERJEIÇÃO CRIA A ÂNCORA: a vírgula do `Sim,` abria a janela do `antes` e ela engolia o negador do preâmbulo, que nega OUTRA coisa — 144 de 144, cada uma recusada sem a partícula"
+    },
+    {
+      "texto": "A gorjeta pertence ao garçom não precisa deixar mais nada.",
+      "recusa": true,
+      "porque": "ORDEM sem enumeração: `pertence`, `sobra`, `ficará`, `foi` não estavam na lista de verbos, e verbo desconhecido queria dizer `a promessa ainda não foi feita` — 108 de 108"
+    },
+    {
+      "texto": "A gorjeta ficará com o garçom não precisa deixar mais nada.",
+      "recusa": true,
+      "porque": "ORDEM sem enumeração: `pertence`, `sobra`, `ficará`, `foi` não estavam na lista de verbos, e verbo desconhecido queria dizer `a promessa ainda não foi feita` — 108 de 108"
+    },
+    {
+      "texto": "A caixinha sobra pro garçom não precisa deixar mais nada.",
+      "recusa": true,
+      "porque": "ORDEM sem enumeração: `pertence`, `sobra`, `ficará`, `foi` não estavam na lista de verbos, e verbo desconhecido queria dizer `a promessa ainda não foi feita` — 108 de 108"
+    },
+    {
+      "texto": "A gorjeta que o restaurante distribui pertence ao garçom.",
+      "recusa": true,
+      "porque": "o distribuidor numa RELATIVA modifica a gorjeta e não diz pra onde ela vai: dispensava a promessa ao lado dela"
+    },
+    {
+      "texto": "O serviço que o restaurante distribui acaba com o garçom.",
+      "recusa": true,
+      "porque": "o distribuidor numa RELATIVA modifica a gorjeta e não diz pra onde ela vai: dispensava a promessa ao lado dela"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nCom o garçom, sem taxa.",
+      "recusa": false,
+      "porque": "quem REVOGA não é quem LICENCIA: com o negador nu servindo de pista de evasão, `sem taxa` — a frase que o inegociável #1 obriga — virava recusa"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nCom o garçom, em dinheiro.",
+      "recusa": false,
+      "porque": "quem REVOGA não é quem LICENCIA: com o negador nu servindo de pista de evasão, `sem taxa` — a frase que o inegociável #1 obriga — virava recusa"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00. A comanda vai pro garçom conferir.",
+      "recusa": false,
+      "porque": "SUJEITO NOMINAL que não é a gorjeta: a frase é sobre a comanda, não sobre a gorjeta, e recusar apaga o valor da conta da tela"
+    },
+    {
+      "texto": "Sua parte é R$ 61,00. O pedido vai pra copa.",
+      "recusa": false,
+      "porque": "SUJEITO NOMINAL que não é a gorjeta: a frase é sobre a comanda, não sobre a gorjeta, e recusar apaga o valor da conta da tela"
+    },
+    {
+      "texto": "O pedido vai direto pra copa.",
+      "recusa": false,
+      "porque": "SUJEITO NOMINAL que não é a gorjeta: a frase é sobre a comanda, não sobre a gorjeta, e recusar apaga o valor da conta da tela"
+    },
+    {
+      "texto": "O restaurante distribui a gorjeta à equipe e à cozinha, como manda a lei.",
+      "recusa": false,
+      "porque": "COORDENAÇÃO herda o distribuidor: segmento sem verbo próprio é continuação, e a frase sancionada na forma que o dono mais quer virava recusa"
+    },
+    {
+      "texto": "O restaurante distribui o serviço à equipe e ao pessoal da cozinha.",
+      "recusa": false,
+      "porque": "COORDENAÇÃO herda o distribuidor: segmento sem verbo próprio é continuação, e a frase sancionada na forma que o dono mais quer virava recusa"
+    },
+    {
+      "texto": "Vai pra cozinha, já avisei.",
+      "recusa": false,
+      "porque": "destinatário que também é CÔMODO não basta na evidência mais fraca: `Vai pra cozinha` é sobre o pedido"
+    },
+    {
+      "texto": "Não, vai pra equipe.",
+      "recusa": true,
+      "porque": "o `Não` responde à PERGUNTA do cliente, não ao destino: sem o corte na vírgula ele alcançava a resposta. Eu apaguei essa âncora medindo que apagá-la deixava o corpo verde — o que mediu o CORPO, não a âncora: 165 de 165"
+    },
+    {
+      "texto": "Não, vai pro garçom.",
+      "recusa": true,
+      "porque": "o `Não` responde à PERGUNTA do cliente, não ao destino: sem o corte na vírgula ele alcançava a resposta. Eu apaguei essa âncora medindo que apagá-la deixava o corpo verde — o que mediu o CORPO, não a âncora: 165 de 165"
+    },
+    {
+      "texto": "Não precisa, a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "o `Não` responde à PERGUNTA do cliente, não ao destino: sem o corte na vírgula ele alcançava a resposta. Eu apaguei essa âncora medindo que apagá-la deixava o corpo verde — o que mediu o CORPO, não a âncora: 165 de 165"
+    },
+    {
+      "texto": "A gorjeta? Não, vai pro garçom.",
+      "recusa": true,
+      "porque": "o `Não` responde à PERGUNTA do cliente, não ao destino: sem o corte na vírgula ele alcançava a resposta. Eu apaguei essa âncora medindo que apagá-la deixava o corpo verde — o que mediu o CORPO, não a âncora: 165 de 165"
+    },
+    {
+      "texto": "A gorjeta fica com o garçom, não é mesmo.",
+      "recusa": true,
+      "porque": "tag de CONFIRMAÇÃO lida como negação: a pergunta de ORDEM saiu junto com o instrumento errado que a respondia, e a mutação que mediria isso saiu no mesmo commit — os dois portões ficaram verdes sobre uma regra que não existia mais. 90 de 120"
+    },
+    {
+      "texto": "Os 10% vão pro garçom não é.",
+      "recusa": true,
+      "porque": "tag de CONFIRMAÇÃO lida como negação: a pergunta de ORDEM saiu junto com o instrumento errado que a respondia, e a mutação que mediria isso saiu no mesmo commit — os dois portões ficaram verdes sobre uma regra que não existia mais. 90 de 120"
+    },
+    {
+      "texto": "O serviço é da equipe não é.",
+      "recusa": true,
+      "porque": "tag de CONFIRMAÇÃO lida como negação: a pergunta de ORDEM saiu junto com o instrumento errado que a respondia, e a mutação que mediria isso saiu no mesmo commit — os dois portões ficaram verdes sobre uma regra que não existia mais. 90 de 120"
+    },
+    {
+      "texto": "O valor vai todo pro garçom.",
+      "recusa": true,
+      "porque": "o sujeito é o DINHEIRO chamado por outro nome: o veto lia `o valor` como `outra coisa` e desligava a regra 1b — 96 de 96, a mesma anáfora que derrubou a pré-condição duas rodadas antes, agora do lado do sujeito"
+    },
+    {
+      "texto": "A parte vai pro garçom.",
+      "recusa": true,
+      "porque": "o sujeito é o DINHEIRO chamado por outro nome: o veto lia `o valor` como `outra coisa` e desligava a regra 1b — 96 de 96, a mesma anáfora que derrubou a pré-condição duas rodadas antes, agora do lado do sujeito"
+    },
+    {
+      "texto": "Esse valor fica com o garçom.",
+      "recusa": true,
+      "porque": "o sujeito é o DINHEIRO chamado por outro nome: o veto lia `o valor` como `outra coisa` e desligava a regra 1b — 96 de 96, a mesma anáfora que derrubou a pré-condição duas rodadas antes, agora do lado do sujeito"
+    },
+    {
+      "texto": "O dinheiro fica com o garçom.",
+      "recusa": true,
+      "porque": "o sujeito é o DINHEIRO chamado por outro nome: o veto lia `o valor` como `outra coisa` e desligava a regra 1b — 96 de 96, a mesma anáfora que derrubou a pré-condição duas rodadas antes, agora do lado do sujeito"
+    },
+    {
+      "texto": "Com a conta fechada, vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "abertura ORDINÁRIA, não negação: o grid de preâmbulos tinha seis membros e os seis eram negações, porque foi escrito a partir do defeito da rodada anterior"
+    },
+    {
+      "texto": "Se a pessoa quiser, vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "abertura ORDINÁRIA, não negação: o grid de preâmbulos tinha seis membros e os seis eram negações, porque foi escrito a partir do defeito da rodada anterior"
+    },
+    {
+      "texto": "A conta fechou, vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "abertura ORDINÁRIA, não negação: o grid de preâmbulos tinha seis membros e os seis eram negações, porque foi escrito a partir do defeito da rodada anterior"
+    },
+    {
+      "texto": "Fica com a gente e com o garçom.",
+      "recusa": true,
+      "porque": "SEGUNDO CONJUNTO: só o primeiro destinatário estava protegido, e o primeiro costuma ser um dos que o runtime exclui de propósito"
+    },
+    {
+      "texto": "A gorjeta não vai direto pro garçom.",
+      "recusa": false,
+      "porque": "`direto` é exatamente o que está sendo NEGADO, e a frase é a legalmente correta — quantidade e pronome são material funcional no caminho do negador"
+    },
+    {
+      "texto": "A gorjeta não vai 100% pro garçom.",
+      "recusa": false,
+      "porque": "`direto` é exatamente o que está sendo NEGADO, e a frase é a legalmente correta — quantidade e pronome são material funcional no caminho do negador"
+    },
+    {
+      "texto": "A gorjeta não vai pra nossa equipe.",
+      "recusa": false,
+      "porque": "`direto` é exatamente o que está sendo NEGADO, e a frase é a legalmente correta — quantidade e pronome são material funcional no caminho do negador"
+    },
+    {
+      "texto": "A caixinha — dos atendentes do salão",
+      "recusa": true,
+      "porque": "CABEÇA GENITIVA. O `preposicao_direcional` não tem `d[oa]s?` — de propósito —, então a promessa sem verbo e sem direção não tinha quem a visse. O travessão separa oração, a regra 1 não alcança, a 1b não acha forma direcional e a 3 exigia cabeça direcional. A versão com VÍRGULA já estava aposentada e o próprio registro dela dizia `um modelo escreveria com vírgula`; um modelo escreve travessão com a mesma facilidade, e o travessão foi ACRESCENTADO ao `oracoes` nesta mesma casa. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "A caixinha? Da equipe.",
+      "recusa": true,
+      "porque": "A mesma cabeça genitiva na forma mais provável de todas: a pergunta da mesa e a resposta de uma respiração. Sem verbo, sem direção, sem quantidade — só o genitivo. É o turno que a regra 9 do `SystemPrompt` torna comum."
+    },
+    {
+      "texto": "Serviço: 10%\n- da equipe",
+      "recusa": true,
+      "porque": "Cabeça genitiva atrás de marcador de lista, com a quantidade na oração anterior. A licença aqui é a ESTRITA: exige o SUBSTANTIVO da gorjeta antes, não só quantidade, porque cabeça sem direção é a evidência mais fraca do arquivo."
+    },
+    {
+      "texto": "Fica com o salão.",
+      "recusa": true,
+      "porque": "O CÔMODO POSSUÍDO. `salão`, `cozinha` e `copa` entraram no `destinatario_ambiguo` porque um cômodo também é destino de movimento — mas um cômodo NÃO POSSUI dinheiro. A ambiguidade está na RELAÇÃO, não na palavra: apagar `salão` da lista não fecharia nada, porque `cozinha` e `copa` carregavam o mesmo escape. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "É da copa.",
+      "recusa": true,
+      "porque": "Mesma relação, forma genitiva. `É d-` é posse, não trajeto."
+    },
+    {
+      "texto": "Fica com a cozinha.",
+      "recusa": true,
+      "porque": "Mesma relação, forma possessiva, e é a resposta de uma respiração pra `pra onde vai a caixinha?`."
+    },
+    {
+      "texto": "Pode ficar tranquilo, 100% pro garçom.",
+      "recusa": true,
+      "porque": "O PREFIXO É JULGADO NO ÚLTIMO SEGMENTO. Uma vírgula não abre oração, então um preâmbulo de tranquilização punha um verbo finito no prefixo e DESLIGAVA a regra 3 inteira — 847 de 2400 variantes do corpo com doze preâmbulos comuns na frente. A regra 1b já fazia a pergunta ancorada no fim do prefixo; a 3 era a chamadora esquecida. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "Boa pergunta, tudo pra equipe.",
+      "recusa": true,
+      "porque": "Mesmo preâmbulo, outra abertura ordinária, com a quantidade consumida pela cabeça. `pergunta` é verbo finito da lista."
+    },
+    {
+      "texto": "Como funciona:\n- 10% de serviço\n- Pode ficar tranquilo, 100% pro garçom",
+      "recusa": true,
+      "porque": "O mesmo preâmbulo dentro do caminho FRACO, em lista de três linhas — a forma que o produto de fato escreve, e a que o filtro de uma linha do fabricador excluía por construção."
+    },
+    {
+      "texto": "Sobre a gorjeta: a comissão vai pro garçom.",
+      "recusa": true,
+      "porque": "O VETO DE SUJEITO TINHA A POLARIDADE VIRADA PRO ESCAPE. Palavra de dinheiro que a `anafora_de_dinheiro` não conhece ficava no prefixo, o veto lia `outro assunto` e desligava a regra 1b. Numa janela que FALA de dinheiro o veto passa a exigir sujeito NOMEADO como não-dinheiro; desconhecido significa recusa. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "A comissão vai pro garçom.",
+      "recusa": true,
+      "porque": "`comissão` é como se chama a gorjeta em metade dos salões do país, e ela não estava no `substantivo_gorjeta`. Sem substantivo de gorjeta e sem quantidade na janela, a regra 1b não tinha contexto de dinheiro nenhum pra se apoiar."
+    },
+    {
+      "texto": "O acréscimo fica com a equipe.",
+      "recusa": true,
+      "porque": "Mesmo sinônimo, outra palavra e outra forma. Crescer o `substantivo_gorjeta` é fail-closed: acrescenta recusa, nunca escape."
+    },
+    {
+      "texto": "O extra fica com o garçom.",
+      "recusa": true,
+      "porque": "`extra` idem. E a justificativa que estava escrita aqui — `crescer o `substantivo_gorjeta` é fail-closed: acrescenta recusa, nunca escape` — era FALSA, e o commit que a escreveu pagou por ela: há dois consumidores da lista com a polaridade ao contrário (o `resto` do `negadorResgata` e o lookahead negativo do `contraste_colado`), e as cinco palavras acrescentadas transformaram três recusas em escapes. A lista foi PARTIDA: detector (`substantivo_gorjeta`, fail-closed) e consumidor (`nucleo_negavel`, fail-aberto). Ver `_porque_nucleo_negavel`."
+    },
+    {
+      "texto": "A gorjeta fica com meu querido garçom não é mesmo.",
+      "recusa": true,
+      "porque": "O ORÇAMENTO DE UM TOKEN da `regencia_do_nucleo`. O slot sem artigo aceitava UM modificador, e um possessivo mais um adjetivo são dois — a regência deixava de casar, o negador da cauda voltava a resgatar e a promessa passava. 432 de 576 frases gramaticais de um grid de possessivo + adjetivo. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "A gorjeta fica com a nossa muito querida equipe não é mesmo.",
+      "recusa": true,
+      "porque": "A mesma peça pelo ramo COM artigo, com três modificadores depois dele. O artigo agora tem que vir COLADO na preposição: é ele que separa complemento oblíquo de sujeito topicalizado (`de hoje O GARÇOM`)."
+    },
+    {
+      "texto": "A parte do Gui vai pro garçom.",
+      "recusa": false,
+      "porque": "A ANÁFORA COMIA O DETERMINANTE. O slot de dois tokens à esquerda apagava `A` junto com `parte`, o veto de sujeito não tinha mais determinante pra ancorar, e o complemento genitivo — que é justamente o que diz que isto NÃO é a gorjeta — ficava órfão. `parte` é a palavra do próprio produto pra fatia de um cliente. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "O valor da mesa vai pro garçom.",
+      "recusa": false,
+      "porque": "Mesma forma, outro anafórico. A anáfora só desarma o veto quando ela é o sujeito INTEIRO."
+    },
+    {
+      "texto": "O total da conta fica com a atendente.",
+      "recusa": false,
+      "porque": "Mesma forma na terceira palavra da lista, e com `com` no lugar de `pro`."
+    },
+    {
+      "texto": "A gorjeta arrecadada hoje é remuneração da equipe e passa pela folha de pagamento da casa.",
+      "recusa": false,
+      "porque": "O GENITIVO DESCRITIVO DISPENSA NA REGRA 1B TAMBÉM. `remuneração da equipe` diz DE QUEM o dinheiro é, não pra onde vai, e é a frase que o produto tem obrigação de dizer (Lei 13.419/2017). A regra 1 já perguntava isso; a 1b nunca perguntou — o veto de sujeito respondia por ela por acidente, e o acidente apareceu quando o veto foi restringido ao que ele de fato protege."
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\n- da atendente",
+      "recusa": false,
+      "porque": "A LICENÇA DA CABEÇA GENITIVA É A ESTRITA: exige o SUBSTANTIVO da gorjeta numa oração anterior, não só quantidade. Aqui a linha de cima traz o VALOR da conta e nenhuma palavra de gorjeta, e a de baixo é uma linha de comanda dizendo quem atendeu. Com a licença fraca — quantidade basta — esta linha vira recusa e o valor da conta some da tela, que é o preço que o `_porque_dois_niveis` existe pra não pagar."
+    },
+    {
+      "texto": "Serviço: 10%\n- Pode ficar tranquilo, pro garçom",
+      "recusa": true,
+      "porque": "O mesmo preâmbulo de tranquilização no CAMINHO FRACO, que é a outra chamadora do teste de prefixo. A vírgula não abre oração, então `ficar` caía dentro do prefixo e desligava a regra; agora só o ÚLTIMO segmento do prefixo é julgado."
+    },
+    {
+      "texto": "Sobre a gorjeta: o troco fica com o garçom.",
+      "recusa": true,
+      "porque": "O VETO DE SUJEITO COM A POLARIDADE VIRADA. `troco` é dinheiro e não está — nem deve estar — no `substantivo_gorjeta`: ficava no prefixo, o veto lia `outro assunto` e desligava a regra 1b dentro de uma conversa que acabara de dizer `gorjeta`. Numa janela de dinheiro o veto passa a exigir um sujeito NOMEADO como não-dinheiro; palavra desconhecida significa recusa."
+    },
+    {
+      "texto": "A gorjeta arrecadada é remuneração assim da equipe e passa pela folha de pagamento da casa.",
+      "recusa": false,
+      "porque": "O GENITIVO DESCRITIVO DISPENSA NA REGRA 1B TAMBÉM. Esta frase é a frase aprovada com um advérbio no meio — o fabricador a produziu, e o advérbio separa o núcleo do genitivo o bastante pra `genitivo_descritivo` não casar e a forma direcional casar. A regra 1 já perguntava se o destinatário é atributivo; a 1b nunca perguntou, e o veto de sujeito respondia por ela por acidente. `remuneração da equipe` diz DE QUEM o dinheiro é, não pra onde vai, e é a frase que a Lei 13.419/2017 obriga o produto a poder dizer."
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nO prato vai pro garçom.",
+      "recusa": false,
+      "porque": "A CABEÇA NÃO TINHA FRONTEIRA DE PALAVRA À ESQUERDA, e `to` — a preposição inglesa — é uma alternativa do `preposicao_direcional`. Ela casava DENTRO de `pra·to`: a cabeça virava `to vai pro garçom`, o prefixo virava `A pra` (sem verbo nenhum) e o teste de prefixo, que existe pra desqualificar `vai`, era contornado por um pedaço de palavra. A direção é falso positivo — a conta some da tela —, e a classe é a mesma do `\\b` errado que este arquivo já pagou três vezes. Achado sondando o `substantivo_nao_dinheiro`, 2026-09-14."
+    },
+    {
+      "texto": "Sua parte é R$ 61,00.\nLevou muito da equipe hoje.",
+      "recusa": false,
+      "porque": "A mesma fronteira, pelo ramo genitivo: `to` dentro de `mui·to`, seguido de `da equipe`. Duas palavras portuguesas comuníssimas terminadas na preposição inglesa, e nenhum caso do corpo tinha uma."
+    },
+    {
+      "texto": "O restaurante distribui a gorjeta à equipe — mas não pela folha.",
+      "recusa": true,
+      "porque": "UMA ORAÇÃO ABERTA POR ADVERSATIVA CONTINUA A ANTERIOR. Com vírgula esta frase é uma oração só e a evasão (`não pela folha`) revoga a dispensa do distribuidor. Com travessão — ou dois-pontos, ponto-e-vírgula, quebra de linha: quatro sinais que um modelo troca pelo mesmo motivo — o `mas não pela folha` virava oração separada, a revogação deixava de ser lida, e a promessa proibida passava com a qualificação colada. Achado pelo eixo de RE-SEGMENTAÇÃO, 2026-09-14."
+    },
+    {
+      "texto": "Serviço: 10%\nCom a equipe — sem passar pela casa.",
+      "recusa": true,
+      "porque": "A PISTA DE EVASÃO VALE PELA JANELA. Ela qualifica o CAMINHO do dinheiro, e uma qualificação mora onde o ritmo da frase a puser: com vírgula a pista fica na mesma oração e licencia a cabeça não-direcional; com travessão ela muda de oração e a promessa escapava. A licença continua a ESTRITA — substantivo da gorjeta numa oração anterior —, que é o que mantém `Sua parte é R$ 61,00.⏎Com o garçom, em dinheiro.` inocente."
+    },
+    {
+      "texto": "A conta fechou e vai tudo pro garçom.",
+      "recusa": true,
+      "porque": "O PREFIXO DA REGRA 1B TAMBÉM É O ÚLTIMO SEGMENTO. Com vírgula esta frase recusa; trocada a vírgula pela conjunção, `A conta` passava a caber no teste de sujeito ancorado, `conta` está no `substantivo_nao_dinheiro`, e o veto desligava a regra. O sujeito que interessa é o DESTA cláusula, não o da frase inteira."
+    },
+    {
+      "texto": "Não precisa e a equipe recebe a gorjeta.",
+      "recusa": true,
+      "porque": "A JANELA DO `nega` CORTA EM ` e ` TAMBÉM. Com vírgula (`Não precisa, a equipe recebe a gorjeta.`) o corpo já tinha o caso: o `Não` responde à PERGUNTA do cliente, não ao destino, e a promessa fica de pé. Trocada a vírgula pela conjunção — mesma frase, outro ritmo —, o `Não` passava a alcançar o destinatário e a promessa escapava. Cinco casos do corpo caíam por esse sinal. Achado pelo eixo de RE-SEGMENTAÇÃO, 2026-09-14."
+    },
+    {
+      "texto": "Os 10% vão pro garçom não tem acréscimo nenhum.",
+      "recusa": true,
+      "porque": "A CAUDA QUE O INEGOCIÁVEL #1 OBRIGA O MODELO A ESCREVER, com um sinônimo de gorjeta dentro. Esta frase era RECUSADA no pai e passou a ESCAPAR quando `acréscimo` entrou no `substantivo_gorjeta`: o `resto` do `negadorResgata` passou a casar a lista, o resgate disparou e `nega()` calou as três regras. Detector e consumidor são listas diferentes — ver `_porque_nucleo_negavel`. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "Os 10% vão pro garçom não tem comissão nenhuma.",
+      "recusa": true,
+      "porque": "A mesma cauda com o sinônimo mais comum de todos. Três das cinco palavras acrescentadas abriam esta porta, e a justificativa escrita dizia que crescer a lista era fail-closed."
+    },
+    {
+      "texto": "Os 10% vão pro garçom não tem nada extra.",
+      "recusa": true,
+      "porque": "A mesma cauda pelo terceiro sinônimo, e a forma mais natural dela: `nada extra` em vez de `extra nenhum`."
+    },
+    {
+      "texto": "A taxa vai pro garçom.",
+      "recusa": true,
+      "porque": "`taxa` É a palavra mais comum pros 10% num salão brasileiro, e ela não podia entrar na lista nua: `sem taxa` e `não tem taxa nenhuma` são frases que o inegociável #1 obriga o produto a dizer. A saída é a mesma do cômodo — a RELAÇÃO, não a palavra: `a taxa` DETERMINADA é uma expressão referencial e é a gorjeta; `taxa` nua sob negador ou existencial é o que o produto NÃO cobra. Achado pela revisão de compliance de 2026-09-14, que retirou a minha justificativa anterior (`custo declarado`) mostrando que ela se apoiava num caso que eu tinha classificado errado."
+    },
+    {
+      "texto": "Serviço: 10% no fim da conta você chama o garçom.",
+      "recusa": false,
+      "porque": "A CABEÇA NÃO PODE CONTER PREDICAÇÃO. Os slots de modificador da `cabeca_genitiva` somam até cinco palavras entre a preposição e o núcleo, e `conta você chama o garçom` cabe lá: ancorada no `^`, a cabeça deixa o prefixo VAZIO, e o teste de prefixo — que existe pra desqualificar `chama` — não vê nada. O `^` que eu pus pra fechar `no fim da conta você chama o garçom` pelo lado do meio da linha abriu a mesma frase pelo começo dela. Achado pela revisão de compliance de 2026-09-14."
+    },
+    {
+      "texto": "Sobre o serviço\nServiço da equipe (10% da sua parte) — opcional",
+      "recusa": false,
+      "porque": "A CABEÇA GENITIVA É ANCORADA NO COMEÇO DA ORAÇÃO, e este é o caso que prende a âncora. `da equipe` aqui é GENITIVO DESCRITIVO — diz de quem é o serviço, não pra onde ele vai — e é a linha que o produto imprime na tela do cliente, com o `opcional` que o CDC exige. Sem a âncora, a cabeça casa no MEIO da oração, onde não há verbo pra `temPredicacao` ver, e três superfícies publicadas viram achado (`i18n.ts:209`, o `home.legal`, a descrição da ferramenta do agente). A primeira versão deste caso não tinha a linha de cima e por isso não prendia nada: sem oração anterior com o substantivo da gorjeta, a regra 3 nem chega na cabeça. `O corpo não reage` não é `a peça não carrega peso` — aqui quem respondeu primeiro foi o censo sobre as superfícies."
+    },
+    {
+      "texto": "O restaurante distribui à equipe pela folha e a gorjeta pertence ao garçom.",
+      "recusa": true,
+      "porque": "A HERANÇA DA COORDENAÇÃO FALHAVA ABERTO. O segundo segmento não tem verbo da lista (`pertence` não está, e o `distribuidorAntesDoDestino` cita esse verbo exato como o motivo de este arquivo ter parado de enumerar conectivo), então ele era lido como CONTINUAÇÃO do primeiro e herdava a dispensa do distribuidor. A regra 9 do `SystemPrompt` MANDA o modelo escrever a metade esquerda, então a frase mais provável do produto carimbava qualquer coisa coordenada depois dela — a falha que o cabeçalho deste guarda chama de CARIMBAVA O PROIBIDO. Continuação agora exige evidência POSITIVA: segmento com sujeito próprio é afirmação nova. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "O restaurante distribui à equipe e a caixinha cabe ao garçom.",
+      "recusa": true,
+      "porque": "O mesmo carimbo com outro verbo fora da lista. Quatro verbos ordinários (`pertence`, `beneficia`, `destina-se`, `cabe`) abriam a porta, e a correção não pode ser crescer o `verbo_finito`: a peça tinha a polaridade virada, não o tamanho errado."
+    },
+    {
+      "texto": "O restaurante distribui à equipe como manda a lei, e a gorjeta pertence ao garçom.",
+      "recusa": true,
+      "porque": "Este caso JÁ ESTAVA no corpo e passava por acidente: o segmento `como manda a lei` carrega `manda`, que está no `verbo_finito`, e era isso — uma palavra num segmento sem conteúdo nenhum — que zerava a herança. Apagar qualquer uma das duas vírgulas fazia a mesma frase escapar. O caso canônico de `a frase sancionada na frente não lava a promessa` estava preso por um verbo num aposto."
+    },
+    {
+      "texto": "A gorjetinha é do garçom.",
+      "recusa": true,
+      "porque": "`gorjetinha` é o registro que o `SystemPrompt` pede (`um amigo que faz a conta`) e é a palavra do CLIENTE — um modelo espelha o vocabulário da pergunta que recebeu, e o texto julgado é só o turno dele. `gorjeta|gorjetas` não casa `gorjetinha`, e sem contexto de dinheiro reconhecido a regra 1b era vetada pelo sujeito nominal. É o incidente `gar[çc]on`/`garçom` com o outro substantivo. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "O troco fica com o garçom.",
+      "recusa": true,
+      "porque": "`troco` é dinheiro e não estava em lista nenhuma. Crescer o DETECTOR virou fail-closed nesta rodada, quando o consumidor do negador ganhou campo próprio (`nucleo_negavel`) — antes disso, acrescentar esta palavra teria aberto três escapes."
+    },
+    {
+      "texto": "A porcentagem vai pro garçom.",
+      "recusa": true,
+      "porque": "Idem, e é a palavra mais provável depois de `10%` na mesma conversa."
+    },
+    {
+      "texto": "Serviço: 10%, da equipe.",
+      "recusa": true,
+      "porque": "A CABEÇA GENITIVA ANCORA NO SEGMENTO, não na oração. A vírgula não separa oração, mas separa CLÁUSULA em todo o resto do arquivo — `ultimoSegmento`, `segmentos` e a janela do `nega` cortam nela. Com travessão, dois-pontos, ponto-e-vírgula ou quebra de linha esta frase era recusada; com vírgula, escapava. É o sinal que um modelo escolhe mais, e era o único que derrotava a peça. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "A gorjeta? A porção anotada vai pro garçom.",
+      "recusa": true,
+      "porque": "O `substantivo_nao_dinheiro` não tinha delimitador, e ele é EXCULPATÓRIO: `nota` casava dentro de `anotada`, o veto de sujeito disparava e a promessa passava. Um particípio ordinário no sujeito derrubava uma recusa DENTRO da janela de dinheiro, que é onde a polaridade tinha acabado de ser apertada de propósito. O sujeito é `porção` — nem dinheiro nem não-dinheiro — porque as duas versões anteriores deste caso (`porcentagem`, depois `fatia`) foram para as listas de dinheiro na mesma rodada, e aí quem recusa é outra regra e o caso deixa de medir a peça que ele existe pra medir. Duas vezes seguidas: um caso que mede uma peça tem que ser escrito com palavras que nenhuma OUTRA peça conhece. Achado pela revisão de segurança de 2026-09-14."
+    },
+    {
+      "texto": "A caixinha vai pra merenda da equipe.",
+      "recusa": true,
+      "porque": "O `nucleo_de_atribuicao` também não tinha delimitador, e ele também absolve: `renda` casava dentro de `merenda`, o genitivo virava DESCRITIVO e a promessa passava. As duas peças exculpatórias do arquivo estavam sem fronteira, na mesma rodada em que as cabeças ganharam a delas."
+    },
+    {
+      "texto": "Já tirei o serviço, chama o atendente que ele confere.",
+      "recusa": false,
+      "porque": "A REGRA 1 SÓ ATRAVESSA SEGMENTO SE O SEGMENTO FOR FRASE DE DESTINO. Esta frase CONFIRMA que o serviço saiu — a confirmação que o CDC e o inegociável #3 obrigam o produto a poder dar — e o guarda pisava nela: com vírgula, `serviço` e `atendente` caem na mesma oração, e a regra 1 perguntava só se o TOKEN do destinatário está no segmento, nunca se ele está numa RELAÇÃO de destino. `chama o atendente que ele confere` não tem cabeça de destino nenhuma. No MESMO segmento nada mudou, então `A gorjeta, pro garçom.` segue recusada. Ver `_porque_travessia_de_segmento`."
+    },
+    {
+      "texto": "a caixinha, dos atendentes do salão São R$ 1.250,00 no total.",
+      "recusa": true,
+      "porque": "DUAS PEÇAS NUMA FRASE SÓ, e quem a produziu foi a suíte do iOS, que cola uma linha de TOTAL depois de cada frase aposentada — instrumento que o corpo compartilhado não tem. Primeiro: o `oracoes` cortava em `.` cru, então `R$ 1.250,00` era partido ao meio e o rabo de uma frase caía dentro da oração da outra; a vírgula decimal já estava protegida havia rodadas, o ponto do MILHAR não. Segundo: a travessia de segmento da regra 1, escrita nesta mesma rodada, exigia que o segmento fosse frase de destino E MAIS NADA — e aqui a promessa está inteira no segmento, com uma frase NOVA colada atrás sem pontuação no meio. O que vem depois da cabeça não desfaz a promessa (CDC art. 30, a doutrina que a regra 1b já aplicava); o que desqualifica é verbo no PREFIXO ou predicação DENTRO da cabeça."
+    },
+    {
+      "texto": "Sua parte é R$ 1.250,00. Com o garçom você acerta na maquininha.",
+      "recusa": false,
+      "porque": "O outro lado do ponto do milhar: aqui ele está dentro do número E há um ponto de verdade fechando a frase. As duas orações têm que sair separadas — se o corte no milhar for restaurado, `Sua parte é R$ 1` e `250,00. Com o garçom…` mudam o que cada regra vê."
+    },
+    {
+      "texto": "Serviço: 10%\n- o restaurante distribui à equipe sem passar pela folha",
+      "recusa": true,
+      "porque": "A AFIRMAÇÃO PROIBIDA COM A QUALIFICAÇÃO QUE A AGRAVA, na forma que o produto de fato escreve: cabeçalho numa linha, promessa na outra. A evasão revogava a dispensa do distribuidor CORRETAMENTE — e não adiantava nada, porque logo depois o teste de prefixo do caminho fraco desqualificava a oração pelo verbo, que é o verbo do próprio distribuidor (`distribui`). Duas peças certas, uma cancelando a outra. Com o substantivo da gorjeta na MESMA oração a regra 1 pega, e o corpo tem esse caso; nesta forma não pegava nada, nos dois guardas. Lei 13.419/2017 e inegociável #2. Achado ao procurar caso de corpo pras decisões declaradas SEM COBERTURA — o buraco estava onde o portão dizia não conseguir medir. 2026-09-15."
+    },
+    {
+      "texto": "Gorjeta: 10%\n- a casa reparte com a equipe por fora da folha",
+      "recusa": true,
+      "porque": "A mesma forma pelo outro verbo de distribuidor (`reparte`) e pela outra família de burla (`por fora`). O `evasao_de_folha` é campo próprio, separado do `revoga_dispensa`, porque este abre com os negadores NUS — e usá-lo aqui faria `distribui à equipe, SEM TAXA pra você` virar recusa, que é a frase que o inegociável #1 obriga o produto a dizer."
+    },
+    {
+      "texto": "Serviço: 10%\n- o restaurante distribui à equipe, sem taxa pra você",
+      "recusa": false,
+      "porque": "O CONTRAPONTO, e é ele que decide o desenho da peça. `sem taxa` casa o `revoga_dispensa` (que abre com os negadores nus) e NÃO casa o `evasao_de_folha`. Se o override do prefixo lesse o campo largo, esta frase — a que o inegociável #1 obriga o produto a dizer, com o distribuidor nomeado corretamente — viraria recusa."
+    },
+    {
+      "texto": "Gorjeta: 10%\n- pro garçom ali perto de você",
+      "recusa": true,
+      "porque": "O PRONOME REGIDO POR PREPOSIÇÃO NÃO É SUJEITO. `de você` no fim da oração é complemento, não predicação nova: se contasse como sujeito, o resto teria predicação, a oração deixaria de ser frase de destino e a promessa escaparia. A decisão estava declarada SEM COBERTURA nos dois portões desde que foi escrita, e as duas primeiras frases que escrevi pra cobri-la não cobriam nada: numa delas o pronome estava dentro de uma RELATIVA, que o `temPredicacao` retira ANTES de olhar, então a peça nunca era consultada. Um caso que mede uma peça tem que ser escrito depois de verificar que a peça é quem decide — medido com a mutação aplicada, não suposto. 2026-09-15."
+    },
+    {
+      "texto": "Sobre a gorjeta: o total vai pro garçom.",
+      "recusa": true,
+      "porque": "`total` FICA no `nome_de_quantia` (que DESARMA o veto de sujeito) e não vai pro `substantivo_nao_dinheiro` (que o ARMA), e a decisão está medida. Mover as três palavras de conta — `total`, `soma`, `importância` — conserta dois turnos inocentes esquisitos (`O total fica com o garçom.`) e ABRE três promessas, esta entre elas: numa conversa que acabou de dizer `gorjeta`, `o total vai pro garçom` é a afirmação proibida. Fail-fechado custa um turno; fail-aberto custa a promessa. Achado medindo a recomendação da revisão de compliance de 2026-09-15, que oferecia as duas saídas — a medição escolheu."
+    },
+    {
+      "texto": "O total vai todo pro garçom.",
+      "recusa": true,
+      "porque": "A mesma decisão pelo caminho da quantidade consumida. Se `total` armasse o veto, a anáfora não seria retirada do prefixo, o sujeito nominal vetaria a regra 1b e esta frase — que é a promessa com `todo` dentro — passaria."
+    },
+    {
+      "texto": "A gorjeta no acerto vai pro garçom.",
+      "recusa": true,
+      "porque": "O `no` ESPANHOL com a espreita sem âncora de fim, mais `acerto` — SUBSTANTIVO português — dentro do `verbo_finito`. Juntos faziam `nega()` dar verdadeiro e a promessa passar, nos dois guardas e no censo de build. Recusada no commit pai, liberada por mim na rodada 19. Achado pela revisão de segurança comparando vereditos contra o pai — comparação que nenhuma suíte fazia."
+    },
+    {
+      "texto": "No acerto da conta, fala com o garçom.",
+      "recusa": false,
+      "porque": "O CONTRAPONTO: `no acerto` é português comum e a frase é a resposta certa. Se a correção do `acerto` tivesse sido apertar o `soFuncionalAteONucleo` em vez de tirar o substantivo da lista de verbos, esta frase viraria recusa."
+    },
+    {
+      "texto": "A gorjeta fica com toda a equipe não precisa deixar mais nada.",
+      "recusa": true,
+      "porque": "O NEGADOR ATRÁS TEM QUE ALCANÇAR A GORJETA, e este é o caso que a decisão esperava desde que nasceu declarada SEM COBERTURA. Todo caso do corpo punha o artigo COLADO na preposição, então a `regencia_do_nucleo` decidia primeiro e a linha do alcance nunca era consultada. Um quantificador entre a preposição e o artigo — `com TODA a equipe` — e ela passa a decidir. Eu tinha tentado três frases e falhado; a revisão de segurança achou a quarta, apagando a linha e varrendo o corpo. 2026-09-15."
+    },
+    {
+      "texto": "Os 10% ficam com toda a equipe não precisa pagar mais nada.",
+      "recusa": true,
+      "porque": "A mesma peça com a cauda que o inegociável #1 obriga o modelo a escrever (`não precisa pagar mais nada`), que é justamente o que a torna perigosa: a negação verdadeira está ali, e ela nega OUTRA coisa."
+    },
+    {
+      "texto": "- 100% pro garçom, o restaurante distribui pela folha de pagamento.",
+      "recusa": true,
+      "porque": "NADA RESGATA UMA AFIRMAÇÃO JÁ FEITA, no caminho FORTE. A dispensa do distribuidor vale só no caminho fraco — no forte a quantidade foi consumida pela cabeça e a oferta já vinculou (CDC art. 30). A doutrina está repetida em seis comentários do arquivo e não havia mutação nenhuma que a medisse: apontado pela revisão de segurança, que inseriu a dispensa no caminho forte e viu três casos virarem."
+    },
+    {
+      "texto": "100% pro garçom — o restaurante distribui pela folha de pagamento.",
+      "recusa": true,
+      "porque": "A mesma decisão com travessão no lugar da vírgula: a cláusula do distribuidor vira ORAÇÃO separada e continua sem resgatar a promessa da anterior."
+    },
+    {
+      "texto": "El servicio no se queda con la casa, sino que va 100% al personal.",
+      "recusa": true,
+      "porque": "`sino` É O ADVERSATIVO ESPANHOL, e é a única razão de ele estar nas duas listas de separador. Sem caso nenhum no corpo, ele não tinha peso medido em direção nenhuma: nem provava que serve, nem que custa. Aqui a oração anterior é negada (`no se queda con la casa`) e a promessa proibida vem DEPOIS do `sino` — se ele deixar de separar, a negação da primeira oração dispensa a segunda e a afirmação escapa."
+    },
+    {
+      "texto": "O sino da cozinha toca quando o prato sai, e a gorjeta de 10% vai 100% pro garçom.",
+      "recusa": true,
+      "porque": "E `sino` É TAMBÉM UM SUBSTANTIVO PORTUGUÊS — o sino da cozinha, que toca quando o prato fica pronto. Apontado pela revisão de segurança de 2026-09-15 (LOW-3). Aqui ele parte a frase num ponto onde não há separação de oração nenhuma, antes da promessa; o caso prende a direção que dói, que é a de ESCAPE por janela cortada cedo demais. Medido antes de mexer no padrão: com `sino` solto nas duas listas, este caso RECUSA — a ambiguidade existe e hoje não custa nada, e o par de casos é o que faz um conserto futuro ser medido nas duas línguas em vez de numa só."
+    },
+    {
+      "texto": "The service charge does not stay with the house, but goes 100% to the staff.",
+      "recusa": true,
+      "porque": "O gêmeo INGLÊS do escape do `va 100% al personal`: a classe de preenchimento do ramo `goes … to` não tinha `%` dentro e não tinha fatia de quantidade, então a forma direcional não casava e a promessa só era pega com o substantivo da gorjeta na mesma oração. Ver o trio `gatilho_forma_direcional (quantidade)` no eixo trilíngue."
+    },
+    {
+      "texto": "Serviço: 10%\n- 100% pro pessoal",
+      "recusa": true,
+      "porque": "A FORMA DE LISTA COM UM DESTINATÁRIO QUE SÓ O CENSO CONHECE. As cabeças de decisão — regras 1b e 3 inteiras — compunham `DEST`, que é a lista de RUNTIME, mesmo do lado do build; então os dez destinatários de `destinatarios_so_deteccao` só chegavam à regra 1, que exige o substantivo da gorjeta no MESMO segmento. A forma de lista é exatamente a que a regra 3 existe pra pegar, e é a forma da afirmação aposentada. Achado pela revisão de compliance de 2026-09-15 (HIGH-1); fechado compondo os mesmos padrões duas vezes (`comporCenso`), uma com cada lista, em vez de escrever campos `*_censo` à mão."
+    },
+    {
+      "texto": "Olá, time Pagar.me, a nossa taxa é apenas um recebedor do split.",
+      "recusa": false,
+      "porque": "`time` VIROU `times?` NO CENSO em 2026-09-15, pra fechar o buraco de VOLTA (o runtime reconhecia `os times` e o build não). A revisão de compliance apontou o risco na mesma rodada: `time` é ambíguo em inglês (`at any time`, `lead time`) e em português é vocativo de e-mail — e esta linha é a abertura real do `docs/rfp/README.md`, num documento que também diz `a nossa taxa`, que é metade do gatilho. As duas metades já estão na janela; o que segura é não haver cabeça de destino. O caso prende exatamente isso: é a linha que ficaria vermelha primeiro se alguém afrouxasse a cabeça, e é nossa, não inventada."
+    },
+    {
+      "texto": "Sua parte é R$ 61,00. Alguém leva algo pro salão.",
+      "recusa": false,
+      "porque": "O RAMO ESPANHOL DA FORMA DIRECIONAL NÃO TINHA FRONTEIRA DE PALAVRA: `va` casava dentro de le·VA e `al` dentro de AL·go, e com `salão` de destinatário e `R$ 61,00` de contexto de dinheiro a regra 1b recusava. No runtime o preço é a VOLTA INTEIRA — a resposta some da tela com o valor dentro. É a mesma classe do `\\bmo[çc]a`/`moçada` de um dia antes, um campo ao lado. Achado pela revisão de compliance de 2026-09-15 (LOW-1)."
+    },
+    {
+      "texto": "Três meses para o garçom já se passaram.",
+      "recusa": false,
+      "porque": "O gêmeo do caso acima no ramo `es …`: `es` casava dentro de mes·ES. Mesmo conserto, mesma fronteira, e pinado separado porque é outro ramo da alternância — um conserto que fechasse só o `va` deixaria este vivo."
+    }
+  ]
+}

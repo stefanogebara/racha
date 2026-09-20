@@ -105,12 +105,15 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
       // fica só pro caso em que ele é VERDADE: respondeu 200 e não há conta.
       const view = await api.getCheck(t.qrToken);
       const checkId = view?.check?.id;
-      // A code, not a sentence. This hook has no language: it runs above the
-      // React tree that knows which one the reader picked. `tError` at the
-      // display site turns it into the right words, and falls back to the raw
-      // text for anything it does not recognise — the same contract the server
-      // follows (CLAUDE.md).
-      if (!checkId) { setError('check_not_found'); return; }
+      // FRASE, não código — e traduzida AQUI, como todo o resto deste hook.
+      //
+      // Isto era `setError('check_not_found')` com um comentário dizendo que o
+      // hook "não tem idioma". Tem: `trErr` está na linha 33. O código cru
+      // chegava à tela e era impresso literal, e a tentativa de consertar isso
+      // na TELA (embrulhar tudo em `tErr`) apagou as outras seis mensagens,
+      // porque `tErr` espera um erro e recebia uma string. Traduzir na origem
+      // deixa um contrato só: quem escreve em `error` escreve frase pronta.
+      if (!checkId) { setError(trErr({ code: 'check_not_found' })); return; }
       await req('/api/checks/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkId }) });
       await refresh();
     } catch (e) { setError(trErr(e)); }

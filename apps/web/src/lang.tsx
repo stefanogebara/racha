@@ -169,6 +169,18 @@ export function useT() {
       left: money(Number(err.vars.leftCents ?? 0), lang, currency),
       min: money(Number(err.vars.minCents ?? 0), lang, currency),
       max: money(Number(err.vars.maxCents ?? 0), lang, currency),
+      // `limit` e `windowMinutes` NÃO são dinheiro — são contagem e
+      // minutos. Faltavam aqui, e o resultado era o teto de cobranças
+      // chegando com `{limit}` e `{windowMinutes}` LITERAIS na tela, que é
+      // a mesma regressão que o comentário acima já registra pro `{max}`.
+      // Um censo de marcadores agora impede a terceira. Achado pela
+      // revisão de compliance de 2026-09-15 (HIGH-3).
+      limit: String(err.vars.limit ?? ''),
+      windowMinutes: String(err.vars.windowMinutes ?? ''),
+      // `maxChars` é CONTAGEM DE CARACTERES, não dinheiro — e `max` já está
+      // tomado pelo `money(maxCents)` logo acima. Serve as recusas das palavras
+      // da casa (nome, rótulo de mesa, cidade).
+      maxChars: String(err.vars.maxChars ?? ''),
     } : undefined;
     return tError(lang, err?.code, err?.message || '', vars);
   }, [lang]);

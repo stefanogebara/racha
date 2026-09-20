@@ -1,4 +1,9 @@
 node_modules/
+# SEM a barra também: com ela, o padrão só casa DIRETÓRIO, e um
+# `node_modules` que é LINK SIMBÓLICO (worktrees desta série apontam pro
+# node_modules do clone principal pra não reinstalar) escapava — o `git add -A`
+# de uma rodada de revisão commitou um.
+node_modules
 .env
 .env.*
 !.env.example
@@ -16,3 +21,21 @@ ios/DerivedData/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# iOS design lab — gerados pelo build.js, nunca publicados.
+# `preview.html` é a cópia de auditoria local (fontes por caminho relativo).
+# `ios/lab/racha-ios.html` era um artefato ESTAGNADO versionado por engano:
+# uma cópia velha, com a frase da gorjeta que já tinha sido aposentada em
+# todo lugar que importa. Cópia parada de coisa gerada é só mais um lugar
+# onde a versão errada continua legível. O que se publica é `ios/racha-ios.html`.
+ios/lab/preview.html
+ios/lab/racha-ios.html
+
+# Gerados pelo prebuild (`apps/web/scripts/embed-ios.mjs`) a partir de
+# `ios/racha-ios.html`, que é censurado e reprodutível da fonte. `dist/` já
+# cobria um; o outro não estava coberto por nada, e nada impedia um
+# `git add -A` de versionar uma cópia velha — a falha que a nota sobre o
+# `ios/lab/racha-ios.html` acima descreve.
+apps/web/public/ios.html
+apps/web/public/ios-fonts/
+apps/web/public/img/carved/

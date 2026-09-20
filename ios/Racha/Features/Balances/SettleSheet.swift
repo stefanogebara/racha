@@ -90,7 +90,20 @@ struct SettleSheet: View {
                     /// própria — legível como controle sem virar um botão
                     /// primário que compete com "Copiar Pix".
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Inclui \(BRL.format(mine, currency: state.currency)) de serviço, que vai pra equipe da casa. É opcional.")
+                        /// QUEM DISTRIBUI é o restaurante — não "vai pra equipe".
+                        ///
+                        /// A frase anterior prometia 100% à equipe, e a CLT art.
+                        /// 457 §6º permite à casa reter de 20% a 33% pra
+                        /// encargos. A web foi corrigida em 2026-09-10 e o app
+                        /// ficou com a versão antiga: mesmo produto, mesma lei,
+                        /// dois clientes dizendo coisas diferentes. Achado
+                        /// testando a plataforma no simulador, 2026-09-13.
+                        ///
+                        /// O que continua verdade: a gorjeta não é receita da
+                        /// casa (STJ Tema 1102), e distribuir é obrigação legal
+                        /// dela. Nomear o distribuidor mantém o destino visível
+                        /// sem afirmar uma fração que a lei não garante.
+                        Text("Inclui \(BRL.format(mine, currency: state.currency)) de serviço. O restaurante distribui à equipe, como manda a lei. É opcional.")
                             .font(Typo.small)
                             .foregroundStyle(Palette.ink3)
                             .fixedSize(horizontal: false, vertical: true)

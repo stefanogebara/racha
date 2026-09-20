@@ -162,6 +162,13 @@ export const DICT = {
   'lang.pt':          { en: 'Portuguese',                      pt: 'Português', es: 'Portugués' },
   'lang.es':          { en: 'Spanish',                         pt: 'Espanhol', es: 'Español' },
   'common.loading':   { en: 'loading the bill…',               pt: 'carregando a conta…', es: 'cargando la cuenta…' },
+  'common.retry':     { en: 'Try again',                       pt: 'Tentar de novo', es: 'Intentar de nuevo' },
+  // O TÍTULO do estado, pra ele ser um estado e não uma frase solta no papel.
+  'check.notLoadedTitle': { en: 'this bill did not open',      pt: 'esta conta não abriu', es: 'esta cuenta no se abrió' },
+  'wallet.loadFailedTitle': { en: 'your balance did not load', pt: 'seu saldo não carregou', es: 'tu saldo no cargó' },
+  'wallet.loadFailed': { en: 'The connection failed on the way. Your balance is safe — it lives on the server, not here.',
+                        pt: 'A conexão falhou no caminho. Seu saldo está a salvo — ele vive no servidor, não aqui.',
+                        es: 'La conexión falló en el camino. Tu saldo está a salvo — vive en el servidor, no aquí.' },
   'common.back':      { en: '← back to the bill',              pt: '← voltar pra conta', es: '← volver a la cuenta' },
   'common.optional':  { en: 'optional',                        pt: 'opcional', es: 'opcional' },
   'common.backShort': { en: '← back',                          pt: '← voltar', es: '← volver' },
@@ -210,17 +217,63 @@ export const DICT = {
                         es: 'Cargo por servicio ({pct}% de tu parte) — opcional' },
 
   // ── identificação ───────────────────────────────────────────────────────
+  // O ROTULO e o PLACEHOLDER dizem coisas diferentes agora. O rotulo fica na
+  // moldura do campo e nao some quando a pessoa digita; o placeholder mostra a
+  // FORMA esperada, que e o que um placeholder sabe fazer. Antes havia so a
+  // segunda metade, fazendo as duas coisas mal.
   'payer.name':       { en: 'Your name (optional)',            pt: 'Seu nome (opcional)', es: 'Tu nombre (opcional)' },
-  'payer.cpf':        { en: 'Your CPF (required to pay)',      pt: 'Seu CPF (obrigatório pra pagar)', es: 'Tu CPF (obligatorio para pagar)' },
+  'payer.namePlaceholder': { en: 'e.g. Ana',                   pt: 'ex.: Ana', es: 'p. ej. Ana' },
+  // OS DOIS TRILHOS QUE O EXIGEM, nomeados. A versão anterior dizia só "Pix", e
+  // o comentário que a justificava dizia que "o botão do Pix é o único que o CPF
+  // destrava" — falso: o botão do Google Pay também é travado por ele
+  // (`WalletPay`), e ficava cinza SEM MENSAGEM, que é o modo de falha que esta
+  // tela já tinha consertado pro Pix ("ficava cinza em silêncio e parecia
+  // quebrado"). Quem exige é a Pagar.me, nos dois; a Stripe não exige em nenhum.
+  'payer.cpf':        { en: 'Your CPF (required for Pix and Google Pay)', pt: 'Seu CPF (obrigatório pra Pix e Google Pay)', es: 'Tu CPF (obligatorio para Pix y Google Pay)' },
   // O que o CPF é fica AQUI e não no placeholder: glosado no rótulo, o campo
   // truncava em "Your CPF, the Brazilian tax ID (required to" num telefone de
   // 430px — e um rótulo cortado explica menos que um curto. Visto no navegador.
-  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. The payment provider asks for it to issue the charge — it goes to them, not to the restaurant, and Racha does not store it.',
-                        pt: 'O provedor de pagamento pede o CPF pra emitir a cobrança. Vai pra ele, não pro restaurante, e a Racha não guarda.',
-                        es: 'El CPF es el número fiscal brasileño. El proveedor de pago lo pide para emitir el cobro — va para él, no para el restaurante, y Racha no lo guarda.' },
-  'payer.cpfHint':    { en: 'Enter your CPF, 11 digits, to enable payment.',
-                        pt: 'Preencha seu CPF (11 dígitos) pra liberar o pagamento.',
-                        es: 'Escribe tu CPF, 11 dígitos, para habilitar el pago.' },
+  /**
+   * QUEM PEDE O CPF É O PIX, e a frase dizia "o provedor de pagamento" — no
+   * singular, como se fosse um só.
+   *
+   * Quem exige é o GATEWAY, e cada um exige de um jeito. No Pix e no Google Pay
+   * a Pagar.me pede `customer.document` pra emitir a cobrança, e o documento VAI
+   * pra ela (`pagarme-psp.js`: `baseOrder` → `document`). Na Stripe, não: o
+   * adaptador recebe o campo e o DESCARTA (`void payerDocument`), de propósito e
+   * por minimização, porque ela não exige documento.
+   *
+   * A redação de ontem dizia "vai pro provedor de pagamento", no singular — e
+   * era falsa na Stripe. A correção de hoje trocou por "no cartão ele não é
+   * enviado a lugar nenhum", e ficou PIOR: o cartão da Pagar.me (Google Pay)
+   * manda, então a frase passou a NEGAR um destino que existe. Negar é a direção
+   * mais grave num aviso de transparência (LGPD art. 6º III e art. 9º).
+   *
+   * A CONDICIONAL TEM QUE ESTAR NA TELA, não só aqui no comentário.
+   *
+   * A versão anterior desta frase dizia "o provedor de pagamento do restaurante
+   * EXIGE o CPF" — sem condição —, e eu justifiquei aqui escrevendo "que é
+   * sempre verdade quando ele pede". A condicional ficou no comentário e a tela
+   * afirmou incondicionalmente: quem paga por Apple Pay numa casa brasileira lê
+   * que o provedor exige, digita, e o número viaja até o nosso servidor pra ser
+   * descartado (LGPD art. 6º III e art. 9º; compliance MEDIUM-1 da rodada
+   * catorze). A frase agora diz NO PIX, que é onde a exigência existe, e diz o
+   * que acontece nos outros trilhos em vez de calar.
+   *
+   * O conserto completo — o campo sumir quando o trilho não usa o documento — é
+   * de produto e continua na fila. O que não podia esperar é a tela afirmar uma
+   * exigência que, naquele caminho, não existe.
+   */
+  'payer.cpfWhy':     { en: 'CPF is the Brazilian tax ID. On Pix and Google Pay the payment provider requires it to issue the charge, and it goes to the provider — never to the restaurant, and Racha does not store it. On card it is not requested by the provider.',
+                        pt: 'No Pix e no Google Pay, o provedor de pagamento exige o CPF pra emitir a cobrança, e ele vai pra esse provedor — nunca pro restaurante, e a Racha não guarda. No cartão, o provedor não pede.',
+                        es: 'Con Pix y Google Pay, el proveedor de pago exige el CPF para emitir el cobro, y va para ese proveedor — nunca para el restaurante, y Racha no lo guarda. Con tarjeta, el proveedor no lo pide.' },
+  // "11 digitos" era a regra INTEIRA que a tela conferia, e nao e a regra: o
+  // digito verificador tambem e conferido aqui agora, entao a frase tem que
+  // cobrir o caso "onze digitos que nao fecham" — senao a pessoa conta os
+  // digitos, acha onze, e nao entende por que o botao nao anda.
+  'payer.cpfHint':    { en: 'Check your CPF — 11 digits, and the check digits have to match.',
+                        pt: 'Confira seu CPF — 11 dígitos, e os dígitos verificadores têm que fechar.',
+                        es: 'Revisa tu CPF — 11 dígitos, y los dígitos verificadores tienen que cuadrar.' },
 
   // ── pagar ───────────────────────────────────────────────────────────────
   // Uma chave por TRILHO: "Pay {amount} with Pix" numa mesa de Madrid é uma
@@ -251,6 +304,31 @@ export const DICT = {
   'bizum.waiting':    { en: 'Waiting for your bank… It takes a few seconds.',
                         pt: 'Esperando seu banco… Leva alguns segundos.',
                         es: 'Esperando a tu banco… Tarda unos segundos.' },
+  // Produção sem a configuração de dinheiro (loja de verdade, adquirente de
+  // verdade): as rotas de pagamento recusam em vez de cobrar num modo de demo
+  // (auditoria de backend C1).
+  // O RECEBEDOR — pra onde o dinheiro da casa liquida. Falha do adquirente não
+  // é "recebedor inexistente", e trocar o recebedor é explícito (auditoria de
+  // onboarding, C3).
+  'err.recipient_not_found': { en: 'The payout account registered for this restaurant no longer exists at the payment provider — create a new one below.',
+                        pt: 'O recebedor cadastrado não existe mais no adquirente — crie um novo abaixo.',
+                        es: 'La cuenta de cobro registrada ya no existe en el adquirente — crea una nueva abajo.' },
+  'err.psp_unavailable': { en: 'The payment provider didn’t answer right now — nothing was changed. Try again in a minute.',
+                        pt: 'O adquirente não respondeu agora — nada foi alterado. Tente de novo em um minuto.',
+                        es: 'El adquirente no respondió ahora — no se cambió nada. Inténtalo de nuevo en un minuto.' },
+  'err.recipient_exists': { en: 'This restaurant already has a payout account. Replacing it has to be explicit — reload the page.',
+                        pt: 'Esta casa já tem um recebedor. Trocá-lo tem que ser explícito — recarregue a página.',
+                        es: 'Este local ya tiene una cuenta de cobro. Sustituirla tiene que ser explícito — recarga la página.' },
+  'err.psp_recipient_rejected': { en: 'The payment provider refused these bank details — check the bank, branch and account.',
+                        pt: 'O adquirente recusou esses dados bancários — confira banco, agência e conta.',
+                        es: 'El adquirente rechazó estos datos bancarios — revisa el banco, la sucursal y la cuenta.' },
+  'err.recipient_fields_invalid': { en: 'Fill in the bank details before sending.',
+                        pt: 'Preencha os dados bancários antes de enviar.',
+                        es: 'Rellena los datos bancarios antes de enviar.' },
+  'err.platform_misconfigured': { en: 'Payments are unavailable at this restaurant right now — please pay at the till.',
+                        pt: 'Os pagamentos estão indisponíveis nesta casa agora — pague no caixa, por favor.',
+                        es: 'Los pagos no están disponibles en este local ahora — paga en caja, por favor.' },
+  'err.forbidden':    { en: 'You don’t have access to this restaurant.', pt: 'Você não tem acesso a esta casa.', es: 'No tienes acceso a este local.' },
   'err.amount_under_min': { en: 'The minimum for this payment method is {min}.',
                         pt: 'O mínimo para este meio de pagamento é {min}.',
                         es: 'El mínimo para este método de pago es {min}.' },
@@ -295,6 +373,11 @@ export const DICT = {
   'wallet.payAmount': { en: 'Pay {amount}',                     pt: 'Pagar {amount}', es: 'Pagar {amount}' },
   'wallet.cancel':    { en: 'cancel',                           pt: 'cancelar', es: 'cancelar' },
   'pix.copy':         { en: 'Copy Pix code',                   pt: 'Copiar código Pix', es: 'Copiar código Pix' },
+  // A cópia automática falhou (navegador embutido, sem HTTPS, sem permissão):
+  // o código está inteiro na tela, e segurar o dedo copia (auditoria de UI, C1).
+  'pix.copyFailed':   { en: 'Couldn’t copy automatically — press and hold the code above, then choose Copy.',
+                        pt: 'Não deu pra copiar sozinho — segure o dedo no código acima e escolha Copiar.',
+                        es: 'No se pudo copiar automáticamente — mantén pulsado el código de arriba y elige Copiar.' },
   'pix.copied':       { en: 'Code copied ✓',                   pt: 'Código copiado ✓', es: 'Código copiado ✓' },
   'pix.how':          { en: 'Open your bank app, choose Pix copy-and-paste and paste the code.',
                         pt: 'Abra o app do seu banco, escolha Pix copia-e-cola e cole o código.',
@@ -303,6 +386,9 @@ export const DICT = {
   'pix.stillValid':   { en: 'no connection — the code below is still valid',
                         pt: 'sem conexão — o código abaixo continua valendo',
                         es: 'sin conexión — el código de abajo sigue siendo válido' },
+  'pix.noAutoConfirm': { en: 'This phone can’t confirm the payment on its own. After paying, ask the staff to check — don’t pay twice.',
+                        pt: 'Este telefone não consegue confirmar o pagamento sozinho. Depois de pagar, confira com a equipe — não pague de novo.',
+                        es: 'Este teléfono no puede confirmar el pago por sí solo. Después de pagar, confírmalo con el personal — no pagues dos veces.' },
   'pix.simulate':     { en: '✓ Simulate bank confirmation (demo)',
                         pt: '✓ Simular confirmação do banco (demo)',
                         es: '✓ Simular confirmación del banco (demo)' },
@@ -361,7 +447,12 @@ export const DICT = {
   'rcpt.taxIdNif':    { en: 'Tax ID (NIF)',                    pt: 'NIF', es: 'NIF' },
   // O QUE ELE PAGOU, no comprovante. A barra de progresso é da CONTA (consumo);
   // o comprovante tem que dizer o que saiu da conta DELE — e o serviço em
-  // separado, porque é a parte que vai pra equipe.
+  // separado, porque é a parte que a casa distribui à equipe por obrigação
+  // legal (Lei 13.419/2017), e que por isso tem que ser rastreável em linha
+  // própria. Dizia "a parte que vai pra equipe" — a mesma afirmação que o
+  // produto passou a semana tirando das telas, sobrevivendo no comentário
+  // que explica por que a linha existe. Comentário é onde a próxima pessoa
+  // aprende a lei.
   // A tela que aparece quando o render cai. Recarregar é seguro: a conta é
   // derivada do razão no servidor, nada mora só no navegador.
   'boundary.title':   { en: 'Something broke on this screen',   pt: 'Algo quebrou nesta tela', es: 'Algo se rompió en esta pantalla' },
@@ -412,6 +503,107 @@ export const DICT = {
                             pt: 'Valor acima do que falta ({left}).',
                         es: 'El importe supera lo que falta ({left}).' },
   'err.tax_id_invalid': { en: 'Check the document number.', pt: 'Confira o número do documento.', es: 'Revisa el número del documento.' },
+  /**
+   * AS PALAVRAS DA CASA, recusadas com CÓDIGO.
+   *
+   * As três frases dizem o LIMITE em número, porque "nome inválido" não diz a
+   * quem digitou o que fazer a seguir — e o motivo mais provável da recusa é
+   * colagem longa demais, não caractere estranho. O `maxLength` do campo já
+   * impede a digitação; estas frases são pra quando a recusa vem do servidor
+   * (colagem programática, formulário antigo em cache, script de importação).
+   *
+   * NÃO dizem "caracteres inválidos": os invisíveis são REMOVIDOS em silêncio,
+   * não recusados — quem colou "Mesa 7" de um PDF com marca de direção vê a
+   * mesa criada como "Mesa 7", que é o que ela queria. Só um rótulo que era SÓ
+   * invisível cai aqui, e aí "não pode ficar em branco" é a frase certa.
+   *
+   * O marcador é `{maxChars}` e NÃO `{max}`: `{max}` já está tomado pelos dois
+   * mapeadores de `vars`, onde ele é DINHEIRO (`money(maxCents)`). Reusá-lo
+   * faria "tem que caber em R$ 0,00 caracteres" — que é a mesma regressão que
+   * este arquivo já registra duas vezes, de cabeça pra baixo.
+   */
+  'err.venue_name_invalid': { en: 'Check the restaurant name — it cannot be blank, and it has to fit in {maxChars} characters.',
+                              pt: 'Confira o nome do restaurante — não pode ficar em branco, e tem que caber em {maxChars} caracteres.',
+                              es: 'Revisa el nombre del restaurante — no puede quedar en blanco, y tiene que caber en {maxChars} caracteres.' },
+  'err.table_label_invalid': { en: 'Check the table name — it cannot be blank, and it has to fit in {maxChars} characters.',
+                               pt: 'Confira o nome da mesa — não pode ficar em branco, e tem que caber em {maxChars} caracteres.',
+                               es: 'Revisa el nombre de la mesa — no puede quedar en blanco, y tiene que caber en {maxChars} caracteres.' },
+  'err.venue_city_invalid': { en: 'Check the city — it has to fit in {maxChars} characters.',
+                              pt: 'Confira a cidade — tem que caber em {maxChars} caracteres.',
+                              es: 'Revisa la ciudad — tiene que caber en {maxChars} caracteres.' },
+  // A conta da casa é tela de CLIENTE, e esta recusa saía como frase em
+  // português fixa ("Nome é obrigatório (até 60 caracteres)") — numa tela que
+  // existe em três idiomas. O número vem em `vars`, não na tradução: o limite
+  // desta coluna é o CHECK da 0005, e repeti-lo aqui seria a quinta cópia.
+  // Unicidade da mesa, com código. Era uma frase fixa em português vinda do
+  // servidor, no mesmo `catch` que também devolvia o texto cru do Postgres pra
+  // qualquer outra falha — inclusive um prazo estourado, que virava "o que você
+  // mandou não serve" quando o problema era nosso.
+  /**
+   * O BANCO NAO RESPONDEU — e isso NAO e "sua sessao expirou".
+   *
+   * O servidor colapsava toda falha do GoTrue num 401, e o `authedReq` desloga
+   * em qualquer 401: uma lentidao de dez segundos no login derrubava a sessao
+   * de todo dono com o painel aberto, no meio do turno. Agora vem 503 com este
+   * codigo, e a frase diz o que e — inclusive que nada foi perdido, porque a
+   * primeira pergunta de quem esta no meio de um turno e se o que estava na
+   * tela sumiu.
+   */
+  'err.auth_unavailable': { en: 'We could not reach the sign-in service. Nothing was lost — try again in a moment.',
+                            pt: 'Não conseguimos falar com o serviço de login. Nada foi perdido — tente de novo em instantes.',
+                            es: 'No pudimos contactar con el servicio de acceso. No se perdió nada — inténtalo de nuevo en un momento.' },
+  'err.table_label_duplicate': { en: 'There is already a table with that name.',
+                                 pt: 'Já existe uma mesa com esse nome.',
+                                 es: 'Ya existe una mesa con ese nombre.' },
+  'err.house_name_invalid': { en: 'Enter your name — up to {maxChars} characters.',
+                              pt: 'Escreva seu nome — até {maxChars} caracteres.',
+                              es: 'Escribe tu nombre — hasta {maxChars} caracteres.' },
+  // SEM PRAZO PROMETIDO. A frase anterior dizia "espere até {windowMinutes}
+  // minutos", e as duas revisões de 2026-09-15 mediram que é falso: um script
+  // que repõe cada vaga ao vencer tranca a mesa enquanto rodar. O que funciona
+  // SEMPRE é o caixa, e é ele que a frase nomeia.
+  'err.too_many_pending_charges': {
+    en: 'This table can’t take another payment code right now ({limit} were created recently). Try again later, or ask the staff to close the bill at the till.',
+    pt: 'Esta mesa não aceita mais um código de pagamento agora ({limit} foram criados há pouco). Tente mais tarde, ou peça à equipe para fechar no caixa.',
+    es: 'Esta mesa no admite otro código de pago ahora ({limit} se crearon hace poco). Inténtalo más tarde, o pide al personal que cobre en caja.' },
+  // Por conta: quem enche este balde é a própria pessoa (o token da carteira é
+  // dela), então o prazo é verdadeiro aqui. O "pague uma das que já gerou"
+  // saiu: a carteira não lista recarga pendente e voltar descarta o código, e
+  // pagar não libera vaga — era um remédio que não existe. Revisão de
+  // compliance de 2026-09-15 (MEDIUM-2).
+  'err.too_many_pending_loads': {
+    en: 'Too many top-ups were started on this balance recently ({limit}). Try again in up to {windowMinutes} minutes.',
+    pt: 'Recargas demais foram iniciadas neste saldo há pouco ({limit}). Tente de novo em até {windowMinutes} minutos.',
+    es: 'Se iniciaron demasiadas recargas en este saldo hace poco ({limit}). Inténtalo de nuevo en hasta {windowMinutes} minutos.' },
+  // Por casa: sem prazo, pelo mesmo motivo da mesa — contas de saldo são de
+  // graça, e quem as gera pode manter o balde cheio.
+  'err.too_many_pending_loads_venue': {
+    en: 'Top-ups are paused at this venue for now. Your balance is safe, and you can still pay the bill.',
+    pt: 'As recargas estão pausadas nesta casa por enquanto. Seu saldo está seguro, e você ainda pode pagar a conta.',
+    es: 'Las recargas están en pausa en este local por ahora. Tu saldo está a salvo, y aún puedes pagar la cuenta.' },
+  // O rótulo também é recusado por caractere de controle ou texto mal formado
+  // (ver `payerLabelValido`), então a frase não diz só "longo demais".
+  'err.payer_label_invalid': {
+    en: 'That name can’t be used — try a shorter one (up to 60 characters).',
+    pt: 'Esse nome não pode ser usado — tente um mais curto (até 60 caracteres).',
+    es: 'Ese nombre no se puede usar — prueba uno más corto (hasta 60 caracteres).' },
+  // A demo é pública e cobra a partir de um centavo, então tem limite por
+  // origem. Sem prazo na frase — o balde é local e aproximado.
+  'err.demo_busy': {
+    en: 'The demo is busy right now — please try again in a few minutes.',
+    pt: 'A demonstração está movimentada agora — tente de novo em alguns minutos.',
+    es: 'La demostración está muy concurrida ahora — inténtalo de nuevo en unos minutos.' },
+  // O documento do recebedor tem que ser o MESMO que o recibo mostra: um é
+  // onde o dinheiro liquida, o outro é o que o cliente lê. Divergir é o
+  // comprovante dizer uma coisa e o split fazer outra.
+  // O serviço só corre onde há CNPJ provado: sem pessoa jurídica não há folha,
+  // e sem folha a frase "o restaurante distribui à equipe" seria falsa.
+  'err.venue_no_tip_document': { en: 'This restaurant cannot take a service charge yet — its company document is not registered. You can still pay for what you ordered.',
+                        pt: 'Este restaurante ainda não pode cobrar serviço — o CNPJ dele não está cadastrado. O consumo você pode pagar normalmente.',
+                        es: 'Este restaurante todavía no puede cobrar servicio — su documento de empresa no está registrado. El consumo sí puedes pagarlo.' },
+  'err.recipient_doc_mismatch': { en: 'This document is different from the one registered for the venue. They have to match — the receipt shows one and the money settles on the other.',
+                        pt: 'Este documento é diferente do que está cadastrado no restaurante. Os dois têm que bater — o comprovante mostra um e o dinheiro liquida no outro.',
+                        es: 'Este documento no coincide con el del restaurante. Tienen que ser el mismo — el recibo muestra uno y el dinero liquida en el otro.' },
   'err.market_not_live': { en: 'Payments are not enabled here yet.',
                         pt: 'Os pagamentos ainda não estão liberados aqui.',
                         es: 'Los pagos todavía no están habilitados aquí.' },
@@ -538,9 +730,100 @@ export const DICT = {
   'err.restitution_failed': { en: 'Could not record the refund. Check the amount and try again.',
                         pt: 'Não foi possível registrar a devolução. Confira o valor e tente de novo.',
                         es: 'No se pudo registrar la devolución. Revisa el importe e inténtalo de nuevo.' },
-  'err.nothing_to_restitute': { en: 'This charge has no excess to give back. Use a refund through the acquirer instead.',
-                        pt: 'Esta cobrança não tem excedente a restituir. Use o estorno pelo adquirente.',
-                        es: 'Este cobro no tiene exceso que devolver. Usa la devolución por el adquirente.' },
+  'err.nothing_to_restitute': { en: 'This charge owes nothing back. Nothing was recorded.',
+                        pt: 'Esta cobrança não deve nada de volta. Nada foi registrado.',
+                        es: 'Este cobro no debe nada. No se registró nada.' },
+  // Duas mãos na mesma conta. Nada foi gravado — a conta que autorizou o valor
+  // não vale mais, e refazer é o certo (migração 0034).
+  'err.restitution_conflict': { en: 'This bill changed while you were recording. Nothing was saved — reload and check the amount again.',
+                        pt: 'Esta conta mudou enquanto você registrava. Nada foi salvo — recarregue e confira o valor de novo.',
+                        es: 'Esta cuenta cambió mientras registrabas. No se guardó nada — recarga y revisa el importe otra vez.' },
+  // Não dá pra saber a IDADE do pagamento (a linha dele não veio), e a idade é
+  // o que decide se o trilho do adquirente ainda está aberto. Não sabemos — e
+  // dizer "use o adquirente" seria mandar a casa a um trilho que pode estar
+  // fechado (MEDIUM-4 de ec86b37).
+  'err.payment_age_unknown': { en: 'We could not check this charge’s date just now. Try again in a moment.',
+                        pt: 'Não deu pra conferir a data desta cobrança agora. Tente de novo daqui a pouco.',
+                        es: 'No pudimos comprobar la fecha de este cobro ahora. Inténtalo en un momento.' },
+  // A recusa que NÃO é "não há dívida": há, e o caminho é o adquirente. Só
+  // quando ele é impossível (o estorno falhou, ou o Pix passou dos 90 dias) é
+  // que a devolução por fora entra — passo 6 do runbook.
+  'err.use_acquirer_refund': { en: 'Refund this one through the payment provider — the mark clears when the refund lands. Record it here only if the provider refund failed, or the rail’s deadline has passed (Pix 90 days, card 180).',
+                        pt: 'Devolva esta pelo adquirente — a marca sai quando o estorno cair. Registre aqui só se o estorno falhou, ou se o prazo do trilho acabou (Pix 90 dias, cartão 180).',
+                        es: 'Devuelve este por el adquirente — la marca sale cuando llegue la devolución. Regístralo aquí solo si la devolución falló, o si venció el plazo del carril (Pix 90 días, tarjeta 180).' },
+  // O que NÃO se sabe: o lançamento pode ter pousado. Mandar tentar de novo às
+  // cegas é mandar registrar duas vezes a mesma devolução.
+  /**
+   * O CARTÃO PODE JÁ TER SIDO COBRADO — e a frase NÃO manda tentar de novo.
+   *
+   * No trilho de carteira o adquirente CAPTURA o cartão antes de a nossa linha
+   * de pagamento existir. Quando essa escrita falha, o desfecho honesto não é
+   * "algo deu errado, tente de novo": é dizer que pode ter passado e pedir pra
+   * conferir. Um "tente de novo" com o botão armado sobre um cartão já
+   * capturado é convite a pagar duas vezes (CDC art. 42), e o erro de fato é
+   * NOSSO, não de quem está pagando.
+   *
+   * É o mesmo vocabulário do `err.restitution_unavailable` logo abaixo e do
+   * `ret.body` ("se o pagamento passou, ele já está aí") — a diferença é que
+   * aqui quem lê é o cliente na mesa, então a frase diz o que ele faz agora:
+   * espera a conta atualizar, e fala com o balcão se não atualizar.
+   */
+  'err.charge_maybe_captured': {
+    en: 'Your card may already have been charged, but we could not record it. Do not pay again — wait for the bill to update, and speak to the staff if it does not.',
+    pt: 'Seu cartão pode já ter sido cobrado, mas não conseguimos registrar. Não pague de novo — espere a conta atualizar e fale com o balcão se ela não atualizar.',
+    es: 'Puede que tu tarjeta ya se haya cobrado, pero no pudimos registrarlo. No pagues otra vez — espera a que la cuenta se actualice y habla con el personal si no lo hace.',
+  },
+  /**
+   * A COBRANÇA NEM CHEGOU A SER CRIADA — e aqui "tente de novo" é o certo.
+   *
+   * O par do `charge_maybe_captured` acima. No Pix e no Bizum nada é capturado
+   * na criação: o pagador ainda vai autorizar no app do banco dele. Dizer a
+   * essa pessoa que "seu cartão pode já ter sido cobrado" é alarme falso no
+   * trilho principal do Brasil — não há cartão, nada saiu, e a conta não vai
+   * atualizar sozinha. Dois códigos porque as duas respostas são opostas.
+   */
+  'err.charge_not_started': {
+    en: 'We could not start the payment. Nothing was charged — try again.',
+    pt: 'Não conseguimos iniciar o pagamento. Nada foi cobrado — tente de novo.',
+    es: 'No pudimos iniciar el pago. No se cobró nada — inténtalo de nuevo.',
+  },
+  /**
+   * O emissor recusou. O motivo do adquirente fica no stderr, não aqui: ele vem
+   * em português, vem de terceiro, e quem está lendo a tela escolheu um idioma.
+   */
+  /**
+   * O GATEWAY recusou o PEDIDO — não é emissor recusando cartão, e não é coisa
+   * que quem está na mesa resolva: recebedor desativado, chave rotacionada,
+   * esquema recusado. A saída honesta é o CAIXA, e não "fale com o balcão":
+   * pela precondição 1 do `o-que-oito-rodadas-deixaram-aberto.md`, o balcão
+   * ainda não tem onde olhar.
+   *
+   * E a frase não nomeia trilho: ela sai do `api()` compartilhado, por onde o
+   * `createPixCharge` passa — "tente o Pix" chegou a aparecer NA tela do Pix, e
+   * em espanhol, onde o mercado nem tem Pix.
+   */
+  'err.psp_rejected': {
+    en: 'Payments are unavailable at this restaurant right now. Nothing was charged — you can pay at the till.',
+    pt: 'Os pagamentos estão indisponíveis neste restaurante agora. Nada foi cobrado — você pode pagar no caixa.',
+    es: 'Los pagos no están disponibles en este restaurante ahora. No se cobró nada — puedes pagar en la caja.',
+  },
+  /**
+   * A recusa é NOSSA (formato do token), não do emissor — e a diferença
+   * importa: é ela que deixa `card_declined` provar que um emissor negou.
+   */
+  'err.card_token_invalid': {
+    en: 'We could not use that card. Try again, or choose another payment method.',
+    pt: 'Não deu pra usar esse cartão. Tente de novo, ou escolha outro meio de pagamento.',
+    es: 'No pudimos usar esa tarjeta. Inténtalo de nuevo, o elige otro medio de pago.',
+  },
+  'err.card_declined': {
+    en: 'Your bank declined the card. Try another card, or another payment method.',
+    pt: 'O banco recusou o cartão. Tente outro cartão, ou outro meio de pagamento.',
+    es: 'Tu banco rechazó la tarjeta. Prueba con otra tarjeta, u otro medio de pago.',
+  },
+  'err.restitution_unavailable': { en: 'The refund could not be recorded now. Open the bill and check before recording it again.',
+                        pt: 'Não deu pra registrar a devolução agora. Abra a conta e confira antes de registrar de novo.',
+                        es: 'No se pudo registrar la devolución ahora. Abre la cuenta y comprueba antes de registrarla otra vez.' },
   'err.txid_unknown': { en: 'That charge is not on this bill.',
                         pt: 'Essa cobrança não é desta conta.',
                         es: 'Ese cobro no es de esta cuenta.' },
@@ -553,9 +836,63 @@ export const DICT = {
    * tela do CLIENTE ganhou esse tratamento (`NOTICE_KEY`); a do dono era o
    * chamador esquecido. Achado pela revisão de segurança de 2026-09-08.
    */
+  // Serve pra UM ou pra VÁRIOS: o painel junta os `paid_after_close` num achado
+  // só, com a soma (ver `projetarAchados` no router).
+  'find.paid_after_close': { en: '{amount} arrived after the bill was closed — if the table also paid at the till, it is owed back; if not, mark “did not pay at the till” on the table',
+                        pt: '{amount} chegou depois de a conta fechar — se a mesa também pagou no caixa, é valor a devolver; se não, marque “não pagou no caixa” na linha da mesa',
+                        es: '{amount} llegó después de cerrar la cuenta — si la mesa también pagó en caja, hay que devolverlo; si no, marca «no pagó en caja» en la mesa' },
+  // O SERVIÇO de uma duplicidade: a devolver de qualquer jeito, sem pergunta
+  // sobre o caixa (compliance MEDIUM-2 de 41d1244).
+  'find.paid_after_close_tip': { en: '{amount} of service charge from a duplicate payment arrived after the bill closed — it is owed back',
+                        pt: '{amount} de serviço de um pagamento em duplicidade chegou depois de a conta fechar — é valor a devolver',
+                        es: '{amount} de servicio de un pago duplicado llegó después de cerrar la cuenta — hay que devolverlo' },
   'find.overpaid_pending_restitution': { en: 'received {amount} more than the bill asked — refund pending',
                         pt: 'recebeu {amount} a mais do que a conta pedia — devolução pendente',
                         es: 'ha recibido {amount} de más — devolución pendiente' },
+  // O AVISO da duplicidade ANTES do fecho: a conta tem sobra e mais de um
+  // pagamento trouxe serviço. Não afirma dívida — pede conferência, porque
+  // deduzir o serviço do excedente tiraria da folha o de quem só digitou um
+  // número maior no app do banco (ver a decisão de 2026-09-15).
+  'find.overpaid_tip_check': { en: 'the bill has surplus and more than one payment carried a service charge — check whether service was charged on the duplicated part',
+                        pt: 'a conta tem sobra e mais de um pagamento trouxe serviço — confira se há serviço cobrado sobre a parte duplicada',
+                        es: 'la cuenta tiene excedente y más de un pago trajo servicio — comprueba si se cobró servicio sobre la parte duplicada' },
+  /**
+   * A CONTA QUE VOLTOU A COBRAR. Quem lê isto é quem decide se pede o resto à
+   * mesa — então a frase tem que dizer NÃO PEÇA, e não só descrever o estado.
+   *
+   * Uma devolução pelo painel do adquirente é rateada entre consumo e serviço, e
+   * a parte do consumo abate o pago sem mexer no total: a conta volta de `paga`
+   * pra `parcial` e o telefone da mesa mostra saldo e o botão de pagar outra vez
+   * (CDC art. 42; compliance HIGH-3 da rodada dez).
+   */
+  'find.reopened_by_refund': { en: 'this bill was settled and a refund reopened it — the table now sees {amount} “still owed” and a pay button. Close the bill or adjust the total down; do not ask the table for the difference',
+                        pt: 'esta conta estava quitada e uma devolução a reabriu — a mesa está vendo {amount} “faltando” e o botão de pagar. Feche a conta ou ajuste o total para baixo; não peça a diferença à mesa',
+                        es: 'esta cuenta estaba saldada y una devolución la reabrió — la mesa ve {amount} «pendiente» y el botón de pagar. Cierra la cuenta o ajusta el total a la baja; no pidas la diferencia a la mesa' },
+  /**
+   * DOIS NÚMEROS, porque são duas coisas — e a versão de uma frase só afirmava
+   * que eram a mesma.
+   *
+   * `{amount}` é o que a MESA vê faltando; `{refundable}` é a parte que veio de
+   * DEVOLUÇÃO, que é o que o dono pode dar baixa. O resto é chargeback: dívida
+   * que a casa perdeu de verdade, e apagá-la dos livros é apagar um prejuízo.
+   * Com um número só, o dono ajustava pelo menor e a mesa continuava vendo o
+   * maior, com o botão de pagar ligado (CDC art. 42 § único).
+   */
+  /**
+   * E A TERCEIRA: o buraco é TODO chargeback, e não há o que ajustar.
+   *
+   * É o estado depois de o dono fazer o que a frase do caso misto manda. Sem uma
+   * frase própria, ela dizia "dos quais R$ 0,00 vieram de devolução — ajuste na
+   * parte devolvida": metade da instrução vira no-op, e quem repetir o gesto de
+   * ontem apaga dos livros um prejuízo real. Aqui só sobra a ação verdadeira, e
+   * o art. 42 não é citado: nesta parcela a dívida NÃO está quitada.
+   */
+  'find.reopened_by_chargeback': { en: 'this bill was settled and the table still sees {amount} “still owed” with a pay button — and that whole gap is a chargeback the house lost. There is nothing to adjust down; writing it off would erase a real loss. Close the bill.',
+                        pt: 'esta conta estava quitada e a mesa ainda vê {amount} “faltando” com o botão de pagar — e esse buraco é TODO de chargeback, que a casa perdeu. Não há nada a ajustar; apagá-lo dos livros seria apagar um prejuízo. Feche a conta.',
+                        es: 'esta cuenta estaba saldada y la mesa aún ve {amount} «pendiente» con el botón de pagar — y ese hueco es TODO contracargo, que el local perdió. No hay nada que ajustar; borrarlo sería borrar una pérdida real. Cierra la cuenta.' },
+  'find.reopened_by_refund_mixed': { en: 'this bill was settled and a refund reopened it — the table now sees {amount} “still owed” and a pay button, of which {refundable} came from a refund; the rest is a chargeback the house actually lost. Close the bill or adjust the total down by the refunded part; do not ask the table for the difference',
+                        pt: 'esta conta estava quitada e uma devolução a reabriu — a mesa está vendo {amount} “faltando” e o botão de pagar, dos quais {refundable} vieram de devolução; o resto é chargeback, que a casa perdeu mesmo. Feche a conta ou ajuste o total para baixo na parte devolvida; não peça a diferença à mesa',
+                        es: 'esta cuenta estaba saldada y una devolución la reabrió — la mesa ve {amount} «pendiente» y el botón de pagar, de los cuales {refundable} vinieron de una devolución; el resto es un contracargo que el local sí perdió. Cierra la cuenta o ajusta el total a la baja por la parte devuelta; no pidas la diferencia a la mesa' },
   'find.ledger_drift':{ en: 'the two money records disagree by {amount}',
                         pt: 'os dois registros de dinheiro divergem em {amount}',
                         es: 'los dos registros de dinero difieren en {amount}' },
@@ -686,10 +1023,13 @@ export const DICT = {
   'find.test_venue_with_live_recipient': { en: 'venues flagged as test have real payout accounts — they can receive real money and no reconciliation runs on them',
                         pt: 'casas marcadas como teste têm conta de repasse de verdade — elas podem receber dinheiro real e nenhuma conciliação roda nelas',
                         es: 'locales marcados como prueba tienen cuentas de abono reales — pueden recibir dinero real y ninguna conciliación se ejecuta sobre ellos' },
-  // NÃO É "AINDA": essa cobrança nunca passou por adquirente nenhum.
-  'find.charge_not_from_acquirer': { en: 'this charge did not go through the acquirer, so there is no settlement record to check — its destination cannot be verified here',
-                        pt: 'esta cobrança não passou pelo adquirente, então não há registro de repasse a conferir — o destino dela não é conferível por aqui',
-                        es: 'este cobro no pasó por el adquirente, así que no hay registro de abono que revisar — su destino no se puede verificar aquí' },
+  // "ESTE adquirente", e não "o adquirente". A frase anterior afirmava que a
+  // cobrança não passou por adquirente NENHUM — falso pra uma cobrança de outro
+  // trilho, que passou por um, só não por este. A perna de conciliação é de um
+  // adquirente só, e é isso que ela sabe dizer.
+  'find.charge_not_from_acquirer': { en: 'this charge did not go through this acquirer — either it is on another rail or it never went through one; either way there is no settlement record to check here',
+                        pt: 'esta cobrança não passou por este adquirente — ou é de outro trilho, ou nunca passou por adquirente nenhum; de todo jeito não há registro de repasse a conferir aqui',
+                        es: 'este cobro no pasó por este adquirente — o es de otra vía, o nunca pasó por ninguno; en cualquier caso no hay registro de abono que revisar aquí' },
   'find.payables_venue_shape_unknown': { en: 'the reconciliation was handed an incomplete venue record — nothing can be asserted about where this venue\u2019s money goes',
                         pt: 'a conciliação recebeu um registro de casa incompleto — não dá pra afirmar nada sobre o destino do dinheiro dela',
                         es: 'la conciliación recibió un registro de local incompleto — no se puede afirmar nada sobre el destino de su dinero' },
@@ -729,6 +1069,26 @@ export const DICT = {
   'find.other':       { en: 'needs a look: {code}',
                         pt: 'precisa de atenção: {code}',
                         es: 'necesita atención: {code}' },
+  'panel.paidAfterClose': { en: 'arrived after the bill closed: {amount} — if the table also paid at the till, it is owed back',
+                        pt: 'chegou depois de a conta fechar: {amount} — se a mesa também pagou no caixa, é valor a devolver',
+                        es: 'llegó después de cerrar la cuenta: {amount} — si la mesa también pagó en caja, hay que devolverlo' },
+  // RESPONDER a pergunta, com uma resposta FIXA: "não pagou no caixa". A versão
+  // anterior pedia texto livre e sugeria "devolvido por Pix" — e responder isso
+  // apagava junto a falha de um estorno, e a devolução por fora deixava o serviço
+  // na base da folha. Devolução vai pelo adquirente, e a marca sai sozinha
+  // (compliance HIGH-1 e MEDIUM-1 de 41d1244).
+  'panel.notPaidAtTill': { en: 'did not pay at the till',         pt: 'não pagou no caixa', es: 'no pagó en caja' },
+  // "A marca sai sozinha" não era verdade quando a cobrança também tem sobra: o
+  // estorno sai PRIMEIRO da sobra (compliance LOW-C de 57c0d2e).
+  // E o que a resposta NÃO é: ela não registra devolução nenhuma. Quem clica
+  // aqui está afirmando que o pagamento era legítimo — não que devolveu
+  // (compliance LOW de 3eea5f3).
+  'panel.resolveConfirm': { en: 'Confirm that this table did NOT also pay at the till? This records no refund — it only answers the question. If the table did pay at the till, don’t mark anything: refund this amount through the payment provider, and the mark goes down by what was refunded.',
+                        pt: 'Confirmar que esta mesa NÃO pagou também no caixa? Isto não registra devolução nenhuma — só responde a pergunta. Se a mesa pagou no caixa, não marque nada: devolva este valor pelo adquirente, e a marca diminui no valor devolvido.',
+                        es: '¿Confirmas que esta mesa NO pagó también en caja? Esto no registra ninguna devolución — solo responde la pregunta. Si la mesa pagó en caja, no marques nada: devuelve este importe por el adquirente, y la marca baja en lo devuelto.' },
+  'panel.duplicateTip': { en: 'service charge from a duplicate payment, arrived after the bill closed: {amount} — owed back; refund it through the payment provider',
+                        pt: 'serviço de um pagamento em duplicidade, que chegou depois de a conta fechar: {amount} — a devolver, pelo adquirente',
+                        es: 'servicio de un pago duplicado, llegado después de cerrar la cuenta: {amount} — hay que devolverlo, por el adquirente' },
   'panel.owedBack':   { en: 'owed back: {amount}',               pt: 'a devolver: {amount}', es: 'a devolver: {amount}' },
   'panel.toRefund':   { en: 'to refund to diners',               pt: 'a devolver a clientes', es: 'a devolver a clientes' },
   'panel.receivedToday': { en: 'received today · {n} payments', pt: 'recebido hoje · {n} pagamentos', es: 'recibido hoy · {n} pagos' },
@@ -785,6 +1145,7 @@ export const DICT = {
   'wallet.exists':    { en: 'Account already exists — ask for your link at the counter',
                         pt: 'Conta já existe — peça seu link no balcão',
                         es: 'La cuenta ya existe — pide tu enlace en la barra' },
+  'wallet.badLinkTitle': { en: 'this link no longer opens', pt: 'este link não abre mais', es: 'este enlace ya no abre' },
   'wallet.badLink':   { en: 'Invalid link — ask for a new one at the counter.',
                         pt: 'Link inválido — peça um novo no balcão.',
                         es: 'Enlace no válido — pide uno nuevo en la barra.' },
@@ -881,6 +1242,15 @@ export const DICT = {
   'gate.google':      { en: 'Continue with Google',            pt: 'Continuar com Google', es: 'Continuar con Google' },
   'gate.orEmail':     { en: 'or with e-mail',                  pt: 'ou com e-mail', es: 'o con correo' },
   'gate.email':       { en: 'e-mail',                          pt: 'e-mail', es: 'correo' },
+  // O exemplo tem DOMINIO de cada mercado: um dono espanhol lendo
+  // "nome@restaurante.com.br" ve a tela de outro pais.
+  'gate.emailPlaceholder': { en: 'name@restaurant.com', pt: 'nome@restaurante.com.br', es: 'nombre@restaurante.es' },
+  // Diz o que falta, nao "invalido": um endereco sem @ e um endereco sem
+  // dominio sao erros diferentes pra quem digitou, e a frase generica manda
+  // a pessoa olhar o campo inteiro de novo.
+  'gate.emailInvalid': { en: 'This does not look like an e-mail — check the @ and the domain.',
+                        pt: 'Isto não parece um e-mail — confira o @ e o domínio.',
+                        es: 'Esto no parece un correo — revisa la @ y el dominio.' },
   'gate.password':    { en: 'password',                        pt: 'senha', es: 'contraseña' },
   'gate.signIn':      { en: 'Sign in',                         pt: 'Entrar', es: 'Entrar' },
   'gate.ownerPanel':  { en: 'owner panel',                     pt: 'painel do dono', es: 'panel del dueño' },
@@ -898,11 +1268,17 @@ export const DICT = {
   'admin.registerFirst': { en: 'Register your restaurant',     pt: 'Cadastre seu restaurante', es: 'Registra tu restaurante' },
   'admin.registerAnother': { en: 'Register another restaurant', pt: 'Cadastrar outro restaurante', es: 'Registrar otro restaurante' },
   'admin.venueName':  { en: 'Restaurant name',                 pt: 'Nome do restaurante', es: 'Nombre del restaurante' },
+  // O EXEMPLO mora no placeholder e o NOME do campo no rotulo — antes os dois
+  // eram a mesma string, fazendo cada um dos dois trabalhos pela metade.
+  'admin.venueNameEg': { en: 'e.g. Bar do Zé', pt: 'ex.: Bar do Zé', es: 'p. ej. Bar Pepe' },
+  'admin.tableLabel': { en: 'Table label', pt: 'Nome da mesa', es: 'Nombre de la mesa' },
   'admin.city':       { en: 'City (optional)',                 pt: 'Cidade (opcional)', es: 'Ciudad (opcional)' },
   'admin.cnpjField':  { en: 'CNPJ (optional)',                 pt: 'CNPJ (opcional)', es: 'CIF/NIF (opcional)' },
   'admin.cnpjOk':     { en: 'CNPJ valid ✓',                    pt: 'CNPJ válido ✓', es: 'CIF/NIF válido ✓' },
-  'admin.cnpjBad':    { en: 'CNPJ incomplete or invalid — check all 14 digits.',
-                        pt: 'CNPJ incompleto ou inválido — confira os 14 dígitos.',
+  // CATORZE CARACTERES, não dígitos: o CNPJ alfanumérico (desde julho de 2026)
+  // tem letras nas doze primeiras posições (auditoria de onboarding, C1).
+  'admin.cnpjBad':    { en: 'CNPJ incomplete or invalid — check all 14 characters.',
+                        pt: 'CNPJ incompleto ou inválido — confira os 14 caracteres.',
                         es: 'Documento incompleto o no válido — revisa los dígitos.' },
   'admin.less':       { en: 'less',                            pt: 'menos', es: 'menos' },
   'admin.more':       { en: 'more',                            pt: 'mais', es: 'más' },
@@ -920,9 +1296,24 @@ export const DICT = {
   // Os três diálogos IRREVERSÍVEIS do dono. Ficaram em português cru até
   // 2026-09-10 porque a detecção do censo é uma lista de palavras escrita à
   // mão, e nem "girar", nem "desativar", nem "reembolsar" estavam nela.
-  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately.',
-                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora.',
-                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante.' },
+  // O CUSTO DO REMÉDIO, dito antes. Girar o QR é o que o aviso de teto manda
+  // fazer, e quem está no meio de um pagamento acompanha a conta PELO token da
+  // mesa: girado, a tela vira "conta não encontrada" e ele não vê a
+  // confirmação — e pode pagar de novo no caixa. (Compliance, M2.)
+  // A última frase dizia que o que chegasse depois da cobrança no caixa
+  // "aparece aqui como valor a devolver" — e não aparecia: o Racha não registra o
+  // caixa, e um Pix atrasado só completava a conta. Agora o pagamento que chega
+  // depois de fechar é marcado na linha da mesa (`panel.paidAfterClose`) e vira
+  // achado da conciliação. E o prazo de 15 minutos é do Pix: um cartão em
+  // confirmação pode chegar depois. (Compliance HIGH-1 e LOW-3 de 40d5c50.)
+  // E a versão seguinte dizia "aqui" — mas esta pergunta abre no `/admin`, e a
+  // marca só existe no `/painel`, sem link entre os dois (compliance HIGH-A de
+  // 497bf87). Agora ela NOMEIA a tela, e manda fechar a conta no Racha antes de
+  // cobrar no caixa: pagamento que cai entre o caixa e o fechamento só completa
+  // a conta, e fica invisível (MEDIUM-A).
+  'admin.rotateAsk':  { en: 'Rotate the QR for {table}? The code printed today stops working immediately, and anyone paying right now loses their confirmation screen. Payments already started with the old code can still arrive — a Pix for up to 15 minutes, a card still confirming possibly later — and they only show up once confirmed. Before charging at the till, wait those 15 minutes or ask the table whether anyone already paid, and close the bill in Racha first. A payment that arrives after the bill is closed is marked on its table in the payments panel (/painel): if the table also paid at the till, it is owed back.',
+                        pt: 'Girar o QR da {table}? O código impresso atual para de funcionar na hora, e quem está pagando agora perde a tela de confirmação. Pagamentos já iniciados com o código antigo ainda podem chegar — um Pix por até 15 minutos, um cartão ainda em confirmação talvez depois — e só aparecem depois de confirmados. Antes de cobrar no caixa, espere esses 15 minutos ou pergunte na mesa se alguém já pagou, e feche a conta no Racha primeiro. Pagamento que chegar depois de a conta fechar fica marcado na mesa, no painel de pagamentos (/painel): se a mesa também pagou no caixa, é valor a devolver.',
+                        es: '¿Rotar el QR de {table}? El código impreso actual deja de funcionar al instante, y quien esté pagando ahora pierde la pantalla de confirmación. Los pagos ya iniciados con el código antiguo aún pueden llegar — un Pix durante hasta 15 minutos, una tarjeta aún en confirmación quizá después — y solo aparecen una vez confirmados. Antes de cobrar en caja, espera esos 15 minutos o pregunta en la mesa si alguien ya pagó, y cierra la cuenta en Racha primero. Un pago que llegue después de cerrar la cuenta queda marcado en su mesa, en el panel de pagos (/painel): si la mesa también pagó en caja, hay que devolverlo.' },
   'admin.deactivateAsk': { en: 'Deactivate {table}? Its QR stops working.',
                         pt: 'Desativar a {table}? O QR dela para de funcionar.',
                         es: '¿Desactivar {table}? Su QR deja de funcionar.' },
@@ -932,8 +1323,12 @@ export const DICT = {
   'admin.openCheckPrompt': { en: 'Open a check on {table}\n\nCheck total ({symbol}):',
                         pt: 'Abrir conta na {table}\n\nTotal da conta ({symbol}):',
                         es: 'Abrir cuenta en {table}\n\nTotal de la cuenta ({symbol}):' },
-  'admin.closeCheckConfirm': { en: 'Close the check for {table}?',
-                        pt: 'Fechar a conta da {table}?', es: '¿Cerrar la cuenta de {table}?' },
+  // Fechar ANTES de cobrar no caixa: o Racha não registra o caixa, e um
+  // pagamento que cai entre a cobrança no caixa e o fechamento só completa a
+  // conta. Depois de fechar, ele fica marcado. (Compliance MEDIUM-A de 497bf87.)
+  'admin.closeCheckConfirm': { en: 'Close the check for {table}? Close it here BEFORE charging the rest at the till: a payment that arrives after closing is marked on the table in the payments panel (/painel), and if the table also paid at the till, it is owed back.',
+                        pt: 'Fechar a conta da {table}? Feche aqui ANTES de cobrar o resto no caixa: pagamento que chegar depois de fechar fica marcado na mesa, no painel de pagamentos (/painel), e se a mesa também pagou no caixa, é valor a devolver.',
+                        es: '¿Cerrar la cuenta de {table}? Ciérrala aquí ANTES de cobrar el resto en caja: un pago que llegue después de cerrar queda marcado en la mesa, en el panel de pagos (/painel), y si la mesa también pagó en caja, hay que devolverlo.' },
   'admin.totalInvalid': { en: 'Enter a valid total.',           pt: 'Informe um total válido.', es: 'Introduce un total válido.' },
   'admin.loading':    { en: 'loading…',                        pt: 'carregando…', es: 'cargando…' },
   'wallet.loading':   { en: 'loading your wallet…',           pt: 'carregando sua carteira…', es: 'cargando tu cartera…' },
@@ -945,6 +1340,7 @@ export const DICT = {
                         es: 'El acceso no está configurado (define VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY).' },
   'admin.tablesN':    { en: 'Tables ({n})',                    pt: 'Mesas ({n})', es: 'Mesas ({n})' },
   'admin.printQrs':   { en: '🖨 Print QRs',                    pt: '🖨 Imprimir QRs', es: '🖨 Imprimir QR' },
+  'admin.openPanel':  { en: '💳 Payments panel',               pt: '💳 Painel de pagamentos', es: '💳 Panel de pagos' },
   'admin.tablesHelp': { en: 'Register each table under the name it has on the floor (“Table 12”, “Bar 3”). Then mark one as {training} so the staff can practise without dirtying the numbers.',
                         pt: 'Cadastre cada mesa com o nome que ela tem no salão (“Mesa 12”, “Balcão 3”). Depois marque uma como {training} pra equipe praticar sem sujar os números.',
                         es: 'Registra cada mesa con el nombre que tiene en la sala (“Mesa 12”, “Barra 3”). Luego marca una como {training} para que el equipo practique sin ensuciar los números.' },
@@ -971,6 +1367,10 @@ export const DICT = {
 
   // ── implantação (AdminSetup) ───────────────────────────────────────────
   'setup.rollout':    { en: 'Rollout',                         pt: 'Implantação', es: 'Implantación' },
+  // O contador do assistente: estava em portugues cru no JSX, com o ordinal
+  // montado a mao. `completa` tem a mesma grafia em pt e es de proposito.
+  'setup.done':       { en: 'complete ✓', pt: 'completa ✓', es: 'completa ✓' },
+  'setup.stepOf':     { en: 'step {n} of {total}', pt: 'passo {n} de {total}', es: 'paso {n} de {total}' },
   'setup.inOrder':    { en: 'Follow the steps in order — each one unlocks the next.',
                         pt: 'Siga os passos na ordem — cada um destrava o próximo.',
                         es: 'Sigue los pasos en orden — cada uno desbloquea el siguiente.' },
@@ -1018,9 +1418,17 @@ export const DICT = {
   // O roteiro que a equipe fala na mesa. Vive no dicionário e não em dois
   // `const` iguais em dois arquivos: era português cru nos dois, e o assistente
   // de implantação é a primeira tela que um dono novo abre.
-  'wiz.staffLine':    { en: '“Scan the QR on the table to see the bill and pay whenever you like — the tip goes straight to us.”',
-                        pt: '“Pode escanear o QR da mesa pra ver a conta e pagar quando quiser — a gorjeta vai direto pra gente.”',
-                        es: '“Puedes escanear el QR de la mesa para ver la cuenta y pagar cuando quieras — la propina va directa para nosotros.”' },
+  //
+  // A versão anterior terminava em "a gorjeta vai direto pra gente" — e esta é
+  // a única frase do produto que um GARÇOM diz, em voz alta, na mesa. Na boca
+  // dele "pra gente" é acerto direto com a equipe: exatamente o arranjo que a
+  // Lei 13.419/2017 e o STJ Tema 1102 põem fora da lei, porque o serviço é
+  // remuneração e passa pela folha. Escrita como roteiro, ela instruía o cliente
+  // a fazer a afirmação errada. O destino sai da frase; o que fica é o que o
+  // CDC exige que ele diga — que dá pra tirar.
+  'wiz.staffLine':    { en: '“Scan the QR on the table to see the bill and pay whenever you like — the service charge is on it, and it is optional.”',
+                        pt: '“Pode escanear o QR da mesa pra ver a conta e pagar quando quiser — o serviço vem junto e é opcional.”',
+                        es: '“Puedes escanear el QR de la mesa para ver la cuenta y pagar cuando quieras — el servicio va incluido y es opcional.”' },
   'wiz.stepTables':   { en: 'Tables',                          pt: 'Mesas', es: 'Mesas' },
   'wiz.stepPayout':   { en: 'Payouts',                         pt: 'Recebimento', es: 'Cobros' },
   'wiz.stepStaff':    { en: 'Staff',                           pt: 'Equipe', es: 'Equipo' },
@@ -1092,9 +1500,25 @@ export const DICT = {
   // Sem nomear o trilho local: "além do Pix" numa tela espanhola é errado, e o
   // que importa nesta frase é o mesmo nos dois mercados — cartão e carteiras,
   // dinheiro direto na conta da casa, dados bancários na página da Stripe.
-  'stripe.blurb':     { en: 'Accept card, Apple Pay and Google Pay as well. The money lands straight in the restaurant’s account, with no custody by us. You connect a Stripe account and fill in the details on Stripe’s own secure page — the bank details never pass through Racha.',
-                        pt: 'Aceitar cartão, Apple Pay e Google Pay também. O dinheiro cai direto na conta do restaurante, sem custódia nossa. Você conecta uma conta Stripe e faz o cadastro na página segura da Stripe — os dados bancários não passam pela Racha.',
-                        es: 'Acepta tarjeta, Apple Pay y Google Pay también. El dinero cae directo en la cuenta del restaurante, sin custodia por nuestra parte. Conectas una cuenta de Stripe y rellenas los datos en su propia página segura — los datos bancarios nunca pasan por Racha.' },
+  /**
+   * "SEM CUSTÓDIA NOSSA" ERA FALSO NESTE TRILHO, e estava escrito na tela dele.
+   *
+   * O cartão é uma DESTINATION CHARGE (`stripe-psp.js`: `transfer_data.destination`):
+   * a cobrança nasce na plataforma e a Stripe transfere pra conta conectada do
+   * restaurante. Não é conta-bolsão e a Racha não saca nem retém — mas o
+   * dinheiro do cliente TRANSITA pela plataforma, e é isso que o inegociável #4
+   * governa. O próprio adaptador diz as duas coisas em comentários opostos: um
+   * afirma "liquida na conta do restaurante, não na plataforma" e outro, duzentas
+   * linhas abaixo, fala de "dinheiro parado no saldo da PLATAFORMA, que é
+   * território do inegociável #4". A copy seguiu o errado.
+   *
+   * A frase nova diz o que acontece. Quem precisa da diferença — um contador, um
+   * advogado de pagamentos — precisa dela exata; quem não precisa lê "a conta é
+   * sua" e segue.
+   */
+  'stripe.blurb':     { en: 'Accept card, Apple Pay and Google Pay as well. Payouts go to the restaurant’s own Stripe account — Racha never holds a pooled account and never withdraws from yours, though a card charge does pass through our Stripe platform before Stripe transfers it to you. You connect a Stripe account and fill in the details on Stripe’s own secure page — the bank details never pass through Racha.',
+                        pt: 'Aceitar cartão, Apple Pay e Google Pay também. O repasse vai para a conta Stripe do próprio restaurante — a Racha não tem conta-bolsão e nunca saca da sua, embora a cobrança no cartão passe pela nossa plataforma Stripe antes de a Stripe transferir para você. Você conecta uma conta Stripe e faz o cadastro na página segura da Stripe — os dados bancários não passam pela Racha.',
+                        es: 'Acepta tarjeta, Apple Pay y Google Pay también. El abono va a la cuenta de Stripe del propio restaurante — Racha no tiene cuenta ómnibus y nunca retira de la tuya, aunque el cobro con tarjeta pasa por nuestra plataforma de Stripe antes de que Stripe te lo transfiera. Conectas una cuenta de Stripe y rellenas los datos en su propia página segura — los datos bancarios nunca pasan por Racha.' },
   'wiz.t2subEs':      { en: 'Where the money from the bills lands. You connect a Stripe account and enter the IBAN and KYC details on Stripe’s page; the bank details never pass through Racha.',
                         pt: 'Onde o dinheiro das comandas cai. Você conecta uma conta Stripe e preenche IBAN e KYC na página deles; os dados bancários não passam pela Racha.',
                         es: 'Donde cae el dinero de las cuentas. Conectas una cuenta de Stripe e introduces el IBAN y los datos de KYC en su página; los datos bancarios nunca pasan por Racha.' },
@@ -1124,6 +1548,19 @@ export const DICT = {
   'house.saving':     { en: 'saving…',                         pt: 'salvando…', es: 'guardando…' },
   'house.saveConfig': { en: 'Save settings',                   pt: 'Salvar configuração', es: 'Guardar configuración' },
   'house.accountsCount': { en: 'Accounts ({n})',                pt: 'Contas ({n})', es: 'Cuentas ({n})' },
+  // O PASSIVO DA CASA — o número que um contador olha. Estava em português cru
+  // no JSX, e num versalete de 10px que o sistema reserva pra rótulo de 1-3
+  // palavras. Agora é frase, nas três línguas, fora do versalete.
+  'house.liability': { en: 'Open liability: {paid} paid + {bonus} bonus across {n} account(s)',
+                        pt: 'Passivo em aberto: {paid} (pago) + {bonus} (bônus) em {n} conta(s)',
+                        es: 'Pasivo abierto: {paid} (pagado) + {bonus} (bono) en {n} cuenta(s)' },
+  'house.liabilityWhy': { en: 'Paid balance is a refundable liability — the customer’s money until it is spent; only the bonus is your promotion.',
+                        pt: 'O saldo pago é passivo reembolsável — dinheiro do cliente até ser consumido; só o bônus é promoção sua.',
+                        es: 'El saldo pagado es un pasivo reembolsable — dinero del cliente hasta que se gaste; solo el bono es promoción tuya.' },
+  'rcpt.sectionTitle': { en: 'Payouts', pt: 'Recebimento', es: 'Cobros' },
+  'rcpt.demoId':      { en: 'The current id ({id}) is a demo one — it does not actually receive.',
+                        pt: 'O id atual ({id}) é de demonstração — não recebe de verdade.',
+                        es: 'El id actual ({id}) es de demostración — no recibe de verdad.' },
   'house.noAccounts': { en: 'no accounts yet.',                pt: 'nenhuma conta ainda.', es: 'todavía no hay cuentas.' },
   'house.paidTag':    { en: '{amount} paid',                    pt: '{amount} pago', es: '{amount} pagado' },
   'house.bonusTag':   { en: '{amount} bonus',                   pt: '{amount} bônus', es: '{amount} de bono' },
@@ -1164,9 +1601,11 @@ export const DICT = {
   'rcpt.marketplaceHint': { en: 'The Pagar.me account is not in marketplace mode yet — sales has to enable it (already requested).',
                         pt: 'A conta Pagar.me ainda não está em modo marketplace — o comercial precisa habilitar (pedido já feito).',
                         es: 'La cuenta de Pagar.me todavía no está en modo marketplace — el equipo comercial tiene que habilitarlo (ya solicitado).' },
-  'rcpt.docIncomplete': { en: 'A CPF has 11 digits, a CNPJ has 14 — some are still missing.',
-                        pt: 'CPF tem 11 dígitos, CNPJ tem 14 — ainda faltam números.',
-                        es: 'El CPF tiene 11 dígitos y el CNPJ 14 — todavía faltan números.' },
+  // Este campo só aceita CNPJ brasileiro: o "CIF de 9 caracteres" em espanhol
+  // descrevia outro formulário (auditoria de onboarding, M2).
+  'rcpt.docIncomplete': { en: 'A CNPJ has 14 characters (letters and numbers, since 2026) — some are still missing.',
+                        pt: 'O CNPJ tem 14 caracteres (letras e números, desde 2026) — ainda faltam alguns.',
+                        es: 'El CNPJ tiene 14 caracteres (letras y números, desde 2026) — todavía faltan.' },
   'rcpt.docDvBad':    { en: 'The check digits do not match — check the number.',
                         pt: 'Os dígitos verificadores não batem — confira o número.',
                         es: 'Los dígitos de control no coinciden — revisa el número.' },
@@ -1194,10 +1633,40 @@ export const DICT = {
   'rcpt.holderLabel': { en: 'Legal name / account holder',      pt: 'Razão social / nome do titular', es: 'Razón social / nombre del titular' },
   'rcpt.holderNeed':  { en: 'Enter the account holder’s name.', pt: 'Informe o nome do titular da conta.', es: 'Introduce el nombre del titular de la cuenta.' },
   'rcpt.holderHint':  { en: 'Same as the bank and tax records.', pt: 'Igual ao cadastro no banco / na Receita.', es: 'Igual que en el banco y en la administración.' },
-  'rcpt.docLabel':    { en: 'Holder’s CNPJ or CPF',            pt: 'CNPJ ou CPF do titular', es: 'Documento fiscal del titular' },
-  'rcpt.docHint':     { en: 'The restaurant’s CNPJ (14 digits) or your CPF (11 digits).',
-                        pt: 'CNPJ do restaurante (14 díg.) ou seu CPF (11 díg.).',
-                        es: 'El documento de la empresa o el tuyo como autónomo.' },
+  // CNPJ e só: o serviço é remuneração que passa pela folha, e folha exige
+  // pessoa jurídica. O rótulo dizia "CNPJ ou CPF" enquanto o servidor
+  // recusava CPF.
+  // Um CPF bem formado NÃO é dígito verificador errado. A mensagem tem que
+  // dizer a regra, porque é ela que falta — não o número.
+  // O dono precisa saber que parou de arrecadar o serviço — e por quê. Falhar
+  // fechado é o certo; falhar calado não é (inegociável #8).
+  //
+  // "faltando OU NÃO CONFERE": o predicado atrás disto é VALIDADE, não
+  // presença. Dizia "não cadastrado", e quem digitou um CNPJ com um dígito
+  // errado lia isso olhando pro campo preenchido e concluía que o painel
+  // está quebrado. O portão mudou e a frase não tinha mudado junto.
+  'admin.noTipDocTitle': { en: 'The service charge is off on this venue',
+                        pt: 'O serviço está desligado nesta casa', es: 'El cargo por servicio está desactivado' },
+  'admin.noTipDocBody': { en: 'The CNPJ on file is missing or does not check out, so the 10% cannot be collected: the service charge is payroll, and payroll needs a company. Diners still pay for what they ordered — only the service line is off. Register the CNPJ and it comes back.',
+                        pt: 'O CNPJ cadastrado está faltando ou não confere, então os 10% não podem ser cobrados: o serviço é remuneração que passa pela folha, e folha exige empresa. O cliente continua pagando o consumo normalmente — só a linha de serviço está fora. Cadastre o CNPJ e ela volta.',
+                        es: 'El CIF registrado falta o no es válido, así que el 10% no puede cobrarse: el servicio es remuneración por nómina, y la nómina exige empresa. El cliente sigue pagando el consumo — solo la línea de servicio está fuera. Registra el CIF y vuelve.' },
+  'admin.noTipDocCta': { en: 'Register the CNPJ', pt: 'Cadastrar o CNPJ', es: 'Registrar el CIF' },
+  'rcpt.docCpfNo':    { en: 'That is a CPF, and the payout document has to be the restaurant’s CNPJ: the service charge is payroll, and payroll needs a company.',
+                        pt: 'Esse é um CPF, e o documento de recebimento tem que ser o CNPJ do restaurante: o serviço é remuneração que passa pela folha, e folha exige empresa.',
+                        es: 'Eso es un documento personal, y el de cobro tiene que ser el CIF del restaurante: el servicio es remuneración por nómina, y la nómina exige empresa.' },
+  'rcpt.docLabel':    { en: 'Restaurant’s CNPJ',                pt: 'CNPJ do restaurante', es: 'CIF del restaurante' },
+  // O dono digita este documento num passo de KYC — e é ELE que passa a
+  // aparecer no comprovante do cliente, porque a casa herda o documento do
+  // recebedor quando ainda não tem um (`decidirDocumentoDoRecebedor`). Herança
+  // silenciosa num campo que vai pra tela de terceiro é o tipo de coisa que se
+  // descobre numa revisão; dizer é barato. Achado pela revisão de compliance
+  // de 2026-09-13.
+  'rcpt.docOnReceipt': { en: 'This is also the document shown on the diner’s receipt.',
+                        pt: 'Este é também o documento que aparece no comprovante do cliente.',
+                        es: 'Es también el documento que aparece en el recibo del cliente.' },
+  'rcpt.docHint':     { en: 'The restaurant’s CNPJ, 14 characters. An individual’s CPF cannot receive here: the service charge is payroll, and payroll needs a company.',
+                        pt: 'O CNPJ do restaurante, 14 caracteres. CPF de pessoa física não recebe aqui: o serviço é remuneração que passa pela folha, e folha exige empresa.',
+                        es: 'El CIF del restaurante. Un documento personal no puede recibir aquí: el servicio es remuneración por nómina, y la nómina exige empresa.' },
   'rcpt.emailLabel':  { en: 'Restaurant e-mail',               pt: 'E-mail do restaurante', es: 'Correo del restaurante' },
   'rcpt.emailBad':    { en: 'Invalid e-mail — check the format.', pt: 'E-mail inválido — confira o formato.', es: 'Correo no válido — revisa el formato.' },
   // Exemplo, e exemplo é tela: um e-mail `.com.br` numa tela espanhola diz
@@ -1290,7 +1759,13 @@ export const DICT = {
   'land.forVenues': { en: 'I run a restaurant',               pt: 'Tenho um restaurante', es: 'Tengo un restaurante' },
   'land.proof1':    { en: 'Pix settles to the restaurant’s own account', pt: 'O Pix cai na conta do próprio restaurante', es: 'El pago cae en la cuenta del propio restaurante' },
   'land.proof2':    { en: 'Service charge optional, tracked for payroll', pt: 'Serviço opcional, rastreado pra folha', es: 'Servicio opcional, registrado para la nómina' },
-  'land.proof3':    { en: 'We never hold your money',           pt: 'A gente nunca segura o seu dinheiro', es: 'Nunca retenemos tu dinero' },
+  // "NUNCA SEGURAMOS" sem qualificação era o chamador esquecido da correção do
+  // `stripe.blurb`: no cartão a cobrança TRANSITA pelo saldo da plataforma antes
+  // da transferência, e na Espanha isso vale pra 100% do volume (Bizum e cartão
+  // são destination charges). Oferta que vincula (CDC arts. 30 e 37), e terreno
+  // do inegociável #4. A frase nova afirma o que é verdade nos dois trilhos: a
+  // conta é do restaurante, e a Racha não tem conta-bolsão nem saca dela.
+  'land.proof3':    { en: 'No pooled account, no withdrawals by us',  pt: 'Sem conta-bolsão, sem saque nosso', es: 'Sin cuenta ómnibus, sin retiros nuestros' },
   'land.menuLabel': { en: 'Every line gets its block',          pt: 'Cada linha tem seu bloco', es: 'Cada línea tiene su grabado' },
   'land.menuSub':   { en: 'Fourteen woodcuts, carved in one pass, one for each thing a bar bill prints.',
                       pt: 'Catorze xilogravuras, entalhadas de uma vez, uma pra cada coisa que uma conta de bar imprime.',
@@ -1322,9 +1797,9 @@ export const DICT = {
   'land.house4':    { en: 'Prepaid house balance turns loyalty into cash up front.', pt: 'Saldo da casa pré-pago transforma fidelidade em caixa antecipado.', es: 'El saldo prepago de la casa convierte fidelidad en caja por adelantado.' },
 
   'land.nav':      { en: 'For restaurants',                pt: 'Para restaurantes', es: 'Para restaurantes' },
-  'land.house0':   { en: 'Pix lands in the restaurant’s own account. We never hold the money.',
-                     pt: 'O Pix cai na conta do próprio restaurante. A gente nunca segura o dinheiro.',
-                        es: 'El pago cae en la cuenta del propio restaurante. Nunca retenemos el dinero.' },
+  'land.house0':   { en: 'The money lands in the restaurant’s own account. Racha has no pooled account and never withdraws from yours.',
+                     pt: 'O dinheiro cai na conta do próprio restaurante. A Racha não tem conta-bolsão e nunca saca da sua.',
+                        es: 'El dinero cae en la cuenta del propio restaurante. Racha no tiene cuenta ómnibus y nunca retira de la tuya.' },
 
   'land.proofTitle': { en: 'To the cent. Always.',            pt: 'Ao centavo. Sempre.', es: 'Al céntimo. Siempre.' },
   'land.proofSub':   { en: 'Every split sums back to the bill exactly. When the cents don’t divide, the remainder goes to one share — never rounded away, never invented.',
@@ -1339,6 +1814,71 @@ export const DICT = {
 } satisfies Record<string, Trio>;
 
 export type Key = keyof typeof DICT;
+
+/**
+ * Achado da conciliação → frase, no idioma do leitor.
+ *
+ * Mapa com genérico, nunca ternário: um código novo tem que sair como código, e
+ * não como a frase do vizinho. Os centavos vêm crus do servidor e são formatados
+ * aqui, onde se sabe quem está lendo. (Este bloco ficou pra trás no `Panel.tsx`
+ * quando a função mudou de casa, e passou a descrever a função vizinha —
+ * segurança LOW-1 da rodada quinze.)
+ *
+ * A REGRA, fora do componente.
+ *
+ * Ela vivia dentro do `Panel.tsx`, e por isso não dava pra chamar de um teste:
+ * o runner do app é `node --test` sobre TypeScript, que não transforma JSX. O
+ * teste de cruzamento escrito pra rodada treze acabou RE-IMPLEMENTANDO a cadeia
+ * (`overpaidCents ?? deltaCents`) — dois elementos de quatro — em vez de passar
+ * por aqui. Medido: com a cadeia real reordenada pra incluir `refundableCents`,
+ * o painel passava a imprimir R$ 20,00 onde a mesa vê R$ 130,00 (o achado da
+ * rodada treze, verbatim) e a suíte inteira ficava verde. Uma cópia da regra não
+ * é a regra (segurança MEDIUM-1 da rodada catorze).
+ *
+ * Num módulo `.ts` puro, o teste chama a MESMA função que a tela chama.
+ */
+export function textoDoAchado(
+  f: {
+    code: string;
+    overpaidCents?: number; deltaCents?: number; driftCents?: number; amountCents?: number;
+    // A SEGUNDA quantia de um achado, quando ele tem duas. O `reopened_by_refund`
+    // com chargeback no meio tem: o que a mesa VÊ e o que o dono pode dar BAIXA.
+    // Sem ela, a frase teria que escolher um dos dois e mentir sobre o outro.
+    refundableCents?: number;
+  },
+  t: (k: Key, v?: Record<string, string | number>) => string,
+  brl: (c: number) => string,
+): string {
+  const chave = `find.${f.code}` as Key;
+  // `amountCents` entra na cadeia: é o campo do `custody_leak` (quanto foi pra
+  // fora da subconta da casa). Sem ele, a frase saía com "{amount}" literal na
+  // tela — que é pior que não ter frase.
+  const valor = f.overpaidCents ?? f.deltaCents ?? f.driftCents ?? f.amountCents;
+  const vars = valor !== undefined
+    ? {
+      amount: brl(Math.abs(valor)),
+      /**
+       * SEM `Math.abs` no segundo número.
+       *
+       * O `{amount}` usa valor absoluto porque `driftCents` é uma diferença com
+       * sinal e o sinal já está na frase. Este não: `refundableCents` é "quanto
+       * dá pra dar baixa", e negativo é BUG do servidor. `Math.abs` era o
+       * mascarador clássico de erro de sinal — com o teto do servidor removido,
+       * −8000 virava "R$ 80,00 vieram de devolução" num buraco de R$ 30,00, e
+       * ajustar por esse número apagaria dos livros R$ 50,00 de prejuízo real.
+       * O cliente é o último lugar que pode recusar (segurança MEDIUM-2 da
+       * rodada quinze).
+       */
+      ...(f.refundableCents !== undefined
+        ? { refundable: brl(Math.max(0, f.refundableCents)) } : {}),
+    }
+    : undefined;
+  // Pergunta, não exceção: `t()` de chave desconhecida estoura num
+  // `undefined[lang]`, e depender disso é depender de um acidente.
+  if (!(chave in DICT)) return t('find.other', { code: f.code });
+  return t(chave, vars);
+}
+
 
 
 /**

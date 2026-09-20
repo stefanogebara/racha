@@ -412,7 +412,9 @@ struct ExtraRow: View {
                     .font(Typo.body)
                     .foregroundStyle(extra.isEnabled ? Palette.charcoal : Palette.stone)
                 if extra.isGratuity {
-                    Text("vai pra equipe")
+                    // Ver a nota do `SettleSheet`: a casa DISTRIBUI, e pode
+                    // reter encargos (CLT art. 457 §6º).
+                    Text("o restaurante distribui à equipe")
                         .font(Typo.caption)
                         .foregroundStyle(Palette.stone)
                 }

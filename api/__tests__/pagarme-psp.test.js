@@ -67,6 +67,24 @@ describe('pagarme adapter', () => {
     expect(calls).toHaveLength(0);
   });
 
+  test('o descritor da fatura sai do nome da CASA, cortado e sem acento', async () => {
+    const ok = { id: 'or_9', charges: [{ id: 'ch_d', status: 'paid', payment_method: 'credit_card' }] };
+    const casos = [
+      ['Restaurante Fulano de Tal — Unidade Centro', 'RESTAURANTE F'],  // 13 e corta
+      ['Café 123!', 'CAFE 123'],                                        // acento e pontuação
+      ['', 'RACHA'],                                                    // sem nome: o nosso, que é melhor que nenhum
+    ];
+    for (const [nome, esperado] of casos) {
+      const { impl, calls } = stubFetch([{ match: '/orders', method: 'POST', reply: ok }]);
+      const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+      await psp.createWalletCharge({
+        chargeRef: 'c:0:1000:0', amountCents: 1000, tipCents: 0, recipientId: 'rp_v',
+        wallet: 'google_pay', paymentToken: 'tok_gpay_123456', currency: 'brl', venueName: nome,
+      });
+      expect(calls[0].body.payments[0].credit_card.statement_descriptor).toBe(esperado);
+    }
+  });
+
   test('wallet: card_token no payload; recusa do gateway vira 402', async () => {
     const ok = { id: 'or_2', charges: [{ id: 'ch_card1', status: 'paid', payment_method: 'credit_card' }] };
     const { impl, calls } = stubFetch([{ match: '/orders', method: 'POST', reply: ok }]);
@@ -78,9 +96,21 @@ describe('pagarme adapter', () => {
       // A moeda passou a ser OBRIGATÓRIA: sem padrão, um chamador que esquece
       // quebra em vez de herdar a única moeda que este adquirente atende.
       currency: 'brl',
+      venueName: 'Bar do Zé',
     });
     expect(r).toEqual({ txid: 'ch_card1' });
     expect(calls[0].body.payments[0].credit_card.card_token).toBe('tok_gpay_123456');
+    /**
+     * O DESCRITOR DA FATURA É A CASA, não nós.
+     *
+     * Era `'RACHA'` cravado: a pessoa jantava no Bar do Zé, pagava com Google
+     * Pay, e a fatura do cartão dizia RACHA — identificação errada do fornecedor
+     * (CDC art. 6º III) e motor de contestação "não reconheço a compra". O
+     * mesmo princípio que o `on_behalf_of` da Stripe carrega, e que não tinha
+     * atravessado pro adquirente de produção (compliance MEDIUM-1 da rodada
+     * quinze). Sem acento e em 13 caracteres, que é o que o campo aceita.
+     */
+    expect(calls[0].body.payments[0].credit_card.statement_descriptor).toBe('BAR DO ZE');
 
     // token curto/lixo → 402 sem bater na API
     await expect(psp.createWalletCharge({
@@ -256,6 +286,21 @@ describe('pagarme adapter', () => {
 
     await expect(psp.createRecipient({ name: 'x', document: null, bank: null }))
       .rejects.toThrow(/obrigatórios/);
+  });
+
+  test('createRecipient: o CNPJ ALFANUMÉRICO chega com as letras, em maiúsculas', async () => {
+    // Desde julho de 2026 (IN RFB 2.229/2024) o CNPJ novo tem letras nas doze
+    // primeiras posições; `\D` as apagava e o recebedor saía com um documento
+    // que não é o da casa (auditoria de onboarding, C1).
+    const { impl, calls } = stubFetch([{ match: '/recipients', method: 'POST', reply: { id: 're_alfa', status: 'registration' } }]);
+    const psp = createPagarmePsp({ secretKey: 'sk_test_x', fetchImpl: impl });
+    await psp.createRecipient({
+      name: 'Bar Novo', email: 'x@y.com', document: '12.abc.345/01de-35',
+      bank: { code: '260', agencia: '0001', conta: '00544596', contaDv: '6' },
+    });
+    const body = calls[0].body;
+    expect({ document: body.document, type: body.type, holder: body.default_bank_account.holder_document })
+      .toEqual({ document: '12ABC34501DE35', type: 'company', holder: '12ABC34501DE35' });
   });
 
   test('getRecipient: status da análise (id real re_); id inválido → null sem chamada', async () => {
@@ -707,5 +752,40 @@ describe('recebível ilegível: o que ainda dá pra afirmar', () => {
       { recipientId: 're_outro', amountCents: 23710, feeCents: 300, type: 'credit' },
     ]);
     expect(achados.some((f) => f.code === 'custody_leak' && f.severity === 'critical')).toBe(true);
+  });
+});
+
+describe('o nome da casa CHEGA ao descritor — a fábrica passa, o adaptador usa', () => {
+  /**
+   * As duas metades precisam de teste. O adaptador tem o dele (acima); sem este,
+   * apagar `venueName: venue.name` da fábrica deixava a suíte inteira verde e o
+   * descritor voltava pro nosso, com o adaptador "correto" e o dinheiro saindo
+   * com o nome errado na fatura. É a forma do chamador esquecido — a mesma que
+   * esta série encontrou no `refundableCents` e nas três cópias do predicado de
+   * estorno.
+   */
+  const { createChargeService } = require('../_lib/pay/create-charge');
+  const { createMemoryStore } = require('../_lib/store/memory');
+
+  test('a fábrica de cobrança entrega o nome do restaurante ao adaptador', async () => {
+    const store = createMemoryStore();
+    const venue = await store.seedVenue({ name: 'Bar do Zé', servicoBp: 1000, pspRecipientId: 'rp_venue1' });
+    const mesa = await store.seedTable(venue.id, 'Mesa 1');
+    const conta = await store.openCheck(mesa.qrToken, [{ id: 'i', name: 'Prato', priceCents: 5000 }]);
+
+    let recebido = null;
+    const psp = {
+      provider: 'pagarme',
+      walletCaptures: true,   // a v5 captura dentro da chamada
+      currencies: ['brl'],
+      createWalletCharge: async (args) => { recebido = args; return { txid: 'ch_1' }; },
+      createPixCharge: async () => { throw new Error('não era pra usar o Pix'); },
+    };
+    const charge = createChargeService({ store, psp });
+    await charge({
+      checkId: conta.id, amountCents: 1000, tipCents: 0,
+      wallet: 'google_pay', paymentToken: 'tok_gpay_123456', payerDocument: '11144477735',
+    });
+    expect(recebido && recebido.venueName).toBe('Bar do Zé');
   });
 });

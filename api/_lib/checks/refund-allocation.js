@@ -1,0 +1,176 @@
+'use strict';
+
+/**
+ * COMO UMA DEVOLUÇÃO SE REPARTE entre consumo e serviço — uma regra só, pura,
+ * usada pelo estorno que vem do PSP (`webhook-handler`) e pelo que o dono
+ * registra fora do trilho (`/api/checks/record-restitution`).
+ *
+ * Era a MESMA conta escrita duas vezes, em dois arquivos, e as duas cópias já
+ * tinham divergido uma vez. Pior: nenhuma das duas conhecia o serviço DEVIDO do
+ * pago-depois-de-fechar, e é ele que faz a regra existir.
+ *
+ * Três baldes, nesta ordem:
+ *
+ *  1. O EXCEDENTE, do consumo. Foi por ali que entrou (ver `parseCharge`), é
+ *     por ali que sai.
+ *  2. O SERVIÇO DEVIDO de um pagamento atrasado, da gorjeta, INTEIRO. É o caso
+ *     em que o RAZÃO já mostrava a conta quitada e um atrasado entrou por cima:
+ *     os 10% sobre a parte duplicada nunca foram serviço prestado a ninguém —
+ *     são do cliente. Proporcional, este balde saía errado, e o erro fica na
+ *     BASE DA FOLHA do garçom (Lei 13.419/2017 e STJ Tema 1102 — o serviço é
+ *     remuneração, distribuída por folha). Devolver R$ 110 de uma duplicação de
+ *     R$ 100 + R$ 10 tem de deixar a gorjeta menor em exatamente R$ 10.
+ *
+ *     O texto anterior dizia "quando a mesa já havia pagado no caixa", e isso é
+ *     FALSO sobre o código: o Racha não registra o caixa, então a duplicação de
+ *     caixa não produz sobra nenhuma e este balde fica zerado nela (compliance
+ *     MEDIUM-1 de ec86b37). Quem cuida daquele caso é o balde 3.
+ *  3. O RESTO. Num pagamento ATRASADO ainda sem resposta, sai do CONSUMO
+ *     primeiro e só depois da gorjeta; em qualquer outro, é estorno comum e vai
+ *     proporcional.
+ *
+ *     Por quê: devolver 100 de um atrasado de 100 + 10 pelo proporcional
+ *     devolvia 90,91 de consumo e 9,09 de gorjeta — sobrava consumo pago, a
+ *     marca não fechava, e ficavam 0,91 de serviço na folha sobre um
+ *     atendimento que talvez nunca tenha existido (compliance MEDIUM-2 de
+ *     ec86b37). Consumo primeiro devolve o principal inteiro e deixa a marca
+ *     valendo exatamente o serviço que ainda não voltou — visível no painel, em
+ *     vez de diluído.
+ *
+ * Compliance MEDIUM-2 de 3eea5f3.
+ *
+ * O excedente é DERIVADO pelo redutor (ver `PAYMENT_CONFIRMED`), então aqui ele
+ * nunca falta. Quanto ainda falta restituir sai por subtração, e é exato por
+ * construção: o excedente sai do consumo PRIMEIRO, então os primeiros
+ * `refundedAmountCents` centavos devolvidos foram exatamente ele. Nada de teto
+ * pela sobra da CONTA — ela é reduzida por qualquer coisa que mexa no total, e
+ * um teto assim vazava entre pagadores: compensar a dívida de um com o crédito
+ * de outro não existe (CC art. 876).
+ *
+ * A conta que ENCOLHEU depois de paga (`ADJUSTED` pra baixo) também produz
+ * sobra, e nela nenhum pagamento tem excedente — corretamente: ninguém pagou a
+ * mais, a conta diminuiu. Aí o estorno é comum e proporcional, o que devolve
+ * junto a fatia de serviço do item que saiu.
+ */
+
+const { paidAfterClose } = require('./check-state');
+const { allocateProportional, allocateRefund, allocateRestitution } = require('./split-engine');
+
+/** O serviço que este pagamento atrasado deve de volta, dê no que der. */
+function servicoDevidoDoAtrasado(estado, txid) {
+  if (!estado) return 0;
+  return paidAfterClose(estado)
+    .filter((x) => x.txid === txid && x.sempreDevido)
+    .reduce((soma, x) => soma + x.amountCents, 0);
+}
+
+/**
+ * @param {object|null} estado estado derivado do razão (pode faltar: aí não há
+ *   serviço devido a conhecer e a regra é a de sempre)
+ * @param {string} txid
+ * @param {object} pg o pagamento no estado derivado
+ * @param {number} valor centavos desta devolução
+ * @param {{forcada?: boolean, testemunha?: {amountCents: number, tipCents: number}}} [opcoes]
+ *   `forcada` quando o dinheiro foi TIRADO (chargeback/disputa perdida) em vez de
+ *   devolvido por escolha da casa. `testemunha` é o estorno que o adquirente
+ *   deixou de entregar, JÁ SEPARADO em consumo e serviço.
+ */
+function alocarDevolucaoDoPagamento(estado, txid, pg, valor, opcoes = {}) {
+  const consumo = Math.max(0, pg.amountCents - (pg.refundedAmountCents || 0));
+  const gorjeta = Math.max(0, (pg.tipCents || 0) - (pg.refundedTipCents || 0));
+  const excedente = Math.min(
+    Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
+    consumo,
+  );
+  /**
+   * BALDE ZERO: a TESTEMUNHA manda.
+   *
+   * Quando a devolução por fora existe porque um estorno FALHOU, o adquirente
+   * relatou um VALOR — e quando exatamente um lançamento vivo daquele pagamento
+   * soma aquele valor, a gente INFERE que era ele, e usa os baldes que ELE usou.
+   *
+   * Inferência, não testemunho. A redação anterior dizia "o adquirente
+   * identificou qual lançamento falhou (pelo `re_`...)", e isso é falso: o
+   * `charge.refunded` é um evento de COBRANÇA e o adaptador não extrai id de
+   * estorno dele (`stripe-psp.js`), então NENHUM `PAYMENT_REFUNDED` do razão
+   * carrega `refundId` — o casamento é sempre por valor. O `re_` serve pra
+   * outra coisa: separar a segunda entrega da mesma falha.
+   *
+   * A diferença importa porque este parágrafo é a autoridade escrita do balde
+   * zero, o ramo que passa por cima de toda outra regra de rateio e move
+   * dinheiro pra dentro e pra fora da base de cálculo da folha. "O adquirente
+   * disse" faz um trabalho jurídico que o código não sustenta — e numa auditoria
+   * trabalhista quem responde é a frase, não a intenção (compliance MEDIUM-1 da
+   * rodada dez).
+   *
+   * Seguir o proporcional em cima da inferência tira da base da folha dinheiro
+   * que o lançamento diz que nunca foi gorjeta — ou deixa nela serviço que ele
+   * diz que voltou (compliance HIGH-2 de a95e15c). É por isso que a inferência
+   * é ESTREITA: só vale com um candidato e nenhuma reversão anterior daquele
+   * valor (ver `reversal-match.js`).
+   */
+  const testemunha = (opcoes && opcoes.testemunha) || null;
+  if (testemunha) {
+    const doConsumo = Math.min(valor, Math.max(0, testemunha.amountCents || 0), consumo);
+    const resto = valor - doConsumo;
+    const daGorjeta = Math.min(resto, Math.max(0, testemunha.tipCents || 0), gorjeta);
+    if (doConsumo + daGorjeta === valor) return { amountCents: doConsumo, tipCents: daGorjeta };
+    /**
+     * O que passa da testemunha segue as regras de sempre — INCLUSIVE o balde 2.
+     *
+     * Ele estava cravado em `0`, e o dinheiro era autorizado pelo teto COMO
+     * serviço devido (`tardio` inclui o `servicoDevido`) e saía como consumo:
+     * o cliente recebia os R$ 110,00 e ZERO saía da base da folha, com a marca
+     * `sempreDevido` seguindo aberta — a casa pagando de novo pelo trilho, ou
+     * ficando `critical` pra sempre (compliance HIGH-2 e segurança MEDIUM-3 de
+     * 95f72a9). O comentário dizia "regras de sempre" e pulava uma delas.
+     */
+    const devidoQueSobra = Math.max(0,
+      Math.min(servicoDevidoDoAtrasado(estado, txid), gorjeta) - daGorjeta);
+    const p = tresBaldes(consumo - doConsumo, gorjeta - daGorjeta,
+      Math.max(0, excedente - doConsumo), Math.min(devidoQueSobra, gorjeta - daGorjeta),
+      valor - doConsumo - daGorjeta, consumoPrimeiro(pg, opcoes));
+    return { amountCents: doConsumo + p.amountCents, tipCents: daGorjeta + p.tipCents };
+  }
+  const devido = Math.min(servicoDevidoDoAtrasado(estado, txid), gorjeta);
+  // Sem serviço devido E fora de um atrasado em aberto, nada muda: as duas
+  // regras antigas, intactas.
+  if (devido === 0 && !consumoPrimeiro(pg, opcoes)) {
+    return excedente > 0
+      ? allocateRestitution(consumo, gorjeta, valor, excedente)
+      : allocateRefund(consumo, gorjeta, valor);
+  }
+  return tresBaldes(consumo, gorjeta, excedente, devido, valor, consumoPrimeiro(pg, opcoes));
+}
+
+/**
+ * O consumo volta antes da gorjeta só numa devolução ESCOLHIDA por quem devolve.
+ *
+ * Num CHARGEBACK ninguém escolheu nada: a rede tirou o dinheiro, e o razão está
+ * registrando de onde ele saiu — aí a verdade é o proporcional. Mandar a gorjeta
+ * inteira ficar nos livros enquanto a rede levou parte do dinheiro mentiria pra
+ * folha, que é exatamente o que o comentário do `webhook-handler` já dizia sobre
+ * o chargeback levar a gorjeta junto (compliance MEDIUM-2 de d7f2683).
+ */
+function consumoPrimeiro(pg, opcoes) {
+  if (opcoes && opcoes.forcada) return false;
+  return pg.late === true && pg.lateResolved !== true;
+}
+
+function tresBaldes(consumo, gorjeta, excedente, devido, valor, consumoPrimeiro) {
+  const doExcedente = Math.min(valor, excedente);
+  let resto = valor - doExcedente;
+  const daGorjetaDevida = Math.min(resto, devido);
+  resto -= daGorjetaDevida;
+  if (resto === 0) return { amountCents: doExcedente, tipCents: daGorjetaDevida };
+  const consumoQueSobra = consumo - doExcedente;
+  const gorjetaQueSobra = gorjeta - daGorjetaDevida;
+  if (consumoPrimeiro) {
+    const doConsumo = Math.min(resto, consumoQueSobra);
+    return { amountCents: doExcedente + doConsumo, tipCents: daGorjetaDevida + (resto - doConsumo) };
+  }
+  const p = allocateProportional(consumoQueSobra, gorjetaQueSobra, resto);
+  return { amountCents: doExcedente + p.amountCents, tipCents: daGorjetaDevida + p.tipCents };
+}
+
+module.exports = { alocarDevolucaoDoPagamento, servicoDevidoDoAtrasado };

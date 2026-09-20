@@ -1,0 +1,238 @@
+'use strict';
+
+/**
+ * AS PALAVRAS DA CASA — conferidas onde elas ENTRAM.
+ *
+ * O nome do restaurante, o rótulo da mesa e a cidade são as palavras do
+ * restaurante: o CLAUDE.md diz que a gente nunca as traduz, e isso continua
+ * valendo. O que NÃO vale é aceitar qualquer coisa — estes três campos saem,
+ * sem autenticação nenhuma, no `/api/check` que todo cliente lê ao encostar o
+ * telefone no QR.
+ *
+ * O esquema já limita o que o CLIENTE escreve: `payer_label` é
+ * `char_length between 1 and 60` desde a 0001, e o nome da conta da casa também
+ * (0005). Não limita o que o DONO escreve — `venues.name`, `venues.city` e
+ * `venue_tables.label` nasceram `text` puro, e as rotas só conferiam se estava
+ * vazio. O campo que o cliente manda tem trava; o campo que todo cliente LÊ,
+ * não. A assimetria é o achado.
+ *
+ * O que se confere, e por quê:
+ *
+ * - **Tipo.** Só string. `String({})` é `'[object Object]'`, que é verdadeiro,
+ *   passa no teste de vazio e vira o nome de uma casa.
+ * - **Tamanho, em PONTOS DE CÓDIGO.** O `.length` do JS conta unidades UTF-16 e
+ *   o `char_length` do Postgres conta pontos de código: contar diferente dos
+ *   dois lados é como se ganha um limite que o banco recusa depois de o portão
+ *   aprovar. Um nome de 1 MB cabia na coluna e saía em toda leitura pública.
+ * - **Caracteres de controle e de DIREÇÃO.** C0/C1, zero-width e as marcas
+ *   bidirecionais somem. Não é zelo tipográfico: um RLO (U+202E) no rótulo faz
+ *   "Mesa 7" ser DESENHADO como outra coisa no telefone de quem senta, e um
+ *   zero-width faz duas mesas com rótulos idênticos aos olhos passarem pela
+ *   unicidade do banco — o cliente lê "Mesa 12" em duas mesas e paga a conta da
+ *   outra. (Prova de que o risco é real e não teórico: a ferramenta de shell
+ *   desta sessão recusou o próprio arquivo quando estes caracteres estavam
+ *   literais, porque "ficariam escondidos no diálogo de aprovação".)
+ * - **Espaço em branco colapsado e aparado.** "Mesa   7" e "Mesa 7" são a mesma
+ *   mesa pra quem lê e duas pro `unique`.
+ *
+ * O que NÃO se mexe: acento, cedilha, ñ, apóstrofo, &, maiúscula. São as
+ * palavras da casa — "Boteco do Zé", "Bar L'Escala", "Casa & Cia" têm que
+ * atravessar inteiras. Um normalizador que "limpa" isso está reescrevendo a
+ * placa do restaurante.
+ */
+
+/**
+ * Controle, largura-zero, marcas de direcao e preenchedores — escritos por
+ * ESCAPE de proposito: literais, eles somem no diff, na revisao e no editor de
+ * quem vier depois, que e exatamente a propriedade que os torna perigosos no
+ * rotulo.
+ *
+ * A primeira versao cobria so C0/C1, largura-zero, bidi e BOM. Faltavam U+00AD
+ * e U+3164, que desenham NADA e derrotam o `unique (venue_id, label)` igual ao
+ * largura-zero — e pesam mais no nome da conta da casa, que entra por rota
+ * PUBLICA e sem autenticacao: um nome em branco na tela do balcao, sem o
+ * `house_name_invalid` nunca disparar. Achado em 2026-09-16 (LOW-1).
+ *
+ * O QUE NAO ENTRA, e por que: os SELETORES DE VARIACAO (U+FE00–FE0F). A
+ * revisao pediu, e a resposta e nao. Eles nao escondem conteudo — modificam o
+ * desenho do caractere ANTERIOR, e tirar o U+FE0F de "Bar ❤️ do Ze" muda a
+ * placa do restaurante, que e a unica coisa que este modulo promete nao fazer.
+ * O caso que a revisao temia (um rotulo feito SO de seletores, que desenha em
+ * branco) nao e pego por lista de recusa nenhuma de qualquer jeito: e pego
+ * pelo `TEM_CONTEUDO` abaixo, que pergunta o contrario.
+ *
+ * TAB, LF e CR ficam de FORA de proposito: eles sao ESPACO, e quem trata
+ * deles e o colapso logo abaixo. Removidos aqui, "Ana<tab>Maria" virava
+ * "AnaMaria" — duas palavras coladas — em vez de "Ana Maria". Achado por um
+ * teste, nao por leitura.
+ *
+ * Cada faixa e o que ela e:
+ *   \u0000–\u001F  controle C0
+ *   \u007F–\u009F  DEL e controle C1
+ *   \u00AD         hifen suave — nao desenha nada
+ *   \u061C         marca de letra arabe — marca de direcao
+ *   \u115F–\u1160  preenchedores jamo — largura zero
+ *   \u17B4–\u17B5  vogais khmer inerentes — nao renderizam
+ *   \u180E         separador de vogal mongol
+ *   \u200B–\u200F  largura zero e marcas LRM/RLM
+ *   \u202A–\u202E  embutir e SOBREPOR direcao (RLO)
+ *   \u2060–\u2064  juntor de palavra e operadores invisiveis
+ *   \u2066–\u2069  isolar direcao
+ *   \u2800         braille em branco — DESENHA NADA e e \p{So}, entao passava
+ *                  pelos dois lados (lista de recusa e lista de permissao)
+ *   \u3164         preenchedor hangul — o classico do nome em branco
+ *   \uFEFF         BOM
+ *   \u0000–\u0008  controle C0 — menos tab/LF/CR, que sao ESPACO
+ *   \u000B–\u000C  tabulacao vertical e form feed
+ *   \u000E–\u001F  o resto do C0
+ *   \u007F–\u009F  DEL e controle C1
+ *   \u00AD         hifen suave — nao desenha nada
+ *   \u061C         marca de letra arabe — marca de direcao
+ *   \u115F–\u1160  preenchedores jamo — largura zero
+ *   \u17B4–\u17B5  vogais khmer inerentes — nao renderizam
+ *   \u180E         separador de vogal mongol
+ *   \u200B–\u200F  largura zero e marcas LRM/RLM
+ *   \u202A–\u202E  embutir e SOBREPOR direcao (RLO)
+ *   \u2060–\u2064  juntor de palavra e operadores invisiveis
+ *   \u2066–\u2069  isolar direcao
+ *   \u3164         preenchedor hangul — o classico do nome em branco
+ *   \uFEFF         BOM
+ *   \uFFA0         preenchedor hangul de meia largura
+ */
+const INVISIVEIS = /[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F-\u009F\u00AD\u061C\u115F-\u1160\u17B4-\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u2800\u3164\uFEFF\uFFA0]/g;
+
+/**
+ * E O CONTRARIO DA LISTA DE CIMA, que e o que de fato segura.
+ *
+ * Toda lista de RECUSA de invisivel tem buraco — esta ja teve um, e o Unicode
+ * ganha caractere novo todo ano. Entao, depois da limpeza, pergunta-se o
+ * oposto: sobrou alguma coisa que DESENHA? Letra, numero ou simbolo. Um rotulo
+ * feito so de marcas, seletores e espaco nao passa — nem os que esta casa ainda
+ * nao conhece. Lista de permissao sobre o RESTO, que e a forma que nao
+ * envelhece.
+ *
+ * Pontuacao de proposito NAO conta: um rotulo "..." desenha, mas nao nomeia
+ * uma mesa, e "—" sozinho e o mesmo problema com outra cara.
+ */
+const TEM_CONTEUDO = /[\p{L}\p{N}\p{S}]/u;
+
+/**
+ * E O RESÍDUO DE FORMATAÇÃO — a parte que o `TEM_CONTEUDO` não alcança.
+ *
+ * `TEM_CONTEUDO` pergunta "sobrou algum glifo?", e isso só pega a string
+ * INTEIRAMENTE invisível. Não pega o resíduo ANEXADO a um nome de verdade:
+ * medido, `"Mesa 7" + U+E0041` (um caractere de tag) e `"Mesa" + U+034F` (o
+ * juntor de grafemas) passavam pelos dois lados e davam duas mesas que o olho
+ * lê igual e o `unique (venue_id, label)` lê diferente — exatamente o dano que
+ * o bloco lá em cima descreve. Segunda revisão de segurança de 2026-09-16
+ * (LOW-2).
+ *
+ * `Default_Ignorable_Code_Point` é a propriedade que o Unicode mantém pra
+ * "isto não deve desenhar", então ela cobre o bloco de tags, o CGJ, o hífen
+ * suave e tudo que as próximas versões acrescentarem — sem lista pra manter.
+ *
+ * MAS ELA NÃO É O CONJUNTO DE "NÃO DESENHA". Varrido o espaço inteiro de
+ * pontos de código contra este módulo: **32 caracteres `General_Category=Cf`
+ * ficam de fora dela** e passavam — U+0600–0605 e U+06DD (marcas de número
+ * árabes), U+070F, U+0890/0891, U+08E2, U+110BD, U+13430–1343F (controles
+ * egípcios) e U+FFF9–FFFB (âncoras de anotação interlinear). Anexados a um
+ * nome de verdade, `"Mesa 7"` e `"Mesa 7\uFFF9"` desenham igual e passam pela
+ * unicidade — e no `payer_label`, que é de quem NÃO está autenticado, essa é a
+ * linha sósia na lista de pagantes que a revisão MEDIUM-3 já tinha nomeado.
+ * Achado pela terceira revisão de segurança de 2026-09-16 (M2).
+ *
+ * Unir `\p{Cf}` é seguro porque os membros LEGÍTIMOS dessa categoria — ZWJ,
+ * ZWNJ, as marcas bidi — já foram removidos pelo `INVISIVEIS` antes desta
+ * linha rodar: o que chega aqui como `Cf` é o que esta casa não quer.
+ * MENOS `\uFE00-\uFE0F`: os seletores de variação são a exceção decidida (eles
+ * desenham o caractere ANTERIOR, e tirá-los reescreve a placa do restaurante).
+ *
+ * Aqui RECUSA em vez de limpar: o que sobrou depois da limpeza é coisa que esta
+ * casa não conhece, e apagar em silêncio o desconhecido é como se perde um
+ * caractere que importava.
+ */
+const RESIDUO_IGNORAVEL = /[[\p{Default_Ignorable_Code_Point}\p{Cf}]--[︀-️]]/v;
+
+/**
+ * Os limites — lidos de um JSON que o CLIENTE também lê.
+ *
+ * O mesmo número vive em três lugares: aqui, no `maxLength` do formulário do
+ * dono e no CHECK da 0035. Os dois runtimes não compartilham módulo (CommonJS
+ * × TS/ESM), e foi assim que o campo do nome já nasceu com `maxLength={60}`
+ * contra um servidor que aceitava outro número. Um arquivo, três leitores.
+ */
+const LIMITES = (() => {
+  const { nomeDaCasa, rotuloDaMesa, cidade } = require('./limites-da-casa.json');
+  return { nomeDaCasa, rotuloDaMesa, cidade };
+})();
+
+/**
+ * @param {unknown} bruto
+ * @param {object} opts
+ * @param {number} opts.max          tamanho máximo em pontos de código.
+ * @param {string} opts.code         código devolvido na recusa (o cliente traduz).
+ * @param {boolean} [opts.opcional]  vazio/ausente vira `null` em vez de recusa.
+ * @returns {{ok: true, valor: string|null} | {ok: false, code: string}}
+ */
+function normalizarTextoDaCasa(bruto, { max, code, opcional = false }) {
+  // A recusa carrega o NÚMERO. Sem ele a tela diria "tem que caber em
+  // {maxChars} caracteres" com o marcador literal — a regressão que o `i18n.ts`
+  // já registra duas vezes. O cliente formata; o servidor manda o cru.
+  const nao = { ok: false, code, vars: { maxChars: max } };
+  if (bruto == null || bruto === '') {
+    return opcional ? { ok: true, valor: null } : nao;
+  }
+  if (typeof bruto !== 'string') return nao;
+  // Cortado ANTES das regex: uma string de 1 MB não precisa ser percorrida
+  // quatro vezes pra se saber que é grande demais. Mesma ordem do
+  // `normalizarDocumentoDaCasa`. O corte é generoso (4× o limite mais uma
+  // folga) porque o texto ainda encolhe no colapso de espaço — recusar aqui o
+  // que o colapso salvaria seria recusar um nome legítimo mal digitado.
+  if (bruto.length > max * 4 + 64) return nao;
+  const limpo = bruto
+    .normalize('NFC')
+    .replace(INVISIVEIS, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Vazio, ou sem nada que desenhe: as duas coisas sao "a pessoa nao escreveu
+  // um nome", e a segunda e a que a lista de recusa sozinha deixaria passar.
+  if (limpo === '' || !TEM_CONTEUDO.test(limpo)) return opcional ? { ok: true, valor: null } : nao;
+  // Resíduo de formatação COLADO num nome de verdade: o `TEM_CONTEUDO` acima
+  // acha o glifo e absolve. Ver `RESIDUO_IGNORAVEL`.
+  if (RESIDUO_IGNORAVEL.test(limpo)) return nao;
+  // Pontos de código, como o `char_length` do Postgres conta.
+  if ([...limpo].length > max) return nao;
+  return { ok: true, valor: limpo };
+}
+
+const nomeDaCasa = (b) => normalizarTextoDaCasa(b, { max: LIMITES.nomeDaCasa, code: 'venue_name_invalid' });
+const rotuloDaMesa = (b) => normalizarTextoDaCasa(b, { max: LIMITES.rotuloDaMesa, code: 'table_label_invalid' });
+const cidadeDaCasa = (b) => normalizarTextoDaCasa(b, { max: LIMITES.cidade, code: 'venue_city_invalid', opcional: true });
+
+/**
+ * O RÓTULO DO PAGADOR — a mesma regra, e MORA AQUI de propósito.
+ *
+ * Ela nasceu no `create-charge.js`, e os stores não podem importar de
+ * `_lib/pay/` sem inverter a camada. Como a regra precisa valer no ponto que
+ * NÃO dá pra contornar (o `registerCharge` dos dois stores, que a rota do
+ * intent da Stripe chama direto), ela desce pra cá — onde a fábrica de
+ * cobrança, o router e os dois stores leem a MESMA função.
+ *
+ * O que não dá pra limpar continua recusado: UTF-16 mal formado (um surrogate
+ * solto é `22P02` no Postgres, e não há o que sanear) e tamanho.
+ */
+const ROTULO_DO_PAGADOR_MAX = 60;
+
+function rotuloDoPagador(v) {
+  if (v === null || v === undefined) return { ok: true, valor: null };
+  if (typeof v !== 'string' || !v.isWellFormed()) return { ok: false, code: 'payer_label_invalid' };
+  const r = normalizarTextoDaCasa(v, {
+    max: ROTULO_DO_PAGADOR_MAX, code: 'payer_label_invalid', opcional: true,
+  });
+  return r.ok ? { ok: true, valor: r.valor } : { ok: false, code: 'payer_label_invalid' };
+}
+
+module.exports = {
+  normalizarTextoDaCasa, nomeDaCasa, rotuloDaMesa, cidadeDaCasa,
+  rotuloDoPagador, ROTULO_DO_PAGADOR_MAX, LIMITES, INVISIVEIS,
+};

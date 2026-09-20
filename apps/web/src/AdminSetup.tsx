@@ -63,12 +63,17 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
     <section className="panel" aria-label={t('setup.rollout')}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
         <p className="label">{t('setup.rollout')}</p>
-        <span className="muted small">{completo ? 'completa ✓' : `passo ${feitos + 1} de ${steps.length}`}</span>
+        <span className="muted small">
+          {completo ? t('setup.done') : t('setup.stepOf', { n: feitos + 1, total: steps.length })}
+        </span>
       </div>
 
-      {/* Barra de progresso — o fio contínuo do fluxo. */}
-      <div aria-hidden="true" style={{ height: 6, borderRadius: 999, background: 'rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: 'var(--emerald)', transition: 'width .3s ease' }} />
+      {/* Barra de progresso — a MESMA do resto do produto (`.progressbar`), e não
+          uma terceira geometria. Eram três: 4px com o fio do sistema aqui e no
+          painel, 6px com um preto puro de fora da paleta neste, 2px no
+          assistente ao lado. Mesmo objeto, três alturas, dois trilhos. */}
+      <div className="progressbar" aria-hidden="true">
+        <span style={{ width: `${pct}%` }} />
       </div>
 
       {!completo && (
@@ -77,13 +82,19 @@ export default function AdminSetup({ venue, tables }: { venue: Venue; tables: Ve
 
       {!completo && steps.map((s, i) => {
         const isNext = i === proximoTodo;
+        // AZUL, e não verde. O próximo passo é "onde você está", que é azul na
+        // semântica do sistema; musgo é dinheiro que entrou. O assistente ao
+        // lado (`SetupWizard`) já acertava isto, com o motivo escrito — duas
+        // telas do mesmo cadastro diziam a mesma coisa em cores opostas. E o
+        // verde era `rgba(16,185,129,…)`, o emerald-500 do Tailwind: um segundo
+        // verde, de fora da paleta.
         return (
-          <div className="checkrow" key={s.title} style={isNext ? { background: 'rgba(16,185,129,0.06)', borderRadius: 12, padding: '10px 12px' } : undefined}>
+          <div className="checkrow" key={s.title} style={isNext ? { background: 'var(--emcurso-bg)', borderRadius: 'var(--rad-s)', padding: '10px 12px' } : undefined}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flex: 1, flexWrap: 'wrap' }}>
               <span aria-hidden="true" style={{ opacity: s.done ? 1 : 0.35 }}>{s.done ? '✓' : isNext ? '→' : '○'}</span>
               <div style={{ flex: 1, minWidth: 180 }}>
                 <strong style={{ opacity: s.done ? 0.6 : 1 }}>{s.title}</strong>
-                <p className="muted small" style={s.warn ? { color: 'var(--burgundy)' } : undefined}>{s.sub}</p>
+                <p className="muted small" style={s.warn ? { color: 'var(--erro)' } : undefined}>{s.sub}</p>
               </div>
             </div>
             {!s.done && s.href && (

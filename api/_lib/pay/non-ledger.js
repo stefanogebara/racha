@@ -51,6 +51,83 @@ const { maskPixPayload } = require('./mask');
 // Achado pelas duas revisões de 2026-09-12.
 const SEM_ALARDE = new Set(['refund_progress', 'payment_failed']);
 
+/**
+ * As DUAS formas de `orderCode` que a gente cunha, e só elas.
+ *
+ * O SEGMENTO DO ID FICA OPACO; O RESTO DO CONTRATO É EXIGIDO.
+ *
+ * A primeira versão disto era só lista de caracteres — `[A-Za-z0-9:_-]{1,80}` —
+ * escolhida pra não prender ao formato do id, e ela deixava passar EXATAMENTE
+ * as classes de dado que o comentário dizia estar defendendo. Medido:
+ *
+ *     52998224725        (CPF sem pontuação)  → passava
+ *     4111111111111111   (PAN)                → passava
+ *     5511987654321      (telefone)           → passava
+ *     cliente 529.982.247-25                  → recusado
+ *
+ * Sistemas brasileiros guardam CPF como onze dígitos crus muito mais do que
+ * pontuado, e um PAN são dezesseis dígitos crus. O `reconcile-daily` imprime
+ * `String(orderCode).split(':')[0]` no aviso do fundador — sem dois-pontos,
+ * isso é a string inteira. Ou seja: o inegociável #9 derrotado na única tabela
+ * que o `data-map.md` descreve como "só escalares mascarados" (sexta revisão de
+ * segurança, 2026-09-19, MEDIUM-1).
+ *
+ * Os três grupos de inteiros são o que separa um orderCode de um documento: o
+ * id continua opaco (um formato novo de id ainda passa), mas
+ * `<algo>:<n>:<n>:<n>` é o contrato que o runbook e o aviso já repartem por
+ * `:` — agora exigido em vez de suposto.
+ *
+ * Devolve objeto pra ser espalhado: vazio quando não serve.
+ */
+const FORMAS_DO_ORDER_CODE = [
+  /**
+   * A conta de mesa: `<checkId>:<paidCents>:<amountCents>:<tipCents>`.
+   *
+   * O primeiro segmento é UUID porque é o NOSSO `checks.id`, e porque "três
+   * grupos de inteiros separa um orderCode de um documento" — a justificativa
+   * da versão anterior — é falsa por seis caracteres de sufixo. Medido:
+   *
+   *     52998224725:0:0:0        → passava, e o aviso imprimia `conta 52998224725`
+   *     4111111111111111:0:0:0   → passava (PAN)
+   *
+   * O POS de uma casa escrevendo `<documento>:<pedido>:<x>:<y>` no `charge_ref`
+   * — forma que parece inteiramente razoável pra quem a escreve — punha um CPF
+   * cru na única tabela que o `data-map.md` descreve como "só escalares
+   * mascarados", e no aviso do fundador.
+   *
+   * E há um segundo motivo, que não é de dado pessoal: o aviso renderiza esse
+   * segmento como **`conta <segmento>`**. Sem exigir a nossa forma, uma conta
+   * conectada podia apontar o operador de plantão pra uma conta de OUTRA casa
+   * no meio de um incidente de dinheiro. O UUID faz o rótulo `conta` ser
+   * verdade em vez de afirmação do adquirente.
+   *
+   * Sétima revisão de segurança (2026-09-19, MEDIUM-4).
+   */
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?::\d{1,9}){3}$/i,
+  /**
+   * O carregamento de saldo: `hload:<accountId>:<uuid>`.
+   *
+   * Ele entrou no mesmo caminho quando o `/api/house/load` passou a usar o
+   * portão compartilhado, e a forma da conta de mesa o rejeitava — então o
+   * órfão de carregamento era gravado SEM endereço, enquanto o runbook
+   * prometia que "o órfão sabe de que mesa veio". O documento alargou e o
+   * código estreitou, no mesmo par de commits (sétima revisão de compliance,
+   * 2026-09-19, MEDIUM-3).
+   *
+   * OS DOIS SEGMENTOS SÃO UUID, pelo mesmo motivo do irmão acima — e eu já
+   * errei isto uma vez: a primeira versão aceitava `[A-Za-z0-9-]{1,64}`, então
+   * `hload:52998224725:52998224725` passava, reabrindo exatamente o buraco que
+   * a forma da conta de mesa tinha acabado de fechar. Os ids reais são UUID
+   * (`account.id` + `crypto.randomUUID()`), então não há custo. Achado pela
+   * oitava revisão de compliance (2026-09-19, MEDIUM-1).
+   */
+  /^hload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+];
+function orderCodeUtil(valor) {
+  return typeof valor === 'string' && FORMAS_DO_ORDER_CODE.some((re) => re.test(valor))
+    ? { orderCode: valor } : {};
+}
+
 function createNonLedgerHandler({ store, notify, append = appendValidated }) {
   if (!store || typeof notify !== 'function') {
     throw new Error('createNonLedgerHandler: missing dependencies');
@@ -103,8 +180,28 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
         process.stderr.write(`[webhook] busca do check falhou pra ${txid}: ${String(e.message).slice(0, 120)}\n`);
       }
     }
+    /**
+     * `money_without_check` NUNCA vira anomalia numa conta.
+     *
+     * O tratador procura a conta DE NOVO, depois de o aplicador já ter concluído
+     * que ela não existe. Entre as duas buscas cabe a segunda tentativa de
+     * gravar a linha — e ela costuma ganhar, porque o webhook do cartão chega
+     * segundos depois da captura. Aí `found` vira verdadeiro e este ramo
+     * pendurava um `PAYMENT_ANOMALY` **critical** ("evento de dinheiro que o
+     * razão não sabe lançar") numa conta cujo pagamento está prestes a ser
+     * confirmado normalmente: a casa fica vermelha na conciliação por um
+     * pagamento que está bem, e só um humano tira. Canário gritando lobo é o
+     * modo de falha do próprio #8.
+     *
+     * Pulando o apêndice, `persisted` fica falso e o `needsRetry` devolve 503 —
+     * o adquirente reenvia, o aplicador acha a conta que agora existe, e o
+     * pagamento entra no razão pelo caminho normal. O desfecho certo sai de não
+     * fazer nada, que é o melhor tipo. Achado pela quarta revisão de segurança
+     * de 2026-09-16 (MEDIUM-2).
+     */
+    const semContaPorDefinicao = kind === 'money_without_check';
     let persisted = false;
-    if (found && !quieto) {
+    if (found && !quieto && !semContaPorDefinicao) {
       try {
         await append(store, found.id, 'PAYMENT_ANOMALY', {
           txid,
@@ -157,7 +254,50 @@ function createNonLedgerHandler({ store, notify, append = appendValidated }) {
               Number(result.raw.raw.paid_amount) || Number(result.raw.raw.amount)
             )) ?? null,
           // MASCARADO: o corpo cru do PSP traz documento do pagador.
-          payload: maskPixPayload(result.raw && result.raw.raw ? result.raw.raw : result.raw),
+          /**
+           * O `orderCode` VIAJA POR FORA DO MASCARADOR.
+           *
+           * `maskPixPayload` é lista de PERMISSÃO de escalares e derruba tudo o
+           * que não está nela — inclusive isto, que é irmão do corpo do PSP e
+           * não campo dele. O commit anterior jurava que o órfão carregava o
+           * endereço da conta, e o runbook mandava consultar
+           * `payload->>'orderCode'`: medido, o payload salvo era `{}` e a
+           * consulta devolvia NULL sempre. Promessa em três artefatos, zero em
+           * produção (compliance HIGH-2 de 2026-09-16).
+           *
+           * Mesclado DEPOIS da máscara, e de propósito: ele é
+           * `<checkId>:<n>:<n>:<n>` — chave interna e três inteiros, sem dado
+           * pessoal — então acrescentá-lo à lista de permissão do mascarador
+           * afrouxaria um controle de segurança pra carregar um campo que não
+           * vem do PSP.
+           *
+           * MAS PASSAR POR FORA DA MÁSCARA É PASSAR POR FORA DO QUE ELA FAZ.
+           *
+           * `maskPixPayload` faz duas coisas que o espalhamento não fazia:
+           * corta em 128 caracteres e DERRUBA o que não é escalar. O
+           * `data-map.md` afirma esse filtro de tipo como controle vivo —
+           * "todo objeto aninhado morre no filtro de TIPO" — e a mesclagem
+           * reabria os dois buracos para esta chave.
+           *
+           * E a chave não é nossa quando importa: `money_without_check` existe
+           * por definição quando NÃO há linha nossa. Na Stripe Connect o
+           * `orderCode` vem de `pi.metadata.charge_ref`, que a casa conectada
+           * escreve à vontade — até 500 caracteres de UTF-8, com quebra de
+           * linha. E o `reconcile-daily` imprime esse valor direto no aviso do
+           * fundador, então um `\n` fabrica linhas DENTRO de um alerta de
+           * dinheiro, e um CPF escrito ali ficaria gravado na única tabela que
+           * o mapa de dados descreve como "só escalares mascarados".
+           *
+           * O formato é contrato — o runbook e o aviso o repartem por `:` —
+           * então validar não é enfeite: o que não tem a forma não entra, e
+           * quem procurar cai no caminho do painel do adquirente, que o
+           * runbook já descreve. Achado pela quinta revisão de segurança
+           * (2026-09-19, MEDIUM-3).
+           */
+          payload: {
+            ...maskPixPayload(result.raw && result.raw.raw ? result.raw.raw : result.raw),
+            ...(orderCodeUtil(result.raw && result.raw.orderCode)),
+          },
         });
         persisted = true;
       } catch (e) {

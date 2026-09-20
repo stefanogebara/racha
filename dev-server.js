@@ -29,6 +29,26 @@ if (process.env.RACHA_DEMO_MODE === undefined) process.env.RACHA_DEMO_MODE = 'tr
 // que ninguém consegue pagar — e uma tela que não se pode exercitar não se
 // pode revisar.
 if (process.env.RACHA_ES_ENABLED === undefined) process.env.RACHA_ES_ENABLED = 'true';
+/**
+ * E O AMBIENTE DIZ QUE É DESENVOLVIMENTO — senão o portão de produção fecha as
+ * rotas de dinheiro AQUI.
+ *
+ * `AMBIENTE` sai de `VERCEL_ENV || RACHA_ENV`, e o desconhecido é tratado como
+ * o lado perigoso (produção) de propósito: é assim que uma casa de verdade
+ * nunca serve BR Code de mentira. Só que localmente as duas variáveis não
+ * existem, então `/api/pay` respondia 503 `platform_misconfigured` e o link
+ * semeado logo abaixo virava uma conta que ninguém consegue pagar.
+ *
+ * É o mesmo argumento que o `RACHA_ES_ENABLED` acima faz, com as mesmas
+ * palavras: uma tela que não se pode exercitar não se pode revisar. E o mesmo
+ * que torna isto seguro: este arquivo nunca é deployado (a Vercel serve
+ * `api/index.js`), então ele não pode abrir portão nenhum onde há dinheiro de
+ * verdade. A saída explícita continua — `RACHA_ENV=production node dev-server.js`
+ * reproduz o que a produção faz.
+ */
+if (process.env.RACHA_ENV === undefined && process.env.VERCEL_ENV === undefined) {
+  process.env.RACHA_ENV = 'development';
+}
 
 const { ensureDemoCheck } = require('./api/_lib/demo');
 const crypto = require('crypto');

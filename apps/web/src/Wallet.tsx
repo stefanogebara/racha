@@ -1,5 +1,6 @@
 
 import { LangToggle, useT } from './lang';
+import { Campo } from './Campo';
 import PrivacyNotice from './PrivacyNotice';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, parseBrlToCents, HouseAccountView, HouseConfig, HouseLedgerEntry, HouseLoadResult } from './api';
@@ -23,14 +24,44 @@ const LEDGER_KEY = {
   load: 'ledger.load', redeem: 'ledger.redeem', refund: 'ledger.refund',
 } as const;
 
-export default function Wallet() {
+/**
+ * LINK QUE NÃO ABRE — uma tela, não uma frase solta.
+ *
+ * Era `<p class="muted center">` numa página vazia: sem marca, sem contorno,
+ * sem nada pra fazer. Quem chega aqui é alguém com saldo no restaurante cujo
+ * link expirou ou veio truncado por um app de mensagem — e a tela devolvia uma
+ * linha cinza no meio do branco, que parece erro de carregamento e não resposta.
+ *
+ * Com a moldura e a marca, a frase vira um estado do produto; e o próximo passo
+ * ("peça um novo no balcão") é a única coisa que essa pessoa pode fazer, então
+ * ele fica dentro do cartão e não no fim de um parágrafo.
+ */
+function SemCarteira() {
   const { t } = useT();
+  return (
+    <Shell>
+      {/* A serifa é reservada ao nome da CASA — "a única coisa nesta tela que não
+          é nossa", diz a regra no `styles.css`. Aqui não se sabe qual casa é (o
+          link não abriu), então ninguém ganha a serifa: a marca vai em versalete,
+          como todo metadado. */}
+      <header className="head">
+        <span className="mesa">{t('wallet.brand')}</span>
+      </header>
+      <section className="card">
+        <p className="label">{t('wallet.badLinkTitle')}</p>
+        <p className="muted">{t('wallet.badLink')}</p>
+      </section>
+    </Shell>
+  );
+}
+
+export default function Wallet() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const accountToken = params.get('t');
   const newToken = params.get('new');
   if (newToken) return <OpenWallet tableToken={newToken} />;
   if (accountToken) return <WalletView accountToken={accountToken} />;
-  return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
+  return <SemCarteira />;
 }
 
 // ------------------------------------------------------------------ carteira
@@ -45,7 +76,11 @@ function WalletView({ accountToken }: { accountToken: string }) {
   const [custom, setCustom] = useState('');
   const [charge, setCharge] = useState<HouseLoadResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // TOQUE DUPLO na recarga gastava duas das vagas da conta — o mesmo defeito do
+  // botão de pagar, consertado só lá. Revisão de compliance de 2026-09-15.
+  const [busy, setBusy] = useState(false);
   const [demoGone, setDemoGone] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -69,7 +104,8 @@ function WalletView({ accountToken }: { accountToken: string }) {
   const amountCents = chip ?? parseBrlToCents(custom);
 
   async function onLoad() {
-    if (amountCents == null || amountCents === 0) return;
+    if (amountCents == null || amountCents === 0 || busy) return;
+    setBusy(true);
     setError(null);
     try {
       const c = await api.houseLoad(accountToken, amountCents);
@@ -77,13 +113,23 @@ function WalletView({ accountToken }: { accountToken: string }) {
       setCopied(false);
     } catch (e) {
       setError(tErr(e));
+    } finally {
+      setBusy(false);
     }
   }
 
   async function onCopy() {
     if (!charge) return;
-    await navigator.clipboard.writeText(charge.copiaECola).catch(() => {});
-    setCopied(true);
+    // COPIADO SÓ QUANDO COPIOU. `writeText` falha no navegador embutido do
+    // WhatsApp e do Instagram, fora de HTTPS ou sem permissão — e a tela dizia
+    // "copiado" assim mesmo: a pessoa abria o banco e colava nada, e o código na
+    // tela vinha cortado em 64 caracteres (auditoria de UI, C1).
+    try {
+      await navigator.clipboard.writeText(charge.copiaECola);
+      setCopied(true); setCopyFailed(false);
+    } catch {
+      setCopied(false); setCopyFailed(true);
+    }
   }
 
   // Demo affordance: stands in for the diner's bank app (mesmo padrão do App).
@@ -103,14 +149,23 @@ function WalletView({ accountToken }: { accountToken: string }) {
     }
   }
 
-  if (dead) return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
+  if (dead) return <SemCarteira />;
+  /**
+   * E ESTA FRASE ESTAVA EM PORTUGUÊS CRU no JSX, fora do dicionário: quem lê em
+   * inglês recebia "não deu para carregar sua carteira — tentar de novo". Duas
+   * strings, as duas na tela que guarda o saldo do cliente.
+   */
   if (!view && loadFailed) {
     return (
       <Shell>
-        <p className="muted center">
-          não deu para carregar sua carteira —{' '}
-          <button className="linklike" onClick={refresh}>tentar de novo</button>
-        </p>
+        <header className="head">
+          <span className="mesa">{t('wallet.brand')}</span>
+        </header>
+        <section className="card">
+          <p className="label">{t('wallet.loadFailedTitle')}</p>
+          <p className="muted">{t('wallet.loadFailed')}</p>
+          <button className="ghost" onClick={refresh}>{t('common.retry')}</button>
+        </section>
       </Shell>
     );
   }
@@ -135,21 +190,23 @@ function WalletView({ accountToken }: { accountToken: string }) {
             </>
           )}
           <p className="muted small">{t('wallet.refundable')}</p>
-          <div className="codebox" aria-label={t('pix.aria')}>
-            {charge.copiaECola.slice(0, 64)}…
+          <div className="codebox selectable" aria-label={t('pix.aria')}>
+            {charge.copiaECola}
           </div>
           <button className="cta" onClick={onCopy}>
             {copied ? t('pix.copied') : t('pix.copy')}
           </button>
+          {copyFailed && <p className="muted small center" role="status">{t('pix.copyFailed')}</p>}
           <p className="muted small center">
             {t('pix.how')}
           </p>
-          {!demoGone && (
+          {/* SIMULAR só na casa de demonstração (auditorias de fluxo H2 e de UI H3). */}
+          {venue.demo === true && !demoGone && (
             <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
               {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>
           )}
-          {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+          {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
           <p className="muted small">{t('wallet.onlyAt', { venue: venue.name })}</p>
           <button className="linklike" onClick={() => { setCharge(null); void refresh(); }}>{t('common.backWallet')}</button>
         </section>
@@ -199,16 +256,21 @@ function WalletView({ accountToken }: { accountToken: string }) {
             </button>
           ))}
         </div>
-        <div className="customrow">
-          <label htmlFor="recarga">R$</label>
-          <input
-            id="recarga" inputMode="decimal" placeholder={t('wallet.otherAmt')}
-            value={custom}
-            onChange={(e) => { setCustom(e.target.value); setChip(null); }}
-          />
-        </div>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
-        <button className="cta" disabled={amountCents == null || amountCents === 0} onClick={onLoad}>
+        {/* O rótulo é o nome do campo; o cifrão é prefixo. Era um `<label>` cujo
+            texto inteiro era "R$". */}
+        <label className="customrow" htmlFor="recarga">
+          <span>{t('wallet.otherAmt')}</span>
+          <span className="linha">
+            <span className="cifra" aria-hidden="true">R$</span>
+            <input
+              id="recarga" inputMode="decimal" placeholder="0,00"
+              value={custom}
+              onChange={(e) => { setCustom(e.target.value); setChip(null); }}
+            />
+          </span>
+        </label>
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
+        <button className="cta" disabled={amountCents == null || amountCents === 0 || busy} onClick={onLoad}>
           {t('wallet.doTopUp', { amount: brl(amountCents ?? 0) })}
         </button>
         <p className="muted small">
@@ -227,7 +289,10 @@ function WalletView({ accountToken }: { accountToken: string }) {
           .map((e, i) => <LedgerRow key={i} entry={e} />)}
       </section>
 
-      <footer className="foot">
+      {/* `foot-aviso`: tres filhos, e o do meio e o aviso do art. 9o — uma
+          frase inteira. Em `space-between` ela espremia a marca em quatro
+          linhas de uma palavra. Medido no navegador. */}
+      <footer className="foot foot-aviso">
         <span>{t('wallet.brand')}</span>
         <PrivacyNotice venue={venue.name} />
         <LangToggle compact />
@@ -287,7 +352,7 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
     }
   }
 
-  if (dead) return <Shell><p className="muted center">{t('wallet.badLink')}</p></Shell>;
+  if (dead) return <SemCarteira />;
   if (!config) return <Shell><p className="muted center">{t('common.loading')}</p></Shell>;
   if (!config.enabled) {
     return <Shell><p className="muted center">{t('wallet.noHouse', { venue: config.venueName })}</p></Shell>;
@@ -308,17 +373,18 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
             ? t('wallet.pitchBonus', { pct: bonusPct })
             : t('wallet.pitch')}
         </p>
-        <input
-          className="namefield" maxLength={60} placeholder={t('wallet.yourName')}
+        <Campo
+          rotulo={t('wallet.yourName')} maxLength={60} autoComplete="name"
           value={name} onChange={(e) => setName(e.target.value)}
         />
-        <input
-          className="namefield" type="tel" inputMode="numeric"
-          placeholder={t('wallet.phone')}
+        {/* `autoComplete="tel"`: o telefone É a chave da carteira do cliente, e
+            digitar treze dígitos à mão num bar é onde a pessoa desiste. */}
+        <Campo
+          rotulo={t('wallet.phone')} type="tel" inputMode="numeric" autoComplete="tel"
           value={phone}
           onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 13))}
         />
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         <button className="cta" disabled={busy || !name.trim() || phone.length < 10} onClick={submit}>
           {busy ? t('wallet.creating') : t('wallet.create')}
         </button>
@@ -327,7 +393,10 @@ function OpenWallet({ tableToken }: { tableToken: string }) {
           {t('wallet.bonusTerms', { days: config.validityDays, venue: config.venueName })}
         </p>
       </section>
-      <footer className="foot">
+      {/* `foot-aviso`: tres filhos, e o do meio e o aviso do art. 9o — uma
+          frase inteira. Em `space-between` ela espremia a marca em quatro
+          linhas de uma palavra. Medido no navegador. */}
+      <footer className="foot foot-aviso">
         <span>{t('wallet.brand')}</span>
         {/* Esta é a tela que pede NOME e TELEFONE — o dado mais identificável
             que o produto recebe, e preso a um saldo. O aviso do art. 9º foi

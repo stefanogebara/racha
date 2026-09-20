@@ -208,3 +208,71 @@ struct CheckImportTests {
         #expect(CheckImport.newItems(in: check(scanned), existing: existing).isEmpty)
     }
 }
+
+/// A gorjeta: quem distribui é a CASA, e ela pode reter encargos.
+///
+/// A frase do app prometia 100% à equipe ("vai pra equipe da casa"), e a CLT
+/// art. 457 §6º permite reter de 20% a 33%. A web foi corrigida em 2026-09-10 e
+/// o app ficou pra trás — mesmo produto, mesma lei, dois clientes dizendo
+/// coisas diferentes. Achado testando a plataforma no simulador, 2026-09-13.
+///
+/// ESTE TESTE NÃO É O CENSO, e a primeira versão dele achava que era.
+///
+/// Ele listava à mão os dois arquivos que eu estava olhando. A mesma frase
+/// seguiu viva em três lugares que um pacote de teste Swift não alcança —
+/// inclusive no `/ios` servido pela produção. Um bundle Swift não vê o build
+/// da web; então o censo da AFIRMAÇÃO mora onde vê tudo, em
+/// `api/__tests__/claims.test.js` + `docs/compliance/claims.json`, e varre
+/// Swift, TSX, o protótipo publicado e a FONTE dele.
+///
+/// O que sobra aqui é o guarda LOCAL e rápido: as duas telas que dizem a frase
+/// continuam dizendo a frase certa, sem esperar o CI do Node. Vale pela
+/// realimentação, não pela cobertura — e está escrito assim pra que ninguém
+/// volte a confundir as duas coisas.
+@Suite("Gorjeta: o que o app afirma")
+struct GorjetaCopyTests {
+
+    private func fonte(_ caminho: String) -> String {
+        // Dos testes até a raiz do projeto iOS.
+        let raiz = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // RachaTests
+            .deletingLastPathComponent()   // ios
+        return (try? String(contentsOf: raiz.appending(path: caminho), encoding: .utf8)) ?? ""
+    }
+
+    @Test("nenhuma tela promete 100% da gorjeta à equipe")
+    func naoPrometeCemPorCento() {
+        for caminho in ["Racha/Features/Balances/SettleSheet.swift",
+                        "Racha/Features/Balances/LedgerSheet.swift"] {
+            let texto = fonte(caminho)
+            #expect(!texto.isEmpty, "não li \(caminho)")
+            // A frase proibida, dentro de um `Text(` — em comentário ela pode
+            // aparecer, porque é lá que se explica por que ela saiu.
+            //
+            // As candidatas são CONTADAS. O `guard` filtra por `Text(`, e um
+            // refactor pra `private let aviso = "…"; Text(aviso)` faria o
+            // corpo do laço nunca rodar: o teste passaria tendo afirmado
+            // apenas que o arquivo não está vazio. Guarda que não dispara
+            // porque não encontrou nada em que disparar é a mesma coisa que
+            // guarda ausente. Achado da revisão de segurança de 2026-09-13.
+            var candidatas = 0
+            for linha in texto.split(separator: "\n") {
+                let t = linha.trimmingCharacters(in: .whitespaces)
+                guard t.hasPrefix("Text(") || t.contains("Text(\"") else { continue }
+                candidatas += 1
+                #expect(!t.contains("vai pra equipe"),
+                        "\(caminho): promete 100% da gorjeta — a CLT 457 §6º permite reter encargos")
+            }
+            #expect(candidatas > 0,
+                    "\(caminho): nenhuma linha `Text(` — o laço não olhou nada; a cópia saiu do literal in-line e este teste virou decoração.")
+        }
+    }
+
+    @Test("a frase nomeia QUEM distribui")
+    func nomeiaODistribuidor() {
+        #expect(fonte("Racha/Features/Balances/SettleSheet.swift")
+            .contains("O restaurante distribui à equipe, como manda a lei"))
+        #expect(fonte("Racha/Features/Balances/LedgerSheet.swift")
+            .contains("o restaurante distribui à equipe"))
+    }
+}

@@ -22,6 +22,7 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
@@ -58,6 +59,200 @@ const SO_LEEM = new Map([
 function escreve(nome) {
   return !SO_LEEM.has(nome);
 }
+
+/**
+ * Rotas SEM portão que mandam coisa pra fora, com o motivo escrito. Cada uma é
+ * uma decisão, não um resto.
+ */
+const SAIDA_SEM_PORTAO = {
+  '/api/demo/beacon': (
+    'TELEMETRIA DE PROSPECÇÃO, e ela TEM que ser pública: quem a dispara é o '
+    + '`sendBeacon` do navegador de um prospecto abrindo o link da Olímpia, que por '
+    + 'definição não tem sessão. O que está bounded e escrito: (a) limite de taxa da '
+    + 'demo, 30 por janela de 10 min por IP; (b) o corpo aceito é DOIS campos — um '
+    + '`event` de lista FECHADA (`opened`/`paid`) e um `pl` que é só CONFERIDO NO '
+    + 'TAMANHO (40 a 400 caracteres, conteúdo livre) —, e nada disso é lido como '
+    + 'instrução; (c) a rota devolve 200 fixo, sem repassar nada do outro lado, '
+    + 'então não vira oráculo de token válido PELO CORPO. O que ela não impede, e '
+    + 'está dito por inteiro: (1) o `pl` segue server-side pro `/api/previa-event` '
+    + 'da Olímpia e É ESCRITO na linha do tempo de prospecção de lá — não é um '
+    + 'no-op, é gravação num sistema nosso, e quem já tem um link de prospecção '
+    + 'válido pode forjar evento PARA AQUELE LINK e sujar o radar de vendas; (2) o '
+    + '`fetch` é AGUARDADO com prazo de 4s, então o tempo de resposta desta rota '
+    + 'mede a ponte — é um oráculo de LATÊNCIA, mesmo com o corpo mudo, e também '
+    + 'uma amplificação: 30 requisições por IP por janela viram 30 chamadas '
+    + 'server-side e até 120 segundos-função por IP; (3) o próprio limite é fraco '
+    + 'por construção — `openBuckets` é estado de MÓDULO numa função serverless '
+    + '(cada instância fria tem o seu), `clientIp` confia no `x-real-ip` quando '
+    + 'presente, e o `clear()` de contenção de memória zera os baldes de TODO '
+    + 'mundo aos 10 mil. O que NÃO está exposto em nenhum desses caminhos: '
+    + 'dinheiro, o cliente na mesa, dado pessoal do diner. A validação do `pl` é '
+    + 'da ponte, que é quem o emitiu; aqui ele é repassado, nunca confiado. '
+    + 'Achado pelo censo de saída ao varrer o router inteiro (2026-09-14) e '
+    + 'corrigido nos três pontos acima pela revisão de segurança de 2026-09-15.'
+  ),
+  '/api/check': (
+    'A LEITURA PÚBLICA DA CONTA, e as duas chamadas de saída que ela dispara são '
+    + 'de CURA, não de efeito: quando o estado derivado do razão diverge da linha '
+    + 'de `payments`, a rota chama `reconciler.reconcile({ checkId })` (que fala '
+    + 'com o PSP pra reconferir a cobrança) e `writeBackToPos(checkId)` (que '
+    + 'empurra o pago pro POS). Não tem portão porque não PODE ter: quem lê é o '
+    + 'telefone do cliente na mesa, sem login, com um token de mesa — e o '
+    + 'inegociável #9 diz browser-only, sem download e sem login. E não tem limite '
+    + 'de taxa por decisão medida, escrita no docblock do `registraMissDeCheck`: o '
+    + 'telefone consulta a cada 4s, um salão inteiro é UM ip atrás do NAT do '
+    + 'restaurante, e o limite fecharia a conta na cara do segundo cliente. O que '
+    + 'segura o abuso, e é ESTRANGULAMENTO, não sorte: o `shouldReconcileNow(checkId)` '
+    + 'limita a chamada por conta, o ramo inteiro só existe quando ainda se deve '
+    + 'dinheiro (`paidCents < totalCents`) — conta sã não chama nada — e o '
+    + '`writeBackToPos` só sai quando o `reconcile` confirmou alguma coisa '
+    + '(`r.confirmed > 0`). O teto real do abuso é um chamador com token de mesa '
+    + 'válido e conta em aberto forçando um `reconcile` a cada 10 segundos pro '
+    + 'adquirente daquele restaurante — com a mesma ressalva do beacon escrita por '
+    + 'inteiro: `reconcileThrottle` é `Map` de MÓDULO numa função serverless, então '
+    + 'cada instância fria tem o seu e o `clear()` de contenção de memória zera o de '
+    + 'todas as contas aos 5 mil. Declarado, não descoberto: era exatamente o '
+    + 'que a v2 deste censo não via, porque procurava `fetch(` e `notify*(` e '
+    + 'saída por ADAPTADOR não casa nenhum dos dois. Achado pela revisão de '
+    + 'segurança de 2026-09-15.'
+  ),
+  '/api/house/redeem': (
+    'GASTAR SALDO DA CASA, e o portador é o `accountToken`, não uma sessão. O '
+    + 'serviço resolve o token e devolve 404 se ele não existir, confere que a '
+    + 'conta é DAQUELE venue (`house_wrong_venue`) e que o saldo da casa está '
+    + 'ligado — então não é anônima. Mas portador não é portão de rota, e o '
+    + 'censo está certo em não contá-lo: a versão anterior desta linha tinha '
+    + '`houseSvc.redeem(` na lista de PORTÃO **e** na de SAÍDA, na mesma linha, '
+    + 'com o portão avaliado antes da saída. Gastar saldo era o seu próprio '
+    + 'portão, e qualquer rota nova que chamasse `redeem` entrava absolvida — o '
+    + 'verbo de dinheiro que mais precisa de leitura humana era o único que se '
+    + 'auto-perdoava. Achado pela revisão de segurança de 2026-09-15. A saída '
+    + 'que ela dispara é o `writeBackToPos`, que empurra o pago pro POS daquela '
+    + 'mesa.'
+  ),
+  '/api/pay': (
+    'CRIA COBRANÇA NO ADQUIRENTE, e é pública por desenho: quem paga é o '
+    + 'telefone do cliente na mesa, com um token de mesa e sem login '
+    + '(inegociável #9). O que a segura: `getCheckByQrToken` exige token de mesa '
+    + 'com conta ABERTA; o `marketGate` fecha o trilho fora do mercado ligado; e '
+    + 'o `assertChargeSlot` reivindica uma vaga no teto por conta E pela geração '
+    + 'do QR (`geracaoDoQr`) — uma instrução só no banco (`claimSlots`, RPC '
+    + '`claim_slots`), sob trava consultiva, janela deslizante de quinze minutos, '
+    + 'DEPOIS da validação e antes do PSP. Se o teto dispara, o '
+    + '`avisarTetoDisparado` pagina o operador depois da recusa sair (e pede à '
+    + 'Vercel, por `waitUntil`, que espere o envio), uma vez por conta e geração '
+    + 'do QR a cada seis horas, no máximo três por casa e doze por dia — com um '
+    + 'aviso de suspensão quando os doze acabam —, deduplicado no banco; casa de demo '
+    + 'não pagina, porque o token dela é público; a demo tem limite por origem '
+    + '(`rateLimitDemo`). O QUE CONTINUA ABERTO, e a versão anterior desta '
+    + 'linha errava o tamanho: (1) com a janela deslizante, quem tem o token e '
+    + 'repõe cada vaga ao vencer tranca a mesa por TEMPO INDETERMINADO — até o '
+    + 'dono girar o QR, que corta o token e começa um balde novo na hora; até '
+    + 'lá a mesa paga no caixa, e a tela não promete prazo (as duas revisões de '
+    + '2026-09-15); (2) não há idempotência no adquirente — só o MockPsp colapsa '
+    + 'repetição, derivando o `txid` do `chargeRef`; (3) a consequência real de '
+    + 'uma enxurrada na conciliação é FOME: o `listPendingCharges` ordena da mais '
+    + 'velha pra mais nova num lote fixo, e uma pilha de ataque empurra as '
+    + 'legítimas recentes pra fora da varredura. O teto limita a pilha.'
+  ),
+  '/api/pay/stripe-intent': (
+    'O MESMO, no trilho da Stripe (Bizum e carteira), montando a cobrança em '
+    + 'linha sem passar pela fábrica — a forma "regra copiada em dois lugares" '
+    + 'que já custou a esta rota o portão de mercado e a validação do '
+    + '`payerLabel`. Por isso as regras são funções chamadas nos dois sítios: '
+    + '`assertChargeSlot` (com um censo estrutural exigindo-a antes de toda '
+    + 'criação de cobrança) e `payerLabelValido`, conferido ANTES da vaga e '
+    + 'antes da Stripe — conferido só no registro, um rótulo longo gastava uma '
+    + 'vaga e deixava um intent órfão. A vaga fica assim que a Stripe é chamada. Recusa pelo `errorBody`, SEM '
+    + '`Retry-After` — a espera não tem prazo —, e o mesmo `avisarTetoDisparado`. '
+    + 'Valem as três ressalvas da rota irmã.'
+  ),
+  '/api/house/load': (
+    'CARGA DE SALDO DA CASA: também cria cobrança, e é a menos gateada das três '
+    + 'por outro caminho — exige o `accountToken` de uma conta de saldo em vez '
+    + 'do token da mesa, mas contas são de graça: o `openAccount` aceita qualquer '
+    + 'telefone de 10 a 13 dígitos sem verificação. (A mais exposta é o '
+    + '`/api/pay`, cujo token viaja em foto de QR.) O serviço confere o portão '
+    + 'de mercado do saldo da casa e os limites de valor da configuração, e o '
+    + '`assertLoadSlot` reivindica vaga por CONTA (dez) e por CASA (duzentas) '
+    + 'numa instrução só — o teto por casa porque um teto só por conta num '
+    + 'endpoint em que contas são geradas é um teto sobre nada. O preço, dito: '
+    + 'quem gera contas pode manter as recargas daquela casa pausadas enquanto '
+    + 'quiser, com código e frase próprios que não prometem prazo, e a conta da '
+    + 'mesa não é afetada. O `chargeRef` daqui leva um `randomUUID` de '
+    + 'propósito, então não há idempotência nem nominal.'
+  ),
+};
+
+/**
+ * A saída que mora FORA de qualquer rota, declarada por trecho de linha.
+ *
+ * Não é uma dispensa em bloco: cada entrada casa o começo de UMA linha, então
+ * declarar uma não absolve a próxima. Hoje são as duas leituras de cobrança do
+ * `confirmDeps`, que é o helper de escopo de módulo que o aplicador de webhook
+ * recebe — elas não são alcançáveis por rota nenhuma diretamente.
+ */
+const SAIDA_FORA_DE_ROTA = [
+  // LINHAS INTEIRAS, uma ocorrência cada. Ver o teste.
+  //
+  // O PREDICADO DO PORTÃO, não uma saída. `psp.provider` é LEITURA de
+  // propriedade — a pergunta "o adaptador que sobrou é o que recusa?" — e é ela
+  // que fecha as rotas de dinheiro e pagina o fundador quando a plataforma está
+  // quebrada. O censo casa `psp.` seguido de letra de propósito, pra que método
+  // novo entre coberto sem ninguém lembrar, e estreitar esse padrão pra poupar
+  // esta linha cegaria o censo inteiro. Então ela é DECLARADA: a alternativa
+  // (olhar só a lista de envs faltando) deixava passar o apagão em que as envs
+  // estão certas e a `PAGARME_SECRET_KEY` é inválida — nenhuma rota fechava e
+  // ninguém era paginado (segurança MEDIUM-2 de ec86b37).
+  "const PLATAFORMA_QUEBRADA = () => CONFIG_DE_PRODUCAO_FALTANDO.length > 0 || psp.provider === 'unconfigured';",
+  //
+  // O GRAVADOR DURÁVEL dentro do ajudante de resposta dos webhooks
+  // (`responderDoAplicador`). Ele mora em escopo de módulo porque as DUAS rotas
+  // de webhook — Pagar.me e Stripe — precisam do mesmo desfecho, e a versão em
+  // que cada rota escrevia o seu era o defeito: quando o `money_without_check`
+  // nasceu, três dos quatro sítios teriam respondido 200 sem registrar nada,
+  // que é o "200-swallow" que o portão proíbe por escrito. Não é alcançável
+  // fora de rota: quem chama são as duas rotas de webhook, e as duas verificam
+  // a ASSINATURA do adquirente antes de qualquer coisa — o portão desta saída é
+  // criptográfico e está a montante, não uma env. Um chamador novo que não
+  // venha de webhook verificado é a coisa que este censo deve pegar, e continua
+  // pegando: a declaração é de UMA linha e de UMA ocorrência.
+  "const marca = await handleNonLedgerMoneyEvent(result, { psp });",
+  //
+  // A FÁBRICA dos dois serviços de cobrança. Elas não chamam nada: constroem o
+  // serviço que as rotas chamam, e as rotas estão declaradas ou gateadas.
+  // O `require` da fábrica: o caminho `create-charge` casa o singleton `charge`.
+  "} = require('../_lib/pay/create-charge');",
+  // O AVISO AO OPERADOR quando o teto dispara: a definição, a única chamada de
+  // saída dele, e a chamada no catch geral — por onde sai o 429 do `/api/pay`.
+  // A primeira versão deste comentário dizia "não é pager anônimo", e ERA —
+  // pela demo, cujo token está no link da landing. Agora: casa de demo não
+  // pagina (decidido pela CASA, `isDemoVenue`, não pelo token), deduplicado no
+  // banco por conta e geração, com teto por casa e por dia. Roda DEPOIS da
+  // recusa, e embrulhado em `depoisDaResposta` (o `waitUntil` da Vercel).
+  'async function avisarTetoDisparado(err) {',
+  'const r = await notifyFounderReconcile({',
+  // O `responderEAvisar`: a definição, as duas ordens (com e sem `waitUntil`),
+  // e a chamada no catch geral.
+  'async function responderEAvisar(enviar, err) {',
+  'await avisarTetoDisparado(err);',
+  'await depoisDaResposta(avisarTetoDisparado(err));',
+  'await responderEAvisar(() => json(res, status, errorBody(err, status), cabecalhoDeEspera(err)), err);',
+  'const charge = createChargeService({ store, psp });',
+  'const demoCharge = createChargeService({ store, psp: demoPsp });',
+  // As duas leituras de cobrança do `confirmDeps`, o helper que o aplicador de
+  // webhook recebe — não alcançáveis por rota diretamente.
+  "if (stripePsp && typeof txid === 'string' && /^pi_/.test(txid)) return stripePsp.getCharge(txid);",
+  "return typeof psp.getCharge === 'function' ? psp.getCharge(txid) : null;",
+  // E as DEFINIÇÕES dos próprios embrulhos de saída. Um censo que lê nomes não
+  // distingue definir de chamar, e a linha que define `writeBackToPos` casa o
+  // nome `writeBackToPos`. Declarar a definição é honesto; o que importa são
+  // as CHAMADAS, e essas moram dentro de rota.
+  'async function writeBackToPos(checkId) {',
+  'process.stderr.write(`writeBackToPos(${checkId}) failed (non-fatal): ${err.message}\\n`);',
+  'async function avisarEventoDeDinheiro(evento) {',
+  'return await notifyFounderMoneyEvent(evento);',
+];
 
 describe('cron: quem escreve não degrada aberta', () => {
   const rotas = rotasDeCron();
@@ -101,6 +296,336 @@ describe('cron: quem escreve não degrada aberta', () => {
       if (!fechaSemSegredo) frouxas.push(r.nome);
     }
     expect(frouxas).toEqual([]);
+  });
+
+  test('nenhum ramo SEM autenticação manda nada pra fora', () => {
+    /**
+     * O CENSO QUE FALTAVA, e ele fecha a CLASSE em vez do caso.
+     *
+     * Este arquivo provava que a rota FECHA sem o segredo; não provava que ela
+     * não produz EFEITO EXTERNO antes de fechar. A `/api/cron/reconcile`
+     * paginava o fundador de dentro do ramo `!process.env.CRON_SECRET` — que é,
+     * por definição, o ramo sem autenticação: é o ramo do segredo ausente. O
+     * throttle era `let` de módulo numa função serverless, então todo cold
+     * start o zerava, e N requisições concorrentes rendiam N avisos e N
+     * `fetch` de 8 segundos. Amplificação de function-seconds e telefone do
+     * fundador, por `curl` anônimo.
+     * Achado pela revisão de segurança de 2026-09-14.
+     *
+     * A regra: entre o `if (!process.env.CRON_SECRET)` e o `return` dele não
+     * pode haver chamada de saída. Log em stderr pode — é local, é grátis, e é
+     * o que as outras duas rotas de cron sempre fizeram.
+     */
+    const sujas = [];
+    // ROTA QUE O CENSO NÃO SABE LER NÃO PODE SER PULADA. A primeira versão
+    // exigia a chave de fechamento com SEIS espaços exatos e fazia `continue`
+    // quando não achava: uma rota aninhada um nível a mais, ou escrita sem
+    // chaves, saía do censo em silêncio — a forma "guarda que nunca dispara"
+    // dentro do censo escrito pra fechar essa forma. Apontado pela revisão de
+    // segurança de 2026-09-14.
+    const naoParseadas = [];
+    for (const r of rotas) {
+      if (!/if \(!process\.env\.CRON_SECRET\)/.test(r.corpo)) continue;
+      const m = /if \(!process\.env\.CRON_SECRET\)\s*\{([\s\S]*?)\n\s*\}/.exec(r.corpo);
+      if (!m) { naoParseadas.push(r.nome); continue; }
+      if (/notify[A-Za-z]*\(|await fetch\(|sendMail|webhook/.test(m[1])) sujas.push(r.nome);
+    }
+    expect(naoParseadas).toEqual([]);
+    expect(sujas).toEqual([]);
+  });
+
+  /**
+   * O CENSO DE SAÍDA, POR SUPERFÍCIE — e é a terceira versão dele.
+   *
+   * A v1 só olhava dentro do ramo `if (!process.env.CRON_SECRET)`, porque foi
+   * escrita a partir do achado que a criou; uma rota que não é cron e manda
+   * coisa pra fora sem autenticação era invisível por construção, e havia uma
+   * (`/api/demo/beacon`). A v2 passou a varrer o router inteiro procurando
+   * `notify*(` e `await fetch(` — e a mesma forma se repetiu um nível acima: a
+   * lista de EXPRESSÕES veio dos dois achados que a criaram. A revisão de
+   * segurança de 2026-09-15 mostrou cinco formas que ela não vê e duas
+   * chamadas VIVAS que ela não via:
+   *
+   *  · `fetch` sem `await` — `void fetch(x)`, `fetch(x).catch(…)`,
+   *    `Promise.all([fetch(a)])`. E fire-and-forget é exatamente como a próxima
+   *    telemetria vai ser escrita.
+   *  · saída através de ADAPTADOR: `reconciler.reconcile` fala com o PSP,
+   *    `writeBackToPos` fala com o POS, `psp.getCharge` fala com o gateway. É
+   *    onde TODO o tráfego de dinheiro mora, e nenhuma dessas casa `fetch(`.
+   *  · `/api/check` — pública, sem autenticação e deliberadamente sem limite de
+   *    taxa (a aritmética está escrita no próprio router) — chama as duas
+   *    primeiras. Um chamador com um token de mesa válido e uma conta em aberto
+   *    dirige tráfego pra adquirente e pro POS.
+   *  · seis call sites de aviso de dinheiro (`avisarEventoDeDinheiro`,
+   *    `handleNonLedgerMoneyEvent`) sobre os quais a v2 não afirmava nada.
+   *
+   * Então a pergunta inverte, como o `SO_LEEM` já faz neste arquivo: enumera-se
+   * a SUPERFÍCIE de saída — os nomes que alcançam a rede — e exige-se que toda
+   * rota que chega a um deles esteja num portão ou declarada. Nome novo de
+   * saída entra na lista ou o censo não o vê; é a mesma troca que o `SO_LEEM`
+   * fez, e ela é honesta porque a lista é curta e mora ao lado do código.
+   */
+  // A fonte SEM comentário. Todo canário de vivacidade lê daqui: um padrão
+  // que só casa uma frase é um canário verde sobre código morto.
+  const SEM_COMENTARIO = SRC.split('\n')
+    .filter((l) => !/^\s*(\/\*|\*|\/\/)/.test(l)).join('\n');
+  const PORTAO_TOKENS_EXPORTADOS = [
+    'segredoConfere\\(', 'guardUser\\(', 'auth\\.requireVenueOwner\\(',
+    'verifyAndParseWebhook', 'handleWebhook\\(', 'if \\(DEMO_MODE',
+  ];
+
+  const SUPERFICIE_DE_SAIDA = [
+    'notifyOwnerRecipientStatus', 'notifyFounderActivationRadar', 'notifyPreviaBeacon',
+    'notifyFounderReconcile', 'notifyFounderMoneyEvent', 'avisarEventoDeDinheiro',
+    'handleNonLedgerMoneyEvent', 'writeBackToPos', 'fetch', 'avisarTetoDisparado',
+    // Quem responde E avisa: a rota que o chama alcança o pager.
+    'responderEAvisar',
+  ];
+
+  /**
+   * E A SAÍDA QUE NÃO TEM NOME PRÓPRIO: chamada de MÉTODO num singleton.
+   *
+   * A v3 listava `reconciler.reconcile`, `psp.getCharge` e `stripePsp.getCharge`
+   * — três nomes, todos do lado da LEITURA. A revisão de segurança de
+   * 2026-09-15 mostrou que a lista tinha vindo, outra vez, dos achados que a
+   * criaram: a CRIAÇÃO de cobrança estava inteira de fora. `/api/pay` (pública,
+   * token de mesa, SEM limite de taxa) chama `charge(...)`, que é
+   * `psp.createPixCharge`; `/api/pay/stripe-intent` chama
+   * `stripePsp.createBizumCharge`/`createWalletCharge`; `/api/house/load` chama
+   * `houseSvc.createLoad`, que também cria cobrança. Cada requisição vira uma
+   * cobrança viva na conta da casa no adquirente.
+   *
+   * Então aqui a enumeração é de SINGLETON, não de método: qualquer membro de
+   * `psp`, `stripePsp`, `demoPsp` ou `reconciler` conta. Método novo no
+   * adaptador entra coberto sem ninguém lembrar — que é a diferença entre esta
+   * forma e as três anteriores, todas listas de nomes.
+   */
+  const SINGLETONS_DE_SAIDA = [
+    String.raw`(?:psp|stripePsp|demoPsp|reconciler)\.[A-Za-z]`,
+    // POR FRONTEIRA DE IDENTIFICADOR, não por pontuação. A primeira versão
+    // era `(?:demoCharge|charge)\s*[):]`, copiada da única forma que existe
+    // hoje no router — o ternário `(isDemo ? demoCharge : charge)({`. Ela não
+    // casa `await charge({...})`, que é como qualquer rota nova escreveria a
+    // criação de cobrança. O docblock acima promete 'método novo entra
+    // coberto sem ninguém lembrar', e isso era verdade pros singletons com
+    // ponto e falso justamente pro serviço que CRIA a cobrança. Achado pela
+    // revisão de segurança de 2026-09-15.
+    String.raw`(?<![A-Za-z0-9_$])(?:charge|demoCharge)(?![A-Za-z0-9_$])`,
+    String.raw`houseSvc\.(?:createLoad|redeem)\(`,
+  ];
+
+  // `fetch` é nome da PLATAFORMA, não símbolo do repositório: hoje o router não
+  // o chama direto (toda saída passa por `_lib/notify.js` ou por um adaptador),
+  // e é justamente por isso que ele fica na lista — o dia em que alguém escrever
+  // `void fetch(...)` aqui, o censo já está olhando. Os outros nomes são do
+  // repositório e têm que existir: lista que não descreve o código de hoje é
+  // lista que passa calada.
+  const UNIVERSAIS = new Set(['fetch']);
+  const reSaida = new RegExp([
+    ...SUPERFICIE_DE_SAIDA.map((n) => `${n.replace('.', '\\.')}\\s*\\(`),
+    ...SINGLETONS_DE_SAIDA,
+  ].join('|'));
+
+  test('a superfície de saída declarada ainda existe no router', () => {
+    const perdidos = SUPERFICIE_DE_SAIDA
+      .filter((n) => !UNIVERSAIS.has(n))
+      .filter((n) => !SRC.includes(`${n}(`));
+    expect(perdidos).toEqual([]);
+    // E os singletons também: enumeração que não descreve o código de hoje
+    // passa calada, e a forma "regex que nunca casa" é a mais calada de todas.
+    // CONTRA A FONTE SEM COMENTÁRIO: um padrão mantido vivo por uma FRASE é
+    // pior que um padrão morto, porque o canário fica verde. `charge\s*[):]`
+    // casava a linha 612, que é um comentário. Achado pela revisão de
+    // segurança de 2026-09-15.
+    const sumidos = SINGLETONS_DE_SAIDA.filter((r) => !new RegExp(r).test(SEM_COMENTARIO));
+    expect(sumidos).toEqual([]);
+  });
+
+  test('todo token de PORTÃO existe no router', () => {
+    /**
+     * A METADE QUE NÃO TINHA CANÁRIO.
+     *
+     * O teste acima prende a lista de SAÍDA — cuja morte produz falso negativo
+     * em "isto manda coisa pra fora". A lista de PORTÃO não tinha nenhum, e a
+     * morte dela produz o falso negativo do outro lado: uma rota sem portão
+     * lida como gateada. Medido pela revisão de segurança de 2026-09-15: CINCO
+     * dos dez tokens não casavam nada no router (`requireOwner(`, `exigeDono(`,
+     * `sessaoDoDono(`, `verifySignature(`, `getHouseAccountByToken(` — este
+     * último acrescentado na rodada anterior justamente pra substituir um token
+     * frouxo, e ele mora no `house-service.js`, não aqui), enquanto o
+     * `auth.requireVenueOwner(` — a asserção de posse de verdade, catorze usos
+     * — estava de fora.
+     */
+    const mortos = PORTAO_TOKENS_EXPORTADOS.filter((t) => !new RegExp(t).test(SEM_COMENTARIO));
+    expect(mortos).toEqual([]);
+    // E PORTÃO NENHUM PODE SER UMA CHAMADA DE SAÍDA. `houseSvc.redeem(` estava
+    // nas duas listas, na mesma linha, e o portão era avaliado ANTES da saída:
+    // gastar saldo da casa era o seu próprio portão, e qualquer rota nova que
+    // chamasse `redeem` passaria sem declaração.
+    const ambiguos = PORTAO_TOKENS_EXPORTADOS
+      .filter((t) => reSaida.test(t.replace(/\\/g, '')));
+    expect(ambiguos).toEqual([]);
+  });
+
+  test('toda rota que alcança a superfície de SAÍDA tem portão, ou é declarada', () => {
+    const fonte = SRC.split('\n');
+    /**
+     * Fronteira de rota: qualquer comparação de `url.pathname`.
+     *
+     * A versão anterior desta linha exigia um ESPAÇO literal depois de
+     * `url.pathname`, então as três alternativas que ela acabara de ganhar
+     * (`.startsWith(`, `.endsWith(`, `.match(`) nunca casavam nada — código
+     * real é `url.pathname.startsWith('/api/x')`, sem espaço. A correção
+     * anunciada no commit não existia. Achado pela revisão de segurança de
+     * 2026-09-15.
+     *
+     * E só conta como rota NOVA o caminho absoluto: `url.pathname.endsWith('refund')`
+     * (router.js:1238) é um sub-ramo DENTRO de uma rota já aberta, e tratá-lo
+     * como fronteira trocaria o nome da rota no relatório e zeraria o portão
+     * dela no meio do corpo.
+     */
+    const ROTA = /url\.pathname\s*(?:===|\.startsWith\(|\.endsWith\(|\.match\()\s*'(\/[^']*)'/;
+    /**
+     * O portão tem que RODAR, não aparecer.
+     *
+     * A versão anterior aceitava `accountToken` e `DEMO_MODE` nus. O primeiro
+     * casa `accountToken: b.accountToken` — uma chave de objeto a caminho do
+     * serviço, que não valida nada; o segundo casa qualquer linha que cite a
+     * constante. Duas rotas inventadas pela revisão de segurança passaram com
+     * um deles no meio e nenhuma autenticação. Agora cada token é uma CHAMADA
+     * ou uma condição: `getHouseAccountByToken(` é quem resolve o portador e
+     * 404 se não existir; `if (DEMO_MODE` é a guarda, não a menção.
+     *
+     * Limite conhecido e dito: isto vê o portão APARECER antes da saída, não vê
+     * ele RODAR — a forma "portão opcional" (`if (cfg) { ...checa... }`) passa.
+     * É o preço de um censo textual; o que ele compra é que portão nenhum pode
+     * sumir em silêncio.
+     */
+    const PORTAO = new RegExp(PORTAO_TOKENS_EXPORTADOS.join('|'));
+    // `/**` é início de bloco de comentário e a v2 o lia como código.
+    const comentario = (l) => /^\s*(\/\*|\*|\/\/)/.test(l);
+    /**
+     * FORA DE ROTA TAMBÉM É UM LUGAR.
+     *
+     * `rota` nunca era zerada, então tudo depois do último `if` de rota — o
+     * `catch (err)` que TODA rota atravessa — herdava o portão da última. Um
+     * aviso ao fundador plantado no log de 500 (`router.js:2186`) passava
+     * limpo: página disparável por qualquer requisição anônima que produza 500
+     * em qualquer rota, que é exatamente a amplificação que a v1 deste censo
+     * nasceu pra fechar, mudada de lugar. E o escopo de MÓDULO, acima da
+     * primeira rota, era pulado inteiro.
+     *
+     * As rotas moram em indentação 4 dentro do `try`; qualquer linha com menos
+     * que isso saiu delas. O que está fora tem que estar declarado por NOME de
+     * saída, não em bloco — senão a declaração absolve o módulo inteiro.
+     * Achado pela revisão de segurança de 2026-09-15.
+     */
+    let rota = null; let temPortao = false;
+    const soltas = []; const foraDeRota = [];
+    for (const l of fonte) {
+      const m = ROTA.exec(l);
+      if (m) { rota = m[1]; temPortao = false; } else if (/^ {0,3}\S/.test(l)) { rota = null; }
+      if (comentario(l)) continue;
+      if (rota && PORTAO.test(l)) temPortao = true;
+      if (!reSaida.test(l)) continue;
+      if (!rota) { foraDeRota.push(l.trim()); continue; }
+      if (!temPortao) soltas.push(rota);
+    }
+    expect([...new Set(soltas)].filter((r) => !SAIDA_SEM_PORTAO[r])).toEqual([]);
+    for (const [r, porque] of Object.entries(SAIDA_SEM_PORTAO)) {
+      expect(`${r}: ${porque}`).toMatch(/.{200,}/);
+      expect(soltas).toContain(r);
+    }
+    /**
+     * LINHA INTEIRA E UMA SÓ, não prefixo.
+     *
+     * A versão anterior declarava por PREFIXO sobre os 60 primeiros caracteres,
+     * e isso absolvia duas coisas: um SEGUNDO corpo de função que começasse
+     * igual (um embrulho novo `async function pingarFundador(evento) { return
+     * await notifyFounderMoneyEvent(evento); }` entrava absolvido na definição
+     * e invisível na chamada), e qualquer coisa pendurada no resto da linha
+     * depois do trecho declarado. Achado pela revisão de segurança de
+     * 2026-09-15.
+     */
+    expect(foraDeRota.filter((t) => !SAIDA_FORA_DE_ROTA.includes(t))).toEqual([]);
+    for (const d of SAIDA_FORA_DE_ROTA) {
+      expect({ declaracao: d, vezes: foraDeRota.filter((t) => t === d).length })
+        .toEqual({ declaracao: d, vezes: 1 });
+    }
+  });
+
+  test('o censo cobre TODA função que deploya, não só o router', () => {
+    /**
+     * ESTE TESTE FOI APAGADO, e o commit que o apagou dizia que o tinha
+     * melhorado ("o `readdirSync` do censo de funções virou recursivo"). O que
+     * virou recursivo foi OUTRO `readdirSync`, o que resolve identificadores de
+     * prosa. Este aqui — o único que pergunta se existe uma função fora do
+     * router falando com a rede — sumiu, e um teste apagado não deixa falha
+     * nenhuma pra trás. Achado pela revisão de segurança de 2026-09-15.
+     *
+     * Pelas regras de NFT da Vercel todo arquivo em `api/` que não começa com
+     * `_` vira função, e a descoberta DESCE em subdiretório: `api/webhooks/psp.js`
+     * deployaria sem nunca ser lido por um `readdirSync` raso.
+     */
+    const dir = path.join(__dirname, '..');
+    const funcoes = fs.readdirSync(dir, { recursive: true })
+      .map((f) => String(f))
+      .filter((f) => f.endsWith('.js'))
+      .filter((f) => !f.split(path.sep).some((seg) => seg.startsWith('_')));
+    expect(funcoes).toContain('index.js'); // sanidade: a enumeração acha algo
+    const faladores = funcoes.filter((f) => {
+      const src = fs.readFileSync(path.join(dir, f), 'utf8')
+        .split('\n').filter((l) => !/^\s*(\/\*|\*|\/\/)/.test(l)).join('\n');
+      return reSaida.test(src);
+    });
+    // `index.js` só delega pro router; qualquer outro nome aqui é rota nova
+    // fora do alcance do censo, e o censo tem que aprender a lê-la antes.
+    expect(faladores).toEqual([]);
+    // CONTROLE NEGATIVO: a enumeração tem que MORDER. Sem isto, "o censo lê um
+    // arquivo só" pode voltar a ser verdade em silêncio — que é como este teste
+    // desapareceu.
+    const iscaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'isca-'));
+    const isca = path.join(iscaDir, 'prospect.js');
+    fs.writeFileSync(isca, "module.exports = async (req, res) => { await fetch('https://x/'); };\n");
+    const vistos = fs.readdirSync(iscaDir, { recursive: true })
+      .map((f) => String(f))
+      .filter((f) => f.endsWith('.js') && !f.startsWith('_'))
+      .filter((f) => reSaida.test(fs.readFileSync(path.join(iscaDir, f), 'utf8')));
+    expect(vistos).toEqual(['prospect.js']);
+  });
+
+  test('toda declaração aponta pra código que existe', () => {
+    /**
+     * Prosa de gaveta é medida por tamanho (`.{200,}`) e por nada mais, e a
+     * primeira versão da declaração da `/api/check` citava uma função
+     * `rateLimitCheck` que não existe em lugar nenhum do repositório — a
+     * aritmética está no docblock do `registraMissDeCheck`. Quem seguisse o
+     * ponteiro não achava nada e teria que decidir sozinho se a decisão fora
+     * medida. Mesma forma do `_porque` que descrevia uma remoção que não
+     * aconteceu. Achado pela revisão de segurança de 2026-09-15.
+     */
+    // O alvo é o router MAIS a biblioteca: uma declaração de rota fala do
+    // serviço que ela chama (`house_off` mora no `house-service.js`), e exigir
+    // que tudo esteja no router transformaria a checagem numa proibição de
+    // citar o código certo.
+    const lib = path.join(__dirname, '..', '_lib');
+    const arquivos = fs.readdirSync(lib, { recursive: true })
+      .map((f) => String(f))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => fs.readFileSync(path.join(lib, f), 'utf8'));
+    const universo = [SRC, ...arquivos].join('\n');
+    const faltando = [];
+    for (const [rota, porque] of Object.entries(SAIDA_SEM_PORTAO)) {
+      // COM HÍFEN. A primeira versão parava no identificador JS puro, e por
+      // isso não via `create-charge` — que era justamente o nome errado na
+      // declaração que ela foi escrita pra pegar. Nomes de módulo levam hífen.
+      for (const m of porque.matchAll(/`([A-Za-z_$][A-Za-z0-9_$-]*)`/g)) {
+        if (!universo.includes(m[1])) faltando.push(`${rota}: ${m[1]}`);
+      }
+    }
+    expect(faltando).toEqual([]);
+    // E a checagem tem que estar mordendo: um nome inventado falha.
+    expect(universo.includes('rateLimitCheck')).toBe(false);
   });
 
   test('nenhuma rota de cron que escreve cai num limite de taxa como alternativa', () => {

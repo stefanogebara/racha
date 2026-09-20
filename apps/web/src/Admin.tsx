@@ -1,6 +1,6 @@
 
 import { LangToggle, useT } from './lang';
-import { tError } from './i18n';
+import { Campo } from './Campo';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminHouse from './AdminHouse';
@@ -10,8 +10,9 @@ import AdminSetup from './AdminSetup';
 import SetupWizard from './SetupWizard';
 import { type Venue, type VenueTable } from './api';
 import { authedReq as req, signOut } from './auth';
-import { isValidCNPJ, maskCpfCnpj, onlyDigits } from './br';
+import { isValidCNPJ, maskCpfCnpj, normalizarDocumento } from './br';
 import { setupComplete, useVenueAdmin, type VenueAdmin } from './useVenueAdmin';
+import { LIMITES } from './limites';
 
 /**
  * Painel de gestão do restaurante — onboarding + mesas/QR. Warm Glass.
@@ -29,7 +30,7 @@ export default function Admin() {
 
 // ---------------------------------------------------------------- onboarding
 function Onboarding() {
-  const { t, lang, tErr } = useT();
+  const { t, tErr } = useT();
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
   const [cnpj, setCnpj] = useState('');
@@ -79,16 +80,28 @@ function Onboarding() {
       )}
       <section className="card">
         <p className="label">{mine.length > 0 ? t('admin.registerAnother') : t('admin.registerFirst')}</p>
-        <input className="namefield" placeholder={t('admin.venueName')} value={name} onChange={(e) => setName(e.target.value)} />
-        <input className="namefield" placeholder={t('admin.city')} value={city} onChange={(e) => setCity(e.target.value)} />
-        <input className="namefield" inputMode="numeric" placeholder={t('admin.cnpjField')} value={maskCpfCnpj(cnpj)}
-          style={cnpj && !cnpjValid ? { borderColor: 'var(--burgundy)' } : undefined}
-          onChange={(e) => setCnpj(onlyDigits(e.target.value).slice(0, 14))} />
-        {cnpj !== '' && (
-          <span className="small" style={{ color: cnpjValid ? 'var(--emerald)' : 'var(--burgundy)' }}>
-            {cnpjValid ? t('admin.cnpjOk') : t('admin.cnpjBad')}
-          </span>
-        )}
+        {/* `maxLength` no nome da casa: ele vai no cartão do QR, no painel e no
+            recibo, e sem teto uma colagem acidental de trezentos caracteres
+            passava — o servidor guardava e as três telas quebravam o layout.
+            O NÚMERO vem de `limites.ts`, que é o mesmo do servidor e o mesmo do
+            CHECK da 0035: este campo nasceu com um 60 escrito à mão contra um
+            servidor que aceitava outro número. */}
+        <Campo rotulo={t('admin.venueName')} maxLength={LIMITES.nomeDaCasa} autoComplete="organization"
+          placeholder={t('admin.venueNameEg')} value={name} onChange={(e) => setName(e.target.value)} />
+        <Campo rotulo={t('admin.city')} maxLength={LIMITES.cidade} autoComplete="address-level2"
+          value={city} onChange={(e) => setCity(e.target.value)} />
+        <Campo
+          rotulo={t('admin.cnpjField')} inputMode="numeric" autoCapitalize="characters" autoComplete="off"
+          // A FORMA sai do formatador, nunca de uma string pontuada à mão.
+          placeholder={maskCpfCnpj('00000000000000')}
+          // A máscara é do `Campo`: formatando no `value`, o cursor ia pro fim
+          // a cada tecla. Ver `mascara-caret.ts`.
+          mascara={maskCpfCnpj}
+          value={cnpj}
+          ruim={cnpj !== '' && !cnpjValid}
+          bom={cnpj !== '' && cnpjValid}
+          recado={cnpj !== '' ? (cnpjValid ? t('admin.cnpjOk') : t('admin.cnpjBad')) : undefined}
+          onChange={(e) => setCnpj(normalizarDocumento(e.target.value))} />
         <label className="servico" style={{ alignItems: 'center' }}>
           <span style={{ flex: 1 }}>{t('admin.suggested')}</span>
           <div className="stepper">
@@ -100,7 +113,7 @@ function Onboarding() {
         <p className="muted small">
           {t('admin.psplater')}
         </p>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{tError(lang, error, error)}</p>}
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         <button className="cta" disabled={busy || !name.trim() || (cnpj !== '' && !cnpjValid)} onClick={submit}>
           {busy ? t('admin.creating') : t('admin.createVenue')}
         </button>
@@ -159,7 +172,7 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
   admin: VenueAdmin; venueId: string; onPrint: (t: VenueTable) => void; onConfigure: () => void;
 }) {
   const [newLabel, setNewLabel] = useState('');
-  const { t, lang } = useT();
+  const { t } = useT();
   const { venue, tables, error } = admin;
 
   async function add() { if (await admin.addTable(newLabel)) setNewLabel(''); }
@@ -168,22 +181,61 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
     <>
       {venue && <AdminSetup venue={venue} tables={tables} />}
 
+      {/* O SERVIÇO PAROU DE CORRER, e sem isto o dono não fica sabendo.
+          Desde 2026-09-13 a gorjeta exige CNPJ provado (`venue_no_tip_document`):
+          sem pessoa jurídica não há folha, e sem folha a frase que o cliente lê
+          no comprovante seria falsa. Mas `cnpj` nulo é o estado LEGÍTIMO das
+          casas do piloto cujo recebedor foi criado à mão no painel do Pagar.me
+          — o `documento.js` diz isso — então elas param de arrecadar os 10% em
+          silêncio, e a semana 8 do portão de adoção absorve a diferença.
+          Falhar fechado é o certo; falhar calado não é. */}
+      {venue && venue.podeCobrarServico === false && (
+        <section className="panel" style={{ borderColor: 'var(--erro)' }}>
+          <p className="label" style={{ color: 'var(--erro)' }}>{t('admin.noTipDocTitle')}</p>
+          <p className="muted small">{t('admin.noTipDocBody')}</p>
+          <button className="cta" style={{ marginTop: 8 }} onClick={onConfigure}>
+            {t('admin.noTipDocCta')}
+          </button>
+        </section>
+      )}
+
       <section className="panel" id="mesas" style={{ scrollMarginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <p className="label">{t('admin.tablesN', { n: tables.length })}</p>
-          <a className="linklike" style={{ textDecoration: 'none' }} href={`/qrs?v=${encodeURIComponent(venueId)}`}>
-            {t('admin.printQrs')}
-          </a>
+          <span style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            {/* O PAINEL DE PAGAMENTOS: é pra lá que a pergunta de girar o QR e a de
+                fechar a conta mandam a equipe olhar, e daqui não havia caminho até
+                ele (compliance HIGH-A de 497bf87). */}
+            <a className="linklike" style={{ textDecoration: 'none' }} href={`/painel?v=${encodeURIComponent(venueId)}`}>
+              {t('admin.openPanel')}
+            </a>
+            <a className="linklike" style={{ textDecoration: 'none' }} href={`/qrs?v=${encodeURIComponent(venueId)}`}>
+              {t('admin.printQrs')}
+            </a>
+          </span>
         </div>
         <p className="muted small">
           {t('admin.tablesHelp', { training: t('admin.training') })}
         </p>
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <input className="namefield" style={{ flex: 1 }} placeholder={t('admin.tableEg')} value={newLabel}
-            onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+          {/* O rótulo da mesa é PALAVRA DA CASA ("Mesa 7", "Varanda 2") e nunca
+              se traduz — mas o campo que o coleta é nosso, e ganha rótulo. */}
+          <div style={{ flex: 1 }}>
+            <Campo rotulo={t('admin.tableLabel')} maxLength={LIMITES.rotuloDaMesa} placeholder={t('admin.tableEg')} value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+          </div>
           <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>
         </div>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{tError(lang, error, error)}</p>}
+        {/* CRU, porque JÁ VEM TRADUZIDO. O `useVenueAdmin` traduz no setter
+            (`setError(trErr(e))`) e escreve frases prontas; embrulhar de novo em
+            `tErr` aqui APAGAVA todas elas — `tErr` recebe um ERRO e lê `.code`
+            /`.message`, e uma string não tem nenhum dos dois, então o retorno
+            era '' e o dono via um parágrafo vermelho VAZIO ao fechar uma conta,
+            desativar uma mesa ocupada ou falhar ao criar mesa. O conserto de
+            ec86b37 (LOW-3) destruiu seis mensagens boas pra consertar uma, e a
+            que ele queria consertar também ficou vazia (segurança HIGH-2 de
+            d7f2683). O código cru que sobrava vira frase na ORIGEM, no hook. */}
+        {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         {tables.length === 0 && <p className="muted small">{t('admin.noTables')}</p>}
         {/* `table`, não `t`: o parâmetro chamava-se `t` e sombreava o tradutor,
             então `t('admin.openBill')` chamaria a MESA como função. */}
@@ -251,7 +303,10 @@ function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; tab
     <main className="shell">
       <section className="pixcard qrprint">
         <p className="label">{venue?.name}</p>
-        <h2 style={{ fontFamily: "'Instrument Serif', serif", fontWeight: 400, fontSize: 30 }}>{table.label}</h2>
+        {/* A serifa do sistema é a Newsreader, e é a única que o projeto
+            vendoriza. Esta linha pedia a Instrument Serif, que não é carregada
+            em lugar nenhum desde a migração: o rótulo da mesa caía em Times. */}
+        <h2 className="qrvenue" style={{ fontSize: 30 }}>{table.label}</h2>
         <div className="qrbox">
           <QRCodeSVG value={url} size={220} level="M" marginSize={2} />
         </div>

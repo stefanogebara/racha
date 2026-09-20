@@ -44,8 +44,10 @@ documentada, em nome próprio. Ver lacuna 4.
 | `house_accounts.phone` + `.name` | cliente que abre carteira pré-paga | achar a carteira dele na casa e saber de quem é o saldo | operadora | Supabase `house_accounts` | enquanto a carteira viver, **+ 90 dias** depois de zerada e inativa |
 | `check_views.session_hash` | ninguém — aleatório do navegador | contar quantas pessoas ABREM a conta (portão de adoção) | interesse legítimo (art. 7º IX) — **e a lacuna 2 é PRÉ-CONDIÇÃO dela**, não item vizinho: o art. 7º IX é a única base que chega com dever de transparência (art. 10 §2) e direito de oposição (art. 18 §2). Sem o aviso, a base é alegada, não constituída | Supabase `check_views` | **90 dias** (migração 0031) — o portão de adoção olha 8 semanas, então guardar linha crua além disso era guardar por guardar. Agregar por casa/semana e apagar até a linha tiraria o `check_views` do perímetro quase inteiro, o que continua sendo melhor do que ganhar o teste de balanceamento |
 | `retention_runs.txid` + as contagens | cliente cujo pedido de exclusão foi atendido | comprovar a execução da retenção e a resposta do art. 18 §4 | **controladora, em nome próprio** — art. 7º II c/c art. 16 I (obrigação legal) e art. 6º X (responsabilização). É o segundo fluxo em que a Racha trata pra si, junto com o `check_views`, e um DPA com a casa não cobre nenhum dos dois | Supabase `retention_runs` | 5 anos, executados pela própria purga |
+| `check_events.payload.note` + `.by` de um `PAYMENT_ISSUE_RESOLVED`, e a `.reference` (até 120 caracteres) + `.by` de uma devolução registrada fora do trilho (`record-restitution`) — quem encerrou uma pendência de dinheiro ou registrou uma devolução, e como | dono (o **id de usuário** dele, em `by` — não o e-mail) e, se ele escrever, quem pagou | registrar quem agiu e por quê — é o que prova, depois, que a marca não sumiu sozinha e que a devolução foi feita | **operadora, na base da casa** — art. 7º V (execução do contrato de fechamento da conta) e, pro registro de quem agiu, art. 7º VI (exercício regular de direitos) e IX da CASA: a hipótese é dela, controladora, e a Racha executa. A Racha não alega base própria aqui — quando ela trata pra si, está dito na linha (é o caso do `check_views` e do `retention_runs`) | Supabase `check_events`, o razão só-de-acréscimo | **segue o razão (5 anos do exercício)** — e é **lacuna**: não há ferramenta de apagar dentro de um razão imutável. Por isso a resposta do painel ao pago-depois-de-fechar é **texto fixo, escrito pelo servidor** ("a mesa não pagou no caixa"); a rota `resolve-issue` chamada à mão, pra falha de estorno, e a `reference` da devolução ainda aceitam texto livre — o runbook manda não escrever nome, CPF ou chave Pix do cliente |
 | `venues.cnpj`, `venues.notify_email`, `venues.notify_whatsapp` | dono | cadastro, KYC do recebedor, aviso de status | controladora, contrato (art. 7º V) | Supabase `venues` | vida do contrato |
 | e-mail e senha do dono | dono | login do painel | controladora, contrato | Supabase Auth (GoTrue), `auth.users` | vida do contrato |
+| `venue_members.user_id` + `.role` — o vínculo entre um usuário autenticado e uma casa (migração 0003) | dono ou funcionário do salão | AUTORIZAÇÃO: é aqui que se decide quem pode abrir o painel de uma casa, ver pagamento e registrar devolução | controladora, contrato (art. 7º V) — e o registro de quem tinha acesso, art. 7º VI | Supabase `venue_members` (só service-role, RLS ligada sem política) | **vida do contrato**, e é **lacuna**: o prazo que a linha DEVERIA ter é o do razão que ela explica (5 anos — é o que diz, numa disputa, quem podia ter agido na conta), mas `on delete cascade` em `venues` apaga o vínculo junto com a casa e não há job que o preserve. Duas frases contraditórias moravam aqui; a verdadeira é esta, e o conserto é não apagar a linha de `venues` no encerramento enquanto o prazo correr |
 | dados bancários da casa (banco, agência, conta, titular) | casa | criar o recebedor no PSP | controladora, contrato | **não persistidos aqui** — vão do formulário direto pro PSP | n/a |
 
 ## 2. O que sai, pra quem
@@ -54,13 +56,13 @@ documentada, em nome próprio. Ver lacuna 4.
 |---|---|---|---|
 | **Supabase — projeto de dados da Racha** (`SUPABASE_URL`, sem literal no código) | tudo da tabela acima, menos o login | é o banco | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
 | **Supabase — projeto de auth do SEATABLE** (`ckforlwdhewexyqljsaf.supabase.co`) | e-mail do dono, hash de senha, identidade OAuth, sessão | login compartilhado entre os dois produtos (`apps/web/src/auth.ts`, `AUTH_SUPABASE_URL`) | AWS |
-| **Vercel** | requisições, logs de função — **incluindo o `t` da mesa, que viaja na query string do `/api/check` e é consultado a cada 4s** | hospedagem | EUA/edge |
+| **Vercel** | requisições, logs de função — **incluindo o `t` da mesa, que viaja na query string do `/api/check` e é consultado a cada 4s**, e as linhas `[teto]` quando o teto de cobranças dispara: id da conta, id da **conta de saldo** (pseudônimo, não é o token portador), id da casa, o id da reivindicação (`claim=<uuid>`), a chave de um aviso contido (`alerta:check:<id da conta>:<hash da geração do QR>`), até 80 caracteres da mensagem quando uma reivindicação ou leitura do aviso falha, **o texto inteiro do aviso ao fundador** (id da conta e da casa, nome da casa, rótulo da mesa) quando a ponte de aviso falha ou não tem segredo, e, quando a devolução de uma vaga falha, até 80 caracteres da mensagem de erro do banco — nenhum IP, telefone ou nome | hospedagem; as linhas `[teto]` são controle de abuso por interesse legítimo (LGPD arts. 7º IX e 10) | EUA/edge |
 | **Pagar.me** (`api.pagar.me`) | CPF do pagador quando informado, `payerLabel` dentro da descrição da cobrança (`Racha <label>`), valor, split | criar a cobrança Pix/cartão e liquidar direto pra casa | Brasil |
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
 | **Google Pay** (`pay.google.com`) | o que a folha da carteira do sistema operacional troca com o Google | botão de carteira — **só em casa que o servidor declarou `acceptsWallet`** | Google |
 | **Saipos** (`order-api.saipos.com`) | id da loja, id da conta, valores | ler a conta do PDV e escrever a baixa | Brasil |
 | **Olímpia / Seatable** (`seatable.one`, `RACHA_NOTIFY_URL`) | **cinco caminhos**, ver abaixo | avisos de operação e radar de vendas | Brasil — **e daí pra fora, ver as duas linhas seguintes** |
-| **Resend** (suboperador da Olímpia) | o TEXTO do alerta de fundador: `txid`, `checkId`, valor, e nomes de casa em achado de conciliação | entregar o alerta por e-mail | EUA |
+| **Resend** (suboperador da Olímpia) | o TEXTO do alerta de fundador: `txid`, `checkId`, valor, e nomes de casa em achado de conciliação; no **aviso de teto disparado** e nos **avisos de suspensão**, id e nome da casa, rótulo da mesa e `checkId` — dado de empresa e o id de conta da mesa, que é **dado pessoal pseudônimo** (resolve pros pagamentos dela; ver o livro de vagas abaixo); nenhum outro dado do cliente | entregar o alerta por e-mail | EUA |
 | **Meta — WhatsApp Cloud API** (suboperador da Olímpia) | o mesmo texto, exceto rotina (batida e `retention_ok`, que vão só por e-mail) | entregar o alerta por WhatsApp | EUA |
 
 **Sobre a última linha, com precisão.** A primeira versão desta seção listava
@@ -71,7 +73,7 @@ dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
 |---|---|
 | `notifyOwnerRecipientStatus` | `venueName`, `ownerEmail`, `ownerPhone`, `status`, `previousStatus`, `reason`, `pspRecipientId` |
 | `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail`. Os `kind` são disputa e estorno (`dispute_opened`, `dispute_updated`, `dispute_funds`, `dispute_lost`, `account_alert`, `unusable_money_event`, `refund_failed`) mais os três da retenção (`retention_ok`, `retention_blocked`, `retention_late`), que levam só CONTAGENS — sem txid, sem casa |
-| `notifyFounderReconcile` | o texto do alerta: nomes de casa e desvio por casa |
+| `notifyFounderReconcile` | o texto do alerta: nomes de casa, desvio por casa e a mensagem do pior achado de cada casa — valores em centavos; o id do pagamento de um `paid_after_close` fica no painel, fora da mensagem |
 | `notifyFounderActivationRadar` | o resumo do radar de ativação |
 | `notifyPreviaBeacon` | `{token, event}` do lead da Olímpia |
 
@@ -100,6 +102,9 @@ produtos sem consentimento, e o mesmo vale pro login compartilhado da linha de
 cima. Enquanto não estiver no DPA (lacuna 4), o que existe é uma prática sem
 instrumento. A alternativa técnica é mandar alerta de fundador por um canal que
 não seja o outro produto.
+
+
+**O livro de vagas do teto (`charge_slots`, migração 0033).** Uma linha por **cobrança em que o adquirente foi chamado** — duas numa recarga de saldo (uma pela casa, uma pela conta) — mais uma linha de alerta por conta (e geração do QR) ou casa cujo teto disparou, e os contadores diários de alertas (por casa e no total). A linha **fica além dos quinze minutos** da contagem: até a mesma chave ser reivindicada de novo ou até o expurgo diário. Chaves: `check:<id>:<geração do QR>` (a geração é hash de um token aleatório, não o token), `account:<id>` e `venue:<id>`, com janela de 15 minutos; `alerta:check:<id>:<geração>`, `alerta:venue:<id>`, `alerta:suprimido:venue:<id>:<mesa|recarga>` e `alerta:suprimido:resumo`, com janela de 6 horas; `alerta:impressao:<md5>`, com janela de uma hora; e os contadores `alerta-dia:venue:<id>:mesa`, `alerta-dia:venue:<id>:recarga`, `alerta-dia:global` e `alerta-dia:suspensoes`, com janela de um dia — **nenhum IP, telefone ou nome**. O id de conta de saldo é **pseudônimo, e é dado pessoal** — e o id de conta da mesa também: ele resolve pros pagamentos dela e, por uns meses, pro rótulo de quem pagou (o critério que faz do `txid` dado pessoal em `retencao.md`). **Prazo:** cada linha carrega a própria janela, e fica até a mesma chave ser reivindicada de novo ou até o **expurgo diário** (`purge_expired_personal_data`, que apaga a linha que passou da janela dela e pagina se parar). As de cobrança e recarga — onde está o id de conta — ficam **até cerca de 24 horas**; as de aviso — que carregam o id de conta da mesa, também pseudônimo — até cerca de 48; ver `retencao.md`. **Base:** legítimo interesse de prevenção a fraude e abuso (arts. 7º IX e 10). O teste de balanceamento, pelo mesmo critério pedido ao `check_views`: a finalidade é impedir que um token de mesa fotografado emita cobranças sem limite contra o recebedor da casa; o dado é o mínimo que a conta exige (um id, sem conteúdo); a expectativa do titular é razoável (é o mesmo id que já está na cobrança dele); e o prazo é o menor que o controle permite. A alternativa que separaria um atacante da mesa — guardar uma chave de ORIGEM, ainda que em hash de IP — foi considerada e **não** adotada, e não pela LGPD, que a permitiria: ela não funcionaria onde importa (no wi-fi do salão atacante e mesa são o mesmo NAT; no NAT das operadoras móveis um IP novo sai no modo avião).
 
 ## 3. O que deliberadamente NÃO sai e NÃO fica
 
@@ -241,6 +246,7 @@ que ninguém tinha feito sobre o `@stripe/stripe-js`.
 
 - `@supabase/supabase-js` — **fala com fora**: nosso banco e nosso auth.
 - `stripe` (servidor) — **fala com fora**: cria PaymentIntent, lê a conta conectada.
+- `@vercel/functions` — **não fala com fora**: só o `waitUntil`, que pede à plataforma que espere o aviso de teto depois de a resposta sair (o aviso em si sai pela ponte, já mapeada acima). As partes do pacote que falam com a Vercel — cache, purga, OIDC — não são usadas.
 - `@stripe/stripe-js` — **fala com fora, e no import**: por isso só entra por
   `/pure`, e só depois de `loadStripe(PK)`.
 - `@stripe/react-stripe-js` — **não fala sozinho**: são componentes React em
@@ -277,8 +283,18 @@ estiver no enquadramento.
 E **o consentimento vem da pessoa errada.** Quem cola a chave consente por si;
 os titulares são as OUTRAS pessoas da mesa, cujos nomes foram digitados e cujos
 pedidos estão na foto. Consentimento do art. 8º é pessoal e específico, e o dono
-do aparelho não o fornece por elas. A tela de Ajustes informa modo e custo, e
-nada sobre quem recebe o quê.
+do aparelho não o fornece por elas.
+
+**A tela de Ajustes informava modo e custo, e nada sobre quem recebe o quê** —
+esta frase ficou escrita aqui, no documento, de 2026-09-11 a 2026-09-13, que é
+o tempo que uma lacuna sobrevive quando o lugar onde ela está anotada não é o
+lugar onde ela precisa ser consertada. Fechada em `SettingsSheet.swift`: ao
+lado de cada campo de chave, quem recebe, o quê, e em que país. O art. 9º pede
+a informação ANTES da decisão, e a decisão é colar a chave — numa página de
+política ela chega tarde. A frase sobre consentir pela mesa inteira também
+está na tela, em tinta mais clara que o resto, porque é a parte que o dono do
+aparelho precisa ler. **O que continua valendo é o parágrafo abaixo: informar
+não é consentir, e quem consentiu não é titular do que sai.**
 
 Então o que torna isto aceitável HOJE não é ser opt-in: é que ninguém fora do
 fundador roda o app com chave. O gatilho pra rever não é "o dia em que a chave

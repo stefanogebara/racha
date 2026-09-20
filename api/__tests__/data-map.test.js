@@ -51,6 +51,13 @@ function deps(pkgRelativo) {
  * sobe: o servidor, o cliente, a casca do cliente, o protótipo publicado em
  * `/ios` e o app nativo.
  *
+ * COM UMA EXCEÇÃO, e ela é a segunda metade do mesmo incidente. `ios/lab/app.html`
+ * não é rascunho: é a FONTE de onde o `build.js` compila o `racha-ios.html` que
+ * a produção serve. A Google Fonts foi tirada do ARTEFATO à mão e continuou na
+ * fonte — um `node ios/lab/build.js` a republicaria, e este censo teria dito
+ * que estava tudo certo porque olhava só o gerado. Um conserto que o censo
+ * aprova e o build desfaz é pior que nenhum. Fonte de arquivo publicado ANDA.
+ *
  * `apps/web/public` ANDA, e os artefatos COPIADOS pra lá ficam de fora — não
  * porque não importem, mas porque a FONTE deles já é censurada e um censo cujo
  * resultado depende de ter rodado build antes é um censo que responde
@@ -61,7 +68,7 @@ function deps(pkgRelativo) {
 const ANDA_EM = ['api', 'apps/web/src', 'apps/web/public', 'ios/Racha'];
 /** Copiados pelo `embed-ios.mjs` no prebuild; a fonte deles está em `ios/`. */
 const COPIADOS = /^(ios\.html|img|carved|ios-fonts)$/;
-const ARQUIVOS_SOLTOS = ['apps/web/index.html', 'ios/racha-ios.html', 'vercel.json'];
+const ARQUIVOS_SOLTOS = ['apps/web/index.html', 'ios/racha-ios.html', 'ios/lab/app.html', 'vercel.json'];
 const EXTENSOES = /\.(js|mjs|ts|tsx|html|css|swift|json)$/;
 
 function fontes(dir, out = []) {

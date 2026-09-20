@@ -4,7 +4,7 @@
   "private": true,
   "description": "Racha — pay-at-table for Brazil. QR na mesa, vê a conta, racha, paga com Pix.",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "test": "npx jest && npm run test:web",
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.7",
+    "@vercel/functions": "^3.9.7",
     "stripe": "^22.3.2"
   }
 }

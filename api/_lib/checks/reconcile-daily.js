@@ -35,6 +35,23 @@ const RANK = { ok: 0, info: 1, high: 2, critical: 3 };
 const LEVELS = ['ok', 'info', 'high', 'critical'];
 
 /** O pior de dois níveis, por nome. */
+/**
+ * O ENDEREÇO QUE O ÓRFÃO CARREGA — e ele não é sempre uma conta de mesa.
+ *
+ * `split(':')[0]` valia pra `<checkId>:<n>:<n>:<n>`. Quando o carregamento de
+ * saldo passou pelo mesmo portão, o `orderCode` dele virou
+ * `hload:<accountId>:<uuid>` — e a linha passou a paginar o plantão com o
+ * literal `conta hload`, que é a mesma "rótulo que afirma em vez de dizer a
+ * verdade" que a exigência de UUID veio encerrar. Achado pela oitava revisão de
+ * compliance (2026-09-19, MEDIUM-1).
+ */
+function enderecoDoOrfao(orderCode) {
+  if (!orderCode) return null;
+  const partes = String(orderCode).split(':');
+  if (partes[0] === 'hload') return partes[1] ? `conta-da-casa ${partes[1]}` : null;
+  return `conta ${partes[0]}`;
+}
+
 function worse(a, b) {
   return LEVELS[Math.max(RANK[a] || 0, RANK[b] || 0)];
 }
@@ -169,9 +186,32 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
     }
   }
 
-  // Ausência de PSP por outro motivo — um chamador que não tem adquirente
-  // (store de memória, conciliação só de carteira) — é silêncio legítimo: não
-  // houve decisão de desligar nada.
+  /**
+   * Ausência de PSP por outro motivo — um chamador que não tem adquirente (store
+   * de memória, conciliação só de carteira) — é silêncio legítimo: não houve
+   * decisão de desligar nada.
+   *
+   * E NÃO HÁ GUARDA AQUI PRO ADAPTADOR SEM PERNA DE REPASSE. Eu escrevi uma na
+   * rodada doze (`payables_leg_missing`) e ela era INALCANÇÁVEL: o `psp` daqui é
+   * o adaptador único do processo, que em produção é a Pagar.me — e ela TEM
+   * `listChargePayables`. A guarda nunca dispararia, nem pra casa que cobra por
+   * outro trilho (compliance MEDIUM-D da rodada treze).
+   *
+   * O caso REAL de hoje — uma casa que cobra por outro trilho num processo cuja
+   * Pagar.me tem a perna — já é coberto, e melhor: a cobrança cai em
+   * `foraDoAdquirente` mais abaixo e vira `charge_not_from_acquirer`, `high`,
+   * uma por casa com a contagem. O que estava errado ali era a FRASE, não a
+   * existência — ela dizia que a cobrança "não passou pelo adquirente", e uma
+   * cobrança da Stripe passou por um; só não por este. Corrigida.
+   *
+   * O QUE NÃO ESTÁ COBERTO, e fica dito: um processo cujo adaptador ÚNICO não
+   * tenha a perna. Aí o `return []` acima é indistinguível de "conferi e está
+   * tudo certo", e nada avisa. Hoje é impossível (produção exige
+   * `RACHA_PSP=pagarme`, que tem a perna), e é por isso que a guarda que eu
+   * escrevi era inalcançável — mas é o parágrafo que alguém lê no dia em que a
+   * Espanha for ligada com outro adaptador, e ele não pode dizer que está
+   * coberto (segurança LOW-3 da rodada catorze).
+   */
   if (!psp || typeof psp.listChargePayables !== 'function') return [];
   if (typeof store.listRecentConfirmedCharges !== 'function') return [];
 
@@ -311,8 +351,9 @@ async function reconcilePayablesLeg(store, psp, venue, opts = {}) {
     achados.push({
       severity: 'high',
       code: 'charge_not_from_acquirer',
-      message: `${foraDoAdquirente.length} cobrança(s) desta casa não passaram pelo adquirente`
-        + ' — não existe recebível a conferir e o destino delas não é conferível por aqui',
+      message: `${foraDoAdquirente.length} cobrança(s) desta casa não passaram por ESTE adquirente`
+        + ` (${psp.provider || 'sem provider'}) — ou são de outro trilho, ou nunca passaram por adquirente nenhum;`
+        + ' de qualquer jeito não há recebível a conferir aqui e o destino delas não é conferível por esta perna',
       txids: foraDoAdquirente.slice(0, 10),
       charges: foraDoAdquirente.length,
     });
@@ -768,8 +809,24 @@ function formatReconcileAlert(report) {
     : '';
   const linhaOrfaos = orfaos > 0
     ? `\n\n${orfaos} evento(s) de dinheiro SEM conta correspondente: `
+      /**
+       * O VALOR e o ENDEREÇO, além do tipo e do txid.
+       *
+       * A linha dizia `money_without_check ch_x` e mais nada: quem lesse o aviso
+       * às quatro da manhã não sabia QUANTO nem de QUAL mesa, e tinha que abrir
+       * o painel do adquirente pra descobrir as duas coisas. Qual campo do
+       * `orderCode` é o endereço depende da FORMA dele — ver
+       * `enderecoDoOrfao`, que existe porque o carregamento de saldo
+       * (`hload:<conta>:<uuid>`) não tem conta de mesa nenhuma.
+       * Achado pela quarta revisão de compliance de 2026-09-16 (HIGH-2).
+       */
       + (report.orphans || []).slice(0, 5)
-        .map((o) => `${o.kind}${o.txid ? ` ${o.txid}` : ''}`).join(', ')
+        .map((o) => [
+          o.kind,
+          o.txid || null,
+          Number.isFinite(o.amountCents) ? `${o.amountCents}¢` : null,
+          enderecoDoOrfao(o.orderCode),
+        ].filter(Boolean).join(' ')).join(', ')
     : '';
   if (report.venuesRed === 0) {
     return `Conciliação ${report.at.slice(0, 10)}: restaurantes ok.${linhaOrfaos}${linhaReparos}${linhaPlataforma}`;
@@ -794,8 +851,21 @@ function formatReconcileAlert(report) {
     // O ESTOURO vem antes de um `info`: sem `critical`/`high` de verdade, uma
     // corrida perdida virava manchete de uma casa cujo dinheiro não pôde ser
     // conferido. `info` é o último recurso, não o penúltimo.
-    const pior = reais.find((f) => f.severity === 'critical')
-      || reais.find((f) => f.severity === 'high')
+    // E, na mesma gravidade, o que NÃO é `paid_after_close` primeiro: um
+    // pagamento atrasado de um centavo numa conta mais velha nomeava a linha da
+    // casa no lugar do prazo de prova de uma disputa (segurança LOW-1 e
+    // compliance LOW-A de 497bf87).
+    // E um PRAZO DE DISPUTA vem antes de um pago-depois-de-fechar que envelheceu
+    // pra critical: a disputa perde dinheiro por inação num prazo, a pergunta do
+    // caixa não (compliance LOW-1 de 41d1244).
+    const PERGUNTAS = new Set(['paid_after_close', 'paid_after_close_tip']);
+    const naGravidade = (sev) => reais.find((f) => f.severity === sev && !PERGUNTAS.has(f.code))
+      || reais.find((f) => f.severity === sev);
+    const prazo = reais.find((f) => f.code === 'dispute_evidence_overdue' || f.code === 'dispute_evidence_due');
+    const pior = reais.find((f) => f.severity === 'critical' && !PERGUNTAS.has(f.code))
+      || prazo
+      || naGravidade('critical')
+      || naGravidade('high')
       || estouro
       || reais[0];
     const drift = v.driftCents ? ` · drift ${(v.driftCents / 100).toFixed(2).replace('.', ',')}` : '';

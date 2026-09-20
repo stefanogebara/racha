@@ -103,7 +103,7 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
     setError('');
     try {
       const { error: submitError } = await elements.submit();
-      if (submitError) { setError(submitError.message || t('card.validateFail')); setBusy(false); return; }
+      if (submitError) { setError(t('card.validateFail')); setBusy(false); return; }
 
       const intent = await api.stripeIntent(token, amountCents, tipCents, payerLabel, undefined, 'bizum');
 
@@ -115,7 +115,7 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
         confirmParams: { return_url: urlDeVolta() },
         redirect: 'if_required',
       });
-      if (confirmError) { setError(confirmError.message || t('card.incomplete')); setBusy(false); return; }
+      if (confirmError) { setError(t('card.incomplete')); setBusy(false); return; }
 
       // Espera é o caso NORMAL, e a lista é de FRACASSO, não de sucesso — ver
       // `bizumStatus.ts`. A API real devolve `requires_action` aqui, e a versão
@@ -193,7 +193,7 @@ function BizumInner({ token, amountCents, tipCents, payerLabel, amountLabel, onA
       <button className="cta" disabled={busy} onClick={onConfirm}>
         {busy ? t('pix.simulating') : t('pay.ctaBizum', { amount: amountLabel })}
       </button>
-      {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
     </div>
   );
 }

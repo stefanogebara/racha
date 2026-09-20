@@ -1,5 +1,7 @@
 'use strict';
 
+const { documentoPublicavelDaCasa } = require('./br/documento.js');
+
 /**
  * Os mercados: Brasil e Espanha.
  *
@@ -107,8 +109,13 @@ const DEFAULT_MARKET = 'br';
  * exatamente o caminho provável de um piloto às pressas. A apresentação
  * continua funcionando (a tela é revisável), o dinheiro não.
  *
- * É o mesmo desenho do `CRON_SECRET` na revisão #37: o estado "não configurado"
- * não é permissivo, é recusa.
+ * É o mesmo desenho do `CRON_SECRET`: o estado "não configurado" não é
+ * permissivo, é recusa. (O que MUDOU de lá pra cá, em 2026-09-14, é quem
+ * avisa: a rota fecha e grita no log, e o canário do inegociável #8 passou a
+ * morar no `scripts/deploy.mjs`, que aborta o deploy antes de publicar. A
+ * rota paginava de dentro do ramo SEM autenticação, o que a transformava em
+ * megafone pra quem quisesse. O desenho que este comentário cita — fechar em
+ * vez de degradar — é o que continua valendo.)
  */
 function esEnabled() {
   return process.env.RACHA_ES_ENABLED === 'true';
@@ -153,9 +160,19 @@ function market(code) {
  * linha de serviço, e é 0 quando não tem: o dono pode ter deixado 1000 no
  * cadastro e a conta em Madrid ainda assim não cobra serviço.
  */
-function publicMarketView(code, { servicoBp = 0 } = {}) {
+function publicMarketView(code, { servicoBp = 0, cnpj = null } = {}) {
   const m = market(code);
-  const hasService = m.serviceCharge.mode !== 'none';
+  // A LINHA DE SERVIÇO SÓ APARECE ONDE PODE SER COBRADA.
+  //
+  // O `marketGate` recusa a gorjeta sem documento de empresa provado — e a
+  // tela seguia oferecendo: o cliente via o serviço pré-selecionado, somado
+  // no total, tocava em pagar e levava a recusa. A cobrança não acontece,
+  // então não é oferta descumprida; mas é um total mostrado que a casa não
+  // pode receber, e um beco sem saída no caminho PADRÃO é como um piloto
+  // conclui que o produto está quebrado. Mesma regra, mesmo lugar: quem não
+  // pode cobrar não oferece. Achado pela revisão de compliance de 2026-09-13.
+  const podeCobrarServico = !!documentoPublicavelDaCasa(code, cnpj, true);
+  const hasService = m.serviceCharge.mode !== 'none' && podeCobrarServico;
   return {
     // `servicoBp` cru NÃO viaja: mandar 1000 ao lado de `serviceCharge.bp: 0`
     // são duas verdades no mesmo payload, e o próximo cliente que ler o campo
@@ -166,7 +183,13 @@ function publicMarketView(code, { servicoBp = 0 } = {}) {
     defaultLang: m.defaultLang,
     rails: [...m.rails],
     serviceCharge: {
-      mode: m.serviceCharge.mode,
+      // O MODO também. Zerar só o `bp` deixava `mode: 'preselected'` ao lado
+      // de `bp: 0`, e é o MODO que o cliente lê pra decidir se mostra a linha
+      // (`App.tsx`: `hasServiceLine = mode !== 'none'`): a casa sem documento
+      // provado ganhava uma caixa marcada dizendo "Serviço da equipe (0%)"
+      // que não soma nada. São as duas verdades no mesmo payload que o
+      // comentário do `servicoBp`, três linhas acima, existe pra proibir.
+      mode: hasService ? m.serviceCharge.mode : 'none',
       bp: hasService ? Number(servicoBp) || 0 : 0,
     },
     payerTaxId: { required: m.payerTaxId.required, kind: m.payerTaxId.kind },
@@ -239,7 +262,7 @@ function showsVenueTaxId(code) {
  * A ordem importa: o interruptor do mercado vem PRIMEIRO. Um mercado que não
  * está no ar não deve nem explicar que o trilho está errado.
  */
-function marketGate(code, { rail, amountCents, tipCents = 0 } = {}) {
+function marketGate(code, { rail, amountCents, tipCents = 0, venue = null } = {}) {
   const live = chargingAllowed(code);
   if (live) return live;
   if (!supportsRail(code, rail)) return { code: 'rail_unsupported' };
@@ -248,6 +271,34 @@ function marketGate(code, { rail, amountCents, tipCents = 0 } = {}) {
   // gorjeta também é renda tributável do empregado, e não há folha nossa).
   if (market(code).serviceCharge.mode === 'none' && tipCents > 0) {
     return { code: 'tip_not_supported' };
+  }
+  // ── SERVIÇO SÓ ONDE HÁ PESSOA JURÍDICA PRA DISTRIBUIR ────────────────────
+  //
+  // Mora AQUI, e não no `create-charge`, porque `create-charge` não é o funil
+  // — é UM dos funis. O `POST /api/pay/stripe-intent` monta a cobrança sozinho
+  // e chama o adaptador direto, então a regra posta lá valia no Pix e na
+  // carteira Pagar.me e não valia no cartão: a mesma casa, a mesma gorjeta,
+  // duas respostas, com o trilho escolhido por quem se cansou do QR.
+  //
+  // O comentário desta função já contava essa história de 2026-09-07 — quatro
+  // regras copiadas em dois lugares e uma ficou pra trás — e a quinta regra
+  // nasceu solta do mesmo jeito. Aqui passa todo mundo.
+  // `venue == null` RECUSA, não libera. Era `tipCents > 0 && venue && !doc` —
+  // a forma `if (thing && !ok)` que o inegociável #7 nomeia, dentro da função
+  // escrita pra fechar o #7. Com gorjeta e sem venue não há o que conferir, e
+  // a resposta certa pra "não sei" é não. Achado pelas duas revisões.
+  // O QUE ESTE PORTÃO NÃO ALCANÇA, dito aqui pra não parecer completo: ele
+  // separa gorjeta de consumo pelo que o CLIENTE declara. Um cliente
+  // modificado que dobre o serviço dentro de `amountCents` liquida como
+  // consumo, e o servidor não tem como distinguir — o dinheiro cai no mesmo
+  // recebedor e a reconciliação fecha, mas o valor deixa de ser SINALIZADO
+  // como gorjeta no relatório que o inegociável #2 promete à casa pra
+  // distribuição por folha. Nenhuma oferta falsa é feita (o
+  // `pix.includesTip` depende de `tipCents > 0`), então não há exposição do
+  // CDC art. 30 — o que se perde é a rastreabilidade da Lei 13.419/2017.
+  // Apontado pela revisão de segurança de 2026-09-13.
+  if (tipCents > 0 && !documentoPublicavelDaCasa(venue?.market || code, venue?.cnpj, true)) {
+    return { code: 'venue_no_tip_document' };
   }
   return checkChargeLimits(code, amountCents + tipCents);
 }

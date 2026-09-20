@@ -47,6 +47,15 @@ export interface CheckView {
      *  Ver `api/_lib/checks/public-state.js`. */
     anomalies: number;
     /**
+     * Os pagamentos da mesa, pelo ordinal (`p1`, `p2`) e SEM o id do adquirente.
+     * `ref` é o sha256 do txid em doze hex: o telefone reconhece o PRÓPRIO
+     * pagamento sem conhecer o de ninguém (ver `pagamento-ref.ts`).
+     */
+    payments?: Record<string, {
+      ref?: string; amountCents: number; tipCents: number;
+      refundedAmountCents: number; refundedTipCents: number; late: boolean;
+    }>;
+    /**
      * Avisos DO CLIENTE sobre o próprio dinheiro: código estável + centavos, a
      * traduzir e formatar aqui (o servidor nunca manda texto de erro nem
      * dinheiro formatado). Nada da postura da casa entra nesta lista —
@@ -96,7 +105,8 @@ export interface HouseLedgerEntry {
 }
 
 export interface HouseAccountView {
-  venue: { name: string };
+  /** `demo`: só a casa de demonstração mostra o botão de simular a confirmação. */
+  venue: { name: string; demo?: boolean };
   config: { bonusBp: number; validityDays: number };
   account: {
     name: string;
@@ -131,6 +141,26 @@ export interface HouseRedeemResult {
 export interface Venue {
   id: string; name: string; city: string | null; servicoBp: number;
   pspRecipientId: string | null;
+  /**
+   * O documento da casa. Vem só na visão AUTENTICADA do dono (`/api/tables`);
+   * pro cliente ele passa por `documentoPublicavelDaCasa`, que confere o valor
+   * além do mercado. Nulo é legítimo — e desde 2026-09-13 é também o que
+   * desliga a cobrança do serviço, então o painel avisa.
+   */
+  cnpj?: string | null;
+  /**
+   * A casa pode cobrar serviço? Vem CALCULADO pelo servidor, com o mesmo
+   * predicado do portão do dinheiro (`documentoPublicavelDaCasa`). O painel
+   * perguntava `!venue.cnpj` e o portão perguntava outra coisa: casa com CPF
+   * ou com dígito trocado não via aviso e seguia sem arrecadar.
+   */
+  //
+  // OBRIGATÓRIO de propósito: com `?`, qualquer caminho novo que alimente o
+  // painel sem o campo faz o aviso de "esta casa não pode cobrar serviço"
+  // sumir em silêncio, em vez de aparecer. Degradar aberto num aviso é o
+  // mesmo defeito do guarda que degrada aberto. Ausência tem que ser erro de
+  // tipo. Apontado pela revisão de segurança de 2026-09-13.
+  podeCobrarServico: boolean;
   /** br | es — decide o trilho, a moeda e QUAL tela de recebimento aparece. */
   market?: 'br' | 'es';
 }

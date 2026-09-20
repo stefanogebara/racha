@@ -42,6 +42,13 @@ const A_PONTE_ACEITA = new Set([
   'reconcile_drift', 'reconcile_heartbeat',
   'dispute_opened', 'dispute_updated', 'dispute_funds', 'dispute_lost',
   'account_alert', 'unusable_money_event', 'refund_failed',
+  // ⚠️ `money_without_check` foi acrescentado do lado da Racha em 2026-09-16 e
+  // PRECISA ser aceito em `restaurant-ai-mcp/api/racha-notify.js` — os dois
+  // lados deployam separado. Enquanto a ponte não o aceitar, o aviso é recusado
+  // lá e o evento segue DURÁVEL aqui (`orphan_money_events`), porque o
+  // `needsRetry` depende do registro e não do aviso. Ou seja: some o alerta,
+  // não o dinheiro.
+  'money_without_check',
   'retention_ok', 'retention_blocked', 'retention_late',
 ]);
 

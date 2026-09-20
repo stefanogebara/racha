@@ -1,6 +1,6 @@
 
 import { useT } from './lang';import { useEffect, useState } from 'react';
-import { api, ApiError, type ChargeResult } from './api';
+import { api, type ChargeResult } from './api';
 
 /**
  * Apple Pay / Google Pay — cobrança de CARTÃO tokenizada pelo mesmo portão de
@@ -33,10 +33,27 @@ const GPAY_MERCHANT_ID = (import.meta.env.VITE_GOOGLE_PAY_MERCHANT_ID) || '';
 /// keys are listed rather than matched by prefix so the dictionary's Key union
 /// still checks the lookup — a renamed key becomes a compile error here instead
 /// of a raw "card.gpayFail" on someone's screen.
-function asMessage(t: (k: 'card.gpayFail' | 'card.gpayOut') => string, e: unknown): string {
+/**
+ * O erro vira frase: por CÓDIGO quando o servidor manda um, e pela chave
+ * interna nos dois casos que nascem aqui na tela.
+ *
+ * Isto devolvia `e.message` CRU quando não era um dos dois casos locais — ou
+ * seja, todo erro do servidor chegava ao cliente na mesa como a frase interna
+ * em inglês. Passou despercebido enquanto os erros deste trilho eram genéricos;
+ * ficou visível quando o `charge_maybe_captured` nasceu, que é justamente o que
+ * mais precisa ser LIDO: o cartão pode ter sido cobrado.
+ *
+ * `tErr` é o tradutor por código que o resto da plataforma usa (CLAUDE.md: o
+ * servidor manda código, o cliente escolhe a língua).
+ */
+function asMessage(
+  t: (k: 'card.gpayFail' | 'card.gpayOut') => string,
+  tErr: (e: unknown) => string,
+  e: unknown,
+): string {
   const raw = (e as Error).message || '';
   if (raw === 'card.gpayFail' || raw === 'card.gpayOut') return t(raw);
-  return raw;
+  return tErr(e);
 }
 
 // pay.js é singleton — carrega uma vez por página.
@@ -119,11 +136,22 @@ export default function WalletButtons({
    */
   onPaid: (charge: ChargeResult) => void;
 }) {
-  const { t, brl } = useT();
+  const { t, brl, tErr } = useT();
   const real = REAL && !simulated && acceptsWallet;
   const [sheet, setSheet] = useState<Wallet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * O BOTÃO DESARMA quando a cobrança pode ter passado.
+   *
+   * O adquirente captura o cartão antes de a nossa linha existir; se a escrita
+   * falha, a resposta vem com `charge_maybe_captured`. Deixar o botão armado
+   * ali é convidar a segunda cobrança (CDC art. 42) — e a pessoa, lendo "não
+   * conseguimos registrar", tem todo motivo pra tocar de novo. Só a conta
+   * atualizando (ou o balcão) resolve, e as duas coisas acontecem fora desta
+   * tela.
+   */
+  const [travado, setTravado] = useState(false);
   const [gpayReady, setGpayReady] = useState(false);
   const cpfDigits = payerDocument.replace(/\D/g, '');
 
@@ -141,12 +169,29 @@ export default function WalletButtons({
 
   async function settle(wallet: Wallet, paymentToken: string, payerDocument?: string) {
     const charge = await api.payWallet(token, amountCents, tipCents, payerLabel, wallet, paymentToken, payerDocument);
+    /**
+     * DAQUI PRA BAIXO O CARTÃO JÁ FOI CAPTURADO. Nada pode lançar.
+     *
+     * `devConfirm` é uma conveniência de DEMO — em produção a rota não existe e
+     * a confirmação chega pelo webhook `charge.paid`. Mas o `catch` só engolia
+     * 404, e uma falha de REDE rejeita sem `status` nenhum (`api.ts`: "falha de
+     * rede rejeita aqui, sem status"), então `undefined !== 404` relançava: o
+     * `onPaid` não rodava, a tela mostrava "algo deu errado, tente de novo" e o
+     * botão do Google Pay ficava ARMADO sobre um cartão capturado. O `travado`
+     * também não salvava, porque o código não era `charge_maybe_captured`.
+     *
+     * É o convite à segunda cobrança (CDC art. 42 § único) que este branch
+     * inteiro existe pra remover, alcançado pela linha DEPOIS da cobrança em
+     * vez da linha antes. E o servidor não segura: até o webhook chegar, o
+     * `remaining` não mudou, então o segundo toque é uma segunda captura pelo
+     * valor cheio. Achado pela sétima revisão de compliance (2026-09-19).
+     *
+     * Uma afordância de demo não pode ter poder de reprovar um pagamento real.
+     */
     try {
       await api.devConfirm(charge.txid); // demo: confirma na hora
-    } catch (e) {
-      // PSP real: /api/dev/confirm não existe (404) — a confirmação chega
-      // pelo webhook charge.paid e o polling da conta atualiza o progresso.
-      if ((e as ApiError).status !== 404) throw e;
+    } catch {
+      // Qualquer falha aqui é irrelevante pro pagamento: ele já aconteceu.
     }
     onPaid(charge);
   }
@@ -175,7 +220,8 @@ export default function WalletButtons({
       await settle('google_pay', data.paymentMethodData.tokenizationData.token, cpfDigits);
     } catch (e) {
       const status = (e as { statusCode?: string }).statusCode;
-      if (status !== 'CANCELED') setError(asMessage(t, e)); // fechar a sheet não é erro
+      if (status !== 'CANCELED') setError(asMessage(t, tErr, e)); // fechar a sheet não é erro
+      if ((e as { code?: string }).code === 'charge_maybe_captured') setTravado(true);
     } finally {
       setBusy(false);
     }
@@ -190,7 +236,11 @@ export default function WalletButtons({
       await settle(wallet, paymentToken);
       setSheet(null);
     } catch (e) {
-      setError(asMessage(t, e));
+      setError(asMessage(t, tErr, e));
+      // Na demo o dinheiro é de mentira, mas o estado é lido pelo MESMO botão
+      // quando o build é real — deixar o `set` aqui e a leitura só lá era um
+      // estado posto em dois lugares e lido em um (LOW-3 da quarta revisão).
+      if ((e as { code?: string }).code === 'charge_maybe_captured') setTravado(true);
     } finally {
       setBusy(false);
     }
@@ -200,17 +250,44 @@ export default function WalletButtons({
     if (!gpayReady) return null; // device sem Google Pay → fica o Pix (e o saldo)
     return (
       <>
+        {/* O BOTÃO NÃO FICA CINZA EM SILÊNCIO — inclusive quando `travado`:
+            ali ele fica cinza PORQUE o parágrafo abaixo diz que o cartão pode
+            já ter sido cobrado. Cinza com o motivo escrito é o oposto de cinza
+            em silêncio; o que não pode é ele continuar tocável sobre uma
+            captura que talvez já tenha acontecido (CDC art. 42).
+
+            O BOTÃO NÃO FICA CINZA EM SILÊNCIO.
+            Sem CPF ele era desabilitado sem uma palavra — o modo de falha que a
+            tela da conta já tinha consertado pro Pix ("ficava cinza em silêncio
+            e parecia quebrado"), repetido aqui. Agora ele é tocável e DIZ o que
+            falta, com a mesma frase do Pix, e leva o foco pro campo. */}
         <button
           type="button" className="walletbtn gpay"
-          disabled={disabled || busy || cpfDigits.length !== 11}
-          onClick={realGooglePay}
+          disabled={disabled || busy || travado}
+          onClick={() => {
+            if (cpfDigits.length !== 11) {
+              setError(t('payer.cpfHint'));
+              document.getElementById('cpf-field')?.focus();
+              return;
+            }
+            setError(null);
+            void realGooglePay();
+          }}
         >
           {busy ? t('wallet.authorizing') : 'G Pay'}
         </button>
-        {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+        <p className="muted small" role="alert" style={{ margin: 0 }}>
+          {error && <span style={{ color: 'var(--erro)' }}>{error}</span>}
+        </p>
       </>
     );
   }
+
+  // Os botões de DEMONSTRAÇÃO só na casa de demonstração. Em qualquer outra —
+  // casa sem recebedor de verdade, build sem as chaves — o componente caía aqui e
+  // mostrava Apple Pay e Google Pay que abriam uma folha "simulação (demo)" com
+  // "•••• 4242" pra um cliente de verdade (auditoria de UI, C2).
+  if (!simulated) return null;
 
   // Ordem por plataforma no demo: Apple primeiro em iOS/macOS.
   const isApple = typeof (window as unknown as { ApplePaySession?: unknown }).ApplePaySession !== 'undefined'
@@ -225,14 +302,14 @@ export default function WalletButtons({
             key={w}
             type="button"
             className={`walletbtn ${w === 'apple_pay' ? 'apple' : 'gpay'}`}
-            disabled={disabled}
+            disabled={disabled || travado}
             onClick={() => { setError(null); setSheet(w); }}
           >
             {w === 'apple_pay' ? ' Pay' : 'G Pay'}
           </button>
         ))}
       </div>
-      {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
 
       {sheet && (
         <div className="sheetoverlay" role="dialog" aria-modal="true" aria-label={t('wallet.payWith', { wallet: WALLET_LABEL[sheet] })}>

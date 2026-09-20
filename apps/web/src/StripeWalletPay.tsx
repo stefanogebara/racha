@@ -56,7 +56,7 @@ interface InnerProps {
 function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument, onPaid, onError }: InnerProps) {
   const stripe = useStripe();
   const elements = useElements();
-  const { t } = useT();
+  const { t, tErr } = useT();
   const [busy, setBusy] = useState(false);
 
   async function onConfirm() {
@@ -66,7 +66,14 @@ function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument,
     try {
       // 1) valida/coleta os dados do Element (exigência do deferred flow).
       const { error: submitError } = await elements.submit();
-      if (submitError) { onError(submitError.message || t('card.validateFail')); setBusy(false); return; }
+      // A MENSAGEM DA STRIPE É EM INGLÊS, SEMPRE. `error.message` vem do SDK
+      // dela — "Your card was declined", "Amount must be no less than 0.50
+      // EUR" — e ia crua pra tela de quem está jantando no Brasil. É
+      // exatamente a falha que o `lang.tsx` diz que a conversão de vinte e uma
+      // telas resolveu, sobrevivendo na tela de PAGAMENTO, que é a de maior
+      // aposta do produto. A frase da Stripe fica de RESERVA do nosso código,
+      // não no lugar dele. Achado pela revisão de segurança de 2026-09-13.
+      if (submitError) { onError(t('card.validateFail')); setBusy(false); return; }
       // 2) cria o PaymentIntent no backend (destination charge pro restaurante).
       const intent = await api.stripeIntent(token, amountCents, tipCents, payerLabel, payerDocument || undefined);
       // 3) confirma com a carteira (Apple/Google Pay) ou cartão.
@@ -78,12 +85,12 @@ function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument,
         confirmParams: { return_url: urlDeVolta() },
         redirect: 'if_required', // carteira confirma sem sair da página
       });
-      if (error) { onError(error.message || t('card.incomplete')); setBusy(false); return; }
+      if (error) { onError(t('card.incomplete')); setBusy(false); return; }
       // Os centavos vêm do que foi MANDADO pro intent, não recomputados do
       // elemento: é o valor que a Stripe autorizou.
       onPaid({ amountCents, tipCents }); // o webhook confirma no ledger, o poll mostra o ✓
     } catch (e) {
-      onError((e as Error).message);
+      onError(tErr(e));
       setBusy(false);
     }
   }
@@ -145,7 +152,7 @@ export default function StripeWalletPay({
           onError={setError}
         />
       </Elements>
-      {error && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{error}</p>}
+      {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
     </div>
   );
 }

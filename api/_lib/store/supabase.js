@@ -1,8 +1,23 @@
 'use strict';
 
+const { nomeDaRestricao } = require('./pg-erro');
+
 const { DEFAULT_MARKET, isMarket, publicMarketView, market, showsVenueTaxId } = require('../markets');
+const { documentoPublicavelDaCasa } = require('../br/documento.js');
 const { confirmedMoney } = require('./confirmed-money');
+/**
+ * Erro 400 local — os dois stores precisam do mesmo, e o `http-error.js` só
+ * exporta o mapa de status. Mesma forma do `create-charge.js:25`.
+ */
+function badRequest(msg) {
+  const e = new Error(msg);
+  e.statusCode = 400;
+  return e;
+}
+
 const { disputeCounts } = require('../checks/disputes');
+const { PAPEL_DE_DONO } = require('./papeis');
+const { rotuloDoPagador } = require('../texto-da-casa');
 
 /**
  * Supabase store — the production implementation of the store contract
@@ -21,8 +36,9 @@ const { disputeCounts } = require('../checks/disputes');
  * - psp_payload_masked receives ONLY the masked subset built upstream.
  */
 
-const { createClient } = require('@supabase/supabase-js');
-const { reduce } = require('../checks/check-state');
+const { criarClienteSupabase } = require('./cliente-supabase');
+const { reduce, paidAfterClose } = require('../checks/check-state');
+const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const { RECIPIENT_TERMINAL } = require('../recipient-status');
 
@@ -74,6 +90,12 @@ function throwOn(error, op) {
   if (typeof error.code === 'string' && (SQLSTATE_RE.test(error.code) || PGRST_RE.test(error.code))) {
     e.pgCode = error.code;
   }
+  // O NOME da restrição violada, quando o Postgres o diz. Só forma, como o
+  // código: quem decide o que ele prova é o classificador. Sem isto, QUALQUER
+  // unicidade virava "já registrado" — inclusive a `(check_id, seq)` do razão,
+  // que significaria o oposto (compliance LOW-1 de d7f2683).
+  const nome = nomeDaRestricao(`${error.message || ''} ${error.details || ''}`);
+  if (nome) e.pgConstraint = nome;
   throw e;
 }
 
@@ -124,21 +146,233 @@ function mapHouseAccount(a) {
  *   ver. Achado pela revisão de segurança de 2026-09-08.
  */
 function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
-  const client = injected || createClient(
+  const client = injected || criarClienteSupabase(
     url || required('SUPABASE_URL'),
     serviceRoleKey || required('SUPABASE_SERVICE_ROLE_KEY'),
     { auth: { persistSession: false } },
   );
 
+  /**
+   * As contas FECHADAS entre estas, em leituras por lote de 200 — o evento
+   * CLOSED é o que faz o redutor dizer `fechada` (é o único caminho até ela).
+   *
+   * A versão anterior repassava o razão INTEIRO de cada conta que a casa já
+   * teve, uma leitura por conta, em série: a cada carga do /admin, do /qrs e
+   * depois de cada ação numa mesa. Mil contas a ~120 ms por ida são os 120 s do
+   * `maxDuration`, e o admin parava de carregar semanas depois de a casa
+   * começar (auditoria de onboarding C2, auditoria de backend H3).
+   */
+  async function idsDeContasFechadas(ids) {
+    const fechadas = new Set();
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data, error } = await client
+        .from('check_events').select('check_id')
+        .eq('type', 'CLOSED').in('check_id', ids.slice(i, i + 200));
+      throwOn(error, 'idsDeContasFechadas');
+      for (const r of data || []) fechadas.add(r.check_id);
+    }
+    return fechadas;
+  }
+
+  /**
+   * O RAZÃO DE MUITAS CONTAS, EM LEITURAS POR LOTE.
+   *
+   * `idsDeContasFechadas` já tinha tirado UM laço de leitura-por-conta, e
+   * sobraram quatro — `getPanelView`, `getCheckByQrToken`,
+   * `listChecksForReconcile` e `listHouseAccountsForReconcile`. É o mesmo
+   * conserto pontual que esta casa já viu três vezes pegar um sítio de dois:
+   * a régua certa escrita uma vez não chega sozinha aos outros chamadores.
+   *
+   * ──────────────────────────────────────────────────────────────────────────
+   * POR QUE ISTO PAGINA, E O LOTE DE `idsDeContasFechadas` NÃO PRECISAVA
+   *
+   * O PostgREST corta a resposta num número máximo de linhas (`db-max-rows`;
+   * 1000 no padrão do Supabase) e NÃO avisa — devolve menos linhas com um 200.
+   * `idsDeContasFechadas` seleciona só o evento CLOSED, que é no máximo um por
+   * conta, então um lote de 200 ids traz no máximo 200 linhas e nunca encosta
+   * no corte. Um razão INTEIRO não: 200 contas com 20 eventos cada são 4000
+   * linhas, e o corte devolveria as primeiras 1000 com cara de razão completo.
+   *
+   * Um razão truncado não é um erro de leitura, é um erro de DINHEIRO: o
+   * redutor veria uma conta sem o pagamento que ela recebeu. Então aqui se
+   * pagina por `range` até vir uma página curta, com ordem TOTAL
+   * (`check_id, seq`) — sem ordem total, duas páginas podem repetir e omitir a
+   * mesma linha.
+   * ──────────────────────────────────────────────────────────────────────────
+   *
+   * @param {string[]} ids
+   * @returns {Promise<Map<string, object[]>>} id → eventos em ordem de `seq`.
+   *   Toda conta pedida sai no mapa, mesmo sem eventos — quem chama faz
+   *   `reduce(mapa.get(id))` e um `undefined` viraria um erro em vez de uma
+   *   conta vazia.
+   */
+  const IDS_POR_LOTE = 200;
+  /**
+   * A PÁGINA É MENOR QUE O CORTE DO SERVIDOR, DE PROPÓSITO.
+   *
+   * O laço pára quando uma página vem CURTA. Se a página pedida for do mesmo
+   * tamanho do `db-max-rows` do projeto, "curta" e "cortada" viram a mesma
+   * coisa: baixar o "Max rows" do painel do Supabase pra 500 faria toda página
+   * voltar com 500, o laço leria isso como "acabou", e a conciliação diária
+   * passaria a comparar um razão truncado contra os pagamentos inteiros — e a
+   * dizer que bate. Uma configuração de painel não pode ter esse poder sobre o
+   * inegociável #8.
+   *
+   * Com 500 contra um corte de 1000, uma página cheia (500) prova que há mais,
+   * e uma curta prova que acabou. Se alguém baixar o corte pra menos de 500, o
+   * teto volta a ser ambíguo — por isso o número está aqui, nomeado, e não
+   * embutido no `range`. Achado pela revisão de compliance de 2026-09-16
+   * (MEDIUM-3).
+   */
+  const LINHAS_POR_PAGINA = 500;
+
+  /**
+   * UMA LEITURA PAGINADA. É o único lugar que fala `range` neste arquivo.
+   *
+   * @param {object} p
+   * @param {(de: number, ate: number) => any} p.consulta  monta a query da página.
+   * @param {string} p.op  nome pro erro.
+   * @returns {Promise<object[]>} todas as linhas, em ordem.
+   */
+  /**
+   * O TETO DE PÁGINAS existe porque o laço depende de um CABEÇALHO chegar.
+   *
+   * `range` viaja como `Range: 0-499` + `Range-Unit: items`, e um proxy que
+   * descarte uma unidade de Range que não seja `bytes` faz toda página voltar
+   * inteira: o laço nunca vê uma página curta e gira pra sempre. Medido — tirar
+   * o `.range()` como controle positivo não deixou o teste vermelho, PENDUROU o
+   * runner, sem nem o timeout do jest conseguir matá-lo (o laço mata o event
+   * loop). Em produção a forma é "função morta no `maxDuration`, sem resposta e
+   * sem o `catch`", que é exatamente a falha que o prazo do banco foi escrito
+   * pra apagar. Um laço de rede sem teto é a mesma classe de defeito que uma
+   * chamada sem prazo. Achado pela revisão de segurança de 2026-09-16 (LOW-3).
+   *
+   * 2000 páginas × 500 linhas é um milhão de linhas numa leitura só: muito
+   * acima de qualquer caso real, e finito.
+   */
+  const TETO_DE_PAGINAS = 2000;
+  async function lerPaginado({ consulta, op }) {
+    const tudo = [];
+    for (let pagina = 0; ; pagina += 1) {
+      if (pagina >= TETO_DE_PAGINAS) {
+        throw new Error(`supabase store ${op}: teto de ${TETO_DE_PAGINAS} páginas atingido `
+          + '— o servidor não está honrando o Range, ou a leitura não tem filtro');
+      }
+      const { data, error } = await consulta(pagina * LINHAS_POR_PAGINA, (pagina + 1) * LINHAS_POR_PAGINA - 1);
+      throwOn(error, op);
+      const linhas = data || [];
+      tudo.push(...linhas);
+      if (linhas.length < LINHAS_POR_PAGINA) return tudo;
+    }
+  }
+
+  /**
+   * A leitura por lote, UMA vez. Todo `.in()` que pode trazer muitas linhas por
+   * id passa por aqui — se cada chamador escrevesse a sua, a paginação seria
+   * lembrada em uns e esquecida em outros, que é exatamente como esta casa
+   * ganhou três cópias divergentes do predicado de estorno.
+   *
+   * @param {object} p
+   * @param {string} p.tabela
+   * @param {string} p.colunas  `select` — PRECISA conter `p.coluna`.
+   * @param {string} p.coluna   a coluna do `in` e a chave do mapa.
+   * @param {string[]} p.ids
+   * @param {string[]} p.ordem  ordem TOTAL (a primeira é sempre `p.coluna`).
+   * @param {string} p.op       nome pro erro.
+   */
+  async function lerPorLote({ tabela, colunas, coluna, ids, ordem, op }) {
+    // O CONTRATO VIRA ASSERÇÃO. Era uma frase de JSDoc ("PRECISA conter
+    // `p.coluna`"), e o custo de quebrá-la era mudo: sem a coluna-chave no
+    // `select`, TODA linha cai em `mapa.get(undefined)`, o `if (balde)` abaixo
+    // descarta cada uma, e a função devolve um mapa de listas vazias — sem erro.
+    // Medido: tirar `check_id` do select do razão deixava a suíte INTEIRA verde
+    // (2268 passando), porque todo dublê devolve o objeto completo
+    // independentemente do `select` — só o PostgREST de verdade projeta.
+    // Achado pela revisão de segurança de 2026-09-16 (LOW-2).
+    if (!colunas.split(',').map((c) => c.trim()).includes(coluna)) {
+      throw new Error(`lerPorLote(${tabela}): o select precisa trazer '${coluna}' — é a chave do mapa`);
+    }
+    /**
+     * MINÚSCULA — mas SÓ pra uuid.
+     *
+     * O `isUuid` aceita hexadecimal maiúsculo (a regex tem `i`) e o Postgres
+     * devolve `uuid` sempre em minúscula: um id maiúsculo na entrada indexaria o
+     * mapa por uma chave que nenhuma linha casaria, e o `throw` do balde ausente
+     * derrubaria uma leitura legítima.
+     *
+     * Dobrar a caixa INCONDICIONALMENTE, porém, quebra o caso oposto e pior: o
+     * ajudante é genérico, e numa coluna de texto sensível à caixa — `txid`, que
+     * na Stripe é `pi_3Ab…` — o `.in()` não casaria NADA, todo balde ficaria
+     * vazio, e o `throw` do balde ausente nunca dispararia porque linha nenhuma
+     * volta. Sairia um mapa de listas vazias sem erro: exatamente o sumiço
+     * silencioso que aquele `throw` existe pra impedir, contornado por fora.
+     * Apontado pelas segunda e terceira revisões de segurança de 2026-09-16.
+     */
+    const todosUuid = ids.every(isUuid);
+    const chave = (v) => (todosUuid ? String(v).toLowerCase() : v);
+    const emMinuscula = ids.map(chave);
+    const mapa = new Map();
+    for (const id of emMinuscula) mapa.set(id, []);
+    for (let i = 0; i < emMinuscula.length; i += IDS_POR_LOTE) {
+      const lote = emMinuscula.slice(i, i + IDS_POR_LOTE);
+      const linhas = await lerPaginado({
+        op,
+        consulta: (de, ate) => {
+          let q = client.from(tabela).select(colunas).in(coluna, lote);
+          for (const col of ordem) q = q.order(col, { ascending: true });
+          return q.range(de, ate);
+        },
+      });
+      for (const r of linhas) {
+        const balde = mapa.get(chave(r[coluna]));
+        // GRITA em vez de descartar. O filtro é do banco, então uma linha de um
+        // id que ninguém pediu não deveria existir — e se existir, ela é o
+        // sintoma de alguma coisa errada na leitura, não ruído pra varrer. Um
+        // descarte silencioso numa leitura de DINHEIRO é como a função devolvia
+        // um mapa vazio sem avisar.
+        if (!balde) {
+          throw new Error(`lerPorLote(${tabela}): linha com ${coluna}=${JSON.stringify(r[coluna])} `
+            + 'que não estava no lote — leitura inconsistente');
+        }
+        balde.push(r);
+      }
+    }
+    return mapa;
+  }
+
+  function loadEventsPorLote(ids) {
+    return lerPorLote({
+      tabela: 'check_events',
+      colunas: 'check_id, seq, type, payload, created_at',
+      coluna: 'check_id',
+      ids: [...new Set((ids || []).filter(isUuid))],
+      ordem: ['check_id', 'seq'],
+      op: 'loadEventsPorLote',
+    });
+  }
+
   async function loadEvents(checkId) {
     if (!isUuid(checkId)) return []; // malformed id → empty log → "not found"
-    const { data, error } = await client
+    // PAGINA. Um razão cortado não é erro de leitura, é estado derivado ERRADO:
+    // some o `CLOSED` e a conta volta a parecer aberta, some o
+    // `PAYMENT_CONFIRMED` e ela parece não paga. E esta é a leitura dos
+    // caminhos de ESCRITA (ajustar, fechar, devolver), não só de tela.
+    const data = await lerPaginado({
+      op: 'loadEvents',
+      consulta: (de, ate) => client
       .from('check_events')
-      .select('seq, type, payload')
+      // `created_at`: a DATA do evento, que é o que decide se o trilho de
+      // devolução daquele pagamento ainda está aberto. Sem ela, a única fonte da
+      // data era a linha de `payments` — a projeção que a rota da devolução
+      // trata como melhor-esforço —, e um `railImpossible: 'pix_90d'` gravado no
+      // razão não podia ser re-derivado dele por uma auditoria (compliance
+      // MEDIUM-4 de d7f2683).
+      .select('seq, type, payload, created_at')
       .eq('check_id', checkId)
-      .order('seq', { ascending: true });
-    throwOn(error, 'loadEvents');
-    return data || [];
+      .order('seq', { ascending: true })
+      .range(de, ate),
+    });
+    return data;
   }
 
   return {
@@ -212,7 +446,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
 
     // --- ownership / membership ---------------------------------------------
-    async addVenueMember(venueId, userId, role = 'owner') {
+    async addVenueMember(venueId, userId, role = PAPEL_DE_DONO) {
       if (!userId) throw new Error('userId required');
       // ignoreDuplicates: an existing (venue,user) row is left UNTOUCHED — a
       // re-add never silently changes a member's role (matches the memory
@@ -224,6 +458,28 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(error, 'addVenueMember');
       return { venueId, userId, role };
     },
+    /**
+     * DONO É QUEM TEM O PAPEL DE DONO.
+     *
+     * A tabela nasceu (0003) com `role in ('owner','staff')` e as duas leituras
+     * — esta e `listVenuesForOwner` — nunca olharam a coluna: QUALQUER linha em
+     * `venue_members` abria o painel inteiro, o `/api/refund`, os repasses e o
+     * documento da casa. Hoje isso não vaza porque o único escritor é o
+     * `POST /api/venues`, que grava `'owner'` fixo: medido em produção em
+     * 2026-09-16, dez linhas, todas `owner`, zero `staff`. Então este conserto
+     * não muda o comportamento de ninguém HOJE.
+     *
+     * É justamente por isso que ele entra agora. O dia em que alguém inserir um
+     * `staff` — um convite de garçom, um INSERT à mão pra dar acesso "só de
+     * leitura" — essa pessoa vira dono em silêncio, e o defeito nasce com cara
+     * de feature nova funcionando. Uma coluna de papel que ninguém confere é um
+     * portão destrancado esperando alguém encostar.
+     *
+     * O que NÃO se faz aqui: um sistema de permissões. `staff` não tem tela, e
+     * o portão de adoção manda não construir v1 antes da hora. Ele fica de
+     * fora, e quando existir alguém terá que decidir o que ele pode ver — com o
+     * teste abaixo vermelho pra forçar a decisão.
+     */
     async userOwnsVenue(userId, venueId) {
       if (!isUuid(userId) || !isUuid(venueId)) return false; // malformed → not an owner
       const { data, error } = await client
@@ -231,17 +487,20 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .select('id')
         .eq('user_id', userId)
         .eq('venue_id', venueId)
+        .eq('role', PAPEL_DE_DONO)
         .maybeSingle();
       throwOn(error, 'userOwnsVenue');
       return !!data;
     },
     async listVenuesForOwner(userId) {
-      const { data, error } = await client
-        .from('venue_members')
-        .select('venues(id, name, city, servico_basis_points, psp_recipient_id, market)')
-        .eq('user_id', userId);
-      throwOn(error, 'listVenuesForOwner');
-      return (data || []).map((r) => r.venues).filter(Boolean).map((v) => ({
+      const data = await lerPaginado({
+        op: 'listVenuesForOwner',
+        consulta: (de, ate) => client.from('venue_members')
+          .select('venues(id, name, city, servico_basis_points, psp_recipient_id, market)')
+          .eq('user_id', userId).eq('role', PAPEL_DE_DONO)
+          .order('venue_id', { ascending: true }).range(de, ate),
+      });
+      return data.map((r) => r.venues).filter(Boolean).map((v) => ({
         id: v.id, name: v.name, city: v.city,
         servicoBp: v.servico_basis_points, pspRecipientId: v.psp_recipient_id,
         market: v.market ?? DEFAULT_MARKET,
@@ -263,7 +522,19 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .select('id, venue_id, label, qr_token, qr_rotated_at, active')
         .single();
       // unique_violation on (venue_id, label) surfaces as a clear message.
-      if (error && /duplicate|unique/i.test(error.message)) throw new Error('duplicate table label');
+      //
+      // E sai com CÓDIGO, não só com a frase. A rota decidia por
+      // `/duplicate/.test(e.message)` — uma decisão tomada sobre uma SUBSTRING
+      // que atravessa dois módulos, que é a forma que o inegociável #7 manda
+      // desconfiar. Basta uma mensagem futura conter a palavra ("duplicate key
+      // in cache", um texto de proxy) pra o dono ler "já existe uma mesa com
+      // esse nome" sobre uma falha que não é essa. Segunda revisão de segurança
+      // de 2026-09-16 (LOW-E).
+      if (error && /duplicate|unique/i.test(error.message)) {
+        const e = new Error('duplicate table label');
+        e.code = 'table_label_duplicate';
+        throw e;
+      }
       throwOn(error, 'createTable');
       return {
         id: data.id, venueId: data.venue_id, label: data.label,
@@ -286,23 +557,29 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       };
     },
     async listTables(venueId) {
-      const { data: tabs, error } = await client
-        .from('venue_tables')
-        .select('id, label, qr_token, qr_rotated_at, active, training')
-        .eq('venue_id', venueId);
-      throwOn(error, 'listTables');
+      // `label` não é ordem total, então o `id` desempata: sem ordem total,
+      // duas páginas repetem e omitem a mesma mesa.
+      const tabs = await lerPaginado({
+        op: 'listTables',
+        consulta: (de, ate) => client.from('venue_tables')
+          .select('id, label, qr_token, qr_rotated_at, active, training')
+          .eq('venue_id', venueId)
+          .order('label', { ascending: true }).order('id', { ascending: true })
+          .range(de, ate),
+      });
       // hasOpenCheck by DERIVED state (the checks.status cache is unmaintained
       // in v0 — reading it left the badge stuck TRUE forever; review finding).
-      const { data: allChecks, error: cErr } = await client
-        .from('checks')
-        .select('id, table_id')
-        .eq('venue_id', venueId);
-      throwOn(cErr, 'listTables.checks');
+      const allChecks = await lerPaginado({
+        op: 'listTables.checks',
+        consulta: (de, ate) => client.from('checks').select('id, table_id')
+          .eq('venue_id', venueId).order('id', { ascending: true }).range(de, ate),
+      });
+      // As FECHADAS numa leitura por lote, não o razão de cada conta: ver
+      // `idsDeContasFechadas`.
+      const fechadas = await idsDeContasFechadas((allChecks || []).map((c) => c.id));
       const openByTable = new Set();
       for (const c of allChecks || []) {
-        if (openByTable.has(c.table_id)) continue;
-        const state = reduce(await loadEvents(c.id));
-        if (state.status !== 'fechada') openByTable.add(c.table_id);
+        if (!fechadas.has(c.id)) openByTable.add(c.table_id);
       }
       return (tabs || [])
         .map((t) => ({
@@ -344,13 +621,17 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       // Refuse to deactivate a table with an open check — no new token to fall
       // back to, so a mid-payment diner would be stranded (review finding).
       if (!active) {
-        const { data: checkRows, error: cErr } = await client
-          .from('checks').select('id').eq('table_id', tableId);
-        throwOn(cErr, 'setTableActive.checks');
-        for (const c of checkRows || []) {
-          if (reduce(await loadEvents(c.id)).status !== 'fechada') {
-            throw new Error('table has an open check — close it before deactivating');
-          }
+        // Truncada, esta leitura faz o guarda FALHAR ABERTO: a conta aberta
+        // fica fora das primeiras mil e a mesa é desativada com gente sentada.
+        const checkRows = await lerPaginado({
+          op: 'setTableActive.checks',
+          consulta: (de, ate) => client.from('checks').select('id')
+            .eq('table_id', tableId).order('id', { ascending: true }).range(de, ate),
+        });
+        // As fechadas numa leitura por lote — ver `idsDeContasFechadas`.
+        const fechadas = await idsDeContasFechadas((checkRows || []).map((c) => c.id));
+        if ((checkRows || []).some((c) => !fechadas.has(c.id))) {
+          throw new Error('table has an open check — close it before deactivating');
         }
       }
       const { data, error } = await client
@@ -426,16 +707,26 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .limit(10);
       throwOn(cErr, 'getCheckByQrToken.check');
 
+      // POR LOTE, e num salto só: são até dez candidatas, e esta é a rota que
+      // TODO QR lido atravessa — dez idas em série no caminho do cliente que
+      // está com o telefone na mão em cima da mesa. Ver `loadEventsPorLote`.
+      const razoes = await loadEventsPorLote((cands || []).map((c) => c.id));
       for (const cand of cands || []) {
-        const state = reduce(await loadEvents(cand.id));
+        const state = reduce(razoes.get(cand.id) || []);
         if (state.status === 'fechada') continue;
         let items = [];
         try { items = JSON.parse(cand.pos_ref) || []; } catch { items = []; }
         return {
           venue: {
             name: table.venues.name,
-            taxId: showsVenueTaxId(table.venues.market) ? (table.venues.cnpj || null) : null,
-            ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points }),
+            // O VALOR também decide, não só o mercado: onze dígitos nesta coluna
+            // numa casa brasileira é CPF de alguém, e `/api/check` não tem
+            // autenticação. Linhas antigas foram escritas antes do portão do
+            // `createVenue` existir. Ver `documentoPublicavelDaCasa`.
+            taxId: documentoPublicavelDaCasa(table.venues.market, table.venues.cnpj, showsVenueTaxId(table.venues.market)),
+            // `cnpj` vai junto: sem documento de empresa provado a casa não pode
+            // cobrar serviço, e o que não pode ser cobrado não é oferecido.
+            ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points, cnpj: table.venues.cnpj }),
           },
           table: { label: table.label },
           check: { id: cand.id, items },
@@ -510,6 +801,21 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      *   lock e devolve `seq` negativo quando já aplicou (migração 0018) — é o
      *   que fecha a corrida entre duas entregas simultâneas do mesmo evento.
      */
+    /**
+     * COMPARE-AND-APPEND (migração 0034). O RPC confere o último `seq` DENTRO
+     * da trava e recusa com 40001 quando o razão mudou; o índice único parcial
+     * recusa com 23505 a mesma devolução fora do trilho registrada duas vezes.
+     * Os dois códigos chegam no `pgCode` pelo `throwOn` — e são CHECADOS pela
+     * rota (inegociável #7).
+     */
+    async appendEventIfUnchanged(checkId, type, payload, pspEventId = null, expectedSeq = null) {
+      const { data, error } = await client.rpc('append_check_event_if_unchanged', {
+        p_check_id: checkId, p_type: type, p_payload: payload,
+        p_psp_event_id: pspEventId, p_expected_seq: expectedSeq,
+      });
+      throwOn(error, 'appendEventIfUnchanged');
+      return data;
+    },
     async appendEvent(checkId, type, payload, pspEventId = null) {
       const { data, error } = await client.rpc('append_check_event', {
         p_check_id: checkId, p_type: type, p_payload: payload, p_psp_event_id: pspEventId,
@@ -558,22 +864,60 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      */
     async getAdoptionFunnel(venueId, { sinceIso } = {}) {
       const desde = sinceIso || new Date(Date.now() - 30 * 86400000).toISOString();
+      // As TRÊS paginam: é este funil que mede o portão de adoção (≥25% em oito
+      // semanas), e uma leitura cortada mede a casa pela metade — decisão de
+      // roteiro tomada sobre um número truncado, sem erro nenhum na tela.
       const [views, checks, pagos] = await Promise.all([
-        client.from('check_views').select('check_id').eq('venue_id', venueId).gte('at', desde),
-        client.from('checks').select('id').eq('venue_id', venueId).gte('opened_at', desde),
-        client.from('payments').select('check_id').eq('venue_id', venueId)
-          .eq('status', 'confirmado').gte('confirmed_at', desde),
+        lerPaginado({ op: 'getAdoptionFunnel.views',
+          consulta: (de, ate) => client.from('check_views').select('check_id')
+            .eq('venue_id', venueId).gte('at', desde).order('check_id', { ascending: true }).range(de, ate) }),
+        lerPaginado({ op: 'getAdoptionFunnel.checks',
+          consulta: (de, ate) => client.from('checks').select('id')
+            .eq('venue_id', venueId).gte('opened_at', desde).order('id', { ascending: true }).range(de, ate) }),
+        lerPaginado({ op: 'getAdoptionFunnel.pagos',
+          consulta: (de, ate) => client.from('payments').select('check_id')
+            .eq('venue_id', venueId).eq('status', 'confirmado').gte('confirmed_at', desde)
+            // `check_id` NÃO é ordem total aqui (uma conta tem vários
+            // pagamentos), e é de propósito: as duas leituras colapsam num
+            // `Set` de `check_id`, então embaralhar empates dentro do mesmo
+            // grupo não muda o resultado. Vira defeito no dia em que alguma
+            // delas CONTAR linhas em vez de colapsar — que é exatamente o que a
+            // irmã aqui do lado (`contasCriadas`) faz. Se esta projeção mudar,
+            // a ordem tem que ficar total.
+            .order('check_id', { ascending: true }).order('txid', { ascending: true }).range(de, ate) }),
       ]);
-      throwOn(views.error || checks.error || pagos.error, 'getAdoptionFunnel');
-      const abertas = new Set((views.data || []).map((r) => r.check_id));
-      const pagas = new Set((pagos.data || []).map((r) => r.check_id));
+      // `lerPaginado` devolve um ARRAY, não `{ data }`. A conversão pra
+      // paginação trocou `views.data` por `views` e esqueceu os outros dois:
+      // `contasCriadas` e `contasPagas` viravam ZERO pra sempre, sem erro — e é
+      // deste número que sai o portão de adoção (≥25% em oito semanas) que o
+      // CLAUDE.md diz que estaciona o produto. A forma "conserto pela metade",
+      // dentro do commit que existe pra acabar com consertos pela metade.
+      // Segunda revisão de segurança de 2026-09-16 (NEW-2).
+      const abertas = new Set(views.map((r) => r.check_id));
+      const pagas = new Set(pagos.map((r) => r.check_id));
+      /** O numerador INTERSECTADO: quem pagou E foi visto na mesa. */
+      const convertidas = new Set([...pagas].filter((id) => abertas.has(id)));
       return {
-        contasCriadas: (checks.data || []).length,
+        contasCriadas: checks.length,
         contasAbertasNaMesa: abertas.size,
         contasPagas: pagas.size,
         // A leitura do portão: das contas que alguém ABRIU, quantas fecharam
         // pelo Racha. Sem o denominador certo, 25% não quer dizer nada.
-        conversao: abertas.size > 0 ? pagas.size / abertas.size : null,
+        /**
+         * A CONVERSÃO É SOBRE QUEM ABRIU — e o numerador tem que ser subconjunto
+         * do denominador.
+         *
+         * Era `pagas.size / abertas.size` com os dois conjuntos medidos
+         * INDEPENDENTES. O `recordCheckView` é telemetria de navegador, melhor
+         * esforço: bloqueada, limitada por taxa ou perdida, a conta entra em
+         * `pagas` e não em `abertas`. Com duas contas — A vista e não paga, B paga
+         * com o beacon bloqueado — a conta dava 1.0, ou seja 100% de conversão,
+         * onde a verdadeira é 0%. E é este número que o portão de adoção lê pra
+         * decidir se o produto continua (CLAUDE.md, ≥25% na semana 8): inflado,
+         * ele mantém vivo um piloto que fracassou. Achado pela terceira revisão de
+         * segurança de 2026-09-16 (M4).
+         */
+        conversao: abertas.size > 0 ? convertidas.size / abertas.size : null,
       };
     },
 
@@ -581,7 +925,11 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     async listOpenOrphanMoneyEvents(limit = 50) {
       const { data, error } = await client
         .from('orphan_money_events')
-        .select('id, at, kind, psp, event_type, txid, amount_cents')
+        // `payload` entra porque é nele que viaja o `orderCode` — o endereço da
+        // conta. Sem ele, o aviso diário dizia "sumiu dinheiro" e não dizia de
+        // qual mesa, e o procedimento mandava consultar um campo que a leitura
+        // nem trazia.
+        .select('id, at, kind, psp, event_type, txid, amount_cents, payload')
         .is('resolved_at', null)
         .order('at', { ascending: false })
         .limit(limit);
@@ -589,6 +937,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       return (data || []).map((o) => ({
         id: o.id, at: o.at, kind: o.kind, psp: o.psp,
         eventType: o.event_type, txid: o.txid, amountCents: o.amount_cents,
+        orderCode: (o.payload && o.payload.orderCode) || null,
       }));
     },
 
@@ -643,6 +992,28 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       return Boolean(data && data.length);
     },
     async registerCharge({ checkId, txid, amountCents, tipCents, payerLabel, method = 'pix' }) {
+      // O RÓTULO DO PAGADOR É CONFERIDO AQUI, no único ponto por onde TODA
+      // cobrança passa. A regra existia só no `create-charge`, e o
+      // `/api/pay/stripe-intent` — pública, token de mesa, sem sessão — chama
+      // o `registerCharge` DIRETO: um `payerLabel` de 900 KB, ou um objeto no
+      // lugar de uma string, chegava intacto à coluna que o painel do dono lê
+      // de volta. É a forma "chamador esquecido" que este repositório já
+      // nomeia três vezes, e o conserto é o mesmo das outras: a regra desce
+      // pro sítio que não dá pra contornar, em vez de virar mais um item num
+      // censo de chamadores. Achado pela revisão de segurança de 2026-09-15.
+      //
+      // E ele NORMALIZA, não só confere. Enquanto a regra era uma lista de
+      // recusa, "conferir aqui" e "conferir no portão" davam no mesmo. Quando o
+      // portão passou a LIMPAR, os dois deixaram de coincidir: o portão
+      // aprovava `"Ana" + cem espaços` (que normaliza pra `"Ana"`) e esta linha
+      // recusava o cru, DEPOIS de o adquirente já ter criado a cobrança — e a
+      // vaga do teto não voltava. Guardar o normalizado é o que faz "o valor
+      // conferido é o valor gravado" valer por construção, em vez de por
+      // disciplina de chamador. Segunda revisão de segurança de 2026-09-16
+      // (NEW-1).
+      const rotulo = rotuloDoPagador(payerLabel);
+      if (!rotulo.ok) throw badRequest('payerLabel must be a string of at most 60 chars');
+      payerLabel = rotulo.valor;
       const { data: check, error: cErr } = await client
         .from('checks').select('venue_id, venues(market)').eq('id', checkId).single();
       throwOn(cErr, 'registerCharge.check');
@@ -699,6 +1070,42 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      * time window: created before now-graceMs (webhook got first crack) and
      * after now-windowMs (past-expiry charges drop out without any write).
      */
+    /**
+     * O TETO DE COBRANÇAS VIVAS: conta e reserva numa instrução só, no banco.
+     * Ver `0033_charge_slots.sql` e o gêmeo em `memory.js`.
+     *
+     * O ERRO É CHECADO e ESTOURA (inegociável #7): sem a RPC — migração não
+     * aplicada — a cobrança falha fechado, nunca passa sem teto. A ordem de
+     * deploy é, portanto, MIGRAÇÃO PRIMEIRO.
+     */
+    async claimSlots({ keys, limits, windowMs } = {}) {
+      const { data, error } = await client.rpc('claim_slots', {
+        p_keys: keys, p_limits: limits, p_window_seconds: Math.round(windowMs / 1000),
+      });
+      throwOn(error, 'claimSlots');
+      if (!data || typeof data !== 'object' || !('claim_id' in data)) {
+        throw new Error('claimSlots: resposta sem claim_id');
+      }
+      return { claimId: data.claim_id, fullIndex: data.full_index, counts: data.counts || [] };
+    },
+    async releaseSlots(claimId) {
+      const { data, error } = await client.rpc('release_slots', { p_claim_id: claimId });
+      throwOn(error, 'releaseSlots');
+      return data || 0;
+    },
+    /**
+     * A impressão digital da 0033 instalada — ver `charge_slots_fingerprint()`.
+     * Erro checado e resposta conferida: sem a função, ou com uma resposta que
+     * não é texto, ESTOURA — quem compara é o cron, e ele pagina.
+     */
+    async slotsFingerprint() {
+      const { data, error } = await client.rpc('charge_slots_fingerprint');
+      throwOn(error, 'slotsFingerprint');
+      if (typeof data !== 'string' || !/^[0-9a-f]{32}$/.test(data)) {
+        throw new Error('slotsFingerprint: resposta não é um md5');
+      }
+      return data;
+    },
     async listPendingCharges({ checkId = null, graceMs = 0, windowMs = null, limit = 100 } = {}) {
       const now = Date.now();
       let q = client
@@ -786,23 +1193,58 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
 
     async listChecksForReconcile(venueId) {
-      const { data: checks, error } = await client
-        .from('checks').select('id').eq('venue_id', venueId);
-      throwOn(error, 'listChecksForReconcile.checks');
+      /**
+       * A CONSULTA QUE DIRIGE AS OUTRAS TAMBÉM PAGINA.
+       *
+       * O commit anterior paginou os FILHOS (razão e pagamentos) e deixou esta
+       * — a lista de contas da casa — com um `select` seco. Acima de mil
+       * contas o PostgREST devolvia as primeiras mil com um 200, e a
+       * conciliação diária passava a rodar para sempre sobre um subconjunto
+       * arbitrário da história da casa, dizendo que bate. E não é só drift
+       * escondido: `reconcileVenueHouse` monta `checkLedgerTxids` a partir
+       * desta lista, então um resgate cujo razão ficou de fora vira um achado
+       * `critical` mandando RE-CREDITAR a conta da casa — o cliente fica com a
+       * refeição e com o saldo de volta. Saldo pré-pago é dinheiro do cliente.
+       *
+       * O docblock do `lerPorLote` já descrevia esse corte, o que fazia esta
+       * lacuna parecer coberta. Achado pela revisão de compliance de
+       * 2026-09-16 (HIGH-2).
+       */
+      const checks = await lerPaginado({
+        op: 'listChecksForReconcile.checks',
+        // `order('id')`: sem ordem total, duas páginas repetem e omitem a mesma
+        // linha — o mesmo motivo do `ordem` do `lerPorLote`.
+        consulta: (de, ate) => client.from('checks').select('id').eq('venue_id', venueId)
+          .order('id', { ascending: true }).range(de, ate),
+      });
       const out = [];
-      for (const c of checks || []) {
-        const { data: pays, error: pErr } = await client
-          .from('payments')
+      // POR LOTE, os dois lados. Era UMA leitura de pagamentos MAIS uma do
+      // razão POR CONTA, em série: 2N+1 idas pra conciliar uma casa, e a
+      // conciliação roda todo dia sobre a casa INTEIRA (inegociável #8). Uma
+      // casa de cinco mil contas fazia dez mil idas e batia no `maxDuration`
+      // antes de terminar — a conciliação parava de rodar justo quando a casa
+      // ficava grande o bastante pra importar.
+      const ids = (checks || []).map((c) => c.id);
+      const [razoes, pagamentos] = await Promise.all([
+        loadEventsPorLote(ids),
+        lerPorLote({
+          tabela: 'payments',
           // Os CONFIRMADOS entram na leitura da conciliação: são as colunas
           // que o painel soma em faturamento e em GORJETA (base da folha, Lei
           // 13.419), e até aqui elas eram conferidas contra NADA. Ver
           // `reconcileCheck`.
-          .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, status, method, currency, confirmed_at')
-          .eq('check_id', c.id);
-        throwOn(pErr, 'listChecksForReconcile.payments');
+          colunas: 'check_id, txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, status, method, currency, confirmed_at',
+          coluna: 'check_id',
+          ids,
+          ordem: ['check_id', 'txid'],
+          op: 'listChecksForReconcile.payments',
+        }),
+      ]);
+      for (const c of checks || []) {
+        const pays = pagamentos.get(c.id) || [];
         out.push({
           checkId: c.id,
-          events: await loadEvents(c.id),
+          events: razoes.get(c.id) || [],
           payments: (pays || []).map((p) => ({
             txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents,
             status: p.status, method: p.method, currency: p.currency,
@@ -865,6 +1307,9 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       if (opts.status !== undefined) patch.psp_recipient_status = opts.status;
       if (opts.notifyEmail !== undefined) patch.notify_email = opts.notifyEmail;
       if (opts.notifyWhatsapp !== undefined) patch.notify_whatsapp = opts.notifyWhatsapp;
+      // O documento da casa, quando ela ainda não tinha: ver o comentário na
+      // rota. Comprovante e liquidação passam a ser o mesmo documento.
+      if (opts.cnpj !== undefined) patch.cnpj = opts.cnpj;
       const { data, error } = await client
         .from('venues')
         .update(patch)
@@ -903,13 +1348,16 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
      * vez e o venue sair da varredura.
      */
     async listVenuesPendingRecipient() {
-      const { data, error } = await client
-        .from('venues')
-        .select(VENUE_COLS)
-        .not('psp_recipient_status', 'is', null)
-        .not('psp_recipient_status', 'in', `(${RECIPIENT_TERMINAL.join(',')})`);
-      throwOn(error, 'listVenuesPendingRecipient');
-      return (data || []).map(mapVenue);
+      // Plataforma inteira, não uma casa: este é o cron que persegue recebedor
+      // pendente, e uma casa que não cabe na primeira página nunca é perseguida.
+      const data = await lerPaginado({
+        op: 'listVenuesPendingRecipient',
+        consulta: (de, ate) => client.from('venues').select(VENUE_COLS)
+          .not('psp_recipient_status', 'is', null)
+          .not('psp_recipient_status', 'in', `(${RECIPIENT_TERMINAL.join(',')})`)
+          .order('id', { ascending: true }).range(de, ate),
+      });
+      return data.map(mapVenue);
     },
     /**
      * Números do funil de ativação, um registro por restaurante (RPC
@@ -1082,13 +1530,14 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
     async loadHouseEvents(accountId) {
       if (!isUuid(accountId)) return [];
-      const { data, error } = await client
-        .from('house_account_events')
-        .select('seq, type, payload')
-        .eq('account_id', accountId)
-        .order('seq', { ascending: true });
-      throwOn(error, 'loadHouseEvents');
-      return data || [];
+      // Pagina pelo mesmo motivo do `loadEvents`: razão cortado é saldo errado,
+      // e aqui o saldo é dinheiro pré-pago do cliente.
+      return lerPaginado({
+        op: 'loadHouseEvents',
+        consulta: (de, ate) => client.from('house_account_events')
+          .select('seq, type, payload').eq('account_id', accountId)
+          .order('seq', { ascending: true }).range(de, ate),
+      });
     },
     async rotateHouseAccountToken(accountId) {
       if (!isUuid(accountId)) return null;
@@ -1104,13 +1553,18 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
     async listHouseAccounts(venueId) {
       if (!isUuid(venueId)) return [];
-      const { data, error } = await client
-        .from('house_accounts')
-        .select('id, venue_id, phone, name, account_token, created_at')
-        .eq('venue_id', venueId)
-        .order('created_at', { ascending: true });
-      throwOn(error, 'listHouseAccounts');
-      return (data || []).map(mapHouseAccount);
+      // `MAX_ACCOUNTS_PER_VENUE` é 5000: o teto do PostgREST é alcançável POR
+      // DESENHO. `created_at` não é ordem total (duas contas no mesmo
+      // milissegundo), então o `id` desempata.
+      const data = await lerPaginado({
+        op: 'listHouseAccounts',
+        consulta: (de, ate) => client.from('house_accounts')
+          .select('id, venue_id, phone, name, account_token, created_at')
+          .eq('venue_id', venueId)
+          .order('created_at', { ascending: true }).order('id', { ascending: true })
+          .range(de, ate),
+      });
+      return data.map(mapHouseAccount);
     },
     async registerHouseLoad({ accountId, txid, amountCents, bonusCents, validityDays }) {
       const { error } = await client.from('house_loads').insert({
@@ -1204,21 +1658,42 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(error, 'recordHousePaymentRow');
     },
     async listHouseAccountsForReconcile(venueId) {
-      const { data: accounts, error } = await client
-        .from('house_accounts')
-        .select('id, principal_cents')
-        .eq('venue_id', venueId);
-      throwOn(error, 'listHouseAccountsForReconcile');
+      // PAGINA, como a lista de contas acima — e aqui o teto é alcançável POR
+      // DESENHO: `MAX_ACCOUNTS_PER_VENUE` é 5000 (`house-service.js`), cinco
+      // vezes o corte do PostgREST. Ver o bloco em `listChecksForReconcile`.
+      const accounts = await lerPaginado({
+        op: 'listHouseAccountsForReconcile',
+        consulta: (de, ate) => client.from('house_accounts').select('id, principal_cents')
+          .eq('venue_id', venueId).order('id', { ascending: true }).range(de, ate),
+      });
       const out = [];
+      // POR LOTE. Eram DUAS idas por conta da casa — os lotes de bônus e o
+      // razão —, em série, dentro da conciliação diária. Mesmo motivo do
+      // `listChecksForReconcile` logo acima.
+      const ids = (accounts || []).map((a) => a.id).filter(isUuid);
+      const [lotesPorConta, razoes] = await Promise.all([
+        lerPorLote({
+          tabela: 'house_bonus_lots',
+          colunas: 'account_id, event_seq, remaining_cents, expires_at',
+          coluna: 'account_id',
+          ids,
+          ordem: ['account_id', 'event_seq'],
+          op: 'listHouseAccountsForReconcile.lots',
+        }),
+        lerPorLote({
+          tabela: 'house_account_events',
+          colunas: 'account_id, seq, type, payload',
+          coluna: 'account_id',
+          ids,
+          ordem: ['account_id', 'seq'],
+          op: 'listHouseAccountsForReconcile.events',
+        }),
+      ]);
       for (const a of accounts || []) {
-        const { data: lots, error: lErr } = await client
-          .from('house_bonus_lots')
-          .select('event_seq, remaining_cents, expires_at')
-          .eq('account_id', a.id);
-        throwOn(lErr, 'listHouseAccountsForReconcile.lots');
+        const lots = lotesPorConta.get(a.id) || [];
         out.push({
           accountId: a.id,
-          events: await this.loadHouseEvents(a.id),
+          events: razoes.get(a.id) || [],
           stored: {
             principalCents: Number(a.principal_cents),
             lots: (lots || []).map((l) => ({
@@ -1252,12 +1727,221 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(vErr, 'getPanelView.venue');
       if (!venue) return null;
 
-      const { data: checks, error: cErr } = await client
-        .from('checks')
-        .select('id, table_id, venue_tables(label)')
-        .eq('venue_id', venueId)
-        .order('opened_at', { ascending: true });
-      throwOn(cErr, 'getPanelView.checks');
+      /**
+       * A JANELA DE PAGAMENTOS SOBE, porque a lista de contas depende dela.
+       *
+       * O terceiro conjunto de contas ("as que receberam dinheiro na janela")
+       * sai dos `check_id` desta leitura, entao ela precisa acontecer antes.
+       * As mesas de TREINO sobem junto: e o filtro delas que decide o que
+       * conta como dinheiro de verdade.
+       */
+      // Mesas de TREINO ficam fora de todos os números (workshop pré-turno
+      // não é movimento da casa) — espelha o memory store.
+      // Mesa de treino que cai fora da página passa a contar como mesa DE
+      // VERDADE: o faturamento do painel soma dinheiro de treinamento.
+      const trainingTables = await lerPaginado({
+        op: 'getPanelView.trainingTables',
+        consulta: (de, ate) => client.from('venue_tables').select('id')
+          .eq('venue_id', venueId).eq('training', true)
+          .order('id', { ascending: true }).range(de, ate),
+      });
+      const trainingChecks = new Set();
+      if ((trainingTables || []).length > 0) {
+        const tChecks = await lerPaginado({
+          op: 'getPanelView.trainingChecks',
+          consulta: (de, ate) => client.from('checks').select('id')
+            .eq('venue_id', venueId).in('table_id', trainingTables.map((t) => t.id))
+            .order('id', { ascending: true }).range(de, ate),
+        });
+        for (const c of tChecks) trainingChecks.add(c.id);
+      }
+
+      /**
+       * A janela de 7 DIAS, e o `today` recortado do dia de verdade.
+       *
+       * A consulta não tinha predicado de data nenhum, e o resultado saía sob
+       * o rótulo "recebido hoje" e "serviço da equipe (folha)". Um dono que
+       * leia aquela linha como a gorjeta do dia e distribua está distribuindo o
+       * acumulado da VIDA da casa — base de folha (Lei 13.419) lida de um
+       * agregado com rótulo errado. Achado pela revisão de compliance de
+       * 2026-09-08.
+       *
+       * A série semanal precisa de 7 dias, então a consulta busca 8 (folga de
+       * fuso) e o `today` filtra o dia em São Paulo — o mesmo corte do
+       * `buildAtivacao`, pra as duas linhas do painel nunca discordarem.
+       */
+      const desde = new Date(Date.parse(nowIso) - 8 * 86400000).toISOString();
+      /**
+       * A LEITURA QUE VIRA O NÚMERO DA FOLHA — e ela não paginava.
+       *
+       * Daqui saem `today.tipsCents` (o "serviço da equipe" que o dono leva
+       * pra folha, Lei 13.419 e inegociável #2) e o faturamento do dia. Sem
+       * `range`, mil pagamentos confirmados na janela de oito dias — cerca de
+       * 125 por dia, uma casa de quarenta mesas rachando em três — faziam o
+       * PostgREST devolver mil com um 200, e a gorjeta chegava CURTA na tela.
+       * Sem `order`, quais mil chegam é escolha do planejador: o número podia
+       * mudar entre duas recargas de quatro segundos sem nada acontecer.
+       *
+       * E a conciliação NÃO enxergava: `listChecksForReconcile` pagina certo,
+       * então o canário noturno ficava verde enquanto a tela do dono estava
+       * errada — o sucesso silencioso que o inegociável #8 existe pra proibir.
+       * Achado pela revisão de segurança de 2026-09-16 (HIGH-1).
+       */
+      const confirmedRaw = await lerPaginado({
+        op: 'getPanelView.payments',
+        consulta: (de, ate) => client
+          .from('payments')
+          // `txid` é a CHAVE do mapa de sobras que o `buildAtivacao` usa. Sem
+          // ele, `sobraDe()` devolvia 0 pra toda linha e a série semanal seguia
+          // contando dívida (CC art. 876) como receita — a correção existia e não
+          // rodava. É a mesma armadilha documentada 120 linhas acima, onde eu
+          // acrescentei `currency` ao mapeador e não ao select.
+          .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, check_id, confirmed_at, method')
+          .eq('venue_id', venueId)
+          .eq('status', 'confirmado')
+          .gte('confirmed_at', desde)
+          // A ORDEM SEGUE O FILTRO, não o contrário.
+          //
+          // `txid` sozinho é ordem total (é único desde a 0001) e serviria pra
+          // paginar — mas filtrar por `(venue_id, status, confirmed_at)` e
+          // ordenar por `txid` obriga o Postgres a ORDENAR todas as linhas que
+          // casam antes de cortar a página, e a repetir isso a cada página.
+          // Ordenando pelo próprio `confirmed_at` (com o `txid` desempatando,
+          // que é o que mantém a ordem total), o mesmo índice que serve o
+          // filtro serve a ordem, e a página sai por varredura.
+          .order('confirmed_at', { ascending: true })
+          .order('txid', { ascending: true })
+          .range(de, ate),
+      });
+
+      /**
+       * AS CONTAS QUE O PAINEL PRECISA — e só elas.
+       *
+       * Paginar esta leitura consertou o número (antes ela era cortada em mil
+       * e o painel parava de listar as mesas de HOJE, porque `opened_at` é
+       * ascendente). Mas trocou "silenciosamente errado" por "sem teto": o
+       * painel passou a ler TODA conta que a casa já teve, e o
+       * `loadEventsPorLote` logo abaixo a ler TODO evento de cada uma — a cada
+       * volta do laço do painel. Numa casa com 120 contas/dia isso são dez mil
+       * contas em três meses, e dezenas de idas por carga até a função morrer
+       * no `maxDuration`. A troca foi na direção certa (o #8 prefere a tela
+       * parar a mostrar número errado), mas é um precipício com data marcada.
+       * Achado pelas duas revisões de 2026-09-16 (compliance MEDIUM-C,
+       * segurança NEW-3).
+       *
+       * O recorte NÃO pode ser uma janela de data seca: uma conta ABERTA de
+       * qualquer idade tem que aparecer, e uma obrigação de restituição
+       * (CC art. 876) não vence com o tempo. Então são três conjuntos:
+       *
+       *  1. **As abertas, de qualquer idade.** Provadamente pequeno: a 0004
+       *     mantém `status='fechada'` DENTRO do portão de append, e o índice
+       *     `checks_one_open_per_table` é único sobre `status <> 'fechada'` —
+       *     no máximo uma aberta POR MESA.
+       *  2. **As da janela**, pelo `opened_at`: o que o dono espera ver.
+       *  3. **As que receberam dinheiro na janela**, mesmo velhas e fechadas —
+       *     é delas que sai o `sobraPorTxid` que desconta dívida do faturamento
+       *     da série semanal. Sem este terceiro conjunto, a série voltaria a
+       *     contar como receita uma dívida (o defeito de a95e15c).
+       *
+       * O que sai da lista: conta fechada, velha e sem movimento na janela. Se
+       * ela tiver obrigação pendente, ela continua aparecendo — pelos ACHADOS
+       * da conciliação, que varre a casa inteira e grita `critical` depois de
+       * 48 h. O canal alto continua alto.
+       */
+      const COLUNAS_DA_CONTA = 'id, table_id, opened_at, venue_tables(label)';
+      /**
+       * Buscar contas POR ID, mas SEMPRE dentro desta casa.
+       *
+       * Os conjuntos 3 e 4 partem de ids achados noutra tabela (`payments`,
+       * `check_events`). O `lerPorLote` não tem filtro, então uma busca por id
+       * puro tomaria o inquilino por herança em vez de re-derivá-lo — e o
+       * `select` puxa `venue_tables(label)`, então uma divergência desenharia a
+       * mesa, os totais e a dívida de OUTRA casa no painel deste dono. É o único
+       * lugar do recorte onde o id não vem de uma consulta já filtrada por
+       * `venue_id`, e é por isso que o `.eq('venue_id')` está aqui.
+       * Apontado pela terceira revisão de segurança de 2026-09-16 (L3).
+       */
+      const contasDaCasaPorId = async (ids, op) => {
+        const limpos = [...new Set(ids)].filter(isUuid);
+        if (limpos.length === 0) return [];
+        const fora = [];
+        for (let i = 0; i < limpos.length; i += IDS_POR_LOTE) {
+          const lote = limpos.slice(i, i + IDS_POR_LOTE);
+          fora.push(...await lerPaginado({
+            op,
+            consulta: (de, ate) => client.from('checks').select(COLUNAS_DA_CONTA)
+              .eq('venue_id', venueId).in('id', lote)
+              .order('id', { ascending: true }).range(de, ate),
+          }));
+        }
+        return fora;
+      };
+
+      const [abertas, daJanela] = await Promise.all([
+        lerPaginado({
+          op: 'getPanelView.checks.abertas',
+          consulta: (de, ate) => client.from('checks').select(COLUNAS_DA_CONTA)
+            .eq('venue_id', venueId).neq('status', 'fechada')
+            .order('id', { ascending: true }).range(de, ate),
+        }),
+        lerPaginado({
+          op: 'getPanelView.checks.janela',
+          consulta: (de, ate) => client.from('checks').select(COLUNAS_DA_CONTA)
+            .eq('venue_id', venueId).gte('opened_at', desde)
+            .order('opened_at', { ascending: true }).order('id', { ascending: true })
+            .range(de, ate),
+        }),
+      ]);
+      const jaTenho = new Set([...abertas, ...daJanela].map((c) => c.id));
+
+      /**
+       * O QUARTO CONJUNTO: as contas com DISPUTA na janela.
+       *
+       * Uma disputa não toca `confirmed_at` nem `status` da conta — ela é um
+       * evento no razão, e chega semanas depois do pagamento (o cartão tem 120
+       * dias). Então a conta disputada é sempre velha e fechada, e caía FORA dos
+       * três conjuntos: o quadro de chargebacks do painel ficava vazio por
+       * construção, justo pro caso em que há dinheiro saindo.
+       *
+       * E o canal alto NÃO cobria: a conciliação só emite `dispute_evidence_due`
+       * numa faixa de sete dias antes do prazo, e uma disputa PERDIDA não gera
+       * achado `dispute_*` nenhum — só o dinheiro vai embora. Achado pela
+       * terceira revisão de segurança de 2026-09-16 (M3).
+       *
+       * A leitura de `check_events` não tem `venue_id` (a tabela não tem a
+       * coluna), então ela varre a janela e o filtro de casa é aplicado na busca
+       * das contas, acima. Disputa é rara — são poucas linhas em oito dias.
+       */
+      const eventosDeDisputa = await lerPaginado({
+        op: 'getPanelView.checks.disputa',
+        consulta: (de, ate) => client.from('check_events').select('check_id')
+          .in('type', ['PAYMENT_DISPUTED', 'PAYMENT_DISPUTE_CLOSED'])
+          .gte('created_at', desde)
+          .order('check_id', { ascending: true }).order('seq', { ascending: true })
+          .range(de, ate),
+      });
+
+      // Só o que AINDA NÃO TENHO vai pro banco de novo: numa casa normal quase
+      // todo pagamento da janela é de uma conta que o conjunto 2 já trouxe, e
+      // buscá-las outra vez eram idas a mais em toda carga do painel (L4).
+      const [comDinheiro, comDisputa] = await Promise.all([
+        contasDaCasaPorId(
+          (confirmedRaw || []).map((p) => p.check_id).filter((id) => !jaTenho.has(id)),
+          'getPanelView.checks.comDinheiro',
+        ),
+        contasDaCasaPorId(
+          eventosDeDisputa.map((e) => e.check_id).filter((id) => !jaTenho.has(id)),
+          'getPanelView.checks.comDisputa',
+        ),
+      ]);
+
+      const porId = new Map();
+      for (const c of [...abertas, ...daJanela, ...comDinheiro, ...comDisputa]) porId.set(c.id, c);
+      // ORDEM CRONOLÓGICA, como era antes do recorte: a união dos conjuntos sai
+      // na ordem em que eles foram lidos, e o painel desenha `data.checks` sem
+      // ordenar — a lista de mesas do dono tinha virado uma ordem arbitrária.
+      const checks = [...porId.values()]
+        .sort((a, b) => String(a.opened_at || '').localeCompare(String(b.opened_at || '')) || a.id.localeCompare(b.id));
 
       const rows = [];
       /**
@@ -1269,12 +1953,17 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
        * descontava, e a série ao lado dele não.
        */
       const sobraPorTxid = new Map();
+      // POR LOTE: era uma leitura do razão POR CONTA ABERTA, em série, e o
+      // painel do dono recarrega a cada 4 s. Ver `loadEventsPorLote`.
+      const razoes = await loadEventsPorLote((checks || []).map((c) => c.id));
       for (const c of checks || []) {
-        const state = reduce(await loadEvents(c.id));
-        for (const [txid, pg] of Object.entries(state.payments || {})) {
-          const falta = Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0));
-          if (falta > 0) sobraPorTxid.set(txid, falta);
-        }
+        const state = reduce(razoes.get(c.id) || []);
+        // PELA REGRA ÚNICA: este mapa desconta a dívida do FATURAMENTO da série
+        // semanal (ver `ativacao.js`), e lido do excedente congelado ele era
+        // cego justamente na sobra que nasce de uma reversão — a série contava
+        // como receita a mesma quantia que a linha ao lado chamava de dívida
+        // (CC art. 876; segurança HIGH-1 de a95e15c).
+        acumularSobra(state, sobraPorTxid);
         rows.push({
           checkId: c.id,
           tableLabel: c.venue_tables ? c.venue_tables.label : '?',
@@ -1288,6 +1977,9 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
             // número morria ali: nenhum painel, nenhuma tela. Ver
             // `overpaid_pending_restitution` na conciliação.
             overpaidCents: state.overpaidCents,
+            // PAGO DEPOIS DE FECHAR, na parte que a sobra não cobre — ver `paidAfterClose`. A equipe
+            // confere com a mesa se ela também pagou no caixa. (Compliance HIGH-1.)
+            paidAfterClose: paidAfterClose(state),
             /**
              * QUAL cobrança devolver — o painel não podia dizer.
              *
@@ -1314,12 +2006,11 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
              * leitura pública segue com ordinal.
              */
             ...(state.overpaidCents > 0 ? {
-              overpaidTxids: Object.entries(state.payments)
-                .map(([txid, pg]) => ({
-                  txid,
-                  restituteCents: Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-                }))
-                .filter((x) => x.restituteCents > 0),
+              // PELA REGRA ÚNICA do redutor: o excedente cru é zero na
+              // duplicidade que nasce depois, e o painel mostrava "a devolver"
+              // sem nenhuma cobrança embaixo — com o runbook mandando devolver
+              // "pelo valor ao lado da cobrança" (compliance HIGH-1 de 089e8a2).
+              overpaidTxids: linhasDeSobra(state),
             } : {}),
             // Disputas por CONTAGEM: é a taxa de chargeback que o
             // adquirente julga, e o dono não tinha como ver a dele.
@@ -1328,52 +2019,6 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         });
       }
 
-      // Mesas de TREINO ficam fora de todos os números (workshop pré-turno
-      // não é movimento da casa) — espelha o memory store.
-      const { data: trainingTables, error: ttErr } = await client
-        .from('venue_tables')
-        .select('id')
-        .eq('venue_id', venueId)
-        .eq('training', true);
-      throwOn(ttErr, 'getPanelView.trainingTables');
-      const trainingChecks = new Set();
-      if ((trainingTables || []).length > 0) {
-        const { data: tChecks, error: tcErr } = await client
-          .from('checks')
-          .select('id')
-          .eq('venue_id', venueId)
-          .in('table_id', trainingTables.map((t) => t.id));
-        throwOn(tcErr, 'getPanelView.trainingChecks');
-        for (const c of tChecks || []) trainingChecks.add(c.id);
-      }
-
-      /**
-       * A janela de 7 DIAS, e o `today` recortado do dia de verdade.
-       *
-       * A consulta não tinha predicado de data nenhum, e o resultado saía sob
-       * o rótulo "recebido hoje" e "serviço da equipe (folha)". Um dono que
-       * leia aquela linha como a gorjeta do dia e distribua está distribuindo o
-       * acumulado da VIDA da casa — base de folha (Lei 13.419) lida de um
-       * agregado com rótulo errado. Achado pela revisão de compliance de
-       * 2026-09-08.
-       *
-       * A série semanal precisa de 7 dias, então a consulta busca 8 (folga de
-       * fuso) e o `today` filtra o dia em São Paulo — o mesmo corte do
-       * `buildAtivacao`, pra as duas linhas do painel nunca discordarem.
-       */
-      const desde = new Date(Date.parse(nowIso) - 8 * 86400000).toISOString();
-      const { data: confirmedRaw, error: pErr } = await client
-        .from('payments')
-        // `txid` é a CHAVE do mapa de sobras que o `buildAtivacao` usa. Sem
-        // ele, `sobraDe()` devolvia 0 pra toda linha e a série semanal seguia
-        // contando dívida (CC art. 876) como receita — a correção existia e não
-        // rodava. É a mesma armadilha documentada 120 linhas acima, onde eu
-        // acrescentei `currency` ao mapeador e não ao select.
-        .select('txid, amount_cents, tip_cents, confirmed_amount_cents, confirmed_tip_cents, refunded_amount_cents, refunded_tip_cents, check_id, confirmed_at, method')
-        .eq('venue_id', venueId)
-        .eq('status', 'confirmado')
-        .gte('confirmed_at', desde);
-      throwOn(pErr, 'getPanelView.payments');
       const confirmed = (confirmedRaw || [])
         .filter((p) => !trainingChecks.has(p.check_id))
         .map((p) => ({

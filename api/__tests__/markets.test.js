@@ -41,8 +41,29 @@ describe('mercados', () => {
       // Madrid não cobra serviço de qualquer forma: quem decide é o mercado.
       const es = publicMarketView('es', { servicoBp: 1000 });
       expect(es.serviceCharge.bp).toBe(0);
-      const br = publicMarketView('br', { servicoBp: 1000 });
+      // `cnpj` é preciso: a linha de serviço só aparece onde pode ser cobrada.
+      const br = publicMarketView('br', { servicoBp: 1000, cnpj: '11444777000161' });
       expect(br.serviceCharge.bp).toBe(1000);
+    });
+
+    test('sem documento de empresa provado, a linha de serviço nem é OFERECIDA', () => {
+      // O `marketGate` já recusava a cobrança; a tela seguia oferecendo. O
+      // cliente via o serviço pré-marcado, somado no total, tocava em pagar e
+      // levava a recusa — beco sem saída no caminho padrão. Não é oferta
+      // descumprida (a cobrança não acontece), mas é um total mostrado que a
+      // casa não pode receber. Achado pela revisão de compliance de 2026-09-13.
+      for (const cnpj of [null, '52998224725', '99999999999999', '  ']) {
+        const v = publicMarketView('br', { servicoBp: 1000, cnpj });
+        expect(v.serviceCharge.bp).toBe(0);
+        expect(v.servicoBp).toBe(0);
+        // E o MODO, que é o que o cliente lê pra decidir se DESENHA a linha.
+        // Zerar só o valor deixava uma caixa marcada de "Serviço da equipe
+        // (0%)" na tela — duas verdades no mesmo payload.
+        expect(v.serviceCharge.mode).toBe('none');
+      }
+      // E com documento, a linha volta.
+      expect(publicMarketView('br', { servicoBp: 1000, cnpj: '11.444.777/0001-61' }).serviceCharge.bp)
+        .toBe(1000);
     });
 
     test('nenhum mercado pré-marca uma gorjeta opcional', () => {
@@ -218,6 +239,9 @@ describe('portões de dinheiro por mercado', () => {
     const seen = [];
     const spy = {
       provider: 'spy',
+      // Dublê de um adaptador que captura na chamada (o caso da Pagar.me):
+      // sem declarar, a fábrica o recusa — de propósito.
+      walletCaptures: true,
       // Um dublê declara o que atende, como um adaptador de verdade: a guarda
       // do `create-charge` falha FECHADO quando `currencies` está ausente, e um
       // dublê que passasse sem declarar seria um dublê mais permissivo que a
@@ -410,7 +434,10 @@ describe('marketGate', () => {
   });
 
   test('o Brasil passa com serviço e sem teto', () => {
-    expect(marketGate('br', { rail: 'pix', amountCents: 3000, tipCents: 300 })).toBeNull();
+    // `venue` com documento: desde 2026-09-13 a gorjeta exige CNPJ provado —
+    // ver o bloco "gorjeta exige documento de empresa provado" mais abaixo.
+    const casa = { market: 'br', cnpj: '11444777000161' };
+    expect(marketGate('br', { rail: 'pix', amountCents: 3000, tipCents: 300, venue: casa })).toBeNull();
     expect(marketGate('br', { rail: 'card', amountCents: 100000000 })).toBeNull();
     expect(marketGate('br', { rail: 'bizum', amountCents: 3000 }))
       .toMatchObject({ code: 'rail_unsupported' });
@@ -507,4 +534,157 @@ test('todo lugar que cria cobrança está no censo — e o censo passa pelo port
     return !/marketGate\s*\(/.test(src);
   }).sort();
   expect(semPortao).toEqual([]);
+});
+
+/**
+ * O SERVIÇO SÓ CORRE ONDE HÁ PESSOA JURÍDICA PRA DISTRIBUIR.
+ *
+ * O portão do `/api/psp/recipient` confere o documento de quem recebe e faz a
+ * casa herdá-lo — mas isso fecha o caminho de ESCRITA e não alcança quem já
+ * existe. O `docs/onboarding/README.md` diz que hoje o recebedor é criado À MÃO
+ * no painel do Pagar.me (o formulário in-app é item 2 do roteiro, não
+ * construído): a população atual tem recebedor posto fora do portão e `cnpj`
+ * nulo, que é legítimo.
+ *
+ * E nada no caminho do dinheiro olhava documento: o `create-charge` exigia
+ * recebedor e mais nada, e o `pix.includesTip` aparece só com `tipCents > 0`.
+ * Sem este portão, os 10% liquidariam no CPF de uma pessoa física — sem folha,
+ * logo sem INSS/IRRF/FGTS — enquanto o cliente lê "o restaurante distribui à
+ * equipe, como manda a lei". Oferta vinculante do CDC art. 30, falsa por
+ * construção. Achado pela revisão de compliance de 2026-09-13.
+ */
+describe('gorjeta exige documento de empresa provado', () => {
+  const { createChargeService } = require('../_lib/pay/create-charge');
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { MockPsp } = require('../_lib/pay/mock-psp');
+  const { marketGate: gate } = require('../_lib/markets');
+
+  async function cobrar({ cnpj, tipCents }) {
+    const store = createMemoryStore();
+    const venue = store.seedVenue({ name: 'Boteco', servicoBp: 1000, cnpj });
+    const table = store.seedTable(venue.id, 'Mesa 1');
+    const check = await store.openCheck(table.qrToken, [
+      { id: 'i1', name: 'Picanha', priceCents: 10000 },
+    ]);
+    const charge = createChargeService({ store, psp: new MockPsp({ webhookSecret: 'x'.repeat(24) }) });
+    return charge({ checkId: check.id, amountCents: 5000, tipCents, rail: 'pix' });
+  }
+
+  test('sem documento da casa, a gorjeta é recusada com código próprio', async () => {
+    await expect(cobrar({ cnpj: null, tipCents: 500 }))
+      .rejects.toMatchObject({ code: 'venue_no_tip_document' });
+  });
+
+  test('um CPF na coluna NÃO é documento de empresa', async () => {
+    // `documentoPublicavelDaCasa` confere o VALOR, não só o mercado: linhas
+    // antigas foram escritas antes do portão de escrita existir.
+    await expect(cobrar({ cnpj: '52998224725', tipCents: 500 }))
+      .rejects.toMatchObject({ code: 'venue_no_tip_document' });
+  });
+
+  test('CNPJ que não passa no dígito verificador também não serve', async () => {
+    await expect(cobrar({ cnpj: '99999999999999', tipCents: 500 }))
+      .rejects.toMatchObject({ code: 'venue_no_tip_document' });
+  });
+
+  test('a regra vale no marketGate, que é por onde TODO trilho passa', () => {
+    // Ela nasceu dentro do `create-charge` — que não é o funil, é UM dos
+    // funis. O `POST /api/pay/stripe-intent` monta a cobrança sozinho, então
+    // a gorjeta era recusada no Pix e aceita no cartão, na mesma casa. É o
+    // incidente de 2026-09-07 que esta função já documenta, com a quinta
+    // regra repetindo o erro das quatro primeiras.
+    const semDoc = { market: 'br', cnpj: null };
+    const comDoc = { market: 'br', cnpj: '11444777000161' };
+    const comCPF = { market: 'br', cnpj: '52998224725' };
+    for (const rail of ['pix', 'card']) {
+      expect(gate('br', { rail, amountCents: 5000, tipCents: 500, venue: semDoc }))
+        .toMatchObject({ code: 'venue_no_tip_document' });
+      expect(gate('br', { rail, amountCents: 5000, tipCents: 500, venue: comCPF }))
+        .toMatchObject({ code: 'venue_no_tip_document' });
+      expect(gate('br', { rail, amountCents: 5000, tipCents: 500, venue: comDoc })).toBeNull();
+      // Consumo passa sempre.
+      expect(gate('br', { rail, amountCents: 5000, tipCents: 0, venue: semDoc })).toBeNull();
+    }
+  });
+
+  test('sem venue, o portão RECUSA — não libera', () => {
+    // `if (tipCents > 0 && venue && !doc)`: um chamador que esquecesse a venue
+    // pulava a regra em silêncio. A forma que o inegociável #7 nomeia, dentro
+    // da função escrita pra fechar o #7.
+    expect(gate('br', { rail: 'pix', amountCents: 5000, tipCents: 500 }))
+      .toMatchObject({ code: 'venue_no_tip_document' });
+    expect(gate('br', { rail: 'card', amountCents: 5000, tipCents: 500, venue: null }))
+      .toMatchObject({ code: 'venue_no_tip_document' });
+    // Sem gorjeta, segue passando sem venue: o consumo não depende disto.
+    expect(gate('br', { rail: 'pix', amountCents: 5000, tipCents: 0 })).toBeNull();
+  });
+
+  test('nenhum chamador de marketGate no repositório omite a venue', () => {
+    // A versão anterior deste censo NÃO PODIA FALHAR: casava a lista de
+    // argumentos inteira, e o primeiro posicional é sempre `venue.market` —
+    // então `/venue/` casava com ou sem a venue no objeto de opções. Rodado
+    // contra a árvore ANTES do conserto, dava a mesma resposta: vazio. E a
+    // lista de arquivos era escrita à mão, sem o `house-service.js`, que
+    // chama `marketGate` e não passa venue. Agora o censo acha os chamadores
+    // e olha o OBJETO DE OPÇÕES. Achado pelas duas revisões de 2026-09-13.
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const RAIZ = path.join(__dirname, '..', '..');
+    function anda(dir, out = []) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { if (!/^(node_modules|__tests__)$/.test(e.name)) anda(p, out); }
+        else if (/\.js$/.test(e.name)) out.push(p);
+      }
+      return out;
+    }
+    const chamadores = anda(path.join(RAIZ, 'api'))
+      .filter((f) => /marketGate\s*\(/.test(fs.readFileSync(f, 'utf8')));
+    // Se o censo parar de achar chamador, ele passa calado.
+    expect(chamadores.length).toBeGreaterThanOrEqual(2);
+    const semVenue = [];
+    const formaDesconhecida = [];
+    for (const f of chamadores) {
+      const texto = fs.readFileSync(f, 'utf8');
+      // A DECLARAÇÃO da função não é chamada — `function marketGate(code, {…})`
+      // casava o próprio padrão e se acusava.
+      //
+      // E TODA chamada tem que casar a forma que este censo sabe ler. Sem
+      // isto, `marketGate(m, opts)` ou `marketGate(m)` simplesmente não
+      // casavam e o censo seguia verde: forma desconhecida não é forma
+      // conforme. Achado pela revisão de segurança de 2026-09-13.
+      const chamadas = [...texto.matchAll(/(?<!function\s)marketGate\s*\(/g)];
+      const lidas = [...texto.matchAll(/(?<!function\s)marketGate\s*\([^,]*,\s*\{([^}]*)\}/g)];
+      if (chamadas.length !== lidas.length) {
+        formaDesconhecida.push(`${path.relative(RAIZ, f)}: ${chamadas.length} chamadas, ${lidas.length} legíveis`);
+      }
+      for (const m of lidas) {
+        // `tipCents: 0` literal dispensa: não há gorjeta pra conferir.
+        if (/tipCents:\s*0\b/.test(m[1])) continue;
+        if (!/(^|[,{]\s*)venue\s*($|[,:=])/.test(m[1].trim())) {
+          semVenue.push(`${path.relative(RAIZ, f)}: ${m[0].slice(0, 70)}`);
+        }
+      }
+    }
+    expect(semVenue).toEqual([]);
+    expect(formaDesconhecida).toEqual([]);
+  });
+
+  test('o CONSUMO passa sem documento — ninguém deixa de pagar o que comeu', async () => {
+    const r = await cobrar({ cnpj: null, tipCents: 0 });
+    expect(r.txid).toBeTruthy();
+  });
+
+  test('com CNPJ válido, a gorjeta corre', async () => {
+    const r = await cobrar({ cnpj: '11444777000161', tipCents: 500 });
+    expect(r.txid).toBeTruthy();
+  });
+
+  test('o código tem tradução nas três línguas', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const dict = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'apps', 'web', 'src', 'i18n.ts'), 'utf8');
+    expect(dict).toContain("'err.venue_no_tip_document'");
+  });
 });

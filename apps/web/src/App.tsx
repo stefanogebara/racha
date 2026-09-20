@@ -33,6 +33,10 @@ const StripeWalletPay = lazy(() => import('./StripeWalletPay'));
 const BizumPay = lazy(() => import('./BizumPay'));
 import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, splitEqualLocal, type SplitMode } from './split';
+import { formatTaxId, isValidCPF, maskCpfCnpj } from './br';
+import { Campo } from './Campo';
+import { refDoPagamento } from './pagamento-ref';
+
 import { lembrarToken, tokenDaVolta, voltandoDePagamento } from './payReturn';
 
 /**
@@ -63,8 +67,16 @@ const NOTICE_KEY: Record<string, Key> = {
  */
 const POLL_BASE_MS = 4000;
 
+/**
+ * As recusas que significam "A CONTA MUDOU DEBAIXO DE VOCÊ" — as únicas em que
+ * "confira o valor e tente de novo" é conselho e não ruído. Todas nascem de
+ * outra pessoa da mesma mesa ter pago primeiro, ou de o garçom ter mexido na
+ * conta enquanto esta tela estava aberta.
+ */
+const CONTA_MUDOU = new Set(['amount_over', 'zero_charge', 'check_closed', 'check_not_found']);
+
 export default function App() {
-  const { t, lang, pct, adotarPadraoDaCasa, dmy, hm } = useT();
+  const { t, lang, pct, adotarPadraoDaCasa, dmy, hm, tErr } = useT();
   // O `?t=` da mesa, ou — na volta de um trilho que redireciona (Bizum) — o
   // token que a própria aba guardou. A volta não traz o token na URL: ver
   // `payReturn.ts` pro motivo.
@@ -160,6 +172,24 @@ export default function App() {
   // novo com o valor novo, não um beco sem saída.
   const [error, setError] = useState<string | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
+  /**
+   * O CÓDIGO da recusa, ao lado da frase — porque nem toda recusa se conserta
+   * tentando de novo.
+   *
+   * A tela colava "— a conta foi atualizada, confira o valor e tente de novo"
+   * em TODA recusa. Numa casa com o pagamento desligado
+   * (`platform_misconfigured`) o cliente lia "pague no caixa" e, na mesma
+   * linha, "confira o valor e tente de novo": duas instruções opostas, e a
+   * segunda manda a pessoa insistir num botão que não vai funcionar.
+   *
+   * A lista é de quem PODE tentar de novo, não de quem não pode: um código novo
+   * entra no lado seguro sozinho — mostra o erro e cala a boca sobre repetir.
+   */
+  const [payErrorCode, setPayErrorCode] = useState<string | null>(null);
+  // TOQUE DUPLO. O botão só desligava com o total zerado, então dois toques
+  // numa rede lenta mandavam dois POSTs: dois pedidos na Pagar.me e duas vagas
+  // do teto por conta. Revisão de compliance de 2026-09-15 (MEDIUM-4).
+  const [paying, setPaying] = useState(false);
   // A última atualização falhou, mas ainda temos a conta em mãos.
   const [stale, setStale] = useState(false);
 
@@ -170,11 +200,35 @@ export default function App() {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(() => new Set());
   const [servicoOn, setServicoOn] = useState(true);
   const [payerLabel, setPayerLabel] = useState('');
-  // CPF do pagador: o adquirente exige o documento do customer em TODO
-  // método (Pix e cartão) — padrão de checkout brasileiro. Um campo só,
-  // compartilhado com o Google Pay.
+  /**
+   * CPF do pagador. QUEM EXIGE É O GATEWAY, e cada um exige de um jeito.
+   *
+   * Este comentário dizia "o adquirente exige o documento do customer em TODO
+   * método (Pix e cartão) — padrão de checkout brasileiro". É falso, e é falso
+   * contra outro arquivo deste repositório: o adaptador da Stripe RECEBE o campo
+   * e o descarta, com oito linhas explicando a minimização. A Pagar.me exige
+   * (Pix e Google Pay); a Stripe não.
+   *
+   * A crença escrita aqui produziu duas redações erradas do aviso ao cliente em
+   * rodadas seguidas — uma afirmando um destino que não existia, outra negando
+   * um que existia. É o lugar onde alguém lê antes de escrever a terceira
+   * (compliance MEDIUM-2 da rodada catorze).
+   *
+   * Um campo só, compartilhado com o Google Pay.
+   */
   const [cpf, setCpf] = useState('');
   const cpfDigits = cpf.replace(/\D/g, '');
+  /**
+   * ONZE DÍGITOS NÃO É UM CPF.
+   *
+   * A tela conferia só o COMPRIMENTO: `00000000000` passava, a cobrança ia pro
+   * gateway, o gateway recusava, e a pessoa levava um erro genérico do outro
+   * lado do botão de pagar — com a mesa esperando. O dígito verificador é
+   * aritmética que cabe aqui, e o repositório já tem a função (`isValidCPF`,
+   * a mesma que o cadastro do dono usa). Conferir no campo é o único jeito de
+   * dizer QUAL campo está errado.
+   */
+  const cpfOk = isValidCPF(cpfDigits);
   // Antes o botão de pagar exigia CPF pra HABILITAR — ficava cinza em silêncio e
   // parecia "quebrado" (diner toca e nada acontece). Agora é tocável e, sem CPF,
   // dá feedback + foca o campo.
@@ -184,7 +238,9 @@ export default function App() {
   const [charge, setCharge] = useState<ChargeResult | null>(null);
   // Quanto já estava pago no instante em que criei MINHA cobrança — quando o
   // pago passar disso, é a minha que caiu → avança pro ✓ sozinho.
-  const [paidBaseline, setPaidBaseline] = useState<number | null>(null);
+  // A MARCA da minha cobrança na conta pública (ver `pagamento-ref.ts`). O ✓
+  // espera ESTA marca cair — não o total da mesa subir.
+  const [ownRef, setOwnRef] = useState<string | null>(null);
   /** Quando o pagamento foi confirmado NESTA sessão — o carimbo do comprovante.
    *  Fixado na transição, não no render: no render ele andaria a cada poll. */
   const [paidAt, setPaidAt] = useState<string | null>(null);
@@ -192,6 +248,7 @@ export default function App() {
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [demoGone, setDemoGone] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   // Para de fazer polling quando a conta some no meio do redeem (fechou/girou).
   const [polling, setPolling] = useState(true);
   // O intervalo do poll, que cresce no 404 e volta ao normal no acerto.
@@ -297,14 +354,18 @@ export default function App() {
     }
   }, [view, houseChecked, token]);
 
-  // Auto-avança pro ✓ quando o pagamento cai — webhook real OU Simulador da
-  // demo, sem depender de botão. Vale pro diner REAL: paguei no banco → vejo a
-  // confirmação sozinho (antes ficava travado na tela do código Pix).
+  // Auto-avança pro ✓ quando o MEU pagamento cai — webhook real OU Simulador da
+  // demo, sem depender de botão. Comparava o `paidCents` da MESA com o de antes
+  // da minha cobrança: qualquer pagamento servia, e numa mesa em que quatro
+  // pessoas pagam juntas, o telefone de quem ainda não tinha pago dizia
+  // "Pagamento confirmado — você pagou" (auditoria de fluxo, CRITICAL-1). Agora
+  // espera a marca da PRÓPRIA cobrança aparecer entre os pagamentos da conta.
   useEffect(() => {
-    if (step === 'pagar' && charge && paidBaseline !== null && view && view.state.paidCents > paidBaseline) {
+    if (step === 'pagar' && charge && ownRef && view
+        && Object.values(view.state.payments || {}).some((p) => p.ref === ownRef)) {
       setPaidAt(new Date().toISOString()); setStep('pago');
     }
-  }, [view, step, charge, paidBaseline]);
+  }, [view, step, charge, ownRef]);
 
   // O ✓ é o momento-prova do demo de prospecção: o lead PAGOU a conta de
   // mentira. Cobre os dois caminhos até 'pago' (webhook e redeem de saldo).
@@ -331,11 +392,33 @@ export default function App() {
     );
   }
   if (!token) return <Home />;
+  /**
+   * A CONTA QUE NÃO CARREGOU — o beco mais comum do produto.
+   *
+   * QR vencido, mesa que o garçom ainda não abriu, link truncado por um app de
+   * mensagem: tudo cai aqui. A tela devolvia dois parágrafos cinzas no meio do
+   * papel, sem marca, sem contorno e sem seletor de idioma — o que parece erro
+   * de carregamento, não resposta.
+   *
+   * O conserto já estava escrito na carteira (`SemCarteira`) e não tinha
+   * atravessado pra cá, que é onde ele é mais usado. Agora é um estado do
+   * produto: moldura, marca, o que aconteceu, e o que a pessoa faz (a tela
+   * continua tentando sozinha, e isso é dito).
+   */
   if (error && !view) {
     return (
       <Shell>
-        <p className="muted center">{error}</p>
-        {polling && <p className="muted center small">{t('check.stillChecking')}</p>}
+        {/* Sem o slogan aqui: ele já está no rodapé desta mesma tela, e repetido
+            duas vezes numa tela de três linhas ele vira ruído. */}
+        <header className="head">
+          <span className="venue">Racha</span>
+        </header>
+        <section className="card">
+          <p className="label">{t('check.notLoadedTitle')}</p>
+          <p className="muted">{error}</p>
+          {polling && <p className="muted small">{t('check.stillChecking')}</p>}
+        </section>
+        <footer className="foot"><span>{t('app.tagline')}</span><LangToggle compact /></footer>
       </Shell>
     );
   }
@@ -374,24 +457,40 @@ export default function App() {
     });
   }
 
+  async function onPayOnce() {
+    if (paying) return;
+    setPaying(true);
+    try { await onPay(); } finally { setPaying(false); }
+  }
+
   async function onPay() {
     // Só barra onde o documento é exigido pelo trilho. Barrar em Espanha
     // travaria o pagamento num campo que a tela nem mostra.
-    if (taxIdRequired && cpfDigits.length !== 11) {
+    if (taxIdRequired && !cpfOk) {
       setCpfHint(true);
       document.getElementById('cpf-field')?.focus();
       return;
     }
     setCpfHint(false);
     setPayError(null);
+    setPayErrorCode(null);
     try {
-      setPaidBaseline(state.paidCents); // baseline ANTES da minha cobrança cair
+      setOwnRef(null); // a marca da cobrança NOVA chega com ela, abaixo
       // `undefined`, não '' — não pedimos documento neste mercado, então não
       // mandamos um campo vazio pra ser validado como se tivesse sido pedido.
       const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null,
                                    taxIdRequired ? cpfDigits : undefined,
                                    primaryRail === 'bizum' ? 'bizum' : 'pix');
       setCharge(result);
+      // A MARCA que faz esta tela reconhecer o PRÓPRIO pagamento. Sem
+      // `crypto.subtle` (contexto não-seguro, WebView velha) ela não existe, e
+      // aí NENHUM caminho leva de `pagar` a `pago` numa casa de verdade: a
+      // pessoa paga e a tela continua mostrando o copia-e-cola, o que convida a
+      // pagar de novo (CDC art. 42 § único) e não dá comprovante nenhum
+      // (art. 6º III). O aviso abaixo cobre isso — e o `.catch` existe porque
+      // uma promessa rejeitada aqui deixava `ownRef` nulo em silêncio
+      // (compliance MEDIUM-6 de ec86b37).
+      void refDoPagamento(result.txid).then(setOwnRef).catch(() => setOwnRef(null));
       setStep('pagar');
       setCopied(false);
     } catch (e) {
@@ -400,6 +499,7 @@ export default function App() {
       const err = e as ApiError;
       // Os valores vêm do servidor em centavos crus; quem formata é quem sabe
       // o idioma. Ver o comentário do amount_over no router.
+      setPayErrorCode(err.code || null);
       setPayError(tError(lang, err.code, err.message,
         // Todos os limites que o servidor manda em CENTAVOS, formatados aqui na
         // moeda da casa. Antes só `leftCents` era mapeado, então a mensagem do
@@ -409,6 +509,18 @@ export default function App() {
           left: brl(Number(err.vars.leftCents ?? 0)),
           min: brl(Number(err.vars.minCents ?? 0)),
           max: brl(Number(err.vars.maxCents ?? 0)),
+          // `limit` e `windowMinutes` NÃO são dinheiro — são contagem e
+          // minutos. Faltavam aqui, e o resultado era o teto de cobranças
+          // chegando com `{limit}` e `{windowMinutes}` LITERAIS na tela, que é
+          // a mesma regressão que o comentário acima já registra pro `{max}`.
+          // Um censo de marcadores agora impede a terceira. Achado pela
+          // revisão de compliance de 2026-09-15 (HIGH-3).
+          limit: String(err.vars.limit ?? ''),
+          windowMinutes: String(err.vars.windowMinutes ?? ''),
+      // `maxChars` é CONTAGEM DE CARACTERES, não dinheiro — e `max` já está
+      // tomado pelo `money(maxCents)` logo acima. Serve as recusas das palavras
+      // da casa (nome, rótulo de mesa, cidade).
+      maxChars: String(err.vars.maxChars ?? ''),
         } : undefined));
       void refresh();
     }
@@ -416,8 +528,16 @@ export default function App() {
 
   async function onCopy() {
     if (!charge || !charge.copiaECola) return;
-    await navigator.clipboard.writeText(charge.copiaECola).catch(() => {});
-    setCopied(true);
+    // COPIADO SÓ QUANDO COPIOU. `writeText` falha no navegador embutido do
+    // WhatsApp e do Instagram, fora de HTTPS ou sem permissão — e a tela dizia
+    // "copiado" assim mesmo: a pessoa abria o banco e colava nada, e o código na
+    // tela vinha cortado em 64 caracteres (auditoria de UI, C1).
+    try {
+      await navigator.clipboard.writeText(charge.copiaECola);
+      setCopied(true); setCopyFailed(false);
+    } catch {
+      setCopied(false); setCopyFailed(true);
+    }
   }
 
   // Demo affordance: stands in for the diner's bank app.
@@ -432,7 +552,7 @@ export default function App() {
     } catch (e) {
       // Fora do modo demo /api/dev/confirm não existe (404) — some o botão.
       if ((e as ApiError).status === 404) setDemoGone(true);
-      else setConfirmError((e as Error).message);
+      else setConfirmError(tErr(e));
     } finally {
       setConfirming(false);
     }
@@ -467,23 +587,30 @@ export default function App() {
             <p className="muted small center">{t('bizum.how')}</p>
           ) : (
             <>
-              <div className="codebox" aria-label={t('pix.aria')}>
-                {(charge.copiaECola ?? '').slice(0, 64)}…
+              <div className="codebox selectable" aria-label={t('pix.aria')}>
+                {charge.copiaECola ?? ''}
               </div>
               <button className="cta" onClick={onCopy}>
                 {copied ? t('pix.copied') : t('pix.copy')}
               </button>
+              {copyFailed && <p className="muted small center" role="status">{t('pix.copyFailed')}</p>}
               <p className="muted small center">
                 {t('pix.how')}
               </p>
             </>
           )}
-          {!demoGone && (
+          {/* O botão de SIMULAR só na casa de demonstração. Aparecia pra todo
+              cliente de verdade, embaixo do Pix de verdade, até um toque devolver
+              404 (auditorias de fluxo H2 e de UI H3). */}
+          {venue.demo === true && !demoGone && (
             <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
               {confirming ? t('pix.simulating') : t('pix.simulate')}
             </button>
           )}
-          {confirmError && <p className="muted small" style={{ color: 'var(--burgundy)' }}>{confirmError}</p>}
+          {confirmError && <p className="muted small" style={{ color: 'var(--erro)' }}>{confirmError}</p>}
+          {/* Este telefone não consegue calcular a própria marca: avisa, em vez
+              de esperar por um ✓ que não vem. */}
+          {ownRef === null && <p className="muted small center">{t('pix.noAutoConfirm')}</p>}
           <button className="linklike" onClick={() => setStep('conta')}>{t('common.back')}</button>
         </section>
       </Shell>
@@ -527,7 +654,9 @@ export default function App() {
               R$ 117,21 e lia R$ 106,55, sem nenhuma menção ao serviço. Um
               comprovante cujo valor não bate com o extrato do cartão não serve
               de comprovante. O serviço sai em linha própria porque é a parte
-              que vai pra equipe (Lei 13.419/2017), e a hora entra porque
+              que a casa distribui à equipe por obrigação legal (Lei
+              13.419/2017, e a CLT 457 §6º ainda deixa reter encargos), e a
+              hora entra porque
               recibo sem data é prova fraca. Medido no e2e de 2026-09-10. */}
           {charge && (
             <>
@@ -558,7 +687,7 @@ export default function App() {
               verdade é pior que a ausência dele (migração 0002). */}
           {venue.taxId && (
             <p className="muted small center">
-              {t(venue.market === 'es' ? 'rcpt.taxIdNif' : 'rcpt.taxIdCnpj')}{' '}{venue.taxId}
+              {t(venue.market === 'es' ? 'rcpt.taxIdNif' : 'rcpt.taxIdCnpj')}{' '}{formatTaxId(venue.taxId, venue.market)}
             </p>
           )}
           {/* AVISOS DE DINHEIRO do cliente. Código estável + centavos vêm do
@@ -566,7 +695,7 @@ export default function App() {
               falhou: nos dois a casa deve, e ficar calado é o problema — o
               cliente vai embora sem saber que tem valor a receber. */}
           {(state.notices || []).map((n, i) => (
-            <p key={`${n.code}:${i}`} className="muted small center" style={{ color: 'var(--burgundy)' }}>
+            <p key={`${n.code}:${i}`} className="muted small center" style={{ color: 'var(--erro)' }}>
               {/* Um `switch`, não um ternário: um código novo que o servidor
                   inventar renderizaria a frase do ESTORNO — uma cobrança de
                   dinheiro falsa pro cliente. Desconhecido não aparece. */}
@@ -669,10 +798,13 @@ export default function App() {
         )}
       </section>
 
+      {/* `.bigmoney` é a classe da QUANTIA (52px de Newsreader itálico, tabular) e
+          estava emoldurando um emoji, no lugar onde a quantia costuma estar. A
+          marca de pago já existe e diz a mesma coisa sem fingir ser dinheiro. */}
       {remaining === 0 ? (
-        <section className="card center">
-          <p className="bigmoney">🎉</p>
-          <p>{t('check.allPaid')}</p>
+        <section className="card paid">
+          <div className="paidmark" aria-hidden="true">✓</div>
+          <h2>{t('check.allPaid')}</h2>
         </section>
       ) : (
         <section className="card">
@@ -717,17 +849,23 @@ export default function App() {
                   })}
             </p>
           )}
+          {/* O RÓTULO é o nome do campo; o cifrão é prefixo. Era um `<label>`
+              cujo texto inteiro era "R$": o nome acessível do campo que decide
+              quanto dinheiro sai era o símbolo da moeda. */}
           {mode === 'valor' && (
-            <div className="customrow">
+            <label className="customrow" htmlFor="valor">
+              <span>{t('share.custom')}</span>
+              <span className="linha">
               {/* O símbolo vem da MOEDA da casa, não de um literal — era "R$"
                   fixo, inclusive numa conta em euro. */}
-              <label htmlFor="valor">{currency === 'EUR' ? '€' : 'R$'}</label>
+              <span className="cifra" aria-hidden="true">{currency === 'EUR' ? '€' : 'R$'}</span>
               <input
                 id="valor" inputMode="decimal" placeholder="0,00"
                 value={customValue}
                 onChange={(e) => setCustomValue(e.target.value)}
               />
-            </div>
+              </span>
+            </label>
           )}
 
           {/* Em Espanha a conta NÃO tem linha de serviço: o preço já inclui o
@@ -752,9 +890,12 @@ export default function App() {
           {/* aria-label, não só placeholder: um placeholder some no foco e não
               é rótulo pra leitor de tela. Numa tela de pagamento, o campo tem
               que continuar dizendo o que é depois que a pessoa começa a digitar. */}
-          <input
-            className="namefield" maxLength={60} placeholder={t('payer.name')}
-            aria-label={t('payer.name')}
+          <Campo
+            rotulo={t('payer.name')} maxLength={60} placeholder={t('payer.namePlaceholder')}
+            // `name`: o teclado do telefone oferece o que a pessoa já tem
+            // guardado. Num fluxo de pagamento, cada campo digitado à mão é uma
+            // chance de desistir.
+            autoComplete="name" enterKeyHint="next"
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
           {/* O documento do pagador só existe onde o TRILHO precisa dele. No
@@ -764,15 +905,27 @@ export default function App() {
               exige `customer.document` pra emitir a cobrança, e é essa
               necessidade que sustenta o campo. */}
           {taxIdRequired && (
-          <input
+          <Campo
             id="cpf-field"
-            className="namefield" inputMode="numeric" maxLength={14}
-            placeholder={t('payer.cpf')}
-            aria-label={t('payer.cpf')}
+            rotulo={t('payer.cpf')} inputMode="numeric" maxLength={14}
+            // A FORMA sai do FORMATADOR, nao de uma string pontuada a mao: o censo
+            // do `taxid.test.ts` existe porque toda pontuacao escrita a mao acaba
+            // divergindo do formatador, e um placeholder e pontuacao escrita a mao.
+            placeholder={maskCpfCnpj('00000000000')}
             aria-describedby="cpf-why"
-            style={cpfHint && cpfDigits.length !== 11 ? { borderColor: 'var(--burgundy)' } : undefined}
+            // A PONTUAÇÃO que um humano escreve, enquanto ele digita: o mesmo
+            // `maskCpfCnpj` do cadastro do dono. Sem isso a pessoa conferia
+            // onze dígitos colados num campo de pagamento.
+            //
+            // A máscara passou a ser do `Campo` — é ele que formata E repõe o
+            // cursor. Formatando aqui, no `onChange`, o cursor ia pro fim a
+            // cada tecla, e corrigir um dígito do meio do CPF era impossível
+            // sem apagar tudo (medido no navegador; ver `mascara-caret.ts`).
+            mascara={maskCpfCnpj}
+            ruim={cpfHint && !cpfOk}
+            recado={cpfHint && !cpfOk ? t('payer.cpfHint') : undefined}
             value={cpf}
-            onChange={(e) => { setCpf(e.target.value); if (e.target.value.replace(/\D/g, '').length === 11) setCpfHint(false); }}
+            onChange={(e) => { setCpf(e.target.value); if (isValidCPF(e.target.value)) setCpfHint(false); }}
           />
           )}
           {/* Por que o CPF. Um número de documento pedido numa tela de pagamento
@@ -780,15 +933,18 @@ export default function App() {
               num bar, é também o motivo de alguém desistir de pagar. O destino
               é verdade conferida: `create-charge.js` manda pro PSP e o
               `registerCharge` NÃO guarda; webhook que traz CPF passa pelo
-              `maskTaxId`. */}
+              descarte — a máscara do webhook é lista de PERMISSÃO de escalares e
+              o documento vem aninhado, então ele não tem caminho pro banco.
+              (Aqui dizia "passa pelo `maskTaxId`", e esse ramo foi apagado da
+              máscara: o resultado é mais forte, a frase é que apontava pra um
+              controle inexistente.) */}
           {taxIdRequired && <p className="muted small" id="cpf-why">{t('payer.cpfWhy')}</p>}
-          {taxIdRequired && cpfHint && cpfDigits.length !== 11 && (
-            <p className="small" style={{ color: 'var(--burgundy)' }}>{t('payer.cpfHint')}</p>
-          )}
 
           {payError && (
-            <p className="small" style={{ color: 'var(--burgundy)' }}>
-              {t('pay.retry', { error: payError })}
+            // `role="alert"`: a frase aparece depois de um toque, e quem usa
+            // leitor de tela não vê nada aparecer.
+            <p className="small" role="alert" style={{ color: 'var(--erro)' }}>
+              {CONTA_MUDOU.has(payErrorCode || '') ? t('pay.retry', { error: payError }) : payError}
             </p>
           )}
           {/* O trilho decide a TELA, não só o rótulo. Em Espanha o Bizum tem o
@@ -810,17 +966,17 @@ export default function App() {
                 payerLabel={payerLabel.trim() || null}
                 amountLabel={brl(totalToPay)}
                 disabled={totalToPay === 0}
-                onAuthorized={() => { setPaidBaseline(state.paidCents); }}
+                onAuthorized={() => { /* o ✓ do Bizum depende da marca da cobrança — Espanha desligada; ver o backlog */ }}
               />
               </Suspense>
               {!STRIPE_READY && (
-                <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
+                <button className="cta" disabled={totalToPay === 0 || paying} onClick={onPayOnce}>
                   {t('pay.ctaBizum', { amount: brl(totalToPay) })}
                 </button>
               )}
             </>
           ) : (
-            <button className="cta" disabled={totalToPay === 0} onClick={onPay}>
+            <button className="cta" disabled={totalToPay === 0 || paying} onClick={onPayOnce}>
               {t('pay.cta', { amount: brl(totalToPay) })}
             </button>
           )}
@@ -900,12 +1056,14 @@ export default function App() {
         </section>
       )}
 
-      <footer className="foot">
+      {/* `foot-aviso`: tres filhos, e o do meio e uma frase inteira. Em
+          `space-between` o slogan virava quatro linhas de uma palavra. */}
+      <footer className="foot foot-aviso">
         <span>{t('app.tagline')}</span>
         {/* O aviso do art. 9º vive AQUI, na tela da conta — ver PrivacyNotice.
             Leva o nome e o documento da CASA porque é ela a controladora, e um
             aviso que não identifica o controlador não cumpre o art. 9º III. */}
-        <PrivacyNotice venue={venue.name} taxId={venue.taxId} />
+        <PrivacyNotice venue={venue.name} taxId={venue.taxId} market={venue.market} />
         <LangToggle compact />
       </footer>
     </Shell>

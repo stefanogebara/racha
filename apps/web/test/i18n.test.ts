@@ -7,7 +7,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DICT, LANGS, asLang, money, tError, STRIPE_LOCALE, LANDING_MARKET } from '../src/i18n.ts';
+import { readFileSync, readdirSync } from 'node:fs';
+import { semComentarios } from './censo-taxid.ts';
+import { join } from 'node:path';
+import {
+  DICT, LANGS, asLang, fill, money, tError, textoDoAchado, STRIPE_LOCALE, LANDING_MARKET,
+} from '../src/i18n.ts';
 
 const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: string }][];
 
@@ -124,6 +129,9 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     'check.total:en=pt', 'check.total:en=es', 'check.total:pt=es',
     'share.item:en=pt',
     'gate.email:en=pt',
+    // "completa ✓" é a mesma palavra em português e espanhol — não é tradução
+    // esquecida, é a língua sendo a mesma aqui.
+    'setup.done:pt=es',
     'card.demoCard:en=pt', 'card.demoCard:en=es', 'card.demoCard:pt=es',
     'rcpt.statusOther:en=pt', // "status" é a mesma palavra
     // Espanhol e português: palavras que são MESMO iguais. Cada uma é uma
@@ -486,6 +494,74 @@ test('todo idioma tem um código de locale que a Stripe conhece', () => {
   assert.notEqual(STRIPE_LOCALE.es, 'es-ES');
 });
 
+test('o título ESTÁTICO não tem idioma — senão a aba pisca', () => {
+  // O `index.html` trazia "Racha — pay at the table". O idioma real só se sabe
+  // depois que o `/api/check` devolve o `defaultLang` da casa, então numa mesa
+  // brasileira a aba mostrava inglês e depois virava português. A marca não tem
+  // idioma; a frase entra quando o idioma se resolve. Achado testando no
+  // navegador, 2026-09-13.
+  // SEM os comentários: um comentário HTML não é renderizado, e o desta linha
+  // cita justamente o título antigo pra explicar por que ele saiu. A regra é
+  // sobre o que o navegador MOSTRA.
+  const html = readFileSync(join(import.meta.dirname, '..', 'index.html'), 'utf8')
+    .replace(/<!--[\s\S]*?-->/g, '');
+  const titulo = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
+  assert.equal(titulo.trim(), 'Racha');
+  // E nenhuma das frases traduzidas pode estar no HTML estático — em lugar
+  // nenhum dele, não só no `<title>`: escondê-la num `<meta description>` é o
+  // mesmo defeito com outra tag.
+  for (const lang of LANGS) {
+    assert.ok(!html.includes(DICT['doc.title'][lang]),
+      `o index.html traz a frase de ${lang} — a aba vai piscar`);
+  }
+});
+
+test('o `lang` estático é o padrão do produto — não um idioma qualquer', () => {
+  // `<html lang="pt-BR">` com o app montando em `en`. O documento declarava
+  // uma língua, o leitor de tela era avisado dela, e a primeira coisa
+  // renderizada era outra. O teste de cima dizia "nenhum idioma no HTML
+  // estático" e não olhava o atributo que É uma declaração de idioma.
+  // Achado pela revisão de segurança de 2026-09-13.
+  const html = readFileSync(join(import.meta.dirname, '..', 'index.html'), 'utf8')
+    .replace(/<!--[\s\S]*?-->/g, '');
+  const lang = html.match(/<html[^>]*\slang="([^"]*)"/)?.[1] ?? '';
+
+  // O ACOPLAMENTO, não o literal. A primeira versão afirmava `lang === 'en'`
+  // com a mensagem "tem que casar com o padrão de lang.tsx" e nunca abria o
+  // `lang.tsx`: trocar o padrão de lá pra 'pt' deixava este teste verde com o
+  // `index.html` errado de novo. Uma asserção que descreve um acoplamento sem
+  // ler as duas pontas é uma frase, não um guarda — é literalmente o achado
+  // que o `docs/decisions/2026-09-10-frase-escrita-do-guarda-que-eu-olhava.md`
+  // registra. Achado pela revisão de segurança de 2026-09-13.
+  const langTsx = readFileSync(join(import.meta.dirname, '..', 'src', 'lang.tsx'), 'utf8');
+  const padrao = langTsx.match(/return \{ lang: '(\w+)', escolhido: false \}/)?.[1];
+  assert.ok(padrao, 'não achei o padrão do produto em lang.tsx — o acoplamento deixou de ser legível');
+  const mapa = langTsx.match(/const HTML_LANG[^=]*=\s*\{([^}]*)\}/)?.[1] ?? '';
+  const esperado = mapa.match(new RegExp(`\\b${padrao}:\\s*'([^']+)'`))?.[1];
+  assert.ok(esperado, `HTML_LANG não tem entrada pra '${padrao}'`);
+  assert.equal(lang, esperado,
+    `o \`lang\` do index.html (${lang}) tem que ser o padrão do lang.tsx mapeado por HTML_LANG (${esperado})`);
+});
+
+test('o manifesto do PWA fala a língua padrão, e o censo sabe que ele existe', () => {
+  // O `manifest.webmanifest` tem uma frase em inglês que o SISTEMA mostra na
+  // hora de instalar — fora do `DICT`, então o laço de frases traduzidas não
+  // podia vê-la. Ela NÃO é um defeito: o manifesto é buscado antes de existir
+  // app, idioma escolhido ou casa conhecida, e não há como trocá-lo sem
+  // negociação no servidor. O que seria defeito é ele falar uma língua que não
+  // é o padrão do produto — aí a instalação prometeria noutra língua o que a
+  // tela abre dizendo. Fica anotado aqui pra que a próxima pessoa ache o
+  // arquivo, em vez de descobri-lo numa revisão.
+  const manifest = JSON.parse(readFileSync(
+    join(import.meta.dirname, '..', 'public', 'manifest.webmanifest'), 'utf8'));
+  assert.equal(manifest.name, 'Racha');
+  for (const lang of LANGS) {
+    if (lang === 'en') continue;
+    assert.ok(!manifest.description.includes(DICT['doc.title'][lang]),
+      `o manifesto traz a frase de ${lang}, mas o produto abre em inglês`);
+  }
+});
+
 test('o título do documento é traduzido — é a aba do navegador', () => {
   // Era uma linha fixa em inglês no `index.html`, então a única tela que nunca
   // obedecia ao seletor era a que o sistema operacional desenha por cima.
@@ -719,6 +795,11 @@ test('todo achado com {amount} na frase tem um campo de centavos que o painel l�
     'find.ledger_drift': 'driftCents',
     'find.underpayment': 'deltaCents',
     'find.overpayment': 'deltaCents',
+    'find.paid_after_close': 'amountCents',
+    'find.paid_after_close_tip': 'amountCents',
+    'find.reopened_by_refund': 'deltaCents',
+    'find.reopened_by_refund_mixed': 'deltaCents',
+    'find.reopened_by_chargeback': 'deltaCents',
   };
   for (const [chave, campo] of Object.entries(comValor)) {
     assert.ok(chave in DICT, `${chave} não está no dicionário`);
@@ -747,19 +828,222 @@ test('a rota do painel MANDA os centavos que o painel formata', async () => {
   const path = await import('node:path');
   const router = fs.readFileSync(
     path.join(import.meta.dirname, '..', '..', '..', 'api', '_app', 'router.js'), 'utf8');
+  // A regra da frase saiu do `Panel.tsx` pra um módulo `.ts` puro, pra o teste
+  // de cruzamento poder CHAMÁ-LA em vez de copiá-la — e este censo leu junto.
   const panel = fs.readFileSync(
-    path.join(import.meta.dirname, '..', 'src', 'Panel.tsx'), 'utf8');
+    path.join(import.meta.dirname, '..', 'src', 'i18n.ts'), 'utf8');
 
   // A cadeia que o painel lê pra preencher {amount}.
   const cadeia = panel.match(/const valor = ([^;]+);/);
-  assert.ok(cadeia, 'não achei a cadeia de centavos no Panel');
+  assert.ok(cadeia, 'não achei a cadeia de centavos no i18n');
   const campos = [...cadeia[1].matchAll(/f\.(\w+)/g)].map((m) => m[1]);
   assert.ok(campos.length >= 4, `cadeia curta demais: ${campos.join(', ')}`);
 
+  /**
+   * E TODO campo do achado que a FRASE lê, não só os da cadeia.
+   *
+   * `refundableCents` não está na cadeia do `{amount}` — ele é uma segunda
+   * variável no `vars`. Foi acrescentado ao achado e esquecido na projeção da
+   * rota, que é lista de PERMISSÃO: o esquecimento é silencioso, e o
+   * `{refundable}` chegava LITERAL na tela do dono toda vez que o achado saía,
+   * numa frase cuja instrução é "ajuste pela parte devolvida" (segurança HIGH-1
+   * da rodada catorze).
+   *
+   * A regra geral: se `textoDoAchado` lê o campo, a rota tem que mandar.
+   */
+  const corpoDaFrase = panel.slice(panel.indexOf('export function textoDoAchado('));
+  const fimDaFrase = corpoDaFrase.indexOf('\n}\n');
+  const lidos = [...new Set([...corpoDaFrase.slice(0, fimDaFrase).matchAll(/f\.(\w+)/g)].map((m) => m[1]))];
+  assert.ok(lidos.includes('refundableCents'),
+    'a varredura do corpo da frase quebrou: não achou nem o campo que motivou este censo');
+  for (const c of lidos) if (!campos.includes(c)) campos.push(c);
+
   // A projeção da rota, onde os achados são mapeados.
-  const i = router.indexOf('findings: [...r.findings]');
-  assert.ok(i > 0, 'não achei a projeção dos achados na rota');
-  const projecao = router.slice(i, i + 1200);
+  // A projeção mora em `projetarAchados`, e a rota chama a função.
+  const i = router.indexOf('function projetarAchados(');
+  assert.ok(i > 0 && router.includes('findings: projetarAchados(r.findings)'), 'não achei a projeção dos achados na rota');
+  // ATÉ O FIM DA FUNÇÃO, não um número mágico: `2400` passava 497 caracteres
+  // dentro do `json(...)` vizinho. Hoje aquele trecho não tem nenhum `*Cents`,
+  // então não havia falso positivo — mas a asserção é `includes` sobre texto
+  // cru, e qualquer nome de campo futuro que aparecesse ali satisfaria o censo
+  // calado (segurança LOW-2 da rodada quinze). É o mesmo recorte que o
+  // `sql-contract.test.js` já faz pelo `\nfunction `.
+  const fimDaProjecao = router.indexOf('\nfunction ', i + 10);
+  const projecao = router.slice(i, fimDaProjecao > i ? fimDaProjecao : undefined);
   const faltando = campos.filter((c) => !projecao.includes(c));
   assert.deepEqual(faltando, [], `campos que o painel lê e a rota não manda:\n${faltando.join('\n')}`);
+});
+
+test('nenhuma tela põe o texto CRU do erro no estado — o servidor manda código', () => {
+  // `lang.tsx:156` conta que vinte e uma telas faziam
+  // `setError((e as Error).message)` e foram convertidas. A conversão não
+  // deixou guarda nenhum atrás de si, e três chamadores ficaram pra trás —
+  // achados quando duas chaves novas do dicionário (`tax_id_invalid`,
+  // `recipient_doc_mismatch`) chegavam ao dono como "HTTP 400": o 4xx vem só
+  // com `code`, o `api.ts` cai no status quando não há `error`, e a tela
+  // mostrava o status cru. Dicionário preenchido, frase nunca exibida.
+  // Achado pela revisão de segurança de 2026-09-13.
+  const src = join(import.meta.dirname, '..', 'src');
+  function anda(dir: string, base = dir): string[] {
+    const out: string[] = [];
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) out.push(...anda(p, base));
+      else if (/\.tsx?$/.test(e.name)) out.push(p.slice(base.length + 1));
+    }
+    return out;
+  }
+  // ALLOWLIST, não denylist. A versão anterior casava UMA grafia
+  // (`set…((e as Error).message)`) e deixava passar `catch (error)`, o cast
+  // pra `ApiError` — a classe DESTE repositório —, o apelido em duas linhas,
+  // o `instanceof`, o objeto de estado e o sink com outro nome. O último
+  // estava VIVO: `StripeWalletPay` mandava `error.message` do SDK da Stripe,
+  // em inglês, pra tela de pagamento de quem janta no Brasil.
+  //
+  // Agora: nenhuma leitura de `.message` no `src/`, em forma nenhuma, fora dos
+  // tradutores. Uma regra, todas as grafias.
+  const TRADUTOR = /\b(tErr|tError)\s*\(/;
+  /**
+   * As dispensas, com razão escrita — dispensa é a afirmação de que alguém
+   * leu. Duas famílias, e nenhuma delas é "exibir texto de terceiro":
+   *
+   *  · `asMessage` (WalletPay) LÊ a mensagem pra reconhecer uma CHAVE do
+   *    nosso dicionário que o SDK carregou como texto de erro, e traduz. É o
+   *    contrário de exibir cru.
+   *  · `auth.ts` re-LANÇA o erro do Supabase; quem exibe é a tela, e lá o
+   *    `tErr` entra. Apagar a mensagem aqui apagaria o diagnóstico do
+   *    desenvolvedor sem melhorar nada pro leitor.
+   */
+  const DISPENSAS = [
+    { arquivo: 'WalletPay.tsx', trecho: "const raw = (e as Error).message || '';" },
+    { arquivo: 'auth.ts', trecho: 'throw new Error(error.message);' },
+  ];
+  // Comentários somem ESTRUTURALMENTE, com o mesmo removedor do censo de
+  // `taxId`. A versão anterior adivinhava por indentação — "linha indentada
+  // que começa com palavra e não tem `;(){}`" — e isso dispensava
+  // `      e.message`, que é exatamente o que o prettier produz ao quebrar
+  // uma chamada longa: a mesma forma de sink que pôs o inglês da Stripe na
+  // tela de pagamento. Uma allowlist com heurística de prosa dentro volta a
+  // depender de grafia.
+  const ofensores: string[] = [];
+  for (const f of anda(src)) {
+    semComentarios(readFileSync(join(src, f), 'utf8')).split('\n').forEach((linha, i) => {
+      const sem = linha;
+      if (!/\.message\b/.test(sem)) return;
+      if (TRADUTOR.test(sem)) return;              // a reserva do tradutor é o contrato
+      if (DISPENSAS.some((d) => f.endsWith(d.arquivo) && sem.includes(d.trecho))) return;
+      ofensores.push(`${f}:${i + 1} ${sem.trim().slice(0, 80)}`);
+    });
+  }
+  assert.deepEqual(ofensores, [], `\n${ofensores.join('\n')}\n`);
+});
+
+/**
+ * O CENSO DE MARCADORES — todo `{x}` de uma chave de erro tem que ser servido.
+ *
+ * Duas vezes o mesmo defeito: uma chave de erro ganha um marcador novo, os dois
+ * mapeadores de `vars` continuam servindo o trio de dinheiro (`left`, `min`,
+ * `max`), e o `fill` — que deixa marcador desconhecido VERBATIM — põe `{max}`,
+ * e depois `{limit}`, na tela de pagamento. A segunda vez foi o teto de
+ * cobranças vivas: a mensagem que diz ao cliente o que fazer chegava dizendo
+ * "({limit} em {windowMinutes} min)". Achado pela revisão de compliance de
+ * 2026-09-15 (HIGH-3).
+ *
+ * O censo lê os DOIS mapeadores como fonte da verdade: marcador que nenhum
+ * deles serve é marcador que vai chegar literal a alguém.
+ */
+test('todo marcador de toda chave err.* é servido pelos DOIS mapeadores', () => {
+  const src = (f: string) => readFileSync(join(import.meta.dirname, '..', 'src', f), 'utf8');
+  /** As chaves servidas por um mapeador de `vars`, lidas do próprio código. */
+  const servidos = (texto: string): Set<string> => {
+    // `err.vars ?` no App.tsx e `err?.vars ?` no lang.tsx — o encadeamento
+    // opcional é ortografia, não identidade, e ancorar na literal cegava o
+    // censo num dos dois lados (medido: zero servidos, ✓ sobre nada).
+    const m = /err\??\.vars \?/.exec(texto);
+    const bloco = m ? texto.slice(m.index, m.index + 1400) : '';
+    return new Set([...bloco.matchAll(/^\s*([a-zA-Z][a-zA-Z0-9]*):/gm)].map((m) => m[1]));
+  };
+  const deApp = servidos(src('App.tsx'));
+  const deLang = servidos(src('lang.tsx'));
+  // O censo tem que ACHAR os mapeadores: zero servidos daria ✓ sobre nada.
+  assert.ok(deApp.size >= 3, `App.tsx: ${[...deApp]}`);
+  assert.ok(deLang.size >= 3, `lang.tsx: ${[...deLang]}`);
+
+  const i18n = src('i18n.ts');
+  const orfaos: string[] = [];
+  for (const m of i18n.matchAll(/'(err\.[a-z_0-9.]+)':\s*\{([\s\S]{0,700}?)\n\s{2}'/g)) {
+    const [, chave, corpo] = m;
+    for (const ph of new Set([...corpo.matchAll(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g)].map((x) => x[1]))) {
+      if (!deApp.has(ph)) orfaos.push(`${chave}: {${ph}} não servido pelo App.tsx`);
+      if (!deLang.has(ph)) orfaos.push(`${chave}: {${ph}} não servido pelo lang.tsx`);
+    }
+  }
+  assert.deepEqual(orfaos, []);
+});
+
+/**
+ * A FRASE DO PAINEL E O NÚMERO QUE ELA IMPRIME SÃO A MESMA COISA?
+ *
+ * O achado `reopened_by_refund` carrega DOIS números: o buraco que a mesa vê, e
+ * a parte dele que veio de devolução. A frase diz "a mesa está vendo {amount}
+ * faltando" — e num commit o `deltaCents` passou a carregar a parte devolvível,
+ * sem que a frase mudasse. O painel passou a afirmar que dois números diferentes
+ * eram o mesmo: o dono lia R$ 20,00, a mesa via R$ 130,00, ele ajustava R$ 20 e
+ * quem sentasse ali pagava R$ 110 que a rede já tinha levado (segurança HIGH-1
+ * da rodada treze).
+ *
+ * Nenhum teste ligava o campo do achado à string renderizada — o teste do
+ * servidor afirmava os dois números no mesmo `expect` e não perguntava qual
+ * deles a tela usa. Este pergunta.
+ */
+test('o {amount} do achado de conta reaberta é o BURACO, o que a mesa vê', async () => {
+  // `createRequire`: este arquivo é ESM (o runner é `node --test` sobre `.ts`) e
+  // a conciliação é CommonJS. É a ponte, não um atalho.
+  const { createRequire } = await import('node:module');
+  const req = createRequire(import.meta.url);
+  const { reconcileCheck } = req('../../../api/_lib/checks/reconcile');
+  const ev = (type: string, payload: unknown) => ({ type, payload });
+  // Conta de R$ 200,00: chargeback de R$ 110,00 e estorno do trilho de R$ 20,00.
+  const achados = reconcileCheck({
+    checkId: 'c',
+    events: [
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 11000, tipCents: 0, disputeId: 'dp_1' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2000, tipCents: 0 }),
+    ],
+    payments: [],
+  }).findings.filter((f: { code: string }) => /^reopened_by_refund/.test(f.code));
+
+  assert.equal(achados.length, 1);
+  const f = achados[0] as { code: string; deltaCents: number; refundableCents: number };
+  // O BURACO é 13000 — é o que o telefone da mesa mostra.
+  assert.equal(f.deltaCents, 13000);
+  // A parte devolvível é 2000 — é o que o dono pode dar baixa.
+  assert.equal(f.refundableCents, 2000);
+  // E a frase é a do caso MISTO, que nomeia os dois.
+  assert.equal(f.code, 'reopened_by_refund_mixed');
+
+  /**
+   * E A FRASE RENDERIZADA, pela função DO PAINEL — não por uma cópia da cadeia.
+   *
+   * A primeira versão deste teste re-implementava `overpaidCents ?? deltaCents`
+   * aqui. Medido: com a cadeia real reordenada pra `… ?? refundableCents ?? …`,
+   * o painel passava a imprimir R$ 20,00 onde a mesa vê R$ 130,00 — o achado da
+   * rodada treze, verbatim — e a suíte inteira ficava verde. Uma cópia da regra
+   * não é a regra.
+   */
+  // O `t` do painel, montado com a mesma `fill` que a tela usa — é ela que
+  // devolve marcador desconhecido VERBATIM, e é isso que o teste tem que ver.
+  const tPt = (k: keyof typeof DICT, v?: Record<string, string | number>) => fill(DICT[k].pt, v);
+  const frase = textoDoAchado(f, tPt, (c: number) => money(c, 'pt', 'BRL'));
+  assert.match(frase, /R\$\s?130,00/, `a frase tem que trazer o buraco: ${frase}`);
+  assert.match(frase, /R\$\s?20,00/, `e a parte devolvível: ${frase}`);
+  // E o marcador NÃO pode sobreviver: o `fill` devolve desconhecido verbatim.
+  assert.doesNotMatch(frase, /\{refundable\}|\{amount\}/, `marcador literal na tela: ${frase}`);
+
+  for (const lang of ['en', 'pt', 'es'] as const) {
+    assert.match(DICT['find.reopened_by_refund_mixed'][lang], /\{amount\}[\s\S]*\{refundable\}/,
+      `${lang}: a frase do caso misto tem que nomear os dois números, nessa ordem`);
+  }
 });

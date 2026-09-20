@@ -61,7 +61,7 @@ function reconcilePayables({ chargeId, venueRecipientId, paidAmountCents, payabl
    */
   if (payables && payables.notFromAcquirer === true) {
     add('high', 'charge_not_from_acquirer',
-      `cobrança ${chargeId}: não é uma cobrança do adquirente — não existe recebível a conferir,`
+      `cobrança ${chargeId}: não é uma cobrança DESTE adquirente — não existe recebível a conferir,`
       + ' e o destino deste dinheiro não é conferível por aqui');
     return { chargeId, ok: false, findings };
   }

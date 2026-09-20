@@ -118,9 +118,29 @@ export async function authedReq<T>(path: string, init: RequestInit = {}): Promis
   if (!supabase) throw new Error('auth não configurado');
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
+  /**
+   * SEM TOKEN, NÃO PERGUNTA — e sobretudo não desloga.
+   *
+   * Isto mandava `Authorization: ''`, o servidor respondia 401 "missing bearer
+   * token" (corretamente), e a linha de baixo destruía uma sessão que estava só
+   * SE RENOVANDO: o `getSession()` faz uma ida de refresh, e um soluço de rede
+   * ali deixa `token` indefinido. Com o painel perguntando a cada poucos
+   * segundos, um turno dá muitas chances de acontecer — e este caminho é mais
+   * provável que o do servidor, porque não depende de o GoTrue estar fora, só
+   * de uma ida falhar. Achado pela revisão de compliance de 2026-09-16
+   * (MEDIUM-B).
+   *
+   * O erro sai com CÓDIGO, o mesmo do lado do servidor: pra quem lê a tela, "o
+   * login não respondeu" é a mesma coisa nos dois casos.
+   */
+  if (!token) {
+    const e = new Error('auth unavailable') as Error & { code?: string };
+    e.code = 'auth_unavailable';
+    throw e;
+  }
   const res = await fetch(path, {
     ...init,
-    headers: { ...(init.headers || {}), Authorization: token ? `Bearer ${token}` : '' },
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
   });
   const body = await res.json().catch(() => ({}));
   if (res.status === 401) { await signOut(); throw new Error('sessão expirada — entre de novo'); }

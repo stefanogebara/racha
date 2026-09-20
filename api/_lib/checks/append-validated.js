@@ -17,7 +17,13 @@
 
 const { reduce, validateEvent, EventValidationError } = require('./check-state');
 
-async function appendValidated(store, checkId, type, payload, pspEventId = null) {
+/**
+ * @param {number} [expectedSeq] quando vem, o lançamento é CONDICIONAL: só entra
+ *   se o último `seq` da conta ainda for este (migração 0034). É como uma
+ *   decisão de AUTORIZAÇÃO tirada de uma leitura vira uma escrita segura — a
+ *   leitura que autorizou e a gravação passam a ser o mesmo passo.
+ */
+async function appendValidated(store, checkId, type, payload, pspEventId = null, expectedSeq) {
   const state = reduce(await store.loadEvents(checkId));
   try {
     validateEvent({ type, payload }, state);
@@ -30,7 +36,8 @@ async function appendValidated(store, checkId, type, payload, pspEventId = null)
     }
     throw err;
   }
-  return store.appendEvent(checkId, type, payload, pspEventId);
+  if (expectedSeq === undefined) return store.appendEvent(checkId, type, payload, pspEventId);
+  return store.appendEventIfUnchanged(checkId, type, payload, pspEventId, expectedSeq);
 }
 
 module.exports = { appendValidated };

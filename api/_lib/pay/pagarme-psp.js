@@ -142,6 +142,27 @@ function parseCharge(charge, eventId = null) {
   }
   return {
     txid: charge.id,
+    /**
+     * O `code` DO PEDIDO — e nele vai o id da conta.
+     *
+     * `baseOrder` manda `code: chargeRef`, e `chargeRef` começa com o
+     * `checkId`. Quer dizer que uma cobrança que capturou e cuja linha de
+     * `payments` não existe AINDA É RASTREÁVEL: o dinheiro sabe de que conta
+     * veio, mesmo quando o nosso lado não sabe. Sem carregar isto pra frente, um
+     * órfão viraria um txid solto e um valor, e alguém teria que abrir o painel
+     * do adquirente pra descobrir a mesa.
+     */
+    orderCode: (charge.order && charge.order.code) || null,
+    /**
+     * O TIPO DO EVENTO, que ninguém preenchia.
+     *
+     * `money_without_check` grava `event_type` a partir daqui, e ele saía SEMPRE
+     * nulo — então o operador não distinguia um `charge.paid` de um
+     * `charge.overpaid` sem abrir o painel do adquirente, que é justamente o
+     * passo que o registro existe pra poupar. Achado pela quarta revisão de
+     * segurança de 2026-09-16 (LOW-1).
+     */
+    type: charge.status ? `charge.${charge.status}` : null,
     // O id do evento vem de FORA: a conciliação lê a cobrança pela API e não
     // tem evento nenhum (null, e o índice parcial da 0018 ignora nulos), o
     // webhook tem. O campo existe nos dois pra ninguém esquecer de passá-lo.
@@ -159,6 +180,33 @@ function parseCharge(charge, eventId = null) {
     method: charge.payment_method === 'pix' ? 'pix' : 'card',
     raw: charge,
   };
+}
+
+/**
+ * O DESCRITOR DA FATURA — o nome que aparece no app do banco de quem pagou.
+ *
+ * Era `'RACHA'` cravado: a pessoa jantava no Bar do Zé, pagava com Google Pay, e
+ * a fatura dizia RACHA. Identificação errada do fornecedor (CDC art. 6º III) e
+ * motor de contestação "não reconheço a compra" — e o cabeçalho deste mesmo
+ * arquivo afirma que "o restaurante é o merchant of record do seu recebedor".
+ * O princípio já estava escrito no adaptador da Stripe ("quem cobrou tem que ser
+ * quem o cliente reconhece") e não tinha atravessado pra cá, que é o adquirente
+ * de produção (compliance MEDIUM-1 da rodada quinze).
+ *
+ * A Pagar.me limita o campo a 13 caracteres e não aceita acento nem pontuação,
+ * então o nome é normalizado AQUI e não pelo chamador — um descritor recusado
+ * derruba a cobrança inteira. Sem nome, e só sem nome, cai no nosso.
+ */
+function descritorDaFatura(venueName) {
+  const cru = String(venueName || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase()
+    .slice(0, 13)
+    .trim();
+  return cru || 'RACHA';
 }
 
 function assertCents(v, name) {
@@ -203,9 +251,38 @@ function createPagarmePsp({
       const e = new Error(`pagarme ${method} ${path}: ${netErr.name === 'TimeoutError' ? `timeout ${timeoutMs}ms` : netErr.message}`);
       e.statusCode = 502;
       e.httpStatus = 0; // rede/timeout — nunca "recusa" nem "inexistente"
+      /**
+       * CÓDIGO até no 5xx, senão vira `internal` → "tente de novo".
+       *
+       * Este é o caminho GENÉRICO: quem captura (`createWalletCharge`) intercepta
+       * antes e troca por `charge_maybe_captured`, porque lá "não sei" não pode
+       * virar "tente de novo". Aqui — Pix, leitura, estorno — nada saiu de
+       * conta nenhuma, e `psp_unavailable` diz isso com honestidade.
+       */
+      e.code = 'psp_unavailable';
       throw e;
     }
-    const text = await res.text();
+    /**
+     * A LEITURA DO CORPO TAMBÉM PODE ABORTAR.
+     *
+     * O `AbortSignal.timeout(15 s)` é armado antes da requisição e continua
+     * armado enquanto o corpo transmite. Com `res.text()` fora do try, um
+     * abort ou reset no meio da leitura rejeitava com DOMException crua — sem
+     * `statusCode`, sem `code` — e virava `internal` → "algo deu errado, tente
+     * de novo". No Pix isso era o caminho medido; na carteira só não era pior
+     * porque o catch externo pegava por acaso. Décima revisão de segurança
+     * (2026-09-20, MEDIUM-2).
+     */
+    let text;
+    try {
+      text = await res.text();
+    } catch (leituraFalhou) {
+      const e = new Error(`pagarme ${method} ${path}: corpo interrompido (${leituraFalhou.name})`);
+      e.statusCode = 502;
+      e.httpStatus = 0;
+      e.code = 'psp_unavailable';
+      throw e;
+    }
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = null; }
     if (!res.ok) {
@@ -213,6 +290,28 @@ function createPagarmePsp({
       const err = new Error(`pagarme ${method} ${path}: ${msg}`);
       // 4xx do gateway em cobrança = recusa (402 pro diner), não bug nosso.
       err.statusCode = res.status >= 400 && res.status < 500 ? 402 : 502;
+      /**
+       * O TERCEIRO SÍTIO DE 402 — e o que a rodada anterior esqueceu.
+       *
+       * O conserto do `card_declined` cobriu os dois sítios que falam de
+       * cartão e deixou ESTE, que é o caminho genérico de erro do gateway.
+       * Sem `code`, o `errorBody` cai no ramo `<500`, não tem o que suprimir e
+       * manda `err.message` — que aqui é `pagarme POST /orders: <texto da
+       * Pagar.me>`: o nome do adquirente, o nosso verbo, o nosso caminho e
+       * texto de terceiro, num idioma escolhido pra um leitor que a gente não
+       * vê.
+       *
+       * E não é do trilho de carteira: o `createPixCharge` passa por aqui, o
+       * Pix está NO AR, e o interruptor não protege nada disto. Um recebedor
+       * desativado e quem está na mesa lê "The recipient is not active".
+       * Achado pela oitava revisão de compliance (2026-09-19, HIGH-1).
+       *
+       * `psp_rejected` e não `card_declined`: aqui não houve emissor nenhum
+       * negando cartão. A diferença também é o que deixa o aceite de produção
+       * provar que falou com o emissor, em vez de aceitar qualquer 4xx.
+       */
+      err.code = err.statusCode === 402 ? 'psp_rejected' : 'psp_unavailable';
+      process.stderr.write(`[pagarme] ${method} ${path} ${res.status}: ${String(msg).slice(0, 200)}\n`);
       err.httpStatus = res.status; // status exato — getCharge precisa separar 404 de 401/403
       throw err;
     }
@@ -270,6 +369,8 @@ function createPagarmePsp({
 
   return {
     provider: 'pagarme',
+    // v5 captura por padrão: o dinheiro sai dentro da chamada
+    walletCaptures: true,
     /**
      * As moedas que este adquirente atende. Declarado, não suposto.
      *
@@ -307,7 +408,10 @@ function createPagarmePsp({
       };
     },
 
-    async createWalletCharge({ chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken, payerDocument = null, currency }) {
+    async createWalletCharge({
+      chargeRef, amountCents, tipCents = 0, recipientId, wallet, paymentToken,
+      payerDocument = null, currency, venueName = null,
+    }) {
       // Defesa em profundidade, do mesmo tipo da do adaptador da Stripe: o
       // portão compartilhado já confere `currencies`, e ainda assim quem emite
       // recusa uma moeda que não sabe emitir. O que este `if` pega é o
@@ -321,17 +425,78 @@ function createPagarmePsp({
         throw new TypeError(`createWalletCharge: unknown wallet ${wallet}`);
       }
       if (typeof paymentToken !== 'string' || paymentToken.length < 8) {
+        /**
+         * CÓDIGO PRÓPRIO — esta recusa é NOSSA, não do emissor.
+         *
+         * É uma pré-checagem de formato de token, antes de a Pagar.me ver
+         * qualquer coisa. Usar `card_declined` aqui fazia o aceite de produção
+         * — que agora exige esse código como prova de que um emissor negou —
+         * ficar verdadeiro por acidente: a quarta versão seguida daquela linha
+         * a ser verdade por sorte em vez de por construção. Achado pela oitava
+         * revisão de segurança (2026-09-19, LOW-1).
+         */
         const err = new Error('cartão recusado — token de pagamento inválido');
         err.statusCode = 402;
+        err.code = 'card_token_invalid';
         throw err;
       }
-      const order = await api('POST', '/orders', {
-        ...baseOrder({ chargeRef, amountCents, tipCents, recipientId, description: `Racha ${wallet}`, payerDocument }),
+      /**
+       * A CHAMADA QUE CAPTURA — e o que dizer quando ela não responde.
+       *
+       * Esta é a única chamada do adaptador que tira dinheiro de alguém dentro
+       * dela (v5 captura por padrão). O `api()` dá 15 s e, no estouro, lança
+       * 502 SEM `code` — que o `errorBody` transforma em `internal`, e a tela
+       * lê "algo deu errado, tente de novo". Só que o timeout não quer dizer
+       * "não capturou": quer dizer "não sei", e a captura pode ter completado
+       * com a resposta perdida. O segundo toque monta o MESMO `chargeRef` (o
+       * `paidCents` não se moveu, webhook nenhum chegou), a Pagar.me não
+       * deduplica por ele, e vira um SEGUNDO `POST /orders` — segunda captura
+       * no mesmo cartão (CDC art. 42 § único).
+       *
+       * É a mesma ambiguidade que o `gravarAposCobrar` resolve doze linhas
+       * adiante — capturou e a ESCRITA falhou — com a resposta oposta. A
+       * diferença é só onde a resposta se perdeu, e pra quem está na mesa isso
+       * não muda nada. Achado pela nona revisão de segurança (2026-09-19,
+       * HIGH-1).
+       *
+       * Quem sabe que havia captura em voo é só quem a iniciou, então a
+       * decisão mora aqui e não no `api()` genérico.
+       */
+      /**
+       * O CORPO É MONTADO FORA DO `try`, e isto não é arrumação.
+       *
+       * `baseOrder` lança em três lugares que nada têm a ver com captura em
+       * voo: a recusa de custódia (recebedor ausente), o `assertCents` e o
+       * `zero-value charge`. Dentro do `try`, os três viravam
+       * `charge_maybe_captured` — ou seja, a tela dizia "seu cartão pode já ter
+       * sido cobrado, não pague de novo" e travava o botão para um pedido que
+       * NUNCA SAIU deste processo. Afirmação falsa sobre uma cobrança, na tela
+       * exata em que a pessoa decide se paga de novo (CDC art. 6º III) — e do
+       * outro lado, o `psp-acceptance` mandava o operador pro runbook de
+       * dinheiro sumido caçar dinheiro que não existe.
+       *
+       * O caminho é alcançável: a rota do dinheiro só confere se o recebedor é
+       * truthy; o formato `^r[ep]_` só é conferido na vitrine. Uma casa
+       * liberada com `psp_recipient_id` legado ou colado à mão no Studio — que
+       * é o que o README manda fazer — transformava todo toque de carteira num
+       * falso "pode ter cobrado". Achado pela décima revisão de compliance
+       * (2026-09-20, HIGH-1), dentro do conserto da nona.
+       *
+       * O `try` fica só em volta do que pode capturar: a ida ao adquirente.
+       */
+      const corpoDoPedido = baseOrder({
+        chargeRef, amountCents, tipCents, recipientId, description: `Racha ${wallet}`, payerDocument,
+      });
+      let order;
+      try {
+        order = await api('POST', '/orders', {
+        ...corpoDoPedido,
         payments: [{
           payment_method: 'credit_card',
           credit_card: {
             installments: 1,
-            statement_descriptor: 'RACHA',
+            // O DESCRITOR É A CASA, não nós. Ver `descritorDaFatura`.
+            statement_descriptor: descritorDaFatura(venueName),
             // Token do Google Pay via gateway tokenization (docs: Google Pay™
             // guide — gatewayMerchantId = acc_...). Apple Pay: fase 2.
             card_token: paymentToken,
@@ -350,7 +515,19 @@ function createPagarmePsp({
             },
           },
         }],
-      });
+        });
+      } catch (falha) {
+        // 5xx e rede/timeout: desfecho DESCONHECIDO sobre uma captura em voo.
+        // O 4xx já tem `psp_rejected` e quer dizer que o pedido nem foi aceito.
+        // `falha &&`, não `!falha ||`: com um throw de `null` o ramo entrava e
+        // `falha.statusCode = 502` lançava TypeError por cima (décima revisão
+        // de segurança, 2026-09-20).
+        if (falha && falha.statusCode !== 402) {
+          falha.statusCode = 502;
+          falha.code = 'charge_maybe_captured';
+        }
+        throw falha;
+      }
       const charge = order.charges && order.charges[0];
       if (!charge) throw new Error('pagarme: resposta sem charge — cobrança de cartão não criada');
       const status = charge.status;
@@ -362,8 +539,29 @@ function createPagarmePsp({
         const reason = tx.acquirer_message
           || (Array.isArray(gw.errors) && gw.errors.map((e) => e.message || e).join('; '))
           || gw.code || tx.status || status;
-        const err = new Error(`cartão recusado (${String(reason).slice(0, 140)})`);
+        /**
+         * CÓDIGO, e não a frase do adquirente.
+         *
+         * Sem `code`, o `errorBody` cai no ramo `<500` sem nada pra suprimir e
+         * manda `err.message` — que carrega até 140 caracteres de
+         * `acquirer_message` cru. O cliente então cai na última linha do
+         * `tError` ("servidor antigo, sem código: o texto cru é melhor que
+         * nada") e desenha a frase EM PORTUGUÊS pra quem escolheu inglês ou
+         * espanhol, com texto de terceiro dentro.
+         *
+         * Isso quebra o acordo do CLAUDE.md ao pé da letra — "o servidor nunca
+         * manda texto de tela; manda um `code` estável" — e estava inalcançável
+         * em produção só porque o interruptor da carteira não tinha posição
+         * ligado. Consertar o interruptor tornou isto alcançável junto (sétima
+         * revisão de segurança, 2026-09-19, MEDIUM-5).
+         *
+         * O motivo do adquirente continua indo pro stderr, que é onde ele
+         * serve: quem está de plantão lê, o cliente não.
+         */
+        process.stderr.write(`[pagarme] cartão recusado: ${String(reason).slice(0, 140)}\n`);
+        const err = new Error('cartão recusado pelo emissor');
         err.statusCode = 402;
+        err.code = 'card_declined';
         throw err;
       }
       return { txid: charge.id };
@@ -377,16 +575,21 @@ function createPagarmePsp({
      */
     async createRecipient({ name, email, document, type = 'individual', bank }) {
       if (!name || !document || !bank) throw new TypeError('createRecipient: name, document e bank são obrigatórios');
-      const digits = String(document).replace(/\D/g, '');
+      // O DOCUMENTO com as letras: o CNPJ alfanumérico (IN RFB 2.229/2024, desde
+      // julho de 2026) tem letras nas doze primeiras posições, e `\D` as
+      // apagava — o recebedor saía com um documento que não é o da casa
+      // (auditoria de onboarding, C1). A aceitação do alfanumérico pelo
+      // Pagar.me precisa ser confirmada numa chamada de sandbox.
+      const doc = String(document).toUpperCase().replace(/[^0-9A-Z]/g, '');
       const body = {
         name: String(name).slice(0, 128),
         email: email || undefined,
-        document: digits,
-        type: digits.length === 14 ? 'company' : (type || 'individual'),
+        document: doc,
+        type: doc.length === 14 ? 'company' : (type || 'individual'),
         default_bank_account: {
           holder_name: String(bank.holderName || name).slice(0, 30),
-          holder_type: digits.length === 14 ? 'company' : 'individual',
-          holder_document: digits,
+          holder_type: doc.length === 14 ? 'company' : 'individual',
+          holder_document: doc,
           bank: String(bank.code),
           branch_number: String(bank.agencia),
           ...(bank.agenciaDv ? { branch_check_digit: String(bank.agenciaDv) } : {}),

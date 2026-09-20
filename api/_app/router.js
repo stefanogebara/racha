@@ -25,54 +25,147 @@ if (fs.existsSync(envPath)) {
 }
 
 const { createMemoryStore } = require('../_lib/store/memory');
+const { normalizarDocumentoDaCasa, decidirDocumentoDoRecebedor, documentoPublicavelDaCasa } = require('../_lib/br/documento.js');
 const { MockPsp } = require('../_lib/pay/mock-psp');
 const { createWebhookHandler, applyConfirmedPayment, NON_LEDGER_KINDS } = require('../_lib/pay/webhook-handler');
 const { appendValidated } = require('../_lib/checks/append-validated');
-const { allocateRestitution, allocateRefund } = require('../_lib/checks/split-engine');
+const { tetoDaRestituicao, payloadDaResolucao, autorDoRegistro, codigoDaRecusa } = require('../_lib/checks/restitution');
+const { classificarFalhaDoRecebedor, classificarFalhaNaCriacao, temRecebedorReal, podeCriarRecebedor } = require('../_lib/pay/recebedor');
 
 /**
- * O rateio de uma restituição registrada à mão — pelo MESMO motor do webhook.
- *
- * Não é uma segunda regra de dinheiro: é a de sempre. O excedente daquele
- * pagamento sai do consumo (foi por ali que entrou), e o que passa dele é
- * estorno comum e vai proporcional.
+ * O rateio de uma devolução registrada à mão é o MESMO do estorno que vem do
+ * PSP: `checks/refund-allocation.js`, três baldes. Não é uma segunda regra de
+ * dinheiro — e quando era uma cópia, as duas divergiram.
  */
-function alocarRestituicaoManual(pg, valor) {
-  const consumo = pg.amountCents - pg.refundedAmountCents;
-  const gorjeta = pg.tipCents - pg.refundedTipCents;
-  const excedente = Math.min(
-    Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-    Math.max(0, consumo),
-  );
-  return excedente > 0
-    ? allocateRestitution(consumo, gorjeta, valor, excedente)
-    : allocateRefund(consumo, gorjeta, valor);
-}
+const { alocarDevolucaoDoPagamento } = require('../_lib/checks/refund-allocation');
 const { createNonLedgerHandler, needsRetry, SEM_ALARDE } = require('../_lib/pay/non-ledger');
 const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
-const { reduce, remainingCents } = require('../_lib/checks/check-state');
-const { createChargeService } = require('../_lib/pay/create-charge');
+const { gravarAposCobrar } = require('../_lib/pay/gravar-apos-cobrar');
+
+/**
+ * O MESMO "falha fechado" do `create-charge`, na rota irmã.
+ *
+ * `/api/pay/stripe-intent` chama `createWalletCharge` DIRETO, sem passar pela
+ * fábrica — então a guarda que recusa adaptador sem `walletCaptures` declarado
+ * não valia aqui. Um adaptador é dinheiro; não declarar o que ele faz com o
+ * cartão é configuração errada, não passe livre.
+ */
+function comContratoDeCaptura(adaptador) {
+  if (typeof adaptador.walletCaptures !== 'boolean') {
+    throw Object.assign(new Error('psp stripe não declara walletCaptures'), {
+      statusCode: 400, code: 'platform_misconfigured',
+    });
+  }
+  return adaptador;
+}
+const { reduce, remainingCents, paidAfterClose } = require('../_lib/checks/check-state');
+const {
+  createChargeService, assertChargeSlot, geracaoDoQr, normalizarRotuloDoPagador, JANELA_VIVA_MS,
+} = require('../_lib/pay/create-charge');
+const { escolherPsp } = require('../_lib/pay/psp-indisponivel');
 const { errorStatus, errorBody } = require('../_lib/http-error');
 const { readBody } = require('../_lib/read-body');
 const { notifyOwnerRecipientStatus, notifyFounderActivationRadar, notifyPreviaBeacon,
         notifyFounderReconcile, notifyFounderMoneyEvent } = require('../_lib/notify');
+const { waitUntil } = require('@vercel/functions');
+const { IMPRESSAO_0033 } = require('../_lib/store/impressao-0033');
 const { montarRadar } = require('../_lib/activation/radar');
 const { isTerminalRecipientStatus } = require('../_lib/recipient-status');
 const { createCheckService } = require('../_lib/checks/check-service');
 const { createHouseService } = require('../_lib/house/house-service');
-const { reconcileVenue, reconcileVenueHouse } = require('../_lib/checks/reconcile');
+const { reconcileVenue, reconcileVenueHouse, desfechoDoLancamento, podeSerReentrega } = require('../_lib/checks/reconcile');
 const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
   formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
 const { vigiarRetencao } = require('../_lib/checks/retention-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
+const { PAPEL_DE_DONO } = require('../_lib/store/papeis');
+const { nomeDaCasa, rotuloDaMesa, cidadeDaCasa, rotuloDoPagador } = require('../_lib/texto-da-casa');
 
-const useSupabase = process.env.RACHA_STORE === 'supabase';
+// AS ENVS, NORMALIZADAS UMA VEZ SÓ — e é a única leitura delas no `api/`.
+//
+// A rodada anterior pôs `.trim()` no PORTÃO e deixou o `buildPsp` comparando
+// cru. Trimar só de um lado faz o portão ser MAIS PERMISSIVO que aquilo que ele
+// guarda, e a fresta falha ABERTA: `RACHA_PSP="pagarme "` (um espaço colado no
+// painel da Vercel) dava portão verde, cron calado, deploy aprovado — e casa de
+// verdade servindo BR Code do mock, que banco nenhum honra. A revisão de
+// segurança de ec86b37 mediu os três casos (CRITICAL-1). É o incidente C1
+// inteiro, de novo, agora com o alarme dizendo que está tudo bem.
+//
+// Uma constante, lida em todo lugar: portão e consumidor não têm como divergir.
+const RACHA_STORE = (process.env.RACHA_STORE || '').trim();
+const RACHA_PSP = (process.env.RACHA_PSP || '').trim();
+const useSupabase = RACHA_STORE === 'supabase';
 const store = useSupabase
   ? require('../_lib/store/supabase').createSupabaseStore()
   : createMemoryStore();
+
+// PRODUÇÃO NÃO COBRA EM MODO DE DEMO. Sem `RACHA_STORE=supabase` o store é o
+// mapa em memória de UMA instância: a cobrança Pix de verdade seria gravada
+// numa instância e o webhook, noutra, receberia "txid desconhecido" — o
+// dinheiro chegava na casa e o razão nunca sabia. Sem `RACHA_PSP=pagarme`, casa
+// de verdade entregava BR Code de mentira. Nada no código nem no deploy
+// impedia (auditoria de backend C1). Em produção, faltando qualquer um, as rotas
+// de dinheiro recusam com código, e o cron de quinze minutos pagina.
+// É PRODUÇÃO? PELO SILÊNCIO, SIM.
+//
+// A versão anterior tentava fechar o buraco com `VERCEL === '1'` quando
+// `VERCEL_ENV` faltasse — e as duas variáveis saem da MESMA chave do projeto
+// ("Enable access to System Environment Variables"). Com ela desligada não
+// existe nenhuma das duas, e a cláusula nova nunca podia disparar: ela só era
+// avaliada quando `VERCEL_ENV` já estava lá, caso que a primeira metade já
+// tratava. O buraco que o comentário descrevia continuava aberto, com um
+// guarda escrito em cima dele (segurança HIGH-1 de ec86b37).
+//
+// Agora o ambiente é NOSSO (`RACHA_ENV`, que o `deploy.mjs` exige junto das
+// outras), e o DESCONHECIDO conta como produção: um deploy feito pelo painel,
+// um rollback ou um push que não passe pelo nosso script cai do lado seguro.
+// A única saída do silêncio é o processo dizer que é teste — e um `RACHA_ENV`
+// explícito de produção vence até isso, pra suíte poder exercitar o portão.
+const AMBIENTE = (process.env.VERCEL_ENV || process.env.RACHA_ENV || '').trim();
+// SÓ o `JEST_WORKER_ID`, que é a suíte que põe e ninguém mais. `NODE_ENV` é um
+// campo que uma pessoa digita num painel — e com a lista de recusa, ele passou a
+// poder derrubar a produção pra QUALQUER grafia que não seja `production`
+// exata. Escape de teste não pode estar ao alcance de quem configura a produção
+// (segurança LOW-1 de 41b188a).
+const EM_TESTE = !!process.env.JEST_WORKER_ID;
+/**
+ * SÓ SAI DA PRODUÇÃO QUEM DIZ, COM UMA DAS DUAS PALAVRAS.
+ *
+ * A versão anterior era `AMBIENTE === 'production' || (AMBIENTE === '' &&
+ * !EM_TESTE)` — uma LISTA DE PERMISSÃO — com um comentário em cima dizendo que
+ * o desconhecido contava como produção. O comentário era a intenção; o código
+ * fazia o contrário: só a string VAZIA caía do lado seguro, e qualquer outro
+ * valor que não fosse exatamente `production` saía da produção.
+ *
+ * E o valor deixou de vir da Vercel (conjunto FECHADO: production/preview/
+ * development) pra vir de um campo que uma pessoa digita. Alguém escreve
+ * `prod`, ou `Production`, e uma casa de verdade passa a servir BR Code do
+ * mock, com o razão num mapa em memória e o cron devolvendo 200 verde — o
+ * incidente C1 inteiro, embaixo do guarda escrito pra impedi-lo. Medido pela
+ * revisão de segurança de d7f2683 (HIGH-1), que provou os seis valores.
+ *
+ * Agora é lista de RECUSA: `preview` e `development` saem; todo o resto —
+ * inclusive o que ninguém previu — é produção e falha fechada. O `deploy.mjs`
+ * exige `RACHA_ENV=production` exato, mas ele não cobre deploy pelo painel,
+ * rollback, nem push pela integração de git: o portão do runtime é o que
+ * precisa estar certo sozinho.
+ */
+const FORA_DA_PRODUCAO = ['preview', 'development'];
+const EM_PRODUCAO = AMBIENTE === 'production'
+  || (!FORA_DA_PRODUCAO.includes(AMBIENTE) && !EM_TESTE);
+const CONFIG_DE_PRODUCAO_FALTANDO = EM_PRODUCAO
+  ? [!useSupabase && 'RACHA_STORE=supabase',
+    RACHA_PSP !== 'pagarme' && 'RACHA_PSP=pagarme'].filter(Boolean)
+  : [];
+if (CONFIG_DE_PRODUCAO_FALTANDO.length) {
+  process.stderr.write(`[config] PRODUÇÃO SEM ${CONFIG_DE_PRODUCAO_FALTANDO.join(' e ')} — rotas de dinheiro em 503\n`);
+}
+const ROTA_DE_DINHEIRO = (caminho) => caminho === '/api/pay' || caminho === '/api/pay/stripe-intent'
+  || caminho === '/api/house/load' || caminho === '/api/house/redeem'
+  || caminho === '/api/dev/confirm' || caminho.startsWith('/api/webhooks/');
 
 // PSP real por env (RACHA_PSP=pagarme + PAGARME_SECRET_KEY); mock é o
 // default — demo e testes seguem idênticos. Stable webhook secret in prod
@@ -86,7 +179,7 @@ const store = useSupabase
 // respondem 503 com motivo claro (nunca cai no mock em silêncio — dinheiro
 // real jamais roteia pra um PSP de mentira).
 function buildPsp() {
-  if (process.env.RACHA_PSP === 'pagarme') {
+  if (RACHA_PSP === 'pagarme') {
     return require('../_lib/pay/pagarme-psp').createPagarmePsp({
       secretKey: process.env.PAGARME_SECRET_KEY,
       webhookBasicAuth: process.env.PAGARME_WEBHOOK_AUTH || null,
@@ -94,26 +187,28 @@ function buildPsp() {
   }
   return new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 }
-let psp;
-try {
-  psp = buildPsp();
-} catch (err) {
+// A escolha do PSP — e o adaptador que recusa — moram em `pay/psp-indisponivel.js`,
+// com o censo que confere que nenhum método chamado aqui fica de fora.
+let motivoDaQuebra = CONFIG_DE_PRODUCAO_FALTANDO.length
+  ? `produção sem ${CONFIG_DE_PRODUCAO_FALTANDO.join(' e ')}` : null;
+const psp = escolherPsp(CONFIG_DE_PRODUCAO_FALTANDO, buildPsp, (err) => {
   process.stderr.write(`[psp] init FALHOU: ${err.message} — rotas de pagamento em 503, leitura segue\n`);
-  const indisponivel = () => {
-    const e = new Error(`pagamento indisponível: PSP não configurado (${err.message})`);
-    e.statusCode = 503;
-    throw e;
-  };
-  psp = {
-    provider: 'unconfigured',
-    createPixCharge: indisponivel,
-    createWalletCharge: indisponivel,
-    createRecipient: indisponivel,
-    verifyAndParseWebhook: indisponivel,
-    getRecipient: async () => null,
-    getRecipientBalance: async () => null,
-  };
-}
+  motivoDaQuebra = `PSP não configurado (${err.message})`;
+});
+
+/**
+ * A PLATAFORMA ESTÁ QUEBRADA? Pelo RESULTADO, não pela lista de entrada.
+ *
+ * O portão das rotas e o alarme do cron olhavam só `CONFIG_DE_PRODUCAO_FALTANDO`.
+ * Produção com as duas envs certas e uma `PAGARME_SECRET_KEY` malformada (a `pk_`
+ * colada no lugar da `sk_` — o incidente de 2026-07-21) caía no adaptador que
+ * recusa com a lista VAZIA: nenhuma rota fechava pelo portão, o cron não
+ * paginava, e o cliente via `internal` porque o `errorBody` apaga mensagem de
+ * 5xx. Apagão de pagamento sem uma página sequer (segurança MEDIUM-2 de
+ * ec86b37). Quem responde agora é o adaptador que de fato ficou na mão.
+ */
+const PLATAFORMA_QUEBRADA = () => CONFIG_DE_PRODUCAO_FALTANDO.length > 0 || psp.provider === 'unconfigured';
+
 const charge = createChargeService({ store, psp });
 const checkSvc = createCheckService({ store });
 const houseSvc = createHouseService({ store, psp });
@@ -200,7 +295,7 @@ const reconciler = createChargeReconciler({
 // quebrar (o recebedor de teste não existe em live). Aqui ele roda sempre num
 // MockPsp próprio e se auto-confirma — independente de RACHA_PSP/live. É a única
 // venue cujo dinheiro é fake por design.
-const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck } = require('../_lib/demo');
+const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck, isDemoVenue } = require('../_lib/demo');
 const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || DEMO_TOKEN;
 const demoPsp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 const demoCharge = createChargeService({ store, psp: demoPsp });
@@ -219,7 +314,7 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
-const { chargingAllowed, market, marketGate, pspCurrency } = require('../_lib/markets');
+const { chargingAllowed, market, marketGate, pspCurrency, isMarket, DEFAULT_MARKET } = require('../_lib/markets');
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
@@ -236,8 +331,8 @@ const AUTH_SUPABASE_KEY = process.env.AUTH_SUPABASE_KEY || process.env.SUPABASE_
 let auth = null;
 let authClient = null;
 if (AUTH_SUPABASE_URL && AUTH_SUPABASE_KEY) {
-  const { createClient } = require('@supabase/supabase-js');
-  authClient = createClient(AUTH_SUPABASE_URL, AUTH_SUPABASE_KEY, {
+  const { criarClienteSupabase } = require('../_lib/store/cliente-supabase');
+  authClient = criarClienteSupabase(AUTH_SUPABASE_URL, AUTH_SUPABASE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   auth = createAuth({ authClient, store });
@@ -246,19 +341,424 @@ if (AUTH_SUPABASE_URL && AUTH_SUPABASE_KEY) {
 /** Ordem de gravidade — pra cortar os achados pelo topo, não pela chegada. */
 const RANK = { critical: 3, high: 2, info: 1 };
 
-function json(res, status, body) {
+/**
+ * OS ACHADOS QUE O PAINEL MOSTRA: por gravidade e, dentro da mesma gravidade,
+ * o que tem PRAZO primeiro — um `dispute_evidence_due` perde dinheiro por
+ * inação. E os `paid_after_close` viram UM (a soma, e quantos): cinco
+ * pagamentos de um centavo depois de fechar enchiam as cinco vagas e
+ * escondiam o prazo de uma disputa (segurança LOW-1 e compliance LOW-A de
+ * 497bf87). Só código e centavos saem — ver o comentário na rota do painel.
+ */
+const PRIMEIRO_NA_GRAVIDADE = { dispute_evidence_overdue: 3, dispute_evidence_due: 2 };
+const JUNTAR_NO_PAINEL = ['paid_after_close', 'paid_after_close_tip'];
+function projetarAchados(findings) {
+  // Os DOIS códigos do pago-depois-de-fechar se juntam, cada um no seu grupo:
+  // depois de 48 h, cinco `paid_after_close_tip` critical enchiam as vagas e
+  // escondiam um prazo de disputa (compliance LOW-D de 57c0d2e).
+  const juntar = (code) => {
+    const grupo = findings.filter((f) => f.code === code);
+    if (grupo.length <= 1) return grupo;
+    // O ENDEREÇO SOBREVIVE À JUNÇÃO quando há um só. Juntar cinco achados numa
+    // linha é o certo (senão eles enchem as vagas e escondem um prazo de
+    // disputa), mas jogar fora `checkId` e `txid` de um grupo de UM transforma
+    // um aviso acionável em "aconteceu alguma coisa em algum lugar".
+    const daMesmaConta = new Set(grupo.map((f) => f.checkId).filter(Boolean));
+    const doMesmoTxid = new Set(grupo.map((f) => f.txid).filter(Boolean));
+    return [{
+      severity: grupo.some((f) => f.severity === 'critical') ? 'critical' : 'high',
+      code,
+      amountCents: grupo.reduce((soma, f) => soma + (f.amountCents || 0), 0),
+      count: grupo.length,
+      ...(daMesmaConta.size === 1 ? { checkId: [...daMesmaConta][0] } : {}),
+      ...(doMesmoTxid.size === 1 ? { txid: [...doMesmoTxid][0] } : {}),
+    }];
+  };
+  return [...findings.filter((f) => !JUNTAR_NO_PAINEL.includes(f.code)), ...JUNTAR_NO_PAINEL.flatMap(juntar)]
+    .sort((a, b) => ((RANK[b.severity] || 0) - (RANK[a.severity] || 0))
+      || ((PRIMEIRO_NA_GRAVIDADE[b.code] || 0) - (PRIMEIRO_NA_GRAVIDADE[a.code] || 0)))
+    .slice(0, 5)
+    .map((f) => ({
+      severity: f.severity, code: f.code,
+      ...(f.overpaidCents !== undefined ? { overpaidCents: f.overpaidCents } : {}),
+      ...(f.deltaCents !== undefined ? { deltaCents: f.deltaCents } : {}),
+      // A SEGUNDA quantia de um achado que tem duas. Sem ela na projeção, o
+      // `{refundable}` da frase do `reopened_by_refund_mixed` chegava LITERAL na
+      // tela do dono — o `fill` devolve marcador desconhecido como veio. Campo
+      // acrescentado ao achado e esquecido aqui: a lista é de permissão, então o
+      // esquecimento é silencioso (segurança HIGH-1 da rodada catorze).
+      ...(f.refundableCents !== undefined ? { refundableCents: f.refundableCents } : {}),
+      ...(f.driftCents !== undefined ? { driftCents: f.driftCents } : {}),
+      ...(f.amountCents !== undefined ? { amountCents: f.amountCents } : {}),
+      ...(f.txid ? { txid: f.txid } : {}),
+      ...(f.chargeId ? { chargeId: f.chargeId } : {}),
+      ...(f.count ? { count: f.count } : {}),
+      /**
+       * O ENDEREÇO DA OBRIGAÇÃO.
+       *
+       * A projeção é lista de PERMISSÃO — o que não está aqui não chega à tela,
+       * em silêncio — e `checkId` não estava. Enquanto o painel listava toda
+       * conta da casa isso passava: o dono achava a mesa na lista. Desde que a
+       * lista ganhou recorte (as abertas + as da janela + as que receberam
+       * dinheiro na janela), uma dívida numa conta VELHA e fechada é anunciada
+       * por um achado que não diz QUAL conta — e o passo 1 do runbook
+       * `devolver-dinheiro-a-mais.md` é "na lista de mesas, a conta com dívida
+       * mostra…". Anunciar sem endereçar não é acionável (CC art. 876).
+       * Achado pela terceira revisão de compliance de 2026-09-16.
+       */
+      ...(f.checkId ? { checkId: f.checkId } : {}),
+    }));
+}
+
+/**
+ * A LISTA DE CASAS COM CARTEIRA LIBERADA — vazia por padrão.
+ *
+ * Lida a cada chamada, e não uma vez no boot — mas NÃO se engane sobre o que
+ * isso compra. Na Vercel a env é ligada ao DEPLOY: mexer na variável no painel
+ * não alcança o deploy que está no ar até haver um redeploy. Então "desligar a
+ * carteira" é um redeploy, não um botão, e o comentário anterior aqui dizia o
+ * contrário — o que deixaria alguém achando que desligou (quinta revisão de
+ * compliance, 2026-09-19). A leitura por chamada fica porque os testes trocam a
+ * env entre casos, não porque existe um interruptor vivo.
+ */
+function carteiraLiberada(venueId) {
+  /**
+   * SEM ID, SEM CARTEIRA — e recusando em vez de coagir.
+   *
+   * `String(undefined)` é `'undefined'`, uma string legítima que entraria na
+   * comparação com a lista. Hoje isso é inerte (ninguém põe `undefined` na
+   * env), mas é o tipo de coerção que transforma um deslize de template num
+   * interruptor aberto pra TODAS as casas. E foi um `undefined` chegando aqui
+   * que deixou o guarda sem posição de ligado por um commit inteiro, sem que
+   * nada acusasse.
+   */
+  if (typeof venueId !== 'string' || !venueId.trim()) return false;
+  const cru = String(process.env.RACHA_WALLET_VENUES || '').trim();
+  if (!cru) return false;
+  /**
+   * O CURINGA NÃO VALE CONTRA O PSP DE VERDADE.
+   *
+   * `*` existe pra staging, onde o PSP é o mock e nada cobra ninguém. Um escape
+   * de staging que funciona em produção é um escape de staging que vai ser
+   * usado em produção às duas da manhã — e aqui ele liberaria a captura de
+   * cartão em TODAS as casas de uma vez, que é o oposto exato do que esta lista
+   * existe pra fazer.
+   */
+  if (cru === '*') return RACHA_PSP !== 'pagarme';
+  return cru.split(',').map((x) => x.trim()).filter(Boolean).includes(String(venueId));
+}
+
+/**
+ * A RESPOSTA A PARTIR DO DESFECHO DO APLICADOR — num lugar só.
+ *
+ * Quatro sítios faziam `result.status === 'rejected' ? 409 : 200` à mão, e
+ * "todo desfecho novo tem que ser DECIDIDO em cada sítio de saída" já é um
+ * censo desta casa (`sql-contract`: "a contagem de SÍTIOS de saída é fixa").
+ * Quando o `money_without_check` nasceu, três desses sítios responderiam 200
+ * SEM registrar nada — que é exatamente o "200-swallow" que o comentário do
+ * portão proíbe, e o motivo de o achado existir.
+ *
+ * Aqui o desfecho da família `NON_LEDGER_KINDS` passa pelo gravador durável
+ * ANTES da resposta, em qualquer rail.
+ *
+ * QUEM DECIDE O REENVIO É `needsRetry`, e ele olha o REGISTRO, não o aviso — o
+ * aviso degrada pra stderr sem `RACHA_NOTIFY_SECRET` e a anomalia não. Uma
+ * falha de gravação costuma ser PERSISTENTE (um CHECK recusando o tipo do
+ * evento, uma permissão), do jeito que a produção recusou três tipos por doze
+ * dias — e nesse estado todo cancelamento parcial saía 200, a Pagar.me nunca
+ * reenviava, e o único vestígio era uma mensagem de chat com a conciliação
+ * verde por cima do dinheiro que saiu.
+ *
+ * O comentário que morava na rota da Pagar.me já dizia "esta rota foi
+ * corrigida; a da Stripe ficou com a versão antiga (…) agora é uma função e um
+ * censo". A função nunca tinha sido escrita: a Pagar.me guardava a cópia boa e
+ * a Stripe seguia com o 409/200 seco. Esta é a função.
+ */
+async function responderDoAplicador(res, result, psp) {
+  if (NON_LEDGER_KINDS.has(result.status)) {
+    const marca = await handleNonLedgerMoneyEvent(result, { psp });
+    if (needsRetry(marca)) {
+      process.stderr.write(`[webhook] ${result.status} SEM registro — devolvendo 503 pra reenvio\n`);
+      return json(res, 503, {
+        success: false, code: 'money_event_unrecorded',
+        data: { status: result.status, txid: result.txid || null },
+      });
+    }
+    return json(res, 200, {
+      success: true,
+      data: { status: result.status, type: result.type || null, txid: result.txid || null },
+    });
+  }
+  const status = result.status === 'rejected' ? 409 : 200;
+  return json(res, status, { success: status === 200, data: result });
+}
+
+function json(res, status, body, extra = null) {
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'content-type,x-racha-signature',
+    ...(extra || {}),
   });
   res.end(JSON.stringify(body));
+}
+
+/**
+ * `Retry-After` quando a espera TEM prazo — e só aí.
+ *
+ * O cabeçalho sai de `vars.windowMinutes`, e só a recusa por CONTA de recarga o
+ * manda: aquele balde só o dono da carteira enche, então quinze minutos é
+ * verdade. A recusa do teto da mesa e a do teto de recargas da CASA não mandam,
+ * porque ali quem tem o token repõe cada vaga ao vencer e a espera não tem fim —
+ * a primeira versão deste docblock dizia que esperar era "o ÚNICO remédio", e o
+ * cabeçalho prometia pelo protocolo o prazo que a tela já não prometia.
+ * (Compliance, L2.)
+ */
+function cabecalhoDeEspera(err) {
+  const min = err && err.vars && Number(err.vars.windowMinutes);
+  if (!Number.isFinite(min) || min <= 0) return null;
+  return { 'Retry-After': String(Math.ceil(min * 60)) };
+}
+
+/**
+ * O TETO DISPAROU — alguém que pode agir tem que ficar sabendo, uma vez.
+ *
+ * Uma mesa legítima não chega ao teto (a conta está no `create-charge.js`), então
+ * um 429 dele é ataque; e o remédio do dono (girar o QR, que começa um balde
+ * novo) só existe se alguém souber. O mesmo pro teto de recargas da CASA.
+ *
+ * O QUE A PRIMEIRA VERSÃO DIZIA E NÃO ERA VERDADE: "não é um pager anônimo".
+ * Era — pela DEMO. O token dela está no link da landing, ela cobra a partir de
+ * um centavo e se confirma sozinha: duzentas cobranças de um centavo paginavam
+ * o fundador, e o `/api/demo/reset` abria uma conta nova — e uma chave de alerta
+ * nova — pra paginar de novo. Reproduzido; achado pelas duas revisões de
+ * 2026-09-15. Agora:
+ *
+ *  · casa de DEMO não pagina. A decisão sai da CASA (`isDemoVenue`: casa de
+ *    teste E recebedor mock, os dois), não do token do corpo — o token da demo
+ *    é uma env, e um erro de digitação apontando pra mesa de verdade calaria os
+ *    alertas DELA;
+ *  · deduplicado NO BANCO por conta E geração do QR, uma vez a cada SEIS
+ *    horas. Com quinze minutos, uma mesa mantida cheia re-paginava quatro vezes
+ *    por hora e gastava os avisos do dia em três horas (as duas revisões de
+ *    7a65e93). Pela geração porque girar o QR é o remédio: se o ataque volta na
+ *    geração nova, isso é notícia, e pagina na hora;
+ *  · no máximo TRÊS por casa por dia E POR TIPO — mesa e recarga têm orçamentos
+ *    separados — e DOZE no total. Com um orçamento só por casa, um QR de mesa
+ *    abria carteiras, gastava os três da casa em "RECARGAS PAUSADAS… a conta da
+ *    mesa não é afetada" e então trancava a mesa, que ia só pro log
+ *    (compliance MEDIUM-A de 3a10835);
+ *  · orçamento cheio NUNCA é só log (#8): sai um aviso de SUSPENSÃO — da casa ou
+ *    global —, repetido a cada seis horas enquanto houver disparo contido. E a
+ *    vaga de deduplicação da conta VOLTA quando o orçamento recusa, pra que ela
+ *    pagine assim que houver orçamento (segurança L-B de 3a10835);
+ *  · toda vaga de alerta tomada VOLTA se o envio não sair — a ponte recusou OU
+ *    uma reivindicação seguinte estourou —, cada uma no seu `try`, e esta
+ *    instância recua: um minuto depois de falha, dez com o orçamento cheio, seis
+ *    horas só depois de um envio que saiu (compliance LOW-A de 3a10835);
+ *  · nomeia a CASA e a MESA, e avisa o custo do remédio. Nome e rótulo são
+ *    TEXTO DO DONO indo pro pager crítico do fundador — ver `rotuloDoAviso`;
+ *  · roda DEPOIS da resposta só quando a Vercel promete esperar — ver
+ *    `responderEAvisar`.
+ *
+ * Pelo canal de alerta crítico do fundador, e não pelo de evento de dinheiro:
+ * aquele rejeita `kind` desconhecido, e um evento próprio teria de ser aceito do
+ * lado da Olímpia, na ponte — mudança em outro sistema que daqui não dá pra
+ * verificar. Nunca lança.
+ */
+const ALERTAS_DE_TETO_POR_DIA = 12;
+const ALERTAS_POR_CASA_POR_DIA = 3;
+const JANELA_DO_AVISO_MS = 6 * 60 * 60 * 1000;
+const RECUO_DO_AVISO_MS = 60 * 1000;
+const RECUO_COM_ORCAMENTO_CHEIO_MS = 10 * 60 * 1000;
+const UM_DIA_MS = 24 * 60 * 60 * 1000;
+// Teto GLOBAL de avisos de suspensão por dia — ver o bloco da suspensão.
+const SUSPENSOES_POR_DIA = 12;
+const alertasRecentes = new Map(); // chave → "não tente antes de"; atalho local, não decisão
+
+/**
+ * TEXTO DO DONO no pager do fundador. Lista EXPLÍCITA: letras ASCII e as do
+ * Latin-1 (português e espanhol cabem inteiros nela), dígitos ASCII, espaço e
+ * `'&()#-`, depois de NFC, e quarenta caracteres; o `'?'` vem DEPOIS da
+ * limpeza. A primeira versão aceitava qualquer letra do Unicode; a segunda,
+ * qualquer letra da escrita latina — e a latina inteira ainda tem sósias:
+ * ponto do meio (U+A78F), dois-pontos sobrescrito, `ǃ` e `ǀ`, letras de largura
+ * cheia, numerais romanos. Uma varredura de pontos de código achou cada uma.
+ * O que se confere são os ids, que vêm antes. (Segurança L3 de 7a65e93, L-C de
+ * 3a10835, LOW-5 de 40d5c50.)
+ */
+function rotuloDoAviso(v) {
+  const limpo = String(v == null ? '' : v).normalize('NFC')
+    .replace(/[^A-Za-z0-9\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF '&()#-]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return [...limpo].slice(0, 40).join('').trim() || '?';
+}
+
+async function devolverVagaDeAviso(claimId) {
+  try {
+    await store.releaseSlots(claimId);
+  } catch (e) {
+    process.stderr.write(`[teto] vaga de aviso não voltou: ${String(e && e.message).slice(0, 80)}\n`);
+  }
+}
+
+/**
+ * O QUE RODA DEPOIS DA RESPOSTA TEM DE PEDIR PRA VIVER. Na Vercel a função pode
+ * ser congelada assim que a resposta termina; o `waitUntil` pede à plataforma
+ * que espere a promessa, e o `return` deixa o chamador esperar também. (As duas
+ * revisões de 7a65e93: segurança M1, compliance M2.)
+ */
+function depoisDaResposta(promessa) {
+  waitUntil(promessa);
+  return promessa;
+}
+
+/**
+ * A VERCEL PROMETE ESPERAR? Ela publica o contexto da requisição — o `waitUntil`
+ * dela — num símbolo global, e é dele que o `@vercel/functions` lê: sem ele, o
+ * `waitUntil` do pacote não faz NADA, calado (`get-context.js` do pacote).
+ *
+ * SÓ o contexto decide. A versão anterior acreditava em `process.env.VERCEL`
+ * primeiro: sem a variável, mandava a resposta antes e confiava no `waitUntil`
+ * — que, sem contexto, é um no-op. Uma pré-condição opcional, e o ramo de
+ * produção sem teste nenhum (segurança LOW-2 de 40d5c50). Fora da Vercel, sem
+ * contexto, o aviso sai antes da resposta: só mais lento.
+ */
+function esperaDisponivel() {
+  const ctx = globalThis[Symbol.for('@vercel/request-context')]?.get?.();
+  return Boolean(ctx && typeof ctx.waitUntil === 'function');
+}
+
+/**
+ * RESPONDE E AVISA, na ordem que entrega os dois. Com a espera garantida, a
+ * recusa sai primeiro (esperar o aviso segurava o 429 até oito segundos) e o
+ * aviso vive depois dela. SEM ela, na Vercel, "depois da resposta" é "talvez
+ * nunca": o aviso vem ANTES, e uma linha diz por quê — lento e entregue vence
+ * rápido e calado. Nada mostrava se o `waitUntil` roda em produção; esta linha
+ * mostra quando ele não roda. (Segurança L-A de 3a10835.)
+ */
+let semEsperaAvisado = false;
+async function responderEAvisar(enviar, err) {
+  if (!esperaDisponivel()) {
+    if (!semEsperaAvisado) {
+      semEsperaAvisado = true;
+      process.stderr.write('[teto] SEM waitUntil (sem contexto de requisição da Vercel): o aviso sai ANTES da resposta\n');
+    }
+    await avisarTetoDisparado(err);
+    enviar();
+    return;
+  }
+  enviar();
+  await depoisDaResposta(avisarTetoDisparado(err));
+}
+
+async function avisarTetoDisparado(err) {
+  if (!err) return;
+  const tomadas = [];   // toda vaga de alerta reivindicada nesta chamada — volta se o envio não sair
+  try {
+    let chave; let tipo;
+    if (err.code === 'too_many_pending_charges' && err.checkId) {
+      chave = `alerta:check:${err.checkId}:${err.qrGeneration || '-'}`; tipo = 'mesa';
+    } else if (err.code === 'too_many_pending_loads_venue' && err.venueId) {
+      chave = `alerta:venue:${err.venueId}`; tipo = 'recarga';
+    } else {
+      return;
+    }
+    const agora = Date.now();
+    if ((alertasRecentes.get(chave) || 0) > agora) return;
+    if (alertasRecentes.size > 5000) alertasRecentes.clear();
+    alertasRecentes.set(chave, agora + RECUO_DO_AVISO_MS);
+    const venue = tipo === 'mesa'
+      ? await store.getVenueForCheck(err.checkId)
+      : await store.getVenue(err.venueId);
+    if (isDemoVenue(venue)) return;
+    const tomar = async (keys, limits, windowMs) => {
+      const r = await store.claimSlots({ keys, limits, windowMs });
+      if (r.claimId !== null) tomadas.push(r.claimId);
+      return r;
+    };
+    const aviso = await tomar([chave], [1], JANELA_DO_AVISO_MS);
+    if (aviso.claimId === null) return;
+    const casaId = (venue && venue.id) || err.venueId || 'sem-casa';
+    const doDia = await tomar([`alerta-dia:venue:${casaId}:${tipo}`, 'alerta-dia:global'],
+      [ALERTAS_POR_CASA_POR_DIA, ALERTAS_DE_TETO_POR_DIA], UM_DIA_MS);
+    // `nomeDaCasa`, e não o nome curto: um teste estrutural do app web acha a
+    // emissão de `acceptsWallet` pela PRIMEIRA declaração da variável curta no
+    // router, e a busca é por substring — este helper, mais acima, a sequestrava.
+    const nomeDaCasa = rotuloDoAviso((venue && venue.name) || err.venueName);
+    const rotuloDaMesa = rotuloDoAviso(err.tableLabel);
+    let mensagem; let recuoAposEnvio = JANELA_DO_AVISO_MS;
+    if (doDia.claimId !== null) {
+      mensagem = tipo === 'mesa'
+        ? `TETO DE COBRANÇAS DISPAROU — conta ${err.checkId} · casa ${nomeDaCasa} · mesa ${rotuloDaMesa}. Uma mesa legítima não chega a este número: provável script usando o QR dessa mesa. Remédio: girar o QR dessa mesa no painel — a geração nova tem teto próprio e o atacante perde o token. ANTES de girar: quem está no meio de um pagamento perde a tela de confirmação (o QR antigo para de responder), e cobranças abertas com o código antigo ainda podem cair — Pix por até 15 minutos, cartão ainda em confirmação talvez depois — e só aparecem no painel depois de confirmadas: antes de cobrar no caixa, espere esses 15 minutos ou pergunte na mesa se alguém já pagou. Feche a conta no Racha ANTES de cobrar o resto no caixa: pagamento que cair depois de a conta fechar fica marcado na mesa, no painel de pagamentos (/painel); se a mesa também pagou no caixa, é valor a devolver; se não, marque como resolvido. Enquanto a mesa estiver travada, ela paga no caixa.`
+        : `RECARGAS PAUSADAS — casa ${casaId} · ${nomeDaCasa}: o teto de recargas da casa encheu, provável geração de contas de saldo em massa. A conta da mesa não é afetada.`;
+    } else {
+      // ORÇAMENTO CHEIO. A vaga da conta VOLTA — senão ela ficava calada seis
+      // horas depois de o orçamento abrir — e esta instância recua dez minutos.
+      await devolverVagaDeAviso(aviso.claimId);
+      tomadas.splice(tomadas.indexOf(aviso.claimId), 1);
+      alertasRecentes.set(chave, agora + RECUO_COM_ORCAMENTO_CHEIO_MS);
+      recuoAposEnvio = RECUO_COM_ORCAMENTO_CHEIO_MS;
+      const daCasa = doDia.fullIndex === 0;
+      process.stderr.write(`[teto] aviso contido pelo orçamento ${daCasa ? `da casa (${ALERTAS_POR_CASA_POR_DIA}/dia de ${tipo})` : `global (${ALERTAS_DE_TETO_POR_DIA}/dia)`} — ${chave}\n`);
+      // A SUSPENSÃO É DA CASA E DO TIPO, sempre — também quando quem recusou foi
+      // o orçamento GLOBAL. Com uma chave global só, uma casa-isca tomava a vaga
+      // de suspensão a cada seis horas e a casa atacada nunca era nomeada
+      // (segurança LOW-1 de 40d5c50: 432 recusas em 72 h, zero páginas com o nome
+      // dela). E por tipo porque uma suspensão de recarga calava a da mesa
+      // (compliance MEDIUM-1 e segurança LOW-4 de 40d5c50).
+      const suspensao = await tomar([`alerta:suprimido:venue:${casaId}:${tipo}`], [1], JANELA_DO_AVISO_MS);
+      if (suspensao.claimId === null) return;
+      // E um orçamento GLOBAL de suspensões. Por casa e tipo sem nada acima,
+      // vinte casas criadas por quem se cadastra davam 160 páginas por dia no
+      // canal do canário de conciliação (segurança MEDIUM-1 e compliance
+      // MEDIUM-D de 497bf87). Esgotado, sai UM resumo a cada seis horas — ainda
+      // nomeando a casa de agora — e o resto vai pro log.
+      const doDiaSusp = await tomar(['alerta-dia:suspensoes'], [SUSPENSOES_POR_DIA], UM_DIA_MS);
+      let resumo = false;
+      if (doDiaSusp.claimId === null) {
+        const doResumo = await tomar(['alerta:suprimido:resumo'], [1], JANELA_DO_AVISO_MS);
+        if (doResumo.claimId === null) {
+          process.stderr.write(`[teto] suspensão contida pelo orçamento de suspensões (${SUSPENSOES_POR_DIA}/dia) — ${chave}\n`);
+          for (const v of tomadas) await devolverVagaDeAviso(v);
+          return;
+        }
+        resumo = true;
+      }
+      const oQue = tipo === 'mesa' ? `conta ${err.checkId} · mesa ${rotuloDaMesa}` : 'recargas';
+      const remedio = tipo === 'mesa'
+        ? 'Remédio: girar no painel o QR de cada mesa travada; até lá, ela paga no caixa.'
+        : 'As recargas da casa seguem pausadas; a conta da mesa não é afetada, e não há QR a girar.';
+      mensagem = resumo
+        ? `SUSPENSÕES EM MASSA — ${SUSPENSOES_POR_DIA} casas ou tipos de aviso já foram suspensos em 24 horas, e mais nenhuma suspensão por casa sai por aqui até a mais velha completar um dia. A de agora: casa ${casaId} · ${nomeDaCasa} (${oQue}). As outras aparecem nos logs da função, nas linhas "[teto]", e este resumo se repete a cada seis horas enquanto houver suspensão contida. Um volume assim é ataque coordenado, provavelmente com casas criadas pra isso.`
+        : daCasa
+        ? `AVISOS DA CASA SUSPENSOS — casa ${casaId} · ${nomeDaCasa}: ${ALERTAS_POR_CASA_POR_DIA} avisos de ${tipo} em 24 horas, e o teto disparou de novo (${oQue}). ${remedio} Os próximos desta casa só aparecem nos logs da função, nas linhas "[teto]", e este aviso se repete a cada seis horas enquanto houver disparo contido.`
+        : `AVISOS DE TETO SUSPENSOS — casa ${casaId} · ${nomeDaCasa}: o orçamento GLOBAL de ${ALERTAS_DE_TETO_POR_DIA} avisos por dia acabou, e o teto desta casa disparou (${oQue}). ${remedio} Um volume assim é ataque em várias mesas ou casas ao mesmo tempo; os disparos contidos aparecem nos logs, nas linhas "[teto]", e este aviso se repete a cada seis horas por casa enquanto houver disparo contido.`;
+    }
+    const r = await notifyFounderReconcile({
+      mensagem, venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+    });
+    if (r && r.ok === false) {
+      for (const v of tomadas) await devolverVagaDeAviso(v);
+      alertasRecentes.set(chave, agora + RECUO_DO_AVISO_MS);   // tenta de novo daqui a um minuto
+      return;
+    }
+    alertasRecentes.set(chave, agora + recuoAposEnvio);
+  } catch (e) {
+    // Uma reivindicação SEGUINTE estourou: as anteriores voltam, senão a conta
+    // ficava calada as seis horas da janela. (Compliance LOW-A de 3a10835.)
+    for (const v of tomadas) await devolverVagaDeAviso(v);
+    process.stderr.write(`[teto] aviso ao operador não saiu: ${String(e && e.message).slice(0, 80)}\n`);
+  }
 }
 
 async function guardUser(req, res) {
   if (!auth) { json(res, 501, { success: false, error: 'auth não configurado' }); return null; }
   try { return await auth.requireUser(req); }
-  catch (e) { json(res, e.statusCode || 401, { success: false, error: e.message }); return null; }
+  catch (e) {
+    // O CÓDIGO viaja: um 503 `auth_unavailable` tem que chegar ao cliente
+    // distinguível de um 401, senão ele desloga o dono do mesmo jeito.
+    json(res, e.statusCode || 401, { success: false, error: e.message, ...(e.code ? { code: e.code } : {}) });
+    return null;
+  }
 }
 
 // Instance-local rate limit for the one public row-creating endpoint
@@ -389,9 +889,6 @@ function podeEnviarAviso() {
   return !!process.env.CRON_SECRET;
 }
 
-// Throttle do aviso "CRON_SECRET não configurado" (1×/h por instância).
-let avisoCronSecretAte = 0;
-let avisoRetencaoAte = 0;
 
 /** Compara `Authorization: Bearer <x>` com o segredo sem vazar tempo. */
 function segredoConfere(header, secret) {
@@ -467,6 +964,9 @@ async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   try {
     if (req.method === 'OPTIONS') return json(res, 200, {});
+    if (PLATAFORMA_QUEBRADA() && ROTA_DE_DINHEIRO(url.pathname)) {
+      return json(res, 503, { success: false, code: 'platform_misconfigured' });
+    }
 
     // --- diner (public) ------------------------------------------------------
     if (req.method === 'GET' && url.pathname === '/api/check') {
@@ -545,7 +1045,28 @@ async function route(req, res) {
       // casa legada `rp_` cobrando normalmente e sem carteira — falha fechada,
       // então não era buraco, mas é a forma "cópia divergente" que aparece
       // depois como "o Google Pay parou de funcionar num restaurante só".
-      if (casa && /^r[ep]_/.test(casa.pspRecipientId || '')) {
+      /**
+       * A CARTEIRA PRECISA DE UM INTERRUPTOR, e não só de um recebedor.
+       *
+       * Isto ligava o Google Pay pra qualquer casa com recebedor de verdade —
+       * ou seja, a primeira casa-piloto cadastrada num build com as chaves da
+       * Pagar.me ganhava o trilho de carteira como EFEITO COLATERAL do
+       * cadastro, sem decisão e sem aviso.
+       *
+       * Isso importa porque a decisão de adiar o `capture: false`
+       * (`docs/decisions/2026-09-16-capturar-antes-de-gravar.md`) se apoia em
+       * "hoje o trilho não está no ar em casa nenhuma" — e o gatilho que devia
+       * forçar a inversão era exatamente o evento que se satisfazia sozinho. Um
+       * gatilho que depende de alguém lembrar é um desejo; este arquivo já foi
+       * queimado por isso duas vezes. Achado pela quarta revisão de compliance
+       * de 2026-09-16 (HIGH-4).
+       *
+       * `RACHA_WALLET_VENUES` é lista de ids separados por vírgula, e AUSENTE
+       * quer dizer nenhuma. Não é uma coluna porque DDL em produção é outro
+       * portão; quando a carteira for de verdade, isto vira
+       * `venues.wallet_enabled` e este comentário some.
+       */
+      if (casa && /^r[ep]_/.test(casa.pspRecipientId || '') && carteiraLiberada(casa.id)) {
         data = { ...data, venue: { ...data.venue, acceptsWallet: true } };
       }
       // O estado sai PROJETADO. `/api/check` é público — quem tem o QR da mesa
@@ -557,11 +1078,21 @@ async function route(req, res) {
     }
     if (req.method === 'POST' && url.pathname === '/api/pay') {
       const body = JSON.parse(await readBody(req) || '{}');
-      const view = await store.getCheckByQrToken(body.token || '');
+      // TOKEN É STRING. Um `["<tok>"]` a PostgREST resolve (ela monta o filtro com
+      // interpolação) e o `Map` do gêmeo não — então os testes não viam: o pedido
+      // achava a mesa em produção, a geração do QR saía nula e o teto caía na
+      // chave sem geração, um SEGUNDO balde; na demo, desligava o `isDemo`.
+      // (Segurança stand-in, LOW-1.)
+      if (typeof body.token !== 'string') return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      const view = await store.getCheckByQrToken(body.token);
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
       // pelo PSP real — dinheiro fake mesmo com o app em live.
-      const isDemo = (body.token || '') === DEMO_TABLE_TOKEN;
+      const isDemo = body.token === DEMO_TABLE_TOKEN;
+      // A DEMO É PÚBLICA — o token está no link da landing — e cobra a partir de
+      // um centavo. Sem limite, qualquer um enchia o teto dela e deixava a
+      // demonstração de vendas respondendo 429. (Compliance e segurança, HIGH.)
+      if (isDemo && !rateLimitDemo(req)) return json(res, 429, { success: false, code: 'demo_busy' });
       // O trilho pedido, e nada de conferir mercado AQUI: quem confere é o
       // `marketGate` dentro do `create-charge`, que é o portão de dinheiro
       // compartilhado — e os dois serviços (`charge` e `demoCharge`) saem da
@@ -574,21 +1105,110 @@ async function route(req, res) {
       // `market_not_live`. A cópia existia só porque o catch geral perdia o
       // `code`; agora não perde.
       const payRail = body.rail === 'bizum' ? 'bizum' : 'pix';
-      const result = await (isDemo ? demoCharge : charge)({
-        checkId: view.check.id, amountCents: body.amountCents,
-        tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null, rail: payRail,
-        // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
-        wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
-        // CPF. O gateway exige `customer.document` no PIX TAMBÉM, não só em
-        // cartão: a doc do Pagar.me lista name/email/document/phones como
-        // obrigatórios pra criar a cobrança Pix (docs.pagar.me/reference/pix-2,
-        // conferido 2026-09-07). O comentário antigo dizia "em cartão" e fez a
-        // exigência parecer coleta excessiva numa revisão — é o mínimo pra
-        // emitir a cobrança, que é a base legal do art. 6º III da LGPD
-        // (necessidade, execução de contrato). O app não guarda o número:
-        // `registerCharge` não persiste, e webhook com CPF passa por maskTaxId.
-        payerDocument: body.payerDocument ?? null,
-      });
+      /**
+       * O INTERRUPTOR DA CARTEIRA, NO CAMINHO DO DINHEIRO — não só na vitrine.
+       *
+       * `carteiraLiberada` era consultada num lugar só: o `acceptsWallet` da
+       * resposta do `GET /api/check`. O caminho do dinheiro não a consultava,
+       * então um POST com `wallet` + `paymentToken` capturava o cartão de
+       * QUALQUER casa com recebedor real, com a lista vazia. O cenário pro qual
+       * a decisão foi escrita é "ligamos numa casa, apareceram órfãos,
+       * desliga" — e desligar só mudava as respostas NOVAS do `/api/check`:
+       * todo PWA já carregado na mesa continuava com o botão, e o servidor
+       * continuava capturando. Sessões de mesa duram 30-90 min.
+       *
+       * Um interruptor que não desliga nada é a forma de "guarda que depende de
+       * alguém lembrar" que este repositório já pagou pra aprender três vezes.
+       * Achado pela quinta revisão de compliance (2026-09-19, HIGH-4).
+       */
+      /**
+       * A DEMO PASSA. Ela cobra pelo MockPsp próprio (`isDemo` acima) e nunca
+       * toca dinheiro de verdade, então o interruptor — que existe pra decidir
+       * QUAIS CASAS podem capturar cartão — não tem o que dizer sobre ela.
+       *
+       * Sem esta cláusula o botão de carteira da landing recusava TODO tap com
+       * `rail_unsupported`, que é o anti-padrão escrito no próprio
+       * `WalletPay.tsx`: "botão morto que recusa todo tap é pior que não ter
+       * botão". E é a tela que prospect vê na demo de vendas. Achado pela sexta
+       * revisão de compliance (2026-09-19, HIGH-1) — introduzido pelo conserto
+       * do HIGH-4 da revisão anterior.
+       */
+      /**
+       * O ID VEM DO `getVenueForCheck`, e NÃO de `view.venue`.
+       *
+       * `view.venue` é a projeção PÚBLICA — `{name, taxId, ...publicMarketView}`
+       * — e ela não tem `id` de propósito: `/api/check` não tem autenticação.
+       * Então `carteiraLiberada(view.venue.id)` era `carteiraLiberada(undefined)`,
+       * que vira a string `'undefined'` e nunca está na lista.
+       *
+       * O efeito é pior que o furo que este guarda veio fechar: o interruptor
+       * ficou SEM POSIÇÃO "LIGADO". Com o id da casa-piloto na env, o POST
+       * respondia 400 `rail_unsupported` do mesmo jeito — e o `*` não salva,
+       * porque ele é desligado contra a Pagar.me de verdade. O `psp-acceptance`
+       * manda pôr o id na env e redeployar, e esse remédio não funcionava. Um
+       * guarda que não dá pra ligar é apagado com a mesma facilidade de um que
+       * nunca dispara.
+       *
+       * É a forma "conserto pela metade" — campo lido de uma projeção que nunca
+       * o selecionou. Achado pela sexta revisão de segurança (2026-09-19,
+       * HIGH-1), que mediu a rota inteira em vez de ler a linha.
+       */
+      /**
+       * O NOME DO TRILHO É CONFERIDO ANTES DA IDA AO BANCO.
+       *
+       * `body.wallet` só precisava ser truthy pra custar um `getVenueForCheck`:
+       * `{token, wallet: 1}` gastava duas idas ao banco sem consumir vaga de
+       * cobrança, numa rota pública que qualquer um com uma foto do QR alcança
+       * (o nome só era recusado lá dentro, no `charge()`). Sétima revisão de
+       * segurança, 2026-09-19 (LOW-5).
+       */
+      const pediuCarteira = body.wallet === 'google_pay' || body.wallet === 'apple_pay';
+      // `!= null` e não truthiness: `wallet: 0`, `false` e `''` escapavam do
+      // corte e morriam lá dentro com uma frase em português sem código.
+      if (body.wallet != null && body.wallet !== '' && !pediuCarteira) {
+        throw Object.assign(new Error('unknown wallet'), {
+          statusCode: 400, code: 'rail_unsupported',
+        });
+      }
+      const casaDaCobranca = pediuCarteira && !isDemo
+        ? await store.getVenueForCheck(view.check.id) : null;
+      if (pediuCarteira && !isDemo && !carteiraLiberada(casaDaCobranca && casaDaCobranca.id)) {
+        throw Object.assign(new Error('wallet rail not enabled for this venue'), {
+          statusCode: 400, code: 'rail_unsupported',
+        });
+      }
+      let result;
+      try {
+        result = await (isDemo ? demoCharge : charge)({
+          checkId: view.check.id, amountCents: body.amountCents,
+          // O teto conta por conta E pela geração do QR — ver `geracaoDoQr`.
+          qrGeneration: geracaoDoQr(body.token || ''),
+          tipCents: body.tipCents ?? 0, payerLabel: body.payerLabel ?? null, rail: payRail,
+          // Apple/Google Pay: tokenized card charge pelo mesmo portão de dinheiro.
+          wallet: body.wallet ?? null, paymentToken: body.paymentToken ?? null,
+          // CPF. O gateway exige `customer.document` no PIX TAMBÉM, não só em
+          // cartão: a doc do Pagar.me lista name/email/document/phones como
+          // obrigatórios pra criar a cobrança Pix (docs.pagar.me/reference/pix-2,
+          // conferido 2026-09-07). O comentário antigo dizia "em cartão" e fez a
+          // exigência parecer coleta excessiva numa revisão — é o mínimo pra
+          // emitir a cobrança, que é a base legal do art. 6º III da LGPD
+          // (necessidade, execução de contrato). O app não guarda o número:
+          // `registerCharge` não persiste, e o webhook não guarda: a máscara é
+          // LISTA DE PERMISSÃO de escalares e o `customer.document` vem aninhado,
+          // então ele nem chega ao banco. (Esta linha dizia "passa por
+          // `maskTaxId`" — o ramo do pagador foi APAGADO da máscara, o que é mais
+          // protetivo: descarte, não mascaramento. Mas apontar pra um controle
+          // que não existe faz o próximo leitor confiar na máscara errada.)
+          payerDocument: body.payerDocument ?? null,
+        });
+      } catch (e) {
+        // O aviso ao operador nomeia a CASA e a MESA — só um UUID obrigava a uma
+        // consulta e um telefonema. (Compliance, M3.)
+        if (e && e.code === 'too_many_pending_charges') {
+          e.venueName = view.venue && view.venue.name; e.tableLabel = view.table && view.table.label;
+        }
+        throw e;
+      }
       // O demo se auto-paga: sem Simulador nem webhook externo em live, o próprio
       // MockPsp assina a confirmação e o handler do demo credita o ledger — a
       // "conta de mentira" fecha na hora, sem tocar dinheiro real.
@@ -596,7 +1216,7 @@ async function route(req, res) {
         try {
           const { rawBody, signature } = demoPsp.buildConfirmationWebhook({
             txid: result.txid, amountCents: result.amountCents, tipCents: result.tipCents,
-            payerName: body.payerLabel || 'Cliente Demo', payerCpf: '390.533.447-05',
+            payerName: rotuloDoPagador(body.payerLabel).valor || 'Cliente Demo', payerCpf: '390.533.447-05',
             method: result.method,
           });
           await demoWebhook(rawBody, { 'x-racha-signature': signature });
@@ -613,10 +1233,18 @@ async function route(req, res) {
     // STRIPE_SECRET_KEY (503) ou sem conta Stripe no venue (400). Mesmos portões
     // de dinheiro do Pix (espelha create-charge): nunca passa do que falta.
     if (req.method === 'POST' && url.pathname === '/api/pay/stripe-intent') {
-      if (!stripePsp) return json(res, 503, { success: false, error: 'cartão/Apple Pay indisponível — Stripe não configurado' });
+      /**
+       * SEM FRASE. Isto dizia a qualquer chamador não autenticado qual
+       * adquirente usamos e que ele está desconfigurado neste deploy — e antes
+       * do `readBody`, então bastava um POST vazio. Os outros sítios da mesma
+       * condição já respondiam só o código; estes eram os esquecidos (nona
+       * revisão de segurança, 2026-09-19, LOW-2).
+       */
+      if (!stripePsp) return json(res, 503, { success: false, code: 'platform_misconfigured' });
       const b = JSON.parse(await readBody(req) || '{}');
-      if ((b.token || '') === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, error: 'a demo não usa cartão' });
-      const view = await store.getCheckByQrToken(b.token || '');
+      if (typeof b.token !== 'string') return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (b.token === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, code: 'rail_unsupported' });
+      const view = await store.getCheckByQrToken(b.token);
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       const venue = await store.getVenueForCheck(view.check.id);
       if (!venue || !venue.stripeAccountId || !/^acct_/.test(venue.stripeAccountId)) {
@@ -625,8 +1253,41 @@ async function route(req, res) {
       const amountCents = b.amountCents;
       const tipCents = b.tipCents ?? 0;
       if (!Number.isSafeInteger(amountCents) || amountCents < 0) return json(res, 400, { success: false, error: 'amountCents inválido', code: 'amount_invalid' });
-      if (!Number.isSafeInteger(tipCents) || tipCents < 0) return json(res, 400, { success: false, error: 'tipCents inválido' });
+      if (!Number.isSafeInteger(tipCents) || tipCents < 0) return json(res, 400, { success: false, error: 'tipCents inválido', code: 'amount_invalid' });
       if (amountCents + tipCents === 0) return json(res, 400, { success: false, error: 'cobrança de valor zero', code: 'zero_charge' });
+      // O RÓTULO É CONFERIDO ANTES DA VAGA E ANTES DA STRIPE. Só o
+      // `registerCharge` conferia, e ele roda DEPOIS de a Stripe criar o
+      // intent: um rótulo de 61 caracteres gastava uma vaga do teto e deixava
+      // um PaymentIntent que o `payments` não conhece. Mesma regra da fábrica,
+      // mesma função. Revisão de compliance de 2026-09-15 (MEDIUM-1).
+      /**
+       * O VALOR CONFERIDO É O VALOR GRAVADO.
+       *
+       * Esta rota chamava `payerLabelValido(b.payerLabel)` e gravava
+       * `b.payerLabel` CRU. Enquanto o predicado era uma lista de recusa, os
+       * dois coincidiam. Quando ele passou a ser baseado em LIMPEZA (o rótulo
+       * do pagador virou o normalizador compartilhado), pararam de coincidir —
+       * e o portão passou a aprovar exatamente o que a escrita não aceita:
+       * `"Ana" + cem espaços` normaliza pra `"Ana"`, passa aqui, e estoura no
+       * `registerCharge` DEPOIS de a Stripe ter criado o intent.
+       *
+       * O estouro não devolve a vaga (o `finally` só devolve se a Stripe não
+       * foi chamada), então duzentas requisições — de qualquer um com uma foto
+       * do QR — matavam o trilho de cartão e o Bizum daquela conta por quinze
+       * minutos, e deixavam duzentos PaymentIntents órfãos no adquirente, sem
+       * linha de `payments` atrás deles. Objetos de dinheiro que a conciliação
+       * não enxerga, pela rota que não passa pelo portão compartilhado.
+       *
+       * Regressão minha, achada pela segunda revisão de segurança de
+       * 2026-09-16 (NEW-1): eu troquei o predicado e consertei o `create-charge`
+       * — que reatribui o normalizado —, e não este chamador. É a terceira vez
+       * nesta série que a régua certa não chega sozinha ao segundo sítio.
+       */
+      const rotuloDoPagador = normalizarRotuloDoPagador(b.payerLabel);
+      if (!rotuloDoPagador.ok) {
+        // Só o código: quem traduz é o cliente. (Compliance LOW-4 de 7a65e93.)
+        return json(res, 400, { success: false, code: 'payer_label_invalid' });
+      }
       const state = reduce(await store.loadEvents(view.check.id));
       if (!state || state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada', code: 'check_closed' });
       const remaining = remainingCents(state);
@@ -652,18 +1313,39 @@ async function route(req, res) {
       // provava o "falha fechado" só exercitava o `create-charge`, então o
       // buraco era invisível pro `npx jest`. Inegociável #7, na letra: a
       // guarda que nunca dispara no caminho que importa.
-      const gate = marketGate(venue.market, { rail, amountCents, tipCents });
+      const gate = marketGate(venue.market, { rail, amountCents, tipCents, venue });
       if (gate) {
         return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
       }
+      let devolverVaga = null;
+      let pspChamado = false;
       try {
+        // O TETO DE PENDENTES VIVAS, e ANTES da chamada ao adquirente. Esta
+        // rota monta a cobrança sozinha — não passa pela fábrica —, então o
+        // portão que mora lá não vale aqui por herança. É a mesma forma
+        // "chamador esquecido" que já custou o portão de mercado e a validação
+        // do `payerLabel` nesta exata rota; um teste estrutural exige o
+        // emparelhamento. Ver `assertChargeSlot`.
+        devolverVaga = await assertChargeSlot(store, view.check.id, geracaoDoQr(b.token));
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
+        /**
+         * A GUARDA ANTES DA VAGA, como o `create-charge` faz.
+         *
+         * `pspChamado = true` vinha ANTES de `comContratoDeCaptura` poder
+         * recusar, e o `finally` só devolve a vaga quando `!pspChamado` — então
+         * um adaptador mal configurado queimava uma vaga pendente por tentativa
+         * até a mesa bater em `too_many_pending_charges`, sem nunca ter falado
+         * com a Stripe. Décima revisão de segurança (2026-09-20, MEDIUM-3).
+         */
+        if (rail !== 'bizum') comContratoDeCaptura(stripePsp);
+        // Daqui em diante a Stripe pode ter criado um intent: a vaga fica.
+        pspChamado = true;
         const charge = rail === 'bizum'
           ? await stripePsp.createBizumCharge({
             chargeRef, amountCents, tipCents,
             recipientId: venue.stripeAccountId,
           })
-          : await stripePsp.createWalletCharge({
+          : await comContratoDeCaptura(stripePsp).createWalletCharge({
             chargeRef, amountCents, tipCents,
             recipientId: venue.stripeAccountId,
             wallet: b.wallet ?? null, payerDocument: b.payerDocument ?? null,
@@ -671,12 +1353,54 @@ async function route(req, res) {
             // no `create-charge`, e o padrão do adaptador cobria os dois.
             currency: pspCurrency(venue.market),
           });
-        await store.registerCharge({
-          checkId: view.check.id, txid: charge.txid, amountCents, tipCents,
-          // Bizum NÃO é cartão: rotular errado aqui contamina o painel, a
-          // ativação por método e a conciliação. É pagamento em tempo real,
-          // como o Pix — mesma família, moeda diferente.
-          payerLabel: b.payerLabel ?? null, method: rail === 'bizum' ? 'bizum' : 'card',
+        /**
+         * MESMO PORTÃO DO TRILHO BRASILEIRO.
+         *
+         * Esta linha era um `registerCharge` pelado: sem nova tentativa, sem
+         * código próprio, sem nada. O prazo de 10 s estourando aqui devolvia
+         * 500 `internal` → "algo deu errado, tente de novo", enquanto o MESMO
+         * evento no trilho do Pix devolvia `charge_not_started` com a frase
+         * honesta. Um evento, duas frases, conforme o trilho — a forma de
+         * "chamador esquecido" que este arquivo nomeia três vezes (quinta
+         * revisão de compliance, 2026-09-19).
+         *
+         * `capturou: false` aqui e é VERDADE: o `createWalletCharge` da Stripe
+         * devolve um `clientSecret` pro front confirmar com a sheet, ao
+         * contrário do homônimo da Pagar.me, que captura na chamada. Nada saiu
+         * da conta de ninguém neste ponto.
+         */
+        await gravarAposCobrar({
+          gravar: () => store.registerCharge({
+            checkId: view.check.id, txid: charge.txid, amountCents, tipCents,
+            // Bizum NÃO é cartão: rotular errado aqui contamina o painel, a
+            // ativação por método e a conciliação. É pagamento em tempo real,
+            // como o Pix — mesma família, moeda diferente.
+            payerLabel: rotuloDoPagador.valor, method: rail === 'bizum' ? 'bizum' : 'card',
+          }),
+          /**
+           * PELO CONTRATO, não pelo literal.
+           *
+           * Isto era `false` cravado, e o `walletCaptures` que a Stripe declara
+           * não era lido por ninguém — declaração decorativa. Hoje os dois
+           * valores coincidem, então nada quebra; eles deixam de coincidir no
+           * dia em que o adaptador confirmar no servidor (`confirm: true`), que
+           * é uma linha. Aí um `registerCharge` que falhasse aqui diria
+           * `charge_not_started` — "nada foi cobrado, tente de novo" — sobre um
+           * cartão capturado.
+           *
+           * É a forma "o próximo autor precisa lembrar" que o commit anterior
+           * dizia ter encerrado, reinstalada na rota irmã. E um teste MEU
+           * segurava o literal no lugar: trocar por esta linha o deixava
+           * vermelho. Nona revisão de segurança (2026-09-19, MEDIUM-1).
+           */
+          // POR CHAMADA, como o irmão no `create-charge`: o `walletCaptures`
+          // é contrato da CARTEIRA, e no trilho bizum ele era lido assim mesmo
+          // — um adaptador que não o declarasse dava `undefined` → falsy →
+          // `charge_not_started` em vez do `platform_misconfigured` que a
+          // guarda existe pra produzir. A guarda não dispara no caminho em que
+          // ela não está (décima revisão de segurança, 2026-09-20, MEDIUM-3).
+          capturou: rail === 'bizum' ? false : comContratoDeCaptura(stripePsp).walletCaptures,
+          txid: charge.txid, alvo: `check=${view.check.id}`, rail,
         });
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
         // logo acima já gravava 'bizum' certo, e a resposta dizia 'card' —
@@ -699,7 +1423,25 @@ async function route(req, res) {
             vars: mapped === 'amount_under_min' ? { minCents: lim.minCents } : { maxCents: lim.maxCents },
           });
         }
-        return json(res, e.statusCode || 502, { success: false, error: e.message });
+        // CÓDIGO E `vars`, NÃO A FRASE INTERNA. Esta linha devolvia só
+        // `e.message`, e o `errorBody` — que existe pra isto e diz no próprio
+        // docblock que "com CÓDIGO a mensagem interna NÃO viaja" — nunca era
+        // alcançado, porque esta rota tem catch próprio. O resultado, medido:
+        // um cliente pagando no cartão em São Paulo, ou no Bizum em Madri,
+        // lia `too many live pending charges for this check (20)` na tela de
+        // pagamento — inglês interno, com a contagem de cobranças vivas dos
+        // OUTROS na mesa. A chave `err.too_many_pending_charges` que o commit
+        // do teto acrescentou não disparava em trilho nenhum além do Pix.
+        // Achado pela revisão de compliance de 2026-09-15 (HIGH-2).
+        if (e && e.code === 'too_many_pending_charges') {
+          e.venueName = view.venue && view.venue.name; e.tableLabel = view.table && view.table.label;
+        }
+        // A recusa e o aviso, na ordem que entrega os dois — ver `responderEAvisar`.
+        await responderEAvisar(() => json(res, errorStatus(e), errorBody(e), cabecalhoDeEspera(e)), e);
+        return;
+      } finally {
+        // A vaga volta SÓ se a Stripe nem foi chamada — ver `assertChargeSlot`.
+        if (devolverVaga && !pspChamado) await devolverVaga();
       }
     }
 
@@ -748,43 +1490,7 @@ async function route(req, res) {
           data: { status: result.status, txid: result.txid, expired: expirou },
         });
       }
-      // Evento de dinheiro sem lançamento: anomalia no razão + aviso. Não
-      // gravado NEM avisado é 503, pra Pagar.me reenviar — perder o evento em
-      // silêncio é o que o inegociável #8 proíbe.
-      if (NON_LEDGER_KINDS.has(result.status)) {
-        const marca = await handleNonLedgerMoneyEvent(result, { psp: 'pagarme' });
-        /**
-         * Quem decide o reenvio é `needsRetry`, e ele mora num lugar só.
-         *
-         * A regra é: o que vale é o registro DURÁVEL, não o aviso — o aviso
-         * degrada pra stderr sem `RACHA_NOTIFY_SECRET` e a anomalia não. Uma
-         * falha de gravação costuma ser PERSISTENTE (um CHECK recusando o tipo
-         * do evento, uma permissão), do jeito que a produção recusou três
-         * tipos por doze dias — e nesse estado todo cancelamento parcial saía
-         * 200, a Pagar.me nunca reenviava, e o único vestígio era uma mensagem
-         * de chat com a conciliação verde por cima do dinheiro que saiu.
-         *
-         * Esta rota já tinha sido corrigida; a da Stripe ficou com a versão
-         * antiga, e o teste que guardava a regra recortava o arquivo entre as
-         * duas rotas, então era estruturalmente incapaz de ver a segunda
-         * cópia. Agora é uma função e um censo.
-         */
-        if (needsRetry(marca)) {
-          process.stderr.write(`[webhook] ${result.status} SEM registro e SEM aviso — devolvendo 503 pra reenvio\n`);
-          return json(res, 503, {
-            success: false, code: 'money_event_unrecorded',
-            data: { status: result.status, txid: result.txid || null },
-          });
-        }
-        // O eco vai MASCARADO: o corpo cru do Pagar.me traz documento do
-        // pagador e payload do Pix, e `raw` saía inteiro na resposta.
-        return json(res, 200, {
-          success: true,
-          data: { status: result.status, type: result.type || null, txid: result.txid || null },
-        });
-      }
-      const status = result.status === 'rejected' ? 409 : 200;
-      return json(res, status, { success: status === 200, data: result });
+      return responderDoAplicador(res, result, 'pagarme');
     }
 
     // --- webhook do Stripe (2º rail) — confirmação de cartão/Apple Pay --------
@@ -793,7 +1499,12 @@ async function route(req, res) {
     // ⚠️ Ao ligar em prod: garantir corpo CRU (Vercel bodyParser off nesta rota)
     // — o Stripe assina os bytes; um req.body re-serializado quebra a assinatura.
     if (req.method === 'POST' && url.pathname === '/api/webhooks/stripe') {
-      if (!stripePsp) return json(res, 503, { success: false, error: 'stripe não configurado' });
+      // Sem frase: esta rota é o webhook, sem autenticação por construção. Um POST
+      // vazio dizia a qualquer um qual adquirente usamos e que ele está
+      // desconfigurado aqui — ou seja, que o mercado espanhol existe e está
+      // desligado. Era o quinto sítio da mesma condição; os outros quatro já
+      // tinham sido consertados (décima revisão de segurança, MEDIUM-4).
+      if (!stripePsp) return json(res, 503, { success: false, code: 'platform_misconfigured' });
       const raw = await readBody(req);
       process.stderr.write(`[stripe-webhook] in bytes=${raw.length} sig=${req.headers['stripe-signature'] ? 'sim' : 'não'}\n`);
       let result;
@@ -977,8 +1688,22 @@ async function route(req, res) {
             kind: parsed.kind, txid: parsed.txid, checkId: result.checkId || null,
             amountCents: parsed.amountCents, detail: parsed.reason || null,
           });
-          const st = result.status === 'rejected' ? 409 : 200;
-          return json(res, st, { success: st === 200, data: result });
+          /**
+           * O PDV TAMBÉM PRECISA SABER. Estas duas saídas voltavam antes do
+           * `writeBackToPos` genérico lá embaixo — uma assimetria não decidida,
+           * herdada de quando elas eram só alerta.
+           *
+           * Uma reversão de estorno RESTAURA `paidCents` e pode devolver a conta
+           * pra `paga`: sem a sinalização, o balcão segue achando que a mesa
+           * deve, e alguém vai cobrá-la. O `writeBackPayment` só sinaliza com a
+           * conta 100% paga, então numa disputa perdida (que reduz o pago) ele
+           * sai calado sozinho — a chamada é segura nos dois casos, e a regra de
+           * "quando sinalizar" fica num lugar só (segurança LOW-2 da rodada dez).
+           */
+          if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
+            await writeBackToPos(result.checkId);
+          }
+          return responderDoAplicador(res, result, 'stripe');
         }
         // Pagamento que FALHOU: a linha sai de `pendente` e nada mais.
         //
@@ -1006,13 +1731,34 @@ async function route(req, res) {
         // há cliente com reembolso a receber por outro caminho.
         if (parsed.kind === 'refund_failed') {
           result = await applyConfirmedPayment(parsed, confirmDeps);
-          await avisarEventoDeDinheiro({
-            kind: parsed.kind, txid: parsed.txid,
-            checkId: result.checkId || null,
-            amountCents: parsed.amountCents, detail: parsed.status || null,
-          });
-          const st = result.status === 'rejected' ? 409 : 200;
-          return json(res, st, { success: st === 200, data: result });
+          // UMA falha, UM aviso. A Stripe entrega a mesma falha em dois eventos
+          // (`refund.failed` e `refund.updated` com status `failed`), e o aviso
+          // saía nos dois: dois "R$ X refund_failed" idênticos no canal do
+          // canário, por evento normal. Canário que se repete é canário que se
+          // aprende a ignorar (inegociável #8; segurança LOW-2 de 53c9ff0).
+          if (result.status !== 'duplicate') {
+            await avisarEventoDeDinheiro({
+              kind: parsed.kind, txid: parsed.txid,
+              checkId: result.checkId || null,
+              amountCents: parsed.amountCents, detail: parsed.status || null,
+            });
+          }
+          /**
+           * O PDV TAMBÉM PRECISA SABER. Estas duas saídas voltavam antes do
+           * `writeBackToPos` genérico lá embaixo — uma assimetria não decidida,
+           * herdada de quando elas eram só alerta.
+           *
+           * Uma reversão de estorno RESTAURA `paidCents` e pode devolver a conta
+           * pra `paga`: sem a sinalização, o balcão segue achando que a mesa
+           * deve, e alguém vai cobrá-la. O `writeBackPayment` só sinaliza com a
+           * conta 100% paga, então numa disputa perdida (que reduz o pago) ele
+           * sai calado sozinho — a chamada é segura nos dois casos, e a regra de
+           * "quando sinalizar" fica num lugar só (segurança LOW-2 da rodada dez).
+           */
+          if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
+            await writeBackToPos(result.checkId);
+          }
+          return responderDoAplicador(res, result, 'stripe');
         }
         result = await applyConfirmedPayment(parsed, confirmDeps);
       } catch (err) {
@@ -1022,8 +1768,7 @@ async function route(req, res) {
       if (result.checkId && (result.status === 'appended' || result.status === 'divergent_appended')) {
         await writeBackToPos(result.checkId);
       }
-      const status = result.status === 'rejected' ? 409 : 200;
-      return json(res, status, { success: status === 200, data: result });
+      return responderDoAplicador(res, result, 'stripe');
     }
 
     // --- house accounts: diner (public; bearer credential = accountToken) ----
@@ -1070,7 +1815,15 @@ async function route(req, res) {
         idempotencyKey: b.idempotencyKey ?? null,
       });
       await writeBackToPos(data.checkId);
-      return json(res, 200, { success: true, data });
+      // O ESTADO DA CONTA sai pela projeção pública, como no `/api/check`. Saía
+      // cru: txids reais, motivo e prazo de disputa e as notas livres do dono
+      // ("reembolsei o Pedro no Pix 11 9…") pra quem tivesse uma carteira com a
+      // carga mínima e o QR da mesa (auditoria de backend H2).
+      const conta = data && data.check;
+      return json(res, 200, {
+        success: true,
+        data: conta && conta.state ? { ...data, check: { ...conta, state: publicCheckState(conta.state) } } : data,
+      });
     }
 
     // --- recebimento (PSP recipient) — o passo com latência do onboarding ----
@@ -1080,11 +1833,22 @@ async function route(req, res) {
       try { await auth.requireVenueOwner(user, venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const venue = await store.getVenue(venueId);
-      if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
-      if (!venue.pspRecipientId || !/^r[ep]_/.test(venue.pspRecipientId)) {
+      if (!venue) return json(res, 404, { success: false, code: 'venue_not_found' });
+      if (!temRecebedorReal(venue)) {
         return json(res, 200, { success: true, data: { recipientId: venue.pspRecipientId || null, status: null } });
       }
-      const info = psp.getRecipient ? await psp.getRecipient(venue.pspRecipientId) : null;
+      // UMA FALHA DO ADQUIRENTE NÃO É "RECEBEDOR INEXISTENTE" — ver
+      // `_lib/pay/recebedor.js`. Sem este `try`, um 404 e um timeout saíam
+      // iguais, e a tela mandava criar um recebedor novo por cima do ativo
+      // (auditoria de onboarding, C3).
+      let info = null;
+      try {
+        info = psp.getRecipient ? await psp.getRecipient(venue.pspRecipientId) : null;
+      } catch (e) {
+        const falha = classificarFalhaDoRecebedor(e);
+        process.stderr.write(`[recebedor] leitura falhou venue=${venueId} http=${e && e.httpStatus}: ${String(e && e.message).slice(0, 120)}\n`);
+        return json(res, falha.status, { success: false, code: falha.code });
+      }
       return json(res, 200, { success: true, data: info || { recipientId: venue.pspRecipientId, status: 'desconhecido' } });
     }
     // Saldo do recebedor — a prova do repasse do split ("quanto já caiu").
@@ -1108,13 +1872,44 @@ async function route(req, res) {
       try { await auth.requireVenueOwner(user, b.venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       if (!psp.createRecipient) return json(res, 501, { success: false, error: 'PSP atual não cria recebedor' });
-      const r = await psp.createRecipient({
-        name: b.name, email: b.email ?? null, document: b.document, bank: b.bank,
-      });
+      // ── O DOCUMENTO QUE DECIDE PRA ONDE O DINHEIRO VAI ───────────────────
+      //
+      // A REGRA mora em `decidirDocumentoDoRecebedor` (api/_lib/br/documento.js),
+      // pura e testada por comportamento. Aqui ficou o transporte: inline, ela
+      // só dava pra "testar" com grep, e o teste que a guardava sobrevivia a
+      // trocar `!==` por `===`.
+      const venueDoRecebedor = await store.getVenue(b.venueId);
+      if (!venueDoRecebedor) return json(res, 404, { success: false, code: 'venue_not_found' });
+      const docRec = decidirDocumentoDoRecebedor({ enviado: b.document, venue: venueDoRecebedor });
+      if (!docRec.ok) return json(res, 400, { success: false, code: docRec.code });
+      // SUBSTITUIR o recebedor de verdade exige pedido EXPLÍCITO (`replace:
+      // true`) — ver `podeCriarRecebedor`. E a falha do adquirente sai com
+      // código, não com o texto do gateway.
+      const criacao = podeCriarRecebedor(venueDoRecebedor, b);
+      if (!criacao.ok) return json(res, criacao.status, { success: false, code: criacao.code });
+      let r;
+      try {
+        r = await psp.createRecipient({
+          name: b.name, email: b.email ?? null, document: docRec.valor, bank: b.bank,
+        });
+      } catch (e) {
+        const falha = classificarFalhaNaCriacao(e);
+        process.stderr.write(`[recebedor] criação falhou venue=${b.venueId} http=${e && e.httpStatus}: ${String(e && e.message).slice(0, 160)}\n`);
+        return json(res, falha.status, { success: false, code: falha.code });
+      }
+      if (criacao.substitui) {
+        process.stderr.write(`[recebedor] SUBSTITUÍDO venue=${b.venueId}: ${venueDoRecebedor.pspRecipientId} → ${r.recipientId}\n`);
+      }
       // Persiste o status inicial (registration) + os contatos do dono pro aviso
       // de KYC: o mesmo e-mail do form + o WhatsApp opcional (a Olímpia entrega).
       await store.setVenueRecipient(b.venueId, r.recipientId, {
         status: r.status || 'registration',
+        // E A CASA PASSA A TER O DOCUMENTO, se ainda não tinha. É o que
+        // impede o estado "portão desarmado pra sempre": sem isto, a casa sem
+        // CNPJ nunca ganhava um, e a conferência de cima nunca tinha com o
+        // que comparar. Agora o documento do comprovante e o do split são o
+        // mesmo por CONSTRUÇÃO, não por alguém ter preenchido os dois iguais.
+        cnpj: docRec.herdar ? docRec.valor : undefined,
         notifyEmail: b.email ?? undefined,
         notifyWhatsapp: b.notifyWhatsapp ? String(b.notifyWhatsapp).replace(/[^\d+]/g, '') : undefined,
       });
@@ -1130,7 +1925,7 @@ async function route(req, res) {
       if (!b.venueId) return json(res, 400, { success: false, error: 'venueId é obrigatório' });
       try { await auth.requireVenueOwner(user, b.venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
-      if (!stripePsp) return json(res, 503, { success: false, error: 'cartão/Apple Pay indisponível — Stripe não configurado' });
+      if (!stripePsp) return json(res, 503, { success: false, code: 'platform_misconfigured' });
       const venue = await store.getVenue(b.venueId);
       if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
       try {
@@ -1156,7 +1951,12 @@ async function route(req, res) {
         });
         return json(res, 200, { success: true, data: { accountId, onboardingUrl: link.url } });
       } catch (e) {
-        return json(res, e.statusCode || 502, { success: false, error: e.message });
+        // Código e `vars` pelo `errorBody`, nunca a frase interna. (Esta rota
+        // é o onboarding da Stripe Connect: não cria cobrança e não levanta o
+        // erro de teto — o comentário que estava aqui era o da rota de
+        // pagamento, copiado por um `replace` sem âncora. Achado pela revisão
+        // de compliance de 2026-09-15, L1.)
+        return json(res, errorStatus(e), errorBody(e));
       }
     }
     if (req.method === 'GET' && url.pathname === '/api/psp/stripe-connect') {
@@ -1243,23 +2043,33 @@ async function route(req, res) {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.checkId || !b.txid) {
-        return json(res, 400, { success: false, error: 'checkId e txid são obrigatórios', code: 'amount_invalid' });
+        return json(res, 400, { success: false, code: 'resolve_failed' });
       }
       const issueVenue = await store.getVenueForCheck(b.checkId);
-      if (!issueVenue) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (!issueVenue) return json(res, 404, { success: false, code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, issueVenue.id); }
-      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
-      const note = String(b.note || '').trim().slice(0, 200);
-      if (note.length < 3) {
-        return json(res, 400, { success: false, error: 'diga como foi resolvido', code: 'note_required' });
+      catch (e) { return json(res, e.statusCode || 403, { success: false, code: 'forbidden' }); }
+      // O PAYLOAD sai de `payloadDaResolucao` (`_lib/checks/restitution.js`):
+      // resposta escopada com texto fixo, e o autor pelo id, não pelo e-mail.
+      // Mora lá pra ser testado — esta rota era o único escritor da resposta
+      // escopada, e tirar o `scope` daqui não quebrava teste nenhum
+      // (segurança LOW-1 de 57c0d2e).
+      const payload = payloadDaResolucao(b, user);
+      if (payload.note.length < 3) {
+        return json(res, 400, { success: false, code: 'note_required' });
       }
       try {
-        const seq = await appendValidated(store, b.checkId, 'PAYMENT_ISSUE_RESOLVED', {
-          txid: String(b.txid), note, by: user.email || user.id || 'dono',
-        });
+        const seq = await appendValidated(store, b.checkId, 'PAYMENT_ISSUE_RESOLVED', payload);
         return json(res, 200, { success: true, data: { seq } });
       } catch (e) {
-        return json(res, e.statusCode || 400, { success: false, error: e.message, code: 'resolve_failed' });
+        // Só o código: a mensagem do validador é texto interno. E uma falha do
+        // BANCO não é erro de quem chamou: sai 500 e fica no log, em vez de um
+        // 400 que parecia culpa do cliente (compliance LOW-E de 57c0d2e).
+        if (!e.statusCode || e.statusCode >= 500) {
+          process.stderr.write(`[resolve-issue] falhou: ${String(e && e.message).slice(0, 160)}\n`);
+          return json(res, 500, { success: false, code: 'resolve_failed' });
+        }
+        return json(res, e.statusCode, { success: false, code: 'resolve_failed' });
       }
     }
 
@@ -1277,32 +2087,61 @@ async function route(req, res) {
      *
      * É `PAYMENT_REFUNDED` mesmo, e não um tipo novo: o dinheiro VOLTOU. O que
      * muda é o meio, e o meio fica no evento (`offRail` + a referência), pra
-     * uma auditoria distinguir depois. O rateio passa pelo mesmo
-     * `allocateRestitution` — o excedente sai do consumo, nunca da gorjeta.
+     * uma auditoria distinguir depois. O rateio passa pela mesma
+     * `alocarDevolucaoDoPagamento` do estorno do PSP — o excedente sai do
+     * consumo, e o serviço devido de um atrasado sai da gorjeta, inteiro.
      */
     if (req.method === 'POST' && url.pathname === '/api/checks/record-restitution') {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.checkId || !b.txid) {
-        return json(res, 400, { success: false, error: 'checkId e txid são obrigatórios', code: 'amount_invalid' });
+        return json(res, 400, { success: false, code: 'amount_invalid' });
       }
       const restVenue = await store.getVenueForCheck(b.checkId);
-      if (!restVenue) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (!restVenue) return json(res, 404, { success: false, code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, restVenue.id); }
-      catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, code: 'forbidden' }); }
       const valor = b.amountCents;
       if (!Number.isSafeInteger(valor) || valor <= 0) {
-        return json(res, 400, { success: false, error: 'amountCents inválido', code: 'amount_invalid' });
+        return json(res, 400, { success: false, code: 'amount_invalid' });
       }
       // A REFERÊNCIA não é enfeite: é o que prova a devolução se o cliente
       // abrir um MED depois, e o que evita a casa pagar duas vezes.
-      const ref = String(b.reference || '').trim().slice(0, 120);
+      /**
+       * A REFERÊNCIA, NORMALIZADA AQUI — uma vez, antes de virar chave.
+       *
+       * Ela é a chave de idempotência da 0034, e os dois lados normalizavam
+       * diferente: o `trim()` do JS tira toda espécie de espaço em branco, o
+       * `btrim` do Postgres tira só o espaço ASCII. Uma referência terminada em
+       * tabulação era duplicata pro dublê e entrava de novo em produção — e o
+       * `.trim().slice(120)` anterior conseguia até CRIAR esse caso, cortando
+       * no meio do espaço (segurança LOW-1 de d7f2683). Colapsando o branco
+       * antes, os dois lados passam a ver a mesma string.
+       *
+       * `NFC` e corte por PONTO DE CÓDIGO pelo mesmo motivo: `slice(120)` corta
+       * no meio de um par substituto, e `jsonb` recusa substituto solitário
+       * (22P05) — a referência ficaria impossível de registrar pra sempre.
+       *
+       * O QUE FICA: o dobramento de caixa é feito dos dois lados
+       * (`toLowerCase()` do JS contra `lower()` do Postgres) e eles divergem em
+       * grego (sigma final) — o dublê agrupa onde o banco não agrupa. Pra
+       * referência brasileira ou espanhola (id E2E do Pix, texto latino) as duas
+       * concordam; fechar isso de vez pede uma coluna de CHAVE guardada, que é
+       * mudança de esquema e vai com a próxima migração.
+       */
+      const ref = [...String(b.reference || '').normalize('NFC').replace(/\s+/g, ' ').trim()]
+        .slice(0, 120).join('').trim();
       if (ref.length < 3) {
-        return json(res, 400, { success: false, error: 'informe a referência da devolução', code: 'reference_required' });
+        return json(res, 400, { success: false, code: 'reference_required' });
       }
-      const estado = reduce(await store.loadEvents(b.checkId));
+      // O RAZÃO QUE VAI SER CONFERIDO, e o `seq` em que ele estava. É esta
+      // leitura — e não outra — que autoriza o lançamento lá embaixo: o
+      // `appendEventIfUnchanged` recusa se o razão tiver andado no meio.
+      const eventosAntes = await store.loadEvents(b.checkId);
+      const seqEsperado = eventosAntes.length ? eventosAntes[eventosAntes.length - 1].seq : 0;
+      const estado = reduce(eventosAntes);
       const pg = estado && estado.payments[String(b.txid)];
-      if (!pg) return json(res, 404, { success: false, error: 'pagamento desconhecido', code: 'txid_unknown' });
+      if (!pg) return json(res, 404, { success: false, code: 'txid_unknown' });
       /**
        * O TETO é o que este pagamento DEVE, não o que ele tem.
        *
@@ -1340,20 +2179,36 @@ async function route(req, res) {
        *
        * Achado pela revisão de compliance de 2026-09-09 (R-1).
        */
-      const aDevolver = Math.min(
-        Math.max(0, (pg.excessCents || 0) - (pg.refundedAmountCents || 0)),
-        Math.max(0, estado.overpaidCents || 0),
-      );
+      // O teto sai de `tetoDaRestituicao` (`_lib/checks/restitution.js`): o
+      // excedente devido — a regra acima — E a marca do pago-depois-de-fechar
+      // deste pagamento. Sem ela, um atrasado cujo estorno falhou, ou um Pix além
+      // dos 90 dias da devolução, não tinha jeito verdadeiro de fechar
+      // (compliance MEDIUM-A de 57c0d2e).
+      // A DATA da confirmação decide o prazo do Pix (90 dias) — ver
+      // `tetoDaRestituicao`.
+      const linhaDoPagamento = await store.getPayment(String(b.txid)).catch(() => null);
+      const limites = tetoDaRestituicao(estado, String(b.txid), {
+        confirmedAt: linhaDoPagamento && linhaDoPagamento.confirmedAt,
+        method: linhaDoPagamento && linhaDoPagamento.method,
+      });
+      const aDevolver = limites.teto;
       if (aDevolver === 0) {
+        // Qual "não há" é este? A regra mora em `restitution.js` e é testada
+        // sem HTTP (segurança LOW-3 de ec86b37).
+        const recusa = codigoDaRecusa(estado, String(b.txid), limites);
+        // Não saber a idade do pagamento é indisponibilidade, não pedido errado.
+        if (recusa === 'payment_age_unknown') {
+          return json(res, 503, { success: false, code: recusa });
+        }
         return json(res, 400, {
-          success: false, code: 'nothing_to_restitute',
-          error: 'este pagamento não tem excedente a restituir — use o estorno pelo adquirente',
+          success: false,
+          code: recusa,
         });
       }
       if (valor > aDevolver) {
         return json(res, 400, {
           success: false, code: 'amount_over',
-          error: 'valor acima do excedente deste pagamento', vars: { leftCents: aDevolver },
+          vars: { leftCents: aDevolver },
         });
       }
       /**
@@ -1380,22 +2235,98 @@ async function route(req, res) {
        * é o dono durável que faltava.
        * Achado pela revisão de segurança de 2026-09-09 (HIGH-1).
        */
+      /**
+       * E O LANÇAMENTO É CONDICIONAL (migração 0034).
+       *
+       * O teto era LIDO e depois GRAVADO, sem nada entre as duas coisas. A
+       * revisão de segurança de ec86b37 mediu contra o store: duas chamadas
+       * simultâneas, cada uma no teto de R$ 50, gravaram R$ 100 contra um
+       * direito de R$ 50 — `paidCents` abaixo do total, a conta PAGA voltando a
+       * 'parcial', o telefone de quem já pagou dizendo que a mesa deve, e uma
+       * cobrança nova podendo sair contra quem não deve nada (CDC art. 42).
+       * Idêntico com um `curl` repetido, porque a rota é operada à mão pelo
+       * runbook e não tinha chave de idempotência.
+       *
+       * Agora conferir e gravar são um passo só, e o erro é CHECADO
+       * (inegociável #7): `40001` = o razão mudou, refaça a conta; `23505` = esta
+       * mesma devolução (conta + cobrança + referência) já está registrada, e aí
+       * a resposta é a MESMA da primeira vez, que é o que um retry merece.
+       */
       let seq;
       try {
-        const partes = alocarRestituicaoManual(pg, valor);
+        // A TESTEMUNHA vai junto: quando a devolução por fora existe porque um
+        // estorno falhou, quem diz o que era consumo e o que era serviço é o
+        // adquirente, não o proporcional (compliance HIGH-2 de a95e15c).
+        const partes = alocarDevolucaoDoPagamento(estado, String(b.txid), pg, valor,
+          limites.testemunha ? { testemunha: limites.testemunha } : {});
         seq = await appendValidated(store, b.checkId, 'PAYMENT_REFUNDED', {
           txid: String(b.txid),
           amountCents: partes.amountCents,
           tipCents: partes.tipCents,
           offRail: true,
+          // POR QUE saiu do trilho — `refund_reversed` (o adquirente é
+          // testemunha) ou `pix_90d`/`card_180d` (só a palavra do dono). Sem
+          // isto, uma auditoria trabalhista lê o razão e não distingue as duas
+          // (compliance MEDIUM-5 de ec86b37). `null` quando a devolução é de
+          // SOBRA, que nunca precisou de trilho impossível.
+          railImpossible: limites.motivo,
+          ...(limites.revertidoEmAberto ? { reversedOpenCents: limites.revertidoEmAberto } : {}),
           reference: ref,
-          by: user.email || user.id || 'dono',
-        });
+          by: autorDoRegistro(user),
+        }, null, seqEsperado);
         var partesGravadas = partes;
       } catch (e) {
-        // AQUI sim é falha: o razão não recebeu nada.
+        // QUEM CLASSIFICA SQLSTATE é o `desfechoDoLancamento`, junto da lista
+        // branca e do motivo dela — nunca esta rota (censo em `sql-contract`).
+        const desfecho = desfechoDoLancamento(e);
+        // O RAZÃO ANDOU entre a conta e o lançamento: nada foi gravado, e a
+        // conta que autorizou o valor não vale mais.
+        if (desfecho === 'conflito') {
+          process.stderr.write(`[restituicao] conflito: o razão de ${b.checkId} mudou\n`);
+          return json(res, 409, { success: false, code: 'restitution_conflict' });
+        }
+        /**
+         * JÁ REGISTRADA? Quem responde é o RAZÃO, não o nome da restrição.
+         *
+         * A classificação por SQLSTATE + nome de índice é corroboração; o nome
+         * vem de uma mensagem LOCALIZÁVEL (`lc_messages` é config de projeto),
+         * e sem inglês o extrator devolve nulo, o desfecho vira `recusado` e a
+         * rota dizia ao operador que o razão não recebeu nada — sobre uma
+         * devolução que ESTÁ lá. Ele então troca a referência ("pix e2e123 (2)"),
+         * ganha uma chave nova, e um SEGUNDO lançamento entra: `paidCents` cai
+         * duas vezes, a conta paga volta a `parcial` e a casa paga o cliente de
+         * novo (segurança MEDIUM-1 de 089e8a2). Numa chave de idempotência de
+         * movimento manual de dinheiro, "recusado" não é o lado conservador.
+         *
+         * Então: em QUALQUER 23505, procura no razão. Achou, é reentrega.
+         */
+        const mesmaReferencia = (evento) => evento.type === 'PAYMENT_REFUNDED'
+          && evento.payload && evento.payload.offRail === true
+          && String(evento.payload.txid) === String(b.txid)
+          && String(evento.payload.reference || '').replace(/\s+/g, ' ').trim().toLowerCase() === ref.toLowerCase();
+        if (desfecho === 'duplicado' || podeSerReentrega(e)) {
+          const jaGravado = (await store.loadEvents(b.checkId).catch(() => []))
+            .filter(mesmaReferencia)
+            // O QUE JÁ ESTÁ NO RAZÃO, não só "ok": quem repetiu com o valor
+            // trocado por engano precisa ver que o registrado é outro número
+            // (compliance LOW-2 de d7f2683).
+            .map((evento) => ({ seq: evento.seq, amountCents: evento.payload.amountCents, tipCents: evento.payload.tipCents }))
+            .pop() || null;
+          if (jaGravado || desfecho === 'duplicado') {
+            process.stderr.write(`[restituicao] reentrega da mesma referência em ${b.checkId}\n`);
+            return json(res, 200, { success: true, data: { duplicate: true, recorded: jaGravado } });
+          }
+        }
+        // AQUI sim é falha: o razão não recebeu nada. E o MESMO ponto do
+        // `resolve-issue` (compliance LOW-E de 57c0d2e, agora aqui): banco fora
+        // do ar não é erro de quem chamou. Um 400 dizendo "confira o valor"
+        // manda conferir um valor que estava certo — e some com a única pista
+        // de que a devolução pode não ter sido registrada.
         process.stderr.write(`[restituicao] lançamento recusado: ${String(e.message).slice(0, 160)}\n`);
-        return json(res, e.statusCode || 400, { success: false, code: 'restitution_failed' });
+        if (!e.statusCode || e.statusCode >= 500) {
+          return json(res, 500, { success: false, code: 'restitution_unavailable' });
+        }
+        return json(res, e.statusCode, { success: false, code: 'restitution_failed' });
       }
 
       /**
@@ -1485,18 +2416,7 @@ async function route(req, res) {
            * não o renderiza mais. Achado pela revisão de segurança de
            * 2026-09-08.
            */
-          findings: [...r.findings]
-            .sort((a, b) => (RANK[b.severity] || 0) - (RANK[a.severity] || 0))
-            .slice(0, 5)
-            .map((f) => ({
-              severity: f.severity, code: f.code,
-              ...(f.overpaidCents !== undefined ? { overpaidCents: f.overpaidCents } : {}),
-              ...(f.deltaCents !== undefined ? { deltaCents: f.deltaCents } : {}),
-              ...(f.driftCents !== undefined ? { driftCents: f.driftCents } : {}),
-              ...(f.amountCents !== undefined ? { amountCents: f.amountCents } : {}),
-              ...(f.txid ? { txid: f.txid } : {}),
-              ...(f.chargeId ? { chargeId: f.chargeId } : {}),
-            })),
+          findings: projetarAchados(r.findings),
           at: new Date().toISOString(),
         };
         panelReconcileStore(venueId, recon);
@@ -1538,12 +2458,38 @@ async function route(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/venues') {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
-      if (!b.name || !String(b.name).trim()) return json(res, 400, { success: false, error: 'Nome é obrigatório' });
+      // AS PALAVRAS DA CASA, conferidas onde elas entram — tipo, tamanho em
+      // pontos de código e caracteres invisíveis. Era só "não está vazio", e
+      // estes campos saem no `/api/check` público. Ver `texto-da-casa.js`.
+      const nome = nomeDaCasa(b.name);
+      if (!nome.ok) return json(res, 400, { success: false, code: nome.code, vars: nome.vars });
+      const cidade = cidadeDaCasa(b.city);
+      if (!cidade.ok) return json(res, 400, { success: false, code: cidade.code, vars: cidade.vars });
+      // O DOCUMENTO DA CASA É CONFERIDO AQUI, no caminho de ESCRITA.
+      //
+      // Era `b.cnpj ?? null`: sem tipo, sem tamanho, sem dígito verificador —
+      // enquanto o `Admin.tsx` mascarava e desarmava o botão. Cliente
+      // validando e servidor não é o par clássico, e aqui ele tinha alcance:
+      // o valor guardado sai no `/api/check` pra todo cliente NÃO
+      // autenticado, e agora também passa pelo formatador do recibo, que é
+      // quem lhe dá a aparência de conferido. Achado pela revisão de
+      // segurança de 2026-09-13.
+      // O MERCADO decide a FORMA do documento, então ele é lido antes e o
+      // mesmo valor vai pro validador e pro store. Antes o mercado não era
+      // lido aqui e o validador supunha Brasil: uma casa espanhola não
+      // conseguia ser criada com documento nenhum, porque todo NIF começa ou
+      // termina em letra e o portão só aceitava dígitos. Achado pela revisão
+      // de compliance de 2026-09-13.
+      const mkt = isMarket(b.market) ? b.market : DEFAULT_MARKET;
+      const doc = normalizarDocumentoDaCasa(b.cnpj, mkt);
+      // Sem frase: o servidor manda CÓDIGO e o cliente escolhe a língua
+      // (CLAUDE.md). `err.tax_id_invalid` já existe nos três idiomas.
+      if (!doc.ok) return json(res, 400, { success: false, code: doc.code });
       const venue = await store.createVenue({
-        name: b.name, cnpj: b.cnpj ?? null, city: b.city ?? null,
+        name: nome.valor, cnpj: doc.valor, city: cidade.valor, market: mkt,
         servicoBp: Number.isInteger(b.servicoBp) ? b.servicoBp : 1000,
       });
-      await store.addVenueMember(venue.id, user.id, 'owner');
+      await store.addVenueMember(venue.id, user.id, PAPEL_DE_DONO);
       return json(res, 200, { success: true, data: venue });
     }
     if (req.method === 'GET' && url.pathname === '/api/tables') {
@@ -1553,21 +2499,54 @@ async function route(req, res) {
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const venue = await store.getVenue(venueId);
       if (!venue) return json(res, 404, { success: false, error: 'Restaurante não encontrado' });
-      return json(res, 200, { success: true, data: { venue, tables: await store.listTables(venue.id) } });
+      // O MESMO PREDICADO DO PORTÃO, calculado aqui e não adivinhado na tela.
+      // O painel perguntava `!venue.cnpj`, e o portão pergunta
+      // `documentoPublicavelDaCasa` — então uma casa com CPF, com dígito
+      // trocado ou com um typo de treze dígitos não via aviso nenhum e
+      // continuava sem arrecadar. Exatamente a população pra que o aviso
+      // existe. Dois predicados pra uma pergunta divergem; um só, não.
+      const podeCobrarServico = !!documentoPublicavelDaCasa(venue.market, venue.cnpj, true);
+      return json(res, 200, {
+        success: true,
+        data: { venue: { ...venue, podeCobrarServico }, tables: await store.listTables(venue.id) },
+      });
     }
     if (req.method === 'POST' && url.pathname === '/api/tables') {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.venueId) return json(res, 400, { success: false, error: 'venueId é obrigatório' });
-      if (!b.label || !String(b.label).trim()) return json(res, 400, { success: false, error: 'Rótulo da mesa é obrigatório' });
+      const rotulo = rotuloDaMesa(b.label);
+      if (!rotulo.ok) return json(res, 400, { success: false, code: rotulo.code, vars: rotulo.vars });
       try { await auth.requireVenueOwner(user, b.venueId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       try {
-        const t = await store.createTable(b.venueId, b.label);
+        const t = await store.createTable(b.venueId, rotulo.valor);
         return json(res, 200, { success: true, data: t });
       } catch (e) {
-        const dup = /duplicate/.test(e.message);
-        return json(res, dup ? 409 : 400, { success: false, error: dup ? 'Já existe uma mesa com esse nome' : e.message });
+        /**
+         * DUAS COISAS DIFERENTES SAÍAM PELO MESMO BURACO.
+         *
+         * Era `dup ? 409 : 400` com a mensagem CRUA do store no ramo de baixo —
+         * `supabase store createTable: <texto do Postgres ou da rede>` —, e um
+         * 400 quer dizer "o que você mandou não serve". Desde que o banco ganhou
+         * prazo (10 s), essa rota passou a ter um terceiro desfecho comum: a
+         * ida ao banco não voltou. Isso chegava ao dono como 400 com um texto
+         * interno, ou seja, uma falha de infraestrutura vestida de erro de
+         * digitação — e numa frase fixa em português, num painel que existe em
+         * três idiomas. Achado pela revisão de compliance de 2026-09-16
+         * (MEDIUM-4).
+         *
+         * Agora: só a unicidade é 409 com código; o resto vai pelo contrato
+         * comum (`errorStatus`/`errorBody`), que devolve 500 + `internal` pra
+         * falha nossa e nunca repassa texto interno.
+         */
+        // Pelo CÓDIGO que o store carimba, não por uma substring da mensagem
+        // dele: decisão tomada sobre texto que atravessa módulo é o que o
+        // inegociável #7 manda desconfiar. (LOW-E de 2026-09-16.)
+        if (e.code === 'table_label_duplicate') {
+          return json(res, 409, { success: false, code: 'table_label_duplicate' });
+        }
+        return json(res, errorStatus(e), errorBody(e));
       }
     }
     if (req.method === 'POST' && url.pathname === '/api/tables/rotate') {
@@ -1692,12 +2671,39 @@ async function route(req, res) {
       if (!psp.getRecipient) return json(res, 200, { success: true, data: { checked: 0, transitions: 0, note: 'PSP sem getRecipient' } });
       const pending = await store.listVenuesPendingRecipient();
       const detail = [];
+      /**
+       * QUEM FOI PERGUNTADO, e quantos RESPONDERAM — não quantos falharam.
+       *
+       * A comparação `falharam === pending.length` era furável por uma linha
+       * velha: `getRecipient` devolve `null` SEM chamar ninguém quando o id não
+       * é `r*_` (ver `pagarme-psp`), e o `continue` não deixava entrada no
+       * `detail`. Uma casa marcada `pending` antes de ter recebedor ficava lá
+       * pra sempre e desligava o canário — adquirente inteiro fora do ar, três
+       * de quatro consultas com erro, cron 200 VERDE (segurança MEDIUM-1 de
+       * d7f2683).
+       *
+       * Contar aquele `null` como "o adquirente respondeu" refazia o buraco
+       * pelo outro lado. Uma chamada que nunca saiu não é sucesso nem falha: a
+       * casa sem recebedor de verdade não é PERGUNTADA, aparece no relatório, e
+       * o 503 olha só quem foi.
+       */
+      let consultadas = 0;
+      let responderam = 0;
       for (const v of pending) {
+        if (!temRecebedorReal(v)) {
+          detail.push({ venue: v.id, note: 'pendente sem recebedor de verdade' });
+          continue;
+        }
+        consultadas += 1;
         let info;
         try { info = await psp.getRecipient(v.pspRecipientId); }
         catch (e) { detail.push({ venue: v.id, error: String(e.message).slice(0, 120) }); continue; }
+        responderam += 1;
         const live = info && info.status ? info.status : null;
-        if (!live || live === v.pspRecipientStatus) continue; // sem mudança
+        // O `null` VISÍVEL: a casa sem recebedor de verdade some do relatório e
+        // é ela que sustenta a lista pendente pra sempre.
+        if (!live) { detail.push({ venue: v.id, note: 'sem status vivo' }); continue; }
+        if (live === v.pspRecipientStatus) continue; // sem mudança
         if (isTerminalRecipientStatus(live)) {
           // Status que interessa ao dono (active/refused/…): avisa. Só grava DEPOIS
           // que o aviso saiu — se falhar (endpoint fora), não consome a transição
@@ -1726,6 +2732,16 @@ async function route(req, res) {
         }
       }
       const notified = detail.filter((d) => d.notify === 'sent').length;
+      // TODAS as perguntas ao adquirente falharam? Isso é 503, não sucesso.
+      // Com o adaptador que recusa (produção mal configurada) ou numa queda do
+      // Pagar.me, o cron ficava VERDE no painel da Vercel com `checked` cheio, e
+      // o único sinal era um `detail` que ninguém lê — enquanto o cron irmão,
+      // quarenta linhas abaixo, devolve 503 justamente pra pintar de vermelho
+      // (inegociável #8; segurança MEDIUM-1 de ec86b37).
+      if (consultadas > 0 && responderam === 0) {
+        process.stderr.write(`[recipient-status] o adquirente não respondeu NENHUMA das ${consultadas} consultas\n`);
+        return json(res, 503, { success: false, code: 'psp_unavailable' });
+      }
       return json(res, 200, { success: true, data: { checked: pending.length, notified, detail } });
     }
 
@@ -1758,6 +2774,82 @@ async function route(req, res) {
       // e vaza o prefixo do segredo pro relógio de quem chama.
       if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
         return json(res, 401, { success: false, error: 'unauthorized' });
+      }
+      // O CANÁRIO DO TETO EM PRODUÇÃO. O `deploy.mjs` barra a ordem errada, mas
+      // não vê um deploy que não passe por ele, nem uma migração revertida
+      // depois. Sondava `release_slots`, que a 0033 anterior também tinha — um
+      // banco com a versão velha passava. Agora compara a IMPRESSÃO DIGITAL das
+      // funções do teto com a que este código espera (segurança M2 de
+      // 7a65e93). Sem a função, todo pagamento devolve 500; com outra versão,
+      // os pagamentos passam e o expurgo e as guardas são os de antes. Pagina a
+      // cada quinze minutos enquanto for verdade.
+      // DUAS sondas antes de chamar de erro: uma falha passageira da PostgREST
+      // paginava "ninguém consegue pagar". E a DIVERGÊNCIA pagina uma vez por
+      // hora por valor, não a cada quinze minutos — noventa e seis páginas por
+      // dia no canal do canário de conciliação ensinam a silenciar o canal
+      // (#8). O ERRO não deduplica: pode ser "ninguém paga", e o banco que
+      // deduplicaria é o que falhou. (Segurança L-D e compliance LOW-D de 3a10835.)
+      let impressao = null; let erroDaSonda = null;
+      for (let tentativa = 0; tentativa < 2; tentativa += 1) {
+        try {
+          impressao = await store.slotsFingerprint(); erroDaSonda = null; break;
+        } catch (e) {
+          erroDaSonda = e;
+          if (tentativa === 0) await new Promise((ok) => setTimeout(ok, 1000));
+        }
+      }
+      if (impressao !== IMPRESSAO_0033) {
+        const detalhe = erroDaSonda
+          ? `erro: ${String(erroDaSonda && erroDaSonda.message).slice(0, 160)}`
+          : `impressão ${String(impressao).slice(0, 32)}, esperada ${IMPRESSAO_0033}`;
+        process.stderr.write(`[reconcile-pending] a 0033 em produção não é a deste código — ${detalhe}\n`);
+        let paginar = true; let vagaDoAviso = null;
+        if (!erroDaSonda) {
+          try {
+            const r = await store.claimSlots({ keys: [`alerta:impressao:${String(impressao).slice(0, 32)}`], limits: [1], windowMs: 60 * 60 * 1000 });
+            paginar = r.claimId !== null; vagaDoAviso = r.claimId;
+          } catch { paginar = true; }   // sem como deduplicar, pagina
+        }
+        if (paginar) {
+          const envio = await notifyFounderReconcile({
+            mensagem: erroDaSonda
+              ? `A SONDA DO TETO FALHOU DUAS VEZES em produção — se a migração 0033 não estiver aplicada, NINGUÉM CONSEGUE PAGAR: todo /api/pay, /api/pay/stripe-intent e /api/house/load devolve 500. Aplicar supabase/migrations/0033_charge_slots.sql com psql -f. ${detalhe}`
+              : `A 0033 EM PRODUÇÃO NÃO É A DESTE DEPLOY: as funções do teto instaladas diferem das que o código espera (${detalhe}). Os pagamentos passam, mas o expurgo e as guardas são os de outra versão. Reaplicar supabase/migrations/0033_charge_slots.sql pelo arquivo, com psql -f — o supabase db push pula uma versão já registrada, e esta migração foi editada no lugar; um editor que mexe em espaço em branco também muda a impressão. Este aviso se repete a cada hora enquanto for verdade.`,
+            venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+          });
+          // A PONTE FALHOU: a vaga da hora VOLTA, senão uma falha passageira da
+          // ponte atrasava a página em até uma hora — o `avisarTetoDisparado` já
+          // devolvia as dele, e os dois caminhos discordavam (segurança LOW-3 de
+          // 40d5c50).
+          if (envio && envio.ok === false && vagaDoAviso) {
+            try { await store.releaseSlots(vagaDoAviso); } catch { /* fica: a janela é de uma hora */ }
+          }
+        }
+      }
+      if (PLATAFORMA_QUEBRADA()) {
+        process.stderr.write(`[reconcile-pending] plataforma quebrada: ${motivoDaQuebra}\n`);
+        // UMA VEZ POR HORA, não a cada quinze minutos: noventa e seis páginas
+        // por dia no canal do canário ensinam a silenciar o canal (segurança
+        // LOW-2 de 3eea5f3). Sem como deduplicar, pagina.
+        let vagaDaConfig = null; let paginarConfig = true;
+        try {
+          const r = await store.claimSlots({ keys: ['alerta:config-producao'], limits: [1], windowMs: 60 * 60 * 1000 });
+          vagaDaConfig = r.claimId; paginarConfig = r.claimId !== null;
+        } catch { paginarConfig = true; }   // sem como deduplicar, pagina
+        if (paginarConfig) {
+          const envioDaConfig = await notifyFounderReconcile({
+            mensagem: `PLATAFORMA DE PAGAMENTO FORA (${motivoDaQuebra}): as rotas de pagamento estão recusando (503) em vez de cobrar. Configurar na Vercel e refazer o deploy.`,
+            venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
+          });
+          if (envioDaConfig && envioDaConfig.ok === false && vagaDaConfig) {
+            try { await store.releaseSlots(vagaDaConfig); } catch { /* fica a hora */ }
+          }
+        }
+        // E NÃO VARRE. Com o adaptador recusando, a varredura só produziria
+        // erro por cobrança — e o 503 pinta o cron de vermelho no painel da
+        // Vercel, que é um segundo sinal independente do aviso ao fundador
+        // (inegociável #8: canário vermelho pagina, não só registra).
+        return json(res, 503, { success: false, code: 'platform_misconfigured' });
       }
       // ?hours= amplia a janela pra uma varredura profunda manual (curar um
       // straggler antigo); sem ele, usa a janela padrão do reconciliador.
@@ -1795,19 +2887,23 @@ async function route(req, res) {
       // centavos, checkId/txid/accountId). Degradar aberta era divulgação
       // cross-tenant sem auth — achado ALTO das duas revisões.
       if (!process.env.CRON_SECRET) {
-        // Fechar por padrão criaria um canário DESLIGADO em silêncio — trocar um
-        // vazamento por um silêncio é o modo de falha #7 outra vez. Então o
-        // estado "não configurado" PAGINA (no máximo 1×/h por instância, senão
-        // a própria rota pública vira o megafone de quem quiser).
+        // FECHA, GRITA NO LOG, E NÃO MANDA NADA PRA FORA.
+        //
+        // A versão anterior PAGINAVA daqui, com um throttle de 1×/h — e este é,
+        // por definição, o ramo em que não há autenticação nenhuma: é o ramo do
+        // segredo ausente. O throttle era `let` de módulo numa função
+        // serverless, então todo cold start o zerava: N requisições
+        // concorrentes forçam N instâncias e rendem N avisos. Mais um `fetch`
+        // de 8s segurado por requisição. A rota pública virava o megafone que o
+        // comentário dizia estar impedindo, e o `podeEnviarAviso()` — que existe
+        // pra ser o dono deste invariante — é FALSO exatamente aqui e não era
+        // consultado. Achado pela revisão de segurança de 2026-09-14.
+        //
+        // O canário não sumiu, mudou de dono: quem sabe que a env não está
+        // setada é o DEPLOY (`scripts/deploy.mjs` lê as envs do projeto pela
+        // API da Vercel e falha alto), e isso não é acionável por ninguém de
+        // fora. As duas rotas de cron irmãs já faziam só isto aqui.
         process.stderr.write('[reconcile-cron] BLOQUEADO: CRON_SECRET não configurado — a conciliação diária NÃO está rodando\n');
-        if (Date.now() > avisoCronSecretAte) {
-          avisoCronSecretAte = Date.now() + 60 * 60 * 1000;
-          await notifyFounderReconcile({
-            mensagem: 'Conciliação diária BLOQUEADA: CRON_SECRET não está configurado na Vercel. '
-              + 'A varredura não roda até setar a env (e a rota ficaria pública sem ela).',
-            venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
-          });
-        }
         return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
       }
       if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
@@ -1986,15 +3082,14 @@ async function route(req, res) {
       // inteira sem índice, e devolvendo a contagem de sessões de cliente da
       // plataforma toda pra quem chamasse. Achado da revisão de segurança.
       if (!process.env.CRON_SECRET) {
+        // MESMA CORREÇÃO DA `/api/cron/reconcile`, e esta rota não estava no
+        // relatório: quem a achou foi o censo `nenhum ramo SEM autenticação
+        // manda nada pra fora`, escrito pra fechar a classe em vez do caso.
+        // O ramo é o do segredo AUSENTE — não há autenticação nenhuma nele —,
+        // o throttle é `let` de módulo numa função serverless (todo cold start
+        // zera), e o efeito é um `fetch` de 8s por requisição. Quem sabe que a
+        // env não está setada é o deploy, e é lá que o canário mora agora.
         process.stderr.write('[retencao] BLOQUEADO: CRON_SECRET não configurado — a retenção NÃO está rodando\n');
-        if (Date.now() > avisoRetencaoAte) {
-          avisoRetencaoAte = Date.now() + 60 * 60 * 1000;
-          await notifyFounderMoneyEvent({
-            kind: 'retention_blocked',
-            detail: 'Retenção BLOQUEADA: CRON_SECRET não está configurado. O aviso de privacidade promete '
-              + 'apagar o nome do cliente em 90 dias e o job que cumpre isso não roda.',
-          });
-        }
         return json(res, 503, { success: false, error: 'cron indisponível', code: 'cron_secret_missing' });
       }
       if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
@@ -2138,11 +3233,20 @@ async function route(req, res) {
     if (status >= 500) {
       process.stderr.write(`[500] ${url.pathname} ${String(err && err.message).slice(0, 300)}\n`);
     }
-    return json(res, status, errorBody(err, status));
+    // O `Retry-After` sai TAMBÉM daqui, e este é o caminho que importa: as duas
+    // rotas que de fato devolvem 429 — `/api/pay` e `/api/house/load` — não têm
+    // catch próprio e saem por este. A primeira versão do cabeçalho foi parar
+    // nos dois sítios que TÊM catch local, e num deles é código inalcançável
+    // (a rota de account-link nunca levanta erro com `windowMinutes`). O
+    // remédio pra "uma recusa que não diz por quanto tempo" estava vivo em zero
+    // dos dois caminhos que recusam. Achado pela revisão de segurança de
+    // 2026-09-15 (MEDIUM-4).
+    // A recusa e o aviso, na ordem que entrega os dois — ver `responderEAvisar`.
+    await responderEAvisar(() => json(res, status, errorBody(err, status), cabecalhoDeEspera(err)), err);
   }
 }
 
 // `registraMissDeCheck` e `clientIp` saem pro teste: a garantia que importa —
 // a resposta do 404 é SEMPRE a mesma, e o primeiro hop do XFF não é confiável —
 // é de COMPORTAMENTO, e censo de fonte não prova comportamento.
-module.exports = { route, store, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp };
+module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, psp, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp, carteiraLiberada };

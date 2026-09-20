@@ -438,3 +438,284 @@ describe('a testemunha AGREGADA: serviço cobrado que nunca chega', () => {
     expect(r.severity).toBe('high');
   });
 });
+
+test('a conta com sobra e serviço em mais de um pagamento ganha um AVISO', () => {
+  /**
+   * `sempreDevido` está todo atrás de `late`: duas pessoas pagando a conta
+   * inteira ANTES de ela fechar produzem sobra cujo SERVIÇO nunca vira devido, e
+   * o painel diz "a devolver R$ 100,00" quando são R$ 110,00. Deduzir o serviço
+   * do excedente tiraria da folha o serviço de quem só digitou um número maior
+   * no app do banco — por isso a regra não existe e existe o aviso (compliance
+   * MEDIUM-1 de 089e8a2; ver a decisão registrada).
+   */
+  const { reconcileCheck } = require('../_lib/checks/reconcile');
+  const ev = (type, payload) => ({ type, payload });
+  const duas = [
+    ev('OPENED', { totalCents: 10000 }),
+    ev('PAYMENT_CONFIRMED', { txid: 'ana', amountCents: 10000, tipCents: 1000, method: 'pix' }),
+    ev('PAYMENT_CONFIRMED', { txid: 'bruno', amountCents: 10000, tipCents: 1000, method: 'pix' }),
+  ];
+  const achados = reconcileCheck({ checkId: 'c1', events: duas, payments: [] }).findings;
+  const aviso = achados.find((f) => f.code === 'overpaid_tip_check');
+  expect(aviso).toBeTruthy();
+  expect(aviso.severity).toBe('info');
+  expect(achados.some((f) => f.code === 'overpaid_pending_restitution')).toBe(true);
+
+  // Um pagador só que digitou a mais NÃO ganha o aviso: ali o serviço foi dele.
+  const um = [
+    ev('OPENED', { totalCents: 10000 }),
+    ev('PAYMENT_CONFIRMED', { txid: 'ana', amountCents: 14000, tipCents: 1000, method: 'pix' }),
+  ];
+  expect(reconcileCheck({ checkId: 'c2', events: um, payments: [] }).findings
+    .some((f) => f.code === 'overpaid_tip_check')).toBe(false);
+});
+
+describe('a conta que voltou a cobrar', () => {
+  /**
+   * Uma mesa paga em cheio, a casa devolve SÓ O SERVIÇO pelo painel do
+   * adquirente, e a conta volta de `paga` pra `parcial`: o rateio do estorno
+   * abate `paidCents` e o `totalCents` não se mexe. O telefone de quem está na
+   * mesa passa a mostrar R$ 9,09 "faltando" e o botão de pagar, num QR que
+   * qualquer um daquela mesa recarrega — cobrança de dívida já quitada (CDC
+   * art. 42; repetição em dobro no parágrafo único se alguém pagar).
+   *
+   * Silencioso: as duas projeções concordam, porque as duas derivam do mesmo
+   * razão. Não existia detector nenhum (compliance HIGH-3/MEDIUM-3 da rodada
+   * dez), e o runbook avisava da mesma mecânica cem linhas acima, só pro estorno
+   * TOTAL.
+   */
+  const { reconcileCheck } = require('../_lib/checks/reconcile');
+  const ev = (type, payload) => ({ type, payload });
+  const quitada = [
+    ev('OPENED', { totalCents: 10000 }),
+    ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 1000, method: 'pix' }),
+  ];
+  // Os DOIS códigos: o simples e o do caso misto (com chargeback no meio), que
+  // tem frase própria porque carrega dois números.
+  // Os TRÊS códigos da família: o simples, o misto (com chargeback no meio) e o
+  // de chargeback puro — o estado DEPOIS do ajuste, em que não há mais nada a
+  // ajustar e a única ação verdadeira é fechar a conta.
+  const achado = (evs) => reconcileCheck({ checkId: 'c', events: evs, payments: [] })
+    .findings.filter((x) => /^reopened_by_(refund|chargeback)/.test(x.code));
+
+  test('quitada e reaberta por devolução: `high`, com o número que a mesa vê', () => {
+    const r = achado([...quitada, ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 })]);
+    expect(r.length).toBe(1);
+    // `high`: nada se perdeu, mas a operação não terminou — e o achado some
+    // quando alguém fecha ou ajusta.
+    expect(r[0].severity).toBe('high');
+    expect(r[0].deltaCents).toBe(909);
+    // O próximo passo tem que estar na mensagem: quem lê isto é quem vai ou não
+    // pedir o resto à mesa.
+    expect(r[0].message).toMatch(/não peça o resto à mesa/);
+  });
+
+  test('um ajuste para baixo é o remédio — e some do painel', () => {
+    // Não porque o achado ignore `ADJUSTED`: porque o ajuste devolve a conta
+    // pra `paga`, e é disso que o achado trata. Um ajuste que fechasse só parte
+    // da diferença continuaria acusando, e deve mesmo — a mesa continuaria
+    // vendo saldo.
+    expect(achado([...quitada,
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 }),
+      ev('ADJUSTED', { totalCents: 9091 })]).length).toBe(0);
+  });
+
+  test('um ajuste que fecha SÓ PARTE da diferença continua acusando', () => {
+    const r = achado([...quitada,
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91 }),
+      ev('ADJUSTED', { totalCents: 9500 })]);
+    expect(r.length).toBe(1);
+    expect(r[0].deltaCents).toBe(409);
+  });
+
+  /**
+   * A DEVOLUÇÃO INTEIRA é o caso MÁXIMO, e era o que o detector não via:
+   * `recompute` manda `paidCents === 0` pra `aberta`, não pra `parcial`, então
+   * ele gritava por R$ 9,09 e calava por R$ 110,00 — com `ok: true` e zero
+   * achados. É justamente o caso que o runbook já avisava em prosa há meses
+   * (segurança MEDIUM-1 da rodada onze).
+   */
+  test('a devolução INTEIRA também reabre — e é a que mais reabre', () => {
+    const r = achado([...quitada, ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 10000, tipCents: 1000 })]);
+    expect(r.length).toBe(1);
+    expect(r[0].deltaCents).toBe(10000);
+  });
+
+  /**
+   * O CASO MISTO: chargeback grande + devolução pequena na mesma conta.
+   *
+   * `houveEstorno` é um `some` — basta uma devolução do trilho pro achado
+   * nascer —, e o buraco pode ser majoritariamente chargeback. A frase manda
+   * "fechar ou ajustar para baixo, não peça o resto à mesa": aplicada sobre a
+   * parte disputada, é instruir a apagar dos livros um prejuízo real
+   * (compliance MEDIUM-B da rodada doze).
+   */
+  test('no caso MISTO, o achado carrega os DOIS números e usa a frase dos dois', () => {
+    const r = achado([
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 2000, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 10000, tipCents: 1000, disputeId: 'dp_1' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 1818, tipCents: 182 }),
+    ]);
+    expect(r.length).toBe(1);
+    /**
+     * `deltaCents` é o BURACO (11818) — é ele que a cadeia do painel imprime, e a
+     * frase diz "a mesa está vendo {amount} faltando". Pôr ali a parte devolvível
+     * fazia o painel afirmar que dois números diferentes eram o mesmo: o dono lia
+     * R$ 18,18, a mesa via R$ 118,18, ele ajustava pelo menor e quem sentasse ali
+     * pagava o resto — que a rede já tinha levado (CDC art. 42 § único;
+     * segurança HIGH-1 da rodada treze).
+     */
+    expect(r[0].deltaCents).toBe(11818);
+    // A parte devolvível tem nome próprio, e a frase do caso misto nomeia as duas.
+    expect(r[0].refundableCents).toBe(1818);
+    expect(r[0].code).toBe('reopened_by_refund_mixed');
+    expect(r[0].message).toMatch(/chargeback, que a casa perdeu mesmo/);
+  });
+
+  /**
+   * A DEVOLUÇÃO QUE O DONO FEZ NO CAIXA é devolução — e era a que sumia.
+   *
+   * A conta da parte disputada era `refundedAmount − refundedPeloTrilhoAmount`,
+   * e o acumulado do trilho exclui TRÊS coisas: disputa, disputa sem `dp_` e o
+   * `offRail`. A diferença carregava a devolução do dono junto, `porDevolucao`
+   * dava zero e o achado NÃO SAÍA — no caminho exato que o runbook manda o
+   * operador seguir quando o estorno falha (compliance HIGH-1 da rodada treze).
+   */
+  test('devolução do DONO no caixa também reabre — e o achado sai', () => {
+    const r = achado([...quitada, ev('PAYMENT_REFUNDED', {
+      txid: 'pi', amountCents: 909, tipCents: 91, offRail: true, reference: 'caixa', by: 'u-1',
+    })]);
+    expect(r.length).toBe(1);
+    expect(r[0].deltaCents).toBe(909);
+    // E a frase NÃO fala de chargeback: não houve nenhum.
+    expect(r[0].message).not.toMatch(/chargeback/);
+  });
+
+  /**
+   * O AJUSTE PARCIAL DEIXA O ACHADO DE PÉ — é a propriedade que o comentário do
+   * `reconcile.js` afirma vinte linhas acima do portão, e que uma guarda minha
+   * derrubava.
+   *
+   * `porDisputa` é fixo; o buraco encolhe a cada `ADJUSTED`. Com
+   * `porDevolucao > 0` no portão, o achado sumia no instante em que o dono fazia
+   * o que a própria frase manda ("ajuste o total para baixo na parte devolvida")
+   * — e o buraco do chargeback continuava na tela da mesa, com o botão de pagar
+   * ligado (CDC art. 42 § único; segurança HIGH-2 da rodada catorze).
+   */
+  test('depois do ajuste pela parte devolvida, o buraco do chargeback CONTINUA acusando', () => {
+    const base = [
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 11000, tipCents: 0, disputeId: 'dp_1' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2000, tipCents: 0 }),
+    ];
+    const antes = achado(base);
+    expect(antes.length).toBe(1);
+    expect(antes[0].deltaCents).toBe(13000);
+    expect(antes[0].refundableCents).toBe(2000);
+
+    // O dono faz exatamente o que a frase manda: ajusta na parte devolvida.
+    const depois = achado([...base, ev('ADJUSTED', { totalCents: 18000 })]);
+    expect(depois.length).toBe(1);
+    // Sobra o buraco do chargeback — e ele CONTINUA cobrável na tela da mesa.
+    expect(depois[0].deltaCents).toBe(11000);
+    // E não há mais nada a ajustar: a parte devolvível é zero, nunca negativa.
+    expect(depois[0].refundableCents).toBe(0);
+    /**
+     * E A FRASE MUDA. Com `refundableCents = 0`, a do caso misto diria "dos
+     * quais R$ 0,00 vieram de devolução — ajuste na parte devolvida": metade da
+     * instrução vira no-op, e repetir o gesto de ontem apagaria dos livros
+     * prejuízo real (compliance MEDIUM-3 da rodada quinze).
+     */
+    expect(depois[0].code).toBe('reopened_by_chargeback');
+    expect(depois[0].message).toMatch(/não há nada a ajustar/);
+    // E o art. 42 NÃO é citado aqui: nesta parcela a dívida não está quitada.
+    expect(depois[0].message).not.toMatch(/art\. 42/);
+  });
+
+  /**
+   * E PASSANDO DO LIMITE, a parte devolvível é ZERO — não negativa.
+   *
+   * O teste acima para exatamente no zero (`buraco === porDisputa`), então o
+   * `Math.max(0, …)` era um no-op em toda asserção da suíte: apagá-lo não
+   * quebrava nada. E o consumidor AMPLIFICA o negativo em vez de recusá-lo — o
+   * painel formatava `Math.abs(refundableCents)`, então −8000 virava
+   * "R$ 80,00 vieram de devolução" numa conta com buraco de R$ 30,00, e ajustar
+   * por esse número apagaria dos livros R$ 50,00 de prejuízo real
+   * (segurança MEDIUM-2 da rodada quinze).
+   */
+  test('ajuste ALÉM da parte devolvida não produz devolvível negativo', () => {
+    const r = achado([
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 11000, tipCents: 0, disputeId: 'dp_1' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2000, tipCents: 0 }),
+      // O dono ajustou 10000, muito além dos 2000 devolvidos.
+      ev('ADJUSTED', { totalCents: 10000 }),
+    ]);
+    expect(r.length).toBe(1);
+    expect(r[0].deltaCents).toBe(3000);
+    expect(r[0].refundableCents).toBe(0);
+  });
+
+  /**
+   * O CINTO CEGO: chargeback fechado sem `dp_`, marcado só pelo KIND. A cópia
+   * inline do predicado tinha esse ramo e nenhum teste o segurava — apagá-lo não
+   * quebrava nada, e sem ele a conciliação mandava dar baixa no prejuízo inteiro.
+   */
+  test('disputa marcada só pelo KIND também sai da parte devolvível', () => {
+    const r = achado([
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 20000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 11000, tipCents: 0, deDisputa: true }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 2000, tipCents: 0 }),
+    ]);
+    expect(r.length).toBe(1);
+    expect(r[0].code).toBe('reopened_by_refund_mixed');
+    expect(r[0].refundableCents).toBe(2000);
+  });
+
+  test('quitada sem devolução nenhuma não é achado', () => {
+    expect(achado(quitada).length).toBe(0);
+  });
+
+  /**
+   * CHARGEBACK NÃO É DEVOLUÇÃO. Numa disputa perdida a dívida não está quitada:
+   * a rede levou o dinheiro. A frase do achado manda "fechar ou ajustar para
+   * baixo, não peça o resto à mesa" — sobre um chargeback, isso é instruir a
+   * apagar dos livros um prejuízo real (compliance MEDIUM-2 da rodada onze).
+   */
+  test('chargeback não é devolução — a dívida não está quitada', () => {
+    expect(achado([...quitada,
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 909, tipCents: 91, disputeId: 'dp_1' })]).length).toBe(0);
+  });
+
+  /**
+   * O que ENTROU sai do REDUTOR, não da soma dos payloads: `divergent_appended`
+   * grava um SEGUNDO `PAYMENT_CONFIRMED` do mesmo txid de propósito, e somar
+   * payloads conta o pagamento duas vezes — fazendo o achado mandar NÃO COBRAR
+   * metade de uma conta que a mesa realmente deve.
+   */
+  test('a reapresentação divergente não faz a conta parecer quitada', () => {
+    const r = achado([
+      ev('OPENED', { totalCents: 20000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 10000, tipCents: 0, method: 'pix' }),
+      // O MESMO txid de novo, com OUTRO valor — o caminho `divergent_appended`,
+      // que grava um segundo `PAYMENT_CONFIRMED` de propósito. Com o mesmo
+      // valor o redutor curto-circuita como reentrega limpa e este teste
+      // cobriria outro caminho que não o que o comentário promete.
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 12000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 100, tipCents: 0 }),
+    ]);
+    expect(r.length).toBe(0);
+  });
+
+  test('conta que NUNCA foi quitada não é achado — falta é falta', () => {
+    expect(achado([
+      ev('OPENED', { totalCents: 10000 }),
+      ev('PAYMENT_CONFIRMED', { txid: 'pi', amountCents: 5000, tipCents: 0, method: 'pix' }),
+      ev('PAYMENT_REFUNDED', { txid: 'pi', amountCents: 100, tipCents: 0 }),
+    ]).length).toBe(0);
+  });
+});
