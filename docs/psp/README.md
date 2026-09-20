@@ -30,7 +30,8 @@ Pagar.me: MDR não-negociável acima do mercado quando houver volume.
   real (orders v5): Pix com BR Code, cartão/Google Pay via `card_token`,
   split integral pro `rp_` do venue, gorjeta em `metadata.tip_cents`,
   **webhook verify-by-refetch** (o corpo do POST nunca é a verdade — a
-  cobrança é re-buscada na API) + Basic Auth opcional do endpoint.
+  cobrança é re-buscada na API) + Basic Auth **obrigatória** do endpoint —
+  sem `PAGARME_WEBHOOK_AUTH` o adaptador recusa TODO webhook com 401.
 - Seleção por env no router: `RACHA_PSP=pagarme` liga o adapter;
   qualquer outro valor (ou ausência) mantém o mock — demo e testes intactos.
 - Bateria de testes do adapter em `api/__tests__/pagarme-psp.test.js`.
@@ -91,7 +92,7 @@ Pagar.me: MDR não-negociável acima do mercado quando houver volume.
 | Perna | Status |
 |---|---|
 | Cartão aprovado → webhook → ledger (+gorjeta separada) | ✅ `ch_nP9yAPKpF2FKEJM1`: pago 6000→6500, tip 100 |
-| Cartão recusado (CVV 6xx) → 402, ledger intacto | ✅ |
+| Cartão recusado (número `…0028` + CVV 6xx) → 402 `card_declined`, ledger intacto | ⚠️ reconferir |
 | Estorno via dashboard → `charge.refunded` → ledger | ✅ `ch_nP9y…`: 500+100 de gorjeta devolvidos, pago 6500→6000, 0 anomalias |
 | Pix → auto-pago (simulador) → webhook → ledger | ✅ `ch_O4W0…`: pago 6000→6700 (+700, gorjeta 70 separada) |
 | Split / recebedor | ✅ **VERIFICADO 21/07** — suporte liberou o sandbox; `split-acceptance.mjs` verde ponta a ponta: recebedor `re_cmrv0ll6r…` criado `active`, cobrança dividida `ch_xeEOGg…` aceita, Pix pago (R$200 + gorjeta R$20 separada) confirmado no ledger. **Dois aprendizados de campo**: (1) recebedor exige `email`; (2) **o id do recebedor vem com prefixo `re_`, não `rp_`** — o adapter assumia `rp_` e rejeitava a resposta VÁLIDA (fix: aceita `/^r[ep]_/`). Saldo do recebedor ficou R$0 logo após (simulador não credita balance na hora — em live o `split-smoke-live.mjs` confirma o repasse real). |
@@ -113,7 +114,12 @@ obrigatórios (`docs.pagar.me/reference/pix-2`, conferido 2026-09-07), então o
 checkout pede CPF pra Pix também e isso NÃO é coleta excessiva; era o que a
 frase antiga ("checkout de cartão pede CPF") dava a entender —, telefone e
 billing_address do customer; dedup de customer por e-mail (e-mail único por
-cobrança); simulador decide recusa pelo **CVV 6xx**, não pelo número.
+cobrança); há DOIS simuladores e eles decidem DIFERENTE — o *Simulador de
+Cartão de Crédito* pelo **número** (`…0010` aprova, `…0028` recusa; não
+documenta regra de CVV) e o *Simulador PSP* pelo **CVV começando em 6**. Por
+isso o aceite manda número que recusa E CVV que recusa, pra valer nos dois.
+(Esta linha já dizia "o CVV, não o número" — e com ela a perna de recusa usava
+o cartão de SUCESSO: numa conta no simulador por número, ela CAPTURAVA.)
 Pedido de suporte único: *"habilitar Pix e Split de pagamentos na conta
 acc_d4zGpnxtxyFp2DyV (test mode; marketplace de pagamento na mesa com
 repasse a restaurantes)"*. Cobranças de teste órfãs (retries de webhook dos

@@ -792,14 +792,20 @@ export const DICT = {
    * em português, vem de terceiro, e quem está lendo a tela escolheu um idioma.
    */
   /**
-   * O GATEWAY recusou o pedido — e não um emissor recusando cartão. Quem está
-   * na mesa não tem o que fazer sobre um recebedor desativado ou uma chave
-   * rotacionada, então a saída honesta é o outro trilho e o balcão.
+   * O GATEWAY recusou o PEDIDO — não é emissor recusando cartão, e não é coisa
+   * que quem está na mesa resolva: recebedor desativado, chave rotacionada,
+   * esquema recusado. A saída honesta é o CAIXA, e não "fale com o balcão":
+   * pela precondição 1 do `o-que-oito-rodadas-deixaram-aberto.md`, o balcão
+   * ainda não tem onde olhar.
+   *
+   * E a frase não nomeia trilho: ela sai do `api()` compartilhado, por onde o
+   * `createPixCharge` passa — "tente o Pix" chegou a aparecer NA tela do Pix, e
+   * em espanhol, onde o mercado nem tem Pix.
    */
   'err.psp_rejected': {
-    en: 'The payment could not be created. Nothing was charged — please ask the staff.',
-    pt: 'Não deu pra criar o pagamento. Nada foi cobrado — fale com o balcão.',
-    es: 'No se pudo crear el pago. No se cobró nada — habla con el personal.',
+    en: 'Payments are unavailable at this restaurant right now. Nothing was charged — you can pay at the till.',
+    pt: 'Os pagamentos estão indisponíveis neste restaurante agora. Nada foi cobrado — você pode pagar no caixa.',
+    es: 'Los pagos no están disponibles en este restaurante ahora. No se cobró nada — puedes pagar en la caja.',
   },
   /**
    * A recusa é NOSSA (formato do token), não do emissor — e a diferença

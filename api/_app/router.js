@@ -1328,6 +1328,16 @@ async function route(req, res) {
         // emparelhamento. Ver `assertChargeSlot`.
         devolverVaga = await assertChargeSlot(store, view.check.id, geracaoDoQr(b.token));
         const chargeRef = `${view.check.id}:${state.paidCents}:${amountCents}:${tipCents}`;
+        /**
+         * A GUARDA ANTES DA VAGA, como o `create-charge` faz.
+         *
+         * `pspChamado = true` vinha ANTES de `comContratoDeCaptura` poder
+         * recusar, e o `finally` só devolve a vaga quando `!pspChamado` — então
+         * um adaptador mal configurado queimava uma vaga pendente por tentativa
+         * até a mesa bater em `too_many_pending_charges`, sem nunca ter falado
+         * com a Stripe. Décima revisão de segurança (2026-09-20, MEDIUM-3).
+         */
+        if (rail !== 'bizum') comContratoDeCaptura(stripePsp);
         // Daqui em diante a Stripe pode ter criado um intent: a vaga fica.
         pspChamado = true;
         const charge = rail === 'bizum'
@@ -1383,7 +1393,13 @@ async function route(req, res) {
            * segurava o literal no lugar: trocar por esta linha o deixava
            * vermelho. Nona revisão de segurança (2026-09-19, MEDIUM-1).
            */
-          capturou: stripePsp.walletCaptures,
+          // POR CHAMADA, como o irmão no `create-charge`: o `walletCaptures`
+          // é contrato da CARTEIRA, e no trilho bizum ele era lido assim mesmo
+          // — um adaptador que não o declarasse dava `undefined` → falsy →
+          // `charge_not_started` em vez do `platform_misconfigured` que a
+          // guarda existe pra produzir. A guarda não dispara no caminho em que
+          // ela não está (décima revisão de segurança, 2026-09-20, MEDIUM-3).
+          capturou: rail === 'bizum' ? false : comContratoDeCaptura(stripePsp).walletCaptures,
           txid: charge.txid, alvo: `check=${view.check.id}`, rail,
         });
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
@@ -1483,7 +1499,12 @@ async function route(req, res) {
     // ⚠️ Ao ligar em prod: garantir corpo CRU (Vercel bodyParser off nesta rota)
     // — o Stripe assina os bytes; um req.body re-serializado quebra a assinatura.
     if (req.method === 'POST' && url.pathname === '/api/webhooks/stripe') {
-      if (!stripePsp) return json(res, 503, { success: false, error: 'stripe não configurado' });
+      // Sem frase: esta rota é o webhook, sem autenticação por construção. Um POST
+      // vazio dizia a qualquer um qual adquirente usamos e que ele está
+      // desconfigurado aqui — ou seja, que o mercado espanhol existe e está
+      // desligado. Era o quinto sítio da mesma condição; os outros quatro já
+      // tinham sido consertados (décima revisão de segurança, MEDIUM-4).
+      if (!stripePsp) return json(res, 503, { success: false, code: 'platform_misconfigured' });
       const raw = await readBody(req);
       process.stderr.write(`[stripe-webhook] in bytes=${raw.length} sig=${req.headers['stripe-signature'] ? 'sim' : 'não'}\n`);
       let result;

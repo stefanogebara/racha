@@ -1,14 +1,14 @@
-# O que nove rodadas de revisão deixaram aberto, e o que reabre cada coisa
+# O que dez rodadas de revisão deixaram aberto, e o que reabre cada coisa
 
 **Decisão:** estes achados são reais, foram medidos, e nenhum deles bloqueia o
-merge. Ficam aqui com o gatilho que os reabre, porque um achado que vive só em
+merge — mas **três bloqueiam o go-live**, e estão nomeados logo abaixo. Ficam aqui com o gatilho que os reabre, porque um achado que vive só em
 thread de revisão é a "guarda que depende de alguém lembrar" que este
 repositório já pagou pra aprender quatro vezes.
 
 ## Por que existe esta página
 
 Entre 16 e 19 de setembro de 2026 o portão de revisão (fintech-compliance +
-security-reviewer) rodou nove vezes sobre o mesmo branch. **Todas as oito
+security-reviewer) rodou dez vezes sobre o mesmo branch. **Todas as nove
 rodadas depois da primeira acharam defeito real no conserto da rodada
 anterior** — três CRITICAL, e a maioria em código escrito durante a própria
 sequência de consertos.
@@ -37,6 +37,31 @@ apagados em `a3178da` depois que uma revisão plantou o mutante que mantinha o
 literal intacto e reintroduzia o defeito com 2.498 testes verdes (a suíte daquele momento).
 
 ---
+
+## Precondições pro primeiro `sk_live_` — NÃO só pra carteira
+
+Esta lista existe porque a de baixo não cobria o caso. O `psp_rejected` é
+emitido pelo `api()` COMPARTILHADO, por onde o `createPixCharge` passa: ele vale
+pro trilho principal, no ar, sem passar por `RACHA_WALLET_VENUES`.
+
+1. **Uma chave revogada não paga ninguém.** Todo 4xx do gateway vira 402 pro
+   cliente. Com a `sk_live_` rotacionada, 100% das cobranças falham em TODAS as
+   casas, cada pessoa na mesa lê que ELA foi recusada — e nada acorda ninguém: a
+   rota só loga a partir de 500, o `service_never_collected` exige 8 pagamentos
+   confirmados (uma queda total produz zero), e a conciliação compara dois
+   registros que concordam que nada aconteceu. O aviso diário diz "restaurantes
+   ok". É o inegociável #8 pelo caminho da cobrança em vez do da conciliação.
+   **O que falta:** contar 4xx consecutivos do adquirente por casa e mandar pro
+   aviso do fundador. Achado na nona rodada, deixado de fora da nona de
+   propósito, nomeado aqui na décima.
+2. **`PAGARME_WEBHOOK_AUTH` não é conferida no boot.** O adaptador recusa cada
+   webhook sem ela — certo — mas a consequência (a Pagar.me reentrega, desiste e
+   DESABILITA o endpoint, e a confirmação de Pix morre) só existe em prosa. O
+   `preflight-live.mjs` e o `config-producao.test.js` já falham fechado em
+   `RACHA_STORE`/`RACHA_PSP` e não olham esta.
+3. **Fixar as actions por SHA** antes de o workflow ganhar qualquer segredo, e
+   marcar `api` e `web` como checks obrigatórios na proteção de branch — sem
+   isso o `ci.yml` informa, não impede.
 
 ## Precondições pra ligar a carteira na primeira casa
 
@@ -157,6 +182,19 @@ defeito e sim sobre a forma de errar:
   `_lib/house` e `_app/router.js`. O risco de deixar como está não é o texto:
   é o nome do censo fazer o próximo leitor acreditar que a classe está fechada.
 
+### O dublê ainda não erra como a produção erra
+
+- **O `pgConstraint` do store de memória passa pelo extrator, mas nunca falha
+  nele.** `nomeDaRestricao(mensagemDeUnicidade(x))` é a identidade nesse input:
+  o dublê sempre devolve o nome, nunca `null`. O que o conserto de `23f2d70`
+  comprou foi o censo que impede um sítio novo de escrever o nome à mão — não a
+  cobertura do ramo de falha, que `pg-erro.test.js` já tinha (o caso em
+  espanhol). A minha mensagem de commit afirmou o contrário.
+  **Gatilho:** dar ao dublê um botão de locale
+  (`createMemoryStore({ lcMessages: 'es' })`) e dirigir a rota de devolução fora
+  do trilho com ele, pra que o caminho de `podeSerReentrega` seja exercitado por
+  um `pgConstraint: null` de verdade.
+
 ### Contratos que degradam abertos
 
 - **`nossa` tem padrão `null`.** Um quarto chamador de `gravarAposCobrar` que
@@ -213,9 +251,14 @@ o que fazia toda chamada com template parecer sem código — acusando o inocent
 
 ## Fora do caminho do dinheiro, da auditoria de 19/09
 
-- **Não existe CI.** É o achado de maior alavancagem do repositório inteiro:
-  27 mil linhas de teste e 2.443 casos que só protegem quem lembra de rodá-los.
-  Um workflow de ~30 linhas converte toda essa disciplina em garantia.
+- **O CI existe desde `23f2d70`** — e a primeira revisão dele achou duas coisas
+  que só o CI acharia: ele fixava o Node 20, em que o `createClient` do Supabase
+  nem inicializa (`engines` do pacote pedia `>=22`, e o nosso declarava `>=20`,
+  ou seja, a produção declarava um runtime em que o app morre); e saía VERDE com
+  quatro classes de teste pulando, entre elas a única que confere o inegociável
+  #7 contra um Postgres real. Hoje ele instala Postgres, põe `RACHA_EXIGE_PG=1`
+  e nomeia os arquivos que não podem pular. **O que falta:** a proteção de
+  branch exigir os checks.
 - **`producao-estrutural.test.js` falha de forma intermitente** na suíte
   completa e passa isolado. Uma caçada de 14 execuções não reproduziu; a
   investigação pareada não achou contaminação de env. Não está diagnosticado.

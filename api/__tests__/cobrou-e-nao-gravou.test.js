@@ -782,7 +782,10 @@ describe('o trilho da Stripe passa pelo MESMO portão (MEDIUM)', () => {
      * vermelho. Um guarda que impede a correção é pior que nenhum. Nona revisão
      * de segurança (2026-09-19, MEDIUM-1).
      */
-    expect(trecho).toMatch(/capturou:\s*stripePsp\.walletCaptures/);
+    // Por CHAMADA: o `walletCaptures` é contrato da carteira, e no trilho bizum
+    // ele era lido assim mesmo — um adaptador sem a declaração dava `undefined`
+    // → `charge_not_started` em vez de `platform_misconfigured`.
+    expect(trecho).toMatch(/capturou:\s*rail === 'bizum'\s*\?\s*false\s*:\s*comContratoDeCaptura\(stripePsp\)\.walletCaptures/);
     // E o adaptador declara `false` porque é verdade: o `createWalletCharge` da
     // Stripe devolve `clientSecret` pro front confirmar, ao contrário do
     // homônimo da Pagar.me, que captura dentro da chamada.

@@ -262,7 +262,27 @@ function createPagarmePsp({
       e.code = 'psp_unavailable';
       throw e;
     }
-    const text = await res.text();
+    /**
+     * A LEITURA DO CORPO TAMBÉM PODE ABORTAR.
+     *
+     * O `AbortSignal.timeout(15 s)` é armado antes da requisição e continua
+     * armado enquanto o corpo transmite. Com `res.text()` fora do try, um
+     * abort ou reset no meio da leitura rejeitava com DOMException crua — sem
+     * `statusCode`, sem `code` — e virava `internal` → "algo deu errado, tente
+     * de novo". No Pix isso era o caminho medido; na carteira só não era pior
+     * porque o catch externo pegava por acaso. Décima revisão de segurança
+     * (2026-09-20, MEDIUM-2).
+     */
+    let text;
+    try {
+      text = await res.text();
+    } catch (leituraFalhou) {
+      const e = new Error(`pagarme ${method} ${path}: corpo interrompido (${leituraFalhou.name})`);
+      e.statusCode = 502;
+      e.httpStatus = 0;
+      e.code = 'psp_unavailable';
+      throw e;
+    }
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = null; }
     if (!res.ok) {
@@ -442,10 +462,35 @@ function createPagarmePsp({
        * Quem sabe que havia captura em voo é só quem a iniciou, então a
        * decisão mora aqui e não no `api()` genérico.
        */
+      /**
+       * O CORPO É MONTADO FORA DO `try`, e isto não é arrumação.
+       *
+       * `baseOrder` lança em três lugares que nada têm a ver com captura em
+       * voo: a recusa de custódia (recebedor ausente), o `assertCents` e o
+       * `zero-value charge`. Dentro do `try`, os três viravam
+       * `charge_maybe_captured` — ou seja, a tela dizia "seu cartão pode já ter
+       * sido cobrado, não pague de novo" e travava o botão para um pedido que
+       * NUNCA SAIU deste processo. Afirmação falsa sobre uma cobrança, na tela
+       * exata em que a pessoa decide se paga de novo (CDC art. 6º III) — e do
+       * outro lado, o `psp-acceptance` mandava o operador pro runbook de
+       * dinheiro sumido caçar dinheiro que não existe.
+       *
+       * O caminho é alcançável: a rota do dinheiro só confere se o recebedor é
+       * truthy; o formato `^r[ep]_` só é conferido na vitrine. Uma casa
+       * liberada com `psp_recipient_id` legado ou colado à mão no Studio — que
+       * é o que o README manda fazer — transformava todo toque de carteira num
+       * falso "pode ter cobrado". Achado pela décima revisão de compliance
+       * (2026-09-20, HIGH-1), dentro do conserto da nona.
+       *
+       * O `try` fica só em volta do que pode capturar: a ida ao adquirente.
+       */
+      const corpoDoPedido = baseOrder({
+        chargeRef, amountCents, tipCents, recipientId, description: `Racha ${wallet}`, payerDocument,
+      });
       let order;
       try {
         order = await api('POST', '/orders', {
-        ...baseOrder({ chargeRef, amountCents, tipCents, recipientId, description: `Racha ${wallet}`, payerDocument }),
+        ...corpoDoPedido,
         payments: [{
           payment_method: 'credit_card',
           credit_card: {
@@ -474,7 +519,10 @@ function createPagarmePsp({
       } catch (falha) {
         // 5xx e rede/timeout: desfecho DESCONHECIDO sobre uma captura em voo.
         // O 4xx já tem `psp_rejected` e quer dizer que o pedido nem foi aceito.
-        if (!falha || falha.statusCode !== 402) {
+        // `falha &&`, não `!falha ||`: com um throw de `null` o ramo entrava e
+        // `falha.statusCode = 502` lançava TypeError por cima (décima revisão
+        // de segurança, 2026-09-20).
+        if (falha && falha.statusCode !== 402) {
           falha.statusCode = 502;
           falha.code = 'charge_maybe_captured';
         }

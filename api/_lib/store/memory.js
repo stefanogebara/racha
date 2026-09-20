@@ -936,8 +936,19 @@ function createMemoryStore() {
          * pelo mesmo motivo: duas decisões de dinheiro vivas hoje — a posse da
          * linha na primeira ida e o `linhaJaGravada` — dependem de um `23505`
          * que só este dublê e o MockPsp produzem. Ou seja, o dublê virou o
-         * ÚNICO executor delas, e um dublê que não erra como a produção erra
-         * prova o dublê.
+         * ÚNICO executor delas.
+         *
+         * SEJA HONESTO SOBRE O QUE ISTO COMPRA, porque eu já exagerei uma vez:
+         * `nomeDaRestricao(mensagemDeUnicidade(x))` é a IDENTIDADE nesse input,
+         * então o dublê continua sempre devolvendo o nome e nunca `null` — ele
+         * não passou a errar como a produção erra, só passou a usar o extrator.
+         * E o ramo de falha do extrator já tinha teste (`pg-erro.test.js`, o
+         * caso em espanhol); a minha mensagem de commit dizia que não tinha.
+         *
+         * O que o censo irmão compra de verdade é impedir que um sítio NOVO
+         * volte a escrever o nome à mão. O que ainda falta é um dublê com botão
+         * de locale, que devolva `pgConstraint: null` e force o caminho de
+         * `podeSerReentrega` — está no `o-que-dez-rodadas...md`.
          */
         throw Object.assign(
           new Error(`memory store registerCharge: ${mensagemDeUnicidade('payments_txid_key')}`),

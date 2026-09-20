@@ -6,22 +6,33 @@
 # olhando — e disciplina que depende de alguém lembrar é exatamente o que o
 # CLAUDE.md deste repositório manda desconfiar.
 #
+# UM ARQUIVO DE WORKFLOW NÃO É UM PORTÃO até a proteção de branch exigir
+# estes checks pelo nome. Enquanto isso ele informa, não impede — e o título
+# acima seria uma promessa vazia se esta linha não estivesse aqui.
+#
 # Nada aqui precisa de segredo: a suíte roda contra o store de memória e o
 # MockPsp. Se algum dia precisar de um, ele NÃO entra neste arquivo sem passar
 # pelos dois revisores — um workflow com credencial de produção é uma rota de
 # dinheiro nova.
 name: CI
 
+# Só `pull_request` pro que tem PR aberto, e `push` pros branches que ainda
+# não têm: com os dois em todo branch, cada PR do próprio repositório rodava
+# duas vezes, e o `concurrency` não cancelava um pelo outro porque o `ref` das
+# duas é diferente.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
 
 # Um push novo no mesmo branch cancela o anterior: ninguém lê o resultado de um
 # commit que já foi substituído, e a fila fica honesta.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Em `main` NÃO cancela: dois pushes seguidos deixariam o primeiro commit sem
+  # verificação nenhuma. Nos outros branches cancelar é o certo — ninguém lê o
+  # resultado de um commit já substituído.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -32,23 +43,93 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # `persist-credentials: false`: o padrão deixa o token no `.git/config`,
+      # legível por qualquer código de teste que este job executa.
       - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+
+      # POSTGRES DE VERDADE. Sem ele, `sql-teto-vivo.test.js` se auto-pula — e
+      # ele é o ÚNICO lugar onde o inegociável #7 (claim condicional em SQL, o
+      # 42703 do incidente Seatable) é conferido contra um planejador real. O
+      # próprio arquivo já tinha o gancho escrito, com o comentário dizendo "o
+      # que um CI teria de setar", e o workflow não o setava: o escape hatch
+      # existia e nunca era usado (décima revisão de segurança, HIGH-2).
+      - name: Postgres para o teto atômico
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql
+          echo "/usr/lib/postgresql/$(ls /usr/lib/postgresql | sort -V | tail -1)/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'          # o `engines` do repositório
+          # 22, e NÃO o `>=20` do `engines`: o teste do web é
+          # `node --test test/*.test.ts` sobre TypeScript de verdade, que
+          # depende do type-stripping nativo (Node >= 22.6). Os dois arquivos
+          # que esse comando roda dizem isso em comentário, e as deps do
+          # Supabase declaram `engines.node >= 22`. Com 20 o job web inteiro
+          # ficava vermelho por motivo de ambiente — e um check obrigatório
+          # vermelho por ambiente é o jeito mais rápido de ensinar a equipe a
+          # contorná-lo. Conferi a suíte localmente no Node 26 e li isto como
+          # "verificado": medi os comandos e não o ambiente (décima revisão de
+          # compliance, 2026-09-20, HIGH-2).
+          node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
 
-      # AS DUAS METADES RODAM SEPARADAS, de propósito.
+      # AS DUAS METADES RODAM SEPARADAS porque a de mutação come memória e,
+      # junto com o resto, derruba o runner. O `--runInBand` dela é por isso, e
+      # não por gosto.
       #
-      # `mutacoes-afirmacao` compila Swift e come memória; junto com o resto ele
-      # derruba o runner. E o `--runInBand` dele não é gosto: a suíte inteira em
-      # banda seria lenta à toa.
+      # ATENÇÃO ao que ela NÃO prova aqui: as provas que compilam Swift se
+      # auto-pulam sem `swiftc`, e `ubuntu-latest` não tem. Em CI esta etapa
+      # cobre só as provas de JS. A metade Swift continua sendo responsabilidade
+      # de quem roda num Mac — está escrito aqui pra ninguém ler o verde como
+      # mais do que ele é (décima revisão de compliance, 2026-09-20, M2).
+      # A lista de ignorados é ESCRITA POR INTEIRO: o `--testPathIgnorePatterns`
+      # da CLI substitui a do `jest.config.js`, não soma. Sem repetir
+      # `/apps/` e `/ios/` aqui, o CI rodava um conjunto diferente do local.
       - name: Suíte
-        run: npx jest api/__tests__ --maxWorkers=2 --testPathIgnorePatterns mutacoes-afirmacao
+        env:
+          # PULAR É DEGRADAR ABERTO. Aqui a ausência de Postgres é FALHA.
+          RACHA_EXIGE_PG: '1'
+        run: >
+          npx jest --maxWorkers=2
+          --testPathIgnorePatterns /node_modules/ /apps/ /ios/ mutacoes-afirmacao
+          --json --outputFile=/tmp/jest.json
 
-      - name: Provas de mutação
-        run: npx jest api/__tests__/mutacoes-afirmacao.test.js --runInBand
+      # O QUE NÃO PODE PULAR, POR NOME.
+      #
+      # O job saía verde enquanto quatro classes de teste não rodavam. Com o
+      # Postgres acima e o `RACHA_EXIGE_PG=1`, a mais importante delas passou a
+      # falhar em vez de sumir — mas a lição da rodada foi outra: eu quase
+      # cravei aqui um NÚMERO de pulados medido na minha máquina, que tem
+      # `swiftc` e Postgres, para um runner que não tem `swiftc`. Seria o mesmo
+      # erro do `node-version: 20` — afirmar sobre um ambiente a partir de
+      # outro.
+      #
+      # Então isto não conta: nomeia. Os arquivos abaixo TÊM que ter rodado
+      # teste de verdade aqui, e o resto dos pulados vai pro resumo do job pra
+      # ser lido, não adivinhado.
+      - name: Os testes que não podem pular
+        run: |
+          node -e '
+            const r = require("/tmp/jest.json");
+            const OBRIGATORIOS = ["sql-teto-vivo", "producao-estrutural", "prazo-do-banco"];
+            const faltando = OBRIGATORIOS.filter((nome) => {
+              const s = r.testResults.find((t) => t.name.includes(nome));
+              return !s || s.assertionResults.every((a) => a.status === "pending");
+            });
+            const pulados = r.testResults.flatMap((t) =>
+              t.assertionResults.filter((a) => a.status === "pending").map((a) => `${t.name.split("/").pop()} › ${a.title}`));
+            const fs = require("node:fs");
+            if (process.env.GITHUB_STEP_SUMMARY) {
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+                `## Pulados (${pulados.length})\n\n` + pulados.map((p) => `- ${p}`).join("\n") + "\n");
+            }
+            if (faltando.length) {
+              console.error("estes tinham que ter rodado e não rodaram: " + faltando.join(", "));
+              process.exit(1);
+            }
+            console.log(`obrigatórios ok; ${pulados.length} pulado(s), listados no resumo`);
+          '
 
   web:
     name: Web (lint, tsc, build, node:test)
@@ -58,7 +139,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm --prefix apps/web ci --ignore-scripts
@@ -80,8 +161,14 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with: { persist-credentials: false }
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - run: npm audit --audit-level=high || true
-      - run: npm --prefix apps/web audit --audit-level=high || true
+          node-version: '22'
+      # Vai pro RESUMO do job, não só pro log: um relatório que só existe dentro
+      # dos logs de um job verde não é lido por ninguém.
+      - run: |
+          { echo '## npm audit'; echo '```'; \
+            npm audit --audit-level=high 2>&1 || true; \
+            npm --prefix apps/web audit --audit-level=high 2>&1 || true; \
+            echo '```'; } >> "$GITHUB_STEP_SUMMARY"

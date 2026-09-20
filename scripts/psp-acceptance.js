@@ -70,8 +70,10 @@ async function pollPaidDelta(beforePaid, timeoutMs = 90000) {
 
 /**
  * Tokeniza um cartão de TESTE no endpoint público (só pk — browser-safe).
- * Simulador do Pagar.me decide o resultado pelo CVV: começar com 6 = recusa
- * pelo emissor; qualquer outro aprova (docs: Simulador de Cartão de Crédito).
+ * O CVV começando em 6 recusa no *Simulador PSP* — e NÃO no *Simulador de
+ * Cartão de Crédito*, que decide pelo número e não documenta regra de CVV.
+ * Esta linha atribuía a regra à página errada, no mesmo arquivo em que a outra
+ * ponta já tinha sido corrigida (décima revisão, 2026-09-20).
  */
 async function tokenizeTestCard(number, cvv = '123') {
   const r = await j('POST', `https://api.pagar.me/core/v5/tokens?appId=${PK}`, {

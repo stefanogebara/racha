@@ -32,20 +32,27 @@
  * Então `comEnv` também APAGA o que não quer que o bootstrap encontre. Achado
  * pela nona revisão de segurança (2026-09-19, LOW-1).
  */
-const NEUTRALIZAR = {
-  RACHA_STORE: undefined,
-  SUPABASE_URL: undefined,
-  SUPABASE_SERVICE_ROLE_KEY: undefined,
-  PAGARME_SECRET_KEY: undefined,
-  PAGARME_WEBHOOK_AUTH: undefined,
-  STRIPE_SECRET_KEY: undefined,
-};
+/**
+ * O QUE O TESTE NÃO PEDIU, ELE NÃO TEM.
+ *
+ * A primeira versão listava o que APAGAR — e perdeu pro nome que não carregava:
+ * `AUTH_SUPABASE_URL`/`AUTH_SUPABASE_KEY`, que o roteador PREFERE sobre os
+ * `SUPABASE_*`. Quem tivesse a configuração de auth separada seguia construindo
+ * um cliente de verdade sete vezes. Lista de exclusão perde pro nome que ela
+ * não conhece — a mesma lição de três achados desta sequência (décima revisão
+ * de segurança, 2026-09-20, LOW-2).
+ *
+ * Agora o ambiente é RECONSTRUÍDO: só o que o teste pede, mais o mínimo que o
+ * Node precisa pra existir.
+ */
+const MINIMO = ['PATH', 'HOME', 'TMPDIR', 'NODE_ENV', 'JEST_WORKER_ID', 'CI'];
 
 function comEnv(pedidas, f) {
-  const vars = { ...NEUTRALIZAR, ...pedidas };
-  const antes = {};
-  for (const [k, v] of Object.entries(vars)) {
-    antes[k] = process.env[k];
+  const antes = { ...process.env };
+  for (const k of Object.keys(process.env)) {
+    if (!MINIMO.includes(k)) delete process.env[k];
+  }
+  for (const [k, v] of Object.entries(pedidas)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
@@ -54,10 +61,8 @@ function comEnv(pedidas, f) {
     jest.isolateModules(() => { saida = f(); });
     return saida;
   } finally {
-    for (const [k, v] of Object.entries(antes)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
+    for (const k of Object.keys(process.env)) delete process.env[k];
+    Object.assign(process.env, antes);
   }
 }
 
