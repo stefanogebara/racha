@@ -59,9 +59,20 @@ pro trilho principal, no ar, sem passar por `RACHA_WALLET_VENUES`.
    DESABILITA o endpoint, e a confirmação de Pix morre) só existe em prosa. O
    `preflight-live.mjs` e o `config-producao.test.js` já falham fechado em
    `RACHA_STORE`/`RACHA_PSP` e não olham esta.
-3. **Fixar as actions por SHA** antes de o workflow ganhar qualquer segredo, e
-   marcar `api` e `web` como checks obrigatórios na proteção de branch — sem
-   isso o `ci.yml` informa, não impede.
+3. **Fixar as actions por SHA** antes de o workflow ganhar qualquer segredo.
+   (As anotações do primeiro run também pedem: `actions/checkout@v4` e
+   `setup-node@v4` ainda miram Node 20 e o GitHub os força pro 24, e o
+   `ubuntu-latest` vira Ubuntu 26 em 19/10/2026.)
+4. **Tornar `api` e `web` checks OBRIGATÓRIOS — e isso hoje é impossível.**
+   `stefanogebara/racha` é privado num plano Free; a proteção de branch clássica
+   e os rulesets respondem 403 "Upgrade to GitHub Pro or make this repository
+   public" (medido em 2026-09-20, pelas duas APIs). Não é configuração
+   esquecida: são dois caminhos, **GitHub Pro** ou repositório **público** — e
+   público está fora de questão aqui. Até um deles acontecer, o `ci.yml`
+   informa e não impede, e quem segura um merge vermelho é uma pessoa lendo o
+   PR. Vale escrever porque a versão anterior desta linha dizia "marcar como
+   obrigatórios" como se fosse uma caixinha que alguém tinha esquecido de
+   marcar.
 
 ## Precondições pra ligar a carteira na primeira casa
 
@@ -257,8 +268,11 @@ o que fazia toda chamada com template parecer sem código — acusando o inocent
   ou seja, a produção declarava um runtime em que o app morre); e saía VERDE com
   quatro classes de teste pulando, entre elas a única que confere o inegociável
   #7 contra um Postgres real. Hoje ele instala Postgres, põe `RACHA_EXIGE_PG=1`
-  e nomeia os arquivos que não podem pular. **O que falta:** a proteção de
-  branch exigir os checks.
+  e nomeia os arquivos que não podem pular, e o primeiro run de verdade (PR #9,
+  2026-09-20) ficou verde nos três jobs com 2.486 passando — os mesmos números
+  da máquina local, que é a primeira vez que dá pra dizer isso em vez de supor.
+  **O que falta:** exigir os checks, o que depende de um plano — ver o item 4
+  das precondições acima.
 - **`producao-estrutural.test.js` falha de forma intermitente** na suíte
   completa e passa isolado. Uma caçada de 14 execuções não reproduziu; a
   investigação pareada não achou contaminação de env. Não está diagnosticado.

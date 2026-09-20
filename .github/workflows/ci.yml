@@ -6,9 +6,19 @@
 # olhando — e disciplina que depende de alguém lembrar é exatamente o que o
 # CLAUDE.md deste repositório manda desconfiar.
 #
-# UM ARQUIVO DE WORKFLOW NÃO É UM PORTÃO até a proteção de branch exigir
-# estes checks pelo nome. Enquanto isso ele informa, não impede — e o título
-# acima seria uma promessa vazia se esta linha não estivesse aqui.
+# UM ARQUIVO DE WORKFLOW NÃO É UM PORTÃO até a proteção de branch exigir estes
+# checks pelo nome. Enquanto isso ele informa, não impede — e o título acima
+# seria promessa vazia sem esta linha.
+#
+# E HOJE ISSO NÃO É UM ESQUECIMENTO, É UM LIMITE DE PLANO: `stefanogebara/racha`
+# é privado num plano Free, e tanto a proteção de branch clássica quanto os
+# rulesets respondem 403 "Upgrade to GitHub Pro or make this repository
+# public" (medido em 2026-09-20). Só há dois caminhos: GitHub Pro, ou tornar o
+# repositório público — e público está fora de questão num repositório com
+# documento de compliance e mapa de dados.
+#
+# Enquanto for assim, o que impede um merge vermelho é uma pessoa olhar o PR. O
+# vermelho aparece lá e o GitHub avisa antes do merge; ele só não recusa.
 #
 # Nada aqui precisa de segredo: a suíte roda contra o store de memória e o
 # MockPsp. Se algum dia precisar de um, ele NÃO entra neste arquivo sem passar
