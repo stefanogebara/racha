@@ -527,3 +527,35 @@ describe('a entrega é conferida, não presumida', () => {
   });
 });
 
+
+/**
+ * 200 COM `charges: []` NÃO É "NADA FOI COBRADO".
+ *
+ * O `POST /orders` voltou 2xx: o adquirente ACEITOU a ordem, e só não veio
+ * `charges[0]`. Num adaptador que declara `walletCaptures: true`, responder
+ * `psp_rejected` — que a tela traduz como "Nada foi cobrado, pague no caixa" —
+ * manda a pessoa pagar de novo, e uma segunda captura no mesmo cartão é o CDC
+ * art. 42. O `create-charge` gasta um parágrafo defendendo justamente a
+ * assimetria contrária, e o primeiro conserto desta linha escolheu o lado que
+ * aquele arquivo argumenta contra. (segurança MEDIUM-3 da re-revisão.)
+ */
+test('carteira: ordem aceita sem charge devolve `charge_maybe_captured`', async () => {
+  const { createPagarmePsp } = require('../_lib/pay/pagarme-psp');
+  const { escopoDaFalha } = require('../_lib/pay/saude-do-adquirente');
+  const adaptador = createPagarmePsp({
+    secretKey: `sk_test_${'x'.repeat(20)}`,
+    webhookBasicAuth: 'racha:senha',
+    fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ id: 'or_1', charges: [] }) }),
+  });
+  const erro = await adaptador.createWalletCharge({
+    chargeRef: 'c:0:100:0', amountCents: 100, tipCents: 0, recipientId: 're_x',
+    currency: 'brl', payerDocument: '52998224725', paymentToken: 'x'.repeat(64), wallet: 'google_pay',
+  }).catch((e) => e);
+  expect(erro).toBeInstanceOf(Error);
+  // NÃO `psp_rejected`: o desfecho é desconhecido, e o texto que a mesa lê tem
+  // que ser o que não convida a pagar duas vezes.
+  expect(erro.code).toBe('charge_maybe_captured');
+  expect(erro.statusCode).toBe(502);
+  // E continua sendo falha DESTA casa pro vigia, que conta antes de paginar.
+  expect(escopoDaFalha(erro)).toBe('casa');
+});

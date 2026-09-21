@@ -175,9 +175,35 @@ describe('a ponte de avisos aceita o que a Racha manda', () => {
      * contagem estava inflada na mesma medida.
      */
     const dinamicos = [...EMISSORES.matchAll(
-      /(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{[\s\S]{0,120}?kind: parsed\.kind/g,
+      /(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{[\s\S]{0,200}?kind: (?:parsed|aviso)\.kind/g,
     )].length;
     expect(literais.length + dinamicos).toBe(chamadas);
+  });
+
+  /**
+   * E A FONTE DINÂMICA TAMBÉM É FECHADA.
+   *
+   * O censo acima aceita `kind: <algo>.kind` porque o remetente estoura num
+   * kind desconhecido — "falha alto em vez de sumir". Só que no observador do
+   * adquirente esse estouro NÃO é alto: ele cai no catch do `avisar`, vira
+   * `entregue = false`, e o efeito é o pager calado. Então a fonte precisa ser
+   * fechada na origem, e não só barulhenta na ponte.
+   *
+   * O vigia produz um kind só, e este teste é o que impede o segundo de nascer
+   * sem passar pela lista da ponte. (segurança LOW-5 da re-revisão.)
+   */
+  test('o kind que o vigia do adquirente produz está na lista da ponte', () => {
+    const { criarVigiaDoAdquirente } = require('../_lib/pay/saude-do-adquirente');
+    const olho = criarVigiaDoAdquirente({ seguidasPorCasa: 1 });
+    const recusa = (httpStatus) => Object.assign(new Error('x'), { httpStatus });
+    const vistos = new Set();
+    for (const [st, casa, chk] of [[403, null, null], [422, 'v1', 'c1']]) {
+      const aviso = olho.registrarFalha(recusa(st), casa, chk);
+      expect(aviso).toBeTruthy();
+      vistos.add(aviso.kind);
+    }
+    // Os dois escopos, e nenhum kind fora da lista que a ponte aceita.
+    expect([...vistos].filter((k) => !KINDS_DE_FUNDADOR.has(k))).toEqual([]);
   });
 
   test('os eventos da conciliação estão na lista da ponte', () => {

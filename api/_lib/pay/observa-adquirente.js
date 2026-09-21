@@ -125,8 +125,25 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
          */
         let entregue = false;
         try {
+          /**
+           * O `kind` VEM DO AVISO, não de um literal repetido.
+           *
+           * O vigia já calcula `aviso.kind`, e aqui estava escrito de novo à
+           * mão. Com a ponte de verdade isso é pior que redundância: um kind
+           * que o `notify.js` não conheça faz ele LANÇAR `kind_desconhecido`,
+           * a exceção cai no catch abaixo, `entregue` fica falso e NENHUMA
+           * página sai — o pager morto em silêncio por uma string duplicada.
+           * O teste novo não via, porque a ponte falsa ignora o argumento.
+           * (segurança LOW-5.)
+           *
+           * O comentário fica ACIMA da chamada de propósito: o censo da ponte
+           * (`notify-bridge-contract.test.js`) procura o `kind` numa janela de
+           * caracteres depois do `({`, e prosa dentro do objeto empurra o campo
+           * pra fora da janela — o censo passa a não contar o call site e fica
+           * vermelho sem que nada esteja errado.
+           */
           const r = await notifyFounderMoneyEvent({
-            kind: 'account_alert',
+            kind: aviso.kind,
             txid: null,
             checkId: null,
             amountCents: 0,

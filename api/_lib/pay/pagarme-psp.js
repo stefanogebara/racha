@@ -1,5 +1,6 @@
 'use strict';
 
+const { soUmaLinha, soIdentificador } = require('../rastro');
 const crypto = require('crypto');
 const { allocateUnderpayment } = require('../checks/split-engine');
 
@@ -316,7 +317,7 @@ function createPagarmePsp({
       // apagão de chave revogada que este commit existe pra acordar alguém.
       // (segurança LOW-3 — a regra nasceu num sítio e faltava nos outros.)
       process.stderr.write(
-        `[pagarme] ${method} ${path} ${res.status}: ${String(msg).replace(/[\r\n]+/g, ' ').slice(0, 200)}\n`,
+        `[pagarme] ${method} ${path} ${res.status}: ${soUmaLinha(msg, 200)}\n`,
       );
       err.httpStatus = res.status; // status exato — getCharge precisa separar 404 de 401/403
       throw err;
@@ -495,7 +496,7 @@ function createPagarmePsp({
         // Sem quebra de linha: `reason` é texto de TERCEIRO, e um `\n` no meio
         // inventa uma linha inteira no rastro de um caminho de dinheiro.
         process.stderr.write(
-          `[pagarme] Pix sem qr_code: ${String(reason).replace(/[\r\n]+/g, ' ').slice(0, 160)}\n`,
+          `[pagarme] Pix sem qr_code: ${soUmaLinha(reason)}\n`,
         );
         throw e;
       }
@@ -637,9 +638,22 @@ function createPagarmePsp({
          * a carteira liga por `RACHA_WALLET_VENUES`, que o `create-charge`
          * chama de passo iminente. (compliance MEDIUM-5.)
          */
-        const e = new Error('pagarme: resposta sem charge — cobrança de cartão não criada');
-        e.statusCode = 402;
-        e.code = 'psp_rejected';
+        /**
+         * E O CÓDIGO É `charge_maybe_captured`, não `psp_rejected`.
+         *
+         * A primeira versão deste conserto pôs `psp_rejected`, que a tela
+         * traduz como "Nada foi cobrado — você pode pagar no caixa". Mas o
+         * `POST /orders` voltou 2xx: o adquirente ACEITOU a ordem, e só não
+         * veio `charges[0]`. Num adaptador que declara `walletCaptures: true`,
+         * afirmar "nada foi cobrado" sobre um desfecho desconhecido manda a
+         * pessoa pagar de novo — segunda captura no mesmo cartão, que é o CDC
+         * art. 42 e é exatamente a assimetria que o `create-charge` gasta um
+         * parágrafo defendendo. Eu escolhi o lado que aquele arquivo argumenta
+         * contra. (segurança MEDIUM-3 da re-revisão.)
+         */
+        const e = new Error('pagarme: resposta sem charge — desfecho desconhecido');
+        e.statusCode = 502;
+        e.code = 'charge_maybe_captured';
         e.httpStatus = 422;        // desfecho desta casa; entra na contagem
         e.httpSintetico = true;    // o adquirente respondeu 200
         throw e;
@@ -673,7 +687,7 @@ function createPagarmePsp({
          * serve: quem está de plantão lê, o cliente não.
          */
         process.stderr.write(
-          `[pagarme] cartão recusado: ${String(reason).replace(/[\r\n]+/g, ' ').slice(0, 140)}\n`,
+          `[pagarme] cartão recusado: ${soUmaLinha(reason, 140)}\n`,
         );
         const err = new Error('cartão recusado pelo emissor');
         err.statusCode = 402;
@@ -874,7 +888,7 @@ function createPagarmePsp({
       } catch (e) {
         // Valor impossível: dinheiro que se moveu e não dá pra medir. Mesmo
         // desfecho do webhook — evento não lançável, nunca um 500 em laço.
-        process.stderr.write(`[pagarme] cobrança ${charge.id} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
+        process.stderr.write(`[pagarme] cobrança ${soIdentificador(charge.id)} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
         return {
           txid: charge.id, eventId: null, status: charge.status, paid: false,
           kind: 'unusable_money_event', raw: charge,
@@ -1019,7 +1033,7 @@ function createPagarmePsp({
            * por causa de uma cobrança. Achado pela revisão de segurança de
            * 2026-09-08.
            */
-          process.stderr.write(`[pagarme] cobrança ${charge.id} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
+          process.stderr.write(`[pagarme] cobrança ${soIdentificador(charge.id)} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
           return {
             kind: 'unusable_money_event', type, txid: charge.id,
             status: charge.status, raw: charge, eventId,

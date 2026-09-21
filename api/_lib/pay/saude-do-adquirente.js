@@ -59,8 +59,17 @@ const JANELA_PADRAO_MS = 15 * 60_000;
  */
 const RECUO_SEM_ENTREGA_MS = 60_000;
 
-/** Teto de casas acompanhadas por instância quente. Ver `podarSeCrescerDemais`. */
-const TETO_DE_CASAS_VIGIADAS = 5000;
+/**
+ * O que envelheceu sai do acompanhamento. Ver `podar`.
+ *
+ * Uma hora é folgado pro que a contagem quer dizer ("esta casa está quebrada
+ * AGORA") e curto o bastante pra que três recusas espalhadas por dias de uma
+ * instância quente não paginem "ninguém paga aqui" sobre um restaurante são.
+ */
+const JANELA_DE_CONTAGEM_MS = 60 * 60_000;
+
+/** Teto de contas distintas guardadas por casa. Passado ele, a contagem já venceu. */
+const TETO_DE_CONTAS_POR_CASA = 64;
 
 /** O máximo que a env pode espaçar as páginas. Ver `janelaConfigurada`. */
 const TETO_DA_JANELA_MS = 60 * 60_000;
@@ -140,7 +149,35 @@ function criarVigiaDoAdquirente({
   janelaMs = janelaConfigurada(),
   seguidasPorCasa = SEGUIDAS_POR_CASA,
 } = {}) {
-  const seguidas = new Map();     // venueId → Set de contas que falharam
+  const seguidas = new Map();     // venueId → { checks: Set, visto: ms }
+
+  /**
+   * O QUE ENVELHECEU SAI — e o que está sendo contado agora, nunca.
+   *
+   * Substitui um `clear()` dos dois mapas inteiros que, medido, comprava
+   * silêncio permanente: com o mapa encostado no teto durante um apagão de
+   * rede, a contagem da casa quebrada era zerada entre um check e o seguinte.
+   *
+   * A IDADE VENCE, inclusive pra casa que está falhando agora — e a primeira
+   * versão disto poupava a casa atual, o que parecia prudente e estava errado:
+   * uma casa com duas recusas de ontem e uma de hoje voltava a somar três e
+   * paginava "ninguém paga aqui" sobre um restaurante são, que é o falso
+   * positivo que a janela existe pra apagar. O que a contagem quer dizer é
+   * "esta casa está quebrada AGORA", e `visto` é renovado a cada toque: a casa
+   * que está realmente falhando nunca envelhece no meio da própria contagem.
+   */
+  function podar() {
+    const limite = agora() - JANELA_DE_CONTAGEM_MS;
+    for (const [casa, dado] of seguidas) {
+      if (dado.visto < limite) seguidas.delete(casa);
+    }
+    // `ultimoAviso` guarda "suprimido ATÉ", então o que já venceu não tem
+    // leitor: apagá-lo não muda decisão nenhuma, só devolve memória.
+    const t = agora();
+    for (const [chave, ate] of ultimoAviso) {
+      if (ate <= t) ultimoAviso.delete(chave);
+    }
+  }
   const ultimoAviso = new Map();  // chave do aviso → instante do último
 
   const dentroDaJanela = (chave) => {
@@ -153,6 +190,19 @@ function criarVigiaDoAdquirente({
      * O AVISO NÃO SAIU. Encurta a janela pra um minuto em vez de deixar a
      * instância calada os 15 acreditando que paginou.
      */
+    /**
+     * O TAMANHO DO QUE SE ACOMPANHA, pra que o teto possa ser medido.
+     *
+     * Sem isto, o teto do Set por casa era um guarda nascido inerte: o teste
+     * que eu escrevi primeiro afirmava `aviso === null || aviso.escopo ===
+     * 'casa'`, que é verdade sempre. Medido contra mutante, ficou verde com o
+     * teto removido — a forma exata que esta série já achou quatro vezes.
+     */
+    tamanhos() {
+      let maior = 0;
+      for (const [, dado] of seguidas) maior = Math.max(maior, dado.checks.size);
+      return { casas: seguidas.size, maiorContagem: maior, avisos: ultimoAviso.size };
+    },
     naoEntregue(chave) {
       if (!chave) return;
       /**
@@ -237,16 +287,35 @@ function criarVigiaDoAdquirente({
        * Mora AQUI, no sítio que faz o mapa crescer, e não num método que o
        * chamador precise lembrar de chamar: guarda que depende de memória
        * alheia nasce inerte, e esta série já achou essa forma quatro vezes.
-       * Limpar tudo custa, no pior caso, uma página a mais; não limpar custa
-       * memória sem limite num caminho de dinheiro. (segurança LOW-2, a metade
-       * do TAMANHO; a da JANELA DE TEMPO segue no livro de abertos.)
+       *
+       * E PODA POR IDADE, nunca `clear()`. A primeira versão desta guarda
+       * limpava os dois mapas inteiros quando passavam do teto. Medido: num
+       * apagão de escopo `casa` numa rede, o mapa vive ENCOSTADO no teto e as
+       * falhas das outras casas chegam intercaladas com as da casa quebrada —
+       * 100.020 falhas alheias, 20 contas distintas da casa quebrada, ZERO
+       * páginas. A guarda de memória tinha comprado silêncio permanente num
+       * caminho de dinheiro, que é o inegociável #8 pela porta dos fundos, na
+       * rodada escrita pra fechar o #8. Achada pelas duas revisões.
+       *
+       * A janela de tempo resolve as duas coisas de uma vez, e era item do
+       * livro de abertos: o que envelheceu sai, o que está sendo contado AGORA
+       * nunca sai, e o mapa para de crescer sem que ninguém precise de um
+       * teto arbitrário como desempate.
        */
-      if (seguidas.size > TETO_DE_CASAS_VIGIADAS) seguidas.clear();
-      if (ultimoAviso.size > TETO_DE_CASAS_VIGIADAS) ultimoAviso.clear();
-      const contas = seguidas.get(casa) || new Set();
-      if (checkId) contas.add(String(checkId));
+      podar();
+      const contas = seguidas.get(casa) || { checks: new Set(), visto: agora() };
+      contas.visto = agora();
+      /**
+       * O Set POR CASA também tem teto — e era ele que o comentário da versão
+       * anterior descrevia ("cada check distinto... acumula uma entrada que
+       * nunca sai") enquanto o código media `seguidas.size`, que é o número de
+       * CASAS. Medido pela revisão: uma casa só, 200 mil checks distintos, 20,5
+       * MB retidos, poda nunca dispara. Passado o teto a contagem já venceu
+       * (o limiar é 3): parar de acrescentar não perde página nenhuma.
+       */
+      if (checkId && contas.checks.size < TETO_DE_CONTAS_POR_CASA) contas.checks.add(String(checkId));
       seguidas.set(casa, contas);
-      const n = contas.size;
+      const n = contas.checks.size;
       if (n < seguidasPorCasa) return null;
 
       const chave = `casa:${casa}`;
@@ -257,8 +326,21 @@ function criarVigiaDoAdquirente({
         escopo,
         chave,
         venueId: venueId || null,
-        detail: `${n} contas seguidas recusadas pelo adquirente (HTTP ${err.httpStatus}) nesta casa — `
-          + 'recebedor inativo, split desligado ou dado recusado. Ninguém paga aqui.',
+        /**
+         * A MARCA VALE NOS DOIS RAMOS — e este era o irmão esquecido.
+         *
+         * `httpSintetico` nasceu no ramo `plataforma` e não chegou aqui, doze
+         * linhas abaixo, na mesma função. E é ESTE o balde pra onde a rodada
+         * mandou o 200-sem-qr_code: o caso COMUM dizia "(HTTP 422)" sobre uma
+         * resposta que foi 200, e quem acordasse às 3h iria procurar no log da
+         * Pagar.me um 422 que nunca trafegou — o dano exato que a marca foi
+         * criada pra evitar. Achado pelas duas revisões, de novo pelos dois
+         * lados. A forma "chamador esquecido", dentro da função onde eu tinha
+         * acabado de consertar a forma "chamador esquecido".
+         */
+        detail: `${n} contas seguidas recusadas pelo adquirente`
+          + (err.httpSintetico ? '' : ` (HTTP ${err.httpStatus})`)
+          + ' nesta casa — recebedor inativo, split desligado ou dado recusado. Ninguém paga aqui.',
       };
     },
   };
@@ -267,7 +349,8 @@ function criarVigiaDoAdquirente({
 module.exports = {
   escopoDaFalha,
   janelaConfigurada,
-  TETO_DE_CASAS_VIGIADAS,
+  JANELA_DE_CONTAGEM_MS,
+  TETO_DE_CONTAS_POR_CASA,
   RECUO_SEM_ENTREGA_MS,
   TETO_DA_JANELA_MS,
   criarVigiaDoAdquirente,

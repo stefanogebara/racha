@@ -206,7 +206,14 @@ function publicMarketView(code, { servicoBp = 0, cnpj = null } = {}) {
  * moeda certa.
  */
 /**
- * A GORJETA TEM TETO, E O TETO É O TOTAL DA CONTA.
+ * A GORJETA TEM TETO DE ADMISSÃO, E O TETO É O TOTAL DA CONTA.
+ *
+ * "De admissão" porque é isto e não mais: o razão NÃO tem esse invariante.
+ * `guardCap` (`check-state.js`) só confere `MAX_SAFE_INTEGER`, e um `ADJUSTED`
+ * que baixe o total não olha a gorjeta já confirmada. Quem citar este bloco
+ * daqui a seis meses precisa ler a frase certa, não a que soa melhor — a forma
+ * "comentário que afirma o que o código não sustenta" está no livro de abertos
+ * quatro vezes. (compliance MEDIUM-1 da re-revisão.)
  *
  * `tipCents` só era conferido como inteiro não-negativo, e o `charge.maxCents`
  * do Brasil é `null` ("Pix não tem teto de esquema"). R$ 90 milhões de
@@ -259,6 +266,25 @@ function tetoDaGorjeta(tipCents, state) {
    * fechá-la de verdade pede contar gorjeta pendente no SQL de vagas — o que
    * NÃO está feito, e está dito aqui em vez de prometido no comentário.
    */
+  /**
+   * A FORMA ANTIGA É RECUSADA EM VOZ ALTA, e não em silêncio.
+   *
+   * Com `if (!state || ...) return null`, a chamada da rodada anterior —
+   * `tetoDaGorjeta(tipCents, state.totalCents)`, que passa um NÚMERO — caía
+   * assim: `!10000` é falso, `Number.isInteger(undefined)` é falso, logo
+   * `null` — o teto DESLIGADO, calado, sem erro e sem teste vermelho. E a
+   * chamada antiga está escrita por extenso, como exemplo do que não fazer,
+   * em dois comentários desta mesma árvore: um copy-paste reinstalava o
+   * defeito da rodada anterior. É `if (coisa && !ok)` pela porta do tipo, e as
+   * duas revisões acharam. (compliance MEDIUM-2 / segurança LOW-4.)
+   *
+   * `null`/`undefined` seguem valendo `null` porque os dois chamadores já
+   * guardam `!state` antes — isto é cinto e suspensório, não decisão. O que
+   * não pode passar é um argumento do TIPO errado fingindo que está tudo bem.
+   */
+  if (state !== null && state !== undefined && typeof state !== 'object') {
+    throw new TypeError('tetoDaGorjeta: o segundo argumento é o ESTADO da conta, não `state.totalCents`');
+  }
   if (!state || !Number.isInteger(state.totalCents)) return null;  // sem total, sem afirmação
   const jaConfirmada = Number.isInteger(state.tipCents) ? state.tipCents : 0;
   if (jaConfirmada + tipCents > state.totalCents) return { code: 'amount_invalid' };

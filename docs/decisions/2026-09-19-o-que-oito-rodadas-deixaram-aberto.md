@@ -350,3 +350,76 @@ o que fazia toda chamada com template parecer sem código — acusando o inocent
   afirma um esquema que o banco não tem.
 - **Quatro advisories em `apps/web`**, todas na cadeia de build, nenhuma no
   código que o cliente executa.
+
+---
+
+## Décima terceira rodada e a re-revisão dela (2026-09-21)
+
+O que as duas revisões acharam e que **não** foi consertado, cada um com gatilho.
+
+### A janela das pendentes no teto da gorjeta — MEDIDA em 10x
+
+`tetoDaGorjeta` soma `state.tipCents`, que é gorjeta **confirmada**. Cobranças
+criadas antes de qualquer confirmação não estão no razão e não entram na soma,
+então N cobranças com `tipCents === totalCents` passam cada uma por si. A
+revisão de segurança mediu, contra o `createChargeService` de verdade:
+
+```
+cobrancas pendentes criadas com gorjeta=total: 10
+totalCents=10000  tipCents CONFIRMADA=100000  (=10.0x a conta)
+```
+
+O atacante paga de verdade, então isto é inflação de base de folha e de
+conciliação, não roubo — e é estritamente melhor que o estado anterior, em que
+não havia teto nenhum (nove bilhões passavam). O conserto de verdade é contar
+gorjeta pendente na reserva de vaga (`claim_slots`, migração 0033 já carrega a
+reserva por conta) ou reafirmar o teto ao aplicar `PAYMENT_CONFIRMED`.
+
+**Gatilho:** o primeiro piloto que feche mês com relatório de folha, ou o
+primeiro `sk_live_` — o que vier antes. O teste que falta está descrito: criar
+as N cobranças **antes** de qualquer confirmação e exigir que a (N+1)-ésima
+seja recusada.
+
+### O razão não tem o invariante que o teto de admissão promete
+
+`guardCap` (`check-state.js`) só confere `MAX_SAFE_INTEGER`, e um `ADJUSTED`
+que baixe o total não olha a gorjeta já confirmada: conta de R$ 100,00 com
+R$ 10,00 de gorjeta confirmada, POS cancela itens e ajusta pra R$ 5,00, e o
+relatório de folha mostra gorjeta maior que o consumo sem anomalia nenhuma.
+
+**Gatilho:** o primeiro adaptador de POS que emita `ADJUSTED` — hoje nenhum
+emite, e é por isso que isto não é conserto de agora.
+
+### `api/` não tem linter, e o defeito desta rodada era estático
+
+`router.js` chamava `tetoDaGorjeta` e nunca a importava: `ReferenceError` em
+toda requisição a `/api/pay/stripe-intent`, o trilho de cartão inteiro em 500.
+**As duas revisões leram o arquivo e passaram por cima.** O que pegou foi o
+primeiro teste que dirigiu a rota — e, medido depois, `eslint --rule no-undef`
+acusa a linha em segundos:
+
+```
+5ba46e7  →  1378:23  error  'tetoDaGorjeta' is not defined  no-undef
+c5d37d1  →  (limpo)
+```
+
+Hoje `eslint.config.js` existe só em `apps/web`; a raiz roda `jest` e mais nada.
+A revisão de segurança propôs, como alternativa sem dependência de estilo, um
+censo de escopo com `@babel/parser` + `@babel/traverse` (~40 linhas, achou o
+defeito plantado na primeira execução) — com a ressalva de que os dois pacotes
+hoje são dependências transitivas do jest e precisariam ser declarados, senão o
+censo evapora num upgrade e vira guarda que morre calada.
+
+**Gatilho:** nenhum. Isto é precondição de go-live do trilho de cartão, não
+item adiável — está aqui só porque entrou depois de as revisões lerem a árvore,
+e merece a sua própria revisão.
+
+### O corpo da rota do intent segue sem teste
+
+O único teste que dirige `/api/pay/stripe-intent` retorna na linha do teto da
+gorjeta. De lá até o fim — `assertChargeSlot`, `comContratoDeCaptura`,
+`createWalletCharge`/`createBizumCharge`, `gravarAposCobrar`, o mapeamento de
+`amount_too_small`, o `finally` que devolve a vaga — nenhuma linha foi
+executada por teste nenhum. É o trecho onde o dinheiro se move.
+
+**Gatilho:** o mesmo do item acima.

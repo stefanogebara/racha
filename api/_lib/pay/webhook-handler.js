@@ -23,6 +23,7 @@
  * webhook — same idempotency, same event-sourcing, one code path for money.
  */
 
+const { soIdentificador } = require('../rastro');
 const { reduce, validateEvent, EventValidationError } = require('../checks/check-state');
 const { maskPixPayload } = require('./mask');
 const { allocateRefund } = require('../checks/split-engine');
@@ -923,7 +924,7 @@ async function repairRowFromLedger(checkId, txid, deps) {
      * Migração 0023, inegociável #7. Perder a corrida é NORMAL e não é erro: a
      * outra entrega sabia mais. Só registra e sai.
      */
-    process.stderr.write(`[webhook] reparando linha ${txid}: ${linha.status} -> ${status}\n`);
+    process.stderr.write(`[webhook] reparando linha ${soIdentificador(txid)}: ${linha.status} -> ${status}\n`);
     const reparou = await repairPaymentRow({
       txid,
       expectedStatus: linha.status,
@@ -939,12 +940,12 @@ async function repairRowFromLedger(checkId, txid, deps) {
       source: 'webhook_redelivery',
     });
     if (!reparou) {
-      process.stderr.write(`[webhook] linha ${txid} mudou no meio do reparo — a outra entrega ganhou\n`);
+      process.stderr.write(`[webhook] linha ${soIdentificador(txid)} mudou no meio do reparo — a outra entrega ganhou\n`);
     }
   } catch (e) {
     // A reparacao e oportunista: falhar aqui nao pode transformar uma
     // reentrega inofensiva num 500 que faz o PSP reenviar em laco.
-    process.stderr.write(`[webhook] reparo da linha ${txid} falhou: ${String(e.message).slice(0, 120)}\n`);
+    process.stderr.write(`[webhook] reparo da linha ${soIdentificador(txid)} falhou: ${String(e.message).slice(0, 120)}\n`);
   }
 }
 

@@ -577,6 +577,18 @@ describe('o atacante que o teto existe pra parar', () => {
       // Sem total conhecido, e sem estado, não dá pra afirmar nada.
       expect(tetoDaGorjeta(1, conta(null))).toBeNull();
       expect(tetoDaGorjeta(1, null)).toBeNull();
+      /**
+       * E A FORMA ANTIGA ESTOURA, em vez de desligar o teto calada.
+       *
+       * `tetoDaGorjeta(tipCents, state.totalCents)` passa um NÚMERO: com a
+       * guarda de tipo ausente, `!10000` é falso e `Number.isInteger(undefined)`
+       * é falso, então o predicado devolvia `null` — teto desligado, sem erro e
+       * sem teste vermelho. A chamada antiga está escrita por extenso em dois
+       * comentários desta árvore; um copy-paste reinstalava o defeito da
+       * rodada anterior. (compliance MEDIUM-2 / segurança LOW-4.)
+       */
+      expect(() => tetoDaGorjeta(9_000_000_000, 10_000)).toThrow(TypeError);
+      expect(() => tetoDaGorjeta(1, 'dez mil')).toThrow(TypeError);
     });
   });
 

@@ -11,6 +11,7 @@
  * reviewed core.
  */
 
+const { soIdentificador } = require('../_lib/rastro');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -807,9 +808,10 @@ function rateLimitBucket(req, prefix, limit) {
  * dinheiro. Corta em 60 e joga fora tudo que não é caractere de nome de evento
  * (a Stripe e a Pagar.me usam `[a-z._]`), então nem escape nem tamanho passam.
  */
-function sanitizeForLog(v) {
-  return String(v).replace(/[^\w.:-]/g, '·').slice(0, 60);
-}
+// A REGRA MORA EM `_lib/rastro.js`. Ela estava aqui, e quando fez falta no
+// adaptador da Pagar.me foi reescrita inline com outra forma — duas regras pro
+// mesmo trabalho, que é como a próxima cópia diverge (re-revisão de segurança).
+const sanitizeForLog = soIdentificador;
 
 function rateLimitOpen(req) {
   return rateLimitBucket(req, 'open', 10); // 10 wallet creations / 10 min / IP
@@ -1350,13 +1352,22 @@ async function route(req, res) {
         // Só o código: quem traduz é o cliente. (Compliance LOW-4 de 7a65e93.)
         return json(res, 400, { success: false, code: 'payer_label_invalid' });
       }
-      const state = reduce(await store.loadEvents(view.check.id));
-      if (!state || state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada', code: 'check_closed' });
-      const remaining = remainingCents(state);
-      if (amountCents > remaining) return json(res, 400, { success: false, error: `valor acima do que falta (${remaining} centavos)`,
-        // Centavos crus, não texto formatado: quem escolhe "R$ 12,34" ou
-        // "R$ 12.34" é o cliente, que sabe o idioma. Servidor não formata dinheiro.
-        code: 'amount_over', vars: { leftCents: remaining } });
+      /**
+       * O PORTÃO DE MERCADO NA ORDEM DA FÁBRICA, e não onde calhou.
+       *
+       * Mover só o teto da gorjeta pra baixo dele consertou UM código de seis.
+       * Medido pela re-revisão de segurança, com o mesmo corpo nos dois
+       * trilhos: casa espanhola com o mercado desligado, pedindo acima do que
+       * falta, respondia `market_not_live` no Pix e `amount_over` no cartão.
+       * É o mesmo defeito de antes com outro par de respostas — e o
+       * `create-charge` argumenta por extenso que o erro de mercado tem que
+       * vencer o detalhe do corpo, pra uma casa mal configurada não ficar
+       * escondida atrás de um número que o cliente digitou.
+       *
+       * A ordem agora é a da fábrica: tipo dos campos e rótulo antes (são "isto
+       * é um pedido?"), mercado depois, e só então razão, conta fechada e
+       * quanto falta.
+       */
       // Qual trilho, e o MERCADO decide se ele é legal nesta mesa. Um Bizum
       // numa mesa brasileira cobraria em euro; um cartão pelo caminho do Bizum
       // usaria o Payment Element errado. O cliente pede, o servidor confere.
@@ -1379,6 +1390,23 @@ async function route(req, res) {
       if (gate) {
         return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
       }
+
+      const state = reduce(await store.loadEvents(view.check.id));
+      /**
+       * `check_not_found` E `check_closed` SÃO DUAS COISAS, como na fábrica.
+       *
+       * O `!state ||` estava grudado no `fechada`, então a mesma conta de razão
+       * vazio respondia `check_not_found` num trilho e `check_closed` no outro.
+       * Medido pela re-revisão; o teste novo do razão vazio só dirigia a
+       * fábrica, e a cópia da regra que mora aqui nunca foi perguntada.
+       */
+      if (!state) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada', code: 'check_closed' });
+      const remaining = remainingCents(state);
+      if (amountCents > remaining) return json(res, 400, { success: false, error: `valor acima do que falta (${remaining} centavos)`,
+        // Centavos crus, não texto formatado: quem escolhe "R$ 12,34" ou
+        // "R$ 12.34" é o cliente, que sabe o idioma. Servidor não formata dinheiro.
+        code: 'amount_over', vars: { leftCents: remaining } });
       /**
        * O TETO DA GORJETA, aqui também — e DEPOIS do portão de mercado.
        *

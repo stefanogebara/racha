@@ -220,3 +220,95 @@ describe('o kind é um que a ponte ACEITA hoje', () => {
     expect(KINDS_DE_FUNDADOR.has('account_alert')).toBe(true);
   });
 });
+
+/**
+ * A GUARDA DE MEMÓRIA NÃO PODE COMPRAR SILÊNCIO.
+ *
+ * A primeira versão do teto de tamanho limpava os dois mapas inteiros quando
+ * passavam de 5.000 casas. Medido: num apagão de escopo `casa` numa rede, o
+ * mapa vive ENCOSTADO no teto e as falhas das outras casas chegam INTERCALADAS
+ * com as da casa quebrada — 100.020 falhas alheias, 20 contas distintas da casa
+ * quebrada, ZERO páginas. Uma guarda de memória tinha comprado silêncio
+ * permanente num caminho de dinheiro, na rodada escrita pra fechar o
+ * inegociável #8. Achada pelas duas revisões.
+ *
+ * `TETO_DE_CASAS_VIGIADAS` era exportado e não tinha um único teste — guarda
+ * nova, sem prova de que dispara nem do que faz quando dispara, que é a forma
+ * que o livro de abertos registra duas vezes.
+ */
+describe('a poda devolve memória sem calar ninguém', () => {
+  const { criarVigiaDoAdquirente, JANELA_DE_CONTAGEM_MS, TETO_DE_CONTAS_POR_CASA } =
+    require('../_lib/pay/saude-do-adquirente');
+  const recusa = () => Object.assign(new Error('x'), { httpStatus: 422 });
+
+  test('a casa quebrada pagina mesmo com uma rede inteira falhando em volta', () => {
+    const olho = criarVigiaDoAdquirente();
+    let paginou = null;
+    for (let rodada = 0; rodada < 20; rodada += 1) {
+      for (let i = 0; i <= 5_000; i += 1) olho.registrarFalha(recusa(), `v${rodada}_${i}`, `chk${i}`);
+      const r = olho.registrarFalha(recusa(), 'casa-quebrada', `chk${rodada}`);
+      if (r) paginou = r;
+    }
+    expect(paginou).toMatchObject({ escopo: 'casa', venueId: 'casa-quebrada' });
+  });
+
+  test('o que envelheceu sai, e some da contagem', () => {
+    let t = 1_000_000;
+    const olho = criarVigiaDoAdquirente({ agora: () => t });
+    // Duas contas distintas hoje...
+    expect(olho.registrarFalha(recusa(), 'v1', 'a')).toBeNull();
+    expect(olho.registrarFalha(recusa(), 'v1', 'b')).toBeNull();
+    // ...e a terceira só daqui a duas horas não é "esta casa está quebrada
+    // AGORA". Sem janela, três recusas espalhadas por dias de uma instância
+    // quente paginavam "ninguém paga aqui" sobre um restaurante são.
+    t += 2 * JANELA_DE_CONTAGEM_MS;
+    expect(olho.registrarFalha(recusa(), 'v1', 'c')).toBeNull();
+  });
+
+  test('a casa que está sendo contada AGORA nunca é podada', () => {
+    let t = 1_000_000;
+    const olho = criarVigiaDoAdquirente({ agora: () => t });
+    olho.registrarFalha(recusa(), 'v1', 'a');
+    // O tempo passa, mas a MESMA casa continua falhando: a contagem dela é
+    // renovada a cada toque, e a poda poupa quem está sendo contado.
+    t += JANELA_DE_CONTAGEM_MS / 2;
+    olho.registrarFalha(recusa(), 'v1', 'b');
+    t += JANELA_DE_CONTAGEM_MS / 2;
+    expect(olho.registrarFalha(recusa(), 'v1', 'c')).toMatchObject({ escopo: 'casa' });
+  });
+
+  test('o conjunto de contas POR CASA tem teto', () => {
+    // Era esta a dimensão que o comentário da versão anterior descrevia
+    // enquanto o código media o número de CASAS. Medido pela revisão: uma casa
+    // só, 200 mil checks distintos, 20,5 MB retidos, poda nunca dispara.
+    const olho = criarVigiaDoAdquirente({ agora: () => 1_000_000 });
+    for (let i = 0; i < TETO_DE_CONTAS_POR_CASA * 4; i += 1) {
+      olho.registrarFalha(recusa(), 'v1', `chk${i}`);
+    }
+    olho.registrarFalha(recusa(), 'v1', 'mais-uma');
+    // MEDIDO, não afirmado: a primeira versão deste teste dizia
+    // `aviso === null || aviso.escopo === 'casa'`, que é verdade sempre — e
+    // ficou verde contra o mutante que remove o teto. Guarda nascida inerte,
+    // pela quinta vez nesta série.
+    expect(olho.tamanhos().maiorContagem).toBeLessThanOrEqual(TETO_DE_CONTAS_POR_CASA);
+    // Passado o teto a contagem já venceu (o limiar é 3): parar de acrescentar
+    // não perde página nenhuma — o que não pode é o Set crescer sem fim.
+    expect(TETO_DE_CONTAS_POR_CASA).toBeLessThan(1_000);
+  });
+
+  test('o HTTP inventado não aparece no texto — nos DOIS escopos', () => {
+    const olho = criarVigiaDoAdquirente({ seguidasPorCasa: 1 });
+    const sintetico = (st) => Object.assign(new Error('x'), { httpStatus: st, httpSintetico: true });
+    const daPlataforma = olho.registrarFalha(sintetico(403), null, null);
+    const daCasa = olho.registrarFalha(sintetico(422), 'v9', 'c9');
+    // O adquirente respondeu 200 nos dois; o número é rótulo interno de
+    // roteamento. Quem for acordado às 3h não pode ser mandado procurar um
+    // status que nunca trafegou.
+    expect(daPlataforma.detail).not.toMatch(/HTTP/);
+    expect(daCasa.detail).not.toMatch(/HTTP/);
+    // E quando trafegou DE VERDADE, o número continua aparecendo.
+    const olho2 = criarVigiaDoAdquirente({ seguidasPorCasa: 1 });
+    const real = olho2.registrarFalha(Object.assign(new Error('x'), { httpStatus: 401 }), null, null);
+    expect(real.detail).toMatch(/HTTP 401/);
+  });
+});

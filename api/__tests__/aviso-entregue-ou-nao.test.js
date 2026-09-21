@@ -46,6 +46,30 @@ function vigiaEspiao() {
 
 const store = { async getVenueForCheck() { return { id: 'v1' }; } };
 
+/**
+ * O `kind` ATRAVESSA — e este teste é o que impede a cópia literal de voltar.
+ *
+ * O observador escrevia `kind: 'account_alert'` à mão, ao lado de um
+ * `aviso.kind` que o vigia já tinha calculado. Com a ponte de verdade, um kind
+ * que o `notify.js` não conheça o faz LANÇAR: a exceção cai no catch do
+ * `avisar`, `entregue` vira falso, e NENHUMA página sai — o pager morto por
+ * uma string duplicada. O censo da ponte não vê, porque o literal está na
+ * lista dela; só ver o valor CHEGAR do outro lado vê. (segurança LOW-5.)
+ */
+test('o kind que o vigia calculou é o que chega na ponte', async () => {
+  const recebidos = [];
+  const vigia = { ...vigiaEspiao() };
+  vigia.registrarFalha = () => ({
+    kind: 'kind_do_vigia', escopo: 'casa', chave: 'casa:v1', venueId: 'v1', detail: 'd',
+  });
+  const observador = criarObservadorDoAdquirente({
+    store, vigia, notifyFounderMoneyEvent: async (ev) => { recebidos.push(ev.kind); return { ok: true }; },
+  });
+  const p = observador.aoFalhar(recusaDaCasa(), 'chk_1');
+  if (p) await p;
+  expect(recebidos).toEqual(['kind_do_vigia']);
+});
+
 async function medir(resposta) {
   const vigia = vigiaEspiao();
   const observador = criarObservadorDoAdquirente({
