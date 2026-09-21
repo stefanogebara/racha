@@ -23,7 +23,7 @@ const { criarVigiaDoAdquirente, escopoDaFalha } = require('./saude-do-adquirente
 function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = null } = {}) {
   const olho = vigia || criarVigiaDoAdquirente();
 
-  return {
+  const observador = {
     /** Um pagamento passou: a casa está viva, zera a contagem dela. */
     aoPagar(venueId) {
       try { olho.registrarSucesso(venueId); } catch { /* nunca atrapalha o pagamento */ }
@@ -51,10 +51,20 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
        */
       const escopo = escopoDaFalha(err);
       if (escopo === 'nao-e-adquirente' || escopo === 'transitorio') return null;
-      return this._avisar(err, checkId, escopo);
+      // `avisar` e não `this.avisar`: desestruturado por um chamador futuro
+      // (`const { aoFalhar } = adquirente`), o `this` sumia e isto lançava
+      // SÍNCRONO dentro do catch da rota — virando 500 `internal` pra quem
+      // está na mesa, com o docblock acima jurando "não lança NUNCA".
+      return avisar(err, checkId, escopo);
     },
+  };
 
-    async _avisar(err, checkId, escopo) {
+  /**
+   * O corpo do aviso. Função do escopo do `criarObservador`, pra que `aoFalhar`
+   * não dependa de `this` — ver a nota acima.
+   */
+  async function avisar(err, checkId, escopo) {
+    {
       try {
         /**
          * A CASA SÓ É BUSCADA QUANDO ELA IMPORTA.
@@ -77,6 +87,25 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
             const dona = await store.getVenueForCheck(checkId);
             venueId = dona && dona.id;
           } catch { /* sem a casa, cai no balde genérico — melhor que não contar */ }
+        }
+
+        /**
+         * SEM CASA, NÃO CONTA COMO CASA.
+         *
+         * O `venueId` nulo caía num balde compartilhado, então três falhas
+         * ÚNICAS em três casas DIFERENTES — o que acontece justamente quando o
+         * banco está ruim e o adquirente também — paginavam "3 recusas
+         * seguidas nesta casa", sem dizer qual. Página falsa e inacionável, na
+         * pior hora possível. Achado pela revisão de segurança de 2026-09-21
+         * (MEDIUM-3).
+         *
+         * O escopo de plataforma não passa por aqui: ele não precisa de casa.
+         */
+        if (escopo === 'casa' && !venueId) {
+          process.stderr.write(
+            `[adquirente] recusa de casa sem id resolvido (check=${checkId}) — não contada\n`,
+          );
+          return null;
         }
 
         const aviso = olho.registrarFalha(err, venueId);
@@ -118,8 +147,10 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
       } catch {
         return null;   // o aviso é o degrau de baixo; ele nunca derruba a rota
       }
-    },
-  };
+    }
+  }
+
+  return observador;
 }
 
 module.exports = { criarObservadorDoAdquirente };

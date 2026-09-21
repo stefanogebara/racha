@@ -1228,10 +1228,26 @@ async function route(req, res) {
          * `depoisDaResposta` deste arquivo existe pra evitar, escrito ali
          * mesmo. O pager podia simplesmente não sair.
          */
-        // `aoFalhar` devolve `null` quando não há o que avisar — e só aí a
-        // plataforma não precisa segurar a função viva.
+        /**
+         * MESMA ORDEM DO `responderEAvisar`, e pelo mesmo motivo.
+         *
+         * `waitUntil` é NO-OP documentado sem contexto de requisição
+         * (`@vercel/functions` devolve `{}` e o `?.` engole), então pedir pra
+         * viver não garante nada sozinho — o `esperaDisponivel` deste arquivo
+         * existe exatamente pra isso, e eu tinha pegado só a outra metade do
+         * padrão. Sem espera garantida o aviso vai ANTES: lento e entregue
+         * vence rápido e calado, ainda mais aqui, onde a janela de 15 minutos
+         * já foi carimbada. Achado pela revisão de segurança de 2026-09-21
+         * (HIGH-1).
+         *
+         * `aoFalhar` devolve `null` quando não há o que avisar, e aí nada disto
+         * custa nada.
+         */
         const aviso = isDemo ? null : adquirente.aoFalhar(e, view.check.id);
-        if (aviso) depoisDaResposta(aviso);
+        if (aviso) {
+          if (esperaDisponivel()) depoisDaResposta(aviso);
+          else await aviso;
+        }
         throw e;
       }
       // Um pagamento que passa ZERA a contagem da casa — senão "recusas

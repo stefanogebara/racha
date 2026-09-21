@@ -30,6 +30,27 @@ const NOTIFY = fs.readFileSync(path.join(__dirname, '..', '_lib', 'notify.js'), 
 const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
 
 /**
+ * E TODO `_lib` JUNTO — o censo lia só o roteador.
+ *
+ * Quando o vigia do adquirente passou a emitir `account_alert` de dentro de
+ * `_lib/pay/observa-adquirente.js`, o censo cujo trabalho declarado é "nenhum
+ * evento NOVO nasça do lado de cá sem alguém olhar o outro lado" deixou de
+ * cobrir o arquivo onde alertas de dinheiro são emitidos. Nada quebrou na hora
+ * — `account_alert` já estava nas duas listas — e é exatamente por isso que
+ * valia pegar: o censo teria ficado cego em silêncio até o próximo kind.
+ * Achado pela revisão de segurança de 2026-09-21 (MEDIUM-2).
+ */
+function todoOLib(dir, fora = []) {
+  for (const nome of fs.readdirSync(dir)) {
+    const cheio = path.join(dir, nome);
+    if (fs.statSync(cheio).isDirectory()) todoOLib(cheio, fora);
+    else if (nome.endsWith('.js')) fora.push(fs.readFileSync(cheio, 'utf8'));
+  }
+  return fora;
+}
+const EMISSORES = [ROUTER, ...todoOLib(path.join(__dirname, '..', '_lib'))].join('\n');
+
+/**
  * O que `restaurant-ai-mcp/api/racha-notify.js` aceita hoje.
  *
  * FIXTURE à mão porque os dois lados deployam separado — e por isso ela precisa
@@ -120,7 +141,7 @@ describe('a ponte de avisos aceita o que a Racha manda', () => {
     // (`kind: parsed.kind`) falha alto em vez de sumir. Aqui se garante que o
     // caminho literal também não escapa: todo literal escrito no router tem que
     // estar na lista.
-    const literais = [...ROUTER.matchAll(/(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{[\s\S]{0,120}?kind: '([a-z_]+)'/g)]
+    const literais = [...EMISSORES.matchAll(/(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{[\s\S]{0,120}?kind: '([a-z_]+)'/g)]
       .map((m) => m[1]);
     expect(literais.length).toBeGreaterThan(0);
     const forasDaLista = [...new Set(literais)].filter((k) => !KINDS_DE_FUNDADOR.has(k)).sort();
@@ -128,8 +149,8 @@ describe('a ponte de avisos aceita o que a Racha manda', () => {
 
     // E TODO call site foi contabilizado: se um deles passar o kind por
     // variável sem que o remetente valide, isto denuncia a diferença.
-    const chamadas = (ROUTER.match(/(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{/g) || []).length;
-    const dinamicos = (ROUTER.match(/kind: parsed\.kind/g) || []).length;
+    const chamadas = (EMISSORES.match(/(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{/g) || []).length;
+    const dinamicos = (EMISSORES.match(/kind: parsed\.kind/g) || []).length;
     expect(literais.length + dinamicos).toBe(chamadas);
   });
 

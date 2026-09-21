@@ -1,6 +1,7 @@
 'use strict';
 
 const { marketGate, pspCurrency } = require('../markets');
+const { isValidCPF } = require('../br/documento');
 
 /**
  * Create a Pix charge for a share of a check — the money-out gate.
@@ -257,7 +258,27 @@ function createChargeService({ store, psp }) {
     // enviado não é um campo mal preenchido.
     if (payerDocument !== null && String(payerDocument).trim() !== '') {
       payerDocument = String(payerDocument).replace(/\D/g, '');
-      if (!/^\d{11}$/.test(payerDocument)) throw badRequest('CPF inválido (11 dígitos)', 'tax_id_invalid');
+      /**
+       * DÍGITOS VERIFICADORES, não só onze algarismos.
+       *
+       * `isValidCPF` já existe neste repositório e o CLIENTE já o usa — o
+       * servidor não usava, que é o par que o próprio `documento.js` chama de
+       * "clássico" no cabeçalho dele, consertado uma vez pro CNPJ da casa e
+       * nunca trazido pro documento do pagador.
+       *
+       * Não é só higiene de entrada. Um CPF de onze dígitos com verificador
+       * errado passava daqui, a Pagar.me recusava com 4xx, e o vigia do
+       * adquirente contava aquilo como SAÚDE DA CASA: três seguidas e o
+       * fundador era paginado dizendo "recebedor inativo, split desligado —
+       * ninguém paga aqui" sobre um restaurante são. Sem autenticação, com uma
+       * foto do QR, três requisições. É o ataque de gritar lobo contra o
+       * canal que este trilho existe pra proteger.
+       *
+       * E sem ataque nenhum: quem erra um dígito lia "pagamentos indisponíveis
+       * neste restaurante" em vez de "CPF inválido". Achado pela revisão de
+       * segurança de 2026-09-21 (HIGH-2).
+       */
+      if (!isValidCPF(payerDocument)) throw badRequest('CPF inválido', 'tax_id_invalid');
     } else {
       payerDocument = null;
     }

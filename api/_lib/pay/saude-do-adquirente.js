@@ -103,8 +103,21 @@ function escopoDaFalha(err) {
  * comportamento que eles nomeiam.
  */
 function janelaConfigurada() {
-  const cru = Number(process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS);
-  return Number.isFinite(cru) && cru >= 0 ? cru : JANELA_PADRAO_MS;
+  /**
+   * VAZIA É AUSENTE, e zero só se alguém escrever zero.
+   *
+   * `Number('')` é `0`, e `0 >= 0` é verdadeiro — então uma variável que
+   * EXISTE e está em branco (limpar o campo no painel da Vercel em vez de
+   * apagar a variável, que é como isso acontece na prática) desligava o
+   * debounce inteiro. Numa credencial revogada isso é uma página por cobrança
+   * falhada, por instância quente: o sinal soterrado e a cota da ponte
+   * queimada, pelo caminho oposto ao silêncio. Achado pela revisão de
+   * segurança de 2026-09-21 (MEDIUM-1).
+   */
+  const cru = (process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS || '').trim();
+  if (!cru) return JANELA_PADRAO_MS;
+  const n = Number(cru);
+  return Number.isFinite(n) && n >= 0 ? n : JANELA_PADRAO_MS;
 }
 
 function criarVigiaDoAdquirente({
@@ -122,14 +135,6 @@ function criarVigiaDoAdquirente({
 
   return {
     /**
-     * UM SUCESSO ZERA A CASA. Sem isto, "seguidas" seria "acumuladas desde que
-     * a instância subiu", e uma casa saudável com três recusas espalhadas pela
-     * noite avisaria como se estivesse quebrada.
-     *
-     * Não zera o escopo de PLATAFORMA de propósito: naquele a primeira já
-     * avisou, e o que segura o volume é a janela.
-     */
-    /**
      * O AVISO NÃO SAIU. Encurta a janela pra um minuto em vez de deixar a
      * instância calada os 15 acreditando que paginou.
      */
@@ -137,6 +142,14 @@ function criarVigiaDoAdquirente({
       if (chave) ultimoAviso.set(chave, agora() + RECUO_SEM_ENTREGA_MS);
     },
 
+    /**
+     * UM SUCESSO ZERA A CASA. Sem isto, "seguidas" seria "acumuladas desde que
+     * a instância subiu", e uma casa saudável com três recusas espalhadas pela
+     * noite avisaria como se estivesse quebrada.
+     *
+     * Não zera o escopo de PLATAFORMA de propósito: naquele a primeira já
+     * avisou, e o que segura o volume é a janela.
+     */
     registrarSucesso(venueId) {
       if (venueId) seguidas.delete(String(venueId));
     },

@@ -129,6 +129,40 @@ describe('o que NÃO acorda ninguém', () => {
   });
 });
 
+describe('a janela vem da env, e vazia é AUSENTE', () => {
+  const com = (valor, f) => {
+    const antes = process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS;
+    if (valor === undefined) delete process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS;
+    else process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS = valor;
+    try { return f(); } finally {
+      if (antes === undefined) delete process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS;
+      else process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS = antes;
+    }
+  };
+  /** Dois 401 seguidos: com debounce sai UM aviso, sem debounce saem DOIS. */
+  const avisosEmDois = () => {
+    const v = criarVigiaDoAdquirente();
+    return [v.registrarFalha(falha(401)), v.registrarFalha(falha(401))].filter(Boolean).length;
+  };
+
+  /**
+   * `Number('')` é 0, e `0 >= 0` é verdadeiro — então uma variável que EXISTE
+   * e está em branco (limpar o campo no painel em vez de apagar a variável)
+   * desligava o debounce. Numa credencial revogada isso é uma página por
+   * cobrança falhada: o sinal soterrado, pelo caminho oposto ao silêncio.
+   */
+  test.each([[''], ['   '], ['\n'], ['abc'], [undefined]])(
+    'com a env %p, o debounce CONTINUA valendo', (valor) => {
+      expect(com(valor, avisosEmDois)).toBe(1);
+    },
+  );
+
+  test('e um número de verdade é respeitado — senão o teste acima é vácuo', () => {
+    expect(com('0', avisosEmDois)).toBe(2);       // zero explícito: sem debounce
+    expect(com('900000', avisosEmDois)).toBe(1);  // quinze minutos
+  });
+});
+
 describe('o kind é um que a ponte ACEITA hoje', () => {
   /**
    * Não inventar kind novo foi decisão, não preguiça: a ponte deploya de outro
