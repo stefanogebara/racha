@@ -205,6 +205,38 @@ function publicMarketView(code, { servicoBp = 0, cnpj = null } = {}) {
  * `amount_over_max` levam o limite nos `vars`, pra tela poder formatar na
  * moeda certa.
  */
+/**
+ * A GORJETA TEM TETO, E O TETO É O TOTAL DA CONTA.
+ *
+ * `tipCents` só era conferido como inteiro não-negativo, e o `charge.maxCents`
+ * do Brasil é `null` ("Pix não tem teto de esquema"). R$ 90 milhões de
+ * "gorjeta" sobre um item de R$ 1,00 passavam pelo portão de dinheiro, viravam
+ * linha em `payments` e entravam na conciliação — e a gorjeta é o que o
+ * inegociável #2 promete ao restaurante pra distribuir em folha.
+ *
+ * MORA AQUI, E NÃO NUM DOS CHAMADORES, porque nasceu no `create-charge` e
+ * ficou faltando no outro: o `/api/pay/stripe-intent` monta a cobrança inline,
+ * então a MESMA casa dava duas respostas conforme o trilho que a pessoa tocou.
+ * É a forma "chamador esquecido" que este arquivo já consertou pro
+ * `payerLabel`. Achado pela décima segunda revisão de segurança (2026-09-21,
+ * HIGH-1).
+ *
+ * Não mora dentro do `marketGate` porque aquele portão roda ANTES de o razão
+ * ser lido — o total ainda não existe lá. Os dois chamadores chamam isto assim
+ * que têm o estado.
+ *
+ * Teto pelo TOTAL e não pelo valor pago: a cobrança só-gorjeta
+ * (`amountCents: 0`) é caminho legítimo, e amarrar ao valor pago a proibiria.
+ * E sem `totalCents > 0 &&`: um total zero — mesa aberta antes do primeiro
+ * pedido, que é o que os adaptadores de POS vão produzir — desligaria o teto
+ * inteiro, que é a forma `if (coisa && !ok)` de sempre.
+ */
+function tetoDaGorjeta(tipCents, totalCents) {
+  if (!Number.isInteger(totalCents)) return null;   // sem total, sem afirmação
+  if (tipCents > totalCents) return { code: 'amount_invalid' };
+  return null;
+}
+
 function checkChargeLimits(code, amountCents) {
   const m = market(code);
   if (!Number.isInteger(amountCents)) return { code: 'amount_invalid' };
@@ -272,6 +304,9 @@ function marketGate(code, { rail, amountCents, tipCents = 0, venue = null } = {}
   if (market(code).serviceCharge.mode === 'none' && tipCents > 0) {
     return { code: 'tip_not_supported' };
   }
+  // O teto da gorjeta NÃO mora aqui: este portão roda antes de o razão ser
+  // lido, e o total só existe depois. Ver `tetoDaGorjeta`, que os dois
+  // chamadores invocam assim que têm o total.
   // ── SERVIÇO SÓ ONDE HÁ PESSOA JURÍDICA PRA DISTRIBUIR ────────────────────
   //
   // Mora AQUI, e não no `create-charge`, porque `create-charge` não é o funil
@@ -330,6 +365,7 @@ module.exports = {
   checkChargeLimits,
   supportsRail,
   marketGate,
+  tetoDaGorjeta,
   showsVenueTaxId,
   pspCurrency,
   esEnabled,

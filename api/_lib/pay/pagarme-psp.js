@@ -440,7 +440,21 @@ function createPagarmePsp({
          * indo pra tela (nada de "tente de novo"), e ninguém é paginado por
          * uma cobrança isolada que o gateway não conseguiu montar.
          */
-        e.httpStatus = daConta ? 403 : 0;
+        /**
+         * 403 = nossa conta, todas as casas, avisa na primeira.
+         * 422 = ESTA casa, e entra na contagem por contas distintas.
+         *
+         * A versão anterior mandava o não-da-conta pra `0` (transitório), e
+         * `transitorio` sai do observador ANTES de contar qualquer coisa. Ou
+         * seja: a casa cujo recebedor está inativo, com 100% das cobranças
+         * voltando 200-sem-qr_code, não avisava NINGUÉM — nunca, em nenhum
+         * volume, em nenhuma quantidade de mesas. O escopo estava certo e o
+         * balde, errado: o pedido da revisão era distinguir isolado de
+         * sistêmico, e `casa` já faz isso (três contas distintas). Trocar por
+         * silêncio foi o inegociável #8 pela outra ponta. Achado pela décima
+         * segunda revisão de segurança (2026-09-21, HIGH-3).
+         */
+        e.httpStatus = daConta ? 403 : 422;
         // Sem quebra de linha: `reason` é texto de TERCEIRO, e um `\n` no meio
         // inventa uma linha inteira no rastro de um caminho de dinheiro.
         process.stderr.write(

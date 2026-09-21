@@ -352,8 +352,11 @@ describe('o apagão que chega vestido de 200', () => {
    */
   test.each([
     ['Pix nao habilitado na conta', 'plataforma'],
-    ['recipient is not active', 'transitorio'],
-    ['split rejected for recipient', 'transitorio'],
+    // CASA, não transitório: estes são o recebedor daquela casa. Esta tabela
+    // já afirmou `transitorio` pros dois — e com isso PRENDIA o silêncio: a
+    // casa quebrada não avisava ninguém, nunca.
+    ['recipient is not active', 'casa'],
+    ['split rejected for recipient', 'casa'],
   ])('o adaptador classifica %p como %s', async (motivo, esperado) => {
     const { createPagarmePsp } = require('../_lib/pay/pagarme-psp');
     const { escopoDaFalha } = require('../_lib/pay/saude-do-adquirente');

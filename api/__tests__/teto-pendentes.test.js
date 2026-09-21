@@ -418,6 +418,55 @@ describe('o atacante que o teto existe pra parar', () => {
     });
   });
 
+  /**
+   * O TETO DA GORJETA — nos dois chamadores, pelo mesmo motivo do rótulo.
+   *
+   * `tipCents` só era conferido como inteiro não-negativo, e o `charge.maxCents`
+   * do Brasil é `null`. A regra nasceu no `create-charge` e ficou faltando no
+   * `/api/pay/stripe-intent`, que monta a cobrança inline: a MESMA casa dava
+   * duas respostas conforme o trilho que a pessoa tocou, e a gorjeta é o que o
+   * inegociável #2 promete ao restaurante pra distribuir em folha.
+   *
+   * Este bloco existe porque o censo do rótulo, duas telas acima, foi escrito
+   * depois de exatamente esta forma morder o `payerLabel` nesta mesma rota — e
+   * eu não o estendi ao acrescentar a regra nova. Achado pela décima segunda
+   * revisão de segurança (2026-09-21, HIGH-1).
+   */
+  describe('a gorjeta tem teto — nos dois chamadores', () => {
+    const { tetoDaGorjeta } = require('../_lib/markets');
+
+    test('a fábrica de cobrança recusa gorjeta maior que a conta', async () => {
+      const { store, table, charge } = mundo();
+      const check = await contaAberta(store, table);
+      const erro = await charge({
+        checkId: check.id, amountCents: 100, tipCents: 9_000_000_000,
+      }).catch((e) => e);
+      expect(erro).toBeInstanceOf(Error);
+      expect(erro.code).toBe('amount_invalid');
+    });
+
+    test('e a regra tem UMA definição, que os dois caminhos chamam', () => {
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const cc = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'create-charge.js'), 'utf8');
+      const rota = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
+      // Os dois CHAMAM o predicado; nenhum reimplementa o limite.
+      expect(cc).toMatch(/tetoDaGorjeta\(tipCents, state\.totalCents\)/);
+      expect(rota).toMatch(/tetoDaGorjeta\(tipCents, state\.totalCents\)/);
+    });
+
+    test('o predicado: o total é o teto, e só-gorjeta continua passando', () => {
+      expect(tetoDaGorjeta(9_000_000_000, 10_000)).toMatchObject({ code: 'amount_invalid' });
+      expect(tetoDaGorjeta(800, 10_000)).toBeNull();     // só-gorjeta legítima
+      expect(tetoDaGorjeta(10_000, 10_000)).toBeNull();  // no limite, passa
+      // Total ZERO não desliga o teto — a forma `if (coisa && !ok)` que este
+      // repositório já pagou pra aprender.
+      expect(tetoDaGorjeta(1, 0)).toMatchObject({ code: 'amount_invalid' });
+      // Sem total conhecido não dá pra afirmar nada.
+      expect(tetoDaGorjeta(1, null)).toBeNull();
+    });
+  });
+
   test('ponta a ponta no router: corpos inválidos e depois um cliente de verdade paga', async () => {
     // A camada por origem da forma anterior contava ANTES da validação: 90
     // corpos lixo do mesmo IP trancavam quem estava no wi-fi. Sem camada em

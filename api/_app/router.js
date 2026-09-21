@@ -1367,6 +1367,18 @@ async function route(req, res) {
       // buraco era invisível pro `npx jest`. Inegociável #7, na letra: a
       // guarda que nunca dispara no caminho que importa.
       const gate = marketGate(venue.market, { rail, amountCents, tipCents, venue });
+      /**
+       * O TETO DA GORJETA, aqui também.
+       *
+       * Este chamador monta a cobrança inline e não passa pelo `create-charge`,
+       * então a regra que nasceu lá não valia aqui: a MESMA casa dava duas
+       * respostas conforme o trilho que a pessoa tocou. Definição única em
+       * `markets.js` (segurança, 2026-09-21, HIGH-1).
+       */
+      const tetoTip = tetoDaGorjeta(tipCents, state.totalCents);
+      if (tetoTip) {
+        return json(res, 400, { success: false, code: tetoTip.code });
+      }
       if (gate) {
         return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
       }
@@ -1472,7 +1484,12 @@ async function route(req, res) {
         if (mapped) {
           const lim = market(venue.market).charge;
           return json(res, 400, {
-            success: false, error: e.message, code: mapped,
+            // SEM `e.message`: é a frase da Stripe, em inglês e com o valor
+            // já formatado ("Amount must be no less than 0.50 EUR"). O acordo
+            // do CLAUDE.md é código estável e centavos crus — e o `code` e os
+            // `vars` pra formatar já estão aqui do lado. Achado pela décima
+            // segunda revisão de segurança (2026-09-21, LOW-3).
+            success: false, code: mapped,
             vars: mapped === 'amount_under_min' ? { minCents: lim.minCents } : { maxCents: lim.maxCents },
           });
         }

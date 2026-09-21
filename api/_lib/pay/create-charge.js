@@ -1,7 +1,10 @@
 'use strict';
 
-const { marketGate, pspCurrency } = require('../markets');
+const { marketGate, pspCurrency, tetoDaGorjeta } = require('../markets');
 const { isValidCPF } = require('../br/documento');
+
+/** Controle e DEL: o que envenena log e cabeçalho. */
+const CONTROLE = /[\u0000-\u001F\u007F]/;
 
 /**
  * Create a Pix charge for a share of a check — the money-out gate.
@@ -362,8 +365,34 @@ function createChargeService({ store, psp }) {
      * espanhola com o PSP errado responder `card_token_invalid`, escondendo a
      * configuração quebrada atrás de um detalhe do corpo. A suíte me desmentiu.
      */
-    if (wallet !== null && !/^[A-Za-z0-9_-]{8,256}$/.test(String(paymentToken || ''))) {
-      throw badRequest('token de pagamento inválido', 'card_token_invalid');
+    /**
+     * NÃO SE INVENTA FORMA PRO BLOB DE TERCEIRO.
+     *
+     * A primeira versão disto era `/^[A-Za-z0-9_-]{8,256}$/`, e ela recusava
+     * TODO token real do Google Pay. Em `PAYMENT_GATEWAY` — que é o modo que o
+     * `WalletPay.tsx` usa — o token não é um identificador: é o envelope JSON
+     * assinado do Google, de 1 a 3 KB, cheio de chaves, aspas, dois-pontos,
+     * barras e sinais de igual. Medido: um envelope realista de 1.554
+     * caracteres dá `false`.
+     *
+     * Ou seja, no dia em que o primeiro id entrasse em `RACHA_WALLET_VENUES` —
+     * o passo que o comentário anterior chamava de "nomeado e iminente" — todo
+     * toque de Google Pay levaria 400 do NOSSO portão, antes do adquirente.
+     * Botão morto, que é o anti-padrão escrito no próprio `WalletPay.tsx`. E
+     * invisível hoje porque o trilho está desligado e as fixtures usam a forma
+     * do demo. Achado pela décima segunda revisão de segurança (2026-09-21).
+     *
+     * O que dá pra afirmar sem conhecer o formato alheio: é string, tem
+     * tamanho de gente, e não carrega caractere de controle nem quebra de
+     * linha (que é o que envenena log e cabeçalho). A intenção original —
+     * manter falha de ENTRADA NOSSA fora da saúde da casa — se resolve na
+     * CLASSIFICAÇÃO, não no charset.
+     */
+    if (wallet !== null) {
+      const tokenOk = typeof paymentToken === 'string'
+        && paymentToken.length >= 8 && paymentToken.length <= 8192
+        && !CONTROLE.test(paymentToken);
+      if (!tokenOk) throw badRequest('token de pagamento inválido', 'card_token_invalid');
     }
 
     /**
@@ -410,30 +439,10 @@ function createChargeService({ store, psp }) {
     // Uma regra, um lugar: ver `api/_lib/markets.js`.
 
     const state = reduce(await store.loadEvents(checkId));
-    /**
-     * A GORJETA TEM TETO, e o teto é O TOTAL DA CONTA.
-     *
-     * `tipCents` só era conferido como inteiro não-negativo, e o `maxCents` do
-     * mercado brasileiro é `null` ("Pix não tem teto de esquema"). Então
-     * `tipCents: 9_000_000_000` sobre um item de R$ 1,00 passava pelo nosso
-     * portão de dinheiro, virava linha em `payments` e entrava na conciliação.
-     *
-     * Era também o caminho de volta do ataque de gritar lobo: o adquirente
-     * recusa com 4xx e a contagem por casa paginava o fundador dizendo que um
-     * restaurante são não cobra. Fechar o `payerDocument` fechou um CAMPO;
-     * isto fecha o segundo, e o corte por contas distintas no vigia fecha a
-     * CLASSE.
-     *
-     * O teto é o total da conta, e NÃO o valor que esta pessoa está pagando: a
-     * cobrança só-gorjeta (`amountCents: 0`) é um caminho legítimo e
-     * deliberado — quem não comeu mas deixa os 10% —, e amarrar ao valor pago
-     * a proibiria. Uma gorjeta maior que a conta inteira não é gorjeta.
-     * Achado pela re-revisão de segurança (2026-09-21, HIGH-3); o recorte pelo
-     * total veio de a suíte me desmentir sobre o caminho só-gorjeta.
-     */
-    if (state.totalCents > 0 && tipCents > state.totalCents) {
-      throw badRequest('gorjeta maior que a conta', 'amount_invalid');
-    }
+    // O teto da gorjeta, assim que o total existe. Definição única em
+    // `markets.js`, chamada pelos DOIS caminhos de cobrança.
+    const tetoTip = tetoDaGorjeta(tipCents, state.totalCents);
+    if (tetoTip) throw badRequest('gorjeta maior que a conta', tetoTip.code);
     if (!state) throw badRequest('check has no events', 'check_not_found');
     if (state.status === 'fechada') throw badRequest('check is closed', 'check_closed');
     const remaining = remainingCents(state);

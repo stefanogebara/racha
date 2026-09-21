@@ -176,6 +176,21 @@ describe('a janela vem da env, e vazia é AUSENTE', () => {
     },
   );
 
+  /**
+   * O TETO DA JANELA tem que ser medido, senão o conserto de "o pager pode
+   * virar no-op por configuração" pode ele mesmo ser apagado sem nada ficar
+   * vermelho. `TETO_DA_JANELA_MS` e `janelaConfigurada` foram exportados pra
+   * teste e depois não testados (segurança, 2026-09-21, MEDIUM-3).
+   */
+  test('dez dias viram uma hora — a alavanca não desliga o pager', () => {
+    const { janelaConfigurada, TETO_DA_JANELA_MS } = require('../_lib/pay/saude-do-adquirente');
+    expect(TETO_DA_JANELA_MS).toBe(3_600_000);
+    expect(com('864000000', janelaConfigurada)).toBe(3_600_000);
+    expect(com('3600001', janelaConfigurada)).toBe(3_600_000);
+    // E abaixo do teto o valor passa inteiro.
+    expect(com('120000', janelaConfigurada)).toBe(120_000);
+  });
+
   test('e um número de verdade é respeitado — senão o teste acima é vácuo', () => {
     expect(com('0', avisosEmDois)).toBe(2);       // zero explícito: sem debounce
     expect(com('900000', avisosEmDois)).toBe(1);  // quinze minutos

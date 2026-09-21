@@ -85,7 +85,14 @@ describe('wallet charges (Apple Pay / Google Pay)', () => {
   test('token malformado para no NOSSO portão, sem chegar no adquirente', async () => {
     const { store, charge, table } = setup();
     const check = await store.openCheck(table.qrToken, [{ id: 'a', name: 'A', priceCents: 5000 }]);
-    for (const ruim of ['garbage', null, 'x', 'tok com espaço', 'a'.repeat(300)]) {
+    /**
+     * O QUE O NOSSO PORTÃO AFIRMA, e só isso: é string, tem tamanho de gente,
+     * e não carrega controle. O CHARSET é do Google — em `PAYMENT_GATEWAY` o
+     * token é um envelope JSON de 1 a 3 KB, e a versão anterior deste portão
+     * exigia `[A-Za-z0-9_-]`, o que recusaria TODO token real.
+     */
+    const comControle = `tok_abc${String.fromCharCode(10)}def`;
+    for (const ruim of ['garbage', null, 'x', 7, comControle, 'a'.repeat(9000)]) {
       await expect(charge({
         checkId: check.id, amountCents: 1000, wallet: 'google_pay', paymentToken: ruim,
       })).rejects.toMatchObject({ statusCode: 400, code: 'card_token_invalid' });
@@ -96,10 +103,29 @@ describe('wallet charges (Apple Pay / Google Pay)', () => {
   test('token BEM FORMADO que o emissor recusa segue 402, nada registrado', async () => {
     const { store, charge, table } = setup();
     const check = await store.openCheck(table.qrToken, [{ id: 'a', name: 'A', priceCents: 5000 }]);
-    // Passa no nosso portão (formato) e é recusado pelo mock (não é `tok_…`).
+    // Passa no nosso portão e é recusado pelo mock (não é `tok_…`).
     await expect(charge({
       checkId: check.id, amountCents: 1000, wallet: 'google_pay', paymentToken: 'recusado1234',
     })).rejects.toMatchObject({ statusCode: 402 });
+
+    /**
+     * E O ENVELOPE DE VERDADE ATRAVESSA O NOSSO PORTÃO.
+     *
+     * É a asserção que faltava: sem ela, o portão podia recusar todo token do
+     * Google Pay e a suíte ficava verde, porque as fixtures usavam a forma do
+     * demo (`tok_…`). No dia do primeiro id em `RACHA_WALLET_VENUES`, botão
+     * morto.
+     */
+    const envelope = JSON.stringify({
+      signature: `MEUCIQ${'A'.repeat(90)}`,
+      protocolVersion: 'ECv2',
+      signedMessage: JSON.stringify({ encryptedMessage: 'b'.repeat(1200) }),
+    });
+    expect(envelope.length).toBeGreaterThan(1000);
+    await expect(charge({
+      checkId: check.id, amountCents: 1000, wallet: 'google_pay', paymentToken: envelope,
+    })).rejects.toMatchObject({ statusCode: 402 });   // recusa do MOCK, não nossa
+
     expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(0);
   });
 

@@ -43,8 +43,13 @@ const ROUTER = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 
 function todoOLib(dir, fora = []) {
   for (const nome of fs.readdirSync(dir)) {
     const cheio = path.join(dir, nome);
-    if (fs.statSync(cheio).isDirectory()) todoOLib(cheio, fora);
-    else if (nome.endsWith('.js')) fora.push(fs.readFileSync(cheio, 'utf8'));
+    if (fs.statSync(cheio).isDirectory()) { todoOLib(cheio, fora); continue; }
+    // Por CAMINHO, não por conteúdo: a primeira versão filtrava quem contivesse
+    // a frase `MONEY EVENT ALERT`, que é o prefixo de log da casa — então o
+    // próximo emissor que a copiasse sairia do censo em silêncio, que é
+    // exatamente o modo de falha que este censo existe pra pegar.
+    if (nome === 'notify.js') continue;   // o REMETENTE, não um emissor
+    if (nome.endsWith('.js')) fora.push(fs.readFileSync(cheio, 'utf8'));
   }
   return fora;
 }
@@ -59,10 +64,7 @@ function todoOLib(dir, fora = []) {
  * coincidência, e apagar aquela linha do `webhook-handler` reprovava este
  * censo por nada. Achado pela re-revisão de segurança (2026-09-21).
  */
-const EMISSORES = [
-  ROUTER,
-  ...todoOLib(path.join(__dirname, '..', '_lib')).filter((t) => !t.includes('MONEY EVENT ALERT')),
-].join('\n');
+const EMISSORES = [ROUTER, ...todoOLib(path.join(__dirname, '..', '_lib'))].join('\n');
 
 /**
  * O que `restaurant-ai-mcp/api/racha-notify.js` aceita hoje.
