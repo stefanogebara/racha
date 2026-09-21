@@ -76,12 +76,12 @@ describe('a credencial revogada avisa na PRIMEIRA', () => {
 });
 
 describe('a casa quebrada avisa no N', () => {
-  test(`uma recusa não é notícia; ${SEGUIDAS_POR_CASA} seguidas são`, () => {
+  test(`uma conta não é notícia; ${SEGUIDAS_POR_CASA} contas são`, () => {
     const v = criarVigiaDoAdquirente();
     for (let i = 1; i < SEGUIDAS_POR_CASA; i += 1) {
-      expect(v.registrarFalha(falha(422), 'casa-a')).toBeNull();
+      expect(v.registrarFalha(falha(422), 'casa-a', `conta-${i}`)).toBeNull();
     }
-    const aviso = v.registrarFalha(falha(422), 'casa-a');
+    const aviso = v.registrarFalha(falha(422), 'casa-a', `conta-${SEGUIDAS_POR_CASA}`);
     expect(aviso).not.toBeNull();
     expect(aviso.escopo).toBe('casa');
     expect(aviso.venueId).toBe('casa-a');
@@ -89,26 +89,45 @@ describe('a casa quebrada avisa no N', () => {
 
   test('SEGUIDAS quer dizer seguidas — um sucesso zera', () => {
     const v = criarVigiaDoAdquirente();
-    v.registrarFalha(falha(422), 'casa-a');
-    v.registrarFalha(falha(422), 'casa-a');
+    v.registrarFalha(falha(422), 'casa-a', 'conta-1');
+    v.registrarFalha(falha(422), 'casa-a', 'conta-2');
     v.registrarSucesso('casa-a');
     // Sem o zerar, esta terceira dispararia — e a casa está pagando.
-    expect(v.registrarFalha(falha(422), 'casa-a')).toBeNull();
+    expect(v.registrarFalha(falha(422), 'casa-a', 'conta-3')).toBeNull();
+  });
+
+  /**
+   * A MESMA CONTA, MUITAS VEZES, NÃO É NOTÍCIA — é o ataque de um QR só.
+   * Quem está numa mesa tem UMA conta e não consegue fabricar três; uma casa
+   * quebrada de verdade falha em todas as mesas.
+   */
+  test('a mesma conta repetida nunca chega a avisar', () => {
+    const v = criarVigiaDoAdquirente();
+    for (let i = 0; i < 50; i += 1) {
+      expect(v.registrarFalha(falha(422), 'casa-a', 'a-mesma-conta')).toBeNull();
+    }
+  });
+
+  test('e sem conta identificada não conta — não dá pra atribuir', () => {
+    const v = criarVigiaDoAdquirente();
+    for (let i = 0; i < 50; i += 1) {
+      expect(v.registrarFalha(falha(422), 'casa-a', null)).toBeNull();
+    }
   });
 
   test('as casas contam separado — a de uma não acusa a outra', () => {
     const v = criarVigiaDoAdquirente();
     for (let i = 0; i < SEGUIDAS_POR_CASA; i += 1) {
-      expect(v.registrarFalha(falha(422), `casa-${i}`)).toBeNull();
+      expect(v.registrarFalha(falha(422), `casa-${i}`, `conta-${i}`)).toBeNull();
     }
   });
 
   test('e o sucesso de uma casa não zera a outra', () => {
     const v = criarVigiaDoAdquirente();
-    v.registrarFalha(falha(422), 'casa-a');
-    v.registrarFalha(falha(422), 'casa-a');
+    v.registrarFalha(falha(422), 'casa-a', 'conta-1');
+    v.registrarFalha(falha(422), 'casa-a', 'conta-2');
     v.registrarSucesso('casa-b');
-    expect(v.registrarFalha(falha(422), 'casa-a')).not.toBeNull();
+    expect(v.registrarFalha(falha(422), 'casa-a', 'conta-3')).not.toBeNull();
   });
 });
 
@@ -116,7 +135,7 @@ describe('o que NÃO acorda ninguém', () => {
   test.each([[0], [429], [500], [503]])('%i, por mais que se repita', (h) => {
     const v = criarVigiaDoAdquirente();
     for (let i = 0; i < 100; i += 1) {
-      expect(v.registrarFalha(falha(h), 'casa-a')).toBeNull();
+      expect(v.registrarFalha(falha(h), 'casa-a', `conta-${i}`)).toBeNull();
     }
   });
 
@@ -124,7 +143,7 @@ describe('o que NÃO acorda ninguém', () => {
     const v = criarVigiaDoAdquirente();
     const nosso = Object.assign(new Error('carteira desconhecida'), { statusCode: 400, code: 'rail_unsupported' });
     for (let i = 0; i < 10; i += 1) {
-      expect(v.registrarFalha(nosso, 'casa-a')).toBeNull();
+      expect(v.registrarFalha(nosso, 'casa-a', `conta-${i}`)).toBeNull();
     }
   });
 });

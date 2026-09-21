@@ -260,7 +260,12 @@ describe('portões de dinheiro por mercado', () => {
       const table = await store.seedTable(venue.id, 'Mesa 1');
       const check = await store.openCheck(table.qrToken, [{ id: 'i', name: 'Item', priceCents: 2450 }]);
       const charge = createChargeService({ store, psp: spy });
-      await charge({ checkId: check.id, amountCents: 2450, wallet: 'apple_pay' });
+      // COM token: uma cobrança de carteira sem token não é uma cobrança de
+      // carteira — a Pagar.me a recusaria, e desde 2026-09-21 o nosso portão
+      // também, antes de gastar vaga e antes de falar com o adquirente.
+      await charge({
+        checkId: check.id, amountCents: 2450, wallet: 'apple_pay', paymentToken: 'tok_abcdefgh',
+      });
       expect(seen[seen.length - 1]).toBe(expected);
     }
   });

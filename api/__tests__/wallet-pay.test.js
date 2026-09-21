@@ -71,14 +71,34 @@ describe('wallet charges (Apple Pay / Google Pay)', () => {
     expect(panel.today.tipsCents).toBe(600);
   });
 
-  test('decline: token inválido → 402, nada registrado', async () => {
+  /**
+   * DUAS COISAS DIFERENTES, e a versão anterior deste teste juntava as duas.
+   *
+   * Token MALFORMADO é recusa NOSSA, e ela passou a acontecer no portão —
+   * antes da vaga de cobrança e antes de o adquirente ver qualquer coisa. Isso
+   * importa porque um 4xx do adquirente conta na saúde da casa: qualquer campo
+   * que o cliente controla e que provoque 4xx era caminho pra paginar o
+   * fundador sobre um restaurante são (re-revisão de segurança, 2026-09-21).
+   *
+   * Token BEM FORMADO que o emissor recusa é 402, e continua sendo.
+   */
+  test('token malformado para no NOSSO portão, sem chegar no adquirente', async () => {
     const { store, charge, table } = setup();
     const check = await store.openCheck(table.qrToken, [{ id: 'a', name: 'A', priceCents: 5000 }]);
+    for (const ruim of ['garbage', null, 'x', 'tok com espaço', 'a'.repeat(300)]) {
+      await expect(charge({
+        checkId: check.id, amountCents: 1000, wallet: 'google_pay', paymentToken: ruim,
+      })).rejects.toMatchObject({ statusCode: 400, code: 'card_token_invalid' });
+    }
+    expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(0);
+  });
+
+  test('token BEM FORMADO que o emissor recusa segue 402, nada registrado', async () => {
+    const { store, charge, table } = setup();
+    const check = await store.openCheck(table.qrToken, [{ id: 'a', name: 'A', priceCents: 5000 }]);
+    // Passa no nosso portão (formato) e é recusado pelo mock (não é `tok_…`).
     await expect(charge({
-      checkId: check.id, amountCents: 1000, wallet: 'google_pay', paymentToken: 'garbage',
-    })).rejects.toMatchObject({ statusCode: 402 });
-    await expect(charge({
-      checkId: check.id, amountCents: 1000, wallet: 'google_pay', paymentToken: null,
+      checkId: check.id, amountCents: 1000, wallet: 'google_pay', paymentToken: 'recusado1234',
     })).rejects.toMatchObject({ statusCode: 402 });
     expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(0);
   });

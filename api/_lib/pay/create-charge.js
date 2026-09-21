@@ -350,6 +350,23 @@ function createChargeService({ store, psp }) {
       throw badRequest(`psp ${psp.provider || '?'} não serve o trilho ${rail}`, 'rail_unsupported');
     }
     /**
+     * O TOKEN DA CARTEIRA TEM FORMA, conferida DEPOIS do portão de mercado.
+     *
+     * O adaptador só recusa não-string e comprimento menor que 8, então
+     * `'forjado-0123456789'` chegava ao `POST /orders` e voltava 4xx — o mesmo
+     * caminho de gritar lobo, latente até o primeiro id entrar em
+     * `RACHA_WALLET_VENUES`, que é passo nomeado e iminente.
+     *
+     * A ORDEM importa: erro de MERCADO (moeda, trilho não servido) é sobre a
+     * casa e vence sobre a forma do pedido — pôr isto antes fazia uma mesa
+     * espanhola com o PSP errado responder `card_token_invalid`, escondendo a
+     * configuração quebrada atrás de um detalhe do corpo. A suíte me desmentiu.
+     */
+    if (wallet !== null && !/^[A-Za-z0-9_-]{8,256}$/.test(String(paymentToken || ''))) {
+      throw badRequest('token de pagamento inválido', 'card_token_invalid');
+    }
+
+    /**
      * O ADAPTADOR DECLARA SE A CARTEIRA DELE CAPTURA — e não declarar é
      * configuração errada, não passe livre.
      *
@@ -393,6 +410,30 @@ function createChargeService({ store, psp }) {
     // Uma regra, um lugar: ver `api/_lib/markets.js`.
 
     const state = reduce(await store.loadEvents(checkId));
+    /**
+     * A GORJETA TEM TETO, e o teto é O TOTAL DA CONTA.
+     *
+     * `tipCents` só era conferido como inteiro não-negativo, e o `maxCents` do
+     * mercado brasileiro é `null` ("Pix não tem teto de esquema"). Então
+     * `tipCents: 9_000_000_000` sobre um item de R$ 1,00 passava pelo nosso
+     * portão de dinheiro, virava linha em `payments` e entrava na conciliação.
+     *
+     * Era também o caminho de volta do ataque de gritar lobo: o adquirente
+     * recusa com 4xx e a contagem por casa paginava o fundador dizendo que um
+     * restaurante são não cobra. Fechar o `payerDocument` fechou um CAMPO;
+     * isto fecha o segundo, e o corte por contas distintas no vigia fecha a
+     * CLASSE.
+     *
+     * O teto é o total da conta, e NÃO o valor que esta pessoa está pagando: a
+     * cobrança só-gorjeta (`amountCents: 0`) é um caminho legítimo e
+     * deliberado — quem não comeu mas deixa os 10% —, e amarrar ao valor pago
+     * a proibiria. Uma gorjeta maior que a conta inteira não é gorjeta.
+     * Achado pela re-revisão de segurança (2026-09-21, HIGH-3); o recorte pelo
+     * total veio de a suíte me desmentir sobre o caminho só-gorjeta.
+     */
+    if (state.totalCents > 0 && tipCents > state.totalCents) {
+      throw badRequest('gorjeta maior que a conta', 'amount_invalid');
+    }
     if (!state) throw badRequest('check has no events', 'check_not_found');
     if (state.status === 'fechada') throw badRequest('check is closed', 'check_closed');
     const remaining = remainingCents(state);

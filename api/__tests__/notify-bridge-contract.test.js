@@ -48,7 +48,21 @@ function todoOLib(dir, fora = []) {
   }
   return fora;
 }
-const EMISSORES = [ROUTER, ...todoOLib(path.join(__dirname, '..', '_lib'))].join('\n');
+/**
+ * O `notify.js` fica de FORA: ele é o remetente, não um emissor.
+ *
+ * Dentro do corpo, ele contribuía duas `chamadas` falsas — um comentário que
+ * cita o padrão e a própria DECLARAÇÃO `async function notifyFounderMoneyEvent({
+ * kind, …`, que o regex não distingue de uma chamada — compensadas por duas
+ * `dinamicos` falsas (outro comentário e um `kind: parsed.kind` do
+ * `webhook-handler` que vai pra OUTRO destinatário). 2 + 5 = 7 fechava por
+ * coincidência, e apagar aquela linha do `webhook-handler` reprovava este
+ * censo por nada. Achado pela re-revisão de segurança (2026-09-21).
+ */
+const EMISSORES = [
+  ROUTER,
+  ...todoOLib(path.join(__dirname, '..', '_lib')).filter((t) => !t.includes('MONEY EVENT ALERT')),
+].join('\n');
 
 /**
  * O que `restaurant-ai-mcp/api/racha-notify.js` aceita hoje.
@@ -150,7 +164,17 @@ describe('a ponte de avisos aceita o que a Racha manda', () => {
     // E TODO call site foi contabilizado: se um deles passar o kind por
     // variável sem que o remetente valide, isto denuncia a diferença.
     const chamadas = (EMISSORES.match(/(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{/g) || []).length;
-    const dinamicos = (EMISSORES.match(/kind: parsed\.kind/g) || []).length;
+    /**
+     * DENTRO da chamada de aviso, não solto no arquivo.
+     *
+     * `kind: parsed.kind` também aparece num `recordPayment(...)` do
+     * `webhook-handler` — outro destinatário, nada a ver com a ponte. Contado
+     * solto, ele inflava `dinamicos` e o invariante só fechava porque outra
+     * contagem estava inflada na mesma medida.
+     */
+    const dinamicos = [...EMISSORES.matchAll(
+      /(?:notifyFounderMoneyEvent|avisarEventoDeDinheiro)\(\{[\s\S]{0,120}?kind: parsed\.kind/g,
+    )].length;
     expect(literais.length + dinamicos).toBe(chamadas);
   });
 

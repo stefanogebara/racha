@@ -64,8 +64,7 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
    * não dependa de `this` — ver a nota acima.
    */
   async function avisar(err, checkId, escopo) {
-    {
-      try {
+    try {
         /**
          * A CASA SÓ É BUSCADA QUANDO ELA IMPORTA.
          *
@@ -108,7 +107,7 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
           return null;
         }
 
-        const aviso = olho.registrarFalha(err, venueId);
+        const aviso = olho.registrarFalha(err, venueId, checkId);
         if (!aviso) return null;
 
         // O stderr primeiro: se a ponte estiver fora, ainda resta rastro.
@@ -144,9 +143,8 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
         }
         if (!entregue) olho.naoEntregue(aviso.chave);
         return aviso;
-      } catch {
-        return null;   // o aviso é o degrau de baixo; ele nunca derruba a rota
-      }
+    } catch {
+      return null;   // o aviso é o degrau de baixo; ele nunca derruba a rota
     }
   }
 

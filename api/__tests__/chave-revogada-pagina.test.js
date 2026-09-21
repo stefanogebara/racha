@@ -18,7 +18,15 @@
 // ANTES de o roteador carregar: o observador é um singleton de módulo, e com a
 // janela de produção o primeiro caso deste arquivo calaria todos os outros.
 // Zero = sem debounce, que é o que estes testes querem medir.
+const JANELA_ANTES = process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS;
 process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS = '0';
+// O jest reaproveita processos entre arquivos, e este repositório tem um
+// intermitente em aberto cuja investigação procurou justamente contaminação de
+// env. Duas linhas pra não acrescentar uma.
+afterAll(() => {
+  if (JANELA_ANTES === undefined) delete process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS;
+  else process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS = JANELA_ANTES;
+});
 
 const { Readable } = require('node:stream');
 
@@ -45,13 +53,13 @@ notify.notifyFounderMoneyEvent = async (a) => {
   return respostaDaPonte;
 };
 
-const { route, store, psp } = require('../_app/router');
+const { route, store, psp, demoPsp } = require('../_app/router');
 
-function pedir(body) {
+function pedir(body, method = 'POST', url = '/api/pay') {
   return new Promise((resolve) => {
-    const req = Object.assign(Readable.from([JSON.stringify(body)]), {
-      method: 'POST',
-      url: '/api/pay',
+    const req = Object.assign(Readable.from([body ? JSON.stringify(body) : '']), {
+      method,
+      url,
       headers: { 'content-type': 'application/json', 'x-forwarded-for': '8.8.8.8' },
       socket: { remoteAddress: '8.8.8.8' },
     });
@@ -140,17 +148,54 @@ describe('a chave revogada pagina alguém', () => {
    * A exclusão estava sem teste: apagá-la deixava a suíte verde, e ela só era
    * inerte por sorte (os erros do mock não carregam `httpStatus`).
    */
+  /**
+   * E ESTE TESTE JÁ FOI INERTE, de dois jeitos ao mesmo tempo.
+   *
+   *  1. a demo cobra pelo `demoPsp` — um MockPsp SEPARADO —, então trocar
+   *     `psp.createPixCharge` não alcançava nada;
+   *  2. a conta da demo só se auto-cura no `GET /api/check`, então o `POST`
+   *     sozinho devolvia 404 `check_not_found` e o teste afirmava "zero
+   *     avisos" sobre uma requisição que nunca chegou ao catch.
+   *
+   * Apagar a exclusão da demo do roteador deixava a suíte verde. Achado pela
+   * re-revisão de segurança (2026-09-21, MEDIUM-1).
+   */
   test('a mesa de demonstração nunca acorda ninguém', async () => {
-    const { DEMO_TABLE_TOKEN } = require('../_lib/demo');
-    const original = psp.createPixCharge;
-    psp.createPixCharge = async () => {
-      throw Object.assign(new Error('mock'), { statusCode: 402, code: 'psp_rejected', httpStatus: 401 });
+    // `DEMO_TOKEN` é o nome EXPORTADO. Pedir `DEMO_TABLE_TOKEN` (o nome que o
+    // roteador usa internamente) devolve `undefined`, e aí a requisição vai com
+    // token vazio e morre em 404 — foi assim que a primeira versão deste teste,
+    // e a irmã no `interruptor-da-carteira`, ficaram inertes.
+    const { DEMO_TOKEN: DEMO_TABLE_TOKEN, ensureDemoCheck } = require('../_lib/demo');
+    // A conta da demo precisa EXISTIR: sem ela o POST devolve 404
+    // `check_not_found` e o teste afirmaria "zero avisos" sobre uma
+    // requisição que nunca chegou ao catch — que era o defeito.
+    await ensureDemoCheck(store, DEMO_TABLE_TOKEN);
+
+    /**
+     * O `demoPsp` falha com `httpStatus` DE PROPÓSITO.
+     *
+     * Sem isso o caso seria inerte por sorte: os erros do MockPsp não carregam
+     * `httpStatus`, então o vigia os ignoraria mesmo se a isenção da demo
+     * fosse apagada — e o teste continuaria verde sobre um guarda que sumiu.
+     */
+    const original = demoPsp.createPixCharge;
+    demoPsp.createPixCharge = async () => {
+      throw Object.assign(new Error('demo'), {
+        statusCode: 402, code: 'psp_rejected', httpStatus: 401,
+      });
     };
+    let r;
     try {
-      await pedir({ token: DEMO_TABLE_TOKEN, amountCents: 500, tipCents: 0, payerDocument: '52998224725' });
+      r = await pedir({
+        token: DEMO_TABLE_TOKEN, amountCents: 500, tipCents: 0, payerDocument: '52998224725',
+      });
       await deixarOAvisoSair();
-      expect(avisos).toHaveLength(0);
-    } finally { psp.createPixCharge = original; }
+    } finally { demoPsp.createPixCharge = original; }
+
+    // Chegou de fato à cobrança — não parou num 404, que é o que tornava o
+    // caso anterior vácuo.
+    expect(r.corpo.code).not.toBe('check_not_found');
+    expect(avisos).toHaveLength(0);
   });
 
   test('um soluço de rede NÃO acorda ninguém', async () => {
@@ -296,15 +341,40 @@ describe('o apagão que chega vestido de 200', () => {
     } finally { psp.createPixCharge = original; }
   });
 
-  test('e o adaptador de verdade marca esse erro — não só o dublê', () => {
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const fonte = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'pagarme-psp.js'), 'utf8');
-    const i = fonte.indexOf('sem qr_code');
-    expect(i).toBeGreaterThan(0);
-    const bloco = fonte.slice(i, i + 900);
-    expect(bloco).toMatch(/httpStatus = 403/);
-    expect(bloco).toMatch(/code = 'psp_rejected'/);
+  /**
+   * O ADAPTADOR DE VERDADE, medido — e pelo MOTIVO, não pela forma da falha.
+   *
+   * A versão anterior grepava `httpStatus = 403` na fonte. Além de ser censo
+   * de texto, ela congelava a resposta errada: `!qr_code` também cobre causa
+   * de UMA casa (recebedor inativo, split recusado), e mandar tudo pro balde
+   * de plataforma paginava "nenhuma casa consegue cobrar — confira a chave"
+   * na primeira ocorrência, sobre uma chave que está boa.
+   */
+  test.each([
+    ['Pix nao habilitado na conta', 'plataforma'],
+    ['recipient is not active', 'transitorio'],
+    ['split rejected for recipient', 'transitorio'],
+  ])('o adaptador classifica %p como %s', async (motivo, esperado) => {
+    const { createPagarmePsp } = require('../_lib/pay/pagarme-psp');
+    const { escopoDaFalha } = require('../_lib/pay/saude-do-adquirente');
+    const adaptador = createPagarmePsp({
+      secretKey: `sk_test_${'x'.repeat(20)}`,
+      webhookBasicAuth: 'racha:senha',
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          charges: [{ id: 'ch_1', status: 'failed', last_transaction: { gateway_response: { errors: [{ message: motivo }] } } }],
+        }),
+      }),
+    });
+    const erro = await adaptador.createPixCharge({
+      chargeRef: 'c:0:100:0', amountCents: 100, tipCents: 0,
+      recipientId: 're_x', currency: 'brl', payerDocument: '52998224725',
+    }).catch((e) => e);
+    // A tela lê o mesmo nos dois casos: nada de "tente de novo".
+    expect(erro.code).toBe('psp_rejected');
+    expect(escopoDaFalha(erro)).toBe(esperado);
   });
 });
 
@@ -368,7 +438,7 @@ describe('a entrega é conferida, não presumida', () => {
    * 200 NÃO QUER DIZER ENTREGUE. Se a ponte responde 200 e nada é entregue, a
    * instância não pode ficar calada a janela inteira achando que paginou.
    */
-  test('aviso não entregue volta a tentar em um minuto, não em quinze', async () => {
+  test('a não-entrega é DETECTADA — o retorno da ponte é lido', async () => {
     const { table } = await mesa();
     const restaurar = adquirenteQueFalha(401);
     try {
@@ -376,14 +446,61 @@ describe('a entrega é conferida, não presumida', () => {
       await pagar(table);
       await deixarOAvisoSair();
       expect(avisos).toHaveLength(1);
-
-      // O recuo curto é MAIOR que a janela zerada destes testes, então ele é o
-      // que segura aqui — e é exatamente o que se quer provar: a não-entrega
-      // encurta, não desliga.
-      await pagar(table);
-      await deixarOAvisoSair();
-      expect(avisos).toHaveLength(1);
     } finally { restaurar(); }
+  });
+
+  /**
+   * E o RECUO é medido no módulo puro, onde o relógio entra por parâmetro.
+   *
+   * Pela rota não dá: estes testes rodam com a janela zerada (o observador é
+   * singleton de módulo), e com ela não há o que encurtar. A versão anterior
+   * deste caso afirmava "um minuto, não quinze" enquanto media apenas
+   * "suprimido" — e continuava verde com o `RECUO_SEM_ENTREGA_MS` de volta em
+   * 15 minutos, ou seja, com o defeito original reinstalado.
+   */
+  test('não entregue volta em um minuto; entregue espera a janela inteira', () => {
+    const { criarVigiaDoAdquirente, RECUO_SEM_ENTREGA_MS } = require('../_lib/pay/saude-do-adquirente');
+    /**
+     * O VALOR, NÃO O SÍMBOLO.
+     *
+     * A primeira versão deste teste escrevia os instantes em termos de
+     * `RECUO_SEM_ENTREGA_MS` — então mudar a constante pra 900_000, que é
+     * reinstalar o defeito original, mudava as expectativas JUNTO e o teste
+     * seguia verde. Um teste escrito na linguagem da coisa que ele deveria
+     * prender não prende nada.
+     */
+    expect(RECUO_SEM_ENTREGA_MS).toBe(60_000);
+    const falha401 = Object.assign(new Error('x'), { httpStatus: 401 });
+    let t = 0;
+    const v = criarVigiaDoAdquirente({ agora: () => t, janelaMs: 900_000 });
+
+    const primeiro = v.registrarFalha(falha401);
+    expect(primeiro).not.toBeNull();
+    v.naoEntregue(primeiro.chave);
+
+    t = 59_999;
+    expect(v.registrarFalha(falha401)).toBeNull();
+    t = 60_000;
+    const segundo = v.registrarFalha(falha401);
+    expect(segundo).not.toBeNull();   // voltou em 60 s, não em 900
+
+    // Entregue: espera a janela inteira.
+    t += 1;
+    expect(v.registrarFalha(falha401)).toBeNull();
+    t += 900_000;
+    expect(v.registrarFalha(falha401)).not.toBeNull();
+  });
+
+  test('e a não-entrega nunca ALONGA a supressão', () => {
+    const { criarVigiaDoAdquirente } = require('../_lib/pay/saude-do-adquirente');
+    const falha401 = Object.assign(new Error('x'), { httpStatus: 401 });
+    let t = 0;
+    // Janela mais curta que o recuo: o `min` tem que preservar a janela curta.
+    const v = criarVigiaDoAdquirente({ agora: () => t, janelaMs: 10_000 });
+    const a = v.registrarFalha(falha401);
+    v.naoEntregue(a.chave);
+    t = 10_000;
+    expect(v.registrarFalha(falha401)).not.toBeNull();
   });
 });
 

@@ -1,4 +1,4 @@
-# O que dez rodadas de revisão deixaram aberto, e o que reabre cada coisa
+# O que onze rodadas de revisão deixaram aberto, e o que reabre cada coisa
 
 **Decisão:** estes achados são reais, foram medidos, e nenhum deles bloqueia o
 merge — mas **três bloqueiam o go-live**, e estão nomeados logo abaixo. Ficam aqui com o gatilho que os reabre, porque um achado que vive só em
@@ -8,7 +8,7 @@ repositório já pagou pra aprender quatro vezes.
 ## Por que existe esta página
 
 Entre 16 e 19 de setembro de 2026 o portão de revisão (fintech-compliance +
-security-reviewer) rodou dez vezes sobre o mesmo branch. **Todas as nove
+security-reviewer) rodou onze vezes sobre o mesmo branch. **Todas as dez
 rodadas depois da primeira acharam defeito real no conserto da rodada
 anterior** — três CRITICAL, e a maioria em código escrito durante a própria
 sequência de consertos.
@@ -52,8 +52,9 @@ pro trilho principal, no ar, sem passar por `RACHA_WALLET_VENUES`.
    registros que concordam que nada aconteceu. O aviso diário diz "restaurantes
    ok". É o inegociável #8 pelo caminho da cobrança em vez do da conciliação.
    **PARCIAL em 2026-09-21** (`saude-do-adquirente.js` + `observa-adquirente.js`).
-   O trilho Pix/Pagar.me avisa; o que segue aberto está listado no fim deste
-   item, e é por isso que a palavra não é "feito".
+   O `POST /api/pay` no trilho Pix/Pagar.me avisa — e SÓ ele. O que segue
+   aberto está listado no fim deste item, e é por isso que a palavra não é
+   "feito".
    401/403 é NOSSA credencial e atinge todas as casas: avisa na PRIMEIRA, porque
    esperar N é esperar enquanto 100% falha. 4xx de casa avisa em três seguidas,
    e um pagamento que passa ZERA a contagem. Rede, timeout, 429 e 5xx não
@@ -86,6 +87,19 @@ pro trilho principal, no ar, sem passar por `RACHA_WALLET_VENUES`.
      mesmo apagão — repetido é melhor que mudo — e uma fria conta do zero. Na
      credencial revogada isso não atrasa nada, porque aquele escopo avisa na
      primeira.
+   - **`/api/house/load` não é observado.** É um TERCEIRO caminho que chama
+     `createPixCharge` na Pagar.me de verdade (`house-service.js`), e não tem
+     observador nenhum: uma chave revogada derruba o carregamento de saldo em
+     silêncio, e um 4xx de casa ali nunca conta pra contagem daquela casa. A
+     frase "o trilho Pix/Pagar.me avisa" foi escrita antes de eu conferir este
+     arquivo — é o mesmo "guarda que só lia o `router.js`" que o próprio
+     `house-service.js` já documenta contra si.
+   - **A CASA nunca é avisada.** Quando as cobranças de uma casa falham, quem
+     recebe é só o fundador. O restaurante segue achando que a Racha funciona
+     enquanto cada pessoa na mesa lê "pagamentos indisponíveis aqui". O
+     `notifyOwnerRecipientStatus` já existe pra esse público. (Eu disse a um
+     revisor que este item já estava escrito aqui. Não estava — esta linha é a
+     correção.)
    - **O apagão que aparece na AUSÊNCIA de cobranças**: ninguém tocou em pagar.
      Detector durável, mora na conciliação (volume de hoje contra os dias
      anteriores, por casa). Enquanto os de cima não fecharem, ele é o ÚNICO

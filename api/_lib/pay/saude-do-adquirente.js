@@ -59,6 +59,9 @@ const JANELA_PADRAO_MS = 15 * 60_000;
  */
 const RECUO_SEM_ENTREGA_MS = 60_000;
 
+/** O máximo que a env pode espaçar as páginas. Ver `janelaConfigurada`. */
+const TETO_DA_JANELA_MS = 60 * 60_000;
+
 /**
  * Quantas seguidas na MESMA casa antes de avisar.
  *
@@ -117,7 +120,16 @@ function janelaConfigurada() {
   const cru = (process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS || '').trim();
   if (!cru) return JANELA_PADRAO_MS;
   const n = Number(cru);
-  return Number.isFinite(n) && n >= 0 ? n : JANELA_PADRAO_MS;
+  if (!Number.isFinite(n) || n < 0) return JANELA_PADRAO_MS;
+  /**
+   * TETO, porque esta alavanca pode desligar o único alarme do apagão.
+   *
+   * `RACHA_JANELA_AVISO_ADQUIRENTE_MS=864000000` (dez dias) era aceito em
+   * silêncio, e transformava o pager num no-op — exatamente o que o
+   * inegociável #8 proíbe, por configuração em vez de por código. Uma hora é
+   * folgado pra qualquer uso legítimo de espaçar páginas.
+   */
+  return Math.min(n, TETO_DA_JANELA_MS);
 }
 
 function criarVigiaDoAdquirente({
@@ -125,7 +137,7 @@ function criarVigiaDoAdquirente({
   janelaMs = janelaConfigurada(),
   seguidasPorCasa = SEGUIDAS_POR_CASA,
 } = {}) {
-  const seguidas = new Map();     // venueId → quantas falhas seguidas
+  const seguidas = new Map();     // venueId → Set de contas que falharam
   const ultimoAviso = new Map();  // chave do aviso → instante do último
 
   const dentroDaJanela = (chave) => {
@@ -139,7 +151,18 @@ function criarVigiaDoAdquirente({
      * instância calada os 15 acreditando que paginou.
      */
     naoEntregue(chave) {
-      if (chave) ultimoAviso.set(chave, agora() + RECUO_SEM_ENTREGA_MS);
+      if (!chave) return;
+      /**
+       * ENCURTA, nunca alonga.
+       *
+       * Com `set` puro, um operador que apertasse a janela pra menos de um
+       * minuto faria o aviso NÃO ENTREGUE ficar suprimido MAIS tempo que o
+       * entregue — o oposto exato da intenção. O `min` mantém a promessa:
+       * não entregou, volta antes.
+       */
+      const jaMarcado = ultimoAviso.get(chave);
+      const proposto = agora() + RECUO_SEM_ENTREGA_MS;
+      ultimoAviso.set(chave, jaMarcado === undefined ? proposto : Math.min(jaMarcado, proposto));
     },
 
     /**
@@ -157,7 +180,7 @@ function criarVigiaDoAdquirente({
     /**
      * @returns {null | {kind, escopo, detail, venueId}} o aviso, ou nada.
      */
-    registrarFalha(err, venueId = null) {
+    registrarFalha(err, venueId = null, checkId = null) {
       const escopo = escopoDaFalha(err);
       if (escopo === 'nao-e-adquirente' || escopo === 'transitorio') return null;
 
@@ -175,9 +198,29 @@ function criarVigiaDoAdquirente({
         };
       }
 
+      /**
+       * CONTAS DISTINTAS, e não requisições.
+       *
+       * O contador perguntava só "que status voltou?", nunca "de quem é a
+       * culpa?" — então QUALQUER campo que o cliente controla e que faça o
+       * adquirente responder 4xx virava saúde da casa. Fechar o `payerDocument`
+       * com verificador de CPF fechou o CAMPO, não a CLASSE: medido, três
+       * requisições com `tipCents: 9_000_000_000` do mesmo QR paginavam o
+       * fundador dizendo "ninguém paga aqui" sobre um restaurante são.
+       *
+       * Exigir CONTAS distintas é o corte barato que derrota o atacante de um
+       * QR só: uma mesa tem uma conta, e quem está numa mesa não consegue
+       * fabricar três. Uma casa de verdade quebrada — recebedor inativo, split
+       * desligado — falha em TODAS as mesas, então ela chega a três sem
+       * esforço.
+       *
+       * Achado pela re-revisão de segurança (2026-09-21, HIGH-3).
+       */
       const casa = String(venueId || 'sem-casa');
-      const n = (seguidas.get(casa) || 0) + 1;
-      seguidas.set(casa, n);
+      const contas = seguidas.get(casa) || new Set();
+      if (checkId) contas.add(String(checkId));
+      seguidas.set(casa, contas);
+      const n = contas.size;
       if (n < seguidasPorCasa) return null;
 
       const chave = `casa:${casa}`;
@@ -188,7 +231,7 @@ function criarVigiaDoAdquirente({
         escopo,
         chave,
         venueId: venueId || null,
-        detail: `${n} recusas seguidas do adquirente (HTTP ${err.httpStatus}) nesta casa — `
+        detail: `${n} contas seguidas recusadas pelo adquirente (HTTP ${err.httpStatus}) nesta casa — `
           + 'recebedor inativo, split desligado ou dado recusado. Ninguém paga aqui.',
       };
     },
@@ -197,7 +240,9 @@ function criarVigiaDoAdquirente({
 
 module.exports = {
   escopoDaFalha,
+  janelaConfigurada,
   RECUO_SEM_ENTREGA_MS,
+  TETO_DA_JANELA_MS,
   criarVigiaDoAdquirente,
   JANELA_PADRAO_MS,
   SEGUIDAS_POR_CASA,

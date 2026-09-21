@@ -90,7 +90,7 @@ async function mundo({ falharGravacao = 0 } = {}) {
 
 const pagar = (charge, check) => charge({
   checkId: check.id, amountCents: 1000, tipCents: 0,
-  wallet: 'google_pay', paymentToken: 'tok', payerDocument: '52998224725', rail: 'pix',
+  wallet: 'google_pay', paymentToken: 'tok_abcdefgh', payerDocument: '52998224725', rail: 'pix',
 });
 
 describe('a escrita falha DEPOIS de o cartão ser capturado', () => {
@@ -620,7 +620,7 @@ describe('o atalho da recusa provada (CRITICAL-2)', () => {
     // fecha — que é o caso dos dois anônimos, coberto logo abaixo.
     const r = await charge({
       checkId: check.id, amountCents: 1000, tipCents: 0,
-      wallet: 'google_pay', paymentToken: 'tok', payerDocument: '52998224725',
+      wallet: 'google_pay', paymentToken: 'tok_abcdefgh', payerDocument: '52998224725',
       rail: 'pix', payerLabel: 'Ana',
     }).catch((e) => e);
     expect(r).not.toBeInstanceOf(Error);
@@ -658,7 +658,7 @@ describe('colisão de txid na primeira ida não vira sucesso de outra pessoa', (
     const charge = createChargeService({ store, psp });
     return charge({
       checkId: check.id, amountCents: 1000, tipCents: 0,
-      wallet: 'google_pay', paymentToken: 'tok', payerDocument: '52998224725',
+      wallet: 'google_pay', paymentToken: 'tok_abcdefgh', payerDocument: '52998224725',
       rail: 'pix', payerLabel: meuRotulo,
     }).catch((e) => e);
   };

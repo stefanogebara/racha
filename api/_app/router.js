@@ -636,13 +636,16 @@ function esperaDisponivel() {
  * rápido e calado. Nada mostrava se o `waitUntil` roda em produção; esta linha
  * mostra quando ele não roda. (Segurança L-A de 3a10835.)
  */
-let semEsperaAvisado = false;
+const semEsperaAvisado = new Set();
+/** Uma linha por SÍTIO, uma vez: mostra quando o modo degradado está em uso. */
+function avisarSemEspera(marca) {
+  if (semEsperaAvisado.has(marca)) return;
+  semEsperaAvisado.add(marca);
+  process.stderr.write(`${marca} SEM waitUntil (sem contexto de requisição da Vercel): o aviso sai ANTES da resposta\n`);
+}
 async function responderEAvisar(enviar, err) {
   if (!esperaDisponivel()) {
-    if (!semEsperaAvisado) {
-      semEsperaAvisado = true;
-      process.stderr.write('[teto] SEM waitUntil (sem contexto de requisição da Vercel): o aviso sai ANTES da resposta\n');
-    }
+    avisarSemEspera('[teto]');
     await avisarTetoDisparado(err);
     enviar();
     return;
@@ -1246,7 +1249,9 @@ async function route(req, res) {
         const aviso = isDemo ? null : adquirente.aoFalhar(e, view.check.id);
         if (aviso) {
           if (esperaDisponivel()) depoisDaResposta(aviso);
-          else await aviso;
+          // Uma linha, uma vez: sem ela, nada mostra QUANDO este sítio roda no
+          // modo degradado — o irmão já diz, e este era o chamador esquecido.
+          else { avisarSemEspera('[adquirente]'); await aviso; }
         }
         throw e;
       }
@@ -3297,4 +3302,12 @@ async function route(req, res) {
 // `registraMissDeCheck` e `clientIp` saem pro teste: a garantia que importa —
 // a resposta do 404 é SEMPRE a mesma, e o primeiro hop do XFF não é confiável —
 // é de COMPORTAMENTO, e censo de fonte não prova comportamento.
-module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, psp, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp, carteiraLiberada };
+/**
+ * `demoPsp` sai junto pra que a isenção da demo possa ser MEDIDA.
+ *
+ * Sem ele, o único jeito de testar "a demo não acorda ninguém" era um censo de
+ * texto — e o comportamento estava protegido só por sorte: os erros do MockPsp
+ * não carregam `httpStatus`, então o vigia os ignoraria mesmo sem a isenção.
+ * Um guarda cuja remoção nada detecta é um guarda que some no próximo refactor.
+ */
+module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, psp, demoPsp, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp, carteiraLiberada };

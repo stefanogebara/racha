@@ -414,11 +414,38 @@ function createPagarmePsp({
          * casas" — mesma família da credencial revogada, mesma resposta: avisa
          * na primeira. Achado pela revisão de compliance de 2026-09-21 (HIGH-4b).
          */
+        /**
+         * O ESCOPO SAI DO MOTIVO, não do formato da falha.
+         *
+         * A primeira versão mandava TODO `!qr_code` pro balde de plataforma
+         * (403). Mas a condição também cobre causa de UMA casa — recebedor
+         * inativo, split recusado pra aquele `pspRecipientId` —, e aí o
+         * fundador recebia, na primeira ocorrência, uma página afirmando
+         * apagão geral e mandando conferir uma chave que está boa, sem nomear
+         * casa nenhuma. É a página falsa e inacionável que o conserto anterior
+         * veio remover, chegando pela outra ponta.
+         *
+         * `Pix não habilitado na conta` é da CONTA e derruba todo mundo;
+         * recebedor/split é da casa. O motivo já está calculado aqui — usá-lo
+         * custa uma linha. Achado pela re-revisão de compliance (2026-09-21).
+         */
+        const daConta = /pix.{0,20}(n[aã]o|not).{0,20}(habilitad|enabled|ativ)/i.test(String(reason))
+          || /account|conta/i.test(String(reason)) && /pix/i.test(String(reason));
         const e = new Error(`pagarme: cobrança Pix sem qr_code (${String(reason).slice(0, 140)})`);
         e.statusCode = 402;
         e.code = 'psp_rejected';
-        e.httpStatus = 403;
-        process.stderr.write(`[pagarme] Pix sem qr_code: ${String(reason).slice(0, 160)}\n`);
+        /**
+         * 403 = nossa conta, todas as casas, avisa na primeira.
+         * 0 = desfecho desconhecido de UM pedido: o `psp_rejected` continua
+         * indo pra tela (nada de "tente de novo"), e ninguém é paginado por
+         * uma cobrança isolada que o gateway não conseguiu montar.
+         */
+        e.httpStatus = daConta ? 403 : 0;
+        // Sem quebra de linha: `reason` é texto de TERCEIRO, e um `\n` no meio
+        // inventa uma linha inteira no rastro de um caminho de dinheiro.
+        process.stderr.write(
+          `[pagarme] Pix sem qr_code: ${String(reason).replace(/[\r\n]+/g, ' ').slice(0, 160)}\n`,
+        );
         throw e;
       }
       return {
