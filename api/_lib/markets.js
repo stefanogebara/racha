@@ -231,9 +231,37 @@ function publicMarketView(code, { servicoBp = 0, cnpj = null } = {}) {
  * pedido, que é o que os adaptadores de POS vão produzir — desligaria o teto
  * inteiro, que é a forma `if (coisa && !ok)` de sempre.
  */
-function tetoDaGorjeta(tipCents, totalCents) {
-  if (!Number.isInteger(totalCents)) return null;   // sem total, sem afirmação
-  if (tipCents > totalCents) return { code: 'amount_invalid' };
+function tetoDaGorjeta(tipCents, state) {
+  /**
+   * RECEBE O ESTADO, e não o par `(tipCents, state.totalCents)`.
+   *
+   * A assinatura anterior pedia ao chamador que escolhesse dois campos, e o
+   * censo que a sustentava era uma regex procurando o literal
+   * `tetoDaGorjeta(tipCents, state.totalCents)` no código-fonte. Um teste que
+   * lê a chamada não vê o que ela decide — apagar o `if` que lê o retorno
+   * mantinha a suíte verde e o trilho Stripe voltava a gravar gorjeta de nove
+   * bilhões. Com o estado inteiro, existe UM lugar que sabe quais campos
+   * importam, e o censo pôde virar teste de comportamento nos dois trilhos.
+   * (compliance HIGH-2 / segurança LOW-1, décima terceira rodada.)
+   *
+   * SOMA O QUE JÁ ENTROU. O teto por COBRANÇA deixava uma conta de R$ 100,00
+   * aceitar dez cobranças de R$ 100,00 de "serviço" — R$ 1.000,00 de gorjeta
+   * numa conta de cem reais, liquidados no CNPJ da casa, marcados como gorjeta
+   * nas regras de split e entrando no relatório que o restaurante distribui em
+   * folha com INSS/IRRF/FGTS em cima. Achado pelas DUAS revisões da décima
+   * terceira rodada, pelos dois lados (#2 e conciliação).
+   *
+   * `state.tipCents` é gorjeta CONFIRMADA líquida de estorno (`check-state.js`
+   * soma no `PAYMENT_CONFIRMED` e subtrai no `PAYMENT_REFUNDED`) — que é
+   * exatamente o que chega na folha e na conciliação. A janela que sobra é a
+   * das pendentes: cobranças criadas antes de qualquer confirmação não estão
+   * no razão e não entram nesta soma. Ela é limitada pelo `TETO_PENDENTES`, e
+   * fechá-la de verdade pede contar gorjeta pendente no SQL de vagas — o que
+   * NÃO está feito, e está dito aqui em vez de prometido no comentário.
+   */
+  if (!state || !Number.isInteger(state.totalCents)) return null;  // sem total, sem afirmação
+  const jaConfirmada = Number.isInteger(state.tipCents) ? state.tipCents : 0;
+  if (jaConfirmada + tipCents > state.totalCents) return { code: 'amount_invalid' };
   return null;
 }
 

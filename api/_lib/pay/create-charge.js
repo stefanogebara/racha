@@ -439,11 +439,28 @@ function createChargeService({ store, psp }) {
     // Uma regra, um lugar: ver `api/_lib/markets.js`.
 
     const state = reduce(await store.loadEvents(checkId));
-    // O teto da gorjeta, assim que o total existe. Definição única em
-    // `markets.js`, chamada pelos DOIS caminhos de cobrança.
-    const tetoTip = tetoDaGorjeta(tipCents, state.totalCents);
-    if (tetoTip) throw badRequest('gorjeta maior que a conta', tetoTip.code);
+    /**
+     * O GUARDA DE `state` NULO VEM PRIMEIRO, e isto custou uma rodada.
+     *
+     * A versão anterior punha o teto da gorjeta ACIMA desta linha, lendo
+     * `state.totalCents` antes de perguntar se `state` existe. `reduce([])`
+     * devolve `null` por construção (`initialState()`), então o guarda logo
+     * abaixo virou código morto e uma conta com razão vazio passou a lançar
+     * `TypeError` pelado: sem `code`, o `errorBody` manda `internal` e a mesa
+     * lê "tente de novo" pra sempre em vez do `check_not_found` que estava
+     * escrito aqui; e sem `httpStatus`, o vigia novo classifica como
+     * `nao-e-adquirente` e ninguém é paginado.
+     *
+     * Medido: `reduce([])` → `null` → `TypeError: Cannot read properties of
+     * null (reading 'totalCents')`. O irmão em `router.js` já tinha a ordem
+     * certa — a mesma regra, dois caminhos, ordens opostas, que é a forma que
+     * esta série inteira existe pra apagar. (compliance HIGH-1.)
+     */
     if (!state) throw badRequest('check has no events', 'check_not_found');
+    // O teto da gorjeta, assim que o estado existe. Definição única em
+    // `markets.js`, chamada pelos DOIS caminhos de cobrança.
+    const tetoTip = tetoDaGorjeta(tipCents, state);
+    if (tetoTip) throw badRequest('gorjeta maior que a conta', tetoTip.code);
     if (state.status === 'fechada') throw badRequest('check is closed', 'check_closed');
     const remaining = remainingCents(state);
     if (amountCents > remaining) {

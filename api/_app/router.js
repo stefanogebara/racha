@@ -315,7 +315,16 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
-const { chargingAllowed, market, marketGate, pspCurrency, isMarket, DEFAULT_MARKET } = require('../_lib/markets');
+// `tetoDaGorjeta` FALTAVA nesta lista, e a chamada na rota do intent existia.
+// Resultado: `ReferenceError` em TODA requisição a `/api/pay/stripe-intent` —
+// o trilho de cartão inteiro em 500, não só a gorjeta acima do total. O censo
+// que devia cobrir isso era uma regex procurando o literal da CHAMADA no
+// código-fonte; ela casava, e a função não existia no escopo. Nenhuma revisão
+// de leitura pegou (as duas leram o mesmo texto que a regex lia); o primeiro
+// teste que DIRIGIU a rota pegou na primeira execução.
+const {
+  chargingAllowed, market, marketGate, pspCurrency, isMarket, DEFAULT_MARKET, tetoDaGorjeta,
+} = require('../_lib/markets');
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
@@ -1367,20 +1376,30 @@ async function route(req, res) {
       // buraco era invisível pro `npx jest`. Inegociável #7, na letra: a
       // guarda que nunca dispara no caminho que importa.
       const gate = marketGate(venue.market, { rail, amountCents, tipCents, venue });
+      if (gate) {
+        return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
+      }
       /**
-       * O TETO DA GORJETA, aqui também.
+       * O TETO DA GORJETA, aqui também — e DEPOIS do portão de mercado.
        *
        * Este chamador monta a cobrança inline e não passa pelo `create-charge`,
        * então a regra que nasceu lá não valia aqui: a MESMA casa dava duas
-       * respostas conforme o trilho que a pessoa tocou. Definição única em
-       * `markets.js` (segurança, 2026-09-21, HIGH-1).
+       * respostas conforme o trilho que a pessoa tocou (segurança 2026-09-21,
+       * HIGH-1). Definição única em `markets.js`.
+       *
+       * O PORTÃO DE MERCADO VENCE O DETALHE DO CORPO — e aqui ele não vencia.
+       *
+       * O teto da gorjeta estava ACIMA do `if (gate)`, então uma mesa
+       * espanhola com o mercado desligado E gorjeta acima do total respondia
+       * `amount_invalid` neste trilho e `market_not_live` no outro: a
+       * centralização trocou o par de respostas divergentes por outro par.
+       * `create-charge.js` argumenta por extenso que o erro de mercado tem que
+       * vencer o de forma justamente pra uma casa mal configurada não ficar
+       * escondida atrás de um detalhe do pedido. (segurança LOW-1.)
        */
-      const tetoTip = tetoDaGorjeta(tipCents, state.totalCents);
+      const tetoTip = tetoDaGorjeta(tipCents, state);
       if (tetoTip) {
         return json(res, 400, { success: false, code: tetoTip.code });
-      }
-      if (gate) {
-        return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
       }
       let devolverVaga = null;
       let pspChamado = false;

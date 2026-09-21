@@ -135,7 +135,27 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
             // canal do fundador é achado próprio deste repositório.
             detail: aviso.venueId ? `${aviso.detail} (casa ${aviso.venueId})` : aviso.detail,
           });
-          entregue = !r || r.ok !== false;
+          /**
+           * LISTA DE PERMISSÃO: só `ok === true` é entrega.
+           *
+           * Era `!r || r.ok !== false` — uma lista de NEGAÇÃO de um valor só,
+           * que perde pra qualquer forma de retorno não antecipada. E a forma
+           * existe, no mesmo repositório: sem `RACHA_NOTIFY_SECRET`, o
+           * `notifyFounderMoneyEvent` devolve `{ skipped: true, reason:
+           * 'no_secret' }`, sem chave `ok`. `undefined !== false` é verdadeiro,
+           * então o pager que NÃO saiu era registrado como entregue e a janela
+           * de supressão ficava de pé sobre um aviso que nunca existiu — o
+           * inegociável #8 desligado por variável de ambiente ausente.
+           *
+           * Achado pelas duas revisões da décima terceira rodada, cada uma por
+           * um lado. Invertido: o que não se declarou entregue, não foi.
+           */
+          entregue = !!(r && r.ok === true);
+          if (r && r.skipped) {
+            process.stderr.write(
+              `[adquirente] aviso NAO entregue (${String(r.reason || 'skipped').slice(0, 60)}): ${aviso.detail}\n`,
+            );
+          }
         } catch (e) {
           process.stderr.write(
             `[adquirente] aviso NAO entregue: ${String(e && e.message).slice(0, 140)}\n`,

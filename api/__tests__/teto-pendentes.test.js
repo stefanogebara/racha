@@ -445,24 +445,137 @@ describe('o atacante que o teto existe pra parar', () => {
       expect(erro.code).toBe('amount_invalid');
     });
 
-    test('e a regra tem UMA definição, que os dois caminhos chamam', () => {
-      const fs = require('node:fs');
-      const path = require('node:path');
-      const cc = fs.readFileSync(path.join(__dirname, '..', '_lib', 'pay', 'create-charge.js'), 'utf8');
-      const rota = fs.readFileSync(path.join(__dirname, '..', '_app', 'router.js'), 'utf8');
-      // Os dois CHAMAM o predicado; nenhum reimplementa o limite.
-      expect(cc).toMatch(/tetoDaGorjeta\(tipCents, state\.totalCents\)/);
-      expect(rota).toMatch(/tetoDaGorjeta\(tipCents, state\.totalCents\)/);
+    /**
+     * O CENSO DE TEXTO SAIU DAQUI, e ele escondia um defeito de verdade.
+     *
+     * No lugar deste teste havia duas regex procurando o literal
+     * `tetoDaGorjeta(tipCents, state.totalCents)` no código-fonte dos dois
+     * chamadores. Elas provavam que a CHAMADA está escrita — e nada sobre o
+     * que ela decide: apagar o `if (tetoTip) return json(...)` da rota deixava
+     * a suíte inteira verde enquanto `/api/pay/stripe-intent` voltava a gravar
+     * gorjeta de nove bilhões de centavos.
+     *
+     * E escondia mais: a chamada da rota estava ACIMA do `if (gate)`, então a
+     * casa espanhola com o mercado desligado respondia `amount_invalid` num
+     * trilho e `market_not_live` no outro. O censo casava nos dois arquivos e
+     * não tinha como ver a ordem. A "centralização" tinha trocado um par de
+     * respostas divergentes por outro par.
+     *
+     * O livro deste repositório já dizia, desde `a3178da`: "censo de texto não
+     * substitui teste de comportamento em código que move dinheiro". Eu
+     * escrevi o censo mesmo assim. (compliance HIGH-2 + segurança LOW-1.)
+     */
+    test('a ROTA do intent recusa a mesma gorjeta, com o mesmo código', async () => {
+      // `stripePsp` nasce no REQUIRE do router: sem a chave a rota inteira é
+      // 503 e o teste mediria o 503, não o teto. Mesmo padrão de
+      // `aviso-da-falha-de-estorno.test.js`. A chave é falsa de propósito — se
+      // esta requisição chegasse na Stripe, o teste estaria errado.
+      const antes = process.env.STRIPE_SECRET_KEY;
+      process.env.STRIPE_SECRET_KEY = 'sk_test_naoexiste';
+      let route; let store;
+      jest.isolateModules(() => { ({ route, store } = require('../_app/router')); });
+      if (antes === undefined) delete process.env.STRIPE_SECRET_KEY;
+      else process.env.STRIPE_SECRET_KEY = antes;
+      const venue = store.seedVenue({ name: 'Gorjeta Rota', servicoBp: 1000, pspRecipientId: 'rcpt_g' });
+      // `seedVenue` não aceita `stripeAccountId` — é a mesma lista de campos
+      // escrita à mão que o comentário dela já lamenta pro `cnpj`. O setter
+      // existe e é o caminho de produção.
+      await store.setVenueStripeAccount(venue.id, 'acct_teste123');
+      const table = store.seedTable(venue.id, `Mesa ${Math.random()}`);
+      await store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 10_000 }]);
+      const srv = http.createServer(route).listen(0);
+      await new Promise((r) => srv.once('listening', r));
+      try {
+        const r = await fetch(`http://127.0.0.1:${srv.address().port}/api/pay/stripe-intent`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-real-ip': '189.10.20.40' },
+          body: JSON.stringify({ token: table.qrToken, amountCents: 100, tipCents: 9_000_000_000 }),
+        });
+        // Status E código juntos numa asserção: foi assim que este teste achou
+        // que a rota inteira respondia 500 `internal` — `tetoDaGorjeta` era
+        // chamada e nunca importada em `router.js`. Conferir só o código teria
+        // dito "esperava amount_invalid, veio internal" e escondido que o
+        // trilho de cartão estava fora do ar por inteiro, não só pra gorjeta.
+        const corpo = await r.text();
+        expect(`${r.status} ${JSON.parse(corpo).code}`).toBe('400 amount_invalid');
+      } finally {
+        srv.close();
+      }
     });
 
-    test('o predicado: o total é o teto, e só-gorjeta continua passando', () => {
-      expect(tetoDaGorjeta(9_000_000_000, 10_000)).toMatchObject({ code: 'amount_invalid' });
-      expect(tetoDaGorjeta(800, 10_000)).toBeNull();     // só-gorjeta legítima
-      expect(tetoDaGorjeta(10_000, 10_000)).toBeNull();  // no limite, passa
+    test('o TETO É DA CONTA, não de cada cobrança', async () => {
+      // Uma conta de R$ 100,00 aceitava dez cobranças de R$ 100,00 de
+      // "serviço": R$ 1.000,00 de gorjeta numa conta de cem reais, liquidados
+      // no CNPJ da casa e entrando no relatório que vira folha com
+      // INSS/IRRF/FGTS em cima. As duas revisões acharam isto, cada uma por um
+      // lado (#2 e conciliação).
+      const { store, table, charge } = mundo();
+      await store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 10_000 }]);
+      const check = (await store.getCheckByQrToken(table.qrToken)).check;
+
+      const primeira = await charge({ checkId: check.id, amountCents: 0, tipCents: 6_000 });
+      await store.appendEvent(check.id, 'PAYMENT_CONFIRMED',
+        { txid: primeira.txid, amountCents: 0, tipCents: 6_000, method: 'pix' });
+
+      // 6.000 já confirmados + 5.000 passa de 10.000: recusa.
+      const erro = await charge({ checkId: check.id, amountCents: 0, tipCents: 5_000 })
+        .catch((e) => e);
+      expect(erro).toBeInstanceOf(Error);
+      expect(erro.code).toBe('amount_invalid');
+      // E o que CABE continua passando.
+      await expect(charge({ checkId: check.id, amountCents: 0, tipCents: 4_000 }))
+        .resolves.toMatchObject({ txid: expect.any(String) });
+    });
+
+    test('conta com razão VAZIO responde check_not_found, não `internal`', async () => {
+      /**
+       * O guarda de `state` nulo virou código morto por UMA LINHA de ordem.
+       *
+       * A rodada anterior pôs `tetoDaGorjeta(tipCents, state.totalCents)`
+       * ACIMA do `if (!state)`. `reduce([])` devolve `null` por construção
+       * (`initialState()`), então a leitura lançava `TypeError` pelado: sem
+       * `code`, o `errorBody` manda `internal` e a mesa lê "tente de novo" pra
+       * sempre; sem `httpStatus`, o vigia classifica como `nao-e-adquirente` e
+       * ninguém é paginado. O irmão em `router.js` já tinha a ordem certa.
+       * (compliance HIGH-1.)
+       *
+       * O CONSERTO SÃO DOIS, e medir mostrou qual é o que segura. Reordenar
+       * sozinho não faz este teste ficar vermelho: o predicado passou a
+       * receber o ESTADO e a guardar `!state` ele mesmo, então a leitura não
+       * lança mais, venha ela antes ou depois. Quem segura é a guarda DENTRO
+       * do predicado; a ordem é cinto e suspensório, e vale por ser a mesma do
+       * irmão. Medido contra o mutante que restaura a combinação da rodada
+       * anterior (predicado sem a guarda + teto acima do `if (!state)`): aí
+       * este teste fica vermelho, na linha do TypeError.
+       */
+      const { store, table, charge } = mundo();
+      const check = await contaAberta(store, table);
+      // O razão VAZIO: a linha de `checks` existe e o `OPENED` não chegou.
+      // Envelopado no store em vez de acrescentar um gancho de teste — o que
+      // importa é o que a fábrica lê, e é exatamente isto que ela lê.
+      const carregar = store.loadEvents.bind(store);
+      store.loadEvents = async (id) => (id === check.id ? [] : carregar(id));
+      const erro = await charge({ checkId: check.id, amountCents: 100, tipCents: 1 })
+        .catch((e) => e);
+      expect(erro).toBeInstanceOf(Error);
+      expect(erro.code).toBe('check_not_found');
+      // E NÃO um TypeError, que é o que a ordem errada produzia.
+      expect(erro.constructor.name).not.toBe('TypeError');
+    });
+
+    test('o predicado: o total é o teto, soma o confirmado, e só-gorjeta passa', () => {
+      const conta = (totalCents, tipCents = 0) => ({ totalCents, tipCents });
+      expect(tetoDaGorjeta(9_000_000_000, conta(10_000))).toMatchObject({ code: 'amount_invalid' });
+      expect(tetoDaGorjeta(800, conta(10_000))).toBeNull();     // só-gorjeta legítima
+      expect(tetoDaGorjeta(10_000, conta(10_000))).toBeNull();  // no limite, passa
+      // O QUE JÁ ENTROU CONTA: 6.000 confirmados + 5.000 passa de 10.000.
+      expect(tetoDaGorjeta(5_000, conta(10_000, 6_000))).toMatchObject({ code: 'amount_invalid' });
+      expect(tetoDaGorjeta(4_000, conta(10_000, 6_000))).toBeNull();
       // Total ZERO não desliga o teto — a forma `if (coisa && !ok)` que este
       // repositório já pagou pra aprender.
-      expect(tetoDaGorjeta(1, 0)).toMatchObject({ code: 'amount_invalid' });
-      // Sem total conhecido não dá pra afirmar nada.
+      expect(tetoDaGorjeta(1, conta(0))).toMatchObject({ code: 'amount_invalid' });
+      // Sem total conhecido, e sem estado, não dá pra afirmar nada.
+      expect(tetoDaGorjeta(1, conta(null))).toBeNull();
       expect(tetoDaGorjeta(1, null)).toBeNull();
     });
   });

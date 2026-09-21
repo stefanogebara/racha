@@ -59,6 +59,9 @@ const JANELA_PADRAO_MS = 15 * 60_000;
  */
 const RECUO_SEM_ENTREGA_MS = 60_000;
 
+/** Teto de casas acompanhadas por instância quente. Ver `podarSeCrescerDemais`. */
+const TETO_DE_CASAS_VIGIADAS = 5000;
+
 /** O máximo que a env pode espaçar as páginas. Ver `janelaConfigurada`. */
 const TETO_DA_JANELA_MS = 60 * 60_000;
 
@@ -193,7 +196,13 @@ function criarVigiaDoAdquirente({
           escopo,
           chave,
           venueId: null,
-          detail: `adquirente recusou a NOSSA credencial (HTTP ${err.httpStatus}) — `
+          // O número só entra quando TRAFEGOU: ver `httpSintetico` no
+          // `pagarme-psp`, onde o 403 é inventado pra rotear a decisão sobre
+          // uma resposta que foi 200. Afirmar um HTTP que não existe manda
+          // quem acordou às 3h procurar num log a linha que nunca vai achar.
+          detail: (err.httpSintetico
+            ? 'adquirente recusou a NOSSA credencial — '
+            : `adquirente recusou a NOSSA credencial (HTTP ${err.httpStatus}) — `)
             + 'nenhuma casa consegue cobrar. Confira a chave e o escopo dela no painel.',
         };
       }
@@ -217,6 +226,23 @@ function criarVigiaDoAdquirente({
        * Achado pela re-revisão de segurança (2026-09-21, HIGH-3).
        */
       const casa = String(venueId || 'sem-casa');
+      /**
+       * TETO DE TAMANHO, como o irmão em `router.js` (`alertasRecentes`).
+       *
+       * `seguidas` e `ultimoAviso` só encolhiam por sucesso. Num apagão de
+       * escopo `casa` — que virou o balde padrão do 200-sem-qr_code nesta
+       * rodada — cada check distinto de cada casa afetada acumula uma entrada
+       * que nunca sai, pela vida da instância quente.
+       *
+       * Mora AQUI, no sítio que faz o mapa crescer, e não num método que o
+       * chamador precise lembrar de chamar: guarda que depende de memória
+       * alheia nasce inerte, e esta série já achou essa forma quatro vezes.
+       * Limpar tudo custa, no pior caso, uma página a mais; não limpar custa
+       * memória sem limite num caminho de dinheiro. (segurança LOW-2, a metade
+       * do TAMANHO; a da JANELA DE TEMPO segue no livro de abertos.)
+       */
+      if (seguidas.size > TETO_DE_CASAS_VIGIADAS) seguidas.clear();
+      if (ultimoAviso.size > TETO_DE_CASAS_VIGIADAS) ultimoAviso.clear();
       const contas = seguidas.get(casa) || new Set();
       if (checkId) contas.add(String(checkId));
       seguidas.set(casa, contas);
@@ -241,6 +267,7 @@ function criarVigiaDoAdquirente({
 module.exports = {
   escopoDaFalha,
   janelaConfigurada,
+  TETO_DE_CASAS_VIGIADAS,
   RECUO_SEM_ENTREGA_MS,
   TETO_DA_JANELA_MS,
   criarVigiaDoAdquirente,

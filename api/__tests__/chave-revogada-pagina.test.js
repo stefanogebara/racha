@@ -357,6 +357,26 @@ describe('o apagão que chega vestido de 200', () => {
     // casa quebrada não avisava ninguém, nunca.
     ['recipient is not active', 'casa'],
     ['split rejected for recipient', 'casa'],
+    /**
+     * ESTAS TRÊS LINHAS SÃO O TESTE, e as duas de cima eram a tabela escrita
+     * pra implementação.
+     *
+     * A versão anterior do classificador tinha um segundo ramo —
+     * `/account|conta/i && /pix/i` — e este bloco inteiro É uma cobrança Pix,
+     * então `/pix/i` casa com quase tudo que o adquirente escreve aqui: o ramo
+     * colapsava em "a mensagem menciona conta". As duas frases de casa acima
+     * passavam só porque, por acaso, nenhuma usa a palavra "account".
+     *
+     * Estas usam — e são exatamente como um adquirente redige uma causa de UMA
+     * casa. Com o ramo antigo, as três caem em `plataforma`, que é o único
+     * escopo sem contagem: pagina na primeira ocorrência, com `venueId: null`,
+     * mandando o fundador trocar uma chave que está boa — e ainda carimba a
+     * janela compartilhada, suprimindo uma revogação de verdade que chegue
+     * dentro dela. (compliance MEDIUM-3 + segurança MEDIUM-1.)
+     */
+    ['recipient account is not active for pix', 'casa'],
+    ['merchant account not configured for pix', 'casa'],
+    ['a conta de recebimento não aceita Pix', 'casa'],
   ])('o adaptador classifica %p como %s', async (motivo, esperado) => {
     const { createPagarmePsp } = require('../_lib/pay/pagarme-psp');
     const { escopoDaFalha } = require('../_lib/pay/saude-do-adquirente');
