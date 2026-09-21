@@ -1,5 +1,6 @@
 'use strict';
 
+const { soUmaLinha, soIdentificador } = require('../rastro');
 const crypto = require('crypto');
 const { allocateUnderpayment } = require('../checks/split-engine');
 
@@ -311,7 +312,13 @@ function createPagarmePsp({
        * provar que falou com o emissor, em vez de aceitar qualquer 4xx.
        */
       err.code = err.statusCode === 402 ? 'psp_rejected' : 'psp_unavailable';
-      process.stderr.write(`[pagarme] ${method} ${path} ${res.status}: ${String(msg).slice(0, 200)}\n`);
+      // Sem quebra de linha, pela mesma razão do sítio do Pix: `msg` é texto
+      // do adquirente, e este é o caminho que roda em TODA cobrança durante o
+      // apagão de chave revogada que este commit existe pra acordar alguém.
+      // (segurança LOW-3 — a regra nasceu num sítio e faltava nos outros.)
+      process.stderr.write(
+        `[pagarme] ${method} ${path} ${res.status}: ${soUmaLinha(msg, 200)}\n`,
+      );
       err.httpStatus = res.status; // status exato — getCharge precisa separar 404 de 401/403
       throw err;
     }
@@ -399,7 +406,99 @@ function createPagarmePsp({
         const gw = tx.gateway_response || {};
         const reason = (Array.isArray(gw.errors) && gw.errors.map((e) => e.message || e).join('; '))
           || gw.code || tx.status || (charge && charge.status) || 'sem detalhe';
-        throw new Error(`pagarme: cobrança Pix sem qr_code (${String(reason).slice(0, 140)})`);
+        /**
+         * APAGÃO TOTAL VESTIDO DE 200.
+         *
+         * A causa que o comentário acima nomeia — Pix não habilitado na conta —
+         * derruba 100% das cobranças em TODAS as casas, no trilho principal. E
+         * este erro saía pelado: sem `code` virava `internal`, e a tela dizia
+         * "algo deu errado, tente de novo", que CONVIDA a retentativa; sem
+         * `httpStatus` o vigia do adquirente o classificava como "não é do
+         * adquirente" e ninguém era paginado.
+         *
+         * O 200 é do transporte; o desfecho é recusa nossa pela conta. O
+         * `httpStatus: 403` é o que diz ao vigia "isto é NOSSO e é de todas as
+         * casas" — mesma família da credencial revogada, mesma resposta: avisa
+         * na primeira. Achado pela revisão de compliance de 2026-09-21 (HIGH-4b).
+         */
+        /**
+         * O ESCOPO SAI DO MOTIVO, não do formato da falha.
+         *
+         * A primeira versão mandava TODO `!qr_code` pro balde de plataforma
+         * (403). Mas a condição também cobre causa de UMA casa — recebedor
+         * inativo, split recusado pra aquele `pspRecipientId` —, e aí o
+         * fundador recebia, na primeira ocorrência, uma página afirmando
+         * apagão geral e mandando conferir uma chave que está boa, sem nomear
+         * casa nenhuma. É a página falsa e inacionável que o conserto anterior
+         * veio remover, chegando pela outra ponta.
+         *
+         * `Pix não habilitado na conta` é da CONTA e derruba todo mundo;
+         * recebedor/split é da casa. O motivo já está calculado aqui — usá-lo
+         * custa uma linha. Achado pela re-revisão de compliance (2026-09-21).
+         */
+        /**
+         * O SEGUNDO RAMO SAIU, e ele era a página falsa voltando pela regex.
+         *
+         * Era `|| /account|conta/i.test(reason) && /pix/i.test(reason)`. Este
+         * bloco inteiro É uma cobrança Pix, então `/pix/i` casa com
+         * praticamente tudo que o adquirente escreve aqui, e o ramo colapsava
+         * pra "a mensagem menciona conta". As causas de UMA casa que o próprio
+         * código nomeia dizem "conta": `recipient account is not active for
+         * pix`, `a conta de recebimento não aceita Pix`. Qualquer uma delas
+         * caía em `plataforma` — o único escopo SEM contagem, que pagina na
+         * primeira ocorrência com `venueId: null` e um texto mandando trocar
+         * uma chave que está boa.
+         *
+         * Pior que a página falsa: ela carimba a chave compartilhada
+         * `plataforma` pela janela inteira, então uma revogação de credencial
+         * DE VERDADE dentro daquela janela fica suprimida.
+         *
+         * Agora a plataforma exige a forma que só a conta produz ("Pix não
+         * habilitado na conta"), e todo o resto cai em `casa` — que pagina
+         * igual, só que depois de três contas distintas. Sem silêncio de
+         * nenhum lado: a dúvida vai pro balde que CONTA, não pro que grita.
+         * (compliance MEDIUM-3 + segurança MEDIUM-1, a mesma coisa pelos dois
+         * lados.)
+         */
+        const daConta = /pix.{0,20}(n[aã]o|not).{0,20}(habilitad|enabled|ativ)/i.test(String(reason));
+        const e = new Error(`pagarme: cobrança Pix sem qr_code (${String(reason).slice(0, 140)})`);
+        e.statusCode = 402;
+        e.code = 'psp_rejected';
+        /**
+         * 403 = nossa conta, todas as casas, avisa na primeira.
+         * 0 = desfecho desconhecido de UM pedido: o `psp_rejected` continua
+         * indo pra tela (nada de "tente de novo"), e ninguém é paginado por
+         * uma cobrança isolada que o gateway não conseguiu montar.
+         */
+        /**
+         * 403 = nossa conta, todas as casas, avisa na primeira.
+         * 422 = ESTA casa, e entra na contagem por contas distintas.
+         *
+         * A versão anterior mandava o não-da-conta pra `0` (transitório), e
+         * `transitorio` sai do observador ANTES de contar qualquer coisa. Ou
+         * seja: a casa cujo recebedor está inativo, com 100% das cobranças
+         * voltando 200-sem-qr_code, não avisava NINGUÉM — nunca, em nenhum
+         * volume, em nenhuma quantidade de mesas. O escopo estava certo e o
+         * balde, errado: o pedido da revisão era distinguir isolado de
+         * sistêmico, e `casa` já faz isso (três contas distintas). Trocar por
+         * silêncio foi o inegociável #8 pela outra ponta. Achado pela décima
+         * segunda revisão de segurança (2026-09-21, HIGH-3).
+         */
+        e.httpStatus = daConta ? 403 : 422;
+        /**
+         * E O NÚMERO É INVENTADO. O adquirente respondeu HTTP 200 nesta rota;
+         * o 403/422 existe pra rotear a decisão do vigia, não porque trafegou.
+         * Sem esta marca, o aviso dizia "HTTP 403" e quem fosse acordado às 3h
+         * iria procurar num log um 403 que não existe em lugar nenhum.
+         * (compliance MEDIUM-3b.)
+         */
+        e.httpSintetico = true;
+        // Sem quebra de linha: `reason` é texto de TERCEIRO, e um `\n` no meio
+        // inventa uma linha inteira no rastro de um caminho de dinheiro.
+        process.stderr.write(
+          `[pagarme] Pix sem qr_code: ${soUmaLinha(reason)}\n`,
+        );
+        throw e;
       }
       return {
         txid: charge.id, // ch_... — chave de idempotência do webhook
@@ -529,7 +628,36 @@ function createPagarmePsp({
         throw falha;
       }
       const charge = order.charges && order.charges[0];
-      if (!charge) throw new Error('pagarme: resposta sem charge — cobrança de cartão não criada');
+      if (!charge) {
+        /**
+         * O IRMÃO ESQUECIDO. Doze linhas acima, o Pix sem `qr_code` ganhou
+         * `code` e escopo; este gêmeo continuava sendo `new Error` pelado —
+         * sem `code`, o `errorBody` manda `internal` e a mesa lê "tente de
+         * novo"; sem `httpStatus`, o vigia classifica como `nao-e-adquirente`
+         * e ninguém é paginado. Mesma classe, mesmo arquivo. Latente só porque
+         * a carteira liga por `RACHA_WALLET_VENUES`, que o `create-charge`
+         * chama de passo iminente. (compliance MEDIUM-5.)
+         */
+        /**
+         * E O CÓDIGO É `charge_maybe_captured`, não `psp_rejected`.
+         *
+         * A primeira versão deste conserto pôs `psp_rejected`, que a tela
+         * traduz como "Nada foi cobrado — você pode pagar no caixa". Mas o
+         * `POST /orders` voltou 2xx: o adquirente ACEITOU a ordem, e só não
+         * veio `charges[0]`. Num adaptador que declara `walletCaptures: true`,
+         * afirmar "nada foi cobrado" sobre um desfecho desconhecido manda a
+         * pessoa pagar de novo — segunda captura no mesmo cartão, que é o CDC
+         * art. 42 e é exatamente a assimetria que o `create-charge` gasta um
+         * parágrafo defendendo. Eu escolhi o lado que aquele arquivo argumenta
+         * contra. (segurança MEDIUM-3 da re-revisão.)
+         */
+        const e = new Error('pagarme: resposta sem charge — desfecho desconhecido');
+        e.statusCode = 502;
+        e.code = 'charge_maybe_captured';
+        e.httpStatus = 422;        // desfecho desta casa; entra na contagem
+        e.httpSintetico = true;    // o adquirente respondeu 200
+        throw e;
+      }
       const status = charge.status;
       if (status === 'failed' || status === 'canceled') {
         // O motivo real do gateway vai no erro — "recusado" seco não ajuda
@@ -558,7 +686,9 @@ function createPagarmePsp({
          * O motivo do adquirente continua indo pro stderr, que é onde ele
          * serve: quem está de plantão lê, o cliente não.
          */
-        process.stderr.write(`[pagarme] cartão recusado: ${String(reason).slice(0, 140)}\n`);
+        process.stderr.write(
+          `[pagarme] cartão recusado: ${soUmaLinha(reason, 140)}\n`,
+        );
         const err = new Error('cartão recusado pelo emissor');
         err.statusCode = 402;
         err.code = 'card_declined';
@@ -758,7 +888,7 @@ function createPagarmePsp({
       } catch (e) {
         // Valor impossível: dinheiro que se moveu e não dá pra medir. Mesmo
         // desfecho do webhook — evento não lançável, nunca um 500 em laço.
-        process.stderr.write(`[pagarme] cobrança ${charge.id} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
+        process.stderr.write(`[pagarme] cobrança ${soIdentificador(charge.id)} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
         return {
           txid: charge.id, eventId: null, status: charge.status, paid: false,
           kind: 'unusable_money_event', raw: charge,
@@ -903,7 +1033,7 @@ function createPagarmePsp({
            * por causa de uma cobrança. Achado pela revisão de segurança de
            * 2026-09-08.
            */
-          process.stderr.write(`[pagarme] cobrança ${charge.id} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
+          process.stderr.write(`[pagarme] cobrança ${soIdentificador(charge.id)} com valor impossível: ${String(e.message).slice(0, 120)}\n`);
           return {
             kind: 'unusable_money_event', type, txid: charge.id,
             status: charge.status, raw: charge, eventId,

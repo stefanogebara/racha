@@ -145,7 +145,7 @@ describe('o interruptor tem posição LIGADO', () => {
   test('sem a env, o POST é barrado ANTES do adquirente', async () => {
     const { table } = await mesa();
     const { r, chamadas } = await contandoCobrancas(
-      () => com(undefined, () => pagarComCarteira(table.qrToken, 'tok')),
+      () => com(undefined, () => pagarComCarteira(table.qrToken, 'tok_abcdefgh')),
     );
     expect(r.status).toBe(400);
     expect(r.corpo.code).toBe('rail_unsupported');
@@ -158,7 +158,7 @@ describe('o interruptor tem posição LIGADO', () => {
     const { table } = await mesa();
     const { r, chamadas } = await contandoCobrancas(
       () => com('11111111-1111-1111-1111-111111111111',
-        () => pagarComCarteira(table.qrToken, 'tok')),
+        () => pagarComCarteira(table.qrToken, 'tok_abcdefgh')),
     );
     expect(r.corpo.code).toBe('rail_unsupported');
     expect(chamadas).toHaveLength(0);
@@ -205,7 +205,7 @@ describe('um trilho que não existe é recusado sem custar ida ao banco', () => 
       try {
         r = await com('qualquer-casa', () => pedir('POST', '/api/pay', {
           token: table.qrToken, amountCents: 500, tipCents: 0,
-          wallet, paymentToken: 'tok', payerDocument: '52998224725',
+          wallet, paymentToken: 'tok_abcdefgh', payerDocument: '52998224725',
         }));
       } finally { s.getVenueForCheck = original; }
       expect(r.corpo.code).toBe('rail_unsupported');
@@ -222,14 +222,20 @@ describe('um trilho que não existe é recusado sem custar ida ao banco', () => 
 });
 
 describe('a demo não é barrada pelo interruptor', () => {
-  const { DEMO_TABLE_TOKEN } = require('../_lib/demo');
+  // `DEMO_TOKEN` é o nome exportado; `DEMO_TABLE_TOKEN` é interno do roteador
+  // e vinha `undefined`, então este caso media um 404 e não a isenção da demo
+  // (re-revisão de segurança, 2026-09-21).
+  const { DEMO_TOKEN: DEMO_TABLE_TOKEN, ensureDemoCheck } = require('../_lib/demo');
 
   test('carteira na mesa de demonstração passa, com a lista VAZIA', async () => {
+    await ensureDemoCheck(store, DEMO_TABLE_TOKEN);
     const r = await com(undefined, () => pedir('POST', '/api/pay', {
       token: DEMO_TABLE_TOKEN, amountCents: 500, tipCents: 0,
       wallet: 'google_pay', paymentToken: 'tok_demo_0123456789',
       payerDocument: '52998224725',
     }));
+    // Chegou à cobrança — sem isto o caso media um 404.
+    expect(r.corpo.code).not.toBe('check_not_found');
     // O que NÃO pode acontecer é o nosso portão barrar. O que o MockPsp faz
     // com o token depois é outro assunto.
     expect(r.corpo.code).not.toBe('rail_unsupported');

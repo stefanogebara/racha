@@ -205,6 +205,92 @@ function publicMarketView(code, { servicoBp = 0, cnpj = null } = {}) {
  * `amount_over_max` levam o limite nos `vars`, pra tela poder formatar na
  * moeda certa.
  */
+/**
+ * A GORJETA TEM TETO DE ADMISSÃO, E O TETO É O TOTAL DA CONTA.
+ *
+ * "De admissão" porque é isto e não mais: o razão NÃO tem esse invariante.
+ * `guardCap` (`check-state.js`) só confere `MAX_SAFE_INTEGER`, e um `ADJUSTED`
+ * que baixe o total não olha a gorjeta já confirmada. Quem citar este bloco
+ * daqui a seis meses precisa ler a frase certa, não a que soa melhor — a forma
+ * "comentário que afirma o que o código não sustenta" está no livro de abertos
+ * quatro vezes. (compliance MEDIUM-1 da re-revisão.)
+ *
+ * `tipCents` só era conferido como inteiro não-negativo, e o `charge.maxCents`
+ * do Brasil é `null` ("Pix não tem teto de esquema"). R$ 90 milhões de
+ * "gorjeta" sobre um item de R$ 1,00 passavam pelo portão de dinheiro, viravam
+ * linha em `payments` e entravam na conciliação — e a gorjeta é o que o
+ * inegociável #2 promete ao restaurante pra distribuir em folha.
+ *
+ * MORA AQUI, E NÃO NUM DOS CHAMADORES, porque nasceu no `create-charge` e
+ * ficou faltando no outro: o `/api/pay/stripe-intent` monta a cobrança inline,
+ * então a MESMA casa dava duas respostas conforme o trilho que a pessoa tocou.
+ * É a forma "chamador esquecido" que este arquivo já consertou pro
+ * `payerLabel`. Achado pela décima segunda revisão de segurança (2026-09-21,
+ * HIGH-1).
+ *
+ * Não mora dentro do `marketGate` porque aquele portão roda ANTES de o razão
+ * ser lido — o total ainda não existe lá. Os dois chamadores chamam isto assim
+ * que têm o estado.
+ *
+ * Teto pelo TOTAL e não pelo valor pago: a cobrança só-gorjeta
+ * (`amountCents: 0`) é caminho legítimo, e amarrar ao valor pago a proibiria.
+ * E sem `totalCents > 0 &&`: um total zero — mesa aberta antes do primeiro
+ * pedido, que é o que os adaptadores de POS vão produzir — desligaria o teto
+ * inteiro, que é a forma `if (coisa && !ok)` de sempre.
+ */
+function tetoDaGorjeta(tipCents, state) {
+  /**
+   * RECEBE O ESTADO, e não o par `(tipCents, state.totalCents)`.
+   *
+   * A assinatura anterior pedia ao chamador que escolhesse dois campos, e o
+   * censo que a sustentava era uma regex procurando o literal
+   * `tetoDaGorjeta(tipCents, state.totalCents)` no código-fonte. Um teste que
+   * lê a chamada não vê o que ela decide — apagar o `if` que lê o retorno
+   * mantinha a suíte verde e o trilho Stripe voltava a gravar gorjeta de nove
+   * bilhões. Com o estado inteiro, existe UM lugar que sabe quais campos
+   * importam, e o censo pôde virar teste de comportamento nos dois trilhos.
+   * (compliance HIGH-2 / segurança LOW-1, décima terceira rodada.)
+   *
+   * SOMA O QUE JÁ ENTROU. O teto por COBRANÇA deixava uma conta de R$ 100,00
+   * aceitar dez cobranças de R$ 100,00 de "serviço" — R$ 1.000,00 de gorjeta
+   * numa conta de cem reais, liquidados no CNPJ da casa, marcados como gorjeta
+   * nas regras de split e entrando no relatório que o restaurante distribui em
+   * folha com INSS/IRRF/FGTS em cima. Achado pelas DUAS revisões da décima
+   * terceira rodada, pelos dois lados (#2 e conciliação).
+   *
+   * `state.tipCents` é gorjeta CONFIRMADA líquida de estorno (`check-state.js`
+   * soma no `PAYMENT_CONFIRMED` e subtrai no `PAYMENT_REFUNDED`) — que é
+   * exatamente o que chega na folha e na conciliação. A janela que sobra é a
+   * das pendentes: cobranças criadas antes de qualquer confirmação não estão
+   * no razão e não entram nesta soma. Ela é limitada pelo `TETO_PENDENTES`, e
+   * fechá-la de verdade pede contar gorjeta pendente no SQL de vagas — o que
+   * NÃO está feito, e está dito aqui em vez de prometido no comentário.
+   */
+  /**
+   * A FORMA ANTIGA É RECUSADA EM VOZ ALTA, e não em silêncio.
+   *
+   * Com `if (!state || ...) return null`, a chamada da rodada anterior —
+   * `tetoDaGorjeta(tipCents, state.totalCents)`, que passa um NÚMERO — caía
+   * assim: `!10000` é falso, `Number.isInteger(undefined)` é falso, logo
+   * `null` — o teto DESLIGADO, calado, sem erro e sem teste vermelho. E a
+   * chamada antiga está escrita por extenso, como exemplo do que não fazer,
+   * em dois comentários desta mesma árvore: um copy-paste reinstalava o
+   * defeito da rodada anterior. É `if (coisa && !ok)` pela porta do tipo, e as
+   * duas revisões acharam. (compliance MEDIUM-2 / segurança LOW-4.)
+   *
+   * `null`/`undefined` seguem valendo `null` porque os dois chamadores já
+   * guardam `!state` antes — isto é cinto e suspensório, não decisão. O que
+   * não pode passar é um argumento do TIPO errado fingindo que está tudo bem.
+   */
+  if (state !== null && state !== undefined && typeof state !== 'object') {
+    throw new TypeError('tetoDaGorjeta: o segundo argumento é o ESTADO da conta, não `state.totalCents`');
+  }
+  if (!state || !Number.isInteger(state.totalCents)) return null;  // sem total, sem afirmação
+  const jaConfirmada = Number.isInteger(state.tipCents) ? state.tipCents : 0;
+  if (jaConfirmada + tipCents > state.totalCents) return { code: 'amount_invalid' };
+  return null;
+}
+
 function checkChargeLimits(code, amountCents) {
   const m = market(code);
   if (!Number.isInteger(amountCents)) return { code: 'amount_invalid' };
@@ -272,6 +358,9 @@ function marketGate(code, { rail, amountCents, tipCents = 0, venue = null } = {}
   if (market(code).serviceCharge.mode === 'none' && tipCents > 0) {
     return { code: 'tip_not_supported' };
   }
+  // O teto da gorjeta NÃO mora aqui: este portão roda antes de o razão ser
+  // lido, e o total só existe depois. Ver `tetoDaGorjeta`, que os dois
+  // chamadores invocam assim que têm o total.
   // ── SERVIÇO SÓ ONDE HÁ PESSOA JURÍDICA PRA DISTRIBUIR ────────────────────
   //
   // Mora AQUI, e não no `create-charge`, porque `create-charge` não é o funil
@@ -330,6 +419,7 @@ module.exports = {
   checkChargeLimits,
   supportsRail,
   marketGate,
+  tetoDaGorjeta,
   showsVenueTaxId,
   pspCurrency,
   esEnabled,

@@ -1,4 +1,4 @@
-# O que dez rodadas de revisão deixaram aberto, e o que reabre cada coisa
+# O que onze rodadas de revisão deixaram aberto, e o que reabre cada coisa
 
 **Decisão:** estes achados são reais, foram medidos, e nenhum deles bloqueia o
 merge — mas **três bloqueiam o go-live**, e estão nomeados logo abaixo. Ficam aqui com o gatilho que os reabre, porque um achado que vive só em
@@ -8,7 +8,7 @@ repositório já pagou pra aprender quatro vezes.
 ## Por que existe esta página
 
 Entre 16 e 19 de setembro de 2026 o portão de revisão (fintech-compliance +
-security-reviewer) rodou dez vezes sobre o mesmo branch. **Todas as nove
+security-reviewer) rodou onze vezes sobre o mesmo branch. **Todas as dez
 rodadas depois da primeira acharam defeito real no conserto da rodada
 anterior** — três CRITICAL, e a maioria em código escrito durante a própria
 sequência de consertos.
@@ -51,9 +51,68 @@ pro trilho principal, no ar, sem passar por `RACHA_WALLET_VENUES`.
    confirmados (uma queda total produz zero), e a conciliação compara dois
    registros que concordam que nada aconteceu. O aviso diário diz "restaurantes
    ok". É o inegociável #8 pelo caminho da cobrança em vez do da conciliação.
-   **O que falta:** contar 4xx consecutivos do adquirente por casa e mandar pro
-   aviso do fundador. Achado na nona rodada, deixado de fora da nona de
-   propósito, nomeado aqui na décima.
+   **PARCIAL em 2026-09-21** (`saude-do-adquirente.js` + `observa-adquirente.js`).
+   O `POST /api/pay` no trilho Pix/Pagar.me avisa — e SÓ ele. O que segue
+   aberto está listado no fim deste item, e é por isso que a palavra não é
+   "feito".
+   401/403 é NOSSA credencial e atinge todas as casas: avisa na PRIMEIRA, porque
+   esperar N é esperar enquanto 100% falha. 4xx de casa avisa em três seguidas,
+   e um pagamento que passa ZERA a contagem. Rede, timeout, 429 e 5xx não
+   acordam ninguém. O kind é `account_alert`, que a ponte já aceita — um kind
+   novo voltaria 400 e seria o mesmo silêncio.
+
+   **O que esta peça NÃO cobre — e cada um destes é o mesmo apagão noutra
+   roupa, então a lista importa:**
+
+   - **O trilho da Stripe é invisível.** A classificação lê `httpStatus`, e só
+     o adaptador da Pagar.me o marca; a Stripe usa `statusCode`. Uma
+     `STRIPE_SECRET_KEY` revogada não é sequer classificada como falha de
+     adquirente, e o `POST /api/pay/stripe-intent` nunca chama o observador.
+     Espanha está desligada, mas aquele adaptador cria conta `country: 'BR'` e
+     serve cartão aqui.
+   - **Não há orçamento de páginas.** O irmão (`avisarTetoDisparado`) tem teto
+     diário — 12 por dia, 3 por casa — porque páginas sem limite JÁ treinaram
+     alguém a ignorar o canal (160 por dia, incidente de `497bf87`). Este não
+     tem nenhum, e um apagão de 8 horas em 8 instâncias quentes são centenas de
+     mensagens no mesmo canal do canário. Duplicado ganha de mudo; duplicado e
+     sem teto vira mudo no leitor, uma semana depois. O `claimSlots` (migração
+     0033) é o primitivo durável que este repositório já tem pra isso.
+   - **429 sustentado.** Tratado como transitório, e é: por um pico. Uma cota
+     estourada derruba todas as casas e não conta nem uma falha.
+   - **4xx de plataforma que não é 401/403.** Um 400 nosso ou um 422 de
+     marketplace vai pro balde POR CASA e pode nunca chegar a três seguidas na
+     mesma instância. Invisível com uma casa-piloto; morde quando o piloto der
+     certo.
+   - **O estado é por INSTÂNCIA QUENTE.** Instâncias diferentes podem avisar do
+     mesmo apagão — repetido é melhor que mudo — e uma fria conta do zero. Na
+     credencial revogada isso não atrasa nada, porque aquele escopo avisa na
+     primeira.
+   - **`/api/house/load` não é observado.** É um TERCEIRO caminho que chama
+     `createPixCharge` na Pagar.me de verdade (`house-service.js`), e não tem
+     observador nenhum: uma chave revogada derruba o carregamento de saldo em
+     silêncio, e um 4xx de casa ali nunca conta pra contagem daquela casa. A
+     frase "o trilho Pix/Pagar.me avisa" foi escrita antes de eu conferir este
+     arquivo — é o mesmo "guarda que só lia o `router.js`" que o próprio
+     `house-service.js` já documenta contra si.
+   - **A CASA nunca é avisada.** Quando as cobranças de uma casa falham, quem
+     recebe é só o fundador. O restaurante segue achando que a Racha funciona
+     enquanto cada pessoa na mesa lê "pagamentos indisponíveis aqui". O
+     `notifyOwnerRecipientStatus` já existe pra esse público. (Eu disse a um
+     revisor que este item já estava escrito aqui. Não estava — esta linha é a
+     correção.)
+   - **O apagão que aparece na AUSÊNCIA de cobranças**: ninguém tocou em pagar.
+     Detector durável, mora na conciliação (volume de hoje contra os dias
+     anteriores, por casa). Enquanto os de cima não fecharem, ele é o ÚNICO
+     fundo de rede pra todos eles — então ou eles fecham, ou ele entra antes do
+     primeiro `sk_live_`. Não "nenhum dos dois".
+
+   **E uma verificação de fora do código, antes do primeiro `sk_live_`:** o
+   `account_alert` foi escolhido porque a ponte o aceita — provado contra a
+   FIXTURE do `notify-bridge-contract.test.js`, que é mantida à mão e que hoje
+   contém `money_without_check` com um comentário dizendo que a ponte NÃO o
+   aceita. Ou seja, a fixture comprovadamente pode estar à frente da realidade.
+   Confira em `restaurant-ai-mcp/api/racha-notify.js` e escreva a data ao lado
+   da entrada — senão o pager inteiro pode ser um 400.
 2. **`PAGARME_WEBHOOK_AUTH` não é conferida no boot.** O adaptador recusa cada
    webhook sem ela — certo — mas a consequência (a Pagar.me reentrega, desiste e
    DESABILITA o endpoint, e a confirmação de Pix morre) só existe em prosa. O
@@ -291,3 +350,76 @@ o que fazia toda chamada com template parecer sem código — acusando o inocent
   afirma um esquema que o banco não tem.
 - **Quatro advisories em `apps/web`**, todas na cadeia de build, nenhuma no
   código que o cliente executa.
+
+---
+
+## Décima terceira rodada e a re-revisão dela (2026-09-21)
+
+O que as duas revisões acharam e que **não** foi consertado, cada um com gatilho.
+
+### A janela das pendentes no teto da gorjeta — MEDIDA em 10x
+
+`tetoDaGorjeta` soma `state.tipCents`, que é gorjeta **confirmada**. Cobranças
+criadas antes de qualquer confirmação não estão no razão e não entram na soma,
+então N cobranças com `tipCents === totalCents` passam cada uma por si. A
+revisão de segurança mediu, contra o `createChargeService` de verdade:
+
+```
+cobrancas pendentes criadas com gorjeta=total: 10
+totalCents=10000  tipCents CONFIRMADA=100000  (=10.0x a conta)
+```
+
+O atacante paga de verdade, então isto é inflação de base de folha e de
+conciliação, não roubo — e é estritamente melhor que o estado anterior, em que
+não havia teto nenhum (nove bilhões passavam). O conserto de verdade é contar
+gorjeta pendente na reserva de vaga (`claim_slots`, migração 0033 já carrega a
+reserva por conta) ou reafirmar o teto ao aplicar `PAYMENT_CONFIRMED`.
+
+**Gatilho:** o primeiro piloto que feche mês com relatório de folha, ou o
+primeiro `sk_live_` — o que vier antes. O teste que falta está descrito: criar
+as N cobranças **antes** de qualquer confirmação e exigir que a (N+1)-ésima
+seja recusada.
+
+### O razão não tem o invariante que o teto de admissão promete
+
+`guardCap` (`check-state.js`) só confere `MAX_SAFE_INTEGER`, e um `ADJUSTED`
+que baixe o total não olha a gorjeta já confirmada: conta de R$ 100,00 com
+R$ 10,00 de gorjeta confirmada, POS cancela itens e ajusta pra R$ 5,00, e o
+relatório de folha mostra gorjeta maior que o consumo sem anomalia nenhuma.
+
+**Gatilho:** o primeiro adaptador de POS que emita `ADJUSTED` — hoje nenhum
+emite, e é por isso que isto não é conserto de agora.
+
+### `api/` não tem linter, e o defeito desta rodada era estático
+
+`router.js` chamava `tetoDaGorjeta` e nunca a importava: `ReferenceError` em
+toda requisição a `/api/pay/stripe-intent`, o trilho de cartão inteiro em 500.
+**As duas revisões leram o arquivo e passaram por cima.** O que pegou foi o
+primeiro teste que dirigiu a rota — e, medido depois, `eslint --rule no-undef`
+acusa a linha em segundos:
+
+```
+5ba46e7  →  1378:23  error  'tetoDaGorjeta' is not defined  no-undef
+c5d37d1  →  (limpo)
+```
+
+Hoje `eslint.config.js` existe só em `apps/web`; a raiz roda `jest` e mais nada.
+A revisão de segurança propôs, como alternativa sem dependência de estilo, um
+censo de escopo com `@babel/parser` + `@babel/traverse` (~40 linhas, achou o
+defeito plantado na primeira execução) — com a ressalva de que os dois pacotes
+hoje são dependências transitivas do jest e precisariam ser declarados, senão o
+censo evapora num upgrade e vira guarda que morre calada.
+
+**Gatilho:** nenhum. Isto é precondição de go-live do trilho de cartão, não
+item adiável — está aqui só porque entrou depois de as revisões lerem a árvore,
+e merece a sua própria revisão.
+
+### O corpo da rota do intent segue sem teste
+
+O único teste que dirige `/api/pay/stripe-intent` retorna na linha do teto da
+gorjeta. De lá até o fim — `assertChargeSlot`, `comContratoDeCaptura`,
+`createWalletCharge`/`createBizumCharge`, `gravarAposCobrar`, o mapeamento de
+`amount_too_small`, o `finally` que devolve a vaga — nenhuma linha foi
+executada por teste nenhum. É o trecho onde o dinheiro se move.
+
+**Gatilho:** o mesmo do item acima.

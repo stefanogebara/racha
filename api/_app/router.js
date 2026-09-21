@@ -11,6 +11,7 @@
  * reviewed core.
  */
 
+const { soIdentificador } = require('../_lib/rastro');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -43,6 +44,7 @@ const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { gravarAposCobrar } = require('../_lib/pay/gravar-apos-cobrar');
+const { criarObservadorDoAdquirente } = require('../_lib/pay/observa-adquirente');
 
 /**
  * O MESMO "falha fechado" do `create-charge`, na rota irmã.
@@ -314,7 +316,16 @@ const demoWebhook = createWebhookHandler({
 // The simulate-confirmation affordance only exists when explicitly enabled
 // (the deployed sales DEMO uses the mock PSP; a real deploy with a live PSP
 // leaves this off so nobody can mark payments confirmed).
-const { chargingAllowed, market, marketGate, pspCurrency, isMarket, DEFAULT_MARKET } = require('../_lib/markets');
+// `tetoDaGorjeta` FALTAVA nesta lista, e a chamada na rota do intent existia.
+// Resultado: `ReferenceError` em TODA requisição a `/api/pay/stripe-intent` —
+// o trilho de cartão inteiro em 500, não só a gorjeta acima do total. O censo
+// que devia cobrir isso era uma regex procurando o literal da CHAMADA no
+// código-fonte; ela casava, e a função não existia no escopo. Nenhuma revisão
+// de leitura pegou (as duas leram o mesmo texto que a regex lia); o primeiro
+// teste que DIRIGIU a rota pegou na primeira execução.
+const {
+  chargingAllowed, market, marketGate, pspCurrency, isMarket, DEFAULT_MARKET, tetoDaGorjeta,
+} = require('../_lib/markets');
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
@@ -635,13 +646,16 @@ function esperaDisponivel() {
  * rápido e calado. Nada mostrava se o `waitUntil` roda em produção; esta linha
  * mostra quando ele não roda. (Segurança L-A de 3a10835.)
  */
-let semEsperaAvisado = false;
+const semEsperaAvisado = new Set();
+/** Uma linha por SÍTIO, uma vez: mostra quando o modo degradado está em uso. */
+function avisarSemEspera(marca) {
+  if (semEsperaAvisado.has(marca)) return;
+  semEsperaAvisado.add(marca);
+  process.stderr.write(`${marca} SEM waitUntil (sem contexto de requisição da Vercel): o aviso sai ANTES da resposta\n`);
+}
 async function responderEAvisar(enviar, err) {
   if (!esperaDisponivel()) {
-    if (!semEsperaAvisado) {
-      semEsperaAvisado = true;
-      process.stderr.write('[teto] SEM waitUntil (sem contexto de requisição da Vercel): o aviso sai ANTES da resposta\n');
-    }
+    avisarSemEspera('[teto]');
     await avisarTetoDisparado(err);
     enviar();
     return;
@@ -794,9 +808,10 @@ function rateLimitBucket(req, prefix, limit) {
  * dinheiro. Corta em 60 e joga fora tudo que não é caractere de nome de evento
  * (a Stripe e a Pagar.me usam `[a-z._]`), então nem escape nem tamanho passam.
  */
-function sanitizeForLog(v) {
-  return String(v).replace(/[^\w.:-]/g, '·').slice(0, 60);
-}
+// A REGRA MORA EM `_lib/rastro.js`. Ela estava aqui, e quando fez falta no
+// adaptador da Pagar.me foi reescrita inline com outra forma — duas regras pro
+// mesmo trabalho, que é como a próxima cópia diverge (re-revisão de segurança).
+const sanitizeForLog = soIdentificador;
 
 function rateLimitOpen(req) {
   return rateLimitBucket(req, 'open', 10); // 10 wallet creations / 10 min / IP
@@ -959,6 +974,18 @@ async function avisarEventoDeDinheiro(evento) {
     throw e;
   }
 }
+
+/**
+ * O OBSERVADOR DO ADQUIRENTE, por instância quente.
+ *
+ * Construído aqui, e não junto do `require`, porque `store` e o canal do
+ * fundador são declarados no meio do módulo — montá-lo antes dava TDZ. E o
+ * corpo dele mora em `_lib` porque este arquivo é lido por censos que ancoram
+ * em literais do código: as duas primeiras versões disto viviam aqui e
+ * sequestraram duas âncoras diferentes, a segunda sendo o comentário que
+ * explicava a primeira.
+ */
+const adquirente = criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent });
 
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
@@ -1207,8 +1234,41 @@ async function route(req, res) {
         if (e && e.code === 'too_many_pending_charges') {
           e.venueName = view.venue && view.venue.name; e.tableLabel = view.table && view.table.label;
         }
+        /**
+         * A DEMO NÃO CONTA (MockPsp), e o aviso PEDE PRA VIVER.
+         *
+         * Era `void`: promessa solta depois da resposta, que na Vercel a
+         * plataforma congela junto com a função — exatamente o que o
+         * `depoisDaResposta` deste arquivo existe pra evitar, escrito ali
+         * mesmo. O pager podia simplesmente não sair.
+         */
+        /**
+         * MESMA ORDEM DO `responderEAvisar`, e pelo mesmo motivo.
+         *
+         * `waitUntil` é NO-OP documentado sem contexto de requisição
+         * (`@vercel/functions` devolve `{}` e o `?.` engole), então pedir pra
+         * viver não garante nada sozinho — o `esperaDisponivel` deste arquivo
+         * existe exatamente pra isso, e eu tinha pegado só a outra metade do
+         * padrão. Sem espera garantida o aviso vai ANTES: lento e entregue
+         * vence rápido e calado, ainda mais aqui, onde a janela de 15 minutos
+         * já foi carimbada. Achado pela revisão de segurança de 2026-09-21
+         * (HIGH-1).
+         *
+         * `aoFalhar` devolve `null` quando não há o que avisar, e aí nada disto
+         * custa nada.
+         */
+        const aviso = isDemo ? null : adquirente.aoFalhar(e, view.check.id);
+        if (aviso) {
+          if (esperaDisponivel()) depoisDaResposta(aviso);
+          // Uma linha, uma vez: sem ela, nada mostra QUANDO este sítio roda no
+          // modo degradado — o irmão já diz, e este era o chamador esquecido.
+          else { avisarSemEspera('[adquirente]'); await aviso; }
+        }
         throw e;
       }
+      // Um pagamento que passa ZERA a contagem da casa — senão "recusas
+      // seguidas" viraria "acumuladas desde que a instância subiu".
+      if (!isDemo && result.venueId) adquirente.aoPagar(result.venueId);
       // O demo se auto-paga: sem Simulador nem webhook externo em live, o próprio
       // MockPsp assina a confirmação e o handler do demo credita o ledger — a
       // "conta de mentira" fecha na hora, sem tocar dinheiro real.
@@ -1224,7 +1284,11 @@ async function route(req, res) {
           process.stderr.write(`[demo] auto-confirm falhou: ${String(e.message).slice(0, 120)}\n`);
         }
       }
-      return json(res, 200, { success: true, data: result });
+      // O `venueId` é INTERNO: o `/api/check` omite o id da casa da projeção
+      // pública de propósito, e devolvê-lo aqui desfaria aquela decisão pela
+      // porta dos fundos. Preso por `pay-nao-vaza-casa.test.js`.
+      const { venueId: _casaInterna, ...paraOCliente } = result;
+      return json(res, 200, { success: true, data: paraOCliente });
     }
 
     // --- cartão / Apple Pay (Stripe, 2º rail) — cria o PaymentIntent ---------
@@ -1288,13 +1352,22 @@ async function route(req, res) {
         // Só o código: quem traduz é o cliente. (Compliance LOW-4 de 7a65e93.)
         return json(res, 400, { success: false, code: 'payer_label_invalid' });
       }
-      const state = reduce(await store.loadEvents(view.check.id));
-      if (!state || state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada', code: 'check_closed' });
-      const remaining = remainingCents(state);
-      if (amountCents > remaining) return json(res, 400, { success: false, error: `valor acima do que falta (${remaining} centavos)`,
-        // Centavos crus, não texto formatado: quem escolhe "R$ 12,34" ou
-        // "R$ 12.34" é o cliente, que sabe o idioma. Servidor não formata dinheiro.
-        code: 'amount_over', vars: { leftCents: remaining } });
+      /**
+       * O PORTÃO DE MERCADO NA ORDEM DA FÁBRICA, e não onde calhou.
+       *
+       * Mover só o teto da gorjeta pra baixo dele consertou UM código de seis.
+       * Medido pela re-revisão de segurança, com o mesmo corpo nos dois
+       * trilhos: casa espanhola com o mercado desligado, pedindo acima do que
+       * falta, respondia `market_not_live` no Pix e `amount_over` no cartão.
+       * É o mesmo defeito de antes com outro par de respostas — e o
+       * `create-charge` argumenta por extenso que o erro de mercado tem que
+       * vencer o detalhe do corpo, pra uma casa mal configurada não ficar
+       * escondida atrás de um número que o cliente digitou.
+       *
+       * A ordem agora é a da fábrica: tipo dos campos e rótulo antes (são "isto
+       * é um pedido?"), mercado depois, e só então razão, conta fechada e
+       * quanto falta.
+       */
       // Qual trilho, e o MERCADO decide se ele é legal nesta mesa. Um Bizum
       // numa mesa brasileira cobraria em euro; um cartão pelo caminho do Bizum
       // usaria o Payment Element errado. O cliente pede, o servidor confere.
@@ -1316,6 +1389,45 @@ async function route(req, res) {
       const gate = marketGate(venue.market, { rail, amountCents, tipCents, venue });
       if (gate) {
         return json(res, 400, { success: false, error: `mercado ${venue.market}: ${gate.code}`, ...gate });
+      }
+
+      const state = reduce(await store.loadEvents(view.check.id));
+      /**
+       * `check_not_found` E `check_closed` SÃO DUAS COISAS, como na fábrica.
+       *
+       * O `!state ||` estava grudado no `fechada`, então a mesma conta de razão
+       * vazio respondia `check_not_found` num trilho e `check_closed` no outro.
+       * Medido pela re-revisão; o teste novo do razão vazio só dirigia a
+       * fábrica, e a cópia da regra que mora aqui nunca foi perguntada.
+       */
+      if (!state) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (state.status === 'fechada') return json(res, 400, { success: false, error: 'conta fechada', code: 'check_closed' });
+      const remaining = remainingCents(state);
+      if (amountCents > remaining) return json(res, 400, { success: false, error: `valor acima do que falta (${remaining} centavos)`,
+        // Centavos crus, não texto formatado: quem escolhe "R$ 12,34" ou
+        // "R$ 12.34" é o cliente, que sabe o idioma. Servidor não formata dinheiro.
+        code: 'amount_over', vars: { leftCents: remaining } });
+      /**
+       * O TETO DA GORJETA, aqui também — e DEPOIS do portão de mercado.
+       *
+       * Este chamador monta a cobrança inline e não passa pelo `create-charge`,
+       * então a regra que nasceu lá não valia aqui: a MESMA casa dava duas
+       * respostas conforme o trilho que a pessoa tocou (segurança 2026-09-21,
+       * HIGH-1). Definição única em `markets.js`.
+       *
+       * O PORTÃO DE MERCADO VENCE O DETALHE DO CORPO — e aqui ele não vencia.
+       *
+       * O teto da gorjeta estava ACIMA do `if (gate)`, então uma mesa
+       * espanhola com o mercado desligado E gorjeta acima do total respondia
+       * `amount_invalid` neste trilho e `market_not_live` no outro: a
+       * centralização trocou o par de respostas divergentes por outro par.
+       * `create-charge.js` argumenta por extenso que o erro de mercado tem que
+       * vencer o de forma justamente pra uma casa mal configurada não ficar
+       * escondida atrás de um detalhe do pedido. (segurança LOW-1.)
+       */
+      const tetoTip = tetoDaGorjeta(tipCents, state);
+      if (tetoTip) {
+        return json(res, 400, { success: false, code: tetoTip.code });
       }
       let devolverVaga = null;
       let pspChamado = false;
@@ -1419,7 +1531,12 @@ async function route(req, res) {
         if (mapped) {
           const lim = market(venue.market).charge;
           return json(res, 400, {
-            success: false, error: e.message, code: mapped,
+            // SEM `e.message`: é a frase da Stripe, em inglês e com o valor
+            // já formatado ("Amount must be no less than 0.50 EUR"). O acordo
+            // do CLAUDE.md é código estável e centavos crus — e o `code` e os
+            // `vars` pra formatar já estão aqui do lado. Achado pela décima
+            // segunda revisão de segurança (2026-09-21, LOW-3).
+            success: false, code: mapped,
             vars: mapped === 'amount_under_min' ? { minCents: lim.minCents } : { maxCents: lim.maxCents },
           });
         }
@@ -3249,4 +3366,12 @@ async function route(req, res) {
 // `registraMissDeCheck` e `clientIp` saem pro teste: a garantia que importa —
 // a resposta do 404 é SEMPRE a mesma, e o primeiro hop do XFF não é confiável —
 // é de COMPORTAMENTO, e censo de fonte não prova comportamento.
-module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, psp, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp, carteiraLiberada };
+/**
+ * `demoPsp` sai junto pra que a isenção da demo possa ser MEDIDA.
+ *
+ * Sem ele, o único jeito de testar "a demo não acorda ninguém" era um censo de
+ * texto — e o comportamento estava protegido só por sorte: os erros do MockPsp
+ * não carregam `httpStatus`, então o vigia os ignoraria mesmo sem a isenção.
+ * Um guarda cuja remoção nada detecta é um guarda que some no próximo refactor.
+ */
+module.exports = { rotuloDoAviso, avisarTetoDisparado, projetarAchados, route, store, psp, demoPsp, authClient, useSupabase, DEMO_MODE, registraMissDeCheck, clientIp, carteiraLiberada };

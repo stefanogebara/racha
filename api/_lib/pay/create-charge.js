@@ -1,6 +1,10 @@
 'use strict';
 
-const { marketGate, pspCurrency } = require('../markets');
+const { marketGate, pspCurrency, tetoDaGorjeta } = require('../markets');
+const { isValidCPF } = require('../br/documento');
+
+/** Controle e DEL: o que envenena log e cabeçalho. */
+const CONTROLE = /[\u0000-\u001F\u007F]/;
 
 /**
  * Create a Pix charge for a share of a check — the money-out gate.
@@ -257,7 +261,27 @@ function createChargeService({ store, psp }) {
     // enviado não é um campo mal preenchido.
     if (payerDocument !== null && String(payerDocument).trim() !== '') {
       payerDocument = String(payerDocument).replace(/\D/g, '');
-      if (!/^\d{11}$/.test(payerDocument)) throw badRequest('CPF inválido (11 dígitos)', 'tax_id_invalid');
+      /**
+       * DÍGITOS VERIFICADORES, não só onze algarismos.
+       *
+       * `isValidCPF` já existe neste repositório e o CLIENTE já o usa — o
+       * servidor não usava, que é o par que o próprio `documento.js` chama de
+       * "clássico" no cabeçalho dele, consertado uma vez pro CNPJ da casa e
+       * nunca trazido pro documento do pagador.
+       *
+       * Não é só higiene de entrada. Um CPF de onze dígitos com verificador
+       * errado passava daqui, a Pagar.me recusava com 4xx, e o vigia do
+       * adquirente contava aquilo como SAÚDE DA CASA: três seguidas e o
+       * fundador era paginado dizendo "recebedor inativo, split desligado —
+       * ninguém paga aqui" sobre um restaurante são. Sem autenticação, com uma
+       * foto do QR, três requisições. É o ataque de gritar lobo contra o
+       * canal que este trilho existe pra proteger.
+       *
+       * E sem ataque nenhum: quem erra um dígito lia "pagamentos indisponíveis
+       * neste restaurante" em vez de "CPF inválido". Achado pela revisão de
+       * segurança de 2026-09-21 (HIGH-2).
+       */
+      if (!isValidCPF(payerDocument)) throw badRequest('CPF inválido', 'tax_id_invalid');
     } else {
       payerDocument = null;
     }
@@ -329,6 +353,49 @@ function createChargeService({ store, psp }) {
       throw badRequest(`psp ${psp.provider || '?'} não serve o trilho ${rail}`, 'rail_unsupported');
     }
     /**
+     * O TOKEN DA CARTEIRA TEM FORMA, conferida DEPOIS do portão de mercado.
+     *
+     * O adaptador só recusa não-string e comprimento menor que 8, então
+     * `'forjado-0123456789'` chegava ao `POST /orders` e voltava 4xx — o mesmo
+     * caminho de gritar lobo, latente até o primeiro id entrar em
+     * `RACHA_WALLET_VENUES`, que é passo nomeado e iminente.
+     *
+     * A ORDEM importa: erro de MERCADO (moeda, trilho não servido) é sobre a
+     * casa e vence sobre a forma do pedido — pôr isto antes fazia uma mesa
+     * espanhola com o PSP errado responder `card_token_invalid`, escondendo a
+     * configuração quebrada atrás de um detalhe do corpo. A suíte me desmentiu.
+     */
+    /**
+     * NÃO SE INVENTA FORMA PRO BLOB DE TERCEIRO.
+     *
+     * A primeira versão disto era `/^[A-Za-z0-9_-]{8,256}$/`, e ela recusava
+     * TODO token real do Google Pay. Em `PAYMENT_GATEWAY` — que é o modo que o
+     * `WalletPay.tsx` usa — o token não é um identificador: é o envelope JSON
+     * assinado do Google, de 1 a 3 KB, cheio de chaves, aspas, dois-pontos,
+     * barras e sinais de igual. Medido: um envelope realista de 1.554
+     * caracteres dá `false`.
+     *
+     * Ou seja, no dia em que o primeiro id entrasse em `RACHA_WALLET_VENUES` —
+     * o passo que o comentário anterior chamava de "nomeado e iminente" — todo
+     * toque de Google Pay levaria 400 do NOSSO portão, antes do adquirente.
+     * Botão morto, que é o anti-padrão escrito no próprio `WalletPay.tsx`. E
+     * invisível hoje porque o trilho está desligado e as fixtures usam a forma
+     * do demo. Achado pela décima segunda revisão de segurança (2026-09-21).
+     *
+     * O que dá pra afirmar sem conhecer o formato alheio: é string, tem
+     * tamanho de gente, e não carrega caractere de controle nem quebra de
+     * linha (que é o que envenena log e cabeçalho). A intenção original —
+     * manter falha de ENTRADA NOSSA fora da saúde da casa — se resolve na
+     * CLASSIFICAÇÃO, não no charset.
+     */
+    if (wallet !== null) {
+      const tokenOk = typeof paymentToken === 'string'
+        && paymentToken.length >= 8 && paymentToken.length <= 8192
+        && !CONTROLE.test(paymentToken);
+      if (!tokenOk) throw badRequest('token de pagamento inválido', 'card_token_invalid');
+    }
+
+    /**
      * O ADAPTADOR DECLARA SE A CARTEIRA DELE CAPTURA — e não declarar é
      * configuração errada, não passe livre.
      *
@@ -372,7 +439,28 @@ function createChargeService({ store, psp }) {
     // Uma regra, um lugar: ver `api/_lib/markets.js`.
 
     const state = reduce(await store.loadEvents(checkId));
+    /**
+     * O GUARDA DE `state` NULO VEM PRIMEIRO, e isto custou uma rodada.
+     *
+     * A versão anterior punha o teto da gorjeta ACIMA desta linha, lendo
+     * `state.totalCents` antes de perguntar se `state` existe. `reduce([])`
+     * devolve `null` por construção (`initialState()`), então o guarda logo
+     * abaixo virou código morto e uma conta com razão vazio passou a lançar
+     * `TypeError` pelado: sem `code`, o `errorBody` manda `internal` e a mesa
+     * lê "tente de novo" pra sempre em vez do `check_not_found` que estava
+     * escrito aqui; e sem `httpStatus`, o vigia novo classifica como
+     * `nao-e-adquirente` e ninguém é paginado.
+     *
+     * Medido: `reduce([])` → `null` → `TypeError: Cannot read properties of
+     * null (reading 'totalCents')`. O irmão em `router.js` já tinha a ordem
+     * certa — a mesma regra, dois caminhos, ordens opostas, que é a forma que
+     * esta série inteira existe pra apagar. (compliance HIGH-1.)
+     */
     if (!state) throw badRequest('check has no events', 'check_not_found');
+    // O teto da gorjeta, assim que o estado existe. Definição única em
+    // `markets.js`, chamada pelos DOIS caminhos de cobrança.
+    const tetoTip = tetoDaGorjeta(tipCents, state);
+    if (tetoTip) throw badRequest('gorjeta maior que a conta', tetoTip.code);
     if (state.status === 'fechada') throw badRequest('check is closed', 'check_closed');
     const remaining = remainingCents(state);
     if (amountCents > remaining) {
@@ -529,6 +617,21 @@ function createChargeService({ store, psp }) {
       amountCents, tipCents,
       method: rail,
       wallet: wallet ?? null,
+      /**
+       * A CASA, pro vigia do adquirente zerar a contagem de recusas seguidas.
+       *
+       * Vai aqui porque a casa JÁ foi lida pra cobrar — quem precisasse dela na
+       * rota teria que ler de novo, e a projeção pública do `/api/check` não
+       * carrega `id`, de propósito.
+       *
+       * É CAMPO INTERNO, e a rota TEM que removê-lo: o `/api/pay` responde
+       * `data: result` inteiro, então acrescentar chave aqui é acrescentar
+       * chave na resposta pública. Escrevi neste mesmo comentário que "a rota
+       * escolhe campo a campo" antes de conferir — ela não escolhe. Quem prende
+       * isso é `pay-nao-vaza-casa.test.js`, porque um combinado que depende de
+       * alguém lembrar é o que este repositório passou dez rodadas removendo.
+       */
+      venueId: venue.id,
     };
     } finally {
       // A vaga volta SÓ se o PSP nem chegou a ser chamado. Ver `assertChargeSlot`.
