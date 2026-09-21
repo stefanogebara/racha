@@ -63,10 +63,49 @@
      morreria — então o que se moveu foi o TEXTO, não a cor: tudo que carrega
      significado subiu pro grafite, e o faint ficou com o que a norma dispensa
      (placeholder e o tique de uma caixa não marcada). Escurecido só o suficiente
-     pra placeholder legível: 3,3:1 sobre o papel. */
+     pra placeholder legível: 3,3:1 sobre o papel.
+
+     E O MOTIVO ACIMA ESTAVA ERRADO num ponto: a norma NÃO dispensa
+     placeholder. A dispensa de 1.4.3 é pra componente inativo, logotipo e
+     texto incidental — um placeholder num campo ativo não é nenhum dos três.
+     O que sustenta 3,3:1 aqui é outra coisa, e é verificável: todo campo desta
+     plataforma tem RÓTULO VISÍVEL (é o que `.campo` e `.cfggrid label`
+     existem pra garantir), então o placeholder é exemplo, não é o nome do
+     campo — ninguém precisa lê-lo pra saber o que preencher. No dia em que um
+     campo voltar a ser só-placeholder, este token não cobre mais o caso.
+     O tique do `.itempick` é `aria-hidden` e a marcação também sai em texto,
+     então cai na régua de 3:1 de componente, que ele passa (3,57 sobre o
+     papel-alto). O `.cta:disabled` é o único caso que a norma realmente
+     dispensa. */
   --faint:      #82837B;
   --fio:        #D4D2CB;
   --fio-forte:  #A6A59F;
+  /**
+   * O FIO DE UM CAMPO — e é por ser de campo que ele tem régua.
+   *
+   * `--fio` e `--fio-forte` são os dois valores do Presence (`--ps-rule`,
+   * `--ps-rule-strong`) e ficam como estão; o que não podia ficar é o USO.
+   * Um campo desta plataforma não tem preenchimento que o distinga do cartão
+   * em volta — `.campo` é papel dentro de papel-alto, 1,06:1 —, então a
+   * moldura de 1px É a única coisa que diz onde se digita. Medido: `--fio` dá
+   * 1,33:1 sobre o papel e 1,41:1 sobre o papel-alto; `--fio-forte`, 2,17 e
+   * 2,30. A WCAG 1.4.11 pede 3:1 pra informação visual necessária pra
+   * IDENTIFICAR um componente, e um campo de texto vazio é o exemplo canônico:
+   * sem a moldura não há campo, só espaço em branco.
+   *
+   * Só CAMPO. Botão com rótulo (`.mode`, `.itempick`, `.stepper button`) se
+   * identifica pelo próprio rótulo, e cartão é agrupamento — nos dois o fio é
+   * desenho e `--fio` fica. A linha divisória também.
+   *
+   * Vale `var(--faint)` em vez de um sexto cinza porque o sexto cinza cairia a
+   * um passo do `--faint` (#82837B contra ~#80807A dá 1,03:1): dois nomes pro
+   * mesmo valor, que é a forma que este arquivo já pagou pra aprender na
+   * camada de apelidos. O piso de 3:1 nas três superfícies onde ele é
+   * desenhado (papel 3,36 · papel-alto 3,57 · fundo2 3,13) está fixado POR
+   * CÁLCULO em `test/contraste.test.ts` — escurecer o `--faint` continua
+   * válido, clarear quebra o build.
+   */
+  --fio-controle: var(--faint);
   --azul:       #2F35FF;
   --azul-suave: #E7E8FF;
   --coral:      #D75D45;
@@ -293,7 +332,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    versalete. Duas molduras de campo lado a lado, uma com rótulo e outra sem. */
 .customrow {
   display: block;
-  border: 1px solid var(--fio); border-radius: var(--rad-c);
+  border: 1px solid var(--fio-controle); border-radius: var(--rad-c);
   background: var(--papel); padding: 10px 14px 12px; cursor: text;
 }
 .customrow > span {
@@ -317,7 +356,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 /* O CAMPO do Presence: raio de 16, papel alto, fio fino — e 16px de corpo,
    que e o minimo que o Safari do iPhone aceita sem dar zoom ao focar. */
 .namefield {
-  border: 1px solid var(--fio); border-radius: var(--rad-c); padding: 14px 14px; min-height: 48px;
+  border: 1px solid var(--fio-controle); border-radius: var(--rad-c); padding: 14px 14px; min-height: 48px;
   font: 400 16px/22px var(--ui); background: var(--papel); color: var(--ink);
 }
 .namefield::placeholder { color: var(--faint); }
@@ -341,7 +380,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    um degrau ACIMA do chão. Aqui o cartão já é o degrau de cima, então o campo
    desce pro papel — mesma distância, direção invertida. Com os dois no mesmo
    tom o campo sumia dentro do cartão e só o fio de 1px dizia onde ele começa. */
-.campo { display: block; border: 1px solid var(--fio); border-radius: var(--rad-c);
+.campo { display: block; border: 1px solid var(--fio-controle); border-radius: var(--rad-c);
   background: var(--papel); padding: 10px 14px 12px; cursor: text; }
 .campo > span { display: block; color: var(--grafite);
   font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 8px; }
@@ -529,7 +568,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
    formulário que move dados bancários. */
 .cfggrid label {
   display: flex; flex-direction: column; gap: 8px;
-  border: 1px solid var(--fio); border-radius: var(--rad-c);
+  border: 1px solid var(--fio-controle); border-radius: var(--rad-c);
   background: var(--papel); padding: 10px 14px 12px; cursor: text;
   font: 500 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--grafite);
 }
@@ -693,7 +732,12 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .landing .link { display: inline-flex; gap: 10px; align-items: baseline; margin-top: 40px; font: 500 13px/1 var(--ui); color: var(--cr); border-bottom: 1px solid var(--fio); padding-bottom: 6px; }
 .landing .link:hover { border-color: var(--cr); }
 
-.eyebrow { font: 500 11px/1 var(--ui); letter-spacing: .13em; text-transform: uppercase; color: var(--cr2); }
+/* ESCOPADA. `--cr2` só existe dentro do bloco `.landing`: a regra global
+   prometia um estilo que, fora da landing, sai sem cor nenhuma — o CSS
+   descarta `color` em silêncio e o elemento herda a do pai. Enquanto os dois
+   únicos usos estiverem na landing ninguém vê; o seletor é o que impede que o
+   terceiro uso, em outra tela, nasça sem cor. */
+.landing .eyebrow { font: 500 11px/1 var(--ui); letter-spacing: .13em; text-transform: uppercase; color: var(--cr2); }
 
 /* ── herói: uma linha ──────────────────────────────────────────────────────
    Manchete e os três gestos em 1–6; a tela em 8–12, o produto inteiro. */
