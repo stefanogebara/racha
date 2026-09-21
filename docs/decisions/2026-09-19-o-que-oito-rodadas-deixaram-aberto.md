@@ -51,9 +51,21 @@ pro trilho principal, no ar, sem passar por `RACHA_WALLET_VENUES`.
    confirmados (uma queda total produz zero), e a conciliação compara dois
    registros que concordam que nada aconteceu. O aviso diário diz "restaurantes
    ok". É o inegociável #8 pelo caminho da cobrança em vez do da conciliação.
-   **O que falta:** contar 4xx consecutivos do adquirente por casa e mandar pro
-   aviso do fundador. Achado na nona rodada, deixado de fora da nona de
-   propósito, nomeado aqui na décima.
+   **FEITO em 2026-09-21** (`saude-do-adquirente.js` + `observa-adquirente.js`).
+   401/403 é NOSSA credencial e atinge todas as casas: avisa na PRIMEIRA, porque
+   esperar N é esperar enquanto 100% falha. 4xx de casa avisa em três seguidas,
+   e um pagamento que passa ZERA a contagem. Rede, timeout, 429 e 5xx não
+   acordam ninguém. O kind é `account_alert`, que a ponte já aceita — um kind
+   novo voltaria 400 e seria o mesmo silêncio.
+
+   **O que esta peça NÃO cobre, e fica aberto:** o estado é por INSTÂNCIA
+   QUENTE (serverless, sem memória compartilhada), então instâncias diferentes
+   podem avisar do mesmo apagão — repetido é melhor que mudo — e uma instância
+   fria conta do zero. Na credencial revogada isso não atrasa nada, porque
+   aquele escopo avisa na primeira. O que continua invisível é o apagão que só
+   aparece na AUSÊNCIA de cobranças: ninguém tocou em pagar. Esse detector é
+   durável e mora na conciliação — comparar o volume de hoje com o dos dias
+   anteriores, por casa —, e fica como o próximo item desta lista.
 2. **`PAGARME_WEBHOOK_AUTH` não é conferida no boot.** O adaptador recusa cada
    webhook sem ela — certo — mas a consequência (a Pagar.me reentrega, desiste e
    DESABILITA o endpoint, e a confirmação de Pix morre) só existe em prosa. O

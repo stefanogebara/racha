@@ -43,6 +43,7 @@ const { publicCheckState } = require('../_lib/checks/public-state');
 const { createChargeReconciler } = require('../_lib/checks/reconcile-charges');
 const { createStripePsp } = require('../_lib/pay/stripe-psp');
 const { gravarAposCobrar } = require('../_lib/pay/gravar-apos-cobrar');
+const { criarObservadorDoAdquirente } = require('../_lib/pay/observa-adquirente');
 
 /**
  * O MESMO "falha fechado" do `create-charge`, na rota irmã.
@@ -960,6 +961,18 @@ async function avisarEventoDeDinheiro(evento) {
   }
 }
 
+/**
+ * O OBSERVADOR DO ADQUIRENTE, por instância quente.
+ *
+ * Construído aqui, e não junto do `require`, porque `store` e o canal do
+ * fundador são declarados no meio do módulo — montá-lo antes dava TDZ. E o
+ * corpo dele mora em `_lib` porque este arquivo é lido por censos que ancoram
+ * em literais do código: as duas primeiras versões disto viviam aqui e
+ * sequestraram duas âncoras diferentes, a segunda sendo o comentário que
+ * explicava a primeira.
+ */
+const adquirente = criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent });
+
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   try {
@@ -1207,8 +1220,15 @@ async function route(req, res) {
         if (e && e.code === 'too_many_pending_charges') {
           e.venueName = view.venue && view.venue.name; e.tableLabel = view.table && view.table.label;
         }
+        // A DEMO NÃO CONTA: ela cobra pelo MockPsp, e uma falha ali não diz
+        // nada sobre a saúde do adquirente de verdade. Sem `await`: quem está
+        // na mesa não espera o aviso sair.
+        if (!isDemo) void adquirente.aoFalhar(e, view.check.id);
         throw e;
       }
+      // Um pagamento que passa ZERA a contagem da casa — senão "recusas
+      // seguidas" viraria "acumuladas desde que a instância subiu".
+      if (!isDemo && result.venueId) adquirente.aoPagar(result.venueId);
       // O demo se auto-paga: sem Simulador nem webhook externo em live, o próprio
       // MockPsp assina a confirmação e o handler do demo credita o ledger — a
       // "conta de mentira" fecha na hora, sem tocar dinheiro real.
@@ -1224,7 +1244,11 @@ async function route(req, res) {
           process.stderr.write(`[demo] auto-confirm falhou: ${String(e.message).slice(0, 120)}\n`);
         }
       }
-      return json(res, 200, { success: true, data: result });
+      // O `venueId` é INTERNO: o `/api/check` omite o id da casa da projeção
+      // pública de propósito, e devolvê-lo aqui desfaria aquela decisão pela
+      // porta dos fundos. Preso por `pay-nao-vaza-casa.test.js`.
+      const { venueId: _casaInterna, ...paraOCliente } = result;
+      return json(res, 200, { success: true, data: paraOCliente });
     }
 
     // --- cartão / Apple Pay (Stripe, 2º rail) — cria o PaymentIntent ---------

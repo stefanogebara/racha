@@ -529,6 +529,21 @@ function createChargeService({ store, psp }) {
       amountCents, tipCents,
       method: rail,
       wallet: wallet ?? null,
+      /**
+       * A CASA, pro vigia do adquirente zerar a contagem de recusas seguidas.
+       *
+       * Vai aqui porque a casa JÁ foi lida pra cobrar — quem precisasse dela na
+       * rota teria que ler de novo, e a projeção pública do `/api/check` não
+       * carrega `id`, de propósito.
+       *
+       * É CAMPO INTERNO, e a rota TEM que removê-lo: o `/api/pay` responde
+       * `data: result` inteiro, então acrescentar chave aqui é acrescentar
+       * chave na resposta pública. Escrevi neste mesmo comentário que "a rota
+       * escolhe campo a campo" antes de conferir — ela não escolhe. Quem prende
+       * isso é `pay-nao-vaza-casa.test.js`, porque um combinado que depende de
+       * alguém lembrar é o que este repositório passou dez rodadas removendo.
+       */
+      venueId: venue.id,
     };
     } finally {
       // A vaga volta SÓ se o PSP nem chegou a ser chamado. Ver `assertChargeSlot`.
