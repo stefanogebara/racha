@@ -1220,10 +1220,18 @@ async function route(req, res) {
         if (e && e.code === 'too_many_pending_charges') {
           e.venueName = view.venue && view.venue.name; e.tableLabel = view.table && view.table.label;
         }
-        // A DEMO NÃO CONTA: ela cobra pelo MockPsp, e uma falha ali não diz
-        // nada sobre a saúde do adquirente de verdade. Sem `await`: quem está
-        // na mesa não espera o aviso sair.
-        if (!isDemo) void adquirente.aoFalhar(e, view.check.id);
+        /**
+         * A DEMO NÃO CONTA (MockPsp), e o aviso PEDE PRA VIVER.
+         *
+         * Era `void`: promessa solta depois da resposta, que na Vercel a
+         * plataforma congela junto com a função — exatamente o que o
+         * `depoisDaResposta` deste arquivo existe pra evitar, escrito ali
+         * mesmo. O pager podia simplesmente não sair.
+         */
+        // `aoFalhar` devolve `null` quando não há o que avisar — e só aí a
+        // plataforma não precisa segurar a função viva.
+        const aviso = isDemo ? null : adquirente.aoFalhar(e, view.check.id);
+        if (aviso) depoisDaResposta(aviso);
         throw e;
       }
       // Um pagamento que passa ZERA a contagem da casa — senão "recusas

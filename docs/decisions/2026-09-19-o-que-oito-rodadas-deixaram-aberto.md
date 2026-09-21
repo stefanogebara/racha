@@ -51,21 +51,54 @@ pro trilho principal, no ar, sem passar por `RACHA_WALLET_VENUES`.
    confirmados (uma queda total produz zero), e a conciliação compara dois
    registros que concordam que nada aconteceu. O aviso diário diz "restaurantes
    ok". É o inegociável #8 pelo caminho da cobrança em vez do da conciliação.
-   **FEITO em 2026-09-21** (`saude-do-adquirente.js` + `observa-adquirente.js`).
+   **PARCIAL em 2026-09-21** (`saude-do-adquirente.js` + `observa-adquirente.js`).
+   O trilho Pix/Pagar.me avisa; o que segue aberto está listado no fim deste
+   item, e é por isso que a palavra não é "feito".
    401/403 é NOSSA credencial e atinge todas as casas: avisa na PRIMEIRA, porque
    esperar N é esperar enquanto 100% falha. 4xx de casa avisa em três seguidas,
    e um pagamento que passa ZERA a contagem. Rede, timeout, 429 e 5xx não
    acordam ninguém. O kind é `account_alert`, que a ponte já aceita — um kind
    novo voltaria 400 e seria o mesmo silêncio.
 
-   **O que esta peça NÃO cobre, e fica aberto:** o estado é por INSTÂNCIA
-   QUENTE (serverless, sem memória compartilhada), então instâncias diferentes
-   podem avisar do mesmo apagão — repetido é melhor que mudo — e uma instância
-   fria conta do zero. Na credencial revogada isso não atrasa nada, porque
-   aquele escopo avisa na primeira. O que continua invisível é o apagão que só
-   aparece na AUSÊNCIA de cobranças: ninguém tocou em pagar. Esse detector é
-   durável e mora na conciliação — comparar o volume de hoje com o dos dias
-   anteriores, por casa —, e fica como o próximo item desta lista.
+   **O que esta peça NÃO cobre — e cada um destes é o mesmo apagão noutra
+   roupa, então a lista importa:**
+
+   - **O trilho da Stripe é invisível.** A classificação lê `httpStatus`, e só
+     o adaptador da Pagar.me o marca; a Stripe usa `statusCode`. Uma
+     `STRIPE_SECRET_KEY` revogada não é sequer classificada como falha de
+     adquirente, e o `POST /api/pay/stripe-intent` nunca chama o observador.
+     Espanha está desligada, mas aquele adaptador cria conta `country: 'BR'` e
+     serve cartão aqui.
+   - **Não há orçamento de páginas.** O irmão (`avisarTetoDisparado`) tem teto
+     diário — 12 por dia, 3 por casa — porque páginas sem limite JÁ treinaram
+     alguém a ignorar o canal (160 por dia, incidente de `497bf87`). Este não
+     tem nenhum, e um apagão de 8 horas em 8 instâncias quentes são centenas de
+     mensagens no mesmo canal do canário. Duplicado ganha de mudo; duplicado e
+     sem teto vira mudo no leitor, uma semana depois. O `claimSlots` (migração
+     0033) é o primitivo durável que este repositório já tem pra isso.
+   - **429 sustentado.** Tratado como transitório, e é: por um pico. Uma cota
+     estourada derruba todas as casas e não conta nem uma falha.
+   - **4xx de plataforma que não é 401/403.** Um 400 nosso ou um 422 de
+     marketplace vai pro balde POR CASA e pode nunca chegar a três seguidas na
+     mesma instância. Invisível com uma casa-piloto; morde quando o piloto der
+     certo.
+   - **O estado é por INSTÂNCIA QUENTE.** Instâncias diferentes podem avisar do
+     mesmo apagão — repetido é melhor que mudo — e uma fria conta do zero. Na
+     credencial revogada isso não atrasa nada, porque aquele escopo avisa na
+     primeira.
+   - **O apagão que aparece na AUSÊNCIA de cobranças**: ninguém tocou em pagar.
+     Detector durável, mora na conciliação (volume de hoje contra os dias
+     anteriores, por casa). Enquanto os de cima não fecharem, ele é o ÚNICO
+     fundo de rede pra todos eles — então ou eles fecham, ou ele entra antes do
+     primeiro `sk_live_`. Não "nenhum dos dois".
+
+   **E uma verificação de fora do código, antes do primeiro `sk_live_`:** o
+   `account_alert` foi escolhido porque a ponte o aceita — provado contra a
+   FIXTURE do `notify-bridge-contract.test.js`, que é mantida à mão e que hoje
+   contém `money_without_check` com um comentário dizendo que a ponte NÃO o
+   aceita. Ou seja, a fixture comprovadamente pode estar à frente da realidade.
+   Confira em `restaurant-ai-mcp/api/racha-notify.js` e escreva a data ao lado
+   da entrada — senão o pager inteiro pode ser um 400.
 2. **`PAGARME_WEBHOOK_AUTH` não é conferida no boot.** O adaptador recusa cada
    webhook sem ela — certo — mas a consequência (a Pagar.me reentrega, desiste e
    DESABILITA o endpoint, e a confirmação de Pix morre) só existe em prosa. O

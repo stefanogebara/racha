@@ -35,7 +35,26 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
      * Não lança NUNCA: isto roda no caminho que já está falhando, e uma falha
      * da ponte não pode virar uma segunda falha em cima da primeira.
      */
-    async aoFalhar(err, checkId) {
+    aoFalhar(err, checkId) {
+      /**
+       * DECIDE SÍNCRONO se há o que esperar, e só então devolve promessa.
+       *
+       * A primeira versão era `async` sempre, e o chamador embrulhava o
+       * resultado em `depoisDaResposta` — ou seja, pedia à Vercel pra esperar
+       * em TODA cobrança que falha, inclusive as que este módulo ignora (teto
+       * estourado, erro nosso). Isso apareceu como um `waitUntil` a mais num
+       * teste que contava as chamadas do irmão, e ele estava certo: o custo de
+       * segurar a função viva não deve ser pago por quem não vai avisar nada.
+       *
+       * `null` quer dizer "nada a esperar"; qualquer outra coisa é a promessa
+       * do aviso.
+       */
+      const escopo = escopoDaFalha(err);
+      if (escopo === 'nao-e-adquirente' || escopo === 'transitorio') return null;
+      return this._avisar(err, checkId, escopo);
+    },
+
+    async _avisar(err, checkId, escopo) {
       try {
         /**
          * A CASA SÓ É BUSCADA QUANDO ELA IMPORTA.
@@ -53,7 +72,7 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
          * apagão, não precisa de casa nenhuma.
          */
         let venueId = null;
-        if (escopoDaFalha(err) === 'casa' && checkId && store) {
+        if (escopo === 'casa' && checkId && store) {
           try {
             const dona = await store.getVenueForCheck(checkId);
             venueId = dona && dona.id;
@@ -67,19 +86,34 @@ function criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent, vigia = n
         process.stderr.write(
           `[adquirente] ${aviso.escopo.toUpperCase()} casa=${aviso.venueId || '-'}: ${aviso.detail}\n`,
         );
+        /**
+         * 200 NÃO QUER DIZER ENTREGUE, e por isso o retorno é LIDO.
+         *
+         * `notifyFounderMoneyEvent` devolve `{ok:false}` SEM lançar quando a
+         * ponte responde 200 e nenhum canal entregou. Ignorar isso calava a
+         * instância pela janela inteira acreditando que paginou — a mesma
+         * lição que o `avisarTetoDisparado` já carrega ("segurança LOW-3 de
+         * 40d5c50"), e que eu não apliquei aqui na primeira versão.
+         */
+        let entregue = false;
         try {
-          await notifyFounderMoneyEvent({
+          const r = await notifyFounderMoneyEvent({
             kind: 'account_alert',
             txid: null,
             checkId: null,
             amountCents: 0,
-            detail: aviso.detail,
+            // O id da casa VAI: sem ele o fundador lê "nesta casa" e não sabe
+            // qual. UUID, nunca o NOME — texto escrito pelo dono chegando ao
+            // canal do fundador é achado próprio deste repositório.
+            detail: aviso.venueId ? `${aviso.detail} (casa ${aviso.venueId})` : aviso.detail,
           });
+          entregue = !r || r.ok !== false;
         } catch (e) {
           process.stderr.write(
             `[adquirente] aviso NAO entregue: ${String(e && e.message).slice(0, 140)}\n`,
           );
         }
+        if (!entregue) olho.naoEntregue(aviso.chave);
         return aviso;
       } catch {
         return null;   // o aviso é o degrau de baixo; ele nunca derruba a rota

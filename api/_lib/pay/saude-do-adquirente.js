@@ -47,6 +47,19 @@
 const JANELA_PADRAO_MS = 15 * 60_000;
 
 /**
+ * O RECUO quando o aviso NÃO foi entregue.
+ *
+ * A janela é carimbada ANTES de a entrega ser conhecida — tem que ser, senão
+ * duas falhas simultâneas na mesma instância mandariam dois avisos. O preço é
+ * que um aviso perdido calaria a instância pelos 15 minutos inteiros
+ * acreditando que paginou. O `notifyFounderMoneyEvent` devolve `{ok:false}` SEM
+ * lançar quando a ponte responde 200 e nada é entregue, então dá pra saber — e
+ * o irmão deste caminho (`avisarTetoDisparado`) já faz isso: devolve a vaga e
+ * tenta de novo daqui a um minuto.
+ */
+const RECUO_SEM_ENTREGA_MS = 60_000;
+
+/**
  * Quantas seguidas na MESMA casa antes de avisar.
  *
  * Três, e não uma: um `422` sozinho costuma ser um pedido torto (documento
@@ -80,17 +93,31 @@ function escopoDaFalha(err) {
  *
  * O relógio entra por parâmetro pra que o teste meça a janela sem dormir.
  */
+/**
+ * A janela é CONFIGURÁVEL por env, com o padrão de produção acima.
+ *
+ * Não é uma alavanca de teste disfarçada: quem opera pode querer apertar ou
+ * afrouxar o intervalo entre páginas sem deploy. O teste usa `0` porque o
+ * observador é um singleton de módulo — sem isso, o primeiro caso do arquivo
+ * carimbaria a janela e os seguintes mediriam o silêncio dela em vez do
+ * comportamento que eles nomeiam.
+ */
+function janelaConfigurada() {
+  const cru = Number(process.env.RACHA_JANELA_AVISO_ADQUIRENTE_MS);
+  return Number.isFinite(cru) && cru >= 0 ? cru : JANELA_PADRAO_MS;
+}
+
 function criarVigiaDoAdquirente({
   agora = () => Date.now(),
-  janelaMs = JANELA_PADRAO_MS,
+  janelaMs = janelaConfigurada(),
   seguidasPorCasa = SEGUIDAS_POR_CASA,
 } = {}) {
   const seguidas = new Map();     // venueId → quantas falhas seguidas
   const ultimoAviso = new Map();  // chave do aviso → instante do último
 
   const dentroDaJanela = (chave) => {
-    const t = ultimoAviso.get(chave);
-    return t !== undefined && (agora() - t) < janelaMs;
+    const ate = ultimoAviso.get(chave);
+    return ate !== undefined && agora() < ate;
   };
 
   return {
@@ -102,6 +129,14 @@ function criarVigiaDoAdquirente({
      * Não zera o escopo de PLATAFORMA de propósito: naquele a primeira já
      * avisou, e o que segura o volume é a janela.
      */
+    /**
+     * O AVISO NÃO SAIU. Encurta a janela pra um minuto em vez de deixar a
+     * instância calada os 15 acreditando que paginou.
+     */
+    naoEntregue(chave) {
+      if (chave) ultimoAviso.set(chave, agora() + RECUO_SEM_ENTREGA_MS);
+    },
+
     registrarSucesso(venueId) {
       if (venueId) seguidas.delete(String(venueId));
     },
@@ -116,10 +151,11 @@ function criarVigiaDoAdquirente({
       if (escopo === 'plataforma') {
         const chave = 'plataforma';
         if (dentroDaJanela(chave)) return null;
-        ultimoAviso.set(chave, agora());
+        ultimoAviso.set(chave, agora() + janelaMs);
         return {
           kind: 'account_alert',
           escopo,
+          chave,
           venueId: null,
           detail: `adquirente recusou a NOSSA credencial (HTTP ${err.httpStatus}) — `
             + 'nenhuma casa consegue cobrar. Confira a chave e o escopo dela no painel.',
@@ -133,10 +169,11 @@ function criarVigiaDoAdquirente({
 
       const chave = `casa:${casa}`;
       if (dentroDaJanela(chave)) return null;
-      ultimoAviso.set(chave, agora());
+      ultimoAviso.set(chave, agora() + janelaMs);
       return {
         kind: 'account_alert',
         escopo,
+        chave,
         venueId: venueId || null,
         detail: `${n} recusas seguidas do adquirente (HTTP ${err.httpStatus}) nesta casa — `
           + 'recebedor inativo, split desligado ou dado recusado. Ninguém paga aqui.',
@@ -147,6 +184,7 @@ function criarVigiaDoAdquirente({
 
 module.exports = {
   escopoDaFalha,
+  RECUO_SEM_ENTREGA_MS,
   criarVigiaDoAdquirente,
   JANELA_PADRAO_MS,
   SEGUIDAS_POR_CASA,

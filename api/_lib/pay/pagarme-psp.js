@@ -399,7 +399,27 @@ function createPagarmePsp({
         const gw = tx.gateway_response || {};
         const reason = (Array.isArray(gw.errors) && gw.errors.map((e) => e.message || e).join('; '))
           || gw.code || tx.status || (charge && charge.status) || 'sem detalhe';
-        throw new Error(`pagarme: cobrança Pix sem qr_code (${String(reason).slice(0, 140)})`);
+        /**
+         * APAGÃO TOTAL VESTIDO DE 200.
+         *
+         * A causa que o comentário acima nomeia — Pix não habilitado na conta —
+         * derruba 100% das cobranças em TODAS as casas, no trilho principal. E
+         * este erro saía pelado: sem `code` virava `internal`, e a tela dizia
+         * "algo deu errado, tente de novo", que CONVIDA a retentativa; sem
+         * `httpStatus` o vigia do adquirente o classificava como "não é do
+         * adquirente" e ninguém era paginado.
+         *
+         * O 200 é do transporte; o desfecho é recusa nossa pela conta. O
+         * `httpStatus: 403` é o que diz ao vigia "isto é NOSSO e é de todas as
+         * casas" — mesma família da credencial revogada, mesma resposta: avisa
+         * na primeira. Achado pela revisão de compliance de 2026-09-21 (HIGH-4b).
+         */
+        const e = new Error(`pagarme: cobrança Pix sem qr_code (${String(reason).slice(0, 140)})`);
+        e.statusCode = 402;
+        e.code = 'psp_rejected';
+        e.httpStatus = 403;
+        process.stderr.write(`[pagarme] Pix sem qr_code: ${String(reason).slice(0, 160)}\n`);
+        throw e;
       }
       return {
         txid: charge.id, // ch_... — chave de idempotência do webhook
