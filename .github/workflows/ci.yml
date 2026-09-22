@@ -89,6 +89,28 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
 
+      # O LINTER, E ANTES DA SUÍTE.
+      #
+      # Ele existe por um defeito concreto: em 2026-09-21 o `router.js` chamava
+      # `tetoDaGorjeta` e nunca a importava — `ReferenceError` em TODA
+      # requisição a `/api/pay/stripe-intent`, o trilho de cartão inteiro em
+      # 500. O que devia cobrir era um censo de TEXTO, que casou com o literal
+      # da chamada nos dois arquivos enquanto a função não existia no escopo de
+      # um deles. As duas revisões obrigatórias leram aquele commit e passaram
+      # por cima; um `no-undef` acusa a linha em segundos.
+      #
+      # ESTE PASSO MORA NO JOB `api`, e não num job novo, de propósito: os
+      # checks obrigatórios da `main` são exigidos POR NOME, e um job novo
+      # nasceria fora da proteção até alguém lembrar de acrescentá-lo. Como
+      # passo daqui, ele é bloqueante desde o primeiro commit — que é a mesma
+      # razão pela qual o cabeçalho deste arquivo diz que workflow sem proteção
+      # de branch informa, mas não impede.
+      #
+      # Antes da suíte porque é segundos contra minutos, e porque um símbolo
+      # solto deixa a suíte vermelha por um motivo que o lint explica melhor.
+      - name: Lint (correção, no lado do dinheiro)
+        run: npm run lint
+
       # AS DUAS METADES RODAM SEPARADAS porque a de mutação come memória e,
       # junto com o resto, derruba o runner. O `--runInBand` dela é por isso, e
       # não por gosto.

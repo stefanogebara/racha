@@ -39,3 +39,8 @@ ios/lab/racha-ios.html
 apps/web/public/ios.html
 apps/web/public/ios-fonts/
 apps/web/public/img/carved/
+
+# O canteiro das provas do linter: `o-linter-enxerga.test.js` escreve fonte
+# deliberadamente quebrada aqui e apaga em seguida. Ver o recorte próprio em
+# `eslint.config.mjs`.
+.provas-do-linter/

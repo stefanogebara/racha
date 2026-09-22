@@ -7,11 +7,14 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "npx jest && npm run test:web",
+    "test": "npm run lint && npx jest && npm run test:web",
     "test:web": "npm --prefix apps/web test",
-    "canary": "node scripts/canary.js"
+    "canary": "node scripts/canary.js",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
     "jest": "^29.7.0"
   },
   "dependencies": {
