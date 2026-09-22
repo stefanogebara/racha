@@ -257,9 +257,15 @@ que ninguém tinha feito sobre o `@stripe/stripe-js`.
 Ferramentas de build e teste, que o censo também exige porque um import de
 `devDependency` chega ao cliente igualzinho: `vite`, `@vitejs/plugin-react`,
 `typescript`, `jest`, `@types/react`, `@types/react-dom`, `@types/node`,
-`eslint`, `@eslint/js`, `eslint-plugin-react-hooks`, `typescript-eslint` —
-**nenhuma fala com fora em runtime**; os tipos somem na compilação e o lint nem
-chega a ser empacotado.
+`eslint`, `@eslint/js`, `globals`, `eslint-plugin-react-hooks`,
+`typescript-eslint` — **nenhuma fala com fora em runtime**; os tipos somem na
+compilação e o lint nem chega a ser empacotado.
+
+`globals` é uma tabela estática de nomes de variável global por ambiente
+(`node`, `jest`, `browser`), lida pelo `eslint.config.mjs`. Está declarada por
+nome, e não de carona: ela vinha como dependência transitiva do eslint 9 e
+desapareceu no 10, o que derrubava o lint inteiro — o portão do caminho do
+dinheiro sumindo num upgrade de ferramenta.
 
 ## 6. O app iOS
 

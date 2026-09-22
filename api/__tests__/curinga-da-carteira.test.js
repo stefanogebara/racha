@@ -67,7 +67,6 @@ function comEnv(pedidas, f) {
 }
 
 const liberada = (env, id) => comEnv(env, () => {
-  // eslint-disable-next-line global-require
   const { carteiraLiberada } = require('../_app/router');
   return carteiraLiberada(id);
 });

@@ -180,7 +180,6 @@ describe('o sinal de quem chama continua mandando', () => {
     // que sobra DEPOIS de a promessa assentar.
     const f = fetchComPrazo(1000);
     for (let i = 0; i < 30; i++) {
-      // eslint-disable-next-line no-await-in-loop
       await f(`${mudo.url}/x`, { signal: ac.signal }).catch(() => {});
     }
     // Trinta idas no mesmo sinal: sem o `removeEventListener` seriam trinta
