@@ -117,8 +117,19 @@ const LAUDO = `async () => {
   for (const el of document.querySelectorAll('button,a[href],[role=tab],input,select')) {
     const r = el.getBoundingClientRect(); if (!r.height) continue;
     const a = getComputedStyle(el, '::after');
-    const h = Math.max(r.height, parseFloat(a.height) || 0);
-    const w = Math.max(r.width, parseFloat(a.width) || 0);
+    let h = Math.max(r.height, parseFloat(a.height) || 0);
+    let w = Math.max(r.width, parseFloat(a.width) || 0);
+    // O RÓTULO TAMBÉM É O ALVO. Uma caixa de seleção dentro de um \`<label>\`
+    // é acionada por qualquer ponto do rótulo — medir só a caixinha de 18px
+    // acusa o inocente, e um medidor que acusa o inocente morre igual a um que
+    // absolve o culpado: a equipe aprende a ignorar o vermelho.
+    //
+    // Achado medindo a PRODUÇÃO: o "serviço (10%) — opcional", que é o
+    // controle que o inegociável #3 exige que seja removível, tem caixa de
+    // 18x18 e rótulo de 348x42. Conferido clicando no texto e vendo o estado
+    // virar — e não por leitura.
+    const rotulo = el.closest('label') || (el.id && document.querySelector('label[for="' + CSS.escape(el.id) + '"]'));
+    if (rotulo) { const rr = rotulo.getBoundingClientRect(); h = Math.max(h, rr.height); w = Math.max(w, rr.width); }
     if (h < 24 || w < 24) achados.push('alvo menor que 24px: ' + (el.textContent || el.tagName).trim().slice(0, 24) + ' = ' + Math.round(w) + 'x' + Math.round(h));
   }
 
