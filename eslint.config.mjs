@@ -37,6 +37,20 @@
  */
 
 import js from '@eslint/js';
+/**
+ * `globals` É DEPENDÊNCIA DECLARADA, e isto custou uma descoberta.
+ *
+ * A primeira versão deste arquivo importava `globals` sem declará-lo: ele vinha
+ * de carona como dependência transitiva do eslint 9, hoisted no
+ * `node_modules`. Funcionava — até não funcionar. No eslint 10 ele deixa de ser
+ * hoisted e o lint morre inteiro com `ERR_MODULE_NOT_FOUND`, ou seja o portão
+ * do caminho do dinheiro desaparece num upgrade de ferramenta.
+ *
+ * É a mesma ressalva que a revisão de segurança escreveu sobre um censo
+ * proposto com `@babel/parser`: "hoje são dependências transitivas do jest,
+ * pinem ou o censo evapora num upgrade — guarda que morre calada". A ressalva
+ * estava certa e eu a reproduzi no commit seguinte, em outro pacote.
+ */
 import globals from 'globals';
 
 /**
