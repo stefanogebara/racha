@@ -261,6 +261,13 @@ Ferramentas de build e teste, que o censo também exige porque um import de
 `typescript-eslint` — **nenhuma fala com fora em runtime**; os tipos somem na
 compilação e o lint nem chega a ser empacotado.
 
+`playwright-core` dirige um navegador local para `scripts/design-check.mjs`
+medir o desenho nas rotas. **Não fala com fora**: ele conversa por soquete com
+um binário de navegador na própria máquina, que por sua vez só abre o
+`localhost` do ambiente de desenvolvimento. Não é instalado em produção (é
+`devDependency`), não é empacotado pelo Vite, e o pacote não baixa navegador
+sozinho — o binário vem de `npx playwright install`, à parte.
+
 `globals` é uma tabela estática de nomes de variável global por ambiente
 (`node`, `jest`, `browser`), lida pelo `eslint.config.mjs`. Está declarada por
 nome, e não de carona: ela vinha como dependência transitiva do eslint 9 e
