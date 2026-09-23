@@ -310,9 +310,13 @@ function createMemoryStore() {
     async getCheckByQrToken(qrToken) {
       const table = tables.get(qrToken);
       if (!table || !table.active) return null; // inactive/rotated token is dead
-      const check = [...checks.values()].find(
-        (c) => c.tableId === table.id && reduce(events.get(c.id) || []).status !== 'fechada',
-      );
+      const check = [...checks.values()].find((c) => {
+        if (c.tableId !== table.id) return false;
+        // Sem `OPENED` a conta ainda não está aberta — o mesmo que o store do
+        // Supabase faz. Ver o comentário lá: era `TypeError` → 500.
+        const st = reduce(events.get(c.id) || []);
+        return Boolean(st) && st.status !== 'fechada';
+      });
       if (!check) return null;
       const venue = venues.get(table.venueId);
       const log = events.get(check.id) || [];

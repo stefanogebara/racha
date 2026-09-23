@@ -49,7 +49,7 @@ interface InnerProps {
   payerLabel: string | null;
   payerDocument: string;
   /** O comprovante precisa do valor cobrado — ver `WalletPay`. */
-  onPaid: (charge: { amountCents: number; tipCents: number; checkId?: string }) => void;
+  onPaid: (charge: { txid: string; method: 'card' | 'bizum'; amountCents: number; tipCents: number; checkId?: string }) => void;
   onError: (msg: string) => void;
 }
 
@@ -93,7 +93,12 @@ function ExpressInner({ token, amountCents, tipCents, payerLabel, payerDocument,
       // deste conserto acrescentou o campo no servidor e este objeto montado à
       // mão o jogava fora — no trilho de cartão o recibo continuaria preso à
       // conta que o poll trouxesse.
-      onPaid({ amountCents, tipCents, checkId: intent.checkId }); // o webhook confirma no ledger, o poll mostra o ✓
+      // A COBRANÇA INTEIRA DESTE TRILHO, e não um pedaço: o `App` monta o
+      // comprovante a partir disto, do zero. Mandando só os centavos, ele
+      // completava com os campos da cobrança ANTERIOR — um Pix gerado e
+      // abandonado deixava o `txid`, o copia-e-cola e o `method: 'pix'` dele
+      // num comprovante de cartão (compliance, terceira rodada).
+      onPaid({ txid: intent.txid, method: intent.method, amountCents, tipCents, checkId: intent.checkId }); // o webhook confirma no ledger, o poll mostra o ✓
     } catch (e) {
       onError(tErr(e));
       setBusy(false);
@@ -113,7 +118,7 @@ export default function StripeWalletPay({
   payerDocument: string;
   disabled: boolean;
   /** O comprovante precisa do valor cobrado — ver `WalletPay`. */
-  onPaid: (charge: { amountCents: number; tipCents: number; checkId?: string }) => void;
+  onPaid: (charge: { txid: string; method: 'card' | 'bizum'; amountCents: number; tipCents: number; checkId?: string }) => void;
   /** A moeda da CASA, vinda do servidor (`view.venue.currency`). Sem padrão. */
   currency: CurrencyCode;
 }) {

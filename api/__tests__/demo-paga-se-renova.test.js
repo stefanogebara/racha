@@ -143,6 +143,28 @@ describe('a rota: a demo paga volta a abrir, e SÓ a demo', () => {
     expect(curada.state && curada.state.status).toBe('aberta');
   });
 
+  /**
+   * O CPF DA DEMO, DITO PELO SERVIDOR — e só da demo.
+   *
+   * A demo pedia, obrigatório, um CPF válido — na prática o do visitante —
+   * numa cobrança do MockPsp. A primeira versão do conserto decidia isso no
+   * cliente e o servidor seguia dizendo `required: true`: duas verdades.
+   * O lado que importa tanto quanto o da demo: uma mesa brasileira de verdade
+   * continua PEDINDO, porque ali o adquirente exige.
+   */
+  test('a demo não pede CPF; uma mesa brasileira de verdade continua pedindo', async () => {
+    const demo = await ler(DEMO_TOKEN, '10.55.1.1');
+    expect(demo.venue.demo).toBe(true);
+    expect(demo.venue.payerTaxId.required).toBe(false);
+
+    const venue = await store.createVenue({ name: 'Bar de Verdade BR', servicoBp: 1000, pspRecipientId: 'rcpt_live_9' });
+    const table = await store.seedTable(venue.id, 'Mesa 4', 'tokenrealbr000111');
+    await store.openCheck(table.qrToken, [{ id: 'r1', name: 'Picanha', priceCents: 5000 }]);
+    const real = await ler(table.qrToken, '10.55.1.2');
+    expect(real.venue.demo).toBeUndefined();
+    expect(real.venue.payerTaxId).toMatchObject({ required: true, kind: 'cpf' });
+  });
+
   test('uma mesa DE VERDADE paga há tempo NUNCA é mexida', async () => {
     // O teste que importa: a mesma rota serve todas as casas. Se a guarda do
     // token sumir, é a conta paga de um restaurante que reabre.

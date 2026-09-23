@@ -518,7 +518,10 @@ boa e continua mostrando "falta R$ X" com o botão, de uma conta fechada. O
 servidor recusa com `check_closed`, então não há cobrança dupla — é só um convite
 à toa.
 
-**Gatilho:** o PR do recibo do saldo da casa, abaixo.
+**Gatilho:** o próximo PR que mexer no recibo ou na demo — não o do saldo da
+casa. A compliance mostrou por quê: a casa fecha a conta com saldo recebido no
+caixa, a pessoa toca "pagar mais", o `contaPaga` é zerado, o poll segue, e
+quando a próxima conta abre no mesmo QR ela está nos itens da outra mesa.
 
 **O fechamento pelo dono não diz quem fechou — LOW.** Com o `motivo` da demo, as
 duas se distinguem pela ausência do campo; melhor gravar `{ motivo: 'dono' }`.
@@ -529,4 +532,37 @@ duas se distinguem pela ausência do campo; melhor gravar `{ motivo: 'dono' }`.
 do `HousePay` não mostra CNPJ, data, nem "não é nota fiscal".
 
 **Gatilho:** o primeiro piloto com saldo da casa ligado.
+
+### Da terceira rodada sobre a demo (2026-09-23)
+
+**O aviso da conta paga some se a troca vem antes de o telefone vê-la paga —
+LOW.** O recibo guarda os avisos da conta paga enquanto ela é a viva. Se a
+carteira confirma e o garçom reabre no mesmo QR antes do próximo poll, o
+telefone nunca viu a conta paga como viva: não mostra o aviso da mesa dos outros
+(certo), mas também não mostra o da própria (a lista fica vazia). Medido pela
+segurança com o poll bloqueado. O conserto é o servidor entregar os avisos da
+conta em que a cobrança nasceu (`/api/check?t=…&c=<checkId>`, limitado à mesa do
+token). Nota da compliance, que vale junto: o recibo NÃO é o canal oficial de
+aviso de restituição — um estorno que chega depois da troca não entra, e está
+certo que não entre. O dever de avisar e devolver é da casa, pelo painel. Nenhum
+comentário ou documento deve afirmar o contrário.
+
+**Gatilho:** o primeiro piloto com carteira ligada (`RACHA_WALLET_VENUES`).
+
+**A resposta de `/api/pay` sai por lista de NEGAÇÃO — LOW.** Só `venueId` é
+tirado; toda chave nova no `createCharge` chega ao cliente sozinha. Uma lista de
+permissão fecha a classe.
+
+**Gatilho:** o PR do `/api/pay` com o token da demo (mesma rota).
+
+**`RACHA_DEMO_MODE` está ligado em produção — LOW, configuração.** Ele só libera
+`POST /api/dev/confirm`. Em produção a rota responde 404 mesmo assim, porque o
+PSP principal é o Pagar.me e só o MockPsp forja webhook assinado — conferido
+por sonda sem efeito em 2026-09-23. Mas a sonda também mostrou que a PRIMEIRA
+guarda não está de pé: a resposta veio do ramo de dentro, não do 404 de rota
+inexistente. A segurança dessa rota repousa inteira na segunda camada, que é a
+forma que as revisões desta semana acharam duas vezes. Remover a variável é
+decisão de quem opera a produção.
+
+**Gatilho:** a próxima vez que alguém mexer na configuração de produção.
 

@@ -1070,7 +1070,28 @@ async function route(req, res) {
       // sob premissa falsa (CDC 6º III/37) e CPF sem base legal (LGPD).
       // Achado CRÍTICO da revisão de compliance.
       if (token === DEMO_TABLE_TOKEN) {
-        data = { ...data, venue: { ...data.venue, demo: true } };
+        data = {
+          ...data,
+          venue: {
+            ...data.venue,
+            demo: true,
+            /**
+             * E O CPF DO PIX TAMBÉM NÃO — o irmão que a decisão de cima não
+             * alcançou.
+             *
+             * O comentário acima registra que a demo pedindo CPF de verdade na
+             * carteira foi CRÍTICO de compliance. O campo do Pix ficou pedindo,
+             * obrigatório, um CPF válido — na prática o do visitante — numa
+             * cobrança do MockPsp, que não manda nada a adquirente nenhum.
+             *
+             * A regra mora AQUI, no servidor, ao lado da bandeira. A primeira
+             * versão do conserto a pôs no cliente (`venue.demo ? false : …`) e o
+             * servidor seguia dizendo `required: true`: duas verdades pro mesmo
+             * campo, a revisão de segurança apontou. O cliente só desenha.
+             */
+            payerTaxId: { ...(data.venue.payerTaxId || {}), required: false },
+          },
+        };
       }
       // UMA consulta pras duas bandeiras. Eram duas idênticas na mesma
       // requisição — e `/api/check` é público, sem limite de taxa, consultado a

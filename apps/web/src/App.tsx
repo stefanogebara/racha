@@ -160,20 +160,11 @@ export default function App() {
   // brasileiros — é o que um servidor sem `market` está dizendo.
   const serviceMode = view?.venue?.serviceCharge?.mode ?? 'preselected';
   const hasServiceLine = serviceMode !== 'none';
-  /**
-   * NA DEMO O CPF NÃO É PEDIDO — pela mesma regra que já tira o NIF do Bizum:
-   * o documento do pagador só existe onde o TRILHO precisa dele.
-   *
-   * O trilho da demo é o MockPsp, que confirma sozinho com um CPF de exemplo e
-   * não manda nada a adquirente nenhum. Pedir o campo ali fazia todo visitante
-   * da landing digitar um CPF válido — na prática o dele — numa cobrança de
-   * mentira: coleta sem finalidade (LGPD art. 6º III), sem contrato que a
-   * sustente (art. 7º V), e com um aviso de privacidade que nomeia como
-   * controladora uma casa que não existe. A renovação da demo paga deixou a
-   * demo viva o dia inteiro, então isto deixou de esperar. (Compliance,
-   * re-revisão de 2026-09-23.)
-   */
-  const taxIdRequired = view?.venue?.demo ? false : (view?.venue?.payerTaxId?.required ?? true);
+  // Se o pagador precisa dar documento, quem DIZ é o servidor (`payerTaxId`),
+  // inclusive na demo — que o servidor declara sem CPF, porque o trilho dela
+  // (MockPsp) não precisa. A primeira versão decidia a demo AQUI e o servidor
+  // seguia dizendo `required: true`: duas verdades pro mesmo campo.
+  const taxIdRequired = view?.venue?.payerTaxId?.required ?? true;
   // O bp que a conta REALMENTE cobra: o mercado já zerou o que não se aplica.
   const serviceBpEffective = view?.venue?.serviceCharge?.bp ?? view?.venue?.servicoBp ?? 0;
   const rails = view?.venue?.rails ?? ['pix', 'card'];
@@ -687,7 +678,13 @@ export default function App() {
   }
 
   if (step === 'pago') {
-    const recibo = reciboVista(contaPaga, view.check.id, remaining, state.notices ?? [], avisosDaPaga);
+    // `contaPaga` é estado e só é gravado pelo efeito, DEPOIS do primeiro
+    // render de "pago". Nesse primeiro quadro ele ainda é nulo, e com a conta
+    // já trocada o recibo mostrava a mesa dos outros por um quadro — o defeito
+    // que o `checkId` veio impedir (compliance, terceira rodada). A cobrança já
+    // sabe a conta: lê dela aqui também.
+    const recibo = reciboVista(contaPaga ?? (charge && charge.checkId) ?? null, view.check.id, remaining,
+      state.notices ?? [], avisosDaPaga);
     return (
       <Shell>
         <section className="paid">
@@ -1081,7 +1078,10 @@ export default function App() {
               // A COBRANÇA, não só o aviso: sem ela o comprovante deste trilho
               // sai sem quantia, sem serviço e sem data — e o `setPaidAt`
               // abaixo fica morto, porque a data só renderiza junto da quantia.
-              setCharge((antes) => ({ ...(antes ?? {} as ChargeResult), ...c }));
+              // DO ZERO, não mesclado na cobrança anterior: a carteira entrega a
+              // cobrança INTEIRA, e a mescla deixava sobreviver campo de uma
+              // tentativa abandonada (compliance, terceira rodada).
+              setCharge(c);
               setPaidAt(new Date().toISOString());
               setStep('pago');
             }}
@@ -1108,7 +1108,10 @@ export default function App() {
               // A COBRANÇA, não só o aviso: sem ela o comprovante deste trilho
               // sai sem quantia, sem serviço e sem data — e o `setPaidAt`
               // abaixo fica morto, porque a data só renderiza junto da quantia.
-              setCharge((antes) => ({ ...(antes ?? {} as ChargeResult), ...c }));
+              // DO ZERO. A mescla na cobrança anterior deixava um Pix abandonado
+              // pôr `txid`, copia-e-cola e `method: 'pix'` num comprovante de
+              // cartão. O que a Stripe não tem (copia-e-cola, validade), é nulo.
+              setCharge({ copiaECola: null, expiresAt: null, wallet: null, ...c });
               setPaidAt(new Date().toISOString());
               setStep('pago');
             }}

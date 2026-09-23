@@ -83,3 +83,37 @@ test('o ramo "pago" do App lê os avisos por `recibo.avisos`, nunca por `state.n
   assert.equal(/state\.notices/.test(semADecisao), false,
     'o ramo `pago` lê `state.notices` por fora de `reciboVista`: quando a conta troca, o recibo mostra o aviso da mesa dos OUTROS');
 });
+
+/**
+ * E O `checkId` CHEGA AO RECIBO — a fiação do cliente, que nada prendia.
+ *
+ * A revisão de segurança mutou os dois elos e TODAS as suítes ficaram verdes:
+ * tirou `checkId` do `onPaid` do `StripeWalletPay`, e fez o recibo ler
+ * `view.check.id` primeiro. O servidor devolvia o campo certo (há teste disso
+ * em `api/__tests__/cobranca-diz-a-conta.test.js`), e o cliente podia jogá-lo
+ * fora sem ninguém ver — a reserva `view.check.id` cobria em silêncio.
+ */
+test('o `checkId` da cobrança é a PRIMEIRA fonte da conta do recibo, nos dois pontos', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const src = (f: string) => readFileSync(join(import.meta.dirname, '..', 'src', f), 'utf8');
+  const app = src('App.tsx');
+
+  // 1. o efeito que grava a conta paga: a cobrança antes do poll
+  const nasceu = app.match(/const nasceu = ([^;]+);/);
+  assert.ok(nasceu, 'o efeito que grava `contaPaga` não foi achado — o censo quebrou');
+  const expr = nasceu[1];
+  assert.ok(expr.indexOf('charge.checkId') >= 0 && expr.indexOf('charge.checkId') < expr.indexOf('view.check.id'),
+    `a conta paga tem que vir da COBRANÇA antes do poll; está: ${expr}`);
+
+  // 2. o primeiro render de "pago", antes do efeito rodar
+  const chamada = app.match(/reciboVista\(([^,]+),/);
+  assert.ok(chamada && /charge\s*&&\s*charge\.checkId/.test(chamada[1]),
+    `o primeiro render do recibo tem que ler a conta da cobrança; está: ${chamada && chamada[1]}`);
+
+  // 3. o trilho de cartão repassa o campo do intent
+  const stripe = src('StripeWalletPay.tsx');
+  const onPaid = stripe.match(/onPaid\(\{([^}]*)\}\)/);
+  assert.ok(onPaid && /checkId:\s*intent\.checkId/.test(onPaid[1]),
+    `o StripeWalletPay monta o onPaid à mão e tem que repassar o checkId do intent; está: ${onPaid && onPaid[1]}`);
+});

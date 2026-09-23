@@ -713,7 +713,19 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const razoes = await loadEventsPorLote((cands || []).map((c) => c.id));
       for (const cand of cands || []) {
         const state = reduce(razoes.get(cand.id) || []);
-        if (state.status === 'fechada') continue;
+        /**
+         * SEM `OPENED`, A CONTA AINDA NÃO ESTÁ ABERTA.
+         *
+         * `openCheck` grava a linha e o `OPENED` em duas idas ao banco; entre
+         * elas o razão está vazio e `reduce([])` é `null`. Isto fazia
+         * `state.status` lançar e virava 500 em `/api/check` — medido num
+         * Postgres de verdade: 15 de 30 leitores numa janela de 600 ms, e a
+         * renovação da demo passa por ela sempre. PALIATIVO: se o processo morre
+         * entre as duas escritas, a mesa fica sem abrir conta até a RPC atômica
+         * existir (livro de abertos). O que isto garante é a leitura dizer a
+         * verdade — ainda não há conta aberta.
+         */
+        if (!state || state.status === 'fechada') continue;
         let items = [];
         try { items = JSON.parse(cand.pos_ref) || []; } catch { items = []; }
         return {
