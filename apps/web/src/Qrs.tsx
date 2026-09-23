@@ -3,7 +3,8 @@ import { useT, LangToggle } from './lang';
 import { QRCodeSVG } from 'qrcode.react';
 import type { TablesView, VenueTable } from './api';
 import { authedReq as req } from './auth';
-import { tituloDaMesa, trilhoDoCartao, urlDaMesa } from './cartao-qr';
+import { DICT } from './i18n';
+import { casaRecebe, textoDoCartao, tituloDaMesa, trilhoDoCartao, urlDaMesa } from './cartao-qr';
 
 /**
  * /qrs?v=<venueId> — folha de QRs das mesas, pronta para a gráfica. Warm Glass
@@ -46,7 +47,10 @@ export default function Qrs() {
       <section className="card noprint">
         <p className="label">{t('qrs.title', { n: printable.length })}</p>
         <p className="muted small">{t('qrs.help')}</p>
-        <button className="cta" disabled={printable.length === 0} onClick={() => window.print()}>
+        {/* Sem recebedor, o cartão que promete "pagar no Pix" mentiria — a
+            folha não imprime até a casa receber (ver `casaRecebe`). */}
+        {!casaRecebe(data.venue) && <p className="small" role="status" style={{ color: 'var(--erro)' }}>{t('rcpt.none')}</p>}
+        <button className="cta" disabled={printable.length === 0 || !casaRecebe(data.venue)} onClick={() => window.print()}>
           {t('qrs.print')}
         </button>
       </section>
@@ -67,15 +71,15 @@ export default function Qrs() {
 }
 
 function QrCard({ venueName, market, table }: { venueName: string; market?: string; table: VenueTable }) {
-  const { t } = useT();
+  // O CARTÃO fala o idioma do MERCADO, não o da aba — ver `textoDoCartao`.
   return (
     <article className="qrcard">
       <p className="qrvenue">{venueName}</p>
       <div className="qrbox">
         <QRCodeSVG value={urlDaMesa(table.qrToken)} size={190} level="M" marginSize={2} />
       </div>
-      <h2 className="qrmesa">{tituloDaMesa(table.label, (label) => t('qrs.tableTitle', { label }))}</h2>
-      <p className="qrhint">{t('qr.scanToPay', { rail: trilhoDoCartao(market) })}</p>
+      <h2 className="qrmesa">{tituloDaMesa(table.label, (label) => textoDoCartao(DICT['qrs.tableTitle'], market, { label }))}</h2>
+      <p className="qrhint">{textoDoCartao(DICT['qr.scanToPay'], market, { rail: trilhoDoCartao(market) })}</p>
       <span className="qrbrand">racha</span>
     </article>
   );

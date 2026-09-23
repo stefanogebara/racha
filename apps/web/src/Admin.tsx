@@ -1,6 +1,7 @@
 
 import { LangToggle, useT } from './lang';
-import { tituloDaMesa, trilhoDoCartao, urlDaMesa } from './cartao-qr';
+import { DICT } from './i18n';
+import { casaRecebe, textoDoCartao, tituloDaMesa, trilhoDoCartao, urlDaMesa } from './cartao-qr';
 import { Campo } from './Campo';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -310,14 +311,19 @@ function PrintCard({ venue, table, onClose }: { venue: Venue | null; table: Venu
         {/* A serifa do sistema é a Newsreader, e é a única que o projeto
             vendoriza. Esta linha pedia a Instrument Serif, que não é carregada
             em lugar nenhum desde a migração: o rótulo da mesa caía em Times. */}
-        <h2 className="qrvenue" style={{ fontSize: 30 }}>{tituloDaMesa(table.label, (label) => t('qrs.tableTitle', { label }))}</h2>
-        {table.training && <p className="qrstamp" role="note">{t('admin.trainingStamp')}</p>}
+        {/* O CARTÃO fala o idioma do MERCADO, não o da aba (`textoDoCartao`). */}
+        <h2 className="qrvenue" style={{ fontSize: 30 }}>{tituloDaMesa(table.label, (label) => textoDoCartao(DICT['qrs.tableTitle'], venue?.market, { label }))}</h2>
+        {table.training && <p className="qrstamp" role="note">{textoDoCartao(DICT['admin.trainingStamp'], venue?.market)}</p>}
         <div className="qrbox">
           <QRCodeSVG value={url} size={220} level="M" marginSize={2} />
         </div>
-        <p className="muted small">{t('qr.scanToPay', { rail: trilhoDoCartao(venue?.market) })}</p>
+        {/* Cartão de treino não promete pagar: o carimbo diz que ali não se paga,
+            e "pagar no Pix" logo abaixo contradizia o próprio papel. */}
+        {!table.training && <p className="muted small">{textoDoCartao(DICT['qr.scanToPay'], venue?.market, { rail: trilhoDoCartao(venue?.market) })}</p>}
         <p className="muted" style={{ fontSize: 11, wordBreak: 'break-all' }}>{url}</p>
-        <button className="cta" onClick={() => window.print()}>{t('qrs.print')}</button>
+        {/* Sem recebedor, só o cartão de TREINO imprime (ele não promete pagar). */}
+        {!table.training && !casaRecebe(venue) && <p className="small" role="status" style={{ color: 'var(--erro)' }}>{t('rcpt.none')}</p>}
+        <button className="cta" disabled={!table.training && !casaRecebe(venue)} onClick={() => window.print()}>{t('qrs.print')}</button>
         <button className="linklike" onClick={onClose}>{t('common.backShort')}</button>
       </section>
     </main>
