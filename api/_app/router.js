@@ -2744,8 +2744,14 @@ async function route(req, res) {
       if (!b.tableId || typeof b.training !== 'boolean') return json(res, 400, { success: false, error: 'tableId e training são obrigatórios' });
       try { await auth.requireTableOwner(user, b.tableId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
-      const r = await store.setTableTraining(b.tableId, b.training);
-      return json(res, 200, { success: true, data: r });
+      try {
+        const r = await store.setTableTraining(b.tableId, b.training);
+        return json(res, 200, { success: true, data: r });
+      } catch (e) {
+        // Conta aberta na mesa: código, não frase — o painel traduz.
+        if (e && e.code === 'table_has_open_check') return json(res, 409, { success: false, code: e.code });
+        throw e;
+      }
     }
     if (req.method === 'POST' && url.pathname === '/api/tables/active') {
       const user = await guardUser(req, res); if (!user) return;

@@ -276,6 +276,11 @@ function createMemoryStore() {
     async setTableTraining(tableId, training) {
       const t = tableById.get(tableId);
       if (!t) throw new Error('unknown table');
+      // Marcar com conta aberta: recusado, como no store do Supabase.
+      if (training && [...checks.values()].some((c) => c.tableId === t.id && ocupaAMesa(events.get(c.id)))) {
+        const e = new Error('table has an open check — close it before marking it as training');
+        e.statusCode = 409; e.code = 'table_has_open_check'; throw e;
+      }
       t.training = !!training;
       return { id: t.id, training: t.training };
     },
@@ -1043,7 +1048,7 @@ function createMemoryStore() {
     async getVenueByTableToken(qrToken) {
       const table = tables.get(qrToken);
       if (!table || !table.active) return null;
-      return { venue: venues.get(table.venueId), table: { id: table.id, label: table.label } };
+      return { venue: venues.get(table.venueId), table: { id: table.id, label: table.label, training: table.training === true } };
     },
     /** Grava o recebedor + status inicial + contatos do dono (aviso de KYC). */
     async setVenueRecipient(venueId, recipientId, opts = {}) {

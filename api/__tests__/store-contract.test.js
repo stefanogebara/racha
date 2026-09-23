@@ -457,7 +457,10 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
       await handler(wh.rawBody, wh.signature);
     }
 
-    // …e só depois a segunda é marcada como treino
+    // …as contas fecham (mesa com conta aberta não vira treino — ver
+    // `setTableTraining`), e só depois a segunda é marcada como treino
+    await store.appendEvent(cReal.id, 'CLOSED', {});
+    await store.appendEvent(cTreino.id, 'CLOSED', {});
     const tgl = await store.setTableTraining(mesaTreino.id, true);
     expect(tgl.training).toBe(true);
     expect((await store.listTables(tv.id)).find((t) => t.id === mesaTreino.id).training).toBe(true);

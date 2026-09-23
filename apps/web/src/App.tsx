@@ -1053,6 +1053,9 @@ export default function App() {
           {/* aria-label, não só placeholder: um placeholder some no foco e não
               é rótulo pra leitor de tela. Numa tela de pagamento, o campo tem
               que continuar dizendo o que é depois que a pessoa começa a digitar. */}
+          {/* Na mesa de treino não há pagamento, e nome sem pagamento é dado
+              pedido pra nada (LGPD art. 6º III). */}
+          {table.training !== true && (
           <Campo
             rotulo={t('payer.name')} maxLength={60} placeholder={t('payer.namePlaceholder')}
             // `name`: o teclado do telefone oferece o que a pessoa já tem
@@ -1061,6 +1064,7 @@ export default function App() {
             autoComplete="name" enterKeyHint="next"
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
+          )}
           {/* O documento do pagador só existe onde o TRILHO precisa dele. No
               Bizum quem autentica é o banco do pagador, no app dele, então
               pedir NIF aqui seria coletar dado sem necessidade — GDPR art.

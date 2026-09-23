@@ -537,6 +537,9 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 
 /* QR */
 .qrprint { align-items: center; text-align: center; gap: 12px; }
+/* Carimbo da mesa de treino: grande e em caixa alta, pra sair no papel e se
+   ver de longe — o cartão de uma mesa que não cobra não pode passar por outro. */
+.qrstamp { font: 700 15px/1.2 var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--erro); border: 2px solid var(--erro); border-radius: 8px; padding: 8px 12px; }
 /* O QR fica em BRANCO puro e so ele: e um alvo optico, nao uma superficie do
    sistema — papel bege embaixo derruba o contraste que o leitor precisa. */
 .qrbox { background: #fff; padding: 14px; border-radius: var(--rad-c); border: 1px solid var(--fio); display: grid; place-items: center; }

@@ -12,8 +12,9 @@
  *
  * O recebedor NÃO é criado aqui — o DONO cria pelo admin com os dados bancários
  * reais dele (AdminRecipient). Este script assume que já existe e está active.
- * A cobrança roda numa mesa de TREINO (fora dos números da casa); um humano
- * paga o Pix de R$1 no app do banco (não há Simulador em live).
+ * A cobrança roda na mesa comum "Smoke Racha" — mesa de treino não cobra —, e o
+ * R$ 1 conta nos números da casa; um humano paga o Pix no app do banco (não há
+ * Simulador em live).
  *
  * Pré-requisitos do ambiente LIVE (checklist go-live em docs/psp/README.md):
  *   - Vercel: PAGARME_SECRET_KEY = sk_live_…  (o adapter passa a cobrar de verdade)
@@ -177,10 +178,14 @@ async function main() {
   if (landed) log('✓ o dinheiro do split caiu no recebedor da casa ✅');
   else log('  saldo ainda R$ 0 — a liquidação pode levar um ciclo; confira o extrato do recebedor no dashboard.');
 
-  // fecha a conta do smoke (não deixa lixo aberto); a venue e o recebedor ficam
+  // fecha a conta do smoke e DESATIVA a mesa: ativa, ela entraria na folha de
+  // QRs e contaria como mesa real na ativação (segurança, PR #18, L2). A venue,
+  // o recebedor e o R$ 1 (real, nos números da casa) ficam.
   await j('POST', `${BASE}/api/checks/close`, { token, body: { checkId } });
+  const off = await j('POST', `${BASE}/api/tables/active`, { token, body: { tableId: mesa.id, active: false } });
+  if (!off.data.success) log(`  ⚠ não desativei a mesa "Smoke Racha" (${off.status}) — desative no admin`);
   log('\nSMOKE LIVE OK ✅ — recebedor active, cobrança dividida real paga, repasse conferido.');
-  log('(a mesa "Smoke Racha" e a venue permanecem — nada real foi apagado)');
+  log('(a mesa "Smoke Racha" foi desativada; a venue permanece — nada real foi apagado)');
 }
 
 main().catch((e) => { process.stderr.write(`\nSMOKE FALHOU: ${e.message}\n`); process.exitCode = 1; });

@@ -609,6 +609,22 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
     },
     /** Mesa de treino: paga normal, mas fica FORA das métricas do painel. */
     async setTableTraining(tableId, training) {
+      // MARCAR com conta aberta é recusado, pela regra do `setTableActive`: o
+      // próximo poll trocaria os botões de pagar pelo aviso de treino no
+      // telefone de quem está pagando (segurança, PR #18, L1). Tirar do treino
+      // não precisa: volta a cobrar, que é o normal.
+      if (training) {
+        const checkRows = await lerPaginado({
+          op: 'setTableTraining.checks',
+          consulta: (de, ate) => client.from('checks').select('id')
+            .eq('table_id', tableId).order('id', { ascending: true }).range(de, ate),
+        });
+        const fechadas = await idsDeContasFechadas((checkRows || []).map((c) => c.id));
+        if ((checkRows || []).some((c) => !fechadas.has(c.id))) {
+          const e = new Error('table has an open check — close it before marking it as training');
+          e.statusCode = 409; e.code = 'table_has_open_check'; throw e;
+        }
+      }
       const { data, error } = await client
         .from('venue_tables')
         .update({ training: !!training })
@@ -1321,13 +1337,13 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       if (!qrToken) return null;
       const { data, error } = await client
         .from('venue_tables')
-        .select(`id, label, active, venues(${VENUE_COLS})`)
+        .select(`id, label, active, training, venues(${VENUE_COLS})`)
         .eq('qr_token', qrToken)
         .eq('active', true)
         .maybeSingle();
       throwOn(error, 'getVenueByTableToken');
       if (!data || !data.venues) return null;
-      return { venue: mapVenue(data.venues), table: { id: data.id, label: data.label } };
+      return { venue: mapVenue(data.venues), table: { id: data.id, label: data.label, training: data.training === true } };
     },
     /**
      * Grava o recebedor (re_) criado no PSP — a partir daí o split roteia. opts
@@ -2057,15 +2073,6 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
           checkId: p.check_id, confirmedAt: p.confirmed_at, method: p.method,
         }));
 
-      /**
-       * A sobra a devolver, EXCLUINDO mesas de treino.
-       *
-       * `rows` é toda conta da casa; `confirmed` já filtra treino. Somar a
-       * sobra sem o mesmo filtro descontava do faturamento um excedente de uma
-       * mesa de treino cujo pagamento nunca foi contado — subnotificando a
-       * receita (e qualquer margem calculada sobre ela). Workshop pré-turno não
-       * é movimento da casa, nos dois sentidos.
-       */
       /**
        * HOJE, no fuso de São Paulo — o mesmo corte da série semanal.
        *
