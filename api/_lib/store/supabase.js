@@ -607,7 +607,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       throwOn(error, 'rotateTableQr');
       return { id: data.id, qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at };
     },
-    /** Mesa de treino: paga normal, mas fica FORA das métricas do painel. */
+    /** Mesa de treino: não cobra (`mesa-de-treino.js`); o painel não a esconde. */
     async setTableTraining(tableId, training) {
       // MARCAR com conta aberta é recusado, pela regra do `setTableActive`: o
       // próximo poll trocaria os botões de pagar pelo aviso de treino no
