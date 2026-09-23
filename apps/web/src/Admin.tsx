@@ -252,7 +252,10 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
               {table.active && (table.hasOpenCheck
                 ? <button className="ghost" onClick={() => admin.closeManualCheck(table)}>{t('admin.closeBill')}</button>
                 : <button className="cta" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => admin.openManualCheck(table)}>{t('admin.openBillCta')}</button>)}
-              <button className="ghost" onClick={() => onPrint(table)}>QR</button>
+              {/* Sem QR avulso pra mesa de treino — a folha `/qrs` já a deixa de
+                  fora, e um cartão dela numa mesa de verdade manda o cliente
+                  pra uma mesa que não cobra (auditoria dos QRs, Q1). */}
+              {!table.training && <button className="ghost" onClick={() => onPrint(table)}>QR</button>}
               <button className="ghost" onClick={() => admin.rotate(table)}>{t('admin.rotate')}</button>
               <button className="linklike" onClick={() => admin.toggleTraining(table)}>{table.training ? t('admin.untrain') : t('admin.training')}</button>
               <button className="ghost" onClick={() => admin.toggle(table)}>{table.active ? t('admin.deactivate') : t('admin.activate')}</button>

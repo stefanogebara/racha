@@ -70,11 +70,15 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
     catch (e) { setError(trErr(e)); }
   }, [refresh, tr, trErr]);
 
-  // Mesa de treino: a equipe pratica o fluxo nela; fica fora da folha /qrs.
+  // Mesa de treino: a equipe pratica o fluxo nela, e ela NÃO COBRA; fica fora
+  // da folha /qrs. MARCAR pede confirmação: era um toque só, e uma mesa de
+  // verdade marcada por engano para de cobrar no meio do turno (auditoria do
+  // painel, P1). Tirar do treino não pede: volta a cobrar, que é o normal.
   const toggleTraining = useCallback(async (t: VenueTable) => {
+    if (!t.training && !confirm(tr('admin.confirmTraining', { label: t.label }))) return;
     try { await req<{ id: string; training: boolean }>('/api/tables/training', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, training: !t.training }) }); await refresh(); }
     catch (e) { setError(trErr(e)); }
-  }, [refresh, trErr]);
+  }, [refresh, tr, trErr]);
 
   // Modo manual (POS adapter): o dono abre/fecha a conta pelo painel.
   const openManualCheck = useCallback(async (t: VenueTable) => {

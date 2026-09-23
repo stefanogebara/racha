@@ -685,7 +685,9 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .from('venue_tables')
         // `market` no SELECT: sem ele a coluna chega undefined e a conta cai no
         // default brasileiro — uma mesa de Madrid cobrando em real, em silêncio.
-        .select('id, label, venue_id, venues(name, cnpj, servico_basis_points, market)')
+        // `training`: a mesa de treino não cobra (`mesa-de-treino.js`), e quem
+        // recusa é o caminho do dinheiro — ele lê a marca DAQUI.
+        .select('id, label, venue_id, training, venues(name, cnpj, servico_basis_points, market)')
         .eq('qr_token', qrToken)
         .eq('active', true) // inactive/rotated token is dead (security property)
         .maybeSingle();
@@ -752,7 +754,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
             // cobrar serviço, e o que não pode ser cobrado não é oferecido.
             ...publicMarketView(table.venues.market, { servicoBp: table.venues.servico_basis_points, cnpj: table.venues.cnpj }),
           },
-          table: { label: table.label },
+          table: { label: table.label, training: table.training === true },
           check: { id: cand.id, items },
           state,
         };
@@ -1765,26 +1767,12 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
        * As mesas de TREINO sobem junto: e o filtro delas que decide o que
        * conta como dinheiro de verdade.
        */
-      // Mesas de TREINO ficam fora de todos os números (workshop pré-turno
-      // não é movimento da casa) — espelha o memory store.
-      // Mesa de treino que cai fora da página passa a contar como mesa DE
-      // VERDADE: o faturamento do painel soma dinheiro de treinamento.
-      const trainingTables = await lerPaginado({
-        op: 'getPanelView.trainingTables',
-        consulta: (de, ate) => client.from('venue_tables').select('id')
-          .eq('venue_id', venueId).eq('training', true)
-          .order('id', { ascending: true }).range(de, ate),
-      });
-      const trainingChecks = new Set();
-      if ((trainingTables || []).length > 0) {
-        const tChecks = await lerPaginado({
-          op: 'getPanelView.trainingChecks',
-          consulta: (de, ate) => client.from('checks').select('id')
-            .eq('venue_id', venueId).in('table_id', trainingTables.map((t) => t.id))
-            .order('id', { ascending: true }).range(de, ate),
-        });
-        for (const c of tChecks) trainingChecks.add(c.id);
-      }
+      // A MESA DE TREINO NÃO SAI MAIS DOS NÚMEROS. Ela saía — pagamentos,
+      // serviço (a base da folha) e sobra —, e nenhum caminho de pagamento a
+      // recusava: dinheiro real que o dono não via. Agora ela não cobra
+      // (`mesa-de-treino.js`), e todo dinheiro que o painel encontra é dinheiro
+      // de verdade e conta, inclusive o de antes, pago numa mesa que depois foi
+      // marcada como treino.
 
       /**
        * A janela de 7 DIAS, e o `today` recortado do dia de verdade.
@@ -2059,7 +2047,6 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       }
 
       const confirmed = (confirmedRaw || [])
-        .filter((p) => !trainingChecks.has(p.check_id))
         .map((p) => ({
           txid: p.txid,
           amountCents: p.amount_cents, tipCents: p.tip_cents,
@@ -2107,7 +2094,6 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const contasDoDia = new Set(doDia.map((p) => p.checkId));
       const overpaidTotal = rows
         .filter((r) => contasDoDia.has(r.checkId))
-        .filter((r) => !trainingChecks.has(r.checkId))
         .reduce((s, r) => s + (r.state.overpaidCents || 0), 0);
 
       return {

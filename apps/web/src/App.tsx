@@ -1119,6 +1119,14 @@ export default function App() {
               nenhuma forma de pagar é pior que um botão feio: cai no MESMO
               trilho pelo servidor, que na demo é o MockPsp. Um caminho, dois
               jeitos de chegar nele. */}
+          {/* MESA DE TREINO NÃO COBRA — o servidor recusa (`mesa-de-treino.js`),
+              e a tela diz ANTES do toque, no lugar de todos os botões de pagar:
+              Pix, carteira, cartão e saldo da casa. Quem chega numa mesa marcada
+              por engano lê que ali não se paga, e vai ao caixa. */}
+          {table.training === true ? (
+            <p className="muted center" role="status">{t('pay.training')}</p>
+          ) : (
+          <>
           {primaryRail === 'bizum' && STRIPE_READY ? (
             <>
               <Suspense fallback={null}>
@@ -1221,6 +1229,8 @@ export default function App() {
                 ? t('house.bonus', { pct: pct(houseBonusBp) })
                 : t('house.discover')}
             </button>
+          )}
+          </>
           )}
         </section>
       )}

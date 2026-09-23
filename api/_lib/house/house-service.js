@@ -1,4 +1,5 @@
 'use strict';
+const { eMesaDeTreino, CODIGO_MESA_DE_TREINO } = require('../checks/mesa-de-treino');
 
 const { gravarAposCobrar } = require('../pay/gravar-apos-cobrar');
 
@@ -427,6 +428,8 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     if (!account) throw httpError(404, 'Conta não encontrada');
     const view = await store.getCheckByQrToken(tableQrToken || '');
     if (!view) throw httpError(404, 'Mesa sem conta aberta');
+    // Saldo da casa é dinheiro do cliente: mesa de treino não o gasta.
+    if (eMesaDeTreino(view)) throw httpError(409, 'mesa de treino não cobra', CODIGO_MESA_DE_TREINO);
     const venue = await store.getVenueForCheck(view.check.id);
     if (!venue) throw httpError(404, 'venue not found', 'venue_not_found');
     const cfg = venueHouseConfig(venue);

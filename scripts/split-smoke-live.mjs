@@ -114,18 +114,19 @@ async function main() {
   }
   log(`✓ recebedor ${info.recipientId} ACTIVE ✅`);
 
-  // 2. mesa de treino (mantém o R$1 fora dos números da casa)
-  log('\n[2/4] preparando mesa de treino pro smoke…');
+  // 2. mesa do smoke. NÃO é mesa de treino: mesa de treino não cobra (ver
+  // `api/_lib/checks/mesa-de-treino.js`). O R$ 1 do smoke é dinheiro de
+  // verdade na conta da casa, e conta nos números dela — como tem de ser.
+  log('\n[2/4] preparando a mesa do smoke…');
   const tv = await j('GET', `${BASE}/api/tables?v=${VENUE}`, { token });
   if (!tv.data.success) throw new Error(`tables: ${tv.status} ${tv.data.error}`);
-  let mesa = tv.data.data.tables.find((t) => t.training && t.active);
+  let mesa = tv.data.data.tables.find((t) => t.label === 'Smoke Racha' && t.active && !t.training);
   if (!mesa) {
     const nt = await j('POST', `${BASE}/api/tables`, { token, body: { venueId: VENUE, label: 'Smoke Racha' } });
     if (!nt.data.success) throw new Error(`criar mesa: ${nt.status} ${nt.data.error}`);
-    await j('POST', `${BASE}/api/tables/training`, { token, body: { tableId: nt.data.data.id, training: true } });
     const again = await j('GET', `${BASE}/api/tables?v=${VENUE}`, { token });
     mesa = again.data.data.tables.find((t) => t.id === nt.data.data.id);
-    log(`  mesa de treino "Smoke Racha" criada (fica fora dos números)`);
+    log(`  mesa "Smoke Racha" criada — desative-a no admin depois do go-live`);
   }
   log(`✓ mesa: ${mesa.label} (${mesa.qrToken.slice(0, 8)}…)`);
 
@@ -176,10 +177,10 @@ async function main() {
   if (landed) log('✓ o dinheiro do split caiu no recebedor da casa ✅');
   else log('  saldo ainda R$ 0 — a liquidação pode levar um ciclo; confira o extrato do recebedor no dashboard.');
 
-  // fecha a conta de treino (não deixa lixo aberto); a venue e o recebedor ficam
+  // fecha a conta do smoke (não deixa lixo aberto); a venue e o recebedor ficam
   await j('POST', `${BASE}/api/checks/close`, { token, body: { checkId } });
   log('\nSMOKE LIVE OK ✅ — recebedor active, cobrança dividida real paga, repasse conferido.');
-  log('(a mesa de treino e a venue permanecem — nada real foi apagado)');
+  log('(a mesa "Smoke Racha" e a venue permanecem — nada real foi apagado)');
 }
 
 main().catch((e) => { process.stderr.write(`\nSMOKE FALHOU: ${e.message}\n`); process.exitCode = 1; });

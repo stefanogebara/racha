@@ -152,9 +152,10 @@ Pré-requisitos (go-live):
   está `active` — o smoke NÃO cria recebedor (dados bancários reais são do dono).
 
 O smoke: autentica o dono (mint via service-role), exige recebedor `active`,
-abre uma conta minúscula numa **mesa de treino** (fica fora dos números da
-casa), cria a cobrança dividida real e **imprime o BR Code pra um humano pagar**
+abre uma conta minúscula na mesa **"Smoke Racha"** — uma mesa comum: mesa de
+treino não cobra (`api/_lib/checks/mesa-de-treino.js`), e o R$ 1 do smoke é
+dinheiro de verdade que conta nos números da casa —, cria a cobrança dividida real e **imprime o BR Code pra um humano pagar**
 (não há Simulador em live), aguarda o webhook confirmar, e lê o saldo do
-recebedor pra provar o repasse. Fecha só a conta de treino; venue e recebedor
+recebedor pra provar o repasse. Fecha só a conta do smoke; venue e recebedor
 permanecem. Plumbing validado 21/07 (auth + gate de recebedor); as demais
 chamadas são as mesmas já verdes no test mode.

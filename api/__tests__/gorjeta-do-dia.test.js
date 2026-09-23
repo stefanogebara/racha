@@ -94,11 +94,16 @@ describe('a gorjeta de HOJE é a de hoje', () => {
     expect(painel.today.tipsCents).toBe(1000);
   });
 
-  test('o pagamento de uma mesa de TREINO não entra na folha', async () => {
+  test('o serviço pago numa mesa marcada como TREINO entra na folha — é dinheiro de verdade', async () => {
+    // Era o contrário, e era o defeito: nenhum caminho de pagamento recusava a
+    // mesa de treino, então o Pix era real e liquidava no CNPJ, e o painel
+    // tirava o serviço dele do número da folha (Lei 13.419/2017). Agora a mesa
+    // de treino não cobra (`mesa-de-treino.js`), e o que o painel encontra —
+    // inclusive o pago antes de a mesa ser marcada — conta.
     const dados = casaCom([{ quando: emSP('2026-09-16', '13:00'), cents: 10000, gorjeta: 1000 }]);
     dados.venue_tables[0].training = true;
     const painel = await painelEm(dados, AGORA);
-    expect(painel.today.tipsCents).toBe(0);
+    expect(painel.today.tipsCents).toBe(1000);
   });
 
   test('e o falso FILTRA de verdade — senão tudo acima passaria sobre nada', async () => {

@@ -298,6 +298,7 @@ const reconciler = createChargeReconciler({
 // MockPsp próprio e se auto-confirma — independente de RACHA_PSP/live. É a única
 // venue cujo dinheiro é fake por design.
 const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck, isDemoVenue, demoPagaHaTempo } = require('../_lib/demo');
+const { eMesaDeTreino, CODIGO_MESA_DE_TREINO } = require('../_lib/checks/mesa-de-treino');
 const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || DEMO_TOKEN;
 const demoPsp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 const demoCharge = createChargeService({ store, psp: demoPsp });
@@ -1093,6 +1094,12 @@ async function route(req, res) {
           },
         };
       }
+      // MESA DE TREINO: sem cobrança, sem CPF. O documento só existe onde o
+      // trilho precisa dele (a mesma regra da demo, acima), e aqui não há trilho:
+      // a tela pedia o CPF de quem nada ia pagar (LGPD art. 6º III).
+      if (eMesaDeTreino(data)) {
+        data = { ...data, venue: { ...data.venue, payerTaxId: { ...(data.venue.payerTaxId || {}), required: false } } };
+      }
       // UMA consulta pras duas bandeiras. Eram duas idênticas na mesma
       // requisição — e `/api/check` é público, sem limite de taxa, consultado a
       // cada 4 segundos por cada telefone da mesa. Amplificação constante de
@@ -1163,6 +1170,9 @@ async function route(req, res) {
       if (typeof body.token !== 'string') return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       const view = await store.getCheckByQrToken(body.token);
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      // MESA DE TREINO NÃO COBRA — ver `mesa-de-treino.js`. Antes de tudo: da
+      // vaga do teto, do PSP e da carteira.
+      if (eMesaDeTreino(view)) return json(res, 409, { success: false, code: CODIGO_MESA_DE_TREINO });
       // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
       // pelo PSP real — dinheiro fake mesmo com o app em live.
       const isDemo = body.token === DEMO_TABLE_TOKEN;
@@ -1360,6 +1370,7 @@ async function route(req, res) {
       if (b.token === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, code: 'rail_unsupported' });
       const view = await store.getCheckByQrToken(b.token);
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      if (eMesaDeTreino(view)) return json(res, 409, { success: false, code: CODIGO_MESA_DE_TREINO });
       const venue = await store.getVenueForCheck(view.check.id);
       if (!venue || !venue.stripeAccountId || !/^acct_/.test(venue.stripeAccountId)) {
         return json(res, 400, { success: false, error: 'este restaurante ainda não aceita cartão', code: 'no_card' });

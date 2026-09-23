@@ -34,7 +34,8 @@ export interface CheckView {
    *  mentira num recibo de verdade é pior que a ausência dele. */
   venue: { name: string; servicoBp: number; acceptsCard?: boolean; acceptsWallet?: boolean; demo?: boolean; taxId?: string | null }
     & Partial<MarketView>;
-  table: { label: string };
+  /** `training`: mesa de treino — não cobra; a tela avisa no lugar de pagar. */
+  table: { label: string; training?: boolean };
   check: { id: string; items: CheckItem[] };
   state: {
     status: 'aberta' | 'parcial' | 'paga' | 'fechada';
