@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { reciboVista, type AvisoDaConta } from './recibo';
-import { avisoDaCobranca, cobrancaNaTela, marcasDaConta } from './pix-vivo';
+import { avisoDaCobranca, cobrancaNaTela, pagamentosPorMarca } from './pix-vivo';
 import { chaveDaMesa, guardarCobranca, lerCobranca, esquecerCobranca, varrerVencidas, restaurarNaTela } from './cobranca-viva';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
 import { LangToggle, money, tError, useT, type Key } from './lang';
@@ -405,7 +405,7 @@ export default function App() {
       const g = lerCobranca(chave, Date.now());
       if (!g) return;
       const marca = await refDoPagamento(g.charge.txid).catch(() => null);
-      const r = restaurarNaTela(g, conta.check.id, marcasDaConta(conta), marca);
+      const r = restaurarNaTela(g, conta.check.id, pagamentosPorMarca(conta), marca);
       if (!r) { esquecerCobranca(chave); return; }
       // Durante os `await`, a pessoa pode ter começado a pagar: não atropela.
       if (stepAgora.current !== 'conta') return;

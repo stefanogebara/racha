@@ -50,7 +50,7 @@ export function avisoDaCobranca(c: CobrancaNaTela): AvisoDaCobranca {
 /** O pedaço da conta viva que a decisão lê — estrutural, sem puxar `api.ts`. */
 export interface ContaViva {
   check: { id: string };
-  state: { totalCents: number; paidCents: number; payments?: Record<string, { ref?: string }> };
+  state: { totalCents: number; paidCents: number; payments?: Record<string, { ref?: string; amountCents?: number; tipCents?: number }> };
 }
 
 /**
@@ -74,7 +74,16 @@ export function cobrancaNaTela(
   };
 }
 
-/** As marcas dos pagamentos da conta viva — o que `restaurarNaTela` confere. */
-export function marcasDaConta(view: ContaViva): Set<string> {
-  return new Set(Object.values(view.state.payments || {}).map((p) => p.ref).filter((r): r is string => typeof r === 'string'));
+/**
+ * Os pagamentos da conta viva POR MARCA, com o valor — o que `restaurarNaTela`
+ * confere. O valor entra porque a marca prova que o pagamento existiu, não
+ * QUANTO: um recibo guardado com o txid real e `amountCents` inflado voltava
+ * dizendo "Você pagou R$ 10.499,99" (segurança, PR #17, M-1 da segunda leva).
+ */
+export function pagamentosPorMarca(view: ContaViva): Map<string, { amountCents: number; tipCents: number }> {
+  const m = new Map<string, { amountCents: number; tipCents: number }>();
+  for (const p of Object.values(view.state.payments || {})) {
+    if (typeof p.ref === 'string') m.set(p.ref, { amountCents: p.amountCents ?? NaN, tipCents: p.tipCents ?? NaN });
+  }
+  return m;
 }

@@ -5,7 +5,7 @@ import {
   guardarCobranca, lerCobranca, esquecerCobranca, varrerVencidas, restaurarNaTela, formaValida, pixCobraOValor, chaveDaMesa,
   VALIDADE_DA_COBRANCA_MS, VALIDADE_DO_RECIBO_MS, type CobrancaGuardada,
 } from '../src/cobranca-viva.ts';
-import { cobrancaNaTela, marcasDaConta } from '../src/pix-vivo.ts';
+import { cobrancaNaTela, pagamentosPorMarca } from '../src/pix-vivo.ts';
 
 const base: CobrancaNaTela = { faltaCents: 14880, cobrancaCents: 14879, minhaCaiu: false, contaDaCobranca: 'c1', contaViva: 'c1' };
 
@@ -65,9 +65,9 @@ test('cobrancaNaTela: a conta da COBRANÇA e a conta VIVA chegam separadas — �
   assert.equal(avisoDaCobranca(a), 'conta_trocou');
 });
 
-test('marcasDaConta: as marcas públicas, sem os pagamentos sem marca', () => {
-  const v = { check: { id: 'c' }, state: { totalCents: 1, paidCents: 0, payments: { p1: { ref: 'aa' }, p2: {}, p3: { ref: 'bb' } } } };
-  assert.deepEqual([...marcasDaConta(v)].sort(), ['aa', 'bb']);
+test('pagamentosPorMarca: as marcas públicas com o valor, sem os pagamentos sem marca', () => {
+  const v = { check: { id: 'c' }, state: { totalCents: 1, paidCents: 0, payments: { p1: { ref: 'aa', amountCents: 100, tipCents: 10 }, p2: { amountCents: 5, tipCents: 0 }, p3: { ref: 'bb', amountCents: 7, tipCents: 0 } } } };
+  assert.deepEqual([...pagamentosPorMarca(v)].sort(), [['aa', { amountCents: 100, tipCents: 10 }], ['bb', { amountCents: 7, tipCents: 0 }]]);
 });
 
 // ---- o BR Code ---------------------------------------------------------------
@@ -93,6 +93,21 @@ test('pixCobraOValor: BR Code de verdade — com o campo 54 exige o valor exato;
   // cobrança real no primeiro recarregar, em silêncio.
   assert.equal(pixCobraOValor(DINAMICO, 14879), true);
   assert.equal(pixCobraOValor(emv(tlv('00', 'br.gov.bcb.xxx') + tlv('01', 'k'), '148.79'), 14879), false); // campo 26 não é Pix
+  // O domínio do Pix em OUTRO campo que não o 26 não conta como conta Pix.
+  assert.equal(pixCobraOValor(emv(tlv('00', 'x') + tlv('01', 'k'), '148.79').replace('5802BR', '5802BR' + tlv('80', 'br.gov.bcb.pix')), 14879), false);
+  // Último campo mais curto do que declara: não é TLV bem formado — e fora do
+  // TLV, sem o 54 do valor, não passa.
+  assert.equal(pixCobraOValor(DINAMICO.slice(0, -2) , 14879), false);
+});
+
+test('pixCobraOValor: casa acentuada — o tamanho contado em BYTES também lê, e o dinâmico sem 54 não é descartado', () => {
+  const tlvBytes = (id: string, v: string) => `${id}${String(new TextEncoder().encode(v).length).padStart(2, '0')}${v}`;
+  const dinAcento = tlvBytes('00', '01') + tlvBytes('26', tlvBytes('00', 'br.gov.bcb.pix') + tlvBytes('25', 'qr.adq.com.br/cobv/x'))
+    + tlvBytes('52', '0000') + tlvBytes('53', '986') + tlvBytes('58', 'BR') + tlvBytes('59', 'Açaí da Praça')
+    + tlvBytes('60', 'São Paulo') + '6304ABCD';
+  assert.equal(pixCobraOValor(dinAcento, 14879), true);
+  // E contado em caracteres, o mesmo código também lê.
+  assert.equal(pixCobraOValor(emv(tlv('00', 'br.gov.bcb.pix') + tlv('25', 'qr.adq.com.br/cobv/x')).replace('Bar do Ze', 'Açaí 12'), 14879), true);
 });
 
 test('pixCobraOValor: o código da demo (fora do TLV) — o valor exato em qualquer lugar — e nada que não seja Pix', () => {
@@ -116,6 +131,7 @@ test('formaValida: a entrada que esta tela grava passa', () => {
   assert.equal(formaValida(guardada(), AGORA), true);
   assert.equal(formaValida(guardada({ fase: 'pago', paidAt: '2026-09-23T21:02:00Z' }), AGORA), true);
   assert.equal(formaValida(guardada({ charge: { ...charge, copiaECola: null, method: 'bizum' } }), AGORA), true);
+  assert.equal(formaValida(guardada({ fase: 'pago', charge: { ...charge, copiaECola: null, method: 'card', wallet: 'google_pay' } }), AGORA), true);
 });
 
 test('formaValida: cada adulteração que a revisão de segurança mediu é recusada', () => {
@@ -130,6 +146,9 @@ test('formaValida: cada adulteração que a revisão de segurança mediu é recu
     ['charge.checkId de outra conta', guardada({ charge: { ...charge, checkId: 'conta-velha' } })],
     ['method fora da lista', guardada({ charge: { ...charge, method: 'boleto' as 'pix' } })],
     ['centavo fracionário', guardada({ charge: { ...charge, amountCents: 1.5 } })],
+    ['serviço fracionário', guardada({ charge: { ...charge, tipCents: 0.5 } })],
+    ['wallet fora da lista', guardada({ charge: { ...charge, wallet: 'paypal' as 'apple_pay' } })],
+    ['Pix pendente sem código (caixa vazia + "Copiar")', guardada({ charge: { ...charge, copiaECola: null } })],
     ['centavo negativo', guardada({ charge: { ...charge, tipCents: -1 } })],
     ['txid com lixo', guardada({ charge: { ...charge, txid: '<script>' } })],
     ['versão antiga', { ...guardada(), v: 1 }],
@@ -210,21 +229,24 @@ test('armazenamento bloqueado → nada lança', () => {
 
 test('restaurarNaTela, caso a caso', () => {
   const g = (x: Partial<CobrancaGuardada> = {}) => ({ v: 2 as const, ...pendente, ...x });
-  const marcas = new Set(['m-minha', 'm-alheia']);
+  const V = { amountCents: charge.amountCents, tipCents: charge.tipCents };
+  const marcas = new Map([['m-minha', V], ['m-alheia', { amountCents: 5, tipCents: 0 }]]);
+  const nada = new Map<string, { amountCents: number; tipCents: number }>();
   const casos: Array<[string, ReturnType<typeof restaurarNaTela>]> = [
     // pendente
-    ['pendente, não caiu', restaurarNaTela(g(), 'c1', new Set(), 'm-minha')],
+    ['pendente, não caiu', restaurarNaTela(g(), 'c1', nada, 'm-minha')],
     ['pendente, caiu → recibo SEM data (não a hora do recarregar)', restaurarNaTela(g(), 'c1', marcas, 'm-minha')],
-    ['pendente, conta trocou → volta pra mostrar o aviso', restaurarNaTela(g(), 'c2', new Set(), 'm-minha')],
+    ['pendente, conta trocou → volta pra mostrar o aviso', restaurarNaTela(g(), 'c2', nada, 'm-minha')],
     ['pendente, sem crypto.subtle', restaurarNaTela(g(), 'c1', marcas, null)],
     // recibo
     ['recibo, confirmado, mesma conta', restaurarNaTela(g({ fase: 'pago', paidAt: '2026-09-23T21:02:00Z' }), 'c1', marcas, 'm-minha')],
     ['recibo, outra conta (HIGH-2)', restaurarNaTela(g({ fase: 'pago' }), 'c2', marcas, 'm-minha')],
-    ['recibo, o servidor não confirma (forjado, M-1)', restaurarNaTela(g({ fase: 'pago' }), 'c1', new Set(['m-alheia']), 'm-minha')],
+    ['recibo, o servidor não confirma (forjado, M-1)', restaurarNaTela(g({ fase: 'pago' }), 'c1', new Map([['m-alheia', V]]), 'm-minha')],
+    ['recibo, marca real e VALOR inflado', restaurarNaTela(g({ fase: 'pago', charge: { ...charge, amountCents: 999999 } }), 'c1', marcas, 'm-minha')],
     ['recibo, sem crypto.subtle', restaurarNaTela(g({ fase: 'pago' }), 'c1', marcas, null)],
     // vencida
     ['vencida, caiu → recibo sem data', restaurarNaTela(g({ vencida: true }), 'c1', marcas, 'm-minha')],
-    ['vencida, não caiu', restaurarNaTela(g({ vencida: true }), 'c1', new Set(), 'm-minha')],
+    ['vencida, não caiu', restaurarNaTela(g({ vencida: true }), 'c1', nada, 'm-minha')],
   ];
   const resumo = casos.map(([nome, r]) => [nome, r && [r.fase, r.paidAt, r.ownRef]]);
   assert.deepEqual(resumo, [
@@ -235,6 +257,7 @@ test('restaurarNaTela, caso a caso', () => {
     ['recibo, confirmado, mesma conta', ['pago', '2026-09-23T21:02:00Z', 'm-minha']],
     ['recibo, outra conta (HIGH-2)', null],
     ['recibo, o servidor não confirma (forjado, M-1)', null],
+    ['recibo, marca real e VALOR inflado', null],
     ['recibo, sem crypto.subtle', null],
     ['vencida, caiu → recibo sem data', ['pago', null, 'm-minha']],
     ['vencida, não caiu', null],
@@ -260,7 +283,7 @@ test('a tela do Pix decide por `avisoDaCobranca(cobrancaNaTela(view, charge, own
 });
 
 test('a restauração passa por `restaurarNaTela` com a marca RECALCULADA do txid, e nada guarda a marca', () => {
-  assert.ok(/restaurarNaTela\(g, conta\.check\.id, marcasDaConta\(conta\), marca\)/.test(APP), 'a restauração não passa pela decisão pura');
+  assert.ok(/restaurarNaTela\(g, conta\.check\.id, pagamentosPorMarca\(conta\), marca\)/.test(APP), 'a restauração não passa pela decisão pura');
   assert.ok(/const marca = await refDoPagamento\(g\.charge\.txid\)/.test(APP), 'a marca não é recalculada do txid');
   assert.ok(!/guardarCobranca\([^)]*ownRef/.test(APP), 'a marca voltou a ser guardada — forjável');
 });

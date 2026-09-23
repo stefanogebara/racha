@@ -112,17 +112,46 @@ export function esquecerCobranca(chave: string, a: Armazem | null = armazem()): 
 const dataOuNulo = (v: unknown): boolean => v === null || (typeof v === 'string' && Number.isFinite(Date.parse(v)));
 const centavos = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 0;
 
-/** O TLV do EMV (id de 2, tamanho de 2, valor) — ou nulo se não for TLV bem formado. */
+/**
+ * O TLV do EMV (id de 2, tamanho de 2, valor) — ou nulo se não for TLV bem
+ * formado. Tenta o tamanho em CARACTERES e, se não fechar, em BYTES UTF-8: com
+ * o nome ou a cidade da casa acentuados ("São Paulo"), um adquirente que conta
+ * bytes faria a leitura por caracteres falhar, e o Pix dinâmico sem campo 54
+ * cairia no caminho da demo e seria descartado (compliance, PR #17).
+ */
 function camposDoEmv(copia: string): Map<string, string> | null {
+  return lerTlv([...copia]) ?? lerTlvBytes(copia);
+}
+
+function lerTlvBytes(copia: string): Map<string, string> | null {
+  const bytes = new TextEncoder().encode(copia);
+  const dec = new TextDecoder('utf-8', { fatal: true });
+  const campos = new Map<string, string>();
+  let i = 0;
+  try {
+    while (i < bytes.length) {
+      const cab = dec.decode(bytes.slice(i, i + 4));
+      if (!/^\d{4}$/.test(cab)) return null;
+      const n = Number(cab.slice(2));
+      if (i + 4 + n > bytes.length) return null;
+      campos.set(cab.slice(0, 2), dec.decode(bytes.slice(i + 4, i + 4 + n)));
+      i += 4 + n;
+    }
+  } catch { return null; }
+  return campos;
+}
+
+function lerTlv(chars: string[]): Map<string, string> | null {
+  const copia = chars;
   const campos = new Map<string, string>();
   let i = 0;
   while (i < copia.length) {
-    const id = copia.slice(i, i + 2);
-    const tam = copia.slice(i + 2, i + 4);
+    const id = copia.slice(i, i + 2).join('');
+    const tam = copia.slice(i + 2, i + 4).join('');
     if (!/^\d\d$/.test(id) || !/^\d\d$/.test(tam)) return null;
     const n = Number(tam);
     if (i + 4 + n > copia.length) return null;
-    campos.set(id, copia.slice(i + 4, i + 4 + n));
+    campos.set(id, copia.slice(i + 4, i + 4 + n).join(''));
     i += 4 + n;
   }
   return campos;
@@ -174,6 +203,9 @@ export function formaValida(d: unknown, agoraMs: number): d is CobrancaGuardada 
   if (c.checkId !== g.checkId) return false;
   if (!centavos(c.amountCents) || !centavos(c.tipCents)) return false;
   if (!dataOuNulo(c.expiresAt ?? null)) return false;
+  // Pix PENDENTE sem código não tem o que mostrar: voltava com a caixa vazia e
+  // o "Copiar código Pix" solto (segurança, PR #17).
+  if (g.fase === 'pagar' && (c.method ?? 'pix') === 'pix' && typeof c.copiaECola !== 'string') return false;
   if (c.method !== undefined && c.method !== 'pix' && c.method !== 'card' && c.method !== 'bizum') return false;
   if (c.wallet !== undefined && c.wallet !== null && c.wallet !== 'apple_pay' && c.wallet !== 'google_pay') return false;
   if (c.copiaECola !== null && c.copiaECola !== undefined) {
@@ -239,12 +271,19 @@ export interface NaTela {
  *
  * @param g           o que `lerCobranca` devolveu
  * @param contaViva   o `check.id` que o poll trouxe
- * @param refsDaConta as marcas dos pagamentos da conta viva (`/api/check`)
+ * @param pagamentos  os pagamentos da conta viva por marca, com valor (`/api/check`)
  * @param marca       `refDoPagamento(g.charge.txid)`, recalculada agora
  */
-export function restaurarNaTela(g: CobrancaGuardada | null, contaViva: string, refsDaConta: ReadonlySet<string>, marca: string | null): NaTela | null {
+export function restaurarNaTela(
+  g: CobrancaGuardada | null, contaViva: string,
+  pagamentos: ReadonlyMap<string, { amountCents: number; tipCents: number }>, marca: string | null,
+): NaTela | null {
   if (!g) return null;
-  const caiu = marca !== null && refsDaConta.has(marca);
+  // CAIU = a marca está na conta E com o MESMO valor. A marca prova que houve
+  // pagamento, não quanto; o valor guardado é do aparelho, o da conta é do
+  // servidor. Divergiu: não volta.
+  const p = marca !== null ? pagamentos.get(marca) : undefined;
+  const caiu = p !== undefined && p.amountCents === g.charge.amountCents && p.tipCents === g.charge.tipCents;
   // Vencida: só volta como recibo, e só se o servidor confirma o pagamento.
   if (g.vencida) return caiu ? { fase: 'pago', charge: g.charge, ownRef: marca, paidAt: null } : null;
   if (g.fase === 'pago') {
