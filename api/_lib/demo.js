@@ -190,7 +190,60 @@ function demoPagaHaTempo(state, agoraMs, graciaMs = DEMO_TEMPO_DE_GLORIA_MS) {
   return agoraMs - ultimo > graciaMs;
 }
 
+/**
+ * ESTA CONTA É A DA DEMO? — pela CASA, e só pela casa.
+ *
+ * Decidia-se pelo TOKEN (`RACHA_DEMO_TABLE_TOKEN`). Com a env digitada
+ * apontando pro QR de uma mesa de verdade, o roteador tratava aquela mesa como
+ * a demo em cinco sítios: `/api/pay` cobrava pelo MockPsp e a conta real virava
+ * `paga` sem dinheiro nenhum — qualquer um com o QR fechava a conta sem pagar —,
+ * o reconcile-on-read desligava, a carteira e o cartão sumiam, e a tela dizia
+ * "demo" sem pedir CPF (livro de abertos, HIGH, medido pela segurança). E o
+ * outro lado do mesmo erro: a landing tem `demoracha` fixo no código, então
+ * qualquer outro valor da env fazia a demo de verdade ser tratada como mesa
+ * real — CPF do visitante numa casa fictícia (compliance, PR #19, M-2).
+ *
+ * A casa fecha as duas metades. `isDemoVenue` é `isTest` + o recebedor de
+ * mentira, e nenhum dos dois é gravável pelo dono: `createVenue` do `/api/venues`
+ * não aceita `isTest`, e o recebedor só vem do adquirente (`re_…`). Conferido em
+ * produção em 2026-09-23: a única casa com os dois marcadores é a da demo.
+ *
+ * E O TOKEN AINDA CONTA — como a SEGUNDA metade, não como a única. Só pela
+ * casa, um operador que marcasse `is_test` numa das casas que ainda carregam
+ * `rcpt_demo` transformaria TODA mesa dela em demo: cobrança pelo MockPsp, que
+ * se auto-confirma, e contas reais fechando sem dinheiro — mudo, porque a
+ * varredura noturna pula casas de teste (compliance, PR #19, M-A). Então: casa
+ * da demo E um dos dois tokens da demo — o `demoracha` fixo da landing ou o da
+ * env. As mesas de uma casa marcada por engano têm token aleatório e seguem
+ * mesa real (e falham fechado: o adquirente recusa `rcpt_demo`).
+ *
+ * O token também serve às CURAS (achar a mesa da demo quando a conta sumiu),
+ * que provam a casa por `resolveDemoTable`, e pra GRITAR: token da demo numa
+ * casa que não é a da demo é configuração quebrada.
+ */
+const JANELA_DO_GRITO_MS = 60 * 60 * 1000;
+const gritados = new Map(); // checkId → quando gritou; atalho local, não decisão
+
+async function contaEDaDemo(store, checkId, { token = null, demoToken = null, agoraMs = Date.now() } = {}) {
+  if (!checkId) return { demo: false, venue: null };
+  const venue = await store.getVenueForCheck(checkId);
+  const tokenDaDemo = Boolean(token) && (token === DEMO_TOKEN || token === demoToken);
+  const demo = tokenDaDemo && isDemoVenue(venue);
+  if (!isDemoVenue(venue) && token && token === demoToken) {
+    // Uma vez por conta por hora: cada telefone sonda a cada 4 s, e a enchente
+    // de linhas iguais é o que ensina a ignorar o log (compliance, PR #19, M-1).
+    const ultimo = gritados.get(checkId);
+    if (!ultimo || agoraMs - ultimo > JANELA_DO_GRITO_MS) {
+      gritados.set(checkId, agoraMs);
+      if (gritados.size > 5000) gritados.clear();
+      process.stderr.write(`[demo-token] o token da demo aponta pra uma casa que NÃO é a demo (check=${checkId}) — tratada como mesa real; confira RACHA_DEMO_TABLE_TOKEN\n`);
+    }
+  }
+  return { demo, venue };
+}
+
 module.exports = {
+  contaEDaDemo,
   DEMO_TOKEN, DEMO_VENUE_NAME, DEMO_ITEMS, DEMO_TOTAL_CENTS, DEMO_TEMPO_DE_GLORIA_MS,
   ensureDemoCheck, resetDemoCheck, isFresh, isDemoVenue, demoPagaHaTempo,
 };

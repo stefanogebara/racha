@@ -297,7 +297,7 @@ const reconciler = createChargeReconciler({
 // quebrar (o recebedor de teste não existe em live). Aqui ele roda sempre num
 // MockPsp próprio e se auto-confirma — independente de RACHA_PSP/live. É a única
 // venue cujo dinheiro é fake por design.
-const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck, isDemoVenue, demoPagaHaTempo } = require('../_lib/demo');
+const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck, isDemoVenue, demoPagaHaTempo, contaEDaDemo } = require('../_lib/demo');
 const { eMesaDeTreino, CODIGO_MESA_DE_TREINO } = require('../_lib/checks/mesa-de-treino');
 const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || DEMO_TOKEN;
 const demoPsp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
@@ -1042,12 +1042,17 @@ async function route(req, res) {
         registraMissDeCheck(req);
         return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
       }
+      // É A DEMO PELA CASA — ver `contaEDaDemo`. Uma leitura da casa por
+      // requisição, e é ela que os três sítios abaixo usam (a do cartão, que
+      // já existia, passa a vir daqui). As curas acima acham a mesa pelo token
+      // e provam a casa por conta própria (`resolveDemoTable`).
+      const { demo: ehDemo, venue: casaDaConta } = await contaEDaDemo(store, data.check.id, { token, demoToken: DEMO_TABLE_TOKEN });
       // Confirm-on-read: heal a missed webhook. If money is still owed, re-ask
       // the PSP about this check's pending charges (throttled per check,
       // best-effort — a slow/absent gateway must NEVER break the read). The
       // diner is already polling every 4s, so a dead webhook still resolves in
       // seconds. Demo self-confirms via its own mock → skip it.
-      if (token !== DEMO_TABLE_TOKEN && data.state && data.state.paidCents < data.state.totalCents
+      if (!ehDemo && data.state && data.state.paidCents < data.state.totalCents
           && shouldReconcileNow(data.check.id)) {
         try {
           const r = await reconciler.reconcile({ checkId: data.check.id });
@@ -1070,7 +1075,7 @@ async function route(req, res) {
       // e pede CPF de verdade pra uma conta que não existe — autorização obtida
       // sob premissa falsa (CDC 6º III/37) e CPF sem base legal (LGPD).
       // Achado CRÍTICO da revisão de compliance.
-      if (token === DEMO_TABLE_TOKEN) {
+      if (ehDemo) {
         data = {
           ...data,
           venue: {
@@ -1104,7 +1109,7 @@ async function route(req, res) {
       // requisição — e `/api/check` é público, sem limite de taxa, consultado a
       // cada 4 segundos por cada telefone da mesa. Amplificação constante de
       // trabalho já sem teto, no caminho crítico de quem está pagando.
-      const casa = token !== DEMO_TABLE_TOKEN ? await store.getVenueForCheck(data.check.id) : null;
+      const casa = !ehDemo ? casaDaConta : null;
       if (stripePsp && casa && casa.stripeAccountId && /^acct_/.test(casa.stripeAccountId)) {
         data = { ...data, venue: { ...data.venue, acceptsCard: true } };
       }
@@ -1175,7 +1180,20 @@ async function route(req, res) {
       if (eMesaDeTreino(view)) return json(res, 409, { success: false, code: CODIGO_MESA_DE_TREINO });
       // Demo isolado: a mesa de demonstração cobra pelo MockPsp próprio, nunca
       // pelo PSP real — dinheiro fake mesmo com o app em live.
-      const isDemo = body.token === DEMO_TABLE_TOKEN;
+      // É A DEMO PELA CASA — ver `contaEDaDemo`. Mesa de casa real cobra de
+      // verdade, pelo PSP de verdade, qualquer que seja o token.
+      // O TRILHO PEDIDO É CONFERIDO ANTES DA IDA AO BANCO: um `wallet` que não
+      // existe é recusado sem custar leitura nenhuma (ver o bloco da carteira
+      // abaixo). Vem antes da casa porque a casa, agora, é uma ida ao banco.
+      const pediuCarteira = body.wallet === 'google_pay' || body.wallet === 'apple_pay';
+      // `!= null` e não truthiness: `wallet: 0`, `false` e `''` escapavam do
+      // corte e morriam lá dentro com uma frase em português sem código.
+      if (body.wallet != null && body.wallet !== '' && !pediuCarteira) {
+        throw Object.assign(new Error('unknown wallet'), {
+          statusCode: 400, code: 'rail_unsupported',
+        });
+      }
+      const { demo: isDemo, venue: casaDaConta } = await contaEDaDemo(store, view.check.id, { token: body.token, demoToken: DEMO_TABLE_TOKEN });
       // A DEMO É PÚBLICA — o token está no link da landing — e cobra a partir de
       // um centavo. Sem limite, qualquer um enchia o teto dela e deixava a
       // demonstração de vendas respondendo 429. (Compliance e segurança, HIGH.)
@@ -1249,16 +1267,8 @@ async function route(req, res) {
        * (o nome só era recusado lá dentro, no `charge()`). Sétima revisão de
        * segurança, 2026-09-19 (LOW-5).
        */
-      const pediuCarteira = body.wallet === 'google_pay' || body.wallet === 'apple_pay';
-      // `!= null` e não truthiness: `wallet: 0`, `false` e `''` escapavam do
-      // corte e morriam lá dentro com uma frase em português sem código.
-      if (body.wallet != null && body.wallet !== '' && !pediuCarteira) {
-        throw Object.assign(new Error('unknown wallet'), {
-          statusCode: 400, code: 'rail_unsupported',
-        });
-      }
-      const casaDaCobranca = pediuCarteira && !isDemo
-        ? await store.getVenueForCheck(view.check.id) : null;
+      // A casa já veio de `contaEDaDemo`: a mesma leitura, sem segunda ida.
+      const casaDaCobranca = pediuCarteira && !isDemo ? casaDaConta : null;
       if (pediuCarteira && !isDemo && !carteiraLiberada(casaDaCobranca && casaDaCobranca.id)) {
         throw Object.assign(new Error('wallet rail not enabled for this venue'), {
           statusCode: 400, code: 'rail_unsupported',
@@ -1367,9 +1377,10 @@ async function route(req, res) {
       if (!stripePsp) return json(res, 503, { success: false, code: 'platform_misconfigured' });
       const b = JSON.parse(await readBody(req) || '{}');
       if (typeof b.token !== 'string') return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
-      if (b.token === DEMO_TABLE_TOKEN) return json(res, 400, { success: false, code: 'rail_unsupported' });
       const view = await store.getCheckByQrToken(b.token);
       if (!view) return json(res, 404, { success: false, error: 'Conta não encontrada', code: 'check_not_found' });
+      // A demo não tem cartão — e "é a demo" é pela casa (`contaEDaDemo`).
+      if ((await contaEDaDemo(store, view.check.id, { token: b.token, demoToken: DEMO_TABLE_TOKEN })).demo) return json(res, 400, { success: false, code: 'rail_unsupported' });
       if (eMesaDeTreino(view)) return json(res, 409, { success: false, code: CODIGO_MESA_DE_TREINO });
       const venue = await store.getVenueForCheck(view.check.id);
       if (!venue || !venue.stripeAccountId || !/^acct_/.test(venue.stripeAccountId)) {
