@@ -444,11 +444,14 @@ sem pagar**. O mesmo token ainda desliga o reconcile-on-read e mostra
 cabeçalho de `demo.js` nomeia esse typo como crítico, e a defesa só foi posta
 num dos sítios.
 
-**Fechado em 2026-09-23 (PR #19):** "é a demo" é decidido pela CASA
-(`contaEDaDemo` → `isDemoVenue`: `isTest` + `rcpt_demo`, nenhum dos dois
-gravável pelo dono; em produção, só a casa da demo tem os dois). O token só
-serve às curas — que provam a casa por `resolveDemoTable` — e pra gritar
-`[demo-token]` (uma vez por conta por hora) quando aponta pra uma casa real.
+**Fechado em 2026-09-23 (PR #19):** "é a demo" exige a CASA (`contaEDaDemo` →
+`isDemoVenue`: `isTest` + `rcpt_demo`, nenhum dos dois gravável pelo dono; em
+produção, só a casa da demo tem os dois) E um dos dois tokens da demo (o
+`demoracha` fixo da landing ou o da env). Só pela casa, um `is_test` posto por
+engano numa casa com `rcpt_demo` faria toda mesa dela fechar conta sem
+dinheiro, mudo (compliance, M-A); com o token, as mesas dela seguem reais. O
+token também serve às curas — que provam a casa por `resolveDemoTable` — e pra
+gritar `[demo-token]` (uma vez por conta por hora) quando aponta pra uma casa real.
 Fecha também a outra metade: a env diferente do `demoracha` fixo da landing
 não desliga mais a demo. `/api/check`, `/api/pay` e `/api/pay/stripe-intent`
 passam por ela. Censo e as duas formas de casa real em

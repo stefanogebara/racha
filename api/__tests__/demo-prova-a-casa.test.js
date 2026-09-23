@@ -167,3 +167,32 @@ describe('o intent de cartão com o token da demo numa casa de verdade', () => {
     expect(intents).toBe(1);
   });
 });
+
+describe('uma casa marcada is_test POR ENGANO, com rcpt_demo, não vira demo', () => {
+  // Compliance, PR #19, M-A: só pela casa, toda mesa dela cobraria pelo MockPsp
+  // e fecharia sem dinheiro. As mesas têm token aleatório — mesa real.
+  let srv; let porta; let store; let conta; let mesa;
+  beforeAll(async () => {
+    let route;
+    jest.isolateModules(() => { ({ route, store } = require('../_app/router')); });
+    const venue = store.seedVenue({ name: 'Casa marcada errado', servicoBp: 1000, pspRecipientId: 'rcpt_demo', isTest: true });
+    mesa = store.seedTable(venue.id, 'Mesa 4');
+    conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Café', priceCents: 1000 }]);
+    srv = http.createServer(route).listen(0);
+    await new Promise((r) => srv.once('listening', r));
+    porta = srv.address().port;
+  });
+  afterAll(() => srv.close());
+
+  test('a leitura não diz demo, e pagar NÃO se auto-confirma', async () => {
+    jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const lida = await (await fetch(`http://127.0.0.1:${porta}/api/check?t=${mesa.qrToken}`)).json();
+    expect(lida.data.venue.demo).not.toBe(true);
+    await fetch(`http://127.0.0.1:${porta}/api/pay`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: mesa.qrToken, amountCents: 1000, tipCents: 0, payerDocument: '52998224725', rail: 'pix' }),
+    });
+    jest.restoreAllMocks();
+    expect((await store.loadEvents(conta.id)).map((e) => e.type)).not.toContain('PAYMENT_CONFIRMED');
+  });
+});

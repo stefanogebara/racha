@@ -208,18 +208,28 @@ function demoPagaHaTempo(state, agoraMs, graciaMs = DEMO_TEMPO_DE_GLORIA_MS) {
  * não aceita `isTest`, e o recebedor só vem do adquirente (`re_…`). Conferido em
  * produção em 2026-09-23: a única casa com os dois marcadores é a da demo.
  *
- * O token segue servindo às CURAS (achar a mesa da demo quando a conta sumiu),
- * e elas provam a casa por `resolveDemoTable`. Aqui ele só serve pra GRITAR:
- * token da demo numa casa que não é a da demo é configuração quebrada.
+ * E O TOKEN AINDA CONTA — como a SEGUNDA metade, não como a única. Só pela
+ * casa, um operador que marcasse `is_test` numa das casas que ainda carregam
+ * `rcpt_demo` transformaria TODA mesa dela em demo: cobrança pelo MockPsp, que
+ * se auto-confirma, e contas reais fechando sem dinheiro — mudo, porque a
+ * varredura noturna pula casas de teste (compliance, PR #19, M-A). Então: casa
+ * da demo E um dos dois tokens da demo — o `demoracha` fixo da landing ou o da
+ * env. As mesas de uma casa marcada por engano têm token aleatório e seguem
+ * mesa real (e falham fechado: o adquirente recusa `rcpt_demo`).
+ *
+ * O token também serve às CURAS (achar a mesa da demo quando a conta sumiu),
+ * que provam a casa por `resolveDemoTable`, e pra GRITAR: token da demo numa
+ * casa que não é a da demo é configuração quebrada.
  */
 const JANELA_DO_GRITO_MS = 60 * 60 * 1000;
 const gritados = new Map(); // checkId → quando gritou; atalho local, não decisão
 
 async function contaEDaDemo(store, checkId, { token = null, demoToken = null, agoraMs = Date.now() } = {}) {
-  if (!checkId) return false;
+  if (!checkId) return { demo: false, venue: null };
   const venue = await store.getVenueForCheck(checkId);
-  const demo = isDemoVenue(venue);
-  if (!demo && token && token === demoToken) {
+  const tokenDaDemo = Boolean(token) && (token === DEMO_TOKEN || token === demoToken);
+  const demo = tokenDaDemo && isDemoVenue(venue);
+  if (!isDemoVenue(venue) && token && token === demoToken) {
     // Uma vez por conta por hora: cada telefone sonda a cada 4 s, e a enchente
     // de linhas iguais é o que ensina a ignorar o log (compliance, PR #19, M-1).
     const ultimo = gritados.get(checkId);
