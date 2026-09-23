@@ -144,6 +144,8 @@ export interface HouseRedeemResult {
 export interface Venue {
   id: string; name: string; city: string | null; servicoBp: number;
   pspRecipientId: string | null;
+  /** A conta Stripe da casa (Espanha): é ela que diz se a casa recebe (`casaRecebe`). */
+  stripeAccountId?: string | null;
   /**
    * O documento da casa. Vem só na visão AUTENTICADA do dono (`/api/tables`);
    * pro cliente ele passa por `documentoPublicavelDaCasa`, que confere o valor

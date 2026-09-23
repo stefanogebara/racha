@@ -1,5 +1,7 @@
 
 import { LangToggle, useT } from './lang';
+import { DICT } from './i18n';
+import { casaRecebe, textoDoCartao, tituloDaMesa, trilhoDoCartao, urlDaMesa } from './cartao-qr';
 import { Campo } from './Campo';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -19,7 +21,7 @@ import { LIMITES } from './limites';
  * Behind the owner login gate (see Gate.tsx). Two surfaces by URL:
  *   /admin            → onboarding (cria o restaurante) → redireciona p/ mesas
  *   /admin?v=<id>     → gestão de mesas (criar, QR imprimível, girar, desativar)
- * O QR codifica a URL da conta do cliente: <origin>/?t=<qr_token>.
+ * O QR codifica a URL da conta do cliente em PRODUÇÃO (`cartao-qr.ts`).
  * A folha de impressão de todos os QRs vive em /qrs?v=<id> (Qrs.tsx).
  */
 
@@ -133,7 +135,6 @@ function VenueAdminSurface({ venueId }: { venueId: string }) {
   const admin = useVenueAdmin(venueId);
   const [printing, setPrinting] = useState<VenueTable | null>(null);
   const [mode, setMode] = useState<'wizard' | 'manage' | null>(null);
-  const origin = window.location.origin;
   const decided = useRef(false);
 
   // Decide a tela padrão UMA vez, quando os dados carregam: restaurante já
@@ -145,7 +146,7 @@ function VenueAdminSurface({ venueId }: { venueId: string }) {
     setMode(forced || !setupComplete(admin.venue, admin.tables) ? 'wizard' : 'manage');
   }, [admin.venue, admin.tables]);
 
-  if (printing) return <PrintCard venue={admin.venue} table={printing} origin={origin} onClose={() => setPrinting(null)} />;
+  if (printing) return <PrintCard venue={admin.venue} table={printing} onClose={() => setPrinting(null)} />;
 
   return (
     <main className="shell wide">
@@ -299,9 +300,10 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
 }
 
 // --------------------------------------------------------------- print card
-function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; table: VenueTable; origin: string; onClose: () => void }) {
+function PrintCard({ venue, table, onClose }: { venue: Venue | null; table: VenueTable; onClose: () => void }) {
   const { t } = useT();
-  const url = `${origin}/?t=${table.qrToken}`;
+  // Produção SEMPRE, e o mesmo texto da folha `/qrs` — ver `cartao-qr.ts`.
+  const url = urlDaMesa(table.qrToken);
   return (
     <main className="shell">
       <section className="pixcard qrprint">
@@ -309,14 +311,19 @@ function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; tab
         {/* A serifa do sistema é a Newsreader, e é a única que o projeto
             vendoriza. Esta linha pedia a Instrument Serif, que não é carregada
             em lugar nenhum desde a migração: o rótulo da mesa caía em Times. */}
-        <h2 className="qrvenue" style={{ fontSize: 30 }}>{table.label}</h2>
-        {table.training && <p className="qrstamp" role="note">{t('admin.trainingStamp')}</p>}
+        {/* O CARTÃO fala o idioma do MERCADO, não o da aba (`textoDoCartao`). */}
+        <h2 className="qrvenue" style={{ fontSize: 30 }}>{tituloDaMesa(table.label, (label) => textoDoCartao(DICT['qrs.tableTitle'], venue?.market, { label }))}</h2>
+        {table.training && <p className="qrstamp" role="note">{textoDoCartao(DICT['admin.trainingStamp'], venue?.market)}</p>}
         <div className="qrbox">
           <QRCodeSVG value={url} size={220} level="M" marginSize={2} />
         </div>
-        <p className="muted small">{t('admin.point')}</p>
+        {/* Cartão de treino não promete pagar: o carimbo diz que ali não se paga,
+            e "pagar no Pix" logo abaixo contradizia o próprio papel. */}
+        {!table.training && <p className="muted small">{textoDoCartao(DICT['qr.scanToPay'], venue?.market, { rail: trilhoDoCartao(venue?.market) })}</p>}
         <p className="muted" style={{ fontSize: 11, wordBreak: 'break-all' }}>{url}</p>
-        <button className="cta" onClick={() => window.print()}>Imprimir</button>
+        {/* Sem recebedor, só o cartão de TREINO imprime (ele não promete pagar). */}
+        {!table.training && !casaRecebe(venue) && <p className="small" role="status" style={{ color: 'var(--erro)' }}>{t('rcpt.none')}</p>}
+        <button className="cta" disabled={!table.training && !casaRecebe(venue)} onClick={() => window.print()}>{t('qrs.print')}</button>
         <button className="linklike" onClick={onClose}>{t('common.backShort')}</button>
       </section>
     </main>

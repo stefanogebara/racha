@@ -1,30 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useT } from './lang';
+import { useT, LangToggle } from './lang';
 import { QRCodeSVG } from 'qrcode.react';
 import type { TablesView, VenueTable } from './api';
 import { authedReq as req } from './auth';
+import { DICT } from './i18n';
+import { casaRecebe, textoDoCartao, tituloDaMesa, trilhoDoCartao, urlDaMesa } from './cartao-qr';
 
 /**
  * /qrs?v=<venueId> — folha de QRs das mesas, pronta para a gráfica. Warm Glass
  * na tela; no papel vira preto no branco (ver @media print em styles.css).
  * Atrás do login do dono (Gate.tsx), como /admin e /painel.
  *
- * O QR aponta SEMPRE para produção: o cartão vive na mesa por meses e não pode
- * depender de onde o dono abriu esta página (localhost/preview).
- * Mesas inativas e de treino ficam de fora da impressão.
+ * O que o cartão diz, e pra onde o QR aponta, mora em `cartao-qr.ts` — a mesma
+ * fonte do cartão avulso do `/admin`. Mesas inativas e de treino ficam de fora.
  */
-
-const PROD_ORIGIN = 'https://racha-gray.vercel.app';
-
-/**
- * "12" → "Mesa 12"; labels que já vêm como "Mesa 12" não viram "Mesa Mesa 12".
- *
- * O prefixo é TEXTO DE TELA (sai no idioma do dono, que é quem imprime); o
- * rótulo é palavra da CASA e passa inteiro. Por isso o teste de idioma também
- * dispensa `table`/`mesa`/`mesa` de serem diferentes entre si.
- */
-const mesaTitle = (label: string, t: (k: 'qrs.tableTitle', v: { label: string }) => string) =>
-  /^(mesa|table)\b/i.test(label.trim()) ? label.trim() : t('qrs.tableTitle', { label: label.trim() });
 
 export default function Qrs() {
   const { t, tErr } = useT();
@@ -58,35 +47,41 @@ export default function Qrs() {
       <section className="card noprint">
         <p className="label">{t('qrs.title', { n: printable.length })}</p>
         <p className="muted small">{t('qrs.help')}</p>
-        <button className="cta" disabled={printable.length === 0} onClick={() => window.print()}>
+        {/* Sem recebedor, o cartão que promete "pagar no Pix" mentiria — a
+            folha não imprime até a casa receber (ver `casaRecebe`). */}
+        {!casaRecebe(data.venue) && <p className="small" role="status" style={{ color: 'var(--erro)' }}>{t('rcpt.none')}</p>}
+        <button className="cta" disabled={printable.length === 0 || !casaRecebe(data.venue)} onClick={() => window.print()}>
           {t('qrs.print')}
         </button>
       </section>
 
       {printable.length === 0 ? (
         <p className="muted center noprint">{t('qrs.noneActive')}</p>
-      ) : (
+      ) : !casaRecebe(data.venue) ? null : (
+        // Sem a casa receber, nem a GRADE sai: desarmar só o botão deixava o
+        // Ctrl+P do navegador imprimir a promessa (compliance, PR #20, LOW-3).
         <section className="qrgrid">
-          {printable.map((t) => <QrCard key={t.id} venueName={data.venue.name} table={t} />)}
+          {printable.map((t) => <QrCard key={t.id} venueName={data.venue.name} market={data.venue.market} table={t} />)}
         </section>
       )}
 
-      <footer className="foot noprint"><span>{t('qr.sheetNote')}</span></footer>
+      {/* O seletor de idioma, como em todo rodapé (CLAUDE.md): esta página não
+          tinha nenhum, e o idioma do cartão só mudava pela URL (auditoria, Q6). */}
+      <footer className="foot noprint"><span>{t('qr.sheetNote')}</span><LangToggle compact /></footer>
     </main>
   );
 }
 
-function QrCard({ venueName, table }: { venueName: string; table: VenueTable }) {
-  const { t } = useT();
+function QrCard({ venueName, market, table }: { venueName: string; market?: string; table: VenueTable }) {
+  // O CARTÃO fala o idioma do MERCADO, não o da aba — ver `textoDoCartao`.
   return (
     <article className="qrcard">
       <p className="qrvenue">{venueName}</p>
       <div className="qrbox">
-        <QRCodeSVG value={`${PROD_ORIGIN}/?t=${table.qrToken}`} size={190} level="M" marginSize={2} />
+        <QRCodeSVG value={urlDaMesa(table.qrToken)} size={190} level="M" marginSize={2} />
       </div>
-      <h2 className="qrmesa">{mesaTitle(table.label, t)}</h2>
-      <p className="qrhint">{t('qr.scanToPay')}</p>
-      <p className="qrperks">{t('qr.perks')}</p>
+      <h2 className="qrmesa">{tituloDaMesa(table.label, (label) => textoDoCartao(DICT['qrs.tableTitle'], market, { label }))}</h2>
+      <p className="qrhint">{textoDoCartao(DICT['qr.scanToPay'], market, { rail: trilhoDoCartao(market) })}</p>
       <span className="qrbrand">racha</span>
     </article>
   );

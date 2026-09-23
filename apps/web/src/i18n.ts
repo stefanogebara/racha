@@ -1224,12 +1224,12 @@ export const DICT = {
                         es: '¡Cuenta creada! Revisa tu correo para confirmar y luego entra.' },
 
   // ── cartões de QR ───────────────────────────────────────────────────────
-  'qr.scanToPay':     { en: 'Scan to see the bill, split it and pay by Pix',
-                        pt: 'Escaneie para ver a conta, dividir e pagar no Pix',
-                        es: 'Escanea para ver la cuenta, dividirla y pagar' },
-  'qr.sheetNote':     { en: 'racha · one card per table, 2 per A4 sheet',
-                        pt: 'racha · um cartão por mesa, 2 por folha A4',
-                        es: 'racha · una tarjeta por mesa, 2 por hoja A4' },
+  'qr.scanToPay':     { en: 'Scan to see the bill, split it and pay by {rail}',
+                        pt: 'Escaneie para ver a conta, dividir e pagar no {rail}',
+                        es: 'Escanea para ver la cuenta, dividirla y pagar con {rail}' },
+  'qr.sheetNote':     { en: 'racha · one card per table, 4 per A4 sheet',
+                        pt: 'racha · um cartão por mesa, 4 por folha A4',
+                        es: 'racha · una tarjeta por mesa, 4 por hoja A4' },
 
   // ── landing, texto de venda ─────────────────────────────────────────────
   'home.tagline':     { en: 'pay at the table',                pt: 'pagamento na mesa', es: 'pago en la mesa' },
@@ -1445,7 +1445,10 @@ export const DICT = {
   'setup.script1':    { en: '1 · 15-minute pre-shift workshop: each waiter scans the training table on their OWN phone and goes through the bill up to the pay step — the table says it’s training and takes nothing. To see a payment go through, use the live demo on the website.',
                         pt: '1 · Workshop pré-turno de 15 min: cada garçom escaneia a mesa de treino NO PRÓPRIO CELULAR e percorre a conta até a hora de pagar — a mesa avisa que é treino e não cobra nada. Pra ver um pagamento ir até o fim, use a demo ao vivo do site.',
                         es: '1 · Taller de 15 minutos antes del turno: cada camarero escanea la mesa de prácticas EN SU PROPIO MÓVIL y recorre la cuenta hasta el momento de pagar — la mesa avisa que es de prácticas y no cobra nada. Para ver un pago completo, usa la demo en vivo de la web.' },
-  'admin.trainingStamp': { en: 'TRAINING — this table never charges', pt: 'TREINO — esta mesa não cobra', es: 'PRÁCTICAS — esta mesa no cobra' },
+  'admin.trainingStamp': { en: 'TRAINING — this QR takes no payment; pay at the till', pt: 'TREINO — este QR não aceita pagamento; pague no caixa', es: 'PRÁCTICAS — este QR no acepta pagos; paga en caja' },
+  'admin.untrainRotateAsk': { en: '“{label}” takes payments again. Any printed TRAINING card still points to it — rotate its QR now so those cards stop working?',
+                        pt: '“{label}” volta a cobrar. Um cartão de TREINO impresso ainda aponta pra ela — girar o QR agora, pra esses cartões pararem de valer?',
+                        es: '“{label}” vuelve a cobrar. Una tarjeta de PRÁCTICAS impresa aún apunta a ella — ¿girar el QR ahora para que esas tarjetas dejen de valer?' },
   'setup.script2':    { en: '2 · The one line that introduces the QR: {line}',
                         pt: '2 · A frase que apresenta o QR, uma só: {line}',
                         es: '2 · La frase que presenta el QR, una sola: {line}' },
@@ -1748,12 +1751,6 @@ export const DICT = {
   'rcpt.create':      { en: 'Create recipient',                pt: 'Criar recebedor', es: 'Crear cuenta de cobro' },
   'rcpt.cancel':      { en: 'cancel',                          pt: 'cancelar', es: 'cancelar' },
 
-  'admin.point':      { en: 'Point the camera · pay your share with Pix',
-                        pt: 'Aponte a câmera · pague sua parte por Pix',
-                        es: 'Apunta la cámara · paga tu parte' },
-  'qr.perks':         { en: '💳 Google Pay · 💰 House balance with bonus',
-                        pt: '💳 Google Pay · 💰 Saldo da casa com bônus',
-                        es: '💳 Google Pay · 💰 Saldo de la casa con bono' },
 
   // ── cartão (demo) ───────────────────────────────────────────────────────
   'card.demoCard':    { en: '•••• 4242 (demo)',                pt: '•••• 4242 (demo)', es: '•••• 4242 (demo)' },

@@ -543,6 +543,12 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 /* O QR fica em BRANCO puro e so ele: e um alvo optico, nao uma superficie do
    sistema — papel bege embaixo derruba o contraste que o leitor precisa. */
 .qrbox { background: #fff; padding: 14px; border-radius: var(--rad-c); border: 1px solid var(--fio); display: grid; place-items: center; }
+/* O SVG do QR tem tamanho fixo (190px) e, numa coluna de celular mais estreita
+   que isso, a caixa branca vazava por cima do cartão ao lado — e o QR coberto
+   não decodificava mais (auditoria dos QRs). O SVG encolhe com a caixa, a
+   caixa com o cartão. */
+.qrbox { max-width: 100%; box-sizing: border-box; }
+.qrbox svg { max-width: 100%; height: auto; }
 
 .qrgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .qrgrid > * { min-width: 0; }
@@ -550,9 +556,10 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .qrcard .qrvenue { font: italic 400 26px/1 var(--serif); }
 /* O NUMERO DA MESA e o que alguem le de longe, com o cartao na mao: fica
    grande, sem versalete, tabular. */
-.qrcard .qrmesa  { font: 500 30px/1 var(--ui); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.qrcard .qrmesa  { font: 500 30px/1.1 var(--ui); letter-spacing: -.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* `anywhere`: um rótulo de 40 caracteres sem espaço saía do cartão, na tela e
+   no papel (auditoria dos QRs, Q4). */
 .qrcard .qrhint  { font: 400 15px/22px var(--ui); color: var(--grafite); }
-.qrcard .qrperks { font: 400 13px/20px var(--ui); color: var(--grafite); }
 .qrcard .qrbrand { font: 500 10px/1 var(--ui); color: var(--grafite); letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
 
 /* `.chips` É `.modes3` — mesma grade, mesmo gap, mesmo filho (`.mode`). Eram

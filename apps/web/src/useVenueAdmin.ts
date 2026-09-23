@@ -73,10 +73,21 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
   // Mesa de treino: a equipe pratica o fluxo nela, e ela NÃO COBRA; fica fora
   // da folha /qrs. MARCAR pede confirmação: era um toque só, e uma mesa de
   // verdade marcada por engano para de cobrar no meio do turno (auditoria do
-  // painel, P1). Tirar do treino não pede: volta a cobrar, que é o normal.
+  // painel, P1). Tirar do treino não pede confirmação — mas oferece girar o QR
+  // (abaixo).
   const toggleTraining = useCallback(async (t: VenueTable) => {
     if (!t.training && !confirm(tr('admin.confirmTraining', { label: t.label }))) return;
-    try { await req<{ id: string; training: boolean }>('/api/tables/training', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, training: !t.training }) }); await refresh(); }
+    try {
+      await req<{ id: string; training: boolean }>('/api/tables/training', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, training: !t.training }) });
+      // TIRAR do treino oferece girar o QR: um cartão carimbado "TREINO — não
+      // aceita pagamento" esquecido numa mesa continuaria valendo com o mesmo
+      // token, e a mesa volta a cobrar — o carimbo viraria mentira (compliance,
+      // PR #20, M-2).
+      if (t.training && confirm(tr('admin.untrainRotateAsk', { label: t.label }))) {
+        await req('/api/tables/rotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id }) });
+      }
+      await refresh();
+    }
     catch (e) { setError(trErr(e)); }
   }, [refresh, tr, trErr]);
 
