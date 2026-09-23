@@ -988,6 +988,20 @@ async function avisarEventoDeDinheiro(evento) {
  */
 const adquirente = criarObservadorDoAdquirente({ store, notifyFounderMoneyEvent });
 
+/**
+ * A RESPOSTA DE ERRO DAS ROTAS DE CONTA DO DONO (abrir, ajustar, fechar).
+ *
+ * Era `e.statusCode || 400` com `error: e.message`: o `code` se perdia (o
+ * `check_changed` e o `check_already_open` não chegavam ao painel), e um erro
+ * INTERNO — a mensagem do Postgres pelo `throwOn` — saía como 400 com o texto
+ * cru pro dono (compliance, PR #21, M-1/M-2). Agora: erro com `statusCode` é
+ * do domínio e vai com o código; sem, sobe pro tratamento geral (500 + log).
+ */
+function respostaDaConta(res, e) {
+  if (!e || !e.statusCode) throw e;
+  return json(res, e.statusCode, { success: false, error: e.message, ...(e.code ? { code: e.code } : {}) });
+}
+
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   try {
@@ -2624,7 +2638,7 @@ async function route(req, res) {
       try {
         const r = await checkSvc.openCheck({ tableId: b.tableId, items: b.items, totalCents: b.totalCents });
         return json(res, 200, { success: true, data: r });
-      } catch (e) { return json(res, e.statusCode || 400, { success: false, error: e.message }); }
+      } catch (e) { return respostaDaConta(res, e); }
     }
     if (req.method === 'POST' && (url.pathname === '/api/checks/adjust' || url.pathname === '/api/checks/close')) {
       const user = await guardUser(req, res); if (!user) return;
@@ -2639,7 +2653,7 @@ async function route(req, res) {
           ? await checkSvc.closeCheck({ checkId: b.checkId })
           : await checkSvc.adjustCheck({ checkId: b.checkId, items: b.items, totalCents: b.totalCents });
         return json(res, 200, { success: true, data: r });
-      } catch (e) { return json(res, e.statusCode || 400, { success: false, error: e.message }); }
+      } catch (e) { return respostaDaConta(res, e); }
     }
     if (req.method === 'GET' && url.pathname === '/api/me') {
       const user = await guardUser(req, res); if (!user) return;

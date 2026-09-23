@@ -305,7 +305,7 @@ function createMemoryStore() {
       const alreadyOpen = [...checks.values()].some(
         (c) => c.tableId === table.id && ocupaAMesa(events.get(c.id)),
       );
-      if (alreadyOpen) { const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; throw e; }
+      if (alreadyOpen) { const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; e.code = 'check_already_open'; throw e; }
       const id = crypto.randomUUID();
       const totalCents = items.reduce((s, i) => s + i.priceCents, 0);
       // `openedAt` porque o do Supabase tem `opened_at` e este não tinha
@@ -318,8 +318,32 @@ function createMemoryStore() {
         openedAt: new Date().toISOString(),
       });
       events.set(id, []);
-      await this.appendEvent(id, 'OPENED', { totalCents });
+      // A MESMA TRANSAÇÃO do `open_check` do Postgres (migração 0037): se o
+      // `OPENED` não entra, a linha sai. Sem isto o dublê seguia fabricando a
+      // conta órfã que produção não fabrica mais.
+      try {
+        await this.appendEvent(id, 'OPENED', { totalCents });
+      } catch (e) {
+        checks.delete(id);
+        events.delete(id);
+        throw e;
+      }
       return checks.get(id);
+    },
+
+    /**
+     * SÓ PRA TESTE: uma conta com a linha e SEM `OPENED` — a órfã que o
+     * `openCheck` em duas idas deixava antes da 0037. As defesas contra ela
+     * (o alarme `[conta-sem-opened]`, o achado `critical`, o painel que não
+     * cai) continuam valendo pra linhas antigas, e é assim que se as testa.
+     */
+    seedContaSemOpened(tableQrToken, { openedAt = new Date().toISOString() } = {}) {
+      const table = tables.get(tableQrToken);
+      if (!table) throw new Error('unknown table');
+      const id = crypto.randomUUID();
+      checks.set(id, { id, venueId: table.venueId, tableId: table.id, items: [], openedAt });
+      events.set(id, []);
+      return { id, openedAt };
     },
 
     // --- reads ---------------------------------------------------------------

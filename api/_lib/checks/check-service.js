@@ -13,6 +13,54 @@
  */
 
 const { reduce, validateEvent } = require('./check-state');
+const { desfechoDoLancamento } = require('./reconcile');
+
+/**
+ * LER → CONFERIR → GRAVAR, com a gravação CONDICIONAL ao que foi lido.
+ *
+ * `closeCheck` e `adjustCheck` liam o razão e depois gravavam, sem nada entre
+ * as duas coisas: dois toques no "fechar" (o botão fica ativo 3–4 s sem retorno,
+ * medido pela auditoria do painel) gravavam DOIS `CLOSED`; um ajuste e um
+ * pagamento cruzados gravavam o ajuste sobre um estado que já não existia. A
+ * mesma forma que a demo abandonou no PR #16. Agora o lançamento só entra se o
+ * razão ainda está no `seq` lido (`appendEventIfUnchanged`, migração 0034); se
+ * mudou (`conflito`), relê e decide de novo — até `TENTATIVAS` vezes.
+ *
+ * `decidir(state)` devolve o evento a gravar, ou `{ pronto }` quando a releitura
+ * mostra que não há mais nada a fazer (a outra chamada já fechou).
+ */
+const TENTATIVAS = 3;
+
+async function lancarCondicional(store, checkId, decidir) {
+  for (let i = 0; i < TENTATIVAS; i += 1) {
+    const eventos = await store.loadEvents(checkId);
+    const state = reduce(eventos);
+    if (!state) throw badRequest('conta não encontrada');
+    const d = await decidir(state);
+    if (d.pronto) return d.pronto;
+    const seq = eventos.length ? eventos[eventos.length - 1].seq : 0;
+    let entrou = false;
+    try {
+      await store.appendEventIfUnchanged(checkId, d.type, d.payload, null, seq);
+      entrou = true;
+    } catch (e) {
+      // Conflito: o razão andou entre a leitura e a gravação. Relê. Qualquer
+      // outro desfecho é erro de verdade e sobe — pelo classificador, que é o
+      // único lugar que decide por código de erro (censo do `sql-contract`).
+      if (desfechoDoLancamento(e) !== 'conflito') throw e;
+    }
+    if (entrou) {
+      // O que depende do evento TER ENTRADO roda só agora (ver `adjustCheck`), e
+      // FORA do `try` do conflito: um erro aqui não pode virar releitura e um
+      // segundo `ADJUSTED` (segurança, PR #21, LOW-4).
+      if (d.depois) await d.depois();
+      return d.resultado;
+    }
+  }
+  const e = new Error('a conta mudou enquanto a gente gravava — tente de novo');
+  e.statusCode = 409; e.code = 'check_changed';
+  throw e;
+}
 
 function badRequest(msg) {
   const err = new Error(msg);
@@ -56,8 +104,10 @@ function createCheckService({ store }) {
     if (!table) throw badRequest('mesa não encontrada');
     if (!table.active) throw badRequest('mesa desativada');
     // One open check per table — reuse the security-derived open-check read.
+    // A MESMA resposta da corrida na RPC (`open_check`, 23505): 409 com código.
+    // Eram 400 aqui e 409 lá pra mesma condição (compliance, PR #21, L-2).
     if (await store.getCheckByQrToken(table.qrToken)) {
-      throw badRequest('mesa já tem uma conta aberta');
+      const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; e.code = 'check_already_open'; throw e;
     }
     const norm = normalizeItems({ items, totalCents });
     const check = await store.openCheck(table.qrToken, norm);
@@ -66,28 +116,47 @@ function createCheckService({ store }) {
 
   /** Adjust an open check's total/items (waiter added items). */
   async function adjustCheck({ checkId, items, totalCents }) {
-    const state = reduce(await store.loadEvents(checkId));
-    if (!state) throw badRequest('conta não encontrada');
     const norm = normalizeItems({ items, totalCents });
     const newTotal = norm.reduce((s, i) => s + i.priceCents, 0);
-    // validateEvent throws (→ 400) if the check is closed.
-    try { validateEvent({ type: 'ADJUSTED', payload: { totalCents: newTotal } }, state); }
-    catch (e) { throw badRequest(e.message); }
-    // Items snapshot first, then the event — a diner reading between the two
-    // sees the OLD total with OLD items (consistent), never new items w/ old total.
-    await store.setCheckItems(checkId, norm);
-    await store.appendEvent(checkId, 'ADJUSTED', { totalCents: newTotal });
-    return { checkId, totalCents: newTotal, items: norm };
+    return lancarCondicional(store, checkId, async (state) => {
+      const payload = { totalCents: newTotal };
+      // validateEvent throws (→ 400) if the check is closed.
+      try { validateEvent({ type: 'ADJUSTED', payload }, state); }
+      catch (e) { throw badRequest(e.message); }
+      // OS ITENS SÓ DEPOIS DE O `ADJUSTED` ENTRAR. Gravados antes, eles ficavam
+      // quando o evento não entrava (conflito esgotado, conta fechada no meio,
+      // erro): conta aberta com itens que não somam o total do razão, e o
+      // cliente pagando "por item" um item que a conta não tem (compliance,
+      // PR #21, H-1; CDC art. 6º III). Por um instante, entre as duas escritas,
+      // quem lê vê o total NOVO com os itens VELHOS — o teto do que falta segura
+      // o valor, e a conta se acerta na próxima leitura.
+      return {
+        type: 'ADJUSTED', payload,
+        depois: () => store.setCheckItems(checkId, norm),
+        resultado: { checkId, totalCents: newTotal, items: norm },
+      };
+    });
   }
 
-  /** Close a check (end of table). */
+  /**
+   * Close a check (end of table). O `motivo` diz QUEM fechou: o razão da demo já
+   * distinguia a renovação; o do dono gravava `{}` (compliance, PR #16).
+   */
   async function closeCheck({ checkId }) {
-    const state = reduce(await store.loadEvents(checkId));
-    if (!state) throw badRequest('conta não encontrada');
-    try { validateEvent({ type: 'CLOSED', payload: {} }, state); }
-    catch (e) { throw badRequest(e.message); } // already closed → 400
-    await store.appendEvent(checkId, 'CLOSED', {});
-    return { checkId, status: 'fechada' };
+    const resultado = { checkId, status: 'fechada' };
+    let primeira = true;
+    return lancarCondicional(store, checkId, async (state) => {
+      // Já fechada NA RELEITURA (outra chamada ganhou a corrida): é o mesmo
+      // resultado, sem segundo `CLOSED`. Na PRIMEIRA leitura, já fechada segue
+      // sendo o 400 de sempre — fechar duas vezes à mão é erro do chamador.
+      if (state.closed && !primeira) return { pronto: resultado };
+      primeira = false;
+      // Valida o payload que VAI ser gravado (compliance, PR #21, L-4).
+      const payload = { motivo: 'dono' };
+      try { validateEvent({ type: 'CLOSED', payload }, state); }
+      catch (e) { throw badRequest(e.message); } // already closed → 400
+      return { type: 'CLOSED', payload, resultado };
+    });
   }
 
   return { openCheck, adjustCheck, closeCheck, normalizeItems };

@@ -3,11 +3,13 @@
 /**
  * A CONTA SEM `OPENED` — quando ela é janela, e quando ela é órfã.
  *
- * `openCheck` grava a linha em `checks` e, noutra ida ao banco, o `OPENED`.
- * Entre as duas, a conta existe e o razão está vazio (`reduce([])` é `null`).
- * Isso é normal por milissegundos. Se o processo morre entre as duas escritas,
- * vira ÓRFÃ: o índice `checks_one_open_per_table` conta a linha como aberta, a
- * mesa não abre outra conta (409), e toda leitura precisa pular a linha.
+ * Até a migração 0037, `openCheck` gravava a linha em `checks` e, noutra ida
+ * ao banco, o `OPENED`. Se o processo morria entre as duas, a linha virava
+ * ÓRFÃ: o índice `checks_one_open_per_table` a conta como aberta, a mesa não
+ * abre outra conta (409), e toda leitura precisa pular a linha. Desde a 0037 a
+ * `open_check` grava as duas numa transação — a órfã só existe de ANTES dela
+ * (ou de uma instância com código velho durante o deploy), e por isso cada
+ * disparo daqui é anomalia real, não janela.
  *
  * Pular calado foi o defeito da quarta rodada: a leitura pública devolvia 404
  * `check_not_found` — o mesmo byte de "o garçom ainda não abriu" —, sem uma

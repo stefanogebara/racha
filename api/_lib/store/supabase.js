@@ -671,28 +671,32 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       if (!table) throw new Error('unknown table');
 
       const totalCents = items.reduce((s, i) => s + i.priceCents, 0);
-      const { data: check, error: cErr } = await client
-        .from('checks')
-        .insert({
-          venue_id: table.venue_id,
-          table_id: table.id,
-          total_cents: totalCents,
-          // Full JSON — item count is bounded upstream (normalizeItems), so the
-          // old 2000-char slice (which sliced mid-JSON → parse fail → the diner
-          // saw an EMPTY item list on big checks) is gone (review finding).
-          pos_ref: JSON.stringify(items),
-        })
-        .select('id')
-        .single();
-      // The partial unique index (checks_one_open_per_table) is the DB backstop
-      // for one-open-check-per-table: a racing double-open loses here and gets a
-      // friendly 409, not a 500.
-      if (cErr && /checks_one_open_per_table|duplicate key/i.test(cErr.message)) {
-        const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; throw e;
+      /**
+       * UMA TRANSAÇÃO SÓ — a linha e o `OPENED` (migração 0037, `open_check`).
+       *
+       * Eram duas idas: o `insert` e depois o `appendEvent`. Se a segunda
+       * morresse, a linha ficava órfã pra sempre e o índice de uma aberta por
+       * mesa trancava a mesa. Agora, ou entram as duas, ou nenhuma.
+       *
+       * O 409 da mesa já aberta sai pelo CÓDIGO do índice (23505), não por regex
+       * na mensagem (compliance, PR #16, L-3). Qualquer outro erro sobe: nunca
+       * se trata um erro de claim como "já existia".
+       */
+      // A casa sai da mesa DENTRO da função (0037) — não vai como parâmetro.
+      const { data: checkId, error: cErr } = await client.rpc('open_check', {
+        p_table_id: table.id,
+        p_total_cents: totalCents,
+        // Full JSON — item count is bounded upstream (normalizeItems), so the
+        // old 2000-char slice (which sliced mid-JSON → parse fail → the diner
+        // saw an EMPTY item list on big checks) is gone (review finding).
+        p_pos_ref: JSON.stringify(items),
+      });
+      if (cErr && cErr.code === '23505') {
+        const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; e.code = 'check_already_open'; throw e;
       }
-      throwOn(cErr, 'openCheck.insert');
-      await this.appendEvent(check.id, 'OPENED', { totalCents });
-      return { id: check.id, venueId: table.venue_id, tableId: table.id, items };
+      throwOn(cErr, 'openCheck.open_check');
+      if (typeof checkId !== 'string') throw new Error('openCheck: open_check não devolveu o id da conta');
+      return { id: checkId, venueId: table.venue_id, tableId: table.id, items };
     },
 
     // --- reads -------------------------------------------------------------
@@ -735,14 +739,12 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         /**
          * SEM `OPENED`, A CONTA AINDA NÃO ESTÁ ABERTA.
          *
-         * `openCheck` grava a linha e o `OPENED` em duas idas ao banco; entre
-         * elas o razão está vazio e `reduce([])` é `null`. Isto fazia
-         * `state.status` lançar e virava 500 em `/api/check` — medido num
-         * Postgres de verdade: 15 de 30 leitores numa janela de 600 ms, e a
-         * renovação da demo passa por ela sempre. PALIATIVO: se o processo morre
-         * entre as duas escritas, a mesa fica sem abrir conta até a RPC atômica
-         * existir (livro de abertos). O que isto garante é a leitura dizer a
-         * verdade — ainda não há conta aberta.
+         * Até a 0037, `openCheck` gravava a linha e o `OPENED` em duas idas ao
+         * banco: entre elas o razão estava vazio e `reduce([])` é `null`, o que
+         * fazia `state.status` lançar (500 em `/api/check`). Hoje a `open_check`
+         * grava os dois numa transação e a janela não existe mais; o que resta
+         * são as linhas órfãs de ANTES — e, durante o rollout, uma instância
+         * com o código velho. A leitura diz a verdade: não há conta aberta.
          *
          * E PULAR NÃO É CALAR. A primeira versão deste `continue` trocou o 500
          * por um 404 idêntico a "o garçom ainda não abriu", sem log: a mesa

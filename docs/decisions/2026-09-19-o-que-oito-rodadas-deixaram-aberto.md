@@ -534,7 +534,10 @@ quinta rodada, M-B). O store de memória
 passou a trancar a mesa como o índice do Postgres; antes ele deixava abrir
 outra conta por cima, e o teste de "mesa trancada" era verde aqui e falso lá.
 
-**Gatilho:** nenhum — é o próximo PR depois do `/api/pay` da demo.
+**Fechado em 2026-09-24:** migração 0037, `open_check` — a linha e o `OPENED`
+numa transação só; o store de produção chama a RPC e decide o 409 pelo código
+(23505), não por regex. O dublê desfaz a linha se o `OPENED` falhar. As defesas
+acima (alarme, achado, painel que não cai) ficam pras linhas de antes da 0037.
 
 **O `closeCheck` do dono é ler → `appendEvent` — MEDIUM.**
 `check-service.js` fecha a conta com a mesma forma que a demo acabou de
@@ -543,7 +546,19 @@ latência dão 2 `CLOSED` e uma anomalia `high` em 5 de 5 — um toque duplo no
 painel suja o razão imutável. O conserto é o mesmo `appendEventIfUnchanged` com
 o `conflito`, e um censo de toda escrita de `CLOSED`/`ADJUSTED`.
 
-**Gatilho:** o mesmo PR do `openCheck`: os dois são o inegociável #7.
+**Fechado em 2026-09-24:** `closeCheck` e `adjustCheck` gravam por
+`appendEventIfUnchanged` sobre o `seq` lido e, no `conflito`, releem; o toque
+duplo dá UM `CLOSED` (com `motivo: 'dono'`). Quem perde a corrida e relê a conta
+fechada responde que fechou; um segundo toque que só LÊ depois do primeiro
+fechar recebe o 400 de "já fechada" — o razão tem um `CLOSED` nos dois casos.
+O `adjustCheck` grava os itens só DEPOIS de o `ADJUSTED` entrar.
+
+**Continua aberto (compliance, PR #21, M-3):** os itens moram em `checks.pos_ref`,
+sobrescritos sem histórico — fora do razão. Não dá pra reconstruir o que o
+cliente via quando pagou. O conserto é pôr os itens no payload do `OPENED`/
+`ADJUSTED` e derivá-los. Gatilho: o primeiro adaptador de POS que ajuste itens
+(hoje só o dono, à mão).
+Censo em `api/__tests__/fechar-duas-vezes.test.js`.
 
 **O caminho do saldo da casa pode deixar um pagamento em voo — LOW, anterior.**
 Depois de um resgate que devolve `r.check === null`, o `setPolling(false)` roda
@@ -567,7 +582,7 @@ quando a próxima conta abre no mesmo QR ela está nos itens da outra mesa.
 **O fechamento pelo dono não diz quem fechou — LOW.** Com o `motivo` da demo, as
 duas se distinguem pela ausência do campo; melhor gravar `{ motivo: 'dono' }`.
 
-**Gatilho:** o PR do `closeCheck`.
+**Fechado em 2026-09-24 (PR #21):** o `closeCheck` grava `{ motivo: 'dono' }`.
 
 **O recibo do saldo da casa está incompleto — LOW, anterior.** A tela de sucesso
 do `HousePay` não mostra CNPJ, data, nem "não é nota fiscal".
