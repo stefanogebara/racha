@@ -24,6 +24,12 @@
  * Decisão pura, sem I/O e sem React, pra ser testada sem navegador.
  */
 
+/** Um aviso de dinheiro da conta — o que a casa deve ao cliente. */
+export interface AvisoDaConta {
+  code: 'overpaid_pending_restitution' | 'refund_reversed';
+  amountCents: number;
+}
+
 export interface ReciboVista {
   /** A barra de progresso e o "falta …" da conta. */
   mostrarProgresso: boolean;
@@ -31,17 +37,37 @@ export interface ReciboVista {
   oferecerMais: boolean;
   /** A conta embaixo já é outra: o recibo congela e o poll para. */
   contaTrocou: boolean;
+  /**
+   * OS AVISOS DE DINHEIRO a mostrar no recibo — sempre os da conta PAGA.
+   *
+   * Moram aqui, e não lidos direto do `state` no JSX, porque foi assim que a
+   * primeira versão deixou passar: o progresso e o botão passavam por esta
+   * decisão, os avisos não. Quem tinha valor a receber perdia o aviso na troca
+   * e, com o poll atrasado, via o aviso da mesa dos outros como se fosse dele.
+   */
+  avisos: AvisoDaConta[];
 }
 
 /**
- * @param contaPaga  o `check.id` em que ESTE telefone pagou (nulo = ainda não
- *                   gravado — o primeiro render depois do pagamento)
- * @param contaViva  o `check.id` que o poll trouxe agora
- * @param faltaCents quanto falta na conta viva
+ * @param contaPaga      o `check.id` em que a cobrança deste telefone NASCEU
+ *                       (vem do servidor, na própria cobrança — não do poll)
+ * @param contaViva      o `check.id` que o poll trouxe agora
+ * @param faltaCents     quanto falta na conta viva
+ * @param avisosVivos    os avisos da conta viva
+ * @param avisosDaPaga   os últimos avisos vistos da conta PAGA, enquanto ela
+ *                       ainda era a viva (nulo = nunca vistos)
  */
-export function reciboVista(contaPaga: string | null, contaViva: string | null, faltaCents: number): ReciboVista {
+export function reciboVista(
+  contaPaga: string | null,
+  contaViva: string | null,
+  faltaCents: number,
+  avisosVivos: readonly AvisoDaConta[],
+  avisosDaPaga: readonly AvisoDaConta[] | null,
+): ReciboVista {
   if (contaPaga && contaViva && contaPaga !== contaViva) {
-    return { mostrarProgresso: false, oferecerMais: false, contaTrocou: true };
+    // Nunca os vivos: são da mesa de outra pessoa. Se nunca vimos os da conta
+    // paga, não se inventa — fica vazio, que é o comportamento de antes.
+    return { mostrarProgresso: false, oferecerMais: false, contaTrocou: true, avisos: [...(avisosDaPaga ?? [])] };
   }
-  return { mostrarProgresso: true, oferecerMais: faltaCents > 0, contaTrocou: false };
+  return { mostrarProgresso: true, oferecerMais: faltaCents > 0, contaTrocou: false, avisos: [...avisosVivos] };
 }

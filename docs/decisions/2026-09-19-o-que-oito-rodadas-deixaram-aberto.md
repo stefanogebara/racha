@@ -457,11 +457,18 @@ e mostra só o aviso de desatualizado.
 **Gatilho:** o primeiro 500 de `/api/check` que o monitoramento de produção
 registrar, ou o primeiro adaptador de POS que abra contas em lote.
 
-### O aviso de privacidade da demo nomeia um controlador que não existe — MEDIUM, anterior
+### O aviso de privacidade da demo nomeia um controlador que não existe — MEDIUM, anterior, PARCIAL
 
 `priv.teaser`/`priv.who` dizem que "{venue} ({taxId}) é quem decide o que se
 coleta" e "{venue} guarda o nome". Na demo a casa é fictícia; quem trata o nome
 digitado pelo visitante é a Racha (LGPD art. 9º II/III).
+
+**Metade fechada em 2026-09-23:** a demo exigia um CPF VÁLIDO — na prática o do
+visitante — numa cobrança de mentira, e a renovação da demo paga a deixava viva
+o dia inteiro. A revisão de compliance recusou o gatilho e pediu antes do merge.
+A demo não pede mais CPF, pela mesma regra que já tirava o NIF do Bizum: o
+documento só existe onde o trilho precisa dele, e o MockPsp não precisa. O que
+sobra é o NOME, que é opcional e segue com o aviso nomeando a casa fictícia.
 
 **Gatilho:** antes da primeira campanha que leve tráfego pago pra landing.
 
@@ -472,4 +479,54 @@ digitado pelo visitante é a Racha (LGPD art. 9º II/III).
 "(demo)" e o nome da casa.
 
 **Gatilho:** o mesmo do item acima.
+
+### Os achados da segunda rodada sobre a demo — anteriores a ela, cada um com PR próprio
+
+**Um `openCheck` pela metade tranca a mesa pra sempre — MEDIUM.**
+`supabase.js` insere a linha em `checks` e grava o `OPENED` noutra ida ao banco.
+Se a segunda falhar (timeout, a função morta no meio), a mesa fica com uma conta
+`aberta` sem eventos: `reduce([])` devolve `null`, `GET /api/check` responde 500
+em TODA leitura, o `resetDemoCheck` lança o mesmo TypeError, o `openCheck`
+leva 409 pelo índice de uma aberta por mesa, e o `closeCheck` recebe estado
+nulo. Medido pela revisão de segurança num Postgres com as 36 migrações: a mesa
+morre até alguém rodar SQL à mão. Vale pra QUALQUER mesa, não só a demo — a
+renovação só a torna mais frequente em rebanho. O conserto é uma RPC que insere e
+grava o `OPENED` na mesma transação.
+
+**Gatilho:** nenhum — é o próximo PR depois do `/api/pay` da demo.
+
+**O `closeCheck` do dono é ler → `appendEvent` — MEDIUM.**
+`check-service.js` fecha a conta com a mesma forma que a demo acabou de
+abandonar, e o `adjustCheck` idem. Medido: dois `closeCheck` concorrentes com
+latência dão 2 `CLOSED` e uma anomalia `high` em 5 de 5 — um toque duplo no
+painel suja o razão imutável. O conserto é o mesmo `appendEventIfUnchanged` com
+o `conflito`, e um censo de toda escrita de `CLOSED`/`ADJUSTED`.
+
+**Gatilho:** o mesmo PR do `openCheck`: os dois são o inegociável #7.
+
+**O caminho do saldo da casa pode deixar um pagamento em voo — LOW, anterior.**
+Depois de um resgate que devolve `r.check === null`, o `setPolling(false)` roda
+e nada o religa. "Voltar" leva a uma conta velha com o poll desligado; um Pix
+gerado dali é cobrado na conta viva da mesa e o ✓ nunca aparece, porque depende
+do poll.
+
+**Gatilho:** o primeiro piloto com saldo da casa ligado.
+
+**Na janela do 404, o recibo ainda oferece "pagar mais" — LOW, anterior.**
+Entre o dono fechar e o garçom abrir a conta nova, o recibo usa a última leitura
+boa e continua mostrando "falta R$ X" com o botão, de uma conta fechada. O
+servidor recusa com `check_closed`, então não há cobrança dupla — é só um convite
+à toa.
+
+**Gatilho:** o PR do recibo do saldo da casa, abaixo.
+
+**O fechamento pelo dono não diz quem fechou — LOW.** Com o `motivo` da demo, as
+duas se distinguem pela ausência do campo; melhor gravar `{ motivo: 'dono' }`.
+
+**Gatilho:** o PR do `closeCheck`.
+
+**O recibo do saldo da casa está incompleto — LOW, anterior.** A tela de sucesso
+do `HousePay` não mostra CNPJ, data, nem "não é nota fiscal".
+
+**Gatilho:** o primeiro piloto com saldo da casa ligado.
 

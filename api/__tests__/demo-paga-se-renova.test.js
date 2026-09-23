@@ -219,7 +219,12 @@ describe('a renovação é atômica: um CLOSED só, com qualquer quantidade de l
     const v = await ensureDemoCheck(store, DEMO_TOKEN);
     await pagarTudo(store, v.check.id);
 
-    await Promise.allSettled(Array.from({ length: 20 }, () => resetar(store, DEMO_TOKEN)));
+    const desfechos = await Promise.allSettled(Array.from({ length: 20 }, () => resetar(store, DEMO_TOKEN)));
+    // Quem perde a corrida não LANÇA: perder o `openCheck` pro índice de uma
+    // conta aberta por mesa é desfecho normal. Antes subia como exceção e virava
+    // uma linha `[demo-renova]` por perdedor — erro que é sempre normal ensina
+    // a ignorar o log (segurança, LOW-1 da re-revisão).
+    expect(desfechos.filter((d) => d.status === 'rejected').map((d) => d.reason.message)).toEqual([]);
 
     const eventos = await store.loadEvents(v.check.id);
     const fechamentos = eventos.filter((e) => e.type === 'CLOSED');

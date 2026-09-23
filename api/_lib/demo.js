@@ -79,7 +79,21 @@ async function ensureDemoCheck(store, token = DEMO_TOKEN) {
     });
     await store.seedTable(venue.id, 'Mesa demo', token);
   }
-  await store.openCheck(token, DEMO_ITEMS.map((i) => ({ ...i })));
+  try {
+    await store.openCheck(token, DEMO_ITEMS.map((i) => ({ ...i })));
+  } catch (e) {
+    /**
+     * 409 = OUTRO LEITOR ABRIU PRIMEIRO. É desfecho esperado, não erro.
+     *
+     * Com a renovação na leitura, vários telefones cruzam os 90s juntos: um
+     * fecha e abre, os outros perdem o `openCheck` pro índice
+     * `checks_one_open_per_table`. Isso subia como exceção, virava uma linha
+     * `[demo-renova]` por perdedor (medido: até N−1 por renovação) e o leitor
+     * recebia a conta paga velha. Linha de erro que é sempre desfecho normal
+     * ensina a ignorar o log — que é onde o erro de verdade aparece.
+     */
+    if (e && e.statusCode !== 409) throw e;
+  }
   const view = await store.getCheckByQrToken(token);
   if (!view) throw new Error('demo check did not open');
   return view;

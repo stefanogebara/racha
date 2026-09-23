@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { reciboVista } from './recibo';
+import { reciboVista, type AvisoDaConta } from './recibo';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
 import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
@@ -160,7 +160,20 @@ export default function App() {
   // brasileiros — é o que um servidor sem `market` está dizendo.
   const serviceMode = view?.venue?.serviceCharge?.mode ?? 'preselected';
   const hasServiceLine = serviceMode !== 'none';
-  const taxIdRequired = view?.venue?.payerTaxId?.required ?? true;
+  /**
+   * NA DEMO O CPF NÃO É PEDIDO — pela mesma regra que já tira o NIF do Bizum:
+   * o documento do pagador só existe onde o TRILHO precisa dele.
+   *
+   * O trilho da demo é o MockPsp, que confirma sozinho com um CPF de exemplo e
+   * não manda nada a adquirente nenhum. Pedir o campo ali fazia todo visitante
+   * da landing digitar um CPF válido — na prática o dele — numa cobrança de
+   * mentira: coleta sem finalidade (LGPD art. 6º III), sem contrato que a
+   * sustente (art. 7º V), e com um aviso de privacidade que nomeia como
+   * controladora uma casa que não existe. A renovação da demo paga deixou a
+   * demo viva o dia inteiro, então isto deixou de esperar. (Compliance,
+   * re-revisão de 2026-09-23.)
+   */
+  const taxIdRequired = view?.venue?.demo ? false : (view?.venue?.payerTaxId?.required ?? true);
   // O bp que a conta REALMENTE cobra: o mercado já zerou o que não se aplica.
   const serviceBpEffective = view?.venue?.serviceCharge?.bp ?? view?.venue?.servicoBp ?? 0;
   const rails = view?.venue?.rails ?? ['pix', 'card'];
@@ -247,6 +260,8 @@ export default function App() {
   const [paidAt, setPaidAt] = useState<string | null>(null);
   /** A conta em que ESTE telefone pagou — o recibo fica preso a ela. Ver `recibo.ts`. */
   const [contaPaga, setContaPaga] = useState<string | null>(null);
+  /** Os últimos avisos de dinheiro vistos da conta paga, enquanto ela era a viva. */
+  const [avisosDaPaga, setAvisosDaPaga] = useState<AvisoDaConta[] | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [demoGone, setDemoGone] = useState(false);
@@ -371,17 +386,37 @@ export default function App() {
   }, [view, step, charge, ownRef]);
 
   /**
-   * O RECIBO SE PRENDE À CONTA PAGA — nos quatro caminhos até 'pago' de uma vez.
+   * O RECIBO SE PRENDE À CONTA EM QUE A COBRANÇA NASCEU.
    *
-   * Há quatro `setStep('pago')` (Pix, carteira, saldo da casa, cartão). Um
-   * efeito aqui cobre todos, em vez de quatro atribuições que um quinto
-   * caminho esqueceria — a forma "chamador esquecido" que este repositório já
-   * pagou várias vezes.
+   * Há quatro `setStep('pago')`: o Pix automático, o "Simular" da demo, a
+   * carteira da Pagar.me e a Stripe. (Este comentário dizia "Pix, carteira,
+   * saldo da casa, cartão" — o saldo da casa NÃO passa por 'pago', tem tela
+   * própria no `HousePay`. As duas revisões apontaram.) Um efeito cobre os
+   * quatro, em vez de quatro atribuições que um quinto caminho esqueceria.
+   *
+   * E a conta vem da COBRANÇA (`charge.checkId`, do servidor), não do poll. A
+   * primeira versão lia `view.check.id` ao entrar em 'pago', e três dos quatro
+   * caminhos fazem `await refresh()` antes de chegar lá: se a conta trocou
+   * nesse meio-tempo, o recibo se prendia à conta NOVA e voltava a mostrar o
+   * progresso e o "pagar mais" dos outros. O `view` fica só de reserva, pra
+   * uma cobrança de servidor antigo que ainda não mande o campo.
    */
   useEffect(() => {
-    if (step === 'pago' && view && contaPaga === null) setContaPaga(view.check.id);
-    if (step !== 'pago' && contaPaga !== null) setContaPaga(null);
-  }, [step, view, contaPaga]);
+    if (step === 'pago' && contaPaga === null) {
+      const nasceu = (charge && charge.checkId) || (view && view.check.id) || null;
+      if (nasceu) setContaPaga(nasceu);
+    }
+    if (step !== 'pago' && contaPaga !== null) { setContaPaga(null); setAvisosDaPaga(null); }
+  }, [step, view, contaPaga, charge]);
+
+  // OS AVISOS DA CONTA PAGA, guardados enquanto ela ainda é a viva — um
+  // estorno ou um pagamento a mais pode chegar DEPOIS do ✓. Quando a conta
+  // troca, é esta cópia que o recibo mostra, e nunca os avisos da mesa nova.
+  useEffect(() => {
+    if (step === 'pago' && contaPaga && view && view.check.id === contaPaga) {
+      setAvisosDaPaga(view.state.notices ?? []);
+    }
+  }, [step, contaPaga, view]);
 
   // A conta trocou embaixo do recibo: o recibo é final, e sondar a conta de
   // outra mesa não serve a ninguém.
@@ -652,7 +687,7 @@ export default function App() {
   }
 
   if (step === 'pago') {
-    const recibo = reciboVista(contaPaga, view.check.id, remaining);
+    const recibo = reciboVista(contaPaga, view.check.id, remaining, state.notices ?? [], avisosDaPaga);
     return (
       <Shell>
         <section className="paid">
@@ -736,7 +771,7 @@ export default function App() {
               servidor; a frase é daqui. Pagou a mais, ou um estorno que
               falhou: nos dois a casa deve, e ficar calado é o problema — o
               cliente vai embora sem saber que tem valor a receber. */}
-          {(state.notices || []).map((n, i) => (
+          {recibo.avisos.map((n, i) => (
             <p key={`${n.code}:${i}`} className="muted small center" style={{ color: 'var(--erro)' }}>
               {/* Um `switch`, não um ternário: um código novo que o servidor
                   inventar renderizaria a frase do ESTORNO — uma cobrança de

@@ -1546,7 +1546,9 @@ async function route(req, res) {
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
         // logo acima já gravava 'bizum' certo, e a resposta dizia 'card' —
         // duas verdades sobre a mesma cobrança, e a tela lê a errada.
-        return json(res, 200, { success: true, data: { txid: charge.txid, clientSecret: charge.clientSecret, amountCents, tipCents, method: rail === 'bizum' ? 'bizum' : 'card' } });
+        // `checkId`: a conta em que a cobrança nasceu, pro recibo se prender a
+        // ela — o mesmo campo do `/api/pay`, pelo mesmo motivo.
+        return json(res, 200, { success: true, data: { txid: charge.txid, checkId: view.check.id, clientSecret: charge.clientSecret, amountCents, tipCents, method: rail === 'bizum' ? 'bizum' : 'card' } });
       } catch (e) {
         // A Stripe recusa fora dos limites do esquema com os SEUS códigos e uma
         // frase em INGLÊS — confirmado no sandbox: `amount_too_small` /
