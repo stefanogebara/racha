@@ -10,15 +10,55 @@ import { erroDaResposta } from './api';
  * verifies it and enforces venue ownership.
  */
 
-// Auth roda contra o projeto Supabase do SEATABLE (login compartilhado: quem tem
-// conta no Seatable entra no Racha). A URL + a chave PUBLICÁVEL são valores
-// PÚBLICOS (vão pro bundle do browser de qualquer jeito — não são segredo) e são
-// FIXOS do projeto de auth, então hardcoded de propósito: a env da Vercel se
-// mostrou frágil (2 rodadas de "Invalid API key" — sobrou a chave publicável do
-// RACHA contra a URL do Seatable). Os DADOS do Racha continuam no projeto do
-// Racha, via API com Bearer — nada aqui lê dado. Trocou o projeto de auth? Edita.
-const AUTH_URL = 'https://ckforlwdhewexyqljsaf.supabase.co';
-const AUTH_PUBLISHABLE = 'sb_publishable_GIg9CVZqYQs6rlllwU0Iaw_3E6pcf2N';
+// O AUTH É DO PRÓPRIO RACHA — o mesmo projeto Supabase dos dados.
+//
+// Rodava contra o projeto do SEATABLE (login compartilhado): o cadastro de um
+// dono de restaurante virava usuário do Seatable sem ninguém avisar, e o Google
+// mostrava o endereço cru do projeto do Seatable na hora de autorizar. O
+// CLAUDE.md pede produto próprio ("own Supabase") e proíbe partilha de dado com
+// o Seatable sem consentimento (inegociável #10). Decidido pelo dono em
+// 2026-09-24. A URL e a chave PUBLICÁVEL são valores PÚBLICOS (vão pro bundle de
+// qualquer jeito) e fixos do projeto, então hardcoded de propósito — a env da
+// Vercel já trocou uma pela outra duas vezes ("Invalid API key"). O servidor
+// confere o token contra o MESMO projeto (sem `AUTH_SUPABASE_URL`, ele usa o
+// `SUPABASE_URL` dos dados).
+export const AUTH_URL = 'https://worttfotxasxqjaqwpjf.supabase.co';
+const AUTH_PUBLISHABLE = 'sb_publishable_cID1pB9ptK-9FdXr4MQ_3A_j-clyc9E';
+
+/**
+ * O Google fica DESLIGADO até o Racha ter o próprio cliente OAuth (Supabase →
+ * Authentication → Providers → Google) — com ele desligado no projeto, o botão
+ * só levaria a um erro. Ligou lá? Liga aqui.
+ */
+export const GOOGLE_LIGADO = false;
+
+/** O mínimo que a tela exige ao criar a senha — dito ANTES de enviar. */
+export const SENHA_MINIMA = 8;
+
+/**
+ * O ERRO DO AUTH VIRA CÓDIGO, não frase. O GoTrue responde em inglês
+ * ("Invalid login credentials") e a tela mostrava isso cru no painel em
+ * português (auditoria do portão, P4). Agora o erro leva `auth_<código>`: os
+ * conhecidos têm tradução (`err.auth_*`), e qualquer outro cai na frase
+ * genérica traduzida — nunca no inglês do servidor.
+ */
+function erroDoAuth(error: { code?: string; status?: number }): Error {
+  const code = `auth_${error.code || (error.status === 429 ? 'over_request_rate_limit' : 'unknown')}`;
+  // A frase do GoTrue NÃO entra no erro: ela é inglês e o censo proíbe texto
+  // cru do servidor no estado da tela. O código é o que a tela traduz.
+  const e = new Error(code) as Error & { code?: string };
+  e.code = code;
+  return e;
+}
+
+/** A página voltou de um link de REDEFINIÇÃO de senha — ver `recoverOAuthSession`. */
+const MARCA_DE_RECUPERACAO = 'racha-recuperacao';
+export function emRecuperacaoDeSenha(): boolean {
+  try { return sessionStorage.getItem(MARCA_DE_RECUPERACAO) === '1'; } catch { return false; }
+}
+function marcarRecuperacao(sim: boolean) {
+  try { if (sim) sessionStorage.setItem(MARCA_DE_RECUPERACAO, '1'); else sessionStorage.removeItem(MARCA_DE_RECUPERACAO); } catch { /* aba privada */ }
+}
 
 // flowType 'implicit': o callback do OAuth (Google via Supabase do Seatable)
 // volta com os tokens no HASH (#access_token=...), não em ?code=. No modo PKCE
@@ -46,6 +86,10 @@ export async function recoverOAuthSession(): Promise<void> {
   const p = new URLSearchParams(hash.replace(/^#/, ''));
   const access_token = p.get('access_token');
   const refresh_token = p.get('refresh_token');
+  // O link de "esqueci a senha" volta com `type=recovery`: a sessão abre, mas o
+  // dono tem de TROCAR a senha antes de entrar. Antes a sessão abria e pronto —
+  // na próxima vez ele esquecia de novo (auditoria do portão, P3).
+  if (p.get('type') === 'recovery') marcarRecuperacao(true);
   if (access_token && refresh_token) {
     try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { /* token inválido → segue pro login */ }
   }
@@ -70,7 +114,7 @@ export function onSession(cb: (s: Session | null) => void): () => void {
 export async function signIn(email: string, password: string) {
   if (!supabase) throw new Error('auth não configurado');
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw new Error(error.message);
+  if (error) throw erroDoAuth(error);
 }
 
 /**
@@ -81,8 +125,12 @@ export async function signIn(email: string, password: string) {
  */
 export async function signUp(email: string, password: string): Promise<{ needsConfirm: boolean }> {
   if (!supabase) throw new Error('auth não configurado');
-  const { data, error } = await supabase.auth.signUp({ email, password });
-  if (error) throw new Error(error.message);
+  const { data, error } = await supabase.auth.signUp({
+    email, password,
+    // O link de confirmação volta pro painel, não pra URL padrão do projeto.
+    options: { emailRedirectTo: `${window.location.origin}/admin` },
+  });
+  if (error) throw erroDoAuth(error);
   return { needsConfirm: !data.session };
 }
 
@@ -97,7 +145,7 @@ export async function signInWithGoogle(): Promise<void> {
     provider: 'google',
     options: { redirectTo: `${window.location.origin}/admin` },
   });
-  if (error) throw new Error(error.message);
+  if (error) throw erroDoAuth(error);
 }
 
 /** Envia o e-mail de redefinição de senha (volta pro /admin pra trocar). */
@@ -106,10 +154,19 @@ export async function resetPassword(email: string): Promise<void> {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${window.location.origin}/admin`,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw erroDoAuth(error);
+}
+
+/** A senha NOVA, depois do link de redefinição. Só então a marca sai. */
+export async function definirSenhaNova(password: string): Promise<void> {
+  if (!supabase) throw new Error('auth não configurado');
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw erroDoAuth(error);
+  marcarRecuperacao(false);
 }
 
 export async function signOut() {
+  marcarRecuperacao(false);
   if (supabase) await supabase.auth.signOut();
 }
 

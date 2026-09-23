@@ -55,7 +55,7 @@ documentada, em nome próprio. Ver lacuna 4.
 | Destinatário | O que sai | Por quê | Onde processa |
 |---|---|---|---|
 | **Supabase — projeto de dados da Racha** (`SUPABASE_URL`, sem literal no código) | tudo da tabela acima, menos o login | é o banco | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
-| **Supabase — projeto de auth do SEATABLE** (`ckforlwdhewexyqljsaf.supabase.co`) | e-mail do dono, hash de senha, identidade OAuth, sessão | login compartilhado entre os dois produtos (`apps/web/src/auth.ts`, `AUTH_SUPABASE_URL`) | AWS |
+| **Supabase — projeto do RACHA** (`worttfotxasxqjaqwpjf.supabase.co`), também o auth | e-mail do dono, hash de senha, sessão | login do dono do restaurante (`apps/web/src/auth.ts`). **Desde 2026-09-24 o auth é do próprio Racha**: antes era o projeto do Seatable (login compartilhado), e o cadastro do dono virava usuário do Seatable sem aviso. As contas antigas NÃO foram copiadas (inegociável #10) — os donos se cadastram de novo | AWS |
 | **Vercel** | requisições, logs de função — **incluindo o `t` da mesa, que viaja na query string do `/api/check` e é consultado a cada 4s**, e as linhas `[teto]` quando o teto de cobranças dispara: id da conta, id da **conta de saldo** (pseudônimo, não é o token portador), id da casa, o id da reivindicação (`claim=<uuid>`), a chave de um aviso contido (`alerta:check:<id da conta>:<hash da geração do QR>`), até 80 caracteres da mensagem quando uma reivindicação ou leitura do aviso falha, **o texto inteiro do aviso ao fundador** (id da conta e da casa, nome da casa, rótulo da mesa) quando a ponte de aviso falha ou não tem segredo, e, quando a devolução de uma vaga falha, até 80 caracteres da mensagem de erro do banco — nenhum IP, telefone ou nome | hospedagem; as linhas `[teto]` são controle de abuso por interesse legítimo (LGPD arts. 7º IX e 10) | EUA/edge |
 | **Pagar.me** (`api.pagar.me`) | CPF do pagador quando informado, `payerLabel` dentro da descrição da cobrança (`Racha <label>`), valor, split | criar a cobrança Pix/cartão e liquidar direto pra casa | Brasil |
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
@@ -98,8 +98,8 @@ dele e o valor. `txid` resolve pro CPF do pagador no painel da adquirente, entã
 A posição defensável é que o Seatable é **suboperador de alertas**, e ela
 provavelmente está certa. Mas posição defensável precisa estar escrita e no
 contrato: o não-negociável 10 do `CLAUDE.md` proíbe compartilhamento entre os
-produtos sem consentimento, e o mesmo vale pro login compartilhado da linha de
-cima. Enquanto não estiver no DPA (lacuna 4), o que existe é uma prática sem
+produtos sem consentimento (o login compartilhado, que também caía nisso, acabou
+em 2026-09-24 — o auth é do próprio Racha). Enquanto não estiver no DPA (lacuna 4), o que existe é uma prática sem
 instrumento. A alternativa técnica é mandar alerta de fundador por um canal que
 não seja o outro produto.
 
@@ -197,8 +197,7 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    a maior parte) ou cláusulas-padrão + avaliação. Ver `docs/markets/README.md`.
 4. **Sem DPA com as casas — e o DPA não é o conserto inteiro.** A Racha é
    operadora do dado do cliente da casa e não há contrato de tratamento (art. 39
-   LGPD / art. 28 GDPR), nem menção ao login compartilhado com o Seatable nem
-   aos cinco caminhos de alerta do §2. Fecha com **duas** coisas, não uma:
+   LGPD / art. 28 GDPR), nem menção aos cinco caminhos de alerta do §2. Fecha com **duas** coisas, não uma:
    anexo de tratamento no contrato da casa, **e** — pro que a Racha trata em
    nome próprio (adoção, radar, prospecção) — aviso do art. 9º e avaliação de
    legítimo interesse dela mesma.

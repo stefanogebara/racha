@@ -9,16 +9,17 @@ import './styles.css';
  * AS TELAS DO DONO SAEM DO PACOTE DO CLIENTE.
  *
  * `Gate` importa `./auth`, que no corpo do módulo faz `createClient(...)` contra
- * o Supabase do SEATABLE, com `persistSession` e `autoRefreshToken`. Com import
+ * o projeto de auth, com `persistSession` e `autoRefreshToken`. Com import
  * estático isso ia no chunk de ENTRADA — o que todo cliente baixa ao ler o QR
- * de uma mesa. Medido no build: 543 KB crus / 158 KB gzip contendo
- * `ckforlwdhewexyqljsaf`, `onAuthStateChange` e `refresh_token`, numa página
- * pública, sem login, alcançada por um QR que circula em foto e link.
+ * de uma mesa. Medido no build (quando o auth ainda era o do Seatable): 543 KB
+ * crus / 158 KB gzip contendo o id do projeto, `onAuthStateChange` e
+ * `refresh_token`, numa página pública, sem login.
  *
  * E em qualquer navegador que já tenha entrado no painel, o cliente de auth
- * encontra a sessão guardada e a RENOVA a partir da tela da conta — chamada à
- * infraestrutura de outro produto, disparada por quem só queria dividir uma
- * conta. Inegociável #10.
+ * encontra a sessão guardada e a RENOVA a partir da tela da conta — na época,
+ * chamada à infraestrutura de OUTRO produto (inegociável #10); hoje o auth é do
+ * próprio Racha, mas o cliente de quem só quer dividir uma conta continua sem
+ * ter por que falar com ele.
  *
  * É a mesma classe do defeito da Stripe: import estático com efeito colateral
  * no corpo do módulo. Achado pela revisão de segurança de 2026-09-10.
