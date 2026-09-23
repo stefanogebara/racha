@@ -485,6 +485,14 @@ export const DICT = {
   'paid.notInvoice':  { en: 'This is not an invoice. Ask the restaurant for one if you need it.',
                         pt: 'Isto não é uma nota fiscal. Peça a nota ao restaurante se precisar.',
                         es: 'Esto no es una factura. Pídesela al restaurante si la necesitas.' },
+  // O recibo congelado quando a conta embaixo trocou. NÃO diz "nada a pagar":
+  // o garçom pode ter reaberto a conta da mesma mesa pra somar um item.
+  // Sem "acima"/"abaixo": a primeira versão dizia "o seu pagamento ACIMA" e a
+  // linha do pagamento está EMBAIXO desta. Direção na cópia quebra na primeira
+  // mudança de layout.
+  'paid.newBill':  { en: 'This table has moved to a new bill. Your payment is recorded — if you still owe something, just scan the QR again.',
+                     pt: 'Esta mesa já está numa conta nova. O seu pagamento está registrado — se ainda faltar algo seu, é só escanear o QR de novo.',
+                     es: 'Esta mesa ya está en una cuenta nueva. Tu pago está registrado; si aún te falta algo, vuelve a escanear el QR.' },
   'paid.payMore':     { en: 'Pay another share',               pt: 'Pagar mais uma parte', es: 'Pagar otra parte' },
 
   // ── saldo da casa ───────────────────────────────────────────────────────
@@ -1066,6 +1074,12 @@ export const DICT = {
   'find.reduce_threw': { en: 'this bill’s ledger could not be read — worse than known drift',
                         pt: 'não deu pra ler o razão desta conta — pior que divergência conhecida',
                         es: 'no se pudo leer el libro de esta cuenta — peor que una diferencia conocida' },
+  'find.check_without_opened': { en: 'a bill on this table never finished opening — the table can’t open a new one; contact Racha support',
+                        pt: 'uma conta desta mesa não terminou de abrir — a mesa não abre outra; fale com o suporte da Racha',
+                        es: 'una cuenta de esta mesa no terminó de abrirse — la mesa no puede abrir otra; contacta con el soporte de Racha' },
+  'find.check_closed_without_opened': { en: 'a bill that never finished opening was closed by hand — the table is free; kept for the record',
+                        pt: 'uma conta que não terminou de abrir foi fechada à mão — a mesa está livre; fica o registro',
+                        es: 'una cuenta que no terminó de abrirse se cerró a mano — la mesa está libre; queda el registro' },
   'find.other':       { en: 'needs a look: {code}',
                         pt: 'precisa de atenção: {code}',
                         es: 'necesita atención: {code}' },

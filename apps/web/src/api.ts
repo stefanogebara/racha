@@ -67,6 +67,8 @@ export interface CheckView {
 
 export interface ChargeResult {
   txid: string;
+  /** A conta em que a cobrança nasceu. O recibo se prende a ela (`recibo.ts`). */
+  checkId?: string;
   /**
    * null em cobranças de carteira (Apple/Google Pay) e em Bizum — só o Pix tem
    * código copia-e-cola. No Bizum quem autoriza é o banco do pagador.
@@ -279,7 +281,7 @@ export const api = {
     token: string, amountCents: number, tipCents: number, payerLabel: string | null,
     payerDocument?: string, rail: 'card' | 'bizum' = 'card',
   ) =>
-    request<{ txid: string; clientSecret: string; amountCents: number; tipCents: number; method: 'card' | 'bizum' }>('/api/pay/stripe-intent', {
+    request<{ txid: string; checkId?: string; clientSecret: string; amountCents: number; tipCents: number; method: 'card' | 'bizum' }>('/api/pay/stripe-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, amountCents, tipCents, payerLabel, payerDocument: payerDocument ?? null, rail }),

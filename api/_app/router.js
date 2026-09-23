@@ -297,7 +297,7 @@ const reconciler = createChargeReconciler({
 // quebrar (o recebedor de teste não existe em live). Aqui ele roda sempre num
 // MockPsp próprio e se auto-confirma — independente de RACHA_PSP/live. É a única
 // venue cujo dinheiro é fake por design.
-const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck, isDemoVenue } = require('../_lib/demo');
+const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck, isDemoVenue, demoPagaHaTempo } = require('../_lib/demo');
 const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || DEMO_TOKEN;
 const demoPsp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 const demoCharge = createChargeService({ store, psp: demoPsp });
@@ -1007,6 +1007,35 @@ async function route(req, res) {
           process.stderr.write(`[demo-ensure] ${String(e.message).slice(0, 120)}\n`);
         }
       }
+      /**
+       * E A DEMO PAGA TAMBÉM SE CURA — que era o caso que o comentário acima
+       * prometia e a condição de cima nunca via.
+       *
+       * Pagar tudo não faz a conta sumir: ela fica `paga`, legível, e o `!data`
+       * não dispara. Visto em produção em 2026-09-23: a landing levava a
+       * "Conta paga por completo", sem abas e sem botão, até o reset diário
+       * das 09:00 UTC. E o PSP de mentira da demo se confirma na hora, então
+       * uma pessoa pagando a parte que faltava matava a demo pra todo mundo.
+       *
+       * Três guardas, nesta ordem, e a ordem importa:
+       *  · o TOKEN é o da demo — a mesma rota serve todas as casas, e uma conta
+       *    paga de restaurante nunca pode reabrir por aqui;
+       *  · a conta está paga há mais que o tempo de glória — quem pagou vê o
+       *    "Boa noite!" antes de a próxima pessoa ganhar conta nova;
+       *  · o balde da cura tem vaga — a última, pra que a leitura normal da
+       *    demo não gaste o limite de ninguém.
+       * E o `resetDemoCheck` ainda recusa, por conta própria, qualquer mesa que
+       * não seja a da demo (`resolveDemoTable`).
+       */
+      if (data && token === DEMO_TABLE_TOKEN && demoPagaHaTempo(data.state, Date.now())
+          && rateLimitDemoHeal(req)) {
+        try {
+          await resetDemoCheck(store, token);
+          data = await store.getCheckByQrToken(token);
+        } catch (e) {
+          process.stderr.write(`[demo-renova] ${String(e.message).slice(0, 120)}\n`);
+        }
+      }
       if (!data) {
         // Só o acerto sai daqui diferente. Ver `registraMissDeCheck`.
         registraMissDeCheck(req);
@@ -1041,7 +1070,28 @@ async function route(req, res) {
       // sob premissa falsa (CDC 6º III/37) e CPF sem base legal (LGPD).
       // Achado CRÍTICO da revisão de compliance.
       if (token === DEMO_TABLE_TOKEN) {
-        data = { ...data, venue: { ...data.venue, demo: true } };
+        data = {
+          ...data,
+          venue: {
+            ...data.venue,
+            demo: true,
+            /**
+             * E O CPF DO PIX TAMBÉM NÃO — o irmão que a decisão de cima não
+             * alcançou.
+             *
+             * O comentário acima registra que a demo pedindo CPF de verdade na
+             * carteira foi CRÍTICO de compliance. O campo do Pix ficou pedindo,
+             * obrigatório, um CPF válido — na prática o do visitante — numa
+             * cobrança do MockPsp, que não manda nada a adquirente nenhum.
+             *
+             * A regra mora AQUI, no servidor, ao lado da bandeira. A primeira
+             * versão do conserto a pôs no cliente (`venue.demo ? false : …`) e o
+             * servidor seguia dizendo `required: true`: duas verdades pro mesmo
+             * campo, a revisão de segurança apontou. O cliente só desenha.
+             */
+            payerTaxId: { ...(data.venue.payerTaxId || {}), required: false },
+          },
+        };
       }
       // UMA consulta pras duas bandeiras. Eram duas idênticas na mesma
       // requisição — e `/api/check` é público, sem limite de taxa, consultado a
@@ -1517,7 +1567,9 @@ async function route(req, res) {
         // O método na resposta é o TRILHO, não 'card' fixo. O `registerCharge`
         // logo acima já gravava 'bizum' certo, e a resposta dizia 'card' —
         // duas verdades sobre a mesma cobrança, e a tela lê a errada.
-        return json(res, 200, { success: true, data: { txid: charge.txid, clientSecret: charge.clientSecret, amountCents, tipCents, method: rail === 'bizum' ? 'bizum' : 'card' } });
+        // `checkId`: a conta em que a cobrança nasceu, pro recibo se prender a
+        // ela — o mesmo campo do `/api/pay`, pelo mesmo motivo.
+        return json(res, 200, { success: true, data: { txid: charge.txid, checkId: view.check.id, clientSecret: charge.clientSecret, amountCents, tipCents, method: rail === 'bizum' ? 'bizum' : 'card' } });
       } catch (e) {
         // A Stripe recusa fora dos limites do esquema com os SEUS códigos e uma
         // frase em INGLÊS — confirmado no sandbox: `amount_too_small` /

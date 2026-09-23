@@ -21,6 +21,7 @@ const {
   reduce, paidAfterClose, sobraPorPagamento, estornoDoTrilho, marcadoComoDisputa,
 } = require('./check-state');
 const houseState = require('../house/account-state');
+const { idadeSemOpened } = require('./conta-sem-opened');
 
 /**
  * @param {object} input
@@ -29,7 +30,7 @@ const houseState = require('../house/account-state');
  * @param {Array} input.payments      payment rows: { txid, amountCents, tipCents, status }
  * @returns {{ checkId: string, ok: boolean, driftCents: number, findings: Array }}
  */
-function reconcileCheck({ checkId, events, payments }) {
+function reconcileCheck({ checkId, events, payments, openedAt, nowMs, statusDaLinha }) {
   const findings = [];
   const add = (severity, code, msg, extra = {}) =>
     findings.push({ severity, code, message: msg, ...extra });
@@ -41,6 +42,35 @@ function reconcileCheck({ checkId, events, payments }) {
     // reduce() is total, but guard anyway — a throw here is itself a finding.
     add('critical', 'reduce_threw', `event log could not be reduced: ${err.message}`);
     return { checkId, ok: false, driftCents: 0, findings };
+  }
+
+  // 0. A CONTA SEM `OPENED`. Razão vazio é `null` no redutor, e este módulo
+  // passava por ela sem achado nenhum: a conta órfã — linha gravada, `OPENED`
+  // nunca — trancava a mesa (o índice de uma aberta por mesa) e a conciliação
+  // dizia `ok`. Passada a janela normal de abertura, é `critical`, e `critical`
+  // pagina. Sem idade conhecida também: na dúvida, alarme (`conta-sem-opened.js`).
+  //
+  // A COLUNA decide se a mesa ainda está trancada. O reparo à mão de uma órfã é
+  // `status = 'fechada'` na linha: a mesa destranca, mas o razão segue vazio.
+  // Julgando só pelo razão, esse reparo deixava um `critical` que nunca apaga,
+  // dizendo "a mesa não abre outra conta" de uma mesa livre — e uma casa
+  // vermelha pra sempre é uma casa que ninguém olha mais (segurança, quinta
+  // rodada, M-B). Fechada na linha é registro (`info`), não alarme.
+  if (state === null && (!Array.isArray(events) || events.length === 0) && statusDaLinha === 'fechada') {
+    add('info', 'check_closed_without_opened',
+      `conta ${checkId} sem OPENED, já fechada na linha — a mesa está livre; fica o registro`);
+  } else if (state === null && (!Array.isArray(events) || events.length === 0)) {
+    const { idadeMs, orfa } = idadeSemOpened(openedAt, nowMs);
+    if (orfa) {
+      // A FRASE leva a conta e a idade: o alerta do fundador imprime só a
+      // `message` (`formatReconcileAlert`), e os campos morrem no log do cron.
+      // "Uma mesa trancada" sem dizer qual não é acionável às 4 da manhã
+      // (compliance, quinta rodada, L-1).
+      const idade = idadeMs == null ? 'idade desconhecida' : `há ${Math.round(idadeMs / 60000)} min`;
+      add('critical', 'check_without_opened',
+        `conta ${checkId} sem OPENED (${idade}) — a mesa não abre outra conta até alguém consertar; o próximo PR é a RPC que abre a conta numa transação só`,
+        { ageSeconds: idadeMs == null ? null : Math.round(idadeMs / 1000) });
+    }
   }
 
   // 1. Event-log anomalies are reconciliation findings in their own right.
@@ -1425,7 +1455,11 @@ async function reconcileVenue(store, venueId, opts = {}) {
    */
   const daCasa = acharServicoNuncaArrecadado(inputs);
   pia.venueFindings = daCasa;
-  const results = inputs.map(reconcileCheck);
+  // A HORA entra aqui, uma vez pra casa inteira: `reconcileCheck` é puro e
+  // precisa dela pra separar a conta abrindo agora da órfã. E não pelo `map`
+  // direto — ele passaria o ÍNDICE como segundo argumento.
+  const agoraMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now();
+  const results = inputs.map((i) => reconcileCheck({ ...i, nowMs: agoraMs }));
   /**
    * OS ACHADOS DE AGREGADO ENTRAM NO SUMIDOURO — uma fonte, não duas.
    *

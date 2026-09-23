@@ -1,4 +1,5 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { reciboVista, type AvisoDaConta } from './recibo';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
 import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
@@ -159,6 +160,10 @@ export default function App() {
   // brasileiros — é o que um servidor sem `market` está dizendo.
   const serviceMode = view?.venue?.serviceCharge?.mode ?? 'preselected';
   const hasServiceLine = serviceMode !== 'none';
+  // Se o pagador precisa dar documento, quem DIZ é o servidor (`payerTaxId`),
+  // inclusive na demo — que o servidor declara sem CPF, porque o trilho dela
+  // (MockPsp) não precisa. A primeira versão decidia a demo AQUI e o servidor
+  // seguia dizendo `required: true`: duas verdades pro mesmo campo.
   const taxIdRequired = view?.venue?.payerTaxId?.required ?? true;
   // O bp que a conta REALMENTE cobra: o mercado já zerou o que não se aplica.
   const serviceBpEffective = view?.venue?.serviceCharge?.bp ?? view?.venue?.servicoBp ?? 0;
@@ -244,6 +249,10 @@ export default function App() {
   /** Quando o pagamento foi confirmado NESTA sessão — o carimbo do comprovante.
    *  Fixado na transição, não no render: no render ele andaria a cada poll. */
   const [paidAt, setPaidAt] = useState<string | null>(null);
+  /** A conta em que ESTE telefone pagou — o recibo fica preso a ela. Ver `recibo.ts`. */
+  const [contaPaga, setContaPaga] = useState<string | null>(null);
+  /** Os últimos avisos de dinheiro vistos da conta paga, enquanto ela era a viva. */
+  const [avisosDaPaga, setAvisosDaPaga] = useState<AvisoDaConta[] | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [demoGone, setDemoGone] = useState(false);
@@ -366,6 +375,57 @@ export default function App() {
       setPaidAt(new Date().toISOString()); setStep('pago');
     }
   }, [view, step, charge, ownRef]);
+
+  /**
+   * O RECIBO SE PRENDE À CONTA EM QUE A COBRANÇA NASCEU.
+   *
+   * Há quatro `setStep('pago')`: o Pix automático, o "Simular" da demo, a
+   * carteira da Pagar.me e a Stripe. (Este comentário dizia "Pix, carteira,
+   * saldo da casa, cartão" — o saldo da casa NÃO passa por 'pago', tem tela
+   * própria no `HousePay`. As duas revisões apontaram.) Um efeito cobre os
+   * quatro, em vez de quatro atribuições que um quinto caminho esqueceria.
+   *
+   * E a conta vem da COBRANÇA (`charge.checkId`, do servidor), não do poll. A
+   * primeira versão lia `view.check.id` ao entrar em 'pago', e três dos quatro
+   * caminhos fazem `await refresh()` antes de chegar lá: se a conta trocou
+   * nesse meio-tempo, o recibo se prendia à conta NOVA e voltava a mostrar o
+   * progresso e o "pagar mais" dos outros. O `view` fica só de reserva, pra
+   * uma cobrança de servidor antigo que ainda não mande o campo.
+   */
+  useEffect(() => {
+    if (step === 'pago' && contaPaga === null) {
+      const nasceu = (charge && charge.checkId) || (view && view.check.id) || null;
+      if (nasceu) setContaPaga(nasceu);
+    }
+    if (step !== 'pago' && contaPaga !== null) { setContaPaga(null); setAvisosDaPaga(null); }
+  }, [step, view, contaPaga, charge]);
+
+  // OS AVISOS DA CONTA PAGA, guardados enquanto ela ainda é a viva — um
+  // estorno ou um pagamento a mais pode chegar DEPOIS do ✓. Quando a conta
+  // troca, é esta cópia que o recibo mostra, e nunca os avisos da mesa nova.
+  useEffect(() => {
+    if (step === 'pago' && contaPaga && view && view.check.id === contaPaga) {
+      setAvisosDaPaga(view.state.notices ?? []);
+    }
+  }, [step, contaPaga, view]);
+
+  // A conta trocou embaixo do recibo: o recibo é final, e sondar a conta de
+  // outra mesa não serve a ninguém.
+  useEffect(() => {
+    if (step === 'pago' && contaPaga && view && view.check.id !== contaPaga) setPolling(false);
+  }, [step, contaPaga, view]);
+
+  // A ESCOLHA POR ITEM NÃO ATRAVESSA CONTAS. Os ids de item são por conta (na
+  // demo, fixos: `d1`…`d5`), então uma seleção feita numa conta aparecia
+  // marcada na seguinte. Revisão de compliance, LOW-1.
+  const contaVivaId = view ? view.check.id : null;
+  const contaAnterior = useRef<string | null>(null);
+  useEffect(() => {
+    if (contaAnterior.current && contaVivaId && contaAnterior.current !== contaVivaId) {
+      setSelectedItems(new Set());
+    }
+    contaAnterior.current = contaVivaId;
+  }, [contaVivaId]);
 
   // O ✓ é o momento-prova do demo de prospecção: o lead PAGOU a conta de
   // mentira. Cobre os dois caminhos até 'pago' (webhook e redeem de saldo).
@@ -618,6 +678,13 @@ export default function App() {
   }
 
   if (step === 'pago') {
+    // `contaPaga` é estado e só é gravado pelo efeito, DEPOIS do primeiro
+    // render de "pago". Nesse primeiro quadro ele ainda é nulo, e com a conta
+    // já trocada o recibo mostrava a mesa dos outros por um quadro — o defeito
+    // que o `checkId` veio impedir (compliance, terceira rodada). A cobrança já
+    // sabe a conta: lê dela aqui também.
+    const recibo = reciboVista(contaPaga ?? (charge && charge.checkId) ?? null, view.check.id, remaining,
+      state.notices ?? [], avisosDaPaga);
     return (
       <Shell>
         <section className="paid">
@@ -626,14 +693,21 @@ export default function App() {
           <p className="muted">
             {payerLabel ? t('paid.thanks', { name: payerLabel }) : ''}{t('paid.yours')}
           </p>
-          <div className="progresswrap">
-            <div className="progressbar"><span style={{ width: `${progress}%` }} /></div>
-            <p className="muted small">
-              {t('paid.progress', { paid: brl(state.paidCents), total: brl(state.totalCents) })}
-              {remaining > 0 ? t('paid.left', { left: brl(remaining) }) : t('paid.closed')}
-            </p>
-          </div>
-          {remaining > 0 && (
+          {recibo.mostrarProgresso ? (
+            <div className="progresswrap">
+              <div className="progressbar"><span style={{ width: `${progress}%` }} /></div>
+              <p className="muted small">
+                {t('paid.progress', { paid: brl(state.paidCents), total: brl(state.totalCents) })}
+                {remaining > 0 ? t('paid.left', { left: brl(remaining) }) : t('paid.closed')}
+              </p>
+            </div>
+          ) : (
+            // Não "nada a pagar": se o garçom fechou e reabriu a conta da MESMA
+            // mesa pra acrescentar um item esquecido, a pessoa pode dever mais.
+            // O recibo afirma só o que sabe — o pagamento dela está registrado.
+            <p className="muted small">{t('paid.newBill')}</p>
+          )}
+          {recibo.oferecerMais && (
             <button className="cta" onClick={() => {
               setSelectedItems(new Set());
               // LIMPA o comprovante anterior. Sem isto: paga a 1ª parte no Pix
@@ -694,7 +768,7 @@ export default function App() {
               servidor; a frase é daqui. Pagou a mais, ou um estorno que
               falhou: nos dois a casa deve, e ficar calado é o problema — o
               cliente vai embora sem saber que tem valor a receber. */}
-          {(state.notices || []).map((n, i) => (
+          {recibo.avisos.map((n, i) => (
             <p key={`${n.code}:${i}`} className="muted small center" style={{ color: 'var(--erro)' }}>
               {/* Um `switch`, não um ternário: um código novo que o servidor
                   inventar renderizaria a frase do ESTORNO — uma cobrança de
@@ -1004,7 +1078,10 @@ export default function App() {
               // A COBRANÇA, não só o aviso: sem ela o comprovante deste trilho
               // sai sem quantia, sem serviço e sem data — e o `setPaidAt`
               // abaixo fica morto, porque a data só renderiza junto da quantia.
-              setCharge((antes) => ({ ...(antes ?? {} as ChargeResult), ...c }));
+              // DO ZERO, não mesclado na cobrança anterior: a carteira entrega a
+              // cobrança INTEIRA, e a mescla deixava sobreviver campo de uma
+              // tentativa abandonada (compliance, terceira rodada).
+              setCharge(c);
               setPaidAt(new Date().toISOString());
               setStep('pago');
             }}
@@ -1031,7 +1108,10 @@ export default function App() {
               // A COBRANÇA, não só o aviso: sem ela o comprovante deste trilho
               // sai sem quantia, sem serviço e sem data — e o `setPaidAt`
               // abaixo fica morto, porque a data só renderiza junto da quantia.
-              setCharge((antes) => ({ ...(antes ?? {} as ChargeResult), ...c }));
+              // DO ZERO. A mescla na cobrança anterior deixava um Pix abandonado
+              // pôr `txid`, copia-e-cola e `method: 'pix'` num comprovante de
+              // cartão. O que a Stripe não tem (copia-e-cola, validade), é nulo.
+              setCharge({ copiaECola: null, expiresAt: null, wallet: null, ...c });
               setPaidAt(new Date().toISOString());
               setStep('pago');
             }}

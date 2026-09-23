@@ -423,3 +423,172 @@ gorjeta. De lá até o fim — `assertChargeSlot`, `comContratoDeCaptura`,
 executada por teste nenhum. É o trecho onde o dinheiro se move.
 
 **Gatilho:** o mesmo do item acima.
+
+---
+
+## A demo pública (2026-09-23)
+
+Achados das duas revisões sobre a renovação da demo paga que **não** entraram
+naquele PR, cada um com gatilho.
+
+### `/api/pay` decide "é a demo" pelo token, sem provar a casa — HIGH
+
+`router.js`: `isDemo = body.token === DEMO_TABLE_TOKEN`, e `DEMO_TABLE_TOKEN`
+vem de `RACHA_DEMO_TABLE_TOKEN`. Das sete comparações com esse token no router,
+só as duas curas passam por `isDemoVenue`. Medido pela revisão de segurança:
+com a env digitada apontando pro token de uma mesa real, `POST /api/pay` devolve
+200, o copia-e-cola sai com CRC `MOCK`, e a conta real vira `paga` sem dinheiro
+nenhum ter se movido — **qualquer um com o QR daquela mesa fecha a conta dela
+sem pagar**. O mesmo token ainda desliga o reconcile-on-read e mostra
+"Simular confirmação" num Pix de verdade. É a forma "chamador esquecido": o
+cabeçalho de `demo.js` nomeia esse typo como crítico, e a defesa só foi posta
+num dos sítios.
+
+**Gatilho:** nenhum — é o próximo PR. Precisa de censo dos sete sítios.
+
+### A janela entre inserir a conta e gravar o `OPENED` — LOW, anterior, PARCIAL
+
+`supabase.js`: o `openCheck` grava a linha e, noutra ida ao banco, o `OPENED`.
+Toda leitura nesse intervalo fazia `reduce([])` → `null` → `state.status` lança →
+500. Acontece em qualquer mesa quando o garçom abre a conta enquanto alguém
+sonda; a renovação da demo passa a provocar em rebanho.
+
+**Fechado em 2026-09-23 (PR #16):** todo leitor pula a conta sem `OPENED` — a
+leitura pública, o painel do dono, a lista de mesas —, e nenhum lança. A
+primeira versão do pulo era muda, e as duas revisões da quarta rodada a
+recusaram: por isso, **passados 30 s** (`conta-sem-opened.js`), cada pulo
+escreve `[conta-sem-opened] check=<id> idade=<s> em=<leitor>`.
+
+**Gatilho** (o antigo, "o primeiro 500 de `/api/check`", não pode mais
+disparar — o pulo o matou): a primeira linha `[conta-sem-opened]` no log de
+produção, ou o primeiro adaptador de POS que abra contas em lote.
+
+### O aviso de privacidade da demo nomeia um controlador que não existe — MEDIUM, anterior, PARCIAL
+
+`priv.teaser`/`priv.who` dizem que "{venue} ({taxId}) é quem decide o que se
+coleta" e "{venue} guarda o nome". Na demo a casa é fictícia; quem trata o nome
+digitado pelo visitante é a Racha (LGPD art. 9º II/III).
+
+**Metade fechada em 2026-09-23:** a demo exigia um CPF VÁLIDO — na prática o do
+visitante — numa cobrança de mentira, e a renovação da demo paga a deixava viva
+o dia inteiro. A revisão de compliance recusou o gatilho e pediu antes do merge.
+A demo não pede mais CPF, pela mesma regra que já tirava o NIF do Bizum: o
+documento só existe onde o trilho precisa dele, e o MockPsp não precisa. O que
+sobra é o NOME, que é opcional e segue com o aviso nomeando a casa fictícia.
+
+**Gatilho:** antes da primeira campanha que leve tráfego pago pra landing.
+
+### A tela Pix da demo manda usar o app do banco de verdade — MEDIUM, anterior
+
+`pix.how` diz "abra o app do seu banco… cole o código", pra um código com CRC
+`MOCK`, que nenhum banco aceita. A única marca de demo na tela é o botão
+"(demo)" e o nome da casa.
+
+**Gatilho:** o mesmo do item acima.
+
+### Os achados da segunda rodada sobre a demo — anteriores a ela, cada um com PR próprio
+
+**Um `openCheck` pela metade tranca a mesa pra sempre — MEDIUM.**
+`supabase.js` insere a linha em `checks` e grava o `OPENED` noutra ida ao banco.
+Se a segunda falhar (timeout, a função morta no meio), a mesa fica com uma conta
+`aberta` sem eventos: `reduce([])` devolve `null`, `GET /api/check` responde 500
+em TODA leitura, o `resetDemoCheck` lança o mesmo TypeError, o `openCheck`
+leva 409 pelo índice de uma aberta por mesa, e o `closeCheck` recebe estado
+nulo. Medido pela revisão de segurança num Postgres com as 36 migrações: a mesa
+morre até alguém rodar SQL à mão. Vale pra QUALQUER mesa, não só a demo — a
+renovação só a torna mais frequente em rebanho. O conserto é uma RPC que insere e
+grava o `OPENED` na mesma transação.
+
+**O que mudou em 2026-09-23 (PR #16):** a mesa ainda tranca, mas não em
+silêncio. A leitura e o painel escrevem `[conta-sem-opened]` depois de 30 s, e
+a conciliação diária emite achado `critical` `check_without_opened` — que pinta
+a casa de vermelho e acorda o fundador (inegociável #8). **Exceto nas casas
+`isTest`:** a varredura noturna as pula (`reconcileAllVenues`, sem
+`includeTest`), e isso inclui a DEMO — justamente onde a renovação em rebanho
+mais provoca a janela — e as casas de teste com recebedor vivo. Nelas a órfã só
+deixa a linha `[conta-sem-opened]` no log, e o repositório não tem nada que leia
+log e pagine. Fecha junto com a RPC; até lá, é uma exceção escrita, não uma
+cobertura (compliance, quinta rodada, M-1/M-2).
+
+**O reparo à mão, até a RPC:** `update checks set status = 'fechada' where id =
+'<id da linha [conta-sem-opened]>'` — só numa linha sem nenhum `payments`
+(confira antes). A mesa destranca na hora, e a conciliação passa a registrar a
+conta como `info` `check_closed_without_opened` em vez do `critical`: julgar só
+pelo razão deixava o alarme aceso pra sempre numa mesa já livre (segurança,
+quinta rodada, M-B). O store de memória
+passou a trancar a mesa como o índice do Postgres; antes ele deixava abrir
+outra conta por cima, e o teste de "mesa trancada" era verde aqui e falso lá.
+
+**Gatilho:** nenhum — é o próximo PR depois do `/api/pay` da demo.
+
+**O `closeCheck` do dono é ler → `appendEvent` — MEDIUM.**
+`check-service.js` fecha a conta com a mesma forma que a demo acabou de
+abandonar, e o `adjustCheck` idem. Medido: dois `closeCheck` concorrentes com
+latência dão 2 `CLOSED` e uma anomalia `high` em 5 de 5 — um toque duplo no
+painel suja o razão imutável. O conserto é o mesmo `appendEventIfUnchanged` com
+o `conflito`, e um censo de toda escrita de `CLOSED`/`ADJUSTED`.
+
+**Gatilho:** o mesmo PR do `openCheck`: os dois são o inegociável #7.
+
+**O caminho do saldo da casa pode deixar um pagamento em voo — LOW, anterior.**
+Depois de um resgate que devolve `r.check === null`, o `setPolling(false)` roda
+e nada o religa. "Voltar" leva a uma conta velha com o poll desligado; um Pix
+gerado dali é cobrado na conta viva da mesa e o ✓ nunca aparece, porque depende
+do poll.
+
+**Gatilho:** o primeiro piloto com saldo da casa ligado.
+
+**Na janela do 404, o recibo ainda oferece "pagar mais" — LOW, anterior.**
+Entre o dono fechar e o garçom abrir a conta nova, o recibo usa a última leitura
+boa e continua mostrando "falta R$ X" com o botão, de uma conta fechada. O
+servidor recusa com `check_closed`, então não há cobrança dupla — é só um convite
+à toa.
+
+**Gatilho:** o próximo PR que mexer no recibo ou na demo — não o do saldo da
+casa. A compliance mostrou por quê: a casa fecha a conta com saldo recebido no
+caixa, a pessoa toca "pagar mais", o `contaPaga` é zerado, o poll segue, e
+quando a próxima conta abre no mesmo QR ela está nos itens da outra mesa.
+
+**O fechamento pelo dono não diz quem fechou — LOW.** Com o `motivo` da demo, as
+duas se distinguem pela ausência do campo; melhor gravar `{ motivo: 'dono' }`.
+
+**Gatilho:** o PR do `closeCheck`.
+
+**O recibo do saldo da casa está incompleto — LOW, anterior.** A tela de sucesso
+do `HousePay` não mostra CNPJ, data, nem "não é nota fiscal".
+
+**Gatilho:** o primeiro piloto com saldo da casa ligado.
+
+### Da terceira rodada sobre a demo (2026-09-23)
+
+**O aviso da conta paga some se a troca vem antes de o telefone vê-la paga —
+LOW.** O recibo guarda os avisos da conta paga enquanto ela é a viva. Se a
+carteira confirma e o garçom reabre no mesmo QR antes do próximo poll, o
+telefone nunca viu a conta paga como viva: não mostra o aviso da mesa dos outros
+(certo), mas também não mostra o da própria (a lista fica vazia). Medido pela
+segurança com o poll bloqueado. O conserto é o servidor entregar os avisos da
+conta em que a cobrança nasceu (`/api/check?t=…&c=<checkId>`, limitado à mesa do
+token). Nota da compliance, que vale junto: o recibo NÃO é o canal oficial de
+aviso de restituição — um estorno que chega depois da troca não entra, e está
+certo que não entre. O dever de avisar e devolver é da casa, pelo painel. Nenhum
+comentário ou documento deve afirmar o contrário.
+
+**Gatilho:** o primeiro piloto com carteira ligada (`RACHA_WALLET_VENUES`).
+
+**A resposta de `/api/pay` sai por lista de NEGAÇÃO — LOW.** Só `venueId` é
+tirado; toda chave nova no `createCharge` chega ao cliente sozinha. Uma lista de
+permissão fecha a classe.
+
+**Gatilho:** o PR do `/api/pay` com o token da demo (mesma rota).
+
+**`RACHA_DEMO_MODE` está ligado em produção — LOW, configuração.** Ele só libera
+`POST /api/dev/confirm`. Em produção a rota responde 404 mesmo assim, porque o
+PSP principal é o Pagar.me e só o MockPsp forja webhook assinado — conferido
+por sonda sem efeito em 2026-09-23. Mas a sonda também mostrou que a PRIMEIRA
+guarda não está de pé: a resposta veio do ramo de dentro, não do 404 de rota
+inexistente. A segurança dessa rota repousa inteira na segunda camada, que é a
+forma que as revisões desta semana acharam duas vezes. Remover a variável é
+decisão de quem opera a produção.
+
+**Gatilho:** a próxima vez que alguém mexer na configuração de produção.
+

@@ -612,6 +612,18 @@ function createChargeService({ store, psp }) {
 
     return {
       txid: charge.txid,
+      /**
+       * A CONTA EM QUE ESTA COBRANÇA NASCEU — pro recibo se prender a ela.
+       *
+       * O telefone prendia o recibo ao `check.id` que o poll trazia ao entrar
+       * em "pago", e três dos quatro caminhos até lá fazem `await refresh()`
+       * antes: se a conta trocou nesse meio-tempo (a demo renovou, ou o garçom
+       * abriu a próxima mesa no mesmo QR), o recibo se prendia à conta NOVA e
+       * voltava a mostrar o progresso e o "pagar mais" dos outros. Só quem
+       * cobrou sabe em que conta cobrou. O id já é público — o `/api/check`
+       * o entrega em toda leitura —, então isto não abre nada.
+       */
+      checkId,
       copiaECola: charge.copiaECola ?? null, // wallets have no BR Code
       expiresAt: charge.expiresAt ?? null,
       amountCents, tipCents,
