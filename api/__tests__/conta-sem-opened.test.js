@@ -102,17 +102,14 @@ describe('supabase: o mesmo, pelo dublê de PostgREST', () => {
 const { reconcileVenue } = require('../_lib/checks/reconcile');
 const { JANELA_DE_ABERTURA_MS } = require('../_lib/checks/conta-sem-opened');
 
+// A órfã agora só nasce SEMEADA: desde a 0037 o `openCheck` é uma transação só
+// (e o dublê desfaz a linha se o `OPENED` falhar). As defesas abaixo seguem
+// valendo pras linhas antigas, de antes da 0037.
 async function mesaComOrfa() {
   const store = createMemoryStore();
   const venue = store.seedVenue({ name: 'Casa', servicoBp: 1000 });
   const table = store.seedTable(venue.id, 'Mesa 3');
-  const original = store.appendEvent.bind(store);
-  store.appendEvent = async (id, type, ...resto) => {
-    if (type === 'OPENED') throw new Error('timeout na segunda ida');
-    return original(id, type, ...resto);
-  };
-  await expect(store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 1000 }])).rejects.toThrow('timeout');
-  store.appendEvent = original;
+  store.seedContaSemOpened(table.qrToken);
   const [orfa] = await store.listChecksForReconcile(venue.id);
   return { store, venue, table, orfa, criadaMs: Date.parse(orfa.openedAt) };
 }
@@ -255,5 +252,53 @@ describe('o reparo à mão apaga o alarme — a quinta rodada de segurança, M-B
     const r = reconcileCheck({ ...base, statusDaLinha: 'fechada' });
     expect(r.findings.map((f) => [f.severity, f.code])).toEqual([['info', 'check_closed_without_opened']]);
     expect(r.ok).toBe(true);
+  });
+});
+
+
+describe('ABRIR É UMA TRANSAÇÃO SÓ (migração 0037) — a órfã deixa de nascer', () => {
+  test('memória: o OPENED falhou → a linha sai junto, e a mesa abre conta de novo', async () => {
+    const store = createMemoryStore();
+    const venue = store.seedVenue({ name: 'Casa', servicoBp: 1000 });
+    const table = store.seedTable(venue.id, 'Mesa 3');
+    const original = store.appendEvent.bind(store);
+    store.appendEvent = async (id, type, ...resto) => {
+      if (type === 'OPENED') throw new Error('timeout na segunda ida');
+      return original(id, type, ...resto);
+    };
+    await expect(store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 1000 }])).rejects.toThrow('timeout');
+    store.appendEvent = original;
+    expect(await store.listChecksForReconcile(venue.id)).toEqual([]);   // nada órfão ficou
+    await expect(store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 1000 }])).resolves.toMatchObject({ tableId: table.id });
+  });
+
+  function clienteComRpc(rpc) {
+    const b = {
+      select() { return b; }, eq() { return b; },
+      maybeSingle: async () => ({ data: { id: 't1', venue_id: 'v1' }, error: null }),
+    };
+    return { from: () => b, rpc };
+  }
+
+  test('supabase: UMA chamada a `open_check`, com a linha e o total — e nenhum insert solto', async () => {
+    const chamadas = [];
+    const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client: clienteComRpc(async (nome, args) => {
+      chamadas.push([nome, args]); return { data: '00000000-6666-4666-8666-000000000001', error: null };
+    }) });
+    const c = await store.openCheck('qr1', [{ id: 'a', name: 'X', priceCents: 700 }, { id: 'b', name: 'Y', priceCents: 300 }]);
+    expect(c).toMatchObject({ id: '00000000-6666-4666-8666-000000000001', venueId: 'v1', tableId: 't1' });
+    expect(chamadas).toEqual([['open_check', {
+      p_venue_id: 'v1', p_table_id: 't1', p_total_cents: 1000,
+      p_pos_ref: JSON.stringify([{ id: 'a', name: 'X', priceCents: 700 }, { id: 'b', name: 'Y', priceCents: 300 }]),
+    }]]);
+  });
+
+  test('supabase: 23505 (mesa já aberta) vira 409 pelo CÓDIGO; outro erro sobe como erro', async () => {
+    const com = (error) => createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client: clienteComRpc(async () => ({ data: null, error })) });
+    await expect(com({ code: '23505', message: 'duplicate key value violates unique constraint "checks_one_open_per_table"' }).openCheck('qr1', [{ id: 'a', name: 'X', priceCents: 1 }]))
+      .rejects.toMatchObject({ statusCode: 409 });
+    // A MESMA frase com outro código NÃO é mesa aberta — a regex antiga dizia que era.
+    const outro = com({ code: '57014', message: 'duplicate key … canceling statement due to statement timeout' });
+    await expect(outro.openCheck('qr1', [{ id: 'a', name: 'X', priceCents: 1 }])).rejects.not.toMatchObject({ statusCode: 409 });
   });
 });

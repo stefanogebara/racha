@@ -534,7 +534,10 @@ quinta rodada, M-B). O store de memória
 passou a trancar a mesa como o índice do Postgres; antes ele deixava abrir
 outra conta por cima, e o teste de "mesa trancada" era verde aqui e falso lá.
 
-**Gatilho:** nenhum — é o próximo PR depois do `/api/pay` da demo.
+**Fechado em 2026-09-24:** migração 0037, `open_check` — a linha e o `OPENED`
+numa transação só; o store de produção chama a RPC e decide o 409 pelo código
+(23505), não por regex. O dublê desfaz a linha se o `OPENED` falhar. As defesas
+acima (alarme, achado, painel que não cai) ficam pras linhas de antes da 0037.
 
 **O `closeCheck` do dono é ler → `appendEvent` — MEDIUM.**
 `check-service.js` fecha a conta com a mesma forma que a demo acabou de
@@ -543,7 +546,10 @@ latência dão 2 `CLOSED` e uma anomalia `high` em 5 de 5 — um toque duplo no
 painel suja o razão imutável. O conserto é o mesmo `appendEventIfUnchanged` com
 o `conflito`, e um censo de toda escrita de `CLOSED`/`ADJUSTED`.
 
-**Gatilho:** o mesmo PR do `openCheck`: os dois são o inegociável #7.
+**Fechado em 2026-09-24:** `closeCheck` e `adjustCheck` gravam por
+`appendEventIfUnchanged` sobre o `seq` lido e, no `conflito`, releem; o toque
+duplo dá UM `CLOSED` (com `motivo: 'dono'`) e os dois respondem que fechou.
+Censo em `api/__tests__/fechar-duas-vezes.test.js`.
 
 **O caminho do saldo da casa pode deixar um pagamento em voo — LOW, anterior.**
 Depois de um resgate que devolve `r.check === null`, o `setPolling(false)` roda

@@ -671,28 +671,32 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       if (!table) throw new Error('unknown table');
 
       const totalCents = items.reduce((s, i) => s + i.priceCents, 0);
-      const { data: check, error: cErr } = await client
-        .from('checks')
-        .insert({
-          venue_id: table.venue_id,
-          table_id: table.id,
-          total_cents: totalCents,
-          // Full JSON — item count is bounded upstream (normalizeItems), so the
-          // old 2000-char slice (which sliced mid-JSON → parse fail → the diner
-          // saw an EMPTY item list on big checks) is gone (review finding).
-          pos_ref: JSON.stringify(items),
-        })
-        .select('id')
-        .single();
-      // The partial unique index (checks_one_open_per_table) is the DB backstop
-      // for one-open-check-per-table: a racing double-open loses here and gets a
-      // friendly 409, not a 500.
-      if (cErr && /checks_one_open_per_table|duplicate key/i.test(cErr.message)) {
+      /**
+       * UMA TRANSAÇÃO SÓ — a linha e o `OPENED` (migração 0037, `open_check`).
+       *
+       * Eram duas idas: o `insert` e depois o `appendEvent`. Se a segunda
+       * morresse, a linha ficava órfã pra sempre e o índice de uma aberta por
+       * mesa trancava a mesa. Agora, ou entram as duas, ou nenhuma.
+       *
+       * O 409 da mesa já aberta sai pelo CÓDIGO do índice (23505), não por regex
+       * na mensagem (compliance, PR #16, L-3). Qualquer outro erro sobe: nunca
+       * se trata um erro de claim como "já existia".
+       */
+      const { data: checkId, error: cErr } = await client.rpc('open_check', {
+        p_venue_id: table.venue_id,
+        p_table_id: table.id,
+        p_total_cents: totalCents,
+        // Full JSON — item count is bounded upstream (normalizeItems), so the
+        // old 2000-char slice (which sliced mid-JSON → parse fail → the diner
+        // saw an EMPTY item list on big checks) is gone (review finding).
+        p_pos_ref: JSON.stringify(items),
+      });
+      if (cErr && cErr.code === '23505') {
         const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; throw e;
       }
-      throwOn(cErr, 'openCheck.insert');
-      await this.appendEvent(check.id, 'OPENED', { totalCents });
-      return { id: check.id, venueId: table.venue_id, tableId: table.id, items };
+      throwOn(cErr, 'openCheck.open_check');
+      if (typeof checkId !== 'string') throw new Error('openCheck: open_check não devolveu o id da conta');
+      return { id: checkId, venueId: table.venue_id, tableId: table.id, items };
     },
 
     // --- reads -------------------------------------------------------------
