@@ -87,7 +87,14 @@ class MockPsp {
       .digest('hex')
       .slice(0, 28);
     // Shape mimics a BR Code (Pix copia-e-cola) enough for UI work.
-    const copiaECola = `00020126580014br.gov.bcb.pix${txid}5204000053039865406${((amountCents + tipCents) / 100).toFixed(2)}5802BR6009Sao Paulo${description.slice(0, 20)}6304MOCK`;
+    // O CAMPO 54 (valor) com o tamanho CERTO e os reais em inteiros: era `5406`
+    // fixo e `(cents / 100).toFixed(2)` — tamanho errado pra todo valor que não
+    // tivesse seis caracteres, e ponto flutuante em dinheiro (inegociável #5).
+    // A tela confere este campo ao restaurar uma cobrança (`cobranca-viva.ts`).
+    const total = amountCents + tipCents;
+    const valor = `${Math.floor(total / 100)}.${String(total % 100).padStart(2, '0')}`;
+    const campo54 = `54${String(valor.length).padStart(2, '0')}${valor}`;
+    const copiaECola = `00020126580014br.gov.bcb.pix${txid}520400005303986${campo54}5802BR6009Sao Paulo${description.slice(0, 20)}6304MOCK`;
     this.charges.set(txid, { txid, amountCents, tipCents, method: 'pix', status: 'pending' });
     return {
       txid,
