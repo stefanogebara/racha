@@ -1,5 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { reciboVista, type AvisoDaConta } from './recibo';
+import { avisoDaCobranca } from './pix-vivo';
+import { guardarCobranca, lerCobranca, esquecerCobranca } from './cobranca-viva';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
 import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
@@ -377,6 +379,39 @@ export default function App() {
   }, [view, step, charge, ownRef]);
 
   /**
+   * A COBRANÇA E O RECIBO SOBREVIVEM A UM RECARREGAR — ver `cobranca-viva.ts`.
+   *
+   * Uma vez, na primeira conta que chega: se este aparelho tem uma cobrança
+   * viva ou um recibo desta mesa, a tela volta pra ele em vez de abrir a conta
+   * com o botão de pagar armado. O efeito de cima segue valendo: se a marca da
+   * cobrança já caiu, ele leva do "pagar" pro ✓ no mesmo poll.
+   */
+  const restaurou = useRef(false);
+  const guardadoComo = useRef('');
+  useEffect(() => {
+    if (restaurou.current || !view) return;
+    restaurou.current = true;
+    const g = lerCobranca(token, Date.now());
+    if (!g || step !== 'conta') return;
+    guardadoComo.current = `${g.charge.txid}:${g.fase}:${g.ownRef ?? ''}`; // não reinicia a validade ao voltar
+    setCharge(g.charge); setOwnRef(g.ownRef); setPaidAt(g.paidAt); setStep(g.fase);
+  }, [view, token, step]);
+
+  // Guarda ao ENTRAR em cada fase — uma vez por cobrança e fase, pra que o
+  // poll de 4 s não empurre a validade pra frente pra sempre.
+  useEffect(() => {
+    if (!charge || (step !== 'pagar' && step !== 'pago')) return;
+    const checkId = charge.checkId ?? (view ? view.check.id : null);
+    if (!checkId) return;
+    // A marca entra seu ms depois da cobrança (`refDoPagamento` é assíncrono):
+    // ela faz parte da chave, senão a cobrança ficava guardada sem ela.
+    const como = `${charge.txid}:${step}:${ownRef ?? ''}`;
+    if (guardadoComo.current === como) return;
+    guardadoComo.current = como;
+    guardarCobranca(token, { checkId, charge, ownRef, fase: step, paidAt, guardadaEm: Date.now() });
+  }, [step, charge, ownRef, paidAt, view, token]);
+
+  /**
    * O RECIBO SE PRENDE À CONTA EM QUE A COBRANÇA NASCEU.
    *
    * Há quatro `setStep('pago')`: o Pix automático, o "Simular" da demo, a
@@ -623,6 +658,12 @@ export default function App() {
   const isBizumCharge = charge?.method === 'bizum';
 
   if (step === 'pagar' && charge) {
+    const minhaCaiu = ownRef !== null
+      && Object.values(view.state.payments || {}).some((p) => p.ref === ownRef);
+    const aviso = avisoDaCobranca({
+      faltaCents: remaining, cobrancaCents: charge.amountCents, minhaCaiu,
+      contaDaCobranca: charge.checkId ?? null, contaViva: view.check.id,
+    });
     return (
       <Shell>
         <header className="head">
@@ -641,37 +682,58 @@ export default function App() {
           {charge.tipCents > 0 && (
             <p className="muted small">{t('pix.includesTip', { amount: brl(charge.tipCents) })}</p>
           )}
-          {isBizumCharge ? (
-            // Bizum: quem autoriza é o banco do pagador, no app dele. Não há
-            // nada pra copiar, então não há botão de copiar.
-            <p className="muted small center">{t('bizum.how')}</p>
+          {aviso !== 'ok' ? (
+            // O CÓDIGO NÃO SE OFERECE MAIS. Nem o copia-e-cola, nem o "Simular":
+            // a mesa já não deve o que ele cobra. Ver `pix-vivo.ts`.
+            <>
+              <p className="muted center" role="alert" style={{ color: 'var(--erro)' }}>
+                {aviso === 'mesa_paga' ? t('pix.stopPaid')
+                  : aviso === 'conta_trocou' ? t('pix.stopChanged')
+                  : t('pix.stopOver', { left: brl(remaining), amount: brl(charge.amountCents) })}
+              </p>
+              <button className="cta" onClick={() => { esquecerCobranca(token); setStep('conta'); void refresh(); }}>
+                {t('pix.stopBack')}
+              </button>
+            </>
           ) : (
             <>
-              <div className="codebox selectable" aria-label={t('pix.aria')}>
-                {charge.copiaECola ?? ''}
-              </div>
-              <button className="cta" onClick={onCopy}>
-                {copied ? t('pix.copied') : t('pix.copy')}
+            {isBizumCharge ? (
+              // Bizum: quem autoriza é o banco do pagador, no app dele. Não há
+              // nada pra copiar, então não há botão de copiar.
+              <p className="muted small center">{t('bizum.how')}</p>
+            ) : (
+              <>
+                <div className="codebox selectable" aria-label={t('pix.aria')}>
+                  {charge.copiaECola ?? ''}
+                </div>
+                <button className="cta" onClick={onCopy}>
+                  {copied ? t('pix.copied') : t('pix.copy')}
+                </button>
+                {copyFailed && <p className="muted small center" role="status">{t('pix.copyFailed')}</p>}
+                <p className="muted small center">
+                  {t('pix.how')}
+                </p>
+              </>
+            )}
+            {/* O botão de SIMULAR só na casa de demonstração. Aparecia pra todo
+                cliente de verdade, embaixo do Pix de verdade, até um toque devolver
+                404 (auditorias de fluxo H2 e de UI H3). */}
+            {venue.demo === true && !demoGone && (
+              <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
+                {confirming ? t('pix.simulating') : t('pix.simulate')}
               </button>
-              {copyFailed && <p className="muted small center" role="status">{t('pix.copyFailed')}</p>}
-              <p className="muted small center">
-                {t('pix.how')}
-              </p>
+            )}
+            {confirmError && <p className="muted small" style={{ color: 'var(--erro)' }}>{confirmError}</p>}
+            {/* Este telefone não consegue calcular a própria marca: avisa, em vez
+                de esperar por um ✓ que não vem. */}
+            {ownRef === null && <p className="muted small center">{t('pix.noAutoConfirm')}</p>}
             </>
           )}
-          {/* O botão de SIMULAR só na casa de demonstração. Aparecia pra todo
-              cliente de verdade, embaixo do Pix de verdade, até um toque devolver
-              404 (auditorias de fluxo H2 e de UI H3). */}
-          {venue.demo === true && !demoGone && (
-            <button className="ghost" onClick={onDevConfirm} disabled={confirming}>
-              {confirming ? t('pix.simulating') : t('pix.simulate')}
-            </button>
+          {/* Voltar é desistir DESTE código: sai da memória, senão um recarregar
+              trazia de volta a tela de que a pessoa acabou de sair. */}
+          {aviso === 'ok' && (
+            <button className="linklike" onClick={() => { esquecerCobranca(token); setStep('conta'); }}>{t('common.back')}</button>
           )}
-          {confirmError && <p className="muted small" style={{ color: 'var(--erro)' }}>{confirmError}</p>}
-          {/* Este telefone não consegue calcular a própria marca: avisa, em vez
-              de esperar por um ✓ que não vem. */}
-          {ownRef === null && <p className="muted small center">{t('pix.noAutoConfirm')}</p>}
-          <button className="linklike" onClick={() => setStep('conta')}>{t('common.back')}</button>
         </section>
       </Shell>
     );
@@ -717,6 +779,7 @@ export default function App() {
               // ausente.
               setCharge(null);
               setPaidAt(null);
+              esquecerCobranca(token); // uma parte NOVA: o recibo desta fica no extrato, não na tela
               setStep('conta');
               void refresh();
             }}>
