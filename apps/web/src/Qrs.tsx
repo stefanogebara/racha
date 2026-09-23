@@ -1,30 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useT } from './lang';
+import { useT, LangToggle } from './lang';
 import { QRCodeSVG } from 'qrcode.react';
 import type { TablesView, VenueTable } from './api';
 import { authedReq as req } from './auth';
+import { tituloDaMesa, trilhoDoCartao, urlDaMesa } from './cartao-qr';
 
 /**
  * /qrs?v=<venueId> — folha de QRs das mesas, pronta para a gráfica. Warm Glass
  * na tela; no papel vira preto no branco (ver @media print em styles.css).
  * Atrás do login do dono (Gate.tsx), como /admin e /painel.
  *
- * O QR aponta SEMPRE para produção: o cartão vive na mesa por meses e não pode
- * depender de onde o dono abriu esta página (localhost/preview).
- * Mesas inativas e de treino ficam de fora da impressão.
+ * O que o cartão diz, e pra onde o QR aponta, mora em `cartao-qr.ts` — a mesma
+ * fonte do cartão avulso do `/admin`. Mesas inativas e de treino ficam de fora.
  */
-
-const PROD_ORIGIN = 'https://racha-gray.vercel.app';
-
-/**
- * "12" → "Mesa 12"; labels que já vêm como "Mesa 12" não viram "Mesa Mesa 12".
- *
- * O prefixo é TEXTO DE TELA (sai no idioma do dono, que é quem imprime); o
- * rótulo é palavra da CASA e passa inteiro. Por isso o teste de idioma também
- * dispensa `table`/`mesa`/`mesa` de serem diferentes entre si.
- */
-const mesaTitle = (label: string, t: (k: 'qrs.tableTitle', v: { label: string }) => string) =>
-  /^(mesa|table)\b/i.test(label.trim()) ? label.trim() : t('qrs.tableTitle', { label: label.trim() });
 
 export default function Qrs() {
   const { t, tErr } = useT();
@@ -67,26 +55,27 @@ export default function Qrs() {
         <p className="muted center noprint">{t('qrs.noneActive')}</p>
       ) : (
         <section className="qrgrid">
-          {printable.map((t) => <QrCard key={t.id} venueName={data.venue.name} table={t} />)}
+          {printable.map((t) => <QrCard key={t.id} venueName={data.venue.name} market={data.venue.market} table={t} />)}
         </section>
       )}
 
-      <footer className="foot noprint"><span>{t('qr.sheetNote')}</span></footer>
+      {/* O seletor de idioma, como em todo rodapé (CLAUDE.md): esta página não
+          tinha nenhum, e o idioma do cartão só mudava pela URL (auditoria, Q6). */}
+      <footer className="foot noprint"><span>{t('qr.sheetNote')}</span><LangToggle compact /></footer>
     </main>
   );
 }
 
-function QrCard({ venueName, table }: { venueName: string; table: VenueTable }) {
+function QrCard({ venueName, market, table }: { venueName: string; market?: string; table: VenueTable }) {
   const { t } = useT();
   return (
     <article className="qrcard">
       <p className="qrvenue">{venueName}</p>
       <div className="qrbox">
-        <QRCodeSVG value={`${PROD_ORIGIN}/?t=${table.qrToken}`} size={190} level="M" marginSize={2} />
+        <QRCodeSVG value={urlDaMesa(table.qrToken)} size={190} level="M" marginSize={2} />
       </div>
-      <h2 className="qrmesa">{mesaTitle(table.label, t)}</h2>
-      <p className="qrhint">{t('qr.scanToPay')}</p>
-      <p className="qrperks">{t('qr.perks')}</p>
+      <h2 className="qrmesa">{tituloDaMesa(table.label, (label) => t('qrs.tableTitle', { label }))}</h2>
+      <p className="qrhint">{t('qr.scanToPay', { rail: trilhoDoCartao(market) })}</p>
       <span className="qrbrand">racha</span>
     </article>
   );

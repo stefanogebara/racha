@@ -1224,12 +1224,12 @@ export const DICT = {
                         es: '¡Cuenta creada! Revisa tu correo para confirmar y luego entra.' },
 
   // ── cartões de QR ───────────────────────────────────────────────────────
-  'qr.scanToPay':     { en: 'Scan to see the bill, split it and pay by Pix',
-                        pt: 'Escaneie para ver a conta, dividir e pagar no Pix',
-                        es: 'Escanea para ver la cuenta, dividirla y pagar' },
-  'qr.sheetNote':     { en: 'racha · one card per table, 2 per A4 sheet',
-                        pt: 'racha · um cartão por mesa, 2 por folha A4',
-                        es: 'racha · una tarjeta por mesa, 2 por hoja A4' },
+  'qr.scanToPay':     { en: 'Scan to see the bill, split it and pay by {rail}',
+                        pt: 'Escaneie para ver a conta, dividir e pagar no {rail}',
+                        es: 'Escanea para ver la cuenta, dividirla y pagar con {rail}' },
+  'qr.sheetNote':     { en: 'racha · one card per table, 4 per A4 sheet',
+                        pt: 'racha · um cartão por mesa, 4 por folha A4',
+                        es: 'racha · una tarjeta por mesa, 4 por hoja A4' },
 
   // ── landing, texto de venda ─────────────────────────────────────────────
   'home.tagline':     { en: 'pay at the table',                pt: 'pagamento na mesa', es: 'pago en la mesa' },
@@ -1748,12 +1748,6 @@ export const DICT = {
   'rcpt.create':      { en: 'Create recipient',                pt: 'Criar recebedor', es: 'Crear cuenta de cobro' },
   'rcpt.cancel':      { en: 'cancel',                          pt: 'cancelar', es: 'cancelar' },
 
-  'admin.point':      { en: 'Point the camera · pay your share with Pix',
-                        pt: 'Aponte a câmera · pague sua parte por Pix',
-                        es: 'Apunta la cámara · paga tu parte' },
-  'qr.perks':         { en: '💳 Google Pay · 💰 House balance with bonus',
-                        pt: '💳 Google Pay · 💰 Saldo da casa com bônus',
-                        es: '💳 Google Pay · 💰 Saldo de la casa con bono' },
 
   // ── cartão (demo) ───────────────────────────────────────────────────────
   'card.demoCard':    { en: '•••• 4242 (demo)',                pt: '•••• 4242 (demo)', es: '•••• 4242 (demo)' },
