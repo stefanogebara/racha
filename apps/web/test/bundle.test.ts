@@ -270,7 +270,10 @@ test('todo trilho de terceiro exige bandeira por casa, e o servidor só a emite 
   // A MESMA forma que o resto do repositório usa pra recebedor (`pagarme-psp`,
   // `setupComplete`). Fixar `re_` aqui congelava uma cópia divergente.
   assert.match(emissao, /\^r\[ep\]_/, 'acceptsWallet sai sem exigir recebedor real, na forma canônica');
-  assert.match(emissao, /DEMO_TABLE_TOKEN/, 'a mesa de demo tem que ficar de fora do trilho real');
+  // A demo fica de fora pela decisão que PROVA a casa (`ehDemo`, de
+  // `contaEDaDemo`), não mais por comparar o token: o token sozinho tratava
+  // uma mesa real como demo (livro de abertos, HIGH; PR #19).
+  assert.match(emissao, /!ehDemo/, 'a mesa de demo tem que ficar de fora do trilho real');
 });
 
 /**
