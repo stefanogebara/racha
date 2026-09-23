@@ -680,224 +680,200 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 .shell.embed .servico span { display: flex; flex: 1; justify-content: space-between; gap: 8px; }
 
 /* ═══ LANDING ═══════════════════════════════════════════════════════════════
-   Uma composição, um trilho. Grade de 12 em toda seção: títulos em 1–4,
-   conteúdo em 5–12. Uma unidade (128). Réguas só dentro da coluna. Serif
-   itálica só na manchete e nos numerais. UM acento na página. */
-/* A LANDING É O PRESENCE INVERTIDO — a mesma tinta e o mesmo papel, trocados
-   de lugar.
-   O Presence tem uma seção inteira assim (`presence-trust-section`: fundo de
-   tinta, texto de papel, botão de papel cheio), e é exatamente o que esta
-   página é: um palco escuro com o produto claro no meio. Então ela não precisa
-   de paleta própria — precisa dos MESMOS dois valores, invertidos. O creme
-   quente (#F7F2E9) e o quase-preto quente (#141008) viraram `--ink` e `--papel`.
-   O ÂMBAR saiu. Ele era o único acento da página e não existe no sistema; o
-   coral faz o mesmo trabalho (é a cor de "olhe aqui" do Presence) e é o mesmo
-   coral do erro no app — uma cor, um significado, nas duas superfícies. */
-.landing {
-  --n: #161714; --cr: #F2F0EB;
-  --cr2: rgba(242,240,235,.86); --cr3: rgba(242,240,235,.72); --cr4: rgba(242,240,235,.52);
-  --fio: rgba(242,240,235,.16);
-  /* O `--acento` saiu junto com o âmbar: a parte que leva o centavo a mais
-     destaca por CONTRASTE (creme cheio contra creme apagado), não por cor —
-     coral quer dizer problema, e o centavo que sobra é o assunto da peça. */
-  --u: 128px; --col: 24px;
-  background: var(--n); color: var(--cr); min-height: 100vh; overflow-x: clip;
-  font: 400 16px/24px var(--ui);
-}
-.landing .env { width: 100%; max-width: 1200px; margin: 0 auto; padding-left: 40px; padding-right: 40px; box-sizing: border-box; }
-.landing .grade, .landing .heroi, .landing .prova, .landing .rodape { display: grid; grid-template-columns: repeat(12, 1fr); column-gap: var(--col); }
+   O SISTEMA PRESENCE, CLARO. Referência travada: `presence-marketing.css` do
+   twin-me — chão de papel com a grade de 12 colunas em fio, manchete Manrope
+   gigante e apertada, lede em serifa, pílula sólida de tinta, o produto MAIOR
+   que as palavras, e UMA faixa escura arredondada pousada na página.
 
-.landing .topo { display: flex; align-items: baseline; justify-content: space-between; padding-top: 44px; height: 94px; box-sizing: border-box; }
-.landing .marca { font: italic 400 30px/1 var(--serif); letter-spacing: -.02em; color: var(--cr); }
-.landing .topo nav { display: flex; align-items: baseline; gap: 28px; font: 400 13px/1 var(--ui); }
-/* ALVO de 24px (WCAG 2.2, 2.5.8): os links da barra tinham 13px de altura e os
-   do rodapé 20 — não são links inline numa frase, então não caem na exceção. O
-   padding vertical cresce; a tipografia não muda. */
-.landing .topo nav > a { color: var(--cr2); display: inline-flex; align-items: center; min-height: 24px; }
-.landing .topo nav > a:hover { color: var(--cr); }
-.landing .langtoggle { border: 0; background: transparent; padding: 0; gap: 14px; align-items: baseline; }
-.landing .langopt { color: var(--cr3); font: 500 11px/1 var(--ui); letter-spacing: .1em; padding: 0; border-radius: 0; }
+   A versão anterior era o Presence INVERTIDO — a página inteira em tinta —
+   porque lia o `presence-trust-section` como regra da página. No twin-me ele é
+   uma faixa DENTRO de uma página clara. Ler errado aquilo custou uma paleta
+   inteira (`--n`, `--cr`, `--cr2`, `--cr3`, `--cr4`) que só existia pra
+   inverter, e dezenove seletores que liam essa paleta e saíam sem cor fora do
+   escopo. Com o chão claro a paleta some: a landing usa os tokens da raiz,
+   os mesmos do app que ela mostra. */
+.landing {
+  --col: 24px;
+  background: var(--papel); color: var(--ink);
+  font: 400 16px/1.5 var(--ui);
+  /* Os entalhes soltos passam da borda do palco; sem isto viram rolagem
+     lateral numa janela estreita. */
+  overflow-x: clip;
+}
+/* A GRADE, pintada no chão em fio. É ela que faz a página parecer desenhada e
+   não vazia — sem ela, papel é só fundo claro. */
+.landing .chao {
+  background-image: linear-gradient(to right, transparent calc(100% - 1px), rgba(212, 210, 203, .5) 1px);
+  background-size: calc(100% / 12) 100%;
+}
+.landing .env { width: 100%; max-width: 1240px; margin: 0 auto;
+  padding-left: clamp(20px, 4vw, 56px); padding-right: clamp(20px, 4vw, 56px); box-sizing: border-box; }
+.landing .kicker { font: 500 10px/1 var(--ui); letter-spacing: .13em; text-transform: uppercase; color: var(--grafite); }
+
+/* ── barra ───────────────────────────────────────────────────────────── */
+.landing .topo { height: 72px; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--fio); }
+.landing .marca { font: italic 400 26px/1 var(--serif); letter-spacing: -.02em; color: var(--ink); }
+.landing .topo nav { display: flex; align-items: center; gap: 26px; font: 400 12px/1 var(--ui); }
+/* ALVO de 24px (WCAG 2.2, 2.5.8): link de barra, não link inline numa frase. */
+.landing .topo nav > a { color: var(--grafite); display: inline-flex; align-items: center; min-height: 24px; }
+.landing .topo nav > a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 5px; }
+.landing .langtoggle { border: 0; background: transparent; padding: 0; gap: 14px; align-items: center; }
+.landing .langopt { color: var(--grafite); font: 500 10px/1 var(--ui); letter-spacing: .1em; padding: 0; border-radius: 0; }
+.landing .langopt.on { background: transparent; color: var(--ink); }
 /**
- * E O ALVO DE TOQUE SOBREVIVE AO `padding: 0` DA LANDING.
+ * E O ALVO DE TOQUE SOBREVIVE AO `padding: 0`.
  *
- * O `::after` do app é `width: 100%` de propósito — 44 fixos faziam as três
- * áreas se encavalarem, e os pixels à direita do "EN" acionavam o "PT". Só que
- * ali o botão tem `padding: 6px 10px` e 100% dá 36px; aqui a landing zera o
- * padding, 100% vira a largura do glifo, e o alvo cai pra 16px de LARGURA —
- * abaixo do mínimo de 24 da WCAG 2.5.8, num controle que troca o idioma da
- * página inteira.
- *
- * A altura já estava certa (44). O que faltava era largura, e a landing tem
- * onde: o `gap` entre as opções é 14px, então crescer 12 deixa 2px de folga
- * entre vizinhas — 28px de alvo, sem encavalar, sem mover um pixel do que se
- * vê. Achado medindo no navegador, não lendo a folha: na fonte as duas regras
- * estão a cem linhas de distância e cada uma, sozinha, parece certa.
+ * O `::after` do app é `width: 100%` de propósito (44 fixos encavalavam as três
+ * áreas). Com o padding zerado, 100% vira a largura do glifo — 16px, abaixo do
+ * mínimo de 24. O `gap` de 14px dá onde crescer: +12 deixa 2px de folga.
  */
 .landing .langopt::after { width: calc(100% + 12px); }
-.landing .langopt.on { background: transparent; color: var(--cr); }
 
-/* Uma pílula de fio, na cor da página — nada colado de um tema claro. */
-/* 10px, como todo controle do sistema — a pílula era voz de outra casa. */
-.landing .btn {
-  display: inline-flex; align-items: center; gap: 8px; box-sizing: border-box;
-  height: 52px; padding: 0 26px; border-radius: 10px; border: 1px solid var(--cr3);
-  background: transparent; color: var(--cr); font: 500 14px/1 var(--ui); white-space: nowrap;
-  transition: background-color .3s var(--mola), color .3s var(--mola), border-color .3s var(--mola);
+/* ── herói: copy .88fr / produto 1.12fr ────────────────────────────────── */
+.landing .heroi { display: grid; grid-template-columns: minmax(0, .88fr) minmax(400px, 1.12fr);
+  gap: clamp(40px, 6vw, 96px); align-items: center;
+  padding-top: clamp(56px, 7vw, 104px); padding-bottom: clamp(56px, 7vw, 104px);
+  border-bottom: 1px solid var(--fio); }
+.landing .heroi > * { min-width: 0; }
+/* MANROPE PURA. Uma frase trocada pra serifa itálica, sem papel de conteúdo, é
+   a assinatura que a referência não tem e que o ofício chama de genérico. */
+.landing .heroi h1 { margin: 18px 0 24px; font: 400 clamp(44px, 6.4vw, 92px)/.92 var(--ui);
+  letter-spacing: -.055em; text-wrap: balance; max-width: 14ch; }
+.landing .heroi .sub { max-width: 46ch; color: var(--grafite);
+  font: 400 clamp(18px, 1.6vw, 23px)/1.34 var(--serif); text-wrap: pretty; }
+.landing .acoes { display: flex; align-items: center; gap: 22px; margin-top: 34px; flex-wrap: wrap; }
+/* A PÍLULA de tinta — `presence-dark-button--large`. Raio 10, como todo
+   controle do sistema. */
+.landing .pilula { min-height: 52px; padding: 0 22px; border: 1px solid var(--ink); border-radius: var(--rad-s);
+  background: var(--ink); color: var(--papel); display: inline-flex; align-items: center; gap: 10px;
+  font: 500 13px/1 var(--ui); white-space: nowrap;
+  transition: transform .15s var(--mola), background-color .25s var(--mola); }
+.landing .pilula:hover { transform: translateY(-1px); background: #272822; }
+.landing .pilula:active { transform: scale(.99); }
+.landing .elo { color: var(--grafite); font: 500 12px/1 var(--ui); min-height: 24px; display: inline-flex; align-items: center; }
+.landing .elo:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 5px; }
+.landing .fatos { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 34px; padding-top: 20px;
+  border-top: 1px solid var(--fio); color: var(--grafite); font: 400 11.5px/1.4 var(--ui); }
+.landing .fatos span { display: inline-flex; align-items: center; gap: 7px; }
+/* O ponto é MUSGO: dinheiro que entrou, que é o que as duas frases afirmam. */
+.landing .fatos span::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--musgo); flex: none; }
+
+/* ── o produto, na moldura ───────────────────────────────────────────── */
+.landing .palco { position: relative; }
+.landing .tela { position: relative; border: 1px solid var(--fio-forte); border-radius: var(--rad-p);
+  overflow: hidden; background: var(--papel-alto);
+  box-shadow: 0 2px 4px rgba(36, 36, 31, .04), 0 34px 90px rgba(36, 36, 31, .13); }
+.landing .tela-meta { height: 44px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--fio); color: var(--grafite);
+  font: 500 9px/1 var(--ui); letter-spacing: .09em; text-transform: uppercase; }
+.landing .tela-meta i { width: 6px; height: 6px; border-radius: 50%; background: var(--musgo); display: inline-block; margin-right: 7px; }
+/* A JANELA: altura fixa na tela, e o iframe desenhado a 430 e escalado pra
+   largura real da moldura (`--escala`, calculado no componente). O que não
+   cabe se alcança rolando lá dentro, como num telefone. */
+.landing .tela-janela { height: 600px; overflow: hidden; }
+.landing .tela-janela iframe { display: block; width: 430px; border: 0; background: var(--papel);
+  transform: scale(var(--escala, .83)); transform-origin: 0 0;
+  /* Em toque o dedo vai pro `.abrir`: um frame tocável no telefone engole a
+     rolagem da página. */
+  pointer-events: none; }
+.landing .abrir { position: absolute; inset: 44px 0 0 0; }
+@media (hover: hover) and (pointer: fine) {
+  /* PONTEIRO FINO: o produto de verdade, tocável ali mesmo. A legenda diz
+     "toque nele", e até aqui o `pointer-events: none` a desmentia. */
+  .landing .tela-janela iframe { pointer-events: auto; }
+  .landing .abrir { display: none; }
 }
-.landing .btn::after { content: "→"; font-family: var(--ui); }
-.landing .btn:hover { background: var(--cr); color: var(--n); border-color: var(--cr); }
-.landing .link { display: inline-flex; gap: 10px; align-items: baseline; margin-top: 40px; font: 500 13px/1 var(--ui); color: var(--cr); border-bottom: 1px solid var(--fio); padding-bottom: 6px; }
-.landing .link:hover { border-color: var(--cr); }
+.landing .dica { margin-top: 14px; text-align: center; color: var(--grafite); font: 400 11px/1.4 var(--ui); }
 
-/* ESCOPADA. `--cr2` só existe dentro do bloco `.landing`: a regra global
-   prometia um estilo que, fora da landing, sai sem cor nenhuma — o CSS
-   descarta `color` em silêncio e o elemento herda a do pai. Enquanto os dois
-   únicos usos estiverem na landing ninguém vê; o seletor é o que impede que o
-   terceiro uso, em outra tela, nasça sem cor. */
-.landing .eyebrow { font: 500 11px/1 var(--ui); letter-spacing: .13em; text-transform: uppercase; color: var(--cr2); }
+/* OS ENTALHES soltos em volta do telefone — escolha do dono. Em tinta, agora
+   que o chão é papel. Presos às quinas da moldura, e não a coordenadas do
+   layout antigo, que tinha o palco na coluna 9. */
+.landing .flut { position: absolute; display: block; background-color: var(--ink); opacity: .88; pointer-events: none;
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center; }
+.landing .flut.espeto { width: 190px; height: 190px; left: -128px; bottom: 36px; }
+.landing .flut.chopp  { width: 78px;  height: 78px;  right: -34px; top: -30px; rotate: -6deg; }
+.landing .flut.tampa  { width: 64px;  height: 64px;  right: -26px; bottom: 96px; rotate: 14deg; }
 
-/* ── herói: uma linha ──────────────────────────────────────────────────────
-   Manchete e os três gestos em 1–6; a tela em 8–12, o produto inteiro. */
-.landing .heroi { padding-top: 56px; align-items: start; }
-.landing .heroi .copy { grid-column: 1 / span 6; padding-top: 0; }
-.landing .heroi h1 { margin-top: 22px; display: flex; flex-direction: column; letter-spacing: -.03em; }
-.landing .heroi h1 span { font: 400 60px/.98 var(--ui); letter-spacing: -.06em; }
-.landing .heroi h1 em { font: italic 400 70px/1 var(--serif); letter-spacing: -.02em; margin-left: -.04em; margin-top: 10px; }
-.landing .heroi .sub { margin-top: 28px; max-width: 42ch; font: 400 20px/1.35 var(--serif); color: var(--cr2); text-wrap: pretty; }
-.landing .heroi .acoes { margin-top: 40px; display: flex; gap: 12px; flex-wrap: wrap; }
-.landing .btn.fantasma { border-color: transparent; color: var(--cr2); padding-left: 14px; }
-.landing .btn.fantasma::after { content: none; }
-.landing .btn.fantasma:hover { background: transparent; color: var(--cr); border-color: var(--fio); }
-/* O ANEL DE FOCO INVERTE JUNTO COM A SEÇÃO.
-   O anel global é `--azul` (#2F35FF), que dá 6,00:1 sobre o papel e 2,63:1 sobre
-   a tinta da landing — reprova o mínimo de 3:1 de componente (WCAG 1.4.11) em
-   TODOS os sete controles desta página. O creme dá 15,8:1 e é a mesma inversão
-   que a seção já faz com o resto. */
-.landing :focus-visible { outline-color: var(--cr); }
+/* ── os passos: LISTA REGRADA, não cartões ─────────────────────────────
+   A referência usa cartões aqui. O ofício diz que cartão só se justifica
+   quando contém interação; 01/02/03 é uma SEQUÊNCIA, então ganha réguas. */
+.landing .passos-secao { padding-top: clamp(52px, 6vw, 88px); padding-bottom: clamp(52px, 6vw, 88px);
+  border-bottom: 1px solid var(--fio); }
+.landing .passos { list-style: none; margin-top: 30px; border-top: 1px solid var(--fio); }
+.landing .passos li { display: grid; grid-template-columns: 52px 150px 1fr; column-gap: var(--col);
+  align-items: baseline; padding: 20px 0; border-bottom: 1px solid var(--fio); }
+/* O número em AZUL: é o passo em que se está — o significado que o sistema dá
+   à cor. É também o que a referência faz com os passos dela. */
+.landing .passos .num { font: 500 11px/1.6 var(--ui); letter-spacing: .08em; color: var(--azul); font-variant-numeric: tabular-nums; }
+.landing .passos .tit { font: 500 16px/1.6 var(--ui); letter-spacing: -.01em; }
+.landing .passos .desc { color: var(--grafite); font: 400 16px/1.5 var(--serif); }
 
-/* Os três gestos: espinha curta, na coluna da manchete, ao lado do produto. */
-.landing .passos { list-style: none; margin-top: 84px; border-top: 1px solid var(--fio); }
-.landing .passos li { display: grid; grid-template-columns: 48px 96px 1fr; column-gap: var(--col); align-items: baseline; padding: 18px 0; }
-.landing .passos li:first-child { padding-top: 22px; }
-.landing .passos .num { font: 500 10px/26px var(--ui); color: var(--cr4); font-variant-numeric: tabular-nums; letter-spacing: .1em; }
-.landing .passos .tit { font: 500 15px/26px var(--ui); color: var(--cr); letter-spacing: -.02em; }
-.landing .passos .desc { font: 400 16px/1.35 var(--serif); color: var(--cr2); }
+/* ── a prova: o RAZÃO de três pagamentos ───────────────────────────────── */
+.landing .prova { padding-top: clamp(64px, 8vw, 112px); padding-bottom: clamp(64px, 8vw, 112px); }
+/* Largura contida: a tabela cheia jogava o valor tão longe do trilho que o
+   olho perdia a linha. */
+.landing .razao { width: 100%; max-width: 940px; margin-top: 30px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+/* Cabeçalho em GRAFITE, não faint: é texto (4,5:1), e faint dá 3,36:1. */
+.landing .razao th { padding: 0 0 12px; border-bottom: 1px solid var(--fio); text-align: left;
+  font: 500 10px/1 var(--ui); letter-spacing: .11em; text-transform: uppercase; color: var(--grafite); }
+.landing .razao th:last-child, .landing .razao td:last-child { text-align: right; }
+.landing .razao td { padding: 18px 0; border-bottom: 1px solid var(--fio);
+  font: 400 clamp(15px, 1.4vw, 17px)/1.4 var(--ui); color: var(--grafite); }
+.landing .razao .quem { color: var(--ink); font-weight: 500; }
+.landing .razao .pago { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.landing .razao .pago i { width: 6px; height: 6px; border-radius: 50%; background: var(--musgo); flex: none; }
+.landing .razao .valor { color: var(--ink); font-size: clamp(16px, 1.5vw, 19px); }
+.landing .razao tfoot td { border-bottom: 0; padding-top: 22px; }
+.landing .razao tfoot .quem { font: 500 11px/1 var(--ui); letter-spacing: .11em; text-transform: uppercase; color: var(--grafite); }
+/* O TOTAL em serifa: a voz que o app dá ao número grande (`.bigmoney`). */
+.landing .razao tfoot .valor { font: italic 400 clamp(30px, 3.6vw, 46px)/1 var(--serif); letter-spacing: -.03em; }
+.landing .prova .cap { max-width: 52ch; margin-top: 30px; color: var(--grafite);
+  font: 400 clamp(17px, 1.5vw, 21px)/1.4 var(--serif); text-wrap: pretty; }
 
-/* A tela: colunas 9–12 da grade (a borda esquerda numa linha da grade). O
-   app renderizado a 430px (a largura da concha) e reduzido à coluna. Fio de
-   1px; nada de sombra. Um estado, não o app — quem clica abre o app. */
-/* O palco: a tela nas colunas 9–12, os entalhes soltos em volta dela. */
-.landing .palco { grid-column: 9 / span 4; position: relative; align-self: start; }
-.landing .flut { position: absolute; display: block; background-color: var(--cr); opacity: .92; pointer-events: none;
-  -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; }
-.landing .flut.espeto { width: 270px; height: 270px; left: -215px; top: 400px; rotate: 0deg; }
-.landing .flut.chopp { width: 92px;  height: 92px;  right: -104px; top: 36px; rotate: -6deg; }
-.landing .flut.tampa { width: 92px; height: 92px; right: -108px; top: 480px; rotate: 14deg; }
-/* E ELES CABEM na largura de desktop mais comum.
-   A 1280 o chopp saía 29px pra fora da janela e a tampa 38px — 41% do bloco —, e
-   como o `.landing` tem `overflow-x: clip` não havia barra pra denunciar: eles
-   simplesmente apareciam decepados. A decisão #36 diz que a ilustração é a marca
-   e fica; ela estava ficando pela metade. Medido no navegador. */
-@media (max-width: 1360px) {
-  .landing .flut.chopp { right: -68px; }
-  .landing .flut.tampa { right: -64px; }
+/* ── A ÚNICA FAIXA ESCURA: um painel arredondado POUSADO na página ─────── */
+.landing .casa { margin: clamp(40px, 5vw, 64px) clamp(20px, 4vw, 56px) clamp(56px, 7vw, 88px);
+  padding: clamp(44px, 6vw, 76px) clamp(28px, 5vw, 72px);
+  border-radius: var(--rad-p); background: var(--ink); color: var(--papel); }
+/* Papel a 64%/78% sobre tinta: 7,9:1 e 11,3:1 — medidos, não estimados. */
+.landing .casa .kicker { color: rgba(242, 240, 235, .64); }
+.landing .casa h2 { max-width: 24ch; margin: 26px 0 0; font: 400 clamp(28px, 3.4vw, 48px)/1.06 var(--ui);
+  letter-spacing: -.045em; text-wrap: balance; }
+.landing .casa .itens { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0 var(--col); margin-top: 38px; border-top: 1px solid rgba(242, 240, 235, .2); }
+.landing .casa .itens li { padding: 16px 0; border-bottom: 1px solid rgba(242, 240, 235, .2);
+  color: rgba(242, 240, 235, .78); font: 400 15px/1.4 var(--serif); }
+/* A pílula invertida — a de `presence-trust-section`: papel cheio, tinta. */
+.landing .casa .pilula { border-color: var(--papel); background: var(--papel); color: var(--ink); margin-top: 32px; }
+.landing .casa .pilula:hover { background: var(--papel-alto); }
+
+/* ── rodapé ──────────────────────────────────────────────────────────── */
+.landing .rodape { padding-top: 30px; padding-bottom: 56px; border-top: 1px solid var(--fio);
+  display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-between; align-items: baseline;
+  color: var(--grafite); font: 400 12px/1.4 var(--ui); }
+.landing .rodape nav { display: flex; gap: 24px; }
+.landing .rodape nav a { color: var(--grafite); display: inline-flex; align-items: center; min-height: 24px; }
+.landing .rodape nav a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 5px; }
+
+@media (max-width: 1100px) {
+  /* Os entalhes precisam de margem pra flutuar; sem ela, encostam na copy. */
+  .landing .flut { display: none; }
 }
-.landing .palco .dica { margin-top: 18px; text-align: center; font: 400 13px/18px var(--ui); color: var(--cr4); }
-.landing .tela {
-  /* `--escala` é a razão entre a largura desenhada do app (430) e a da coluna
-     (357): o iframe renderiza a 430 e é reduzido por `transform`. Havia um
-     `--w: 357px` ao lado que ninguém lia — o `.tela` usa `width: 100%`. */
-  --escala: calc(357 / 430);
-  align-self: start; display: block;
-  width: 100%; height: calc(var(--h, 812px) * var(--escala)); border-radius: 22px; overflow: hidden; box-sizing: border-box;
-  background: #fff; box-shadow: 0 0 0 1px var(--fio); cursor: pointer;
+@media (max-width: 920px) {
+  .landing .heroi { grid-template-columns: 1fr; gap: 44px; padding-top: 44px; }
+  .landing .heroi h1 { max-width: none; }
+  .landing .tela-janela { height: 520px; }
+  .landing .passos li { grid-template-columns: 44px 1fr; row-gap: 2px; }
+  .landing .passos .desc { grid-column: 2; }
+  .landing .chao { background-size: calc(100% / 4) 100%; }
 }
-.landing .tela iframe { display: block; width: 430px; height: var(--h, 812px); border: 0; background: #fff; pointer-events: none;
-  transform: scale(var(--escala)); transform-origin: 0 0; }
-
-/* ── a prova: seção própria, na grade ─────────────────────────────────────── */
-.landing .prova { padding-top: 168px; row-gap: 0; }
-.landing .prova .eyebrow { grid-column: 1 / -1; }
-.landing .prova .eq { grid-column: 1 / -1; display: flex; align-items: baseline; margin-top: 20px; }
-/* AS PARTES SÃO MENORES QUE O TOTAL — e não era escolha de hierarquia, era um
-   defeito de layout. Com a mesma medida da equação, cada cifra passava de 390px
-   dentro de uma célula de ~376px e as três encostavam umas nas outras:
-   "R$ 79,03R$ 79,03R$ 79,04", numa seção cujo assunto é que a conta fecha ao
-   centavo. Visto no navegador a 1280px. Menores, elas cabem — e a hierarquia
-   fica certa de brinde: o total é a pergunta, as partes são a resposta. */
-.landing .eq .n { font: italic 400 clamp(64px, 7.6vw, 108px)/1.02 var(--serif); letter-spacing: -.035em; font-variant-numeric: tabular-nums; color: var(--cr); }
-.landing .partes .n { font: italic 400 clamp(40px, 5vw, 72px)/1.05 var(--serif); letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--cr); }
-/* ÷ e = desenhados no eixo matemático (meia altura das cifras), na cor quieta. */
-.landing .eq .op { display: inline-flex; flex-direction: column; align-items: center; gap: .13em; align-self: flex-end; margin: 0 .3em 0 .28em; translate: 0 -.26em; font-size: clamp(64px, 7.6vw, 108px); }
-.landing .eq .op i { width: .1em; height: .1em; border-radius: 50%; background: var(--cr3); }
-.landing .eq .op b { width: .5em; height: .045em; background: var(--cr3); }
-.landing .eq .igual { gap: .16em; translate: 0 -.22em; }
-.landing .partes { grid-column: 1 / -1; list-style: none; display: grid; grid-template-columns: repeat(12, 1fr); column-gap: var(--col); margin-top: 8px; }
-.landing .partes li { grid-column: span 4; }
-/* O CENTAVO QUE SOBRA NÃO É UM PROBLEMA, e coral quer dizer problema.
-   A semântica declarada no topo deste arquivo é explícita: coral = erro, ou
-   dinheiro que a casa DEVE. Uma parte de R$ 79,04 numa seção cujo assunto é que
-   a divisão fecha AO CENTAVO não é nenhum dos dois — pintá-la de coral diz "aqui
-   tem um problema" na peça que existe pra dizer que não tem.
-   O destaque continua, feito com a única coisa que a página já usa pra destacar:
-   contraste. As irmãs recuam pro creme apagado; ela fica no creme cheio. */
-.landing .partes li .n { color: var(--cr3); }
-.landing .partes .acento .n { color: var(--cr); }
-.landing .prova .cap { grid-column: 1 / span 7; margin-top: 48px; font: 400 24px/1.3 var(--serif); color: var(--cr2); text-wrap: pretty; }
-
-/* ── seções: um trilho ────────────────────────────────────────────────────── */
-.landing .secao { padding-top: 112px; }
-.landing .grade { align-items: start; }
-.landing .grade > :first-child { grid-column: 1 / span 4; }
-.landing .grade > :last-child  { grid-column: 5 / span 8; }
-.landing .h2 { font: 400 30px/1.05 var(--ui); letter-spacing: -.045em; color: var(--cr); max-width: 14ch; }
-
-/* Para a casa: prosa em escala de manchete, sem números, sem réguas. */
-.landing .manifesto { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--col); row-gap: 28px; border-top: 1px solid var(--fio); padding-top: 28px; }
-.landing .manifesto p { font: 400 21px/1.35 var(--serif); color: var(--cr); text-wrap: pretty; max-width: 20em; }
-.landing .manifesto p:first-child { grid-column: 1 / -1; font-size: 30px; line-height: 38px; max-width: 24em; }
-.landing .manifesto p:nth-child(n+2) { color: var(--cr2); }
-.landing .casa .link { margin-top: 48px; }
-.landing .link { min-height: 24px; }
-
-/* Colofão: uma régua inteira, depois quatro colunas na grade. */
-.landing .rodape { margin-top: 96px; padding-bottom: 48px; font: 400 14px/20px var(--ui); color: var(--cr3); row-gap: 0; align-items: baseline; }
-.landing .rodape hr { grid-column: 1 / -1; border: 0; border-top: 1px solid var(--fio); margin: 0 0 28px; }
-.landing .rodape > span:not(.legal) { grid-column: 1 / span 4; white-space: nowrap; }
-.landing .rodape nav { grid-column: 5 / span 4; display: flex; gap: 28px; }
-.landing .rodape nav a { color: var(--cr2); border-bottom: 1px solid var(--fio); padding-bottom: 2px;
-  display: inline-flex; align-items: center; min-height: 24px; }
-.landing .rodape nav a:hover { color: var(--cr); border-color: var(--cr); }
-.landing .rodape .legal { grid-column: 9 / span 4; justify-self: end; text-align: right; color: var(--cr4); }
-
-@media (max-width: 980px) {
-  .landing { --u: 88px; }
-  .landing .env { padding-left: 24px; padding-right: 24px; }
-  .landing .heroi { grid-template-columns: 1fr; padding-top: 32px; row-gap: 48px; }
-  /* Sem isto o herói era 430px de largura num telefone de 390: o `.tela iframe`
-     tem largura FIXA de 430px (o app é desenhado nessa medida e depois reduzido
-     por `transform`, que não muda o tamanho de layout), e um item de grade nasce
-     com `min-width: auto` — então o mínimo do item virou o mínimo da coluna, e a
-     coluna arrastou o TEXTO junto. Resultado visto no navegador a 390px: "Fala o
-     que foi de quem." cortado no "quer", e o corte não dava nem pra rolar, porque
-     o pai esconde o excesso. Numa página que existe pra dizer que o cliente paga
-     pelo telefone, essa é a primeira frase que ele não consegue ler. */
-  .landing .heroi > * { min-width: 0; }
-  .landing .heroi .copy { grid-column: 1; padding-top: 0; }
-  .landing .palco { grid-column: 1; justify-self: center; width: min(357px, 100%); }
-  .landing .tela { width: 100%; } .landing .flut { display: none; }
-  .landing .heroi h1 span { font-size: 40px; } .landing .heroi h1 em { font-size: 52px; }
-  .landing .passos { margin-top: 56px; }
-  .landing .passos li { grid-template-columns: 40px 1fr; } .landing .passos .desc { grid-column: 2; }
-  .landing .prova { grid-template-columns: 1fr; }
-  .landing .prova .eyebrow, .landing .prova .eq, .landing .partes { grid-column: 1; }
-  .landing .eq .n, .landing .eq .op { font-size: clamp(44px, 11vw, 64px); }
-  .landing .partes .n { font-size: clamp(36px, 9vw, 52px); }
-  .landing .partes { grid-template-columns: 1fr; row-gap: 8px; } .landing .partes li { grid-column: 1; }
-  .landing .prova .cap { grid-column: 1; font-size: 20px; line-height: 28px; margin-top: 32px; }
-  .landing .grade { grid-template-columns: 1fr; row-gap: 24px; }
-  .landing .grade > :first-child, .landing .grade > :last-child { grid-column: 1; }
-  .landing .manifesto { grid-template-columns: 1fr; } .landing .manifesto p, .landing .manifesto p:first-child { font-size: 20px; line-height: 28px; }
-  .landing .rodape { grid-template-columns: 1fr; row-gap: 12px; }
-  .landing .rodape > * { grid-column: 1 !important; justify-self: start !important; text-align: left !important; }
+@media (max-width: 560px) {
+  /* A coluna "Como" some no telefone: nome, hora e valor contam a história;
+     o trilho já está no kicker da seção e em todo o resto da página. */
+  .landing .razao th:nth-child(3), .landing .razao td:nth-child(3) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing .pilula { transition: none; }
 }

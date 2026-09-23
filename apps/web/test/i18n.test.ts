@@ -169,6 +169,9 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     // inglês ganha "Tax ID (…)" porque um leitor de inglês não sabe o que a
     // sigla é; português e espanhol sabem, e repetir a sigla é o certo.
     'rcpt.taxIdCnpj:pt=es', 'rcpt.taxIdNif:pt=es',
+    // O razão da landing: "Hora" e "{rail} confirmado" se escrevem igual em
+    // português e espanhol — conferido palavra por palavra.
+    'land.lTime:pt=es', 'land.lConfirmed:pt=es',
   ]);
   // Compara TODOS os pares, não só en/pt: com três idiomas, uma cópia entre
   // espanhol e português passa tão fácil quanto passava entre inglês e

@@ -59,9 +59,15 @@ for (const src of fontes()) {
 }
 
 test('nenhuma `var(--x)` aponta pra token que não existe', () => {
-  // `--h` é a altura do embed da landing: declarada por `style` inline no JSX
+  // `--escala` é a razão entre a moldura do produto na landing e a largura pra
+  // qual o produto é desenhado: quem a declara é o `style` inline do
+  // componente, porque só um `ResizeObserver` sabe a largura real — e o CSS lê
   // com um padrão no próprio `var()`. Fica de fora, nomeada.
-  const DISPENSADOS = new Set(['--h']);
+  //
+  // (`--h` estava aqui até a landing em papel. A altura do embed deixou de ser
+  // medida — o painel virou uma janela que rola —, e uma dispensa pra um token
+  // que ninguém mais usa é uma guarda pra nada.)
+  const DISPENSADOS = new Set(['--escala']);
   const orfas = [...usados.keys()].filter((t) => !declarados.has(t) && !DISPENSADOS.has(t)).sort();
   assert.deepEqual(orfas, [],
     `\n${orfas.join('\n')}\nO CSS descarta a propriedade em silêncio: o elemento herda a cor do pai `
@@ -81,14 +87,11 @@ test('nenhuma `var(--x)` aponta pra token que não existe', () => {
  * As DISPENSAS são declaradas, com motivo — não por silêncio.
  */
 test('nenhum token declarado fica sem leitor', () => {
-  const DISPENSADOS = new Map([
-    // Os tokens de ESCOPO da landing: declarados no bloco `.landing` e lidos lá
-    // dentro pelas próprias regras, que esta varredura conta junto — ficam
-    // listados porque a varredura não distingue escopo.
-    ['--n', 'chão da landing, lido pelas regras do próprio bloco'],
-    ['--u', 'unidade de ritmo da landing'],
-    ['--escala', 'razão do embed, lida no `calc` do `.tela`'],
-  ]);
+  // Vazia de propósito. Moravam aqui `--n`, `--u` e `--escala`, tokens de
+  // escopo da landing escura; a landing em papel usa os tokens da raiz, e os
+  // três deixaram de existir. Uma dispensa que nomeia um token inexistente não
+  // dispensa nada — só ensina que a lista pode ter sobra.
+  const DISPENSADOS = new Map<string, string>([]);
   const semLeitor = [...declarados]
     .filter((t) => !usados.has(t) && !DISPENSADOS.has(t))
     .sort();
@@ -110,9 +113,14 @@ test('o censo ENXERGA — medido sobre fonte sintética', () => {
   assert.deepEqual(achadas, ['--nao-existe-mesmo']);
   // E o conjunto de declarados não pode ter vindo vazio.
   assert.ok(declarados.size > 30, `só ${declarados.size} tokens declarados — a varredura quebrou`);
-  // E ENXERGA os do escopo da landing, que são declarados vários por linha —
-  // a forma que a primeira versão desta varredura não via.
-  for (const t of ['--cr', '--cr3', '--cr4', '--col']) {
-    assert.ok(declarados.has(t), `${t} é declarado em styles.css e a varredura não viu`);
-  }
+  // E ENXERGA declarações VÁRIAS POR LINHA — a forma que a primeira versão
+  // desta varredura não via. Esta prova usava tokens reais (`--cr`, `--cr3`,
+  // `--cr4`), e eles sumiram com a landing escura: prova que depende de um
+  // token específico existir morre quando ele morre. Agora é fonte sintética,
+  // pela MESMA expressão que monta `declarados`.
+  const variasPorLinha = '.x { --um: 1px; --dois: 2px; --tres: 3px; }';
+  const vistos = new Set([...variasPorLinha.replace(/var\(\s*--[a-z0-9-]+/g, 'var(')
+    .matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+  assert.deepEqual([...vistos].sort(), ['--dois', '--tres', '--um']);
+  assert.ok(declarados.has('--col'), '--col é declarado no bloco `.landing` e a varredura não viu');
 });
