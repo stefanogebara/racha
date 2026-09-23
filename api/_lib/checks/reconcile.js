@@ -21,6 +21,7 @@ const {
   reduce, paidAfterClose, sobraPorPagamento, estornoDoTrilho, marcadoComoDisputa,
 } = require('./check-state');
 const houseState = require('../house/account-state');
+const { idadeSemOpened } = require('./conta-sem-opened');
 
 /**
  * @param {object} input
@@ -29,7 +30,7 @@ const houseState = require('../house/account-state');
  * @param {Array} input.payments      payment rows: { txid, amountCents, tipCents, status }
  * @returns {{ checkId: string, ok: boolean, driftCents: number, findings: Array }}
  */
-function reconcileCheck({ checkId, events, payments }) {
+function reconcileCheck({ checkId, events, payments, openedAt, nowMs }) {
   const findings = [];
   const add = (severity, code, msg, extra = {}) =>
     findings.push({ severity, code, message: msg, ...extra });
@@ -41,6 +42,20 @@ function reconcileCheck({ checkId, events, payments }) {
     // reduce() is total, but guard anyway — a throw here is itself a finding.
     add('critical', 'reduce_threw', `event log could not be reduced: ${err.message}`);
     return { checkId, ok: false, driftCents: 0, findings };
+  }
+
+  // 0. A CONTA SEM `OPENED`. Razão vazio é `null` no redutor, e este módulo
+  // passava por ela sem achado nenhum: a conta órfã — linha gravada, `OPENED`
+  // nunca — trancava a mesa (o índice de uma aberta por mesa) e a conciliação
+  // dizia `ok`. Passada a janela normal de abertura, é `critical`, e `critical`
+  // pagina. Sem idade conhecida também: na dúvida, alarme (`conta-sem-opened.js`).
+  if (state === null && (!Array.isArray(events) || events.length === 0)) {
+    const { idadeMs, orfa } = idadeSemOpened(openedAt, nowMs);
+    if (orfa) {
+      add('critical', 'check_without_opened',
+        'check row exists with no OPENED event — the table cannot open a new check until this is repaired',
+        { ageSeconds: idadeMs == null ? null : Math.round(idadeMs / 1000) });
+    }
   }
 
   // 1. Event-log anomalies are reconciliation findings in their own right.
@@ -1425,7 +1440,11 @@ async function reconcileVenue(store, venueId, opts = {}) {
    */
   const daCasa = acharServicoNuncaArrecadado(inputs);
   pia.venueFindings = daCasa;
-  const results = inputs.map(reconcileCheck);
+  // A HORA entra aqui, uma vez pra casa inteira: `reconcileCheck` é puro e
+  // precisa dela pra separar a conta abrindo agora da órfã. E não pelo `map`
+  // direto — ele passaria o ÍNDICE como segundo argumento.
+  const agoraMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now();
+  const results = inputs.map((i) => reconcileCheck({ ...i, nowMs: agoraMs }));
   /**
    * OS ACHADOS DE AGREGADO ENTRAM NO SUMIDOURO — uma fonte, não duas.
    *

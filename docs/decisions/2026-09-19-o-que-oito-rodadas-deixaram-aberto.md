@@ -446,16 +446,22 @@ num dos sítios.
 
 **Gatilho:** nenhum — é o próximo PR. Precisa de censo dos sete sítios.
 
-### A janela entre inserir a conta e gravar o `OPENED` — LOW, anterior
+### A janela entre inserir a conta e gravar o `OPENED` — LOW, anterior, PARCIAL
 
 `supabase.js`: o `openCheck` grava a linha e, noutra ida ao banco, o `OPENED`.
-Toda leitura nesse intervalo faz `reduce([])` → `null` → `state.status` lança →
+Toda leitura nesse intervalo fazia `reduce([])` → `null` → `state.status` lança →
 500. Acontece em qualquer mesa quando o garçom abre a conta enquanto alguém
-sonda; a renovação da demo passa a provocar em rebanho. O cliente mantém a tela
-e mostra só o aviso de desatualizado.
+sonda; a renovação da demo passa a provocar em rebanho.
 
-**Gatilho:** o primeiro 500 de `/api/check` que o monitoramento de produção
-registrar, ou o primeiro adaptador de POS que abra contas em lote.
+**Fechado em 2026-09-23 (PR #16):** todo leitor pula a conta sem `OPENED` — a
+leitura pública, o painel do dono, a lista de mesas —, e nenhum lança. A
+primeira versão do pulo era muda, e as duas revisões da quarta rodada a
+recusaram: por isso, **passados 30 s** (`conta-sem-opened.js`), cada pulo
+escreve `[conta-sem-opened] check=<id> idade=<s> em=<leitor>`.
+
+**Gatilho** (o antigo, "o primeiro 500 de `/api/check`", não pode mais
+disparar — o pulo o matou): a primeira linha `[conta-sem-opened]` no log de
+produção, ou o primeiro adaptador de POS que abra contas em lote.
 
 ### O aviso de privacidade da demo nomeia um controlador que não existe — MEDIUM, anterior, PARCIAL
 
@@ -492,6 +498,13 @@ nulo. Medido pela revisão de segurança num Postgres com as 36 migrações: a m
 morre até alguém rodar SQL à mão. Vale pra QUALQUER mesa, não só a demo — a
 renovação só a torna mais frequente em rebanho. O conserto é uma RPC que insere e
 grava o `OPENED` na mesma transação.
+
+**O que mudou em 2026-09-23 (PR #16):** a mesa ainda tranca, mas não em
+silêncio. A leitura e o painel escrevem `[conta-sem-opened]` depois de 30 s, e
+a conciliação diária emite achado `critical` `check_without_opened` — que pinta
+a casa de vermelho e acorda o fundador (inegociável #8). O store de memória
+passou a trancar a mesa como o índice do Postgres; antes ele deixava abrir
+outra conta por cima, e o teste de "mesa trancada" era verde aqui e falso lá.
 
 **Gatilho:** nenhum — é o próximo PR depois do `/api/pay` da demo.
 

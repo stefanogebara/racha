@@ -35,6 +35,19 @@ const { disputeCounts } = require('../checks/disputes');
 
 const crypto = require('crypto');
 const { reduce, paidAfterClose } = require('../checks/check-state');
+const { idadeSemOpened, linhaDeAlarme } = require('../checks/conta-sem-opened');
+
+/**
+ * A conta OCUPA a mesa? — a regra do índice `checks_one_open_per_table` do
+ * Postgres, que é sobre a COLUNA `status <> 'fechada'`, não sobre o razão. Uma
+ * conta sem `OPENED` (a órfã) ocupa: lá ela tranca a mesa com 409. Este store
+ * deixava abrir outra por cima — o teste de "mesa trancada" passava verde aqui
+ * e era falso em produção (segurança, quarta rodada, M-2).
+ */
+function ocupaAMesa(evs) {
+  const st = reduce(evs || []);
+  return !st || st.status !== 'fechada';
+}
 const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const houseState = require('../house/account-state');
@@ -230,7 +243,7 @@ function createMemoryStore() {
         .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { numeric: true }))
         .map((t) => {
           const openCheck = [...checks.values()].find(
-            (c) => c.tableId === t.id && reduce(events.get(c.id) || []).status !== 'fechada',
+            (c) => c.tableId === t.id && ocupaAMesa(events.get(c.id)),
           );
           return {
             id: t.id, label: t.label, qrToken: t.qrToken,
@@ -271,7 +284,7 @@ function createMemoryStore() {
       if (!t) throw new Error('unknown table');
       if (!active) {
         const open = [...checks.values()].some(
-          (c) => c.tableId === t.id && reduce(events.get(c.id) || []).status !== 'fechada',
+          (c) => c.tableId === t.id && ocupaAMesa(events.get(c.id)),
         );
         if (open) throw new Error('table has an open check — close it before deactivating');
       }
@@ -284,11 +297,9 @@ function createMemoryStore() {
       // One open check per table — enforced synchronously here (no await
       // between the check and the insert), the memory analog of the supabase
       // partial unique index (checks_one_open_per_table).
-      const alreadyOpen = [...checks.values()].some((c) => {
-        if (c.tableId !== table.id) return false;
-        const st = reduce(events.get(c.id) || []);
-        return !!st && st.status !== 'fechada';
-      });
+      const alreadyOpen = [...checks.values()].some(
+        (c) => c.tableId === table.id && ocupaAMesa(events.get(c.id)),
+      );
       if (alreadyOpen) { const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; throw e; }
       const id = crypto.randomUUID();
       const totalCents = items.reduce((s, i) => s + i.priceCents, 0);
@@ -313,9 +324,15 @@ function createMemoryStore() {
       const check = [...checks.values()].find((c) => {
         if (c.tableId !== table.id) return false;
         // Sem `OPENED` a conta ainda não está aberta — o mesmo que o store do
-        // Supabase faz. Ver o comentário lá: era `TypeError` → 500.
+        // Supabase faz. Ver o comentário lá: era `TypeError` → 500. E pular
+        // não é calar: fora da janela, o alarme.
         const st = reduce(events.get(c.id) || []);
-        return Boolean(st) && st.status !== 'fechada';
+        if (!st) {
+          const { idadeMs, orfa } = idadeSemOpened(c.openedAt, Date.now());
+          if (orfa) process.stderr.write(linhaDeAlarme(c.id, idadeMs, 'getCheckByQrToken'));
+          return false;
+        }
+        return st.status !== 'fechada';
       });
       if (!check) return null;
       const venue = venues.get(table.venueId);
@@ -484,6 +501,7 @@ function createMemoryStore() {
         .filter((c) => c.venueId === venueId)
         .map((c) => ({
           checkId: c.id,
+          openedAt: c.openedAt,
           events: [...(events.get(c.id) || [])],
           payments: [...payments.values()]
             .filter((p) => p.checkId === c.id)
@@ -532,13 +550,23 @@ function createMemoryStore() {
       );
       const noRecorte = (c) => {
         const st = reduce(events.get(c.id) || []);
-        if (st && st.status !== 'fechada') return true;          // aberta, qualquer idade
+        // `!st` entra: no Postgres a órfã tem `status='aberta'` na coluna e
+        // cai na consulta das abertas. Entra no recorte pra ser PULADA com
+        // alarme logo abaixo, como lá — não pra sumir antes de ser vista.
+        if (!st || st.status !== 'fechada') return true;         // aberta, qualquer idade
         if (c.openedAt && c.openedAt >= desdeAJanela) return true; // aberta na janela
         return comDinheiroNaJanela.has(c.id);                     // recebeu na janela
       };
       const rows = [...checks.values()]
         .filter((c) => c.venueId === venueId)
         .filter(noRecorte)
+        // SEM `OPENED`, fora do painel — e sem derrubá-lo. Ver o do Supabase.
+        .filter((c) => {
+          if (reduce(events.get(c.id) || [])) return true;
+          const { idadeMs, orfa } = idadeSemOpened(c.openedAt, Date.parse(nowIso));
+          if (orfa) process.stderr.write(linhaDeAlarme(c.id, idadeMs, 'getPanelView'));
+          return false;
+        })
         .map((c) => {
           const table = [...tables.values()].find((t) => t.id === c.tableId);
           const state = reduce(events.get(c.id) || []);

@@ -38,6 +38,7 @@ const { rotuloDoPagador } = require('../texto-da-casa');
 
 const { criarClienteSupabase } = require('./cliente-supabase');
 const { reduce, paidAfterClose } = require('../checks/check-state');
+const { idadeSemOpened, linhaDeAlarme } = require('../checks/conta-sem-opened');
 const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
 const { RECIPIENT_TERMINAL } = require('../recipient-status');
@@ -700,7 +701,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       // skip below stays as the authority (belt and suspenders).
       const { data: cands, error: cErr } = await client
         .from('checks')
-        .select('id, pos_ref')
+        .select('id, pos_ref, opened_at')
         .eq('table_id', table.id)
         .neq('status', 'fechada')
         .order('opened_at', { ascending: true })
@@ -724,8 +725,19 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
          * entre as duas escritas, a mesa fica sem abrir conta até a RPC atômica
          * existir (livro de abertos). O que isto garante é a leitura dizer a
          * verdade — ainda não há conta aberta.
+         *
+         * E PULAR NÃO É CALAR. A primeira versão deste `continue` trocou o 500
+         * por um 404 idêntico a "o garçom ainda não abriu", sem log: a mesa
+         * órfã ficava trancada e ninguém sabia (revisão da quarta rodada).
+         * Passada a janela normal, cada leitura escreve o alarme. Ver
+         * `conta-sem-opened.js`.
          */
-        if (!state || state.status === 'fechada') continue;
+        if (!state) {
+          const { idadeMs, orfa } = idadeSemOpened(cand.opened_at, Date.now());
+          if (orfa) process.stderr.write(linhaDeAlarme(cand.id, idadeMs, 'getCheckByQrToken'));
+          continue;
+        }
+        if (state.status === 'fechada') continue;
         let items = [];
         try { items = JSON.parse(cand.pos_ref) || []; } catch { items = []; }
         return {
@@ -1226,7 +1238,9 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         op: 'listChecksForReconcile.checks',
         // `order('id')`: sem ordem total, duas páginas repetem e omitem a mesma
         // linha — o mesmo motivo do `ordem` do `lerPorLote`.
-        consulta: (de, ate) => client.from('checks').select('id').eq('venue_id', venueId)
+        // `opened_at`: a conciliação precisa da idade pra separar a conta que
+        // está abrindo AGORA da órfã. Ver `conta-sem-opened.js`.
+        consulta: (de, ate) => client.from('checks').select('id, opened_at').eq('venue_id', venueId)
           .order('id', { ascending: true }).range(de, ate),
       });
       const out = [];
@@ -1256,6 +1270,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         const pays = pagamentos.get(c.id) || [];
         out.push({
           checkId: c.id,
+          openedAt: c.opened_at,
           events: razoes.get(c.id) || [],
           payments: (pays || []).map((p) => ({
             txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents,
@@ -1970,6 +1985,15 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const razoes = await loadEventsPorLote((checks || []).map((c) => c.id));
       for (const c of checks || []) {
         const state = reduce(razoes.get(c.id) || []);
+        // SEM `OPENED`, a conta não entra no painel — e não o derruba. Era
+        // `state.status` num `null`: uma conta órfã deixava o painel INTEIRO
+        // da casa em 500 a cada recarga de 4 s (segurança, quarta rodada, H-1).
+        // Fora da janela normal, o alarme. Ver `conta-sem-opened.js`.
+        if (!state) {
+          const { idadeMs, orfa } = idadeSemOpened(c.opened_at, Date.parse(nowIso));
+          if (orfa) process.stderr.write(linhaDeAlarme(c.id, idadeMs, 'getPanelView'));
+          continue;
+        }
         // PELA REGRA ÚNICA: este mapa desconta a dívida do FATURAMENTO da série
         // semanal (ver `ativacao.js`), e lido do excedente congelado ele era
         // cego justamente na sobra que nasce de uma reversão — a série contava
