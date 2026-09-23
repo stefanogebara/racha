@@ -17,8 +17,15 @@
 --
 -- O 409 da mesa já aberta continua vindo do índice (23505), agora pelo CÓDIGO
 -- — o store decidia por regex sobre a mensagem (compliance, PR #16, L-3).
+-- A versão de rascunho desta migração tinha outra assinatura (venue explícito,
+-- total int). `create or replace` com assinatura diferente CRIA outra função em
+-- vez de trocar — duas sobrecargas, e o PostgREST responderia PGRST203
+-- (ambígua) a toda abertura (segurança, PR #21, M-3). Nunca foi aplicada em
+-- produção; o `drop` garante o mesmo em qualquer banco onde tenha sido.
+drop function if exists public.open_check(uuid, uuid, integer, text);
+drop function if exists public.open_check(uuid, uuid, bigint, text);
+
 create or replace function public.open_check(
-  p_venue_id uuid,
   p_table_id uuid,
   p_total_cents bigint,   -- a coluna é bigint (0001); o parâmetro não pode ser mais estreito
   p_pos_ref text
@@ -29,7 +36,17 @@ set search_path = public
 as $$
 declare
   v_id uuid;
+  v_venue_id uuid;
 begin
+  -- A CASA sai da MESA, aqui dentro — não é parâmetro. Recebida de fora, uma
+  -- chamada com a casa C e a mesa da casa A criava conta de C na mesa de A; e
+  -- mesa nula passava pelo índice de uma aberta por mesa (segurança, PR #21,
+  -- LOW-3). Só o service_role executa isto, mas a função não confia no chamador.
+  select venue_id into v_venue_id from venue_tables where id = p_table_id;
+  if v_venue_id is null then
+    raise exception 'open_check: mesa desconhecida' using errcode = '22023';
+  end if;
+
   -- Zero também não: o serviço já recusa conta zerada, e a função não pode ser
   -- a porta que aceita o que o serviço recusa.
   if p_total_cents is null or p_total_cents <= 0 then
@@ -37,7 +54,7 @@ begin
   end if;
 
   insert into checks (venue_id, table_id, total_cents, pos_ref)
-    values (p_venue_id, p_table_id, p_total_cents, p_pos_ref)
+    values (v_venue_id, p_table_id, p_total_cents, p_pos_ref)
     returning id into v_id;
 
   -- Se isto lançar, a linha de cima some junto: é o ponto inteiro da função.
@@ -47,9 +64,9 @@ begin
 end;
 $$;
 
-revoke all on function public.open_check(uuid, uuid, bigint, text) from public, anon, authenticated;
+revoke all on function public.open_check(uuid, bigint, text) from public, anon, authenticated;
 
-comment on function public.open_check(uuid, uuid, bigint, text) is
+comment on function public.open_check(uuid, bigint, text) is
   'Abre a conta: a linha em checks e o OPENED na mesma transação. 23505 quando a mesa já tem conta aberta (checks_one_open_per_table). Ver 0037.';
 
 -- O PostgREST guarda o esquema em cache: sem recarregar, a função nova não é

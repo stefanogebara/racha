@@ -288,7 +288,7 @@ describe('ABRIR É UMA TRANSAÇÃO SÓ (migração 0037) — a órfã deixa de n
     const c = await store.openCheck('qr1', [{ id: 'a', name: 'X', priceCents: 700 }, { id: 'b', name: 'Y', priceCents: 300 }]);
     expect(c).toMatchObject({ id: '00000000-6666-4666-8666-000000000001', venueId: 'v1', tableId: 't1' });
     expect(chamadas).toEqual([['open_check', {
-      p_venue_id: 'v1', p_table_id: 't1', p_total_cents: 1000,
+      p_table_id: 't1', p_total_cents: 1000,
       p_pos_ref: JSON.stringify([{ id: 'a', name: 'X', priceCents: 700 }, { id: 'b', name: 'Y', priceCents: 300 }]),
     }]]);
   });
@@ -300,5 +300,36 @@ describe('ABRIR É UMA TRANSAÇÃO SÓ (migração 0037) — a órfã deixa de n
     // A MESMA frase com outro código NÃO é mesa aberta — a regex antiga dizia que era.
     const outro = com({ code: '57014', message: 'duplicate key … canceling statement due to statement timeout' });
     await expect(outro.openCheck('qr1', [{ id: 'a', name: 'X', priceCents: 1 }])).rejects.not.toMatchObject({ statusCode: 409 });
+  });
+});
+
+
+describe('o contrato da 0037 com o store — o que o dublê não prova', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const SQL = fs.readFileSync(path.join(__dirname, '..', '..', 'supabase', 'migrations', '0037_open_check.sql'), 'utf8')
+    .replace(/--.*$/gm, '');
+  const STORE = fs.readFileSync(path.join(__dirname, '..', '_lib', 'store', 'supabase.js'), 'utf8');
+
+  test('o corpo de `open_check` tem o INSERT e o OPENED — a atomicidade é isso (segurança, PR #21, M-2)', () => {
+    const corpo = SQL.slice(SQL.indexOf('create or replace function public.open_check('));
+    expect(corpo).toMatch(/insert into checks/);
+    expect(corpo).toMatch(/perform public\.append_check_event\(v_id, 'OPENED'/);
+    expect(corpo).toMatch(/security definer[\s\S]*set search_path = public/);
+    expect(corpo).toMatch(/p_total_cents <= 0/);
+  });
+
+  test('os parâmetros que o store manda são os que a função declara', () => {
+    const decl = SQL.match(/create or replace function public\.open_check\(([\s\S]*?)\)\s*returns/)[1];
+    const sql = [...decl.matchAll(/(p_\w+)\s+\w+/g)].map((m) => m[1]).sort();
+    const chamada = STORE.slice(STORE.indexOf("client.rpc('open_check', {"));
+    const enviados = [...chamada.slice(0, chamada.indexOf('});')).matchAll(/(p_\w+):/g)].map((m) => m[1]).sort();
+    expect(enviados).toEqual(sql);
+  });
+
+  test('`open_check` sem id na volta é erro, não um 200 com `checkId: null` (segurança, PR #21, LOW-2)', async () => {
+    const b = { select() { return b; }, eq() { return b; }, maybeSingle: async () => ({ data: { id: 't1', venue_id: 'v1' }, error: null }) };
+    const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client: { from: () => b, rpc: async () => ({ data: null, error: null }) } });
+    await expect(store.openCheck('qr1', [{ id: 'a', name: 'X', priceCents: 1 }])).rejects.toThrow(/não devolveu o id/);
   });
 });

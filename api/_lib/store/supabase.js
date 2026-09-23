@@ -682,8 +682,8 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
        * na mensagem (compliance, PR #16, L-3). Qualquer outro erro sobe: nunca
        * se trata um erro de claim como "já existia".
        */
+      // A casa sai da mesa DENTRO da função (0037) — não vai como parâmetro.
       const { data: checkId, error: cErr } = await client.rpc('open_check', {
-        p_venue_id: table.venue_id,
         p_table_id: table.id,
         p_total_cents: totalCents,
         // Full JSON — item count is bounded upstream (normalizeItems), so the

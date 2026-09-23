@@ -39,16 +39,22 @@ async function lancarCondicional(store, checkId, decidir) {
     const d = await decidir(state);
     if (d.pronto) return d.pronto;
     const seq = eventos.length ? eventos[eventos.length - 1].seq : 0;
+    let entrou = false;
     try {
       await store.appendEventIfUnchanged(checkId, d.type, d.payload, null, seq);
-      // O que depende do evento TER ENTRADO roda só agora (ver `adjustCheck`).
-      if (d.depois) await d.depois();
-      return d.resultado;
+      entrou = true;
     } catch (e) {
       // Conflito: o razão andou entre a leitura e a gravação. Relê. Qualquer
       // outro desfecho é erro de verdade e sobe — pelo classificador, que é o
       // único lugar que decide por código de erro (censo do `sql-contract`).
       if (desfechoDoLancamento(e) !== 'conflito') throw e;
+    }
+    if (entrou) {
+      // O que depende do evento TER ENTRADO roda só agora (ver `adjustCheck`), e
+      // FORA do `try` do conflito: um erro aqui não pode virar releitura e um
+      // segundo `ADJUSTED` (segurança, PR #21, LOW-4).
+      if (d.depois) await d.depois();
+      return d.resultado;
     }
   }
   const e = new Error('a conta mudou enquanto a gente gravava — tente de novo');
