@@ -444,12 +444,19 @@ sem pagar**. O mesmo token ainda desliga o reconcile-on-read e mostra
 cabeçalho de `demo.js` nomeia esse typo como crítico, e a defesa só foi posta
 num dos sítios.
 
-**Fechado em 2026-09-23:** `tokenEDaDemo` (`demo.js`) exige o token E a casa
-(`isDemoVenue`) e, com o token certo numa casa errada, grita `[demo-token]` e
-trata como mesa real. `/api/check` (reconcile-on-read, bandeira de demo e CPF,
-cartão), `/api/pay` e `/api/pay/stripe-intent` passam por ela; as duas curas já
-provavam a casa por `resolveDemoTable`. Censo em
-`api/__tests__/demo-prova-a-casa.test.js`: só as curas comparam o token direto.
+**Fechado em 2026-09-23 (PR #19):** "é a demo" é decidido pela CASA
+(`contaEDaDemo` → `isDemoVenue`: `isTest` + `rcpt_demo`, nenhum dos dois
+gravável pelo dono; em produção, só a casa da demo tem os dois). O token só
+serve às curas — que provam a casa por `resolveDemoTable` — e pra gritar
+`[demo-token]` (uma vez por conta por hora) quando aponta pra uma casa real.
+Fecha também a outra metade: a env diferente do `demoracha` fixo da landing
+não desliga mais a demo. `/api/check`, `/api/pay` e `/api/pay/stripe-intent`
+passam por ela. Censo e as duas formas de casa real em
+`api/__tests__/demo-prova-a-casa.test.js`.
+
+**Continua aberto:** o grito vai só pro log (inegociável #8 pede aviso) — a
+configuração quebrada já falha pro lado seguro, então não move dinheiro errado.
+Gatilho: a primeira vez que `[demo-token]` aparecer no log de produção.
 
 ### A janela entre inserir a conta e gravar o `OPENED` — LOW, anterior, PARCIAL
 
@@ -584,7 +591,11 @@ comentário ou documento deve afirmar o contrário.
 tirado; toda chave nova no `createCharge` chega ao cliente sozinha. Uma lista de
 permissão fecha a classe.
 
-**Gatilho:** o PR do `/api/pay` com o token da demo (mesma rota).
+**Gatilho:** o PR do `/api/pay` com o token da demo era o gatilho, e disparou
+(PR #19, 2026-09-23) sem ser tratado: aquele PR mudou QUEM é a demo, não o que
+a rota devolve, e misturar as duas mudanças numa rota de dinheiro dobraria a
+revisão. Gatilho novo: a primeira chave acrescentada ao retorno do
+`createCharge`, ou o primeiro piloto com carteira ligada, o que vier antes.
 
 **`RACHA_DEMO_MODE` está ligado em produção — LOW, configuração.** Ele só libera
 `POST /api/dev/confirm`. Em produção a rota responde 404 mesmo assim, porque o
