@@ -89,8 +89,8 @@ describe('a rota: a demo paga volta a abrir, e SÓ a demo', () => {
   // inerte, dentro do teste escrito pra pegar uma guarda nascida inerte.
   beforeEach(async () => { await resetDemoCheck(store, DEMO_TOKEN); });
 
-  const ler = async (t) => {
-    const r = await fetch(`http://127.0.0.1:${porta}/api/check?t=${t}`, { headers: { 'x-real-ip': '10.9.8.7' } });
+  const ler = async (t, ip = '10.9.8.7') => {
+    const r = await fetch(`http://127.0.0.1:${porta}/api/check?t=${t}`, { headers: { 'x-real-ip': ip } });
     return r.status === 200 ? (await r.json()).data : { status: r.status };
   };
   const avancar = (ms) => {
@@ -121,6 +121,28 @@ describe('a rota: a demo paga volta a abrir, e SÓ a demo', () => {
     expect(agora.state.status).toBe('paga');
   });
 
+  /**
+   * "A ORDEM IMPORTA" — e até aqui nada provava.
+   *
+   * O comentário da rota diz que o balde da cura é conferido POR ÚLTIMO, pra
+   * leitura normal da demo não gastar o limite de ninguém. A revisão de
+   * segurança pôs o `rateLimitDemoHeal` na frente e a suíte ficou verde.
+   * Perder isso não é de graça: cada iframe da landing sonda a cada 4s, o balde
+   * é de 6 por 10 minutos por IP, e atrás de CGNAT — um wi-fi de restaurante —
+   * a leitura saudável de um vizinho mataria a cura `!data` de todos.
+   */
+  test('leituras SAUDÁVEIS da demo não gastam o balde da cura', async () => {
+    const ip = '10.77.77.77';
+    for (let i = 0; i < 12; i += 1) {
+      expect((await ler(DEMO_TOKEN, ip)).state.status).toBe('aberta');
+    }
+    // A demo some (fechada à mão); o mesmo IP ainda tem balde pra reabri-la.
+    const v = await store.getCheckByQrToken(DEMO_TOKEN);
+    await store.appendEvent(v.check.id, 'CLOSED', { motivo: 'teste' });
+    const curada = await ler(DEMO_TOKEN, ip);
+    expect(curada.state && curada.state.status).toBe('aberta');
+  });
+
   test('uma mesa DE VERDADE paga há tempo NUNCA é mexida', async () => {
     // O teste que importa: a mesma rota serve todas as casas. Se a guarda do
     // token sumir, é a conta paga de um restaurante que reabre.
@@ -149,5 +171,64 @@ describe('a rota: a demo paga volta a abrir, e SÓ a demo', () => {
      * erro e gastar o balde de cura daquele IP.
      */
     expect(linhas.filter((l) => l.includes('[demo-renova]'))).toEqual([]);
+  });
+});
+
+/**
+ * A CORRIDA — e o dublê que escondia ela.
+ *
+ * A revisão de segurança mediu: 20 leituras simultâneas de uma demo paga há
+ * mais de 90s, com 5 a 30 ms de latência injetada no store, deixaram DOZE
+ * eventos `CLOSED` na mesma conta e onze anomalias `already closed`, de
+ * severidade `high`, no razão imutável. Sem latência o store de memória é
+ * praticamente síncrono e o resultado sai limpo — 1 CLOSED —, que é por que a
+ * primeira versão deste arquivo passava: o dublê não tinha a janela que a
+ * produção tem.
+ *
+ * E não é hipotético: a landing embute a demo num iframe por visitante, cada um
+ * sonda a cada 4s, e todos cruzam os 90s na mesma janela. O inegociável #7 pede
+ * reserva ATÔMICA conferida — e o `appendEventIfUnchanged(expectedSeq)` já
+ * existia no store, sem ser usado aqui.
+ */
+describe('a renovação é atômica: um CLOSED só, com qualquer quantidade de leitores', () => {
+  /**
+   * Latência nas FRONTEIRAS de cada chamada ao store — e NÃO dentro da
+   * primitiva atômica.
+   *
+   * A primeira versão deste teste envolvia também o `appendEvent`. Só que o
+   * `appendEventIfUnchanged` do dublê confere o `seq` e chama
+   * `this.appendEvent` — que passava a ser o método envolvido, com um `await`
+   * ENTRE a conferência e a escrita. No Postgres isso é uma instrução só; não
+   * existe esse vão. O teste fabricava uma corrida que a produção não tem, e
+   * acusou o conserto certo: saíam 2 a 8 CLOSED "mesmo com a reserva". O
+   * dublê de verdade é atômico (o `appendEvent` não tem `await` antes do
+   * `push`). O que estava errado era a medição.
+   */
+  const comLatencia = (store) => {
+    const devagar = () => new Promise((r) => setTimeout(r, 5 + Math.floor(Math.random() * 25)));
+    for (const m of ['getCheckByQrToken', 'loadEvents', 'appendEventIfUnchanged', 'openCheck']) {
+      const orig = store[m].bind(store);
+      store[m] = async (...a) => { await devagar(); const r = await orig(...a); await devagar(); return r; };
+    }
+    return store;
+  };
+
+  test('vinte resets simultâneos de uma demo paga: EXATAMENTE um CLOSED, e uma conta aberta', async () => {
+    const { resetDemoCheck: resetar } = require('../_lib/demo');
+    const store = comLatencia(createMemoryStore());
+    const v = await ensureDemoCheck(store, DEMO_TOKEN);
+    await pagarTudo(store, v.check.id);
+
+    await Promise.allSettled(Array.from({ length: 20 }, () => resetar(store, DEMO_TOKEN)));
+
+    const eventos = await store.loadEvents(v.check.id);
+    const fechamentos = eventos.filter((e) => e.type === 'CLOSED');
+    expect(fechamentos).toHaveLength(1);
+    // E o fechamento DIZ quem fechou: sem isto, o razão da demo não distingue a
+    // renovação do dono fechando a mesa (compliance MEDIUM-1).
+    expect(fechamentos[0].payload).toMatchObject({ motivo: 'demo-renovada' });
+    const agora = await store.getCheckByQrToken(DEMO_TOKEN);
+    expect(agora.check.id).not.toBe(v.check.id);
+    expect(agora.state.status).toBe('aberta');
   });
 });

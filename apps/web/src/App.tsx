@@ -1,4 +1,5 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { reciboVista } from './recibo';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
 import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
@@ -244,6 +245,8 @@ export default function App() {
   /** Quando o pagamento foi confirmado NESTA sessão — o carimbo do comprovante.
    *  Fixado na transição, não no render: no render ele andaria a cada poll. */
   const [paidAt, setPaidAt] = useState<string | null>(null);
+  /** A conta em que ESTE telefone pagou — o recibo fica preso a ela. Ver `recibo.ts`. */
+  const [contaPaga, setContaPaga] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [demoGone, setDemoGone] = useState(false);
@@ -366,6 +369,37 @@ export default function App() {
       setPaidAt(new Date().toISOString()); setStep('pago');
     }
   }, [view, step, charge, ownRef]);
+
+  /**
+   * O RECIBO SE PRENDE À CONTA PAGA — nos quatro caminhos até 'pago' de uma vez.
+   *
+   * Há quatro `setStep('pago')` (Pix, carteira, saldo da casa, cartão). Um
+   * efeito aqui cobre todos, em vez de quatro atribuições que um quinto
+   * caminho esqueceria — a forma "chamador esquecido" que este repositório já
+   * pagou várias vezes.
+   */
+  useEffect(() => {
+    if (step === 'pago' && view && contaPaga === null) setContaPaga(view.check.id);
+    if (step !== 'pago' && contaPaga !== null) setContaPaga(null);
+  }, [step, view, contaPaga]);
+
+  // A conta trocou embaixo do recibo: o recibo é final, e sondar a conta de
+  // outra mesa não serve a ninguém.
+  useEffect(() => {
+    if (step === 'pago' && contaPaga && view && view.check.id !== contaPaga) setPolling(false);
+  }, [step, contaPaga, view]);
+
+  // A ESCOLHA POR ITEM NÃO ATRAVESSA CONTAS. Os ids de item são por conta (na
+  // demo, fixos: `d1`…`d5`), então uma seleção feita numa conta aparecia
+  // marcada na seguinte. Revisão de compliance, LOW-1.
+  const contaVivaId = view ? view.check.id : null;
+  const contaAnterior = useRef<string | null>(null);
+  useEffect(() => {
+    if (contaAnterior.current && contaVivaId && contaAnterior.current !== contaVivaId) {
+      setSelectedItems(new Set());
+    }
+    contaAnterior.current = contaVivaId;
+  }, [contaVivaId]);
 
   // O ✓ é o momento-prova do demo de prospecção: o lead PAGOU a conta de
   // mentira. Cobre os dois caminhos até 'pago' (webhook e redeem de saldo).
@@ -618,6 +652,7 @@ export default function App() {
   }
 
   if (step === 'pago') {
+    const recibo = reciboVista(contaPaga, view.check.id, remaining);
     return (
       <Shell>
         <section className="paid">
@@ -626,14 +661,21 @@ export default function App() {
           <p className="muted">
             {payerLabel ? t('paid.thanks', { name: payerLabel }) : ''}{t('paid.yours')}
           </p>
-          <div className="progresswrap">
-            <div className="progressbar"><span style={{ width: `${progress}%` }} /></div>
-            <p className="muted small">
-              {t('paid.progress', { paid: brl(state.paidCents), total: brl(state.totalCents) })}
-              {remaining > 0 ? t('paid.left', { left: brl(remaining) }) : t('paid.closed')}
-            </p>
-          </div>
-          {remaining > 0 && (
+          {recibo.mostrarProgresso ? (
+            <div className="progresswrap">
+              <div className="progressbar"><span style={{ width: `${progress}%` }} /></div>
+              <p className="muted small">
+                {t('paid.progress', { paid: brl(state.paidCents), total: brl(state.totalCents) })}
+                {remaining > 0 ? t('paid.left', { left: brl(remaining) }) : t('paid.closed')}
+              </p>
+            </div>
+          ) : (
+            // Não "nada a pagar": se o garçom fechou e reabriu a conta da MESMA
+            // mesa pra acrescentar um item esquecido, a pessoa pode dever mais.
+            // O recibo afirma só o que sabe — o pagamento dela está registrado.
+            <p className="muted small">{t('paid.newBill')}</p>
+          )}
+          {recibo.oferecerMais && (
             <button className="cta" onClick={() => {
               setSelectedItems(new Set());
               // LIMPA o comprovante anterior. Sem isto: paga a 1ª parte no Pix

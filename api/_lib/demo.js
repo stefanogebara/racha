@@ -21,6 +21,9 @@
  * desativada criava uma venue órfã por request.
  */
 
+const { reduce } = require('./checks/check-state');
+const { desfechoDoLancamento } = require('./checks/reconcile');
+
 const DEMO_TOKEN = 'demoracha';
 const DEMO_VENUE_NAME = 'Bar do Zé — demonstração';
 
@@ -82,12 +85,52 @@ async function ensureDemoCheck(store, token = DEMO_TOKEN) {
   return view;
 }
 
-/** Fecha a conta atual (se houver) e abre uma fresca. Idempotente se já fresca. */
-async function resetDemoCheck(store, token = DEMO_TOKEN) {
+/**
+ * Fecha a conta atual (se houver) e abre uma fresca. Idempotente se já fresca.
+ *
+ * O FECHAMENTO É UMA RESERVA ATÔMICA — o inegociável #7 na letra.
+ *
+ * Era ler → `appendEvent('CLOSED')` → abrir, sem nada entre a leitura e a
+ * escrita. Com o cron e o `/api/demo/reset` isso era raro; com a renovação na
+ * LEITURA da demo virou o caminho normal, porque a landing embute a demo num
+ * iframe por visitante e todos sondam juntos. Medido com latência injetada:
+ * vinte resets simultâneos deixaram DEZENOVE `CLOSED` na mesma conta, e o
+ * razão imutável acusava todos menos o primeiro como `already closed`.
+ *
+ * Agora: lê os eventos, reduz, e só fecha se a conta ainda está aberta NO MESMO
+ * `seq` que foi lido — pelo `appendEventIfUnchanged`, que o store já tinha. As
+ * duas metades importam. Só a condição do `seq` não basta: se o CLOSED de outro
+ * leitor cai ANTES da minha leitura, o `seq` que eu leio já o inclui, a minha
+ * escrita condicional passa, e sai um segundo CLOSED. Por isso a redução
+ * confere o estado no mesmo `seq` que a escrita reivindica.
+ *
+ * Quem perde a corrida (`40001`) não fecha nada: a conta já foi fechada por
+ * outro, e ele só garante que existe uma aberta.
+ *
+ * E o fechamento diz QUEM fechou. Com `{}` vazio, o razão da demo não
+ * distinguia a renovação do dono fechando a mesa (revisão de compliance).
+ */
+async function resetDemoCheck(store, token = DEMO_TOKEN, motivo = 'demo-renovada') {
   await resolveDemoTable(store, token); // lança antes de FECHAR qualquer coisa
   const view = await store.getCheckByQrToken(token);
   if (isFresh(view)) return { status: 'já fresca', totalCents: DEMO_TOTAL_CENTS };
-  if (view) await store.appendEvent(view.check.id, 'CLOSED', {});
+  if (view) {
+    const eventos = await store.loadEvents(view.check.id);
+    const seq = eventos.length ? eventos[eventos.length - 1].seq : 0;
+    const estado = reduce(eventos);
+    if (estado && !estado.closed) {
+      try {
+        await store.appendEventIfUnchanged(view.check.id, 'CLOSED', { motivo }, null, seq);
+      } catch (e) {
+        // CONFLITO: o razão andou entre a minha leitura e a minha escrita —
+        // outro leitor fechou primeiro. Qualquer outro desfecho é de verdade e
+        // sobe. Pelo classificador, e não lendo o SQLSTATE aqui: decisão por
+        // código de erro mora num lugar só, e o censo do `sql-contract` prende
+        // isso — ele acusou a primeira versão deste `catch`.
+        if (desfechoDoLancamento(e) !== 'conflito') throw e;
+      }
+    }
+  }
   await ensureDemoCheck(store, token);
   return { status: 'resetada', totalCents: DEMO_TOTAL_CENTS };
 }
@@ -120,11 +163,17 @@ const DEMO_TEMPO_DE_GLORIA_MS = 90_000;
  */
 function demoPagaHaTempo(state, agoraMs, graciaMs = DEMO_TEMPO_DE_GLORIA_MS) {
   if (!state || state.status !== 'paga') return false;
-  const quando = Object.values(state.payments || {})
-    .map((p) => Date.parse(p && p.confirmedAt))
-    .filter((ms) => Number.isFinite(ms));
-  if (!quando.length) return false;
-  return agoraMs - Math.max(...quando) > graciaMs;
+  // Um laço, e não `Math.max(...lista)`: o espalhamento estoura a pilha perto
+  // de 125 mil pagamentos (medido pela revisão), e esta função roda numa
+  // leitura PÚBLICA. Inalcançável numa conta de R$ 237,10 — é defesa, não
+  // caminho —, mas uma decisão pura não deveria ter um tamanho em que lança.
+  let ultimo = -Infinity;
+  for (const p of Object.values(state.payments || {})) {
+    const ms = Date.parse(p && p.confirmedAt);
+    if (Number.isFinite(ms) && ms > ultimo) ultimo = ms;
+  }
+  if (ultimo === -Infinity) return false;
+  return agoraMs - ultimo > graciaMs;
 }
 
 module.exports = {

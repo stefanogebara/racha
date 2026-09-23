@@ -423,3 +423,53 @@ gorjeta. De lá até o fim — `assertChargeSlot`, `comContratoDeCaptura`,
 executada por teste nenhum. É o trecho onde o dinheiro se move.
 
 **Gatilho:** o mesmo do item acima.
+
+---
+
+## A demo pública (2026-09-23)
+
+Achados das duas revisões sobre a renovação da demo paga que **não** entraram
+naquele PR, cada um com gatilho.
+
+### `/api/pay` decide "é a demo" pelo token, sem provar a casa — HIGH
+
+`router.js`: `isDemo = body.token === DEMO_TABLE_TOKEN`, e `DEMO_TABLE_TOKEN`
+vem de `RACHA_DEMO_TABLE_TOKEN`. Das sete comparações com esse token no router,
+só as duas curas passam por `isDemoVenue`. Medido pela revisão de segurança:
+com a env digitada apontando pro token de uma mesa real, `POST /api/pay` devolve
+200, o copia-e-cola sai com CRC `MOCK`, e a conta real vira `paga` sem dinheiro
+nenhum ter se movido — **qualquer um com o QR daquela mesa fecha a conta dela
+sem pagar**. O mesmo token ainda desliga o reconcile-on-read e mostra
+"Simular confirmação" num Pix de verdade. É a forma "chamador esquecido": o
+cabeçalho de `demo.js` nomeia esse typo como crítico, e a defesa só foi posta
+num dos sítios.
+
+**Gatilho:** nenhum — é o próximo PR. Precisa de censo dos sete sítios.
+
+### A janela entre inserir a conta e gravar o `OPENED` — LOW, anterior
+
+`supabase.js`: o `openCheck` grava a linha e, noutra ida ao banco, o `OPENED`.
+Toda leitura nesse intervalo faz `reduce([])` → `null` → `state.status` lança →
+500. Acontece em qualquer mesa quando o garçom abre a conta enquanto alguém
+sonda; a renovação da demo passa a provocar em rebanho. O cliente mantém a tela
+e mostra só o aviso de desatualizado.
+
+**Gatilho:** o primeiro 500 de `/api/check` que o monitoramento de produção
+registrar, ou o primeiro adaptador de POS que abra contas em lote.
+
+### O aviso de privacidade da demo nomeia um controlador que não existe — MEDIUM, anterior
+
+`priv.teaser`/`priv.who` dizem que "{venue} ({taxId}) é quem decide o que se
+coleta" e "{venue} guarda o nome". Na demo a casa é fictícia; quem trata o nome
+digitado pelo visitante é a Racha (LGPD art. 9º II/III).
+
+**Gatilho:** antes da primeira campanha que leve tráfego pago pra landing.
+
+### A tela Pix da demo manda usar o app do banco de verdade — MEDIUM, anterior
+
+`pix.how` diz "abra o app do seu banco… cole o código", pra um código com CRC
+`MOCK`, que nenhum banco aceita. A única marca de demo na tela é o botão
+"(demo)" e o nome da casa.
+
+**Gatilho:** o mesmo do item acima.
+

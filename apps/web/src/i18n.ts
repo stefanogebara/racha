@@ -485,6 +485,14 @@ export const DICT = {
   'paid.notInvoice':  { en: 'This is not an invoice. Ask the restaurant for one if you need it.',
                         pt: 'Isto não é uma nota fiscal. Peça a nota ao restaurante se precisar.',
                         es: 'Esto no es una factura. Pídesela al restaurante si la necesitas.' },
+  // O recibo congelado quando a conta embaixo trocou. NÃO diz "nada a pagar":
+  // o garçom pode ter reaberto a conta da mesma mesa pra somar um item.
+  // Sem "acima"/"abaixo": a primeira versão dizia "o seu pagamento ACIMA" e a
+  // linha do pagamento está EMBAIXO desta. Direção na cópia quebra na primeira
+  // mudança de layout.
+  'paid.newBill':  { en: 'This table has moved to a new bill. Your payment is recorded — if you still owe something, just scan the QR again.',
+                     pt: 'Esta mesa já está numa conta nova. O seu pagamento está registrado — se ainda faltar algo seu, é só escanear o QR de novo.',
+                     es: 'Esta mesa ya está en una cuenta nueva. Tu pago está registrado; si aún te falta algo, vuelve a escanear el QR.' },
   'paid.payMore':     { en: 'Pay another share',               pt: 'Pagar mais uma parte', es: 'Pagar otra parte' },
 
   // ── saldo da casa ───────────────────────────────────────────────────────
