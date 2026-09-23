@@ -1755,7 +1755,6 @@ export const DICT = {
   // ── landing: o herói (a noite do bar) ───────────────────────────────────
   'land.eyebrow':   { en: 'Pay at the table · Brazil',        pt: 'Pagamento na mesa · Brasil', es: 'Pago en la mesa · España' },
   'land.h1a':       { en: 'Say who had what.',                pt: 'Fala o que foi de quem.', es: 'Di quién tomó qué.' },
-  'land.h1b':       { en: 'I’ll do the bill.',                pt: 'Eu faço a conta.', es: 'Yo hago la cuenta.' },
   'land.sub':       { en: 'Scan the table QR, say who had what, and everyone pays the house straight over Pix. No app, no sign-up, no card machine passed around the table.',
                       pt: 'Escaneia o QR da mesa, fala o que foi de quem, e cada um paga a casa direto no Pix. Sem app, sem cadastro, sem maquininha passando de mão em mão.',
                         es: 'Escanea el QR de la mesa, di quién tomó qué, y cada uno paga a la casa con Bizum. Sin app, sin registro, sin datáfono pasando de mano en mano.' },
@@ -1809,6 +1808,19 @@ export const DICT = {
                      pt: 'O dinheiro cai na conta do próprio restaurante. A Racha não tem conta-bolsão e nunca saca da sua.',
                         es: 'El dinero cae en la cuenta del propio restaurante. Racha no tiene cuenta ómnibus y nunca retira de la tuya.' },
 
+  // O RAZÃO DA LANDING, no lugar da equação `R$ 237,10 ÷ 3`. A divisão provava
+  // com símbolo o que o produto prova com dinheiro: três linhas como o painel
+  // do dono as mostra, e o centavo que não divide numa delas, sem alarde.
+  'land.stepsTitle': { en: 'How the table closes',           pt: 'Como a mesa fecha', es: 'Cómo se cierra la mesa' },
+  'land.lPayer':     { en: 'Who paid',                       pt: 'Quem pagou', es: 'Quién pagó' },
+  'land.lTime':      { en: 'Time',                           pt: 'Hora', es: 'Hora' },
+  'land.lHow':       { en: 'How',                            pt: 'Como', es: 'Cómo' },
+  'land.lAmount':    { en: 'Amount',                         pt: 'Valor', es: 'Importe' },
+  // `{rail}` é o NOME do trilho (Pix, Bizum), que não se traduz.
+  'land.lConfirmed': { en: '{rail} confirmed',               pt: '{rail} confirmado', es: '{rail} confirmado' },
+  // O estado da mesa — texto nosso. O NÚMERO dela é palavra da casa e não
+  // aparece aqui: o razão fala da mesa, não a nomeia.
+  'land.lClosed':    { en: 'Table closed',                   pt: 'Mesa fechada', es: 'Mesa cerrada' },
   'land.proofTitle': { en: 'To the cent. Always.',            pt: 'Ao centavo. Sempre.', es: 'Al céntimo. Siempre.' },
   'land.proofSub':   { en: 'Every split sums back to the bill exactly. When the cents don’t divide, the remainder goes to one share — never rounded away, never invented.',
                        pt: 'Toda divisão soma de volta à conta, exata. Quando os centavos não dividem, o resto vai pra uma parte — nunca arredondado fora, nunca inventado.',
