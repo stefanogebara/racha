@@ -112,21 +112,50 @@ export function esquecerCobranca(chave: string, a: Armazem | null = armazem()): 
 const dataOuNulo = (v: unknown): boolean => v === null || (typeof v === 'string' && Number.isFinite(Date.parse(v)));
 const centavos = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 0;
 
+/** O TLV do EMV (id de 2, tamanho de 2, valor) — ou nulo se não for TLV bem formado. */
+function camposDoEmv(copia: string): Map<string, string> | null {
+  const campos = new Map<string, string>();
+  let i = 0;
+  while (i < copia.length) {
+    const id = copia.slice(i, i + 2);
+    const tam = copia.slice(i + 2, i + 4);
+    if (!/^\d\d$/.test(id) || !/^\d\d$/.test(tam)) return null;
+    const n = Number(tam);
+    if (i + 4 + n > copia.length) return null;
+    campos.set(id, copia.slice(i + 4, i + 4 + n));
+    i += 4 + n;
+  }
+  return campos;
+}
+
 /**
- * O copia-e-cola é um BR Code de Pix cobrando EXATAMENTE `cents`?
+ * O copia-e-cola é um BR Code de Pix compatível com esta cobrança?
  *
- * Confere o cabeçalho do payload (`000201`), a conta do Pix (`br.gov.bcb.pix`)
- * e o campo 54 com o valor em reais, tamanho e tudo (`54` + `06` + `148.79`).
- * NÃO lê o TLV inteiro: o PSP de mentira da demo monta o código com tamanhos
- * fixos e CRC `MOCK`, e o parse estrito recusava todo código da demo. O que o
- * campo 54 garante já é o que importa aqui — um código forjado pra cobrar
- * OUTRO valor não passa. Os centavos viram texto da string, nunca de um
- * `parseFloat` (inegociável #5).
+ * Sempre: o cabeçalho do payload (`000201`) e a conta do Pix (`br.gov.bcb.pix`).
+ * E o VALOR, quando o código o traz:
+ *  · TLV bem formado (o do adquirente de verdade): o campo 54 é OPCIONAL no
+ *    padrão do BCB — num Pix dinâmico (subcampo 25, URL) o valor mora no
+ *    payload buscado na URL, não no código. Com o 54, ele tem de ser o valor
+ *    exato; sem ele, aceita. Exigir o 54 descartaria toda cobrança real que
+ *    não o traga, em silêncio, e o recarregar voltaria a convidar a pagar de
+ *    novo (compliance, PR #17, HIGH-3).
+ *  · Fora do TLV (o PSP de mentira da demo cola o txid depois do domínio):
+ *    procura o campo 54 do valor exato em qualquer lugar do código.
+ * Não confere o CRC — a demo assina `MOCK`. Os centavos viram texto da string,
+ * nunca de um `parseFloat` (inegociável #5).
  */
 export function pixCobraOValor(copia: string, cents: number): boolean {
   if (!Number.isInteger(cents) || cents < 0 || !copia.startsWith('000201')) return false;
   if (!copia.toLowerCase().includes('br.gov.bcb.pix')) return false;
   const valor = `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
+  const campos = camposDoEmv(copia);
+  if (campos) {
+    if (!(campos.get('26') || '').toLowerCase().includes('br.gov.bcb.pix')) return false;
+    const v54 = campos.get('54');
+    if (v54 === undefined) return true;   // dinâmico, ou estático sem valor: o padrão permite
+    const m = /^(\d{1,10})(?:\.(\d{1,2}))?$/.exec(v54);
+    return m !== null && Number(m[1]) * 100 + Number((m[2] ?? '0').padEnd(2, '0')) === cents;
+  }
   return copia.includes(`54${String(valor.length).padStart(2, '0')}${valor}`);
 }
 

@@ -75,7 +75,27 @@ test('marcasDaConta: as marcas públicas, sem os pagamentos sem marca', () => {
 // Saída do PSP de mentira da demo (CRC `MOCK`), R$ 12,22 — com o campo 54 no tamanho certo.
 const BRCODE = '00020126580014br.gov.bcb.pixmock9cbfc17122df7ed0021538cd7be6520400005303986540512.225802BR6009Sao PauloRacha6304MOCK';
 
-test('pixCobraOValor: o valor do campo 54 exato — e nada que não seja Pix', () => {
+// Um BR Code no formato do padrão do BCB, montado aqui (TLV de verdade; CRC
+// não conferido). Ainda não há um `qr_code` real do sandbox do Pagar.me no
+// repositório — é a continuação que a revisão de compliance pediu.
+const tlv = (id: string, v: string) => `${id}${String(v.length).padStart(2, '0')}${v}`;
+const emv = (conta: string, valor?: string) => tlv('00', '01') + tlv('01', '12') + tlv('26', conta)
+  + tlv('52', '0000') + tlv('53', '986') + (valor !== undefined ? tlv('54', valor) : '')
+  + tlv('58', 'BR') + tlv('59', 'Bar do Ze') + tlv('60', 'Sao Paulo') + tlv('62', tlv('05', '***')) + '6304ABCD';
+const ESTATICO = emv(tlv('00', 'br.gov.bcb.pix') + tlv('01', 'chave@casa.com.br'), '148.79');
+const DINAMICO = emv(tlv('00', 'br.gov.bcb.pix') + tlv('25', 'qr.adquirente.com.br/v2/cobv/abc123'));
+
+test('pixCobraOValor: BR Code de verdade — com o campo 54 exige o valor exato; SEM ele (Pix dinâmico) aceita', () => {
+  assert.equal(pixCobraOValor(ESTATICO, 14879), true);
+  assert.equal(pixCobraOValor(ESTATICO, 14880), false);
+  assert.equal(pixCobraOValor(emv(tlv('00', 'br.gov.bcb.pix') + tlv('01', 'k'), '148.7'), 14870), true); // 54 com uma casa
+  // O caso que a revisão de compliance apontou: exigir o 54 descartaria esta
+  // cobrança real no primeiro recarregar, em silêncio.
+  assert.equal(pixCobraOValor(DINAMICO, 14879), true);
+  assert.equal(pixCobraOValor(emv(tlv('00', 'br.gov.bcb.xxx') + tlv('01', 'k'), '148.79'), 14879), false); // campo 26 não é Pix
+});
+
+test('pixCobraOValor: o código da demo (fora do TLV) — o valor exato em qualquer lugar — e nada que não seja Pix', () => {
   assert.equal(pixCobraOValor(BRCODE, 1222), true);
   assert.equal(pixCobraOValor(BRCODE, 1221), false);                      // outro valor
   assert.equal(pixCobraOValor(BRCODE.replace('br.gov.bcb.pix', 'br.gov.bcb.xxx'), 1222), false);
