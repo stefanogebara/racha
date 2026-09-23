@@ -20,7 +20,7 @@
 create or replace function public.open_check(
   p_venue_id uuid,
   p_table_id uuid,
-  p_total_cents integer,
+  p_total_cents bigint,   -- a coluna é bigint (0001); o parâmetro não pode ser mais estreito
   p_pos_ref text
 ) returns uuid
 language plpgsql
@@ -30,7 +30,9 @@ as $$
 declare
   v_id uuid;
 begin
-  if p_total_cents is null or p_total_cents < 0 then
+  -- Zero também não: o serviço já recusa conta zerada, e a função não pode ser
+  -- a porta que aceita o que o serviço recusa.
+  if p_total_cents is null or p_total_cents <= 0 then
     raise exception 'open_check: total inválido' using errcode = '22023';
   end if;
 
@@ -45,7 +47,12 @@ begin
 end;
 $$;
 
-revoke all on function public.open_check(uuid, uuid, integer, text) from public, anon, authenticated;
+revoke all on function public.open_check(uuid, uuid, bigint, text) from public, anon, authenticated;
 
-comment on function public.open_check(uuid, uuid, integer, text) is
+comment on function public.open_check(uuid, uuid, bigint, text) is
   'Abre a conta: a linha em checks e o OPENED na mesma transação. 23505 quando a mesa já tem conta aberta (checks_one_open_per_table). Ver 0037.';
+
+-- O PostgREST guarda o esquema em cache: sem recarregar, a função nova não é
+-- vista, e o código que a chama cai como se ela não existisse — a mesma queda
+-- da ordem de deploy invertida (compliance, PR #21, L-7).
+notify pgrst, 'reload schema';

@@ -305,7 +305,7 @@ function createMemoryStore() {
       const alreadyOpen = [...checks.values()].some(
         (c) => c.tableId === table.id && ocupaAMesa(events.get(c.id)),
       );
-      if (alreadyOpen) { const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; throw e; }
+      if (alreadyOpen) { const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; e.code = 'check_already_open'; throw e; }
       const id = crypto.randomUUID();
       const totalCents = items.reduce((s, i) => s + i.priceCents, 0);
       // `openedAt` porque o do Supabase tem `opened_at` e este não tinha

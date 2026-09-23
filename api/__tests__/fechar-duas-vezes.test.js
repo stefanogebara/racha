@@ -100,3 +100,22 @@ test('o censo: nenhuma escrita de CLOSED/ADJUSTED é incondicional', () => {
   expect(svc).not.toMatch(/\bstore\.appendEvent\(/);
   expect(svc).toMatch(/store\.appendEventIfUnchanged\(/);
 });
+
+
+test('ajuste que NÃO entra não deixa os itens novos pra trás (o cliente não paga item que a conta não tem)', async () => {
+  const { store, svc, checkId } = await mesa();
+  const antes = await store.getCheckByQrToken([...(await store.listTables((await store.getVenueForCheck(checkId)).id))][0].qrToken);
+  store.appendEventIfUnchanged = async () => { const e = new Error('o razão mudou'); e.pgCode = '40001'; throw e; };
+  await expect(svc.adjustCheck({ checkId, items: [{ name: 'Item novo', priceCents: 9999 }] }))
+    .rejects.toMatchObject({ statusCode: 409, code: 'check_changed' });
+  const depois = await store.getCheckByQrToken(antes && [...(await store.listTables((await store.getVenueForCheck(checkId)).id))][0].qrToken);
+  expect(depois.check.items).toEqual(antes.check.items);   // os itens de antes, intocados
+});
+
+test('abrir numa mesa já aberta: 409 `check_already_open` — o mesmo pela checagem e pela corrida', async () => {
+  const { store, svc, checkId } = await mesa();
+  const venue = await store.getVenueForCheck(checkId);
+  const [t] = await store.listTables(venue.id);
+  await expect(svc.openCheck({ tableId: t.id, totalCents: 100 })).rejects.toMatchObject({ statusCode: 409, code: 'check_already_open' });
+  await expect(store.openCheck(t.qrToken, [{ id: 'x', name: 'X', priceCents: 1 }])).rejects.toMatchObject({ statusCode: 409, code: 'check_already_open' });
+});

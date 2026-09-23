@@ -548,7 +548,16 @@ o `conflito`, e um censo de toda escrita de `CLOSED`/`ADJUSTED`.
 
 **Fechado em 2026-09-24:** `closeCheck` e `adjustCheck` gravam por
 `appendEventIfUnchanged` sobre o `seq` lido e, no `conflito`, releem; o toque
-duplo dá UM `CLOSED` (com `motivo: 'dono'`) e os dois respondem que fechou.
+duplo dá UM `CLOSED` (com `motivo: 'dono'`). Quem perde a corrida e relê a conta
+fechada responde que fechou; um segundo toque que só LÊ depois do primeiro
+fechar recebe o 400 de "já fechada" — o razão tem um `CLOSED` nos dois casos.
+O `adjustCheck` grava os itens só DEPOIS de o `ADJUSTED` entrar.
+
+**Continua aberto (compliance, PR #21, M-3):** os itens moram em `checks.pos_ref`,
+sobrescritos sem histórico — fora do razão. Não dá pra reconstruir o que o
+cliente via quando pagou. O conserto é pôr os itens no payload do `OPENED`/
+`ADJUSTED` e derivá-los. Gatilho: o primeiro adaptador de POS que ajuste itens
+(hoje só o dono, à mão).
 Censo em `api/__tests__/fechar-duas-vezes.test.js`.
 
 **O caminho do saldo da casa pode deixar um pagamento em voo — LOW, anterior.**
@@ -573,7 +582,7 @@ quando a próxima conta abre no mesmo QR ela está nos itens da outra mesa.
 **O fechamento pelo dono não diz quem fechou — LOW.** Com o `motivo` da demo, as
 duas se distinguem pela ausência do campo; melhor gravar `{ motivo: 'dono' }`.
 
-**Gatilho:** o PR do `closeCheck`.
+**Fechado em 2026-09-24 (PR #21):** o `closeCheck` grava `{ motivo: 'dono' }`.
 
 **O recibo do saldo da casa está incompleto — LOW, anterior.** A tela de sucesso
 do `HousePay` não mostra CNPJ, data, nem "não é nota fiscal".

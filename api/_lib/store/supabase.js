@@ -692,7 +692,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         p_pos_ref: JSON.stringify(items),
       });
       if (cErr && cErr.code === '23505') {
-        const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; throw e;
+        const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; e.code = 'check_already_open'; throw e;
       }
       throwOn(cErr, 'openCheck.open_check');
       if (typeof checkId !== 'string') throw new Error('openCheck: open_check não devolveu o id da conta');
@@ -739,14 +739,12 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         /**
          * SEM `OPENED`, A CONTA AINDA NÃO ESTÁ ABERTA.
          *
-         * `openCheck` grava a linha e o `OPENED` em duas idas ao banco; entre
-         * elas o razão está vazio e `reduce([])` é `null`. Isto fazia
-         * `state.status` lançar e virava 500 em `/api/check` — medido num
-         * Postgres de verdade: 15 de 30 leitores numa janela de 600 ms, e a
-         * renovação da demo passa por ela sempre. PALIATIVO: se o processo morre
-         * entre as duas escritas, a mesa fica sem abrir conta até a RPC atômica
-         * existir (livro de abertos). O que isto garante é a leitura dizer a
-         * verdade — ainda não há conta aberta.
+         * Até a 0037, `openCheck` gravava a linha e o `OPENED` em duas idas ao
+         * banco: entre elas o razão estava vazio e `reduce([])` é `null`, o que
+         * fazia `state.status` lançar (500 em `/api/check`). Hoje a `open_check`
+         * grava os dois numa transação e a janela não existe mais; o que resta
+         * são as linhas órfãs de ANTES — e, durante o rollout, uma instância
+         * com o código velho. A leitura diz a verdade: não há conta aberta.
          *
          * E PULAR NÃO É CALAR. A primeira versão deste `continue` trocou o 500
          * por um 404 idêntico a "o garçom ainda não abriu", sem log: a mesa

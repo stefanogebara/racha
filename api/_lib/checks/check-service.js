@@ -41,6 +41,8 @@ async function lancarCondicional(store, checkId, decidir) {
     const seq = eventos.length ? eventos[eventos.length - 1].seq : 0;
     try {
       await store.appendEventIfUnchanged(checkId, d.type, d.payload, null, seq);
+      // O que depende do evento TER ENTRADO roda só agora (ver `adjustCheck`).
+      if (d.depois) await d.depois();
       return d.resultado;
     } catch (e) {
       // Conflito: o razão andou entre a leitura e a gravação. Relê. Qualquer
@@ -96,8 +98,10 @@ function createCheckService({ store }) {
     if (!table) throw badRequest('mesa não encontrada');
     if (!table.active) throw badRequest('mesa desativada');
     // One open check per table — reuse the security-derived open-check read.
+    // A MESMA resposta da corrida na RPC (`open_check`, 23505): 409 com código.
+    // Eram 400 aqui e 409 lá pra mesma condição (compliance, PR #21, L-2).
     if (await store.getCheckByQrToken(table.qrToken)) {
-      throw badRequest('mesa já tem uma conta aberta');
+      const e = new Error('mesa já tem uma conta aberta'); e.statusCode = 409; e.code = 'check_already_open'; throw e;
     }
     const norm = normalizeItems({ items, totalCents });
     const check = await store.openCheck(table.qrToken, norm);
@@ -109,13 +113,22 @@ function createCheckService({ store }) {
     const norm = normalizeItems({ items, totalCents });
     const newTotal = norm.reduce((s, i) => s + i.priceCents, 0);
     return lancarCondicional(store, checkId, async (state) => {
+      const payload = { totalCents: newTotal };
       // validateEvent throws (→ 400) if the check is closed.
-      try { validateEvent({ type: 'ADJUSTED', payload: { totalCents: newTotal } }, state); }
+      try { validateEvent({ type: 'ADJUSTED', payload }, state); }
       catch (e) { throw badRequest(e.message); }
-      // Items snapshot first, then the event — a diner reading between the two
-      // sees the OLD total with OLD items (consistent), never new items w/ old total.
-      await store.setCheckItems(checkId, norm);
-      return { type: 'ADJUSTED', payload: { totalCents: newTotal }, resultado: { checkId, totalCents: newTotal, items: norm } };
+      // OS ITENS SÓ DEPOIS DE O `ADJUSTED` ENTRAR. Gravados antes, eles ficavam
+      // quando o evento não entrava (conflito esgotado, conta fechada no meio,
+      // erro): conta aberta com itens que não somam o total do razão, e o
+      // cliente pagando "por item" um item que a conta não tem (compliance,
+      // PR #21, H-1; CDC art. 6º III). Por um instante, entre as duas escritas,
+      // quem lê vê o total NOVO com os itens VELHOS — o teto do que falta segura
+      // o valor, e a conta se acerta na próxima leitura.
+      return {
+        type: 'ADJUSTED', payload,
+        depois: () => store.setCheckItems(checkId, norm),
+        resultado: { checkId, totalCents: newTotal, items: norm },
+      };
     });
   }
 
@@ -132,9 +145,11 @@ function createCheckService({ store }) {
       // sendo o 400 de sempre — fechar duas vezes à mão é erro do chamador.
       if (state.closed && !primeira) return { pronto: resultado };
       primeira = false;
-      try { validateEvent({ type: 'CLOSED', payload: {} }, state); }
+      // Valida o payload que VAI ser gravado (compliance, PR #21, L-4).
+      const payload = { motivo: 'dono' };
+      try { validateEvent({ type: 'CLOSED', payload }, state); }
       catch (e) { throw badRequest(e.message); } // already closed → 400
-      return { type: 'CLOSED', payload: { motivo: 'dono' }, resultado };
+      return { type: 'CLOSED', payload, resultado };
     });
   }
 
