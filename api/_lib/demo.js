@@ -92,7 +92,42 @@ async function resetDemoCheck(store, token = DEMO_TOKEN) {
   return { status: 'resetada', totalCents: DEMO_TOTAL_CENTS };
 }
 
+/**
+ * O TEMPO DE GLÓRIA de quem pagou a demo inteira.
+ *
+ * O "Conta paga por completo. Boa noite!" é o momento que a demo existe pra
+ * mostrar. Renovar a conta no primeiro poll depois do pagamento arrancaria essa
+ * tela de quem acabou de pagar — o telefone dele sonda a cada 4s. Noventa
+ * segundos dão pra ver, respirar e fechar a aba; e ninguém que chega pela
+ * landing espera mais que isso por uma conta nova.
+ */
+const DEMO_TEMPO_DE_GLORIA_MS = 90_000;
+
+/**
+ * A CONTA DA DEMO ESTÁ PAGA HÁ TEMPO DEMAIS? — decisão pura, sem I/O.
+ *
+ * Existe porque a cura de `/api/check` só disparava com a conta SUMIDA, e pagar
+ * tudo não a faz sumir: fica `status: 'paga'`, ainda legível. O comentário da
+ * cura prometia reabrir "com a conta fechada (alguém pagou tudo)"; o caso nunca
+ * passava por ela. Visto em produção em 2026-09-23.
+ *
+ * Conta a partir do ÚLTIMO pagamento, não do primeiro: numa mesa de três, o
+ * primeiro Pix pode ter uma hora e o que fechou a conta, dois segundos.
+ *
+ * Na dúvida, NÃO renova. Sem data legível não há como saber se alguém está
+ * olhando a própria tela de pago — e renovar cedo demais é o único dano que
+ * esta função pode causar. Não renovar é só o comportamento de hoje.
+ */
+function demoPagaHaTempo(state, agoraMs, graciaMs = DEMO_TEMPO_DE_GLORIA_MS) {
+  if (!state || state.status !== 'paga') return false;
+  const quando = Object.values(state.payments || {})
+    .map((p) => Date.parse(p && p.confirmedAt))
+    .filter((ms) => Number.isFinite(ms));
+  if (!quando.length) return false;
+  return agoraMs - Math.max(...quando) > graciaMs;
+}
+
 module.exports = {
-  DEMO_TOKEN, DEMO_VENUE_NAME, DEMO_ITEMS, DEMO_TOTAL_CENTS,
-  ensureDemoCheck, resetDemoCheck, isFresh, isDemoVenue,
+  DEMO_TOKEN, DEMO_VENUE_NAME, DEMO_ITEMS, DEMO_TOTAL_CENTS, DEMO_TEMPO_DE_GLORIA_MS,
+  ensureDemoCheck, resetDemoCheck, isFresh, isDemoVenue, demoPagaHaTempo,
 };

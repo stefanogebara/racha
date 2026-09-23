@@ -297,7 +297,7 @@ const reconciler = createChargeReconciler({
 // quebrar (o recebedor de teste não existe em live). Aqui ele roda sempre num
 // MockPsp próprio e se auto-confirma — independente de RACHA_PSP/live. É a única
 // venue cujo dinheiro é fake por design.
-const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck, isDemoVenue } = require('../_lib/demo');
+const { DEMO_TOKEN, ensureDemoCheck, resetDemoCheck, isDemoVenue, demoPagaHaTempo } = require('../_lib/demo');
 const DEMO_TABLE_TOKEN = process.env.RACHA_DEMO_TABLE_TOKEN || DEMO_TOKEN;
 const demoPsp = new MockPsp({ webhookSecret: process.env.PSP_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex') });
 const demoCharge = createChargeService({ store, psp: demoPsp });
@@ -1005,6 +1005,35 @@ async function route(req, res) {
       if (!data && token === DEMO_TABLE_TOKEN && rateLimitDemoHeal(req)) {
         try { data = await ensureDemoCheck(store, token); } catch (e) {
           process.stderr.write(`[demo-ensure] ${String(e.message).slice(0, 120)}\n`);
+        }
+      }
+      /**
+       * E A DEMO PAGA TAMBÉM SE CURA — que era o caso que o comentário acima
+       * prometia e a condição de cima nunca via.
+       *
+       * Pagar tudo não faz a conta sumir: ela fica `paga`, legível, e o `!data`
+       * não dispara. Visto em produção em 2026-09-23: a landing levava a
+       * "Conta paga por completo", sem abas e sem botão, até o reset diário
+       * das 09:00 UTC. E o PSP de mentira da demo se confirma na hora, então
+       * uma pessoa pagando a parte que faltava matava a demo pra todo mundo.
+       *
+       * Três guardas, nesta ordem, e a ordem importa:
+       *  · o TOKEN é o da demo — a mesma rota serve todas as casas, e uma conta
+       *    paga de restaurante nunca pode reabrir por aqui;
+       *  · a conta está paga há mais que o tempo de glória — quem pagou vê o
+       *    "Boa noite!" antes de a próxima pessoa ganhar conta nova;
+       *  · o balde da cura tem vaga — a última, pra que a leitura normal da
+       *    demo não gaste o limite de ninguém.
+       * E o `resetDemoCheck` ainda recusa, por conta própria, qualquer mesa que
+       * não seja a da demo (`resolveDemoTable`).
+       */
+      if (data && token === DEMO_TABLE_TOKEN && demoPagaHaTempo(data.state, Date.now())
+          && rateLimitDemoHeal(req)) {
+        try {
+          await resetDemoCheck(store, token);
+          data = await store.getCheckByQrToken(token);
+        } catch (e) {
+          process.stderr.write(`[demo-renova] ${String(e.message).slice(0, 120)}\n`);
         }
       }
       if (!data) {
