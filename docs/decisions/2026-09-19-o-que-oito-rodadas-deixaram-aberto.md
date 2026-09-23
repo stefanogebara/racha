@@ -444,7 +444,12 @@ sem pagar**. O mesmo token ainda desliga o reconcile-on-read e mostra
 cabeçalho de `demo.js` nomeia esse typo como crítico, e a defesa só foi posta
 num dos sítios.
 
-**Gatilho:** nenhum — é o próximo PR. Precisa de censo dos sete sítios.
+**Fechado em 2026-09-23:** `tokenEDaDemo` (`demo.js`) exige o token E a casa
+(`isDemoVenue`) e, com o token certo numa casa errada, grita `[demo-token]` e
+trata como mesa real. `/api/check` (reconcile-on-read, bandeira de demo e CPF,
+cartão), `/api/pay` e `/api/pay/stripe-intent` passam por ela; as duas curas já
+provavam a casa por `resolveDemoTable`. Censo em
+`api/__tests__/demo-prova-a-casa.test.js`: só as curas comparam o token direto.
 
 ### A janela entre inserir a conta e gravar o `OPENED` — LOW, anterior, PARCIAL
 

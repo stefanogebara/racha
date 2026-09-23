@@ -190,7 +190,37 @@ function demoPagaHaTempo(state, agoraMs, graciaMs = DEMO_TEMPO_DE_GLORIA_MS) {
   return agoraMs - ultimo > graciaMs;
 }
 
+/**
+ * ESTA REQUISIÇÃO É A DEMO? — o token E a casa, nunca só o token.
+ *
+ * O token da demo pode vir de `RACHA_DEMO_TABLE_TOKEN`. Com ela digitada
+ * apontando pro QR de uma mesa de verdade, o roteador tratava aquela mesa como
+ * a demo em cinco sítios: `/api/pay` cobrava pelo MockPsp e a conta real virava
+ * `paga` sem dinheiro nenhum — qualquer um com o QR fechava a conta sem pagar —,
+ * o reconcile-on-read desligava, a carteira e o cartão sumiam, e a tela dizia
+ * "demo" sem pedir CPF. Só as duas curas provavam a casa (`resolveDemoTable`).
+ * Medido pela revisão de segurança; livro de abertos, HIGH.
+ *
+ * Então a resposta exige as DUAS coisas: o token bate E a casa da conta é a da
+ * demo (`isDemoVenue`: `isTest` + o recebedor de mentira). Token certo com casa
+ * errada é configuração quebrada: grita no log e trata como MESA REAL — o lado
+ * seguro, porque mesa real cobra dinheiro de verdade e mostra tudo.
+ *
+ * @param store     o store
+ * @param token     o token da requisição
+ * @param demoToken o token da demo em vigor (`DEMO_TABLE_TOKEN` do roteador)
+ * @param checkId   a conta que a requisição leu por esse token
+ */
+async function tokenEDaDemo(store, token, demoToken, checkId) {
+  if (!token || token !== demoToken || !checkId) return false;
+  const venue = await store.getVenueForCheck(checkId);
+  if (isDemoVenue(venue)) return true;
+  process.stderr.write(`[demo-token] o token da demo aponta pra uma casa que NÃO é a demo (check=${checkId}) — tratada como mesa real; confira RACHA_DEMO_TABLE_TOKEN\n`);
+  return false;
+}
+
 module.exports = {
+  tokenEDaDemo,
   DEMO_TOKEN, DEMO_VENUE_NAME, DEMO_ITEMS, DEMO_TOTAL_CENTS, DEMO_TEMPO_DE_GLORIA_MS,
   ensureDemoCheck, resetDemoCheck, isFresh, isDemoVenue, demoPagaHaTempo,
 };
