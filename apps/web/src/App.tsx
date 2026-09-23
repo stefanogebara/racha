@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { reciboVista, type AvisoDaConta } from './recibo';
-import { avisoDaCobranca } from './pix-vivo';
-import { guardarCobranca, lerCobranca, esquecerCobranca, varrerVencidas } from './cobranca-viva';
+import { avisoDaCobranca, cobrancaNaTela, marcasDaConta } from './pix-vivo';
+import { chaveDaMesa, guardarCobranca, lerCobranca, esquecerCobranca, varrerVencidas, restaurarNaTela } from './cobranca-viva';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
 import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
@@ -371,10 +371,14 @@ export default function App() {
   // pessoas pagam juntas, o telefone de quem ainda não tinha pago dizia
   // "Pagamento confirmado — você pagou" (auditoria de fluxo, CRITICAL-1). Agora
   // espera a marca da PRÓPRIA cobrança aparecer entre os pagamentos da conta.
+  // A cobrança que voltou de um RECARREGAR: o ✓ dela não tem hora sabida.
+  const restaurada = useRef(false);
   useEffect(() => {
     if (step === 'pagar' && charge && ownRef && view
         && Object.values(view.state.payments || {}).some((p) => p.ref === ownRef)) {
-      setPaidAt(new Date().toISOString()); setStep('pago');
+      // Depois de um recarregar, "agora" é a hora da VOLTA, não do pagamento:
+      // sem data é melhor que data inventada (segurança, PR #17, L-1).
+      setPaidAt(restaurada.current ? null : new Date().toISOString()); setStep('pago');
     }
   }, [view, step, charge, ownRef]);
 
@@ -383,48 +387,52 @@ export default function App() {
    *
    * Uma vez, na primeira conta que chega: se este aparelho tem uma cobrança
    * viva ou um recibo desta mesa, a tela volta pra ele em vez de abrir a conta
-   * com o botão de pagar armado. O efeito de cima segue valendo: se a marca da
-   * cobrança já caiu, ele leva do "pagar" pro ✓ no mesmo poll.
+   * com o botão de pagar armado. QUEM DECIDE é `restaurarNaTela`, pura e
+   * testada por tabela; aqui só se lê, se recalcula a marca do txid e se aplica.
    */
   const restaurou = useRef(false);
   const guardadoComo = useRef('');
+  const stepAgora = useRef(step);
+  stepAgora.current = step;
   useEffect(() => {
     if (restaurou.current || !view) return;
     restaurou.current = true;
-    varrerVencidas(Date.now(), token);
-    const g = lerCobranca(token, Date.now());
-    if (!g || step !== 'conta') return;
-    const caiu = g.ownRef !== null
-      && Object.values(view.state.payments || {}).some((p) => p.ref === g.ownRef);
-    if (g.vencida) {
-      // Vencida, mas PAGA: volta como recibo, sem data — a tela não sabe a
-      // hora do pagamento, e uma hora inventada é pior que nenhuma. Vencida e
-      // não paga: fica esquecida (`lerCobranca` já apagou).
-      if (!caiu) return;
-      setCharge(g.charge); setOwnRef(g.ownRef); setPaidAt(null); setStep('pago');
-      return;
-    }
-    // O RECIBO só volta na conta em que nasceu. Numa conta nova no mesmo QR ele
-    // virava um beco: sem "pagar mais", poll parado, e "escaneie de novo"
-    // trazendo o mesmo recibo por seis horas (compliance, PR #17, HIGH-2).
-    if (g.fase === 'pago' && g.checkId !== view.check.id) { esquecerCobranca(token); return; }
-    guardadoComo.current = `${g.charge.txid}:${g.fase}:${g.ownRef ?? ''}`; // não reinicia a validade ao voltar
-    setCharge(g.charge); setOwnRef(g.ownRef); setPaidAt(g.paidAt); setStep(g.fase);
-  }, [view, token, step]);
+    const conta = view;
+    void (async () => {
+      const chave = await chaveDaMesa(token);
+      if (!chave) return;
+      varrerVencidas(Date.now(), chave);
+      const g = lerCobranca(chave, Date.now());
+      if (!g) return;
+      const marca = await refDoPagamento(g.charge.txid).catch(() => null);
+      const r = restaurarNaTela(g, conta.check.id, marcasDaConta(conta), marca);
+      if (!r) { esquecerCobranca(chave); return; }
+      // Durante os `await`, a pessoa pode ter começado a pagar: não atropela.
+      if (stepAgora.current !== 'conta') return;
+      restaurada.current = true;
+      guardadoComo.current = `${r.charge.txid}:${r.fase}`; // não reinicia a validade ao voltar
+      setCharge(r.charge); setOwnRef(r.ownRef); setPaidAt(r.paidAt); setStep(r.fase);
+    })();
+  }, [view, token]);
 
   // Guarda ao ENTRAR em cada fase — uma vez por cobrança e fase, pra que o
-  // poll de 4 s não empurre a validade pra frente pra sempre.
+  // poll de 4 s não empurre a validade pra frente pra sempre. A MARCA não vai:
+  // ela é recalculada do txid na volta (ver `cobranca-viva.ts`).
   useEffect(() => {
     if (!charge || (step !== 'pagar' && step !== 'pago')) return;
     const checkId = charge.checkId ?? (view ? view.check.id : null);
     if (!checkId) return;
-    // A marca entra seu ms depois da cobrança (`refDoPagamento` é assíncrono):
-    // ela faz parte da chave, senão a cobrança ficava guardada sem ela.
-    const como = `${charge.txid}:${step}:${ownRef ?? ''}`;
+    const como = `${charge.txid}:${step}`;
     if (guardadoComo.current === como) return;
     guardadoComo.current = como;
-    guardarCobranca(token, { checkId, charge, ownRef, fase: step, paidAt, guardadaEm: Date.now() });
-  }, [step, charge, ownRef, paidAt, view, token]);
+    const dados = { checkId, charge: { ...charge, checkId }, fase: step, paidAt, guardadaEm: Date.now() };
+    void chaveDaMesa(token).then((chave) => { if (chave) guardarCobranca(chave, dados); });
+  }, [step, charge, paidAt, view, token]);
+
+  /** Desistir DESTA cobrança: sai da memória do aparelho. */
+  const esquecerDaMesa = useCallback(() => {
+    void chaveDaMesa(token).then((chave) => { if (chave) esquecerCobranca(chave); });
+  }, [token]);
 
   /**
    * O RECIBO SE PRENDE À CONTA EM QUE A COBRANÇA NASCEU.
@@ -586,6 +594,7 @@ export default function App() {
     setPayErrorCode(null);
     try {
       setOwnRef(null); // a marca da cobrança NOVA chega com ela, abaixo
+      restaurada.current = false; // esta cobrança nasce aqui: o ✓ dela tem hora
       // `undefined`, não '' — não pedimos documento neste mercado, então não
       // mandamos um campo vazio pra ser validado como se tivesse sido pedido.
       const result = await api.pay(token, cappedBase, servicoCents, payerLabel.trim() || null,
@@ -673,12 +682,7 @@ export default function App() {
   const isBizumCharge = charge?.method === 'bizum';
 
   if (step === 'pagar' && charge) {
-    const minhaCaiu = ownRef !== null
-      && Object.values(view.state.payments || {}).some((p) => p.ref === ownRef);
-    const aviso = avisoDaCobranca({
-      faltaCents: remaining, cobrancaCents: charge.amountCents, minhaCaiu,
-      contaDaCobranca: charge.checkId ?? null, contaViva: view.check.id,
-    });
+    const aviso = avisoDaCobranca(cobrancaNaTela(view, charge, ownRef));
     return (
       <Shell>
         <header className="head">
@@ -713,7 +717,7 @@ export default function App() {
                   aviso que o protegia de pagar duas vezes não pode sumir aqui
                   (compliance, PR #17, HIGH-1). */}
               {ownRef === null && <p className="muted small center">{t('pix.noAutoConfirm')}</p>}
-              <button className="cta" onClick={() => { esquecerCobranca(token); setStep('conta'); void refresh(); }}>
+              <button className="cta" onClick={() => { esquecerDaMesa(); setStep('conta'); void refresh(); }}>
                 {t('pix.stopBack')}
               </button>
             </>
@@ -754,7 +758,7 @@ export default function App() {
           {/* Voltar é desistir DESTE código: sai da memória, senão um recarregar
               trazia de volta a tela de que a pessoa acabou de sair. */}
           {aviso === 'ok' && (
-            <button className="linklike" onClick={() => { esquecerCobranca(token); setStep('conta'); }}>{t('common.back')}</button>
+            <button className="linklike" onClick={() => { esquecerDaMesa(); setStep('conta'); }}>{t('common.back')}</button>
           )}
         </section>
       </Shell>
@@ -801,7 +805,7 @@ export default function App() {
               // ausente.
               setCharge(null);
               setPaidAt(null);
-              esquecerCobranca(token); // uma parte NOVA: o recibo desta fica no extrato, não na tela
+              esquecerDaMesa(); // uma parte NOVA: o recibo desta fica no extrato, não na tela
               setStep('conta');
               void refresh();
             }}>

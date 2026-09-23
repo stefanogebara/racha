@@ -46,3 +46,35 @@ export function avisoDaCobranca(c: CobrancaNaTela): AvisoDaCobranca {
   if (c.cobrancaCents > c.faltaCents) return 'passa_do_que_falta';
   return 'ok';
 }
+
+/** O pedaço da conta viva que a decisão lê — estrutural, sem puxar `api.ts`. */
+export interface ContaViva {
+  check: { id: string };
+  state: { totalCents: number; paidCents: number; payments?: Record<string, { ref?: string }> };
+}
+
+/**
+ * Os ARGUMENTOS da decisão, montados da conta viva — também puro, e testado
+ * por valor. Montados no JSX, eles eram onde a guarda morria calada: um
+ * `faltaCents` trocado pelo total, um `minhaCaiu` fixo em falso ou um
+ * `contaDaCobranca` nulo desligavam os avisos com a suíte verde (segurança,
+ * PR #17, M-3).
+ */
+export function cobrancaNaTela(
+  view: ContaViva,
+  charge: { amountCents: number; tipCents: number; checkId?: string },
+  ownRef: string | null,
+): CobrancaNaTela {
+  return {
+    faltaCents: Math.max(0, view.state.totalCents - view.state.paidCents),
+    cobrancaCents: charge.amountCents,
+    minhaCaiu: ownRef !== null && Object.values(view.state.payments || {}).some((p) => p.ref === ownRef),
+    contaDaCobranca: charge.checkId ?? null,
+    contaViva: view.check.id,
+  };
+}
+
+/** As marcas dos pagamentos da conta viva — o que `restaurarNaTela` confere. */
+export function marcasDaConta(view: ContaViva): Set<string> {
+  return new Set(Object.values(view.state.payments || {}).map((p) => p.ref).filter((r): r is string => typeof r === 'string'));
+}
