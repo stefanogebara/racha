@@ -139,13 +139,15 @@ describe('o mapa de dados acompanha o código', () => {
     // Adesivo em mesa não se chama de volta, então a direção que importa é
     // esta: tudo que a gente IMPRIME tem que estar no que o app ACEITA. O
     // contrário não — a lista pode ser mais larga durante uma migração.
-    const qrs = fs.readFileSync(path.join(RAIZ, 'apps', 'web', 'src', 'Qrs.tsx'), 'utf8');
+    // O host impresso mora em `cartao-qr.ts` desde que os dois cartões passaram a
+    // ter uma fonte só (PR #20).
+    const qrs = fs.readFileSync(path.join(RAIZ, 'apps', 'web', 'src', 'cartao-qr.ts'), 'utf8');
     const router = fs.readFileSync(path.join(RAIZ, 'api', '_app', 'router.js'), 'utf8');
     const swift = fs.readFileSync(path.join(RAIZ, 'ios', 'Racha', 'Core', 'POS', 'TableQR.swift'), 'utf8');
 
     const host = (u) => new URL(u).host.toLowerCase();
     const impressos = new Set();
-    const prod = qrs.match(/const PROD_ORIGIN = '([^']+)'/);
+    const prod = qrs.match(/export const ORIGEM_DE_PRODUCAO = '([^']+)'/);
     expect(prod).toBeTruthy();
     impressos.add(host(prod[1]));
     const clientUrl = router.match(/process\.env\.CLIENT_URL \|\| '([^']+)'/);

@@ -73,7 +73,8 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
   // Mesa de treino: a equipe pratica o fluxo nela, e ela NÃO COBRA; fica fora
   // da folha /qrs. MARCAR pede confirmação: era um toque só, e uma mesa de
   // verdade marcada por engano para de cobrar no meio do turno (auditoria do
-  // painel, P1). Tirar do treino não pede: volta a cobrar, que é o normal.
+  // painel, P1). Tirar do treino não pede confirmação — mas oferece girar o QR
+  // (abaixo).
   const toggleTraining = useCallback(async (t: VenueTable) => {
     if (!t.training && !confirm(tr('admin.confirmTraining', { label: t.label }))) return;
     try {

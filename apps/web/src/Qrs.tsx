@@ -57,7 +57,9 @@ export default function Qrs() {
 
       {printable.length === 0 ? (
         <p className="muted center noprint">{t('qrs.noneActive')}</p>
-      ) : (
+      ) : !casaRecebe(data.venue) ? null : (
+        // Sem a casa receber, nem a GRADE sai: desarmar só o botão deixava o
+        // Ctrl+P do navegador imprimir a promessa (compliance, PR #20, LOW-3).
         <section className="qrgrid">
           {printable.map((t) => <QrCard key={t.id} venueName={data.venue.name} market={data.venue.market} table={t} />)}
         </section>
