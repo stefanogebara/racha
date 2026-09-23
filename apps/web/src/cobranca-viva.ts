@@ -17,14 +17,29 @@
  * Tudo em `try`: aba privada, armazenamento cheio ou bloqueado — a tela segue
  * funcionando como antes, só sem a memória.
  */
-import type { ChargeResult } from './api';
+/**
+ * A forma da cobrança que este módulo guarda — a parte do `ChargeResult` de
+ * `api.ts` que a tela usa. Declarada aqui, e não importada, porque os testes
+ * rodam em Node sem os tipos do navegador, e o `api.ts` os puxa inteiros.
+ * O `App.tsx` passa um `ChargeResult`, que é compatível por estrutura.
+ */
+export interface CobrancaDaTela {
+  txid: string;
+  checkId?: string;
+  copiaECola: string | null;
+  expiresAt: string | null;
+  amountCents: number;
+  tipCents: number;
+  method?: 'pix' | 'card' | 'bizum';
+  wallet?: 'apple_pay' | 'google_pay' | null;
+}
 
 export type Fase = 'pagar' | 'pago';
 
 export interface CobrancaGuardada {
   v: 1;
   checkId: string;
-  charge: ChargeResult;
+  charge: CobrancaDaTela;
   /** A marca da cobrança na conta pública (`pagamento-ref.ts`); nula se o aparelho não calcula. */
   ownRef: string | null;
   fase: Fase;
@@ -50,7 +65,9 @@ const chave = (token: string) => `racha-cobranca:${token}`;
 type Armazem = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 function armazem(): Armazem | null {
-  try { return window.localStorage; } catch { return null; }
+  // `globalThis`, não `window`: o mesmo objeto no navegador, e o módulo
+  // compila no Node dos testes. Sem `localStorage` (Node, aba bloqueada) → nulo.
+  try { return (globalThis as { localStorage?: Storage }).localStorage ?? null; } catch { return null; }
 }
 
 export function guardarCobranca(token: string, dados: Omit<CobrancaGuardada, 'v'>, a: Armazem | null = armazem()): void {
