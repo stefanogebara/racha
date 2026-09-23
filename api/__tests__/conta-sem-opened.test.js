@@ -196,3 +196,64 @@ describe('supabase: a leitura pública grita também', () => {
     expect(ouvido.alarmes()).toEqual(['[conta-sem-opened] check=c-orfa idade=86400s em=getCheckByQrToken\n']);
   });
 });
+
+/**
+ * O PAINEL NO STORE DE PRODUÇÃO — a lacuna que a quinta rodada de segurança
+ * achou. O conserto do painel estava coberto só no store de memória; tirar o
+ * `continue` do `getPanelView` do Supabase deixava a suíte inteira verde e, num
+ * Postgres de verdade, o painel da casa de volta em 500 a cada 4 s. Verde na
+ * memória, errado em produção — a forma que o `store-shape` existe pra pegar.
+ */
+describe('supabase: o painel do dono pula a órfã, mostra a viva e grita', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  // Ids em forma de UUID: o `loadEventsPorLote` descarta o que não é, e a
+  // conta viva sumiria do painel por isso, não pelo conserto.
+  test('uma órfã de ontem e uma conta viva → o painel não lança, lista só a viva, e escreve o alarme', async () => {
+    const ontem = '2026-01-01T00:00:00Z';
+    const agora = '2026-01-02T00:00:00Z';
+    const tabelas = {
+      venue_tables: [
+        { id: 't1', venue_id: 'v1', label: 'Mesa 3', qr_token: 'qr1', active: true },
+        { id: 't2', venue_id: 'v1', label: 'Mesa 4', qr_token: 'qr2', active: true },
+      ],
+      venues: [{ id: 'v1', name: 'Casa' }],
+      checks: [
+        { id: '00000000-4444-4444-8444-000000000001', venue_id: 'v1', table_id: 't1', status: 'aberta', opened_at: ontem, pos_ref: '[]', venue_tables: { label: 'Mesa 3' } },
+        { id: '00000000-4444-4444-8444-000000000002', venue_id: 'v1', table_id: 't2', status: 'aberta', opened_at: agora, pos_ref: '[]', venue_tables: { label: 'Mesa 4' } },
+      ],
+      check_events: [{ check_id: '00000000-4444-4444-8444-000000000002', seq: 1, type: 'OPENED', payload: { totalCents: 500 }, created_at: agora }],
+      payments: [],
+    };
+    const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client: cliente(tabelas) });
+    const ouvido = ouvirStderr();
+    const view = await store.getPanelView('v1', agora);
+    expect(view.checks.map((c) => c.tableLabel)).toEqual(['Mesa 4']);
+    expect(ouvido.alarmes()).toEqual(['[conta-sem-opened] check=00000000-4444-4444-8444-000000000001 idade=86400s em=getPanelView\n']);
+  });
+});
+
+describe('a idade ilegível é órfã — na dúvida, alarme', () => {
+  const { idadeSemOpened } = require('../_lib/checks/conta-sem-opened');
+  test('sem data, data lixo, ou sem relógio → órfã', () => {
+    expect(idadeSemOpened(undefined, Date.now())).toEqual({ idadeMs: null, orfa: true });
+    expect(idadeSemOpened('não é data', Date.now())).toEqual({ idadeMs: null, orfa: true });
+    expect(idadeSemOpened('2026-01-01T00:00:00Z', undefined)).toEqual({ idadeMs: null, orfa: true });
+  });
+});
+
+describe('o reparo à mão apaga o alarme — a quinta rodada de segurança, M-B', () => {
+  const { reconcileCheck } = require('../_lib/checks/reconcile');
+  const base = { checkId: 'c', events: [], payments: [], openedAt: '2026-01-01T00:00:00Z', nowMs: Date.parse('2026-01-03T00:00:00Z') };
+
+  test('órfã velha com a linha ainda aberta → critical: a mesa está trancada', () => {
+    const r = reconcileCheck({ ...base, statusDaLinha: 'aberta' });
+    expect(r.findings.map((f) => [f.severity, f.code])).toEqual([['critical', 'check_without_opened']]);
+  });
+
+  test('a mesma órfã depois de `status = fechada` à mão → só registro, e a conta sai ok', () => {
+    const r = reconcileCheck({ ...base, statusDaLinha: 'fechada' });
+    expect(r.findings.map((f) => [f.severity, f.code])).toEqual([['info', 'check_closed_without_opened']]);
+    expect(r.ok).toBe(true);
+  });
+});

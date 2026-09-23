@@ -202,6 +202,7 @@ describe('os dois stores devolvem a MESMA forma', () => {
         // `opened_at`: a conciliação lê a idade da conta pra separar a que
         // está abrindo agora da órfã (`conta-sem-opened.js`).
         opened_at: new Date().toISOString(),
+        status: 'aberta',
         txid: 'ch_1', amount_cents: 5000, tip_cents: 500,
         confirmed_amount_cents: 5000, confirmed_tip_cents: 500,
         refunded_amount_cents: 0, refunded_tip_cents: 0,

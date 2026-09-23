@@ -502,6 +502,9 @@ function createMemoryStore() {
         .map((c) => ({
           checkId: c.id,
           openedAt: c.openedAt,
+          // A coluna do Postgres, derivada da mesma regra do índice: aqui não há
+          // SQL à mão, então ela só é `fechada` quando o razão fechou.
+          statusDaLinha: ocupaAMesa(events.get(c.id)) ? 'aberta' : 'fechada',
           events: [...(events.get(c.id) || [])],
           payments: [...payments.values()]
             .filter((p) => p.checkId === c.id)

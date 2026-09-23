@@ -508,7 +508,14 @@ a casa de vermelho e acorda o fundador (inegociável #8). **Exceto nas casas
 mais provoca a janela — e as casas de teste com recebedor vivo. Nelas a órfã só
 deixa a linha `[conta-sem-opened]` no log, e o repositório não tem nada que leia
 log e pagine. Fecha junto com a RPC; até lá, é uma exceção escrita, não uma
-cobertura (compliance, quinta rodada, M-1/M-2). O store de memória
+cobertura (compliance, quinta rodada, M-1/M-2).
+
+**O reparo à mão, até a RPC:** `update checks set status = 'fechada' where id =
+'<id da linha [conta-sem-opened]>'` — só numa linha sem nenhum `payments`
+(confira antes). A mesa destranca na hora, e a conciliação passa a registrar a
+conta como `info` `check_closed_without_opened` em vez do `critical`: julgar só
+pelo razão deixava o alarme aceso pra sempre numa mesa já livre (segurança,
+quinta rodada, M-B). O store de memória
 passou a trancar a mesa como o índice do Postgres; antes ele deixava abrir
 outra conta por cima, e o teste de "mesa trancada" era verde aqui e falso lá.
 

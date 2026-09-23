@@ -30,7 +30,7 @@ const { idadeSemOpened } = require('./conta-sem-opened');
  * @param {Array} input.payments      payment rows: { txid, amountCents, tipCents, status }
  * @returns {{ checkId: string, ok: boolean, driftCents: number, findings: Array }}
  */
-function reconcileCheck({ checkId, events, payments, openedAt, nowMs }) {
+function reconcileCheck({ checkId, events, payments, openedAt, nowMs, statusDaLinha }) {
   const findings = [];
   const add = (severity, code, msg, extra = {}) =>
     findings.push({ severity, code, message: msg, ...extra });
@@ -49,7 +49,17 @@ function reconcileCheck({ checkId, events, payments, openedAt, nowMs }) {
   // nunca — trancava a mesa (o índice de uma aberta por mesa) e a conciliação
   // dizia `ok`. Passada a janela normal de abertura, é `critical`, e `critical`
   // pagina. Sem idade conhecida também: na dúvida, alarme (`conta-sem-opened.js`).
-  if (state === null && (!Array.isArray(events) || events.length === 0)) {
+  //
+  // A COLUNA decide se a mesa ainda está trancada. O reparo à mão de uma órfã é
+  // `status = 'fechada'` na linha: a mesa destranca, mas o razão segue vazio.
+  // Julgando só pelo razão, esse reparo deixava um `critical` que nunca apaga,
+  // dizendo "a mesa não abre outra conta" de uma mesa livre — e uma casa
+  // vermelha pra sempre é uma casa que ninguém olha mais (segurança, quinta
+  // rodada, M-B). Fechada na linha é registro (`info`), não alarme.
+  if (state === null && (!Array.isArray(events) || events.length === 0) && statusDaLinha === 'fechada') {
+    add('info', 'check_closed_without_opened',
+      `conta ${checkId} sem OPENED, já fechada na linha — a mesa está livre; fica o registro`);
+  } else if (state === null && (!Array.isArray(events) || events.length === 0)) {
     const { idadeMs, orfa } = idadeSemOpened(openedAt, nowMs);
     if (orfa) {
       // A FRASE leva a conta e a idade: o alerta do fundador imprime só a

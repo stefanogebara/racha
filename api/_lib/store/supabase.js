@@ -1240,7 +1240,9 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         // linha — o mesmo motivo do `ordem` do `lerPorLote`.
         // `opened_at`: a conciliação precisa da idade pra separar a conta que
         // está abrindo AGORA da órfã. Ver `conta-sem-opened.js`.
-        consulta: (de, ate) => client.from('checks').select('id, opened_at').eq('venue_id', venueId)
+        // `status`: a COLUNA, não o razão. É ela que tranca a mesa (o índice de
+        // uma aberta por mesa), e é ela que o reparo à mão de uma órfã muda.
+        consulta: (de, ate) => client.from('checks').select('id, opened_at, status').eq('venue_id', venueId)
           .order('id', { ascending: true }).range(de, ate),
       });
       const out = [];
@@ -1271,6 +1273,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         out.push({
           checkId: c.id,
           openedAt: c.opened_at,
+          statusDaLinha: c.status,
           events: razoes.get(c.id) || [],
           payments: (pays || []).map((p) => ({
             txid: p.txid, amountCents: p.amount_cents, tipCents: p.tip_cents,
