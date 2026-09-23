@@ -64,8 +64,11 @@ no WhatsApp:
 
 **D2 — treino + go-live**
 - [ ] (nós) **Workshop experiencial de 15 min pré-turno**: CADA garçom
-      escaneia e paga uma conta de mentira no celular dele (método sunday —
-      "a experiência dissolve o medo")
+      escaneia a **mesa de treino** no celular dele e percorre a conta até a
+      hora de pagar — ela avisa que é treino e **não cobra** (ver
+      `api/_lib/checks/mesa-de-treino.js`: antes cobrava Pix de verdade). O
+      pagamento completo, até o ✓, se mostra na **demo** do site (método
+      sunday — "a experiência dissolve o medo")
 - [ ] (nós) Entregar o roteiro de 1 frase: *"Pode escanear o QR da mesa pra
       ver a conta e pagar quando quiser — o serviço vem junto e é opcional."*
       (é o mesmo texto do assistente de implantação, `wiz.staffLine` — um

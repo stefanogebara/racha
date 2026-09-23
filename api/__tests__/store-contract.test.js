@@ -438,15 +438,17 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     expect((await store.getHouseAccountByToken(acc.accountToken)).id).toBe(acc.id);
   });
 
-  test('mesa de treino: paga normal, mas fica fora dos totais e da ativação do painel', async () => {
+  test('mesa marcada como treino DEPOIS de receber: o painel não esconde o dinheiro dela', async () => {
+    // Era "paga normal, mas fica fora dos totais" — dinheiro real que o dono não
+    // via, serviço da folha inclusive. Agora a mesa de treino não cobra (quem
+    // recusa é a rota; este teste vai pelo serviço de cobrança, por baixo dela,
+    // pra montar o histórico de uma mesa que recebeu ANTES de ser marcada), e o
+    // painel conta todo dinheiro que encontra. Ver `mesa-de-treino.js`.
     const tv = await store.seedVenue({ name: 'Treino', servicoBp: 1000, pspRecipientId: 'rcpt_tr' });
     const mesaReal = await store.seedTable(tv.id, `Mesa ${crypto.randomInt(1000, 9999)}`);
     const mesaTreino = await store.seedTable(tv.id, `Treino ${crypto.randomInt(1000, 9999)}`);
-    const tgl = await store.setTableTraining(mesaTreino.id, true);
-    expect(tgl.training).toBe(true);
-    expect((await store.listTables(tv.id)).find((t) => t.id === mesaTreino.id).training).toBe(true);
 
-    // paga R$10 na mesa real e R$99 na mesa de treino
+    // paga R$10 numa mesa e R$99 na outra — as duas de verdade ainda
     const cReal = await store.openCheck(mesaReal.qrToken, [{ id: 'a', name: 'A', priceCents: 1000 }]);
     const cTreino = await store.openCheck(mesaTreino.qrToken, [{ id: 'b', name: 'B', priceCents: 9900 }]);
     for (const [c, cents] of [[cReal, 1000], [cTreino, 9900]]) {
@@ -455,13 +457,21 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
       await handler(wh.rawBody, wh.signature);
     }
 
+    // …as contas fecham (mesa com conta aberta não vira treino — ver
+    // `setTableTraining`), e só depois a segunda é marcada como treino
+    await store.appendEvent(cReal.id, 'CLOSED', {});
+    await store.appendEvent(cTreino.id, 'CLOSED', {});
+    const tgl = await store.setTableTraining(mesaTreino.id, true);
+    expect(tgl.training).toBe(true);
+    expect((await store.listTables(tv.id)).find((t) => t.id === mesaTreino.id).training).toBe(true);
+
     const panel = await store.getPanelView(tv.id);
-    expect(panel.today.confirmedCents).toBe(1000);        // só a mesa real
-    expect(panel.today.paymentsCount).toBe(1);
-    expect(panel.ativacao.semana.valorCents).toBe(1000);  // treino fora da série
-    expect(panel.ativacao.semana.contas).toBe(1);
+    expect(panel.today.confirmedCents).toBe(10900);       // as duas: é dinheiro de verdade
+    expect(panel.today.paymentsCount).toBe(2);
+    expect(panel.ativacao.semana.valorCents).toBe(10900);
+    expect(panel.ativacao.semana.contas).toBe(2);
     expect(panel.ativacao.dias).toHaveLength(7);
-    expect(panel.ativacao.metodos.pix).toBe(1);
+    expect(panel.ativacao.metodos.pix).toBe(2);
   });
 
   test('open check stays reachable after 10+ closed checks on the same table (review finding)', async () => {

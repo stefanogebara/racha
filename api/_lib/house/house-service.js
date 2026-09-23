@@ -1,4 +1,5 @@
 'use strict';
+const { eMesaDeTreino, CODIGO_MESA_DE_TREINO } = require('../checks/mesa-de-treino');
 
 const { gravarAposCobrar } = require('../pay/gravar-apos-cobrar');
 
@@ -225,7 +226,8 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     if (!hit) throw httpError(404, 'Mesa não encontrada');
     const cfg = venueHouseConfig(hit.venue);
     return {
-      enabled: cfg.enabled,
+      // Na mesa de treino o saldo não se oferece: abrir e recarregar é Pix real.
+      enabled: cfg.enabled && !eMesaDeTreino(hit),
       venueName: hit.venue.name,
       bonusBp: cfg.bonusBp,
       validityDays: cfg.validityDays,
@@ -237,6 +239,9 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
   async function openAccount({ tableQrToken, phone, name }) {
     const hit = await store.getVenueByTableToken(tableQrToken || '');
     if (!hit) throw httpError(404, 'Mesa não encontrada');
+    // Nem carteira nova a partir da mesa de treino: a recarga é Pix de verdade,
+    // e "mesa de treino nunca cobra" não tem exceção (compliance, PR #18, LOW-1).
+    if (eMesaDeTreino(hit)) throw httpError(409, 'mesa de treino não cobra', CODIGO_MESA_DE_TREINO);
     const cfg = venueHouseConfig(hit.venue);
     if (!cfg.enabled) throw badRequest('house balance is off for this venue', 'house_off');
     const digits = normalizePhone(phone);
@@ -427,6 +432,8 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     if (!account) throw httpError(404, 'Conta não encontrada');
     const view = await store.getCheckByQrToken(tableQrToken || '');
     if (!view) throw httpError(404, 'Mesa sem conta aberta');
+    // Saldo da casa é dinheiro do cliente: mesa de treino não o gasta.
+    if (eMesaDeTreino(view)) throw httpError(409, 'mesa de treino não cobra', CODIGO_MESA_DE_TREINO);
     const venue = await store.getVenueForCheck(view.check.id);
     if (!venue) throw httpError(404, 'venue not found', 'venue_not_found');
     const cfg = venueHouseConfig(venue);

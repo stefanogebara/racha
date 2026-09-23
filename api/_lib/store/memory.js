@@ -272,10 +272,15 @@ function createMemoryStore() {
      * Refuses to DEACTIVATE a table with an open check — that would strand a
      * mid-payment diner with no new token to fall back to (review finding).
      */
-    /** Mesa de treino: paga normal, mas fica FORA das métricas do painel. */
+    /** Mesa de treino: não cobra (`mesa-de-treino.js`); o painel não a esconde. */
     async setTableTraining(tableId, training) {
       const t = tableById.get(tableId);
       if (!t) throw new Error('unknown table');
+      // Marcar com conta aberta: recusado, como no store do Supabase.
+      if (training && [...checks.values()].some((c) => c.tableId === t.id && ocupaAMesa(events.get(c.id)))) {
+        const e = new Error('table has an open check — close it before marking it as training');
+        e.statusCode = 409; e.code = 'table_has_open_check'; throw e;
+      }
       t.training = !!training;
       return { id: t.id, training: t.training };
     },
@@ -359,7 +364,7 @@ function createMemoryStore() {
           // `cnpj` vai junto — ver supabase.js.
           ...publicMarketView(venue.market, { servicoBp: venue.servicoBp, cnpj: venue.cnpj }),
         },
-        table: { label: table.label },
+        table: { label: table.label, training: table.training === true },
         check: { id: check.id, items: check.items },
         state: reduce(log),
       };
@@ -636,20 +641,11 @@ function createMemoryStore() {
         });
       // Venue-scoped like the supabase store — a shared demo instance must
       // never leak one venue's totals into another's panel (review finding).
-      // Mesas de TREINO ficam fora de todos os números (workshop pré-turno
-      // não é movimento da casa).
-      const trainingChecks = new Set(
-        [...checks.values()]
-          .filter((c) => c.venueId === venueId && (tableById.get(c.tableId) || {}).training)
-          .map((c) => c.id),
-      );
+      // A mesa de treino NÃO sai dos números — ver o store do Supabase e
+      // `mesa-de-treino.js`. Ela não cobra; o que o painel encontra é real.
       const confirmed = [...payments.values()].filter((p) =>
         p.status === 'confirmado'
-        && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId
-        && !trainingChecks.has(p.checkId));
-      // A sobra a devolver, com o MESMO filtro de treino que os pagamentos —
-      // senão o excedente de uma mesa de workshop descontava do faturamento
-      // uma receita que nunca foi contada. Ver o store do Supabase.
+        && (p.venueId ?? (checks.get(p.checkId) || {}).venueId) === venueId);
       /**
        * HOJE, no fuso de São Paulo — o mesmo corte da série semanal.
        *
@@ -678,7 +674,6 @@ function createMemoryStore() {
       const contasDoDia = new Set(doDia.map((p) => p.checkId));
       const overpaidTotal = rows
         .filter((r) => contasDoDia.has(r.checkId))
-        .filter((r) => !trainingChecks.has(r.checkId))
         .reduce((s, r) => s + (r.state.overpaidCents || 0), 0);
       return {
         // A MOEDA vai no payload do painel porque o painel imprime dinheiro, e
@@ -1053,7 +1048,7 @@ function createMemoryStore() {
     async getVenueByTableToken(qrToken) {
       const table = tables.get(qrToken);
       if (!table || !table.active) return null;
-      return { venue: venues.get(table.venueId), table: { id: table.id, label: table.label } };
+      return { venue: venues.get(table.venueId), table: { id: table.id, label: table.label, training: table.training === true } };
     },
     /** Grava o recebedor + status inicial + contatos do dono (aviso de KYC). */
     async setVenueRecipient(venueId, recipientId, opts = {}) {

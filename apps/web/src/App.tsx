@@ -1053,6 +1053,9 @@ export default function App() {
           {/* aria-label, não só placeholder: um placeholder some no foco e não
               é rótulo pra leitor de tela. Numa tela de pagamento, o campo tem
               que continuar dizendo o que é depois que a pessoa começa a digitar. */}
+          {/* Na mesa de treino não há pagamento, e nome sem pagamento é dado
+              pedido pra nada (LGPD art. 6º III). */}
+          {table.training !== true && (
           <Campo
             rotulo={t('payer.name')} maxLength={60} placeholder={t('payer.namePlaceholder')}
             // `name`: o teclado do telefone oferece o que a pessoa já tem
@@ -1061,6 +1064,7 @@ export default function App() {
             autoComplete="name" enterKeyHint="next"
             value={payerLabel} onChange={(e) => setPayerLabel(e.target.value)}
           />
+          )}
           {/* O documento do pagador só existe onde o TRILHO precisa dele. No
               Bizum quem autentica é o banco do pagador, no app dele, então
               pedir NIF aqui seria coletar dado sem necessidade — GDPR art.
@@ -1119,6 +1123,14 @@ export default function App() {
               nenhuma forma de pagar é pior que um botão feio: cai no MESMO
               trilho pelo servidor, que na demo é o MockPsp. Um caminho, dois
               jeitos de chegar nele. */}
+          {/* MESA DE TREINO NÃO COBRA — o servidor recusa (`mesa-de-treino.js`),
+              e a tela diz ANTES do toque, no lugar de todos os botões de pagar:
+              Pix, carteira, cartão e saldo da casa. Quem chega numa mesa marcada
+              por engano lê que ali não se paga, e vai ao caixa. */}
+          {table.training === true ? (
+            <p className="muted center" role="status">{t('pay.training')}</p>
+          ) : (
+          <>
           {primaryRail === 'bizum' && STRIPE_READY ? (
             <>
               <Suspense fallback={null}>
@@ -1221,6 +1233,8 @@ export default function App() {
                 ? t('house.bonus', { pct: pct(houseBonusBp) })
                 : t('house.discover')}
             </button>
+          )}
+          </>
           )}
         </section>
       )}

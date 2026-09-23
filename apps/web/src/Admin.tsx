@@ -252,6 +252,9 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
               {table.active && (table.hasOpenCheck
                 ? <button className="ghost" onClick={() => admin.closeManualCheck(table)}>{t('admin.closeBill')}</button>
                 : <button className="cta" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => admin.openManualCheck(table)}>{t('admin.openBillCta')}</button>)}
+              {/* O QR da mesa de treino existe — o workshop precisa dele —, mas
+                  o cartão sai CARIMBADO: um cartão de treino esquecido numa mesa
+                  de verdade se anuncia (auditoria dos QRs, Q1; compliance, PR #18). */}
               <button className="ghost" onClick={() => onPrint(table)}>QR</button>
               <button className="ghost" onClick={() => admin.rotate(table)}>{t('admin.rotate')}</button>
               <button className="linklike" onClick={() => admin.toggleTraining(table)}>{table.training ? t('admin.untrain') : t('admin.training')}</button>
@@ -307,6 +310,7 @@ function PrintCard({ venue, table, origin, onClose }: { venue: Venue | null; tab
             vendoriza. Esta linha pedia a Instrument Serif, que não é carregada
             em lugar nenhum desde a migração: o rótulo da mesa caía em Times. */}
         <h2 className="qrvenue" style={{ fontSize: 30 }}>{table.label}</h2>
+        {table.training && <p className="qrstamp" role="note">{t('admin.trainingStamp')}</p>}
         <div className="qrbox">
           <QRCodeSVG value={url} size={220} level="M" marginSize={2} />
         </div>
