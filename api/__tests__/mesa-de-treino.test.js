@@ -232,6 +232,19 @@ describe('o store de PRODUÇÃO também entrega a marca — senão a rota recusa
     expect(eMesaDeTreino(view)).toBe(esperado);
   });
 
+  test.each([[true, true], [false, false], [null, false]])('getVenueByTableToken: coluna training=%s → table.training=%s (vitrine e carteira do saldo dependem dela)', async (coluna, esperado) => {
+    // Segurança, PR #18, M3: `publicConfig` e `openAccount` leem a marca DAQUI,
+    // e tirar `training` deste SELECT sobrevivia à suíte inteira.
+    const tabelas = {
+      venue_tables: [{ id: 't1', venue_id: 'v1', label: 'Treino', qr_token: 'qr1', active: true, training: coluna,
+        venues: { id: 'v1', name: 'Casa', market: 'BR', cnpj: null, servico_basis_points: 1000 } }],
+    };
+    const store = createSupabaseStore({ url: 'http://falso', serviceRoleKey: 'x', client: cliente(tabelas) });
+    const hit = await store.getVenueByTableToken('qr1');
+    expect(hit.table.training).toBe(esperado);
+    expect(eMesaDeTreino(hit)).toBe(esperado);
+  });
+
   test('marcar como treino com conta aberta: recusado ANTES de escrever — e com CLOSED no razão, passa da guarda', async () => {
     const ID = '00000000-5555-4555-8555-000000000002';
     const tabelas = {
