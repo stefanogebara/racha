@@ -502,7 +502,13 @@ grava o `OPENED` na mesma transação.
 **O que mudou em 2026-09-23 (PR #16):** a mesa ainda tranca, mas não em
 silêncio. A leitura e o painel escrevem `[conta-sem-opened]` depois de 30 s, e
 a conciliação diária emite achado `critical` `check_without_opened` — que pinta
-a casa de vermelho e acorda o fundador (inegociável #8). O store de memória
+a casa de vermelho e acorda o fundador (inegociável #8). **Exceto nas casas
+`isTest`:** a varredura noturna as pula (`reconcileAllVenues`, sem
+`includeTest`), e isso inclui a DEMO — justamente onde a renovação em rebanho
+mais provoca a janela — e as casas de teste com recebedor vivo. Nelas a órfã só
+deixa a linha `[conta-sem-opened]` no log, e o repositório não tem nada que leia
+log e pagine. Fecha junto com a RPC; até lá, é uma exceção escrita, não uma
+cobertura (compliance, quinta rodada, M-1/M-2). O store de memória
 passou a trancar a mesa como o índice do Postgres; antes ele deixava abrir
 outra conta por cima, e o teste de "mesa trancada" era verde aqui e falso lá.
 

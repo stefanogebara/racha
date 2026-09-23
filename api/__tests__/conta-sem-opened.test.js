@@ -167,6 +167,9 @@ describe('a conta órfã grita, em todo leitor que a pula', () => {
     expect(falhou.checkId).toBe(orfa.checkId);
     expect(falhou.findings.find((f) => f.code === 'check_without_opened'))
       .toMatchObject({ severity: 'critical', ageSeconds: 600 });
+    // O alerta do fundador imprime só a frase: ela tem de dizer QUAL conta.
+    expect(falhou.findings.find((f) => f.code === 'check_without_opened').message)
+      .toContain(orfa.checkId);
 
     const nova = await reconcileVenue(store, venue.id, { nowMs: criadaMs + 1_000 });
     expect(nova.failed).toEqual([]);

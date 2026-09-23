@@ -52,8 +52,13 @@ function reconcileCheck({ checkId, events, payments, openedAt, nowMs }) {
   if (state === null && (!Array.isArray(events) || events.length === 0)) {
     const { idadeMs, orfa } = idadeSemOpened(openedAt, nowMs);
     if (orfa) {
+      // A FRASE leva a conta e a idade: o alerta do fundador imprime só a
+      // `message` (`formatReconcileAlert`), e os campos morrem no log do cron.
+      // "Uma mesa trancada" sem dizer qual não é acionável às 4 da manhã
+      // (compliance, quinta rodada, L-1).
+      const idade = idadeMs == null ? 'idade desconhecida' : `há ${Math.round(idadeMs / 60000)} min`;
       add('critical', 'check_without_opened',
-        'check row exists with no OPENED event — the table cannot open a new check until this is repaired',
+        `conta ${checkId} sem OPENED (${idade}) — a mesa não abre outra conta até alguém consertar; o próximo PR é a RPC que abre a conta numa transação só`,
         { ageSeconds: idadeMs == null ? null : Math.round(idadeMs / 1000) });
     }
   }
