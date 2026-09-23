@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { reciboVista, type AvisoDaConta } from './recibo';
 import { avisoDaCobranca } from './pix-vivo';
-import { guardarCobranca, lerCobranca, esquecerCobranca } from './cobranca-viva';
+import { guardarCobranca, lerCobranca, esquecerCobranca, varrerVencidas } from './cobranca-viva';
 import { api, ApiError, parseBrlToCents, CheckView, ChargeResult } from './api';
 import { LangToggle, money, tError, useT, type Key } from './lang';
 import { dishFor, dishMask } from './dish';
@@ -391,8 +391,23 @@ export default function App() {
   useEffect(() => {
     if (restaurou.current || !view) return;
     restaurou.current = true;
+    varrerVencidas(Date.now(), token);
     const g = lerCobranca(token, Date.now());
     if (!g || step !== 'conta') return;
+    const caiu = g.ownRef !== null
+      && Object.values(view.state.payments || {}).some((p) => p.ref === g.ownRef);
+    if (g.vencida) {
+      // Vencida, mas PAGA: volta como recibo, sem data — a tela não sabe a
+      // hora do pagamento, e uma hora inventada é pior que nenhuma. Vencida e
+      // não paga: fica esquecida (`lerCobranca` já apagou).
+      if (!caiu) return;
+      setCharge(g.charge); setOwnRef(g.ownRef); setPaidAt(null); setStep('pago');
+      return;
+    }
+    // O RECIBO só volta na conta em que nasceu. Numa conta nova no mesmo QR ele
+    // virava um beco: sem "pagar mais", poll parado, e "escaneie de novo"
+    // trazendo o mesmo recibo por seis horas (compliance, PR #17, HIGH-2).
+    if (g.fase === 'pago' && g.checkId !== view.check.id) { esquecerCobranca(token); return; }
     guardadoComo.current = `${g.charge.txid}:${g.fase}:${g.ownRef ?? ''}`; // não reinicia a validade ao voltar
     setCharge(g.charge); setOwnRef(g.ownRef); setPaidAt(g.paidAt); setStep(g.fase);
   }, [view, token, step]);
@@ -689,8 +704,15 @@ export default function App() {
               <p className="muted center" role="alert" style={{ color: 'var(--erro)' }}>
                 {aviso === 'mesa_paga' ? t('pix.stopPaid')
                   : aviso === 'conta_trocou' ? t('pix.stopChanged')
-                  : t('pix.stopOver', { left: brl(remaining), amount: brl(charge.amountCents) })}
+                  : t('pix.stopOver', { left: brl(remaining), amount: brl(charge.amountCents + charge.tipCents) })}
               </p>
+              {/* A prova de quem já pagou é o comprovante do BANCO; este id é o
+                  que a equipe procura no painel do adquirente. */}
+              <p className="muted small center selectable">{t('pix.chargeId', { id: charge.txid })}</p>
+              {/* Sem a marca, este aparelho não sabe se o pagamento é dele: o
+                  aviso que o protegia de pagar duas vezes não pode sumir aqui
+                  (compliance, PR #17, HIGH-1). */}
+              {ownRef === null && <p className="muted small center">{t('pix.noAutoConfirm')}</p>}
               <button className="cta" onClick={() => { esquecerCobranca(token); setStep('conta'); void refresh(); }}>
                 {t('pix.stopBack')}
               </button>

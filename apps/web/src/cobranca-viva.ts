@@ -31,6 +31,13 @@ export interface CobrancaGuardada {
   /** Quando o pagamento foi confirmado — o carimbo do comprovante. */
   paidAt: string | null;
   guardadaEm: number;
+  /**
+   * Só na LEITURA: a cobrança pendente passou da validade. Ela volta assim uma
+   * vez, pra tela conferir se a marca dela caiu na conta antes de esquecê-la —
+   * quem pagou aos 10 min e voltou à aba aos 25 perdia o recibo (compliance,
+   * PR #17, MEDIUM-3). Quem lê decide; `lerCobranca` já a apagou.
+   */
+  vencida?: boolean;
 }
 
 /** Um Pix vence em 15 min; passado disso, o código na tela não paga mais nada. */
@@ -66,6 +73,25 @@ export function esquecerCobranca(token: string, a: Armazem | null = armazem()): 
  * noite — o `recibo.ts` já sabe congelá-lo se a conta trocou. Qualquer coisa
  * fora da forma é descartada, não consertada.
  */
+/**
+ * Apaga o que venceu em QUALQUER mesa. Sem isto a validade só valia pra mesa
+ * lida de novo, e a de uma casa que a pessoa nunca mais visitou ficava no
+ * aparelho pra sempre (LGPD art. 15 e 16 — compliance, PR #17, LOW-1).
+ */
+export function varrerVencidas(agoraMs: number, exceto: string, a: (Armazem & Pick<Storage, 'length' | 'key'>) | null = armazem() as Storage | null): void {
+  if (!a) return;
+  try {
+    const chaves: string[] = [];
+    // A mesa ABERTA agora fica de fora: a dela é lida logo depois, e uma
+    // cobrança vencida mas paga tem de chegar inteira a quem confere a marca.
+    for (let i = 0; i < a.length; i++) {
+      const k = a.key(i);
+      if (k && k.startsWith('racha-cobranca:') && k !== chave(exceto)) chaves.push(k);
+    }
+    for (const k of chaves) lerCobranca(k.slice('racha-cobranca:'.length), agoraMs, a);
+  } catch { /* bloqueado */ }
+}
+
 export function lerCobranca(token: string, agoraMs: number, a: Armazem | null = armazem()): CobrancaGuardada | null {
   if (!token || !a) return null;
   let bruto: string | null = null;
@@ -82,7 +108,7 @@ export function lerCobranca(token: string, agoraMs: number, a: Armazem | null = 
   if (d.fase === 'pagar') {
     const venceu = idade > VALIDADE_DA_COBRANCA_MS
       || (d.charge.expiresAt != null && Date.parse(d.charge.expiresAt) <= agoraMs);
-    if (venceu) { esquecerCobranca(token, a); return null; }
+    if (venceu) { esquecerCobranca(token, a); return { ...d, vencida: true }; }
     return d;
   }
   if (idade > VALIDADE_DO_RECIBO_MS) { esquecerCobranca(token, a); return null; }

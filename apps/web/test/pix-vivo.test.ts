@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { avisoDaCobranca, type CobrancaNaTela } from '../src/pix-vivo.ts';
 import {
-  guardarCobranca, lerCobranca, esquecerCobranca, VALIDADE_DA_COBRANCA_MS, VALIDADE_DO_RECIBO_MS,
+  guardarCobranca, lerCobranca, esquecerCobranca, varrerVencidas, VALIDADE_DA_COBRANCA_MS, VALIDADE_DO_RECIBO_MS,
 } from '../src/cobranca-viva.ts';
 
 const base: CobrancaNaTela = { faltaCents: 14880, cobrancaCents: 14879, minhaCaiu: false, contaDaCobranca: 'c1', contaViva: 'c1' };
@@ -55,13 +55,15 @@ test('RECARREGOU no app do banco → a cobrança volta, com a marca, pra mesma m
   assert.equal(lerCobranca('outra-mesa', AGORA + 60_000, a), null); // por MESA
 });
 
-test('cobrança vencida não volta — e sai do armazenamento', () => {
+test('cobrança vencida volta só MARCADA como vencida — e sai do armazenamento', () => {
   const a = memoria();
   guardarCobranca('mesa7', pendente, a);
-  assert.equal(lerCobranca('mesa7', Date.parse(charge.expiresAt) + 1, a), null);
+  assert.equal(lerCobranca('mesa7', Date.parse(charge.expiresAt) + 1, a)?.vencida, true);
   assert.equal(a.m.size, 0);
+  assert.equal(lerCobranca('mesa7', Date.parse(charge.expiresAt) + 2, a), null); // uma vez só
   guardarCobranca('mesa7', { ...pendente, charge: { ...charge, expiresAt: null } }, a);
-  assert.equal(lerCobranca('mesa7', AGORA + VALIDADE_DA_COBRANCA_MS + 1, a), null);
+  assert.equal(lerCobranca('mesa7', AGORA + VALIDADE_DA_COBRANCA_MS + 1, a)?.vencida, true);
+  assert.equal(lerCobranca('mesa7', AGORA + 60_000, a), null);
 });
 
 test('o recibo volta pela noite, e não depois', () => {
@@ -110,4 +112,40 @@ test('a cobrança é guardada e restaurada pela memória, e o "pagar mais" a esq
   assert.ok(APP.includes('guardarCobranca(token'), 'nada guarda a cobrança');
   const pagarMais = APP.slice(APP.lastIndexOf('setCharge(null);', APP.indexOf("t('paid.payMore')")), APP.indexOf("t('paid.payMore')"));
   assert.ok(pagarMais.includes('esquecerCobranca(token)'), '"pagar mais" deixaria o recibo velho voltar num recarregar');
+});
+
+// ---- a segunda leva: a revisão de compliance do PR #17 ----------------------
+
+function memoriaComChaves() {
+  const m = memoria();
+  // `defineProperty`, não `Object.assign`: o assign lê o getter UMA vez e
+  // congela o `length` em zero — a varredura não andaria e o teste mentiria.
+  Object.defineProperty(m, 'length', { get: () => m.m.size });
+  return Object.assign(m, { key: (i: number) => [...m.m.keys()][i] ?? null }) as typeof m & { length: number; key: (i: number) => string | null };
+}
+
+test('cobrança VENCIDA volta uma vez, marcada — quem pagou aos 10 min e voltou aos 25 não perde o recibo', () => {
+  const a = memoria();
+  guardarCobranca('mesa7', pendente, a);
+  const lida = lerCobranca('mesa7', Date.parse(charge.expiresAt) + 60_000, a);
+  assert.equal(lida?.vencida, true);
+  assert.equal(lida?.ownRef, 'r1'); // a marca chega inteira, pra tela conferir
+  assert.equal(a.m.size, 0);        // e já saiu do aparelho
+});
+
+test('a varredura apaga o vencido das OUTRAS mesas e deixa o da mesa aberta pra ser conferido', () => {
+  const a = memoriaComChaves();
+  guardarCobranca('mesa-velha', pendente, a);
+  guardarCobranca('mesa7', pendente, a);
+  guardarCobranca('mesa-viva', { ...pendente, guardadaEm: AGORA + 25 * 60_000, charge: { ...charge, expiresAt: '2026-09-23T21:40:00Z' } }, a);
+  varrerVencidas(AGORA + 25 * 60_000, 'mesa7', a);
+  assert.deepEqual([...a.m.keys()].sort(), ['racha-cobranca:mesa-viva', 'racha-cobranca:mesa7']);
+});
+
+test('a tela: recibo só volta na conta dele; vencida só volta se a marca caiu; sem marca, o aviso de não pagar duas vezes fica', () => {
+  assert.ok(APP.includes("g.fase === 'pago' && g.checkId !== view.check.id"), 'o recibo de outra conta voltaria como beco sem saída');
+  assert.ok(/if \(g\.vencida\) \{[\s\S]*?if \(!caiu\) return;/.test(APP), 'uma cobrança vencida e não paga voltaria');
+  const aviso = telaDoPix.slice(telaDoPix.indexOf("aviso !== 'ok' ?"), telaDoPix.indexOf(") : (", telaDoPix.indexOf("aviso !== 'ok' ?")));
+  assert.ok(aviso.includes("ownRef === null && <p className=\"muted small center\">{t('pix.noAutoConfirm')}"), 'o aparelho sem marca perderia o aviso');
+  assert.ok(aviso.includes("t('pix.chargeId'"), 'sem o id, a equipe não acha o pagamento');
 });
