@@ -118,7 +118,7 @@ export default function Home() {
         <header className="topo env">
           <a className="marca" href="/">racha</a>
           <nav>
-            <a href="/admin">{t('land.nav')}</a>
+            <a href={`/admin?lang=${lang}`}>{t('land.nav')}</a>
             <LangToggle compact />
           </nav>
         </header>
@@ -129,8 +129,8 @@ export default function Home() {
             <h1>{t('land.h1a')}</h1>
             <p className="sub">{t('land.sub')}</p>
             <div className="acoes">
-              <a className="pilula" href={DEMO}>{t('land.try')} <span aria-hidden="true">→</span></a>
-              <a className="elo" href="/admin">{t('land.forVenues')}</a>
+              <a className="pilula" href={`${DEMO}&lang=${lang}`}>{t('land.try')} <span aria-hidden="true">→</span></a>
+              <a className="elo" href={`/admin?lang=${lang}`}>{t('land.forVenues')}</a>
             </div>
             <p className="fatos">
               <span>{t('land.proof1')}</span>
@@ -218,14 +218,14 @@ export default function Home() {
         <ul className="itens">
           {claims.map((c, i) => <li key={i}>{c}</li>)}
         </ul>
-        <a className="pilula" href="/admin">{t('land.openPanel')} <span aria-hidden="true">→</span></a>
+        <a className="pilula" href={`/admin?lang=${lang}`}>{t('land.openPanel')} <span aria-hidden="true">→</span></a>
       </section>
 
       <footer className="rodape env">
         <span>{t('app.tagline')}</span>
         <nav>
-          <a href={DEMO}>{t('land.try')}</a>
-          <a href="/admin">{t('land.nav')}</a>
+          <a href={`${DEMO}&lang=${lang}`}>{t('land.try')}</a>
+          <a href={`/admin?lang=${lang}`}>{t('land.nav')}</a>
         </nav>
         {/* Pelo formatador, não à mão. A versão manual daqui era a ÚNICA
             formatada no produto inteiro — o comprovante e o aviso, que são o
