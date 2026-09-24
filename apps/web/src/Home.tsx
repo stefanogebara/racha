@@ -118,7 +118,7 @@ export default function Home() {
         <header className="topo env">
           <a className="marca" href="/">racha</a>
           <nav>
-            <a href="/admin">{t('land.nav')}</a>
+            <a href={`/admin?lang=${lang}`}>{t('land.nav')}</a>
             <LangToggle compact />
           </nav>
         </header>
@@ -129,9 +129,12 @@ export default function Home() {
             <h1>{t('land.h1a')}</h1>
             <p className="sub">{t('land.sub')}</p>
             <div className="acoes">
-              <a className="pilula" href={DEMO}>{t('land.try')} <span aria-hidden="true">→</span></a>
-              <a className="elo" href="/admin">{t('land.forVenues')}</a>
+              <a className="pilula" href={`${DEMO}&lang=${lang}`}>{t('land.try')} <span aria-hidden="true">→</span></a>
+              <a className="elo" href={`/admin?lang=${lang}`}>{t('land.forVenues')}</a>
             </div>
+            {/* Quem chega aqui procurando a PRÓPRIA conta não tem o que fazer
+                nesta página — a conta abre pelo QR da mesa (auditoria L8). */}
+            <p className="namesa">{t('land.dinerHint')}</p>
             <p className="fatos">
               <span>{t('land.proof1')}</span>
               <span>{t('land.proof2')}</span>
@@ -139,6 +142,9 @@ export default function Home() {
           </div>
 
           <div className="palco">
+            {/* O iframe da demo tem ~8 paradas de Tab; quem navega por teclado
+                pula direto pra explicação (auditoria L9). Só aparece no foco. */}
+            <a className="pular" href="#passos">{t('land.skipDemo')}</a>
             {/* O produto de verdade. Em ponteiro fino, tocável ali mesmo — a
                 legenda diz "toque nele", e agora ela é verdade. Em toque, a
                 camada `.abrir` por cima leva pra demo cheia, porque um frame
@@ -164,7 +170,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="passos-secao env">
+        <section className="passos-secao env" id="passos" tabIndex={-1}>
           <p className="kicker">{t('land.stepsTitle')}</p>
           <ol className="passos">
             {steps.map(([title, desc], i) => (
@@ -184,7 +190,7 @@ export default function Home() {
               <tr>
                 <th scope="col">{t('land.lPayer')}</th>
                 <th scope="col">{t('land.lTime')}</th>
-                <th scope="col">{t('land.lHow')}</th>
+                <th scope="col" className="como">{t('land.lHow')}</th>
                 <th scope="col">{t('land.lAmount')}</th>
               </tr>
             </thead>
@@ -193,7 +199,7 @@ export default function Home() {
                 <tr key={p.quem}>
                   <td className="quem">{p.quem}</td>
                   <td>{p.hora}</td>
-                  <td><span className="pago"><i />{t('land.lConfirmed', { rail: RAIL })}</span></td>
+                  <td className="como"><span className="pago"><i />{t('land.lConfirmed', { rail: RAIL })}</span></td>
                   <td className="valor">{fmt(p.valor)}</td>
                 </tr>
               ))}
@@ -203,7 +209,11 @@ export default function Home() {
                 {/* O ESTADO da mesa, que é texto nosso e traduz — não o número
                     dela, que é palavra do restaurante e não traduz. Pôr "Mesa 1"
                     aqui obrigava a escrever conteúdo da casa como literal. */}
-                <td className="quem" colSpan={3}>{t('land.lClosed')}</td>
+                {/* Duas colunas + a do "Como" VAZIA, e não `colSpan={3}`: no
+                    telefone a coluna "Como" some, e um rodapé que a contava
+                    empurrava o total uma coluna pra fora (auditoria L6). */}
+                <td className="quem" colSpan={2}>{t('land.lClosed')}</td>
+                <td className="como" aria-hidden="true" />
                 <td className="valor">{fmt(PROOF_TOTAL)}</td>
               </tr>
             </tfoot>
@@ -218,14 +228,14 @@ export default function Home() {
         <ul className="itens">
           {claims.map((c, i) => <li key={i}>{c}</li>)}
         </ul>
-        <a className="pilula" href="/admin">{t('land.openPanel')} <span aria-hidden="true">→</span></a>
+        <a className="pilula" href={`/admin?lang=${lang}`}>{t('land.openPanel')} <span aria-hidden="true">→</span></a>
       </section>
 
       <footer className="rodape env">
         <span>{t('app.tagline')}</span>
         <nav>
-          <a href={DEMO}>{t('land.try')}</a>
-          <a href="/admin">{t('land.nav')}</a>
+          <a href={`${DEMO}&lang=${lang}`}>{t('land.try')}</a>
+          <a href={`/admin?lang=${lang}`}>{t('land.nav')}</a>
         </nav>
         {/* Pelo formatador, não à mão. A versão manual daqui era a ÚNICA
             formatada no produto inteiro — o comprovante e o aviso, que são o

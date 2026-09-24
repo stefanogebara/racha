@@ -28,11 +28,23 @@ function readStored(): { lang: Lang; escolhido: boolean } {
   // — it reads storage once at mount and never hears the parent's toggle. The
   // hero was an English page wrapped around a Portuguese product.
   //
-  // It is not a second source of truth: nothing writes it, and the visible app
-  // still stores and reads the person's own choice.
+  // Outside the iframe it is also stored (see below): a link that says
+  // `?lang=pt` is the person's choice, and the panel's own navigation drops
+  // the query string.
   try {
-    const url = asLang(new URLSearchParams(window.location.search).get('lang'));
-    if (url) return { lang: url, escolhido: true };
+    const params = new URLSearchParams(window.location.search);
+    const url = asLang(params.get('lang'));
+    if (url) {
+      // FORA do iframe, o `?lang=` é escolha de verdade — e é GRAVADO. Sem
+      // isso, o dono que chegava da landing em português (`/admin?lang=pt`)
+      // voltava ao inglês na primeira navegação do painel, que troca a query
+      // inteira (`?v=<casa>`). Dentro do iframe da landing (`embed=1`) não:
+      // lá o idioma é o da moldura, não uma escolha da pessoa.
+      if (params.get('embed') !== '1') {
+        try { localStorage.setItem(STORAGE_KEY, url); } catch { /* storage bloqueado */ }
+      }
+      return { lang: url, escolhido: true };
+    }
   } catch { /* sem window (teste) → segue pro armazenado */ }
   try {
     const stored = asLang(localStorage.getItem(STORAGE_KEY));
