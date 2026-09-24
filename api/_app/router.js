@@ -1989,21 +1989,10 @@ async function route(req, res) {
         return json(res, 429, { success: false, error: 'Muitas tentativas — aguarde alguns minutos', code: 'rate_limited' });
       }
       const b = JSON.parse(await readBody(req) || '{}');
-      // A carteira da casa coleta NOME e TELEFONE — o dado mais pessoal do
-      // produto todo. Em Espanha isso entra direto no problema de residência
-      // de dado que a revisão de compliance levantou (o banco está em São
-      // Paulo; titular europeu precisa de cláusulas-padrão ou de um projeto na
-      // UE). Então a carteira não abre em mercado que não está liberado, e o
-      // primeiro cliente espanhol não existe antes da papelada.
-      // `getVenueByTableToken` devolve `{ venue, table }`. Lia-se `.market` do
-      // PAR, que é sempre `undefined` — e `market(undefined)` cai no Brasil: a
-      // trava da Espanha nunca disparava e a carteira abria coletando nome e
-      // telefone de titular europeu (visto no PR #18; conserto 2026-09-24).
-      const houseHit = await store.getVenueByTableToken(b.token || '');
-      const houseLive = chargingAllowed(houseHit && houseHit.venue && houseHit.venue.market);
-      if (houseLive) {
-        return json(res, 400, { success: false, error: 'carteira indisponível neste mercado', ...houseLive });
-      }
+      // A trava de mercado (a carteira coleta nome e telefone; Espanha sem a
+      // papelada não abre) mora em `houseSvc.openAccount`, como na recarga e no
+      // resgate. Aqui ela lia `.market` do par { venue, table } e nunca
+      // disparava (PR #26).
       const data = await houseSvc.openAccount({
         tableQrToken: b.token, phone: b.phone, name: b.name,
       });

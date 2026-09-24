@@ -48,3 +48,37 @@ describe('/api/house/open respeita o mercado da casa', () => {
     expect(await store.countHouseAccounts(casa.id)).toBe(1);   // a contagem conta de verdade
   });
 });
+
+describe('o SERVIÇO carrega a trava — nenhum chamador de openAccount a pula', () => {
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { MockPsp } = require('../_lib/pay/mock-psp');
+  const { createHouseService } = require('../_lib/house/house-service');
+  const antes = process.env.RACHA_ES_ENABLED;
+  afterEach(() => { if (antes === undefined) delete process.env.RACHA_ES_ENABLED; else process.env.RACHA_ES_ENABLED = antes; });
+
+  async function montar(market) {
+    const store = createMemoryStore();
+    const svc = createHouseService({ store, psp: new MockPsp({ webhookSecret: 'x'.repeat(32) }) });
+    const casa = await store.seedVenue({ name: 'Casa', cnpj: 'B12345678', market });
+    await store.setHouseConfig(casa.id, { enabled: true, bonusBp: 1000, validityDays: 90 });
+    const mesa = await store.seedTable(casa.id, 'Mesa 1');
+    return { store, svc, casa, mesa };
+  }
+
+  test('Espanha desligada: openAccount recusa com market_not_live e publicConfig não oferece', async () => {
+    delete process.env.RACHA_ES_ENABLED;
+    const { store, svc, casa, mesa } = await montar('es');
+    await expect(svc.openAccount({ tableQrToken: mesa.qrToken, phone: '11987654321', name: 'Cliente' }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'market_not_live' });
+    expect(await store.countHouseAccounts(casa.id)).toBe(0);
+    expect((await svc.publicConfig(mesa.qrToken)).enabled).toBe(false);
+  });
+
+  test('Espanha ligada: abre e oferece — a trava é do mercado, não da casa', async () => {
+    process.env.RACHA_ES_ENABLED = 'true';
+    const { store, svc, casa, mesa } = await montar('es');
+    expect((await svc.publicConfig(mesa.qrToken)).enabled).toBe(true);
+    await svc.openAccount({ tableQrToken: mesa.qrToken, phone: '11987654321', name: 'Cliente' });   // o normalizador de telefone é só BR (TASKS)
+    expect(await store.countHouseAccounts(casa.id)).toBe(1);
+  });
+});

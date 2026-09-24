@@ -195,6 +195,19 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    Supabase fora da UE e acessível do Brasil (LGPD art. 33; GDPR cap. V).
    Fecha com: projeto Supabase em região da UE (correção técnica que dispensa
    a maior parte) ou cláusulas-padrão + avaliação. Ver `docs/markets/README.md`.
+   **Registro de falha de controle (art. 37), 2026-09-24:** a trava que impede
+   a carteira da casa (nome + telefone) de abrir em mercado não liberado era
+   INEFICAZ desde que entrou (`e7aa30d`): `/api/house/open` lia `.market` do
+   par `{ venue, table }`, sempre `undefined`, e o mercado caía no Brasil —
+   uma casa `es` com `RACHA_ES_ENABLED` desligado abriria a carteira. Corrigido
+   no PR #26: a trava mora em `houseSvc.openAccount` (como na recarga e no
+   resgate) e a vitrine (`publicConfig`) não oferece a carteira nesse mercado;
+   teste `api/__tests__/carteira-trava-mercado.test.js`. Exposição medida em
+   produção: `select count(*) from house_accounts h join venues v on v.id =
+   h.venue_id where v.market = 'es'` → **0**; e nenhuma casa `es` existe hoje.
+   Limite do que isso prova: `venues.market` é coluna mutável, sem histórico —
+   não dá pra afirmar que nenhuma casa foi `es` no passado com carteira aberta
+   e depois mudou; só que hoje não há dado de titular em casa espanhola.
 4. **Sem DPA com as casas — e o DPA não é o conserto inteiro.** A Racha é
    operadora do dado do cliente da casa e não há contrato de tratamento (art. 39
    LGPD / art. 28 GDPR), nem menção aos cinco caminhos de alerta do §2. Fecha com **duas** coisas, não uma:
