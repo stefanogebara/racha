@@ -62,7 +62,7 @@ async function mintOwnerToken(venueId) {
   if (mem.error) throw new Error(`venue_members: ${mem.error.message}`);
   if (!mem.data.length) throw new Error(`venue ${venueId} não tem dono (owner) — confira o id`);
   const gu = await authAdmin.auth.admin.getUserById(mem.data[0].user_id);
-  if (gu.error || !gu.data.user?.email) throw new Error('dono não encontrado no projeto de AUTH — configure AUTH_SUPABASE_* no .env, ou passe --token');
+  if (gu.error || !gu.data.user?.email) throw new Error('dono não encontrado no auth do Racha — confira SUPABASE_URL e a service key no .env, ou passe --token');
   const email = gu.data.user.email;
   const link = await authAdmin.auth.admin.generateLink({ type: 'magiclink', email });
   if (link.error) throw new Error(`generateLink: ${link.error.message}`);

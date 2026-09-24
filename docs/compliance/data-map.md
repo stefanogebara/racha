@@ -250,8 +250,14 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    só demonstração, depois da medição. E o controlador desses registros é a PJ,
    que ainda não está decidida (ver `docs/rfp/README.md`) — o aviso do art. 9º e
    o registro do art. 37 precisam nomeá-la.
+   **Prazos:** o aviso direto ao dono da **Kris** sai ANTES do deploy do auth
+   próprio (ou no mesmo dia) — é o único dono provavelmente real, com recebedor
+   em ativação, e o aviso do login ("fale com a gente") ainda não tem canal que
+   receba (lacuna 2). A medição (a) vem antes de qualquer exclusão no projeto do
+   Seatable; a exclusão (b) e o aviso aos demais (c), até 2026-10-31.
 
-Nenhuma dessas bloqueia o piloto brasileiro assistido. Antes do primeiro QR numa
+Nenhuma dessas bloqueia o piloto brasileiro assistido, **menos o aviso à Kris da
+lacuna 10, que é condição do deploy do auth próprio.** Antes do primeiro QR numa
 mesa de cliente de verdade ficam a **4** (DPA) e a metade que sobra da **2** (uma
 caixa de correio que exista); as 3, 5 e 6 bloqueiam ligar a Espanha
 (`RACHA_ES_ENABLED`).
