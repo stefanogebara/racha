@@ -55,3 +55,27 @@ test('o dev-server não tem senha fixa pra conta demo', () => {
   expect(dev).toMatch(/const DEMO_PASS = `demo-\$\{crypto\.randomBytes\(\d+\)/);
   expect(dev).not.toMatch(/const DEMO_PASS = ['"]/);
 });
+
+// Todo script que CRIA usuário: senha sorteada, nunca literal (o dev-server e o
+// split-acceptance tinham senha no repo público — segurança, PR #22, LOW-D).
+test('nenhum createUser do repo leva senha literal', () => {
+  const { execFileSync } = require('node:child_process');
+  const arquivos = execFileSync('git', ['ls-files', '*.js', '*.mjs', '*.ts'], { cwd: RAIZ, encoding: 'utf8' })
+    .split('\n').filter((f) => f && !f.includes('__tests__') && !f.includes('/test/'));
+  const achados = [];
+  for (const f of arquivos) {
+    const src = fs.readFileSync(path.join(RAIZ, f), 'utf8');
+    if (!/auth\.admin\.createUser\(/.test(src)) continue;
+    if (/password\s*[:=]\s*(['"`][^'"`$]{4,}['"`]|'[^']*'\.repeat\()/.test(src)) achados.push(f);
+  }
+  expect(achados).toEqual([]);
+});
+
+test('o dev-server recusa o projeto de produção ANTES de carregar o router', () => {
+  const dev = fs.readFileSync(path.join(RAIZ, 'dev-server.js'), 'utf8');
+  const recusa = dev.indexOf("includes(PROJETO_DE_PRODUCAO)");
+  const router = dev.indexOf("require('./api/_app/router')");
+  expect(recusa).toBeGreaterThan(-1);
+  expect(recusa).toBeLessThan(router);
+  expect(dev).toMatch(/const PROJETO_DE_PRODUCAO = 'worttfotxasxqjaqwpjf';/);
+});

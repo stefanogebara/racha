@@ -52,6 +52,19 @@ if (process.env.RACHA_ENV === undefined && process.env.VERCEL_ENV === undefined)
 
 const { ensureDemoCheck } = require('./api/_lib/demo');
 const crypto = require('crypto');
+/**
+ * NUNCA CONTRA PRODUÇÃO. Este arquivo SEMEIA: casa, mesas, contas abertas e um
+ * dono confirmado. Apontado pro projeto de produção (o `.env` com
+ * `RACHA_STORE=supabase`), ele deixou 7 "Bar do Zé [demo …]" `is_test=false`
+ * lá, com dono de senha escrita no repositório público (segurança, PR #22,
+ * LOW-A). Recusa antes de carregar o router — antes de qualquer escrita.
+ */
+const PROJETO_DE_PRODUCAO = 'worttfotxasxqjaqwpjf';
+if ((process.env.SUPABASE_URL || '').includes(PROJETO_DE_PRODUCAO) && (process.env.RACHA_STORE || '').trim() === 'supabase') {
+  process.stderr.write(`dev-server: recusado — SUPABASE_URL aponta pro projeto de PRODUÇÃO (${PROJETO_DE_PRODUCAO}) e este arquivo semeia dados. Use o store em memória ou outro projeto.\n`);
+  process.exit(1);
+}
+
 const { route, store, authClient, useSupabase, DEMO_MODE } = require('./api/_app/router');
 
 const PORT = 8787;
