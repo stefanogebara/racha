@@ -1995,8 +1995,12 @@ async function route(req, res) {
       // Paulo; titular europeu precisa de cláusulas-padrão ou de um projeto na
       // UE). Então a carteira não abre em mercado que não está liberado, e o
       // primeiro cliente espanhol não existe antes da papelada.
-      const houseVenue = await store.getVenueByTableToken(b.token || '');
-      const houseLive = chargingAllowed(houseVenue && houseVenue.market);
+      // `getVenueByTableToken` devolve `{ venue, table }`. Lia-se `.market` do
+      // PAR, que é sempre `undefined` — e `market(undefined)` cai no Brasil: a
+      // trava da Espanha nunca disparava e a carteira abria coletando nome e
+      // telefone de titular europeu (visto no PR #18; conserto 2026-09-24).
+      const houseHit = await store.getVenueByTableToken(b.token || '');
+      const houseLive = chargingAllowed(houseHit && houseHit.venue && houseHit.venue.market);
       if (houseLive) {
         return json(res, 400, { success: false, error: 'carteira indisponível neste mercado', ...houseLive });
       }
