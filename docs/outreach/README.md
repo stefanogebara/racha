@@ -7,9 +7,9 @@ que vai pro registro de templates / style pack.
 ## Antes de usar (decisões e dependências)
 - [ ] **Oferta do piloto:** o plano previa **2 meses grátis, sem risco**. Confirme antes de a Olímpia prometer.
 - [x] **Link liberado (deploy no ar, verificado 2026-07-27).** A Olímpia PODE mandar link:
-      - **Dono de restaurante** → `https://racha-gray.vercel.app/` (landing B2B: como
+      - **Dono de restaurante** → `https://useracha.app/` (landing B2B: como
         funciona, saldo da casa, entrada do painel).
-      - **"Quero ver como o cliente vê"** → `https://racha-gray.vercel.app/?t=demoracha`
+      - **"Quero ver como o cliente vê"** → `https://useracha.app/?t=demoracha`
         (mesa de demonstração: conta viva, dividir igual/por item/outro valor, serviço
         opcional). Roda no PSP **mock** e reseta por cron — ninguém é cobrado de verdade
         (`api/__tests__/demo-isolation.test.js` prova o isolamento).
@@ -59,10 +59,10 @@ Escolha UMA. Curtas, um assunto, uma pergunta só (regras da persona).
 
 _(emenda o demo — o movimento que converte, e agora é só mandar:)_
 > Quer ver na prática? Abre esse link no celular que é exatamente a tela que o seu
-> cliente vê na mesa: racha-gray.vercel.app/?t=demoracha — pode mexer à vontade, é uma
+> cliente vê na mesa: useracha.app/?t=demoracha — pode mexer à vontade, é uma
 > conta de mentira, ninguém é cobrado.
 
-_(Se ele preferir o lado do restaurante, manda `racha-gray.vercel.app`. Não prometa
+_(Se ele preferir o lado do restaurante, manda `useracha.app`. Não prometa
 prévia personalizada com o nome do restaurante — não existe ainda.)_
 
 **"Quanto custa?":**
