@@ -1,7 +1,7 @@
 import { createClient, type Session } from '@supabase/supabase-js';
 // O MESMO decodificador do `api.ts`: `code` e `vars` têm que atravessar aqui
 // também, ou o painel do dono mostra "HTTP 404". Ver `erroDaResposta`.
-import { erroDaResposta } from './api';
+import { buscar, erroDaResposta } from './api';
 import type { Lang } from './i18n';
 
 /**
@@ -235,7 +235,7 @@ export async function authedReq<T>(path: string, init: RequestInit = {}): Promis
     e.code = 'auth_unavailable';
     throw e;
   }
-  const res = await fetch(path, {
+  const res = await buscar(path, {
     ...init,
     headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
   });
