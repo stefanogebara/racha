@@ -112,7 +112,7 @@ describe('o mapa de dados acompanha o código', () => {
     // casava e o censo chamava de nosso.
     // `racha.app` SAIU: tem DNS na GoDaddy e o `www` num site do Wix — não é
     // nosso, e estava aqui declarado como se fosse. Ver `docs/domains.md`.
-    const nossos = new Set(['racha-gray.vercel.app', 'localhost']);
+    const nossos = new Set(['useracha.app', 'racha-gray.vercel.app', 'localhost']);
     // NÃO são nossos — só não são destinatários de dado em runtime. Separado de
     // `nossos` de propósito: a primeira versão pôs o domínio de um CLIENTE
     // (`menu.bardoze.com.br`, de uma fixture) na lista de "nossos", que é

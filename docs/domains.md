@@ -25,7 +25,8 @@ apontava pra um deles.
 
 | Host | Dono | Onde serve | Vence | Confiado pelo app? |
 |---|---|---|---|---|
-| `racha-gray.vercel.app` | nós (projeto `racha` em `stefanogebaras-projects`) | produção, e é o que o `Qrs.tsx` imprime no QR | subdomínio da Vercel: não vence, mas o nome volta a ser reivindicável se o projeto for renomeado ou apagado | **sim** |
+| `useracha.app` | **nós** — comprado em 2026-09-25 pelo dono, registrador Vercel (time `stefanogebaras-projects`), DNS na Vercel | produção; o que o QR imprime desde 2026-09-25 (`ORIGEM_DE_PRODUCAO`); remetente dos e-mails do auth (Resend, região sa-east-1) | **2027-09-25** (renovação US$15/ano) — renovar é obrigação: cartão impresso aponta pra ele | **sim** |
+| `racha-gray.vercel.app` | nós (projeto `racha` em `stefanogebaras-projects`) | produção (mesmo projeto); impresso nos cartões anteriores a 2026-09-25 | subdomínio da Vercel: não vence, mas o nome volta a ser reivindicável se o projeto for renomeado ou apagado | **sim** |
 | `racha.app` | **terceiro** (GoDaddy + Wix) | não serve a Racha | — | não, e não pode voltar |
 
 ## A regra
@@ -76,8 +77,12 @@ não pode voltar.
 confirmar que chegou numa caixa que alguém lê. Um endereço no aviso é um
 compromisso com um consumidor, não uma configuração.
 
-## Pendente
+## Migração do `racha-gray.vercel.app` (em curso desde 2026-09-25)
 
-Comprar um domínio nosso pra ser o `PROD_ORIGIN` — o app, o QR e o `CLIENT_URL`
-apontam hoje pra um subdomínio de plataforma. Antes de qualquer build iOS sair
-desta máquina.
+Feito: `useracha.app` comprado e ligado ao projeto; `ORIGEM_DE_PRODUCAO`, o
+padrão do `CLIENT_URL` e a origem padrão do iOS apontam pra ele; o iOS aceita
+os dois hosts. Falta, nesta ordem: (1) girar as folhas impressas com o host
+antigo (`POST /api/tables/rotate`) — hoje não há casa real com mesa impressa,
+só teste; (2) redirect do `racha-gray` pro `useracha.app`; (3) só então tirar o
+`racha-gray` do `allowedHosts`. O webhook do Pagar.me ainda está cadastrado no
+host antigo (`docs/runbooks/pagarme-webhook-auth.md`) — trocar lá antes do (2).

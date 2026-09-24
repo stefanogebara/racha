@@ -48,7 +48,11 @@ export function casaRecebe(venue: { market?: string; pspRecipientId?: string | n
  * depender de onde o dono abriu a página. O avulso do `/admin` usava a origem
  * da aba — de um preview, saía um QR que morre com o preview (auditoria, Q2).
  */
-export const ORIGEM_DE_PRODUCAO = 'https://racha-gray.vercel.app';
+// O DOMÍNIO NOSSO (`useracha.app`, comprado em 2026-09-25, registrador Vercel).
+// Os cartões já impressos com `racha-gray.vercel.app` seguem valendo: o mesmo
+// projeto serve os dois hosts, e o antigo só sai do `allowedHosts` do iOS pela
+// migração de `docs/domains.md` (girar as folhas, depois encolher a lista).
+export const ORIGEM_DE_PRODUCAO = 'https://useracha.app';
 
 export const urlDaMesa = (qrToken: string) => `${ORIGEM_DE_PRODUCAO}/?t=${qrToken}`;
 

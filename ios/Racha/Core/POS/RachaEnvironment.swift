@@ -32,7 +32,9 @@ enum RachaEnvironment {
         // do Wix. Como este valor alimenta o `defaultOrigin` do "digitar o
         // código", o padrão de um cliente de pagamento apontava pro servidor de
         // outra pessoa. Ver a nota do `TableQR.allowedHosts`.
-        return URL(string: "https://racha-gray.vercel.app")!
+        // Desde 2026-09-25, o domínio nosso (`useracha.app`); o `racha-gray`
+        // segue aceito pelo `allowedHosts` por causa dos cartões impressos.
+        return URL(string: "https://useracha.app")!
     }
 
     /// Demo mode: no backend, everything through `DemoTableSource`. On by

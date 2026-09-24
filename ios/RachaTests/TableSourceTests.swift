@@ -29,6 +29,19 @@ struct TableQRTests {
         #expect(TableQR.parse("http://racha-gray.vercel.app/?t=tok_9") == nil)
     }
 
+    @Test("o domínio nosso é aceito, e só ele — não um parecido")
+    func nossoDominio() {
+        // `useracha.app` (2026-09-25) é o que o QR imprime daqui em diante; os
+        // cartões antigos com `racha-gray.vercel.app` seguem valendo.
+        #expect(TableQR.parse("https://useracha.app/?t=tok_9")?.origin.absoluteString == "https://useracha.app")
+        #expect(TableQR.allowedHosts.contains("useracha.app"))
+        #expect(TableQR.allowedHosts.contains("racha-gray.vercel.app"))
+        #expect(TableQR.parse("https://useracha.app.atacante.example/?t=tok_9") == nil)
+        #expect(TableQR.parse("https://www.useracha.app/?t=tok_9") == nil)
+        #expect(TableQR.parse("https://usaracha.app/?t=tok_9") == nil)
+        #expect(TableQR.parse("http://useracha.app/?t=tok_9") == nil)
+    }
+
     @Test("QR que não é do Racha não vira mesa")
     func rejectsForeignCodes() {
         // The things a camera actually sees on a bar table.
