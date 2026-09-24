@@ -117,7 +117,13 @@ const PORT = 8787;
   await store.confirmHouseLoad({ txid: seedLoadTxid, confirmedAt: new Date().toISOString() });
 
   const DEMO_EMAIL = 'dono@bardoze.demo';
-  const DEMO_PASS = 'racha-demo-1234';
+  // SENHA NOVA A CADA SUBIDA, nunca escrita no código. Era `racha-demo-1234`,
+  // num repositório PÚBLICO, pra uma conta que este arquivo cria no projeto que
+  // o `.env` apontar — e ele apontou pro de produção: o `dono@bardoze.demo`
+  // existia lá como dono de 5 casas `is_test=false`. Com o auth próprio (PR #22)
+  // qualquer leitor do repo entraria no painel de produção como dono delas e
+  // poderia pôr um recebedor seu. Achado e apagado em 2026-09-24.
+  const DEMO_PASS = `demo-${crypto.randomBytes(9).toString('base64url')}`;
   let ownerLine = '';
   if (useSupabase && authClient) {
     const { data: created, error } = await authClient.auth.admin.createUser({
@@ -128,6 +134,8 @@ const PORT = 8787;
       const { data: list } = await authClient.auth.admin.listUsers();
       const u = (list && list.users || []).find((x) => x.email === DEMO_EMAIL);
       userId = u && u.id;
+      // Já existia: troca pela senha DESTA subida — a de antes não vale mais.
+      if (userId) await authClient.auth.admin.updateUserById(userId, { password: DEMO_PASS });
     }
     if (userId) { await store.addVenueMember(venue.id, userId, 'owner'); ownerLine = `  Login  ${DEMO_EMAIL} / ${DEMO_PASS}`; }
   } else {
