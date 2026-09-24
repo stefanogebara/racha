@@ -28,11 +28,23 @@ test('o Google só aparece com o cliente OAuth do próprio Racha ligado', () => 
   assert.match(ler('auth.ts'), /export const GOOGLE_LIGADO = false;/);
 });
 
-test('o link de "esqueci a senha" leva a trocar a senha, não só a entrar', () => {
+test('o link de "esqueci a senha" leva a trocar a senha — pela troca de código, não por um parâmetro na URL', () => {
   const auth = ler('auth.ts');
-  assert.match(auth, /p\.get\('type'\) === 'recovery'/);
+  assert.match(auth, /\.redirectType === 'recovery'\) marcarRecuperacao\(true\)/);
+  assert.match(auth, /evento === 'PASSWORD_RECOVERY'/);
+  assert.doesNotMatch(auth, /p\.get\('type'\) === 'recovery'/, 'a marca voltou a vir de um parâmetro que qualquer um põe na URL');
   assert.match(auth, /supabase\.auth\.updateUser\(\{ password \}\)/);
-  assert.match(ler('Gate.tsx'), /if \(authed && recuperando\) return <SenhaNova/);
+  const gate = ler('Gate.tsx');
+  assert.match(gate, /if \(authed && recuperando\) return <SenhaNova/);
+  assert.match(gate, /t\('gate\.resetFor'/, 'a tela de senha nova não diz DE QUEM é a conta');
+});
+
+test('PKCE, não implícito: token no hash da URL NUNCA vira sessão (segurança, PR #22, HIGH-1)', () => {
+  const auth = ler('auth.ts');
+  assert.match(auth, /flowType: 'pkce'/);
+  assert.doesNotMatch(auth, /flowType: 'implicit'/);
+  assert.doesNotMatch(auth, /setSession\(/, 'um par de tokens vindo da URL voltou a abrir sessão');
+  assert.match(auth, /exchangeCodeForSession\(code\)/);
 });
 
 test('erro do auth sai como código traduzido — nunca a frase em inglês do GoTrue', () => {

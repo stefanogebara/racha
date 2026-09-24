@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useT, LangToggle } from './lang';
 import { Campo } from './Campo';
 import { isValidEmail } from './br';
-import { onSession, signIn, signUp, signInWithGoogle, resetPassword, supabase, GOOGLE_LIGADO, SENHA_MINIMA, emRecuperacaoDeSenha, definirSenhaNova } from './auth';
+import { onSession, signIn, signUp, signInWithGoogle, resetPassword, signOut, supabase, GOOGLE_LIGADO, SENHA_MINIMA, emRecuperacaoDeSenha, definirSenhaNova } from './auth';
 
 /**
  * Owner login gate — wraps the restaurant surfaces (/admin, /painel). Diners
@@ -34,6 +34,13 @@ function SenhaNova({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // DE QUEM é a senha que se troca — dito na tela. Sem isto, uma sessão que não
+  // é a do dono (link forjado, navegador compartilhado) trocava a senha da conta
+  // errada sem ninguém ver (segurança, PR #22, HIGH-1).
+  const [conta, setConta] = useState<string | null>(null);
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => setConta(data.session?.user.email ?? null)).catch(() => {});
+  }, []);
   const valida = password.length >= SENHA_MINIMA;
   async function enviar() {
     if (!valida || busy) return;
@@ -49,6 +56,7 @@ function SenhaNova({ onDone }: { onDone: () => void }) {
       </header>
       <form className="card" onSubmit={(e) => { e.preventDefault(); void enviar(); }}>
         <h1 className="label">{t('gate.resetTitle')}</h1>
+        {conta && <p className="muted small" style={{ margin: 0 }}>{t('gate.resetFor', { email: conta })}</p>}
         <Campo rotulo={t('gate.newPassword')} type="password" autoComplete="new-password"
           value={password} onChange={(e) => setPassword(e.target.value)} />
         <p className="muted small" id="regra-senha">{t('gate.passwordRule', { n: String(SENHA_MINIMA) })}</p>
@@ -56,6 +64,8 @@ function SenhaNova({ onDone }: { onDone: () => void }) {
           {error && <span style={{ color: 'var(--erro)' }}>{error}</span>}
         </p>
         <button className="cta" type="submit" disabled={busy || !valida}>{busy ? '…' : t('gate.resetSave')}</button>
+        {/* Uma saída: não é a minha conta, ou desisti. */}
+        <button type="button" className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </form>
       <footer className="foot"><span>{t('gate.title')}</span><LangToggle compact /></footer>
     </main>
@@ -173,6 +183,11 @@ function Login({ onDone }: { onDone: () => void }) {
         <button className="cta" type="submit" disabled={!podeEnviar}>
           {busy ? '…' : (mode === 'in' ? t('gate.signIn') : t('gate.signUp'))}
         </button>
+
+        {/* O dono de ANTES da troca de auth: a senha antiga dá "e-mail ou senha
+            errados", e o "esqueci" não chega (a conta não existe aqui). Sem
+            esta linha ele ficava num beco (compliance, PR #22, H4). */}
+        {mode === 'in' && <p className="muted small" style={{ margin: 0 }}>{t('gate.moved')}</p>}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
           <button type="button" className="linklike" onClick={swap}>

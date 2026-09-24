@@ -60,40 +60,67 @@ function marcarRecuperacao(sim: boolean) {
   try { if (sim) sessionStorage.setItem(MARCA_DE_RECUPERACAO, '1'); else sessionStorage.removeItem(MARCA_DE_RECUPERACAO); } catch { /* aba privada */ }
 }
 
-// flowType 'implicit': o callback do OAuth (Google via Supabase do Seatable)
-// volta com os tokens no HASH (#access_token=...), não em ?code=. No modo PKCE
-// (default do supabase-js) o cliente só olha ?code e IGNORA o hash — a sessão
-// nunca se estabelecia e caía de volta no login (verificado 2026-07-21).
-// detectSessionInUrl OFF: processamos o hash na mão (recoverOAuthSession).
+/**
+ * SESSÃO DE OUTRO PROJETO sai do navegador. Quem entrou no painel pelo login
+ * compartilhado guardava a chave de sessão do projeto do Seatable na origem do
+ * Racha — um refresh token vivo de OUTRO produto, que um XSS aqui roubaria
+ * (compliance e segurança, PR #22). Toda chave `sb-*-auth-token` que não seja
+ * a do projeto de auth atual sai no boot.
+ */
+try {
+  const minha = `sb-${new URL(AUTH_URL).hostname.split('.')[0]}-auth-token`;
+  for (const k of Object.keys(localStorage)) {
+    if (/^sb-[a-z0-9]+-auth-token$/.test(k) && k !== minha) localStorage.removeItem(k);
+  }
+} catch { /* storage bloqueado */ }
+
+/**
+ * PKCE, NÃO IMPLÍCITO. O fluxo implícito aceitava QUALQUER par de tokens no hash
+ * da URL: um link `…/painel#access_token=<do atacante>&type=recovery` trocava a
+ * sessão do dono pela conta do atacante — e, com a tela de senha nova, o dono
+ * definia a senha da conta DELE (segurança, PR #22, HIGH-1). O implícito só
+ * existia pelo Google via Supabase do Seatable, e os dois saíram.
+ *
+ * Com PKCE, um link de confirmação ou de redefinição volta com `?code=`, e o
+ * código só vira sessão com o `code_verifier` que ficou no navegador que PEDIU
+ * o link. Um link forjado, aberto em outro navegador, não troca por nada. O
+ * custo: o link tem de ser aberto no mesmo navegador — pro painel do dono, ok
+ * (a confirmação de e-mail vale mesmo assim; ele só entra com a senha).
+ */
 export const supabase = createClient(AUTH_URL, AUTH_PUBLISHABLE, {
   auth: {
-    flowType: 'implicit',
-    detectSessionInUrl: false,
+    flowType: 'pkce',
+    detectSessionInUrl: false,   // a troca do `?code=` é feita à mão, abaixo
     persistSession: true,
     autoRefreshToken: true,
   },
 });
 
 /**
- * Cinto-e-suspensório: se o OAuth voltou com #access_token no hash e o detect
- * automático não pegou, extrai os tokens e seta a sessão na mão. Idempotente —
- * no-op quando não há hash (o caminho normal). Limpa o hash da URL no fim.
+ * A volta de um link do auth: troca o `?code=` pela sessão (só funciona com o
+ * verifier DESTE navegador) e limpa a URL ANTES de esperar a rede — os tokens e
+ * o código não ficam na barra de endereço. Hash com token é IGNORADO e apagado:
+ * é a porta que o implícito deixava aberta.
  */
 export async function recoverOAuthSession(): Promise<void> {
   if (!supabase || typeof window === 'undefined') return;
-  const hash = window.location.hash;
-  if (!hash.includes('access_token')) return;
-  const p = new URLSearchParams(hash.replace(/^#/, ''));
-  const access_token = p.get('access_token');
-  const refresh_token = p.get('refresh_token');
-  // O link de "esqueci a senha" volta com `type=recovery`: a sessão abre, mas o
-  // dono tem de TROCAR a senha antes de entrar. Antes a sessão abria e pronto —
-  // na próxima vez ele esquecia de novo (auditoria do portão, P3).
-  if (p.get('type') === 'recovery') marcarRecuperacao(true);
-  if (access_token && refresh_token) {
-    try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { /* token inválido → segue pro login */ }
-  }
-  history.replaceState(null, '', window.location.pathname + window.location.search);
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get('code');
+  const hashTinhaToken = window.location.hash.includes('access_token');
+  if (!code && !hashTinhaToken) return;
+  url.searchParams.delete('code');
+  history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
+  if (!code) return;
+  try {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    // O link de "esqueci a senha": a sessão abre, mas a senha nova vem antes do
+    // painel (auditoria do portão, P3). A marca só entra com a troca BEM-feita.
+    // O supabase-js guarda o tipo junto do verifier e devolve `redirectType:
+    // 'recovery'` (conferido no GoTrueClient instalado). O evento
+    // PASSWORD_RECOVERY também sai, mas ANTES de o `onSession` assinar — por
+    // isso a marca sai daqui.
+    if (!error && (data as { redirectType?: string | null }).redirectType === 'recovery') marcarRecuperacao(true);
+  } catch { /* código de outro navegador, vencido ou já usado → segue pro login */ }
 }
 
 export function onSession(cb: (s: Session | null) => void): () => void {
@@ -107,7 +134,12 @@ export function onSession(cb: (s: Session | null) => void): () => void {
     .then(() => supabase.auth.getSession())
     .then(({ data }) => cb(data.session))
     .catch(() => cb(null));
-  const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => cb(s));
+  const { data: sub } = supabase.auth.onAuthStateChange((evento, s) => {
+    // O evento de recuperação vem do PRÓPRIO cliente, depois de uma troca de
+    // código bem-feita — nunca de um parâmetro que alguém pôs na URL.
+    if (evento === 'PASSWORD_RECOVERY') marcarRecuperacao(true);
+    cb(s);
+  });
   return () => sub.subscription.unsubscribe();
 }
 
@@ -200,7 +232,13 @@ export async function authedReq<T>(path: string, init: RequestInit = {}): Promis
     headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
   });
   const body = await res.json().catch(() => ({}));
-  if (res.status === 401) { await signOut(); throw new Error('sessão expirada — entre de novo'); }
+  if (res.status === 401) {
+    await signOut();
+    // Código, não frase fixa em português (compliance, PR #22, L3).
+    const e = new Error('session_expired') as Error & { code?: string };
+    e.code = 'session_expired';
+    throw e;
+  }
   if (!res.ok || body.success === false) throw erroDaResposta(res, body);
   return body.data as T;
 }
