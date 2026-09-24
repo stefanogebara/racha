@@ -132,6 +132,9 @@ export default function Home() {
               <a className="pilula" href={`${DEMO}&lang=${lang}`}>{t('land.try')} <span aria-hidden="true">→</span></a>
               <a className="elo" href={`/admin?lang=${lang}`}>{t('land.forVenues')}</a>
             </div>
+            {/* Quem chega aqui procurando a PRÓPRIA conta não tem o que fazer
+                nesta página — a conta abre pelo QR da mesa (auditoria L8). */}
+            <p className="namesa">{t('land.dinerHint')}</p>
             <p className="fatos">
               <span>{t('land.proof1')}</span>
               <span>{t('land.proof2')}</span>
@@ -139,6 +142,9 @@ export default function Home() {
           </div>
 
           <div className="palco">
+            {/* O iframe da demo tem ~8 paradas de Tab; quem navega por teclado
+                pula direto pra explicação (auditoria L9). Só aparece no foco. */}
+            <a className="pular" href="#passos">{t('land.skipDemo')}</a>
             {/* O produto de verdade. Em ponteiro fino, tocável ali mesmo — a
                 legenda diz "toque nele", e agora ela é verdade. Em toque, a
                 camada `.abrir` por cima leva pra demo cheia, porque um frame
@@ -164,7 +170,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="passos-secao env">
+        <section className="passos-secao env" id="passos" tabIndex={-1}>
           <p className="kicker">{t('land.stepsTitle')}</p>
           <ol className="passos">
             {steps.map(([title, desc], i) => (
@@ -184,7 +190,7 @@ export default function Home() {
               <tr>
                 <th scope="col">{t('land.lPayer')}</th>
                 <th scope="col">{t('land.lTime')}</th>
-                <th scope="col">{t('land.lHow')}</th>
+                <th scope="col" className="como">{t('land.lHow')}</th>
                 <th scope="col">{t('land.lAmount')}</th>
               </tr>
             </thead>
@@ -193,7 +199,7 @@ export default function Home() {
                 <tr key={p.quem}>
                   <td className="quem">{p.quem}</td>
                   <td>{p.hora}</td>
-                  <td><span className="pago"><i />{t('land.lConfirmed', { rail: RAIL })}</span></td>
+                  <td className="como"><span className="pago"><i />{t('land.lConfirmed', { rail: RAIL })}</span></td>
                   <td className="valor">{fmt(p.valor)}</td>
                 </tr>
               ))}
@@ -203,7 +209,11 @@ export default function Home() {
                 {/* O ESTADO da mesa, que é texto nosso e traduz — não o número
                     dela, que é palavra do restaurante e não traduz. Pôr "Mesa 1"
                     aqui obrigava a escrever conteúdo da casa como literal. */}
-                <td className="quem" colSpan={3}>{t('land.lClosed')}</td>
+                {/* Duas colunas + a do "Como" VAZIA, e não `colSpan={3}`: no
+                    telefone a coluna "Como" some, e um rodapé que a contava
+                    empurrava o total uma coluna pra fora (auditoria L6). */}
+                <td className="quem" colSpan={2}>{t('land.lClosed')}</td>
+                <td className="como" aria-hidden="true" />
                 <td className="valor">{fmt(PROOF_TOTAL)}</td>
               </tr>
             </tfoot>

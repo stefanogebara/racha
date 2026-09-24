@@ -769,7 +769,17 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 /* O ponto é MUSGO: dinheiro que entrou, que é o que as duas frases afirmam. */
 .landing .fatos span::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--musgo); flex: none; }
 
+/* A dica pra quem está numa mesa: uma linha de apoio, não um CTA. */
+.landing .namesa { margin-top: 18px; color: var(--grafite); font: 400 12px/1.45 var(--ui); max-width: 42ch; }
+
 /* ── o produto, na moldura ───────────────────────────────────────────── */
+/* O "pular a demo" existe pro teclado: fora da tela até receber foco. */
+.landing .pular { position: absolute; left: 12px; top: 12px; z-index: 3;
+  background: var(--ink); color: var(--papel-alto); font: 500 12px/1 var(--ui); padding: 10px 14px; border-radius: var(--rad-s);
+  clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; white-space: nowrap; }
+.landing .pular:focus-visible { clip-path: none; width: auto; height: auto; overflow: visible; }
+/* O destino do pulo recebe foco por programa: sem o anel de seção inteira. */
+.landing #passos:focus { outline: none; }
 .landing .palco { position: relative; }
 .landing .tela { position: relative; border: 1px solid var(--fio-forte); border-radius: var(--rad-p);
   overflow: hidden; background: var(--papel-alto);
@@ -882,7 +892,9 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 @media (max-width: 560px) {
   /* A coluna "Como" some no telefone: nome, hora e valor contam a história;
      o trilho já está no kicker da seção e em todo o resto da página. */
-  .landing .razao th:nth-child(3), .landing .razao td:nth-child(3) { display: none; }
+  /* Pela CLASSE, não por `nth-child(3)`: no rodapé o terceiro filho era o
+     total (auditoria L6). */
+  .landing .razao .como { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .landing .pilula { transition: none; }
