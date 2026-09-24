@@ -1,0 +1,1 @@
+{{ $l := printf "%v" .Data.lang }}{{ if eq $l "pt" }}Confirme sua conta no Racha{{ else if eq $l "es" }}Confirma tu cuenta de Racha{{ else }}Confirm your Racha account{{ end }}

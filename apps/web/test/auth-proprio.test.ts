@@ -65,3 +65,22 @@ test('o cadastro de casa espera o /api/me; falha vira erro e "tentar de novo"', 
   assert.match(admin, /\{meStatus === 'ok' && <section className="card">/, 'o formulário aparece sem a lista de casas');
   assert.match(admin, /meStatus instanceof Error && \(/);
 });
+
+// Os e-mails do auth saem no idioma do dono: o cadastro grava `lang` no
+// user_metadata e os modelos (supabase/templates/, colados no painel) escolhem
+// o texto por `.Data.lang`. Sem o `printf "%v"`, uma conta sem `lang` quebra o
+// modelo inteiro no Go — e o e-mail não sai.
+test('o cadastro grava o idioma, e os modelos de e-mail o leem com guarda', () => {
+  assert.match(ler('auth.ts'), /data: \{ lang \}/);
+  assert.match(ler('Gate.tsx'), /await signUp\(email\.trim\(\), password, lang\)/);
+  const TPL = new URL('../../../supabase/templates/', import.meta.url);
+  for (const nome of ['confirmation', 'recovery', 'email_change']) {
+    for (const ext of ['.html', '.subject.txt']) {
+      const s = readFileSync(new URL(nome + ext, TPL), 'utf8');
+      assert.match(s, /^(<!--[\s\S]*?-->\n)?\{\{ \$l := printf "%v" \.Data\.lang \}\}/, `${nome}${ext} sem a guarda do idioma`);
+      assert.doesNotMatch(s, /eq \.Data\.lang/, `${nome}${ext} compara .Data.lang cru`);
+      for (const l of ['pt', 'es']) assert.match(s, new RegExp(`eq \\$l "${l}"`), `${nome}${ext} sem ${l}`);
+    }
+    assert.match(readFileSync(new URL(nome + '.html', TPL), 'utf8'), /href="\{\{ \.ConfirmationURL \}\}"/);
+  }
+});

@@ -73,7 +73,7 @@ function SenhaNova({ onDone }: { onDone: () => void }) {
 }
 
 function Login({ onDone }: { onDone: () => void }) {
-  const { t, tErr } = useT();
+  const { t, tErr, lang } = useT();
   const [mode, setMode] = useState<'in' | 'up'>('in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -96,7 +96,7 @@ function Login({ onDone }: { onDone: () => void }) {
     setBusy(true); setError(null); setNotice(null);
     try {
       if (mode === 'up') {
-        const { needsConfirm } = await signUp(email.trim(), password);
+        const { needsConfirm } = await signUp(email.trim(), password, lang);
         if (needsConfirm) {
           setNotice(t('gate.created'));
           setMode('in'); setBusy(false); return;

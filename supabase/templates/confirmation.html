@@ -1,0 +1,17 @@
+<!--
+  Modelo de e-mail do AUTH do Racha (Supabase → Authentication → Emails).
+  GERADO por supabase/templates/gerar.py — edite lá e cole no painel.
+-->
+{{ $l := printf "%v" .Data.lang }}<!doctype html>
+<html><body style="margin:0;padding:0;background:#F2F0EB;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F2F0EB;padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#F8F7F3;border:1px solid #DDD9D0;border-radius:14px;">
+<tr><td style="padding:28px 28px 8px;font-family:Manrope,Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;letter-spacing:.02em;color:#161714;">Racha</td></tr>
+<tr><td style="padding:8px 28px 0;font-family:Newsreader,Georgia,serif;font-size:26px;line-height:1.2;color:#161714;">{{ if eq $l "pt" }}Confirme seu e-mail{{ else if eq $l "es" }}Confirma tu e-mail{{ else }}Confirm your e-mail{{ end }}</td></tr>
+<tr><td style="padding:14px 28px 0;font-family:Manrope,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#3A3B36;">{{ if eq $l "pt" }}Você criou uma conta de dono no Racha com este e-mail. Confirme para abrir o painel do seu restaurante.{{ else if eq $l "es" }}Creaste una cuenta de dueño en Racha con este e-mail. Confírmala para abrir el panel de tu restaurante.{{ else }}You created a Racha owner account with this e-mail. Confirm it to open your restaurant panel.{{ end }}</td></tr>
+<tr><td style="padding:24px 28px;"><a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#161714;color:#F8F7F3;font-family:Manrope,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;text-decoration:none;padding:13px 22px;border-radius:999px;">{{ if eq $l "pt" }}Confirmar e-mail{{ else if eq $l "es" }}Confirmar e-mail{{ else }}Confirm e-mail{{ end }}</a></td></tr>
+<tr><td style="padding:0 28px 28px;font-family:Manrope,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;color:#6B6C66;">{{ if eq $l "pt" }}Abra o link no mesmo navegador em que você se cadastrou. Se não foi você, ignore este e-mail — nenhuma conta abre sem ele.{{ else if eq $l "es" }}Abre el enlace en el mismo navegador donde te registraste. Si no fuiste tú, ignora este e-mail: ninguna cuenta se abre sin él.{{ else }}Open the link in the same browser where you signed up. If it was not you, ignore this e-mail — no account opens without it.{{ end }}</td></tr>
+</table>
+</td></tr></table>
+</body></html>

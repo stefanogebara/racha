@@ -2,6 +2,7 @@ import { createClient, type Session } from '@supabase/supabase-js';
 // O MESMO decodificador do `api.ts`: `code` e `vars` têm que atravessar aqui
 // também, ou o painel do dono mostra "HTTP 404". Ver `erroDaResposta`.
 import { erroDaResposta } from './api';
+import type { Lang } from './i18n';
 
 /**
  * Frontend auth — Supabase Auth (GoTrue). The publishable key is browser-safe;
@@ -155,12 +156,19 @@ export async function signIn(email: string, password: string) {
  * seu e-mail". Racha é produto próprio: conta é do dono do restaurante, sem
  * depender de Seatable.
  */
-export async function signUp(email: string, password: string): Promise<{ needsConfirm: boolean }> {
+export async function signUp(email: string, password: string, lang: Lang): Promise<{ needsConfirm: boolean }> {
   if (!supabase) throw new Error('auth não configurado');
   const { data, error } = await supabase.auth.signUp({
     email, password,
-    // O link de confirmação volta pro painel, não pra URL padrão do projeto.
-    options: { emailRedirectTo: `${window.location.origin}/admin` },
+    options: {
+      // O link de confirmação volta pro painel, não pra URL padrão do projeto.
+      emailRedirectTo: `${window.location.origin}/admin`,
+      // O IDIOMA DO E-MAIL. Os modelos do auth (supabase/templates/) escolhem o
+      // texto por `.Data.lang` — o idioma em que o dono criou a conta, que vale
+      // também pra redefinição de senha depois. Sem isto, todo e-mail saía no
+      // modelo padrão em inglês, pra um dono que se cadastrou em português.
+      data: { lang },
+    },
   });
   if (error) throw erroDoAuth(error);
   return { needsConfirm: !data.session };
