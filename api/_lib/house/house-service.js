@@ -227,7 +227,9 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const cfg = venueHouseConfig(hit.venue);
     return {
       // Na mesa de treino o saldo não se oferece: abrir e recarregar é Pix real.
-      enabled: cfg.enabled && !eMesaDeTreino(hit),
+      // Nem em mercado não liberado: o formulário pede nome e telefone e só
+      // falharia no envio (segurança e compliance, PR #26).
+      enabled: cfg.enabled && !eMesaDeTreino(hit) && !chargingAllowed(hit.venue.market),
       venueName: hit.venue.name,
       bonusBp: cfg.bonusBp,
       validityDays: cfg.validityDays,
@@ -242,6 +244,13 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     // Nem carteira nova a partir da mesa de treino: a recarga é Pix de verdade,
     // e "mesa de treino nunca cobra" não tem exceção (compliance, PR #18, LOW-1).
     if (eMesaDeTreino(hit)) throw httpError(409, 'mesa de treino não cobra', CODIGO_MESA_DE_TREINO);
+    // A TRAVA DE MERCADO MORA AQUI, no serviço — como na recarga e no resgate.
+    // Na rota ela lia `.market` do par { venue, table } e nunca disparava; e
+    // qualquer outro chamador de `openAccount` a pularia. A carteira coleta
+    // nome e telefone: em mercado não liberado (Espanha sem a papelada de
+    // transferência internacional), nada é gravado (PR #26).
+    const live = chargingAllowed(hit.venue.market);
+    if (live) throw badRequest(`mercado ${hit.venue.market}: ${live.code}`, live.code);
     const cfg = venueHouseConfig(hit.venue);
     if (!cfg.enabled) throw badRequest('house balance is off for this venue', 'house_off');
     const digits = normalizePhone(phone);

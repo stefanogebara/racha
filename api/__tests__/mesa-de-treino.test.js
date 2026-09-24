@@ -108,7 +108,10 @@ describe('o censo: todo sítio que lê uma mesa por QR ou é leitura, ou pergunt
   const SO_LEITURA = { router: ['/api/check', '/api/check/opened'], house: ['publicConfig'] };
   // Onde a rota só REPASSA pra um serviço que tem a guarda (e o serviço está
   // no censo da casa, logo abaixo).
-  const REPASSA = { router: { '/api/house/open': 'houseSvc.openAccount(' }, house: {} };
+  // (O `/api/house/open` estava aqui: ele lia a mesa pra trava de mercado. A
+  // trava foi pro `openAccount` — PR #26 — e a rota não lê mais nada; o serviço
+  // segue no censo da casa, na gaveta COBRA.)
+  const REPASSA = { router: {}, house: {} };
   // Onde se cobra, e a primeira chamada que move dinheiro em cada um: a guarda
   // tem de vir ANTES dela (M-1: a âncora de `/api/pay` era `createCharge`, que
   // não aparece na rota — a verificação de ordem era pulada).
