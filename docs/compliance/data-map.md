@@ -55,7 +55,7 @@ documentada, em nome próprio. Ver lacuna 4.
 | Destinatário | O que sai | Por quê | Onde processa |
 |---|---|---|---|
 | **Supabase — o projeto do Racha** (`worttfotxasxqjaqwpjf.supabase.co`: o `SUPABASE_URL` do servidor e o literal de `apps/web/src/auth.ts`) | tudo da tabela acima, **inclusive o login do dono** | é o banco e, desde 2026-09-24, o auth. Antes o auth era o projeto do Seatable (login compartilhado) e o cadastro do dono virava usuário do Seatable sem aviso; as contas antigas **não** foram copiadas (inegociável #10) — ver lacuna 10 | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
-| **Provedor de e-mail do auth** — **Resend** (EUA), SMTP ligado no projeto do Racha em 2026-09-24, chave só de envio e só do domínio. Remetente `Racha <racha@seatable.one>` é **PONTE** escolhida pelo dono: o domínio é do Seatable, e o primeiro envio caiu no SPAM do Gmail (marca 'Racha' + domínio de outra marca + link `*.supabase.co`). Troca pro domínio próprio do Racha antes de donos reais; DPA do Resend a anexar (lacuna 4) | e-mail do dono, o idioma dele, e o link de confirmação ou de redefinição de senha | confirmar o cadastro e redefinir a senha | a definir junto com o provedor — é operador novo |
+| **Provedor de e-mail do auth** — **Resend** (empresa nos EUA; envio pela região **São Paulo, sa-east-1**, AWS SES), SMTP no projeto do Racha. Remetente `Racha <nao-responda@useracha.app>` desde 2026-09-25, no domínio PRÓPRIO (SPF e DKIM verificados, DKIM alinhado `d=useracha.app`; DMARC `p=quarantine; adkim=s` desde 2026-09-25, sem `rua` ainda; raiz com `v=spf1 -all` e MX nulo; `docs/domains.md`). Chave só de envio e só desse domínio; a chave TEMPORÁRIA do remetente do auth em `seatable.one` foi REVOGADA (é outra coisa que o aviso ao fundador da linha do Resend da Olímpia, que segue ativo e é outra conta/contrato). Sem rastreio de clique/abertura (o link do e-mail chega intacto — conferido). Teste real: redefinição em pt chegou na CAIXA DE ENTRADA do Gmail, sem aviso. DPA do Resend a anexar (lacuna 4) | e-mail do dono, o idioma dele, e o link de confirmação ou de redefinição de senha | confirmar o cadastro e redefinir a senha | operador: **Resend, Inc. (EUA)** — entrega pela AWS SES em sa-east-1, mas conta, API, logs (destinatário e, por padrão, o CORPO, que leva o link de uso único) e painel ficam nos EUA: **transferência internacional (LGPD art. 33)**. Pendente antes de donos de verdade: mecanismo documentado (cláusulas-padrão da ANPD, Res. CD/ANPD 19/2024, no DPA do Resend ou em adendo; fallback art. 33 IX, execução de contrato com o titular, POR ESCRITO), retenção de log/corpo no mínimo do plano, DPA anexado e Resend nomeado como suboperador no aviso do art. 9 (lacuna 4) |
 | **Vercel** | requisições, logs de função — **incluindo o `t` da mesa, que viaja na query string do `/api/check` e é consultado a cada 4s**, e as linhas `[teto]` quando o teto de cobranças dispara: id da conta, id da **conta de saldo** (pseudônimo, não é o token portador), id da casa, o id da reivindicação (`claim=<uuid>`), a chave de um aviso contido (`alerta:check:<id da conta>:<hash da geração do QR>`), até 80 caracteres da mensagem quando uma reivindicação ou leitura do aviso falha, **o texto inteiro do aviso ao fundador** (id da conta e da casa, nome da casa, rótulo da mesa) quando a ponte de aviso falha ou não tem segredo, e, quando a devolução de uma vaga falha, até 80 caracteres da mensagem de erro do banco — nenhum IP, telefone ou nome | hospedagem; as linhas `[teto]` são controle de abuso por interesse legítimo (LGPD arts. 7º IX e 10) | EUA/edge |
 | **Pagar.me** (`api.pagar.me`) | CPF do pagador quando informado, `payerLabel` dentro da descrição da cobrança (`Racha <label>`), valor, split | criar a cobrança Pix/cartão e liquidar direto pra casa | Brasil |
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
@@ -272,11 +272,14 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    prévio à Kris, que era condição do deploy, caiu em 2026-09-24: a Kris é do
    fundador.) **Condição do deploy pra donos de verdade:** SMTP próprio com
    remetente do Racha (domínio com SPF/DKIM/DMARC) e o provedor nomeado na
-   linha do "Provedor de e-mail do auth" — o envio embutido do Supabase só
-   entrega pro time do projeto, e com remetente "Supabase Auth".
+   linha do "Provedor de e-mail do auth" — **CUMPRIDA em 2026-09-25**
+   (`useracha.app`, Resend, DMARC `p=quarantine`; teste real na caixa de
+   entrada). O que sobra antes de donos de verdade é o art. 33 do Resend e o
+   DPA (linha do provedor; lacuna 4).
 
-Nenhuma dessas bloqueia o piloto brasileiro assistido, **menos o SMTP próprio da
-lacuna 10, que é condição de abrir o auth próprio a donos de verdade.** Antes do primeiro QR numa
+Nenhuma dessas bloqueia o piloto brasileiro assistido. O SMTP próprio da
+lacuna 10 foi cumprido em 2026-09-25; **o mecanismo do art. 33 e o DPA do
+Resend** passam a ser a condição de abrir o auth próprio a donos de verdade. Antes do primeiro QR numa
 mesa de cliente de verdade ficam a **4** (DPA) e a metade que sobra da **2** (uma
 caixa de correio que exista); as 3, 5 e 6 bloqueiam ligar a Espanha
 (`RACHA_ES_ENABLED`).

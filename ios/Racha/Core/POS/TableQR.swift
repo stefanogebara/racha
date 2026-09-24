@@ -79,7 +79,12 @@ struct TableQR: Equatable, Sendable {
     /// portões discordam, quem decide é o que o produto FAZ.
     /// Todo host daqui está em `docs/domains.md` com dono e vencimento — é lá
     /// que "este host é nosso" deixa de ser hábito e vira coisa conferível.
-    static let allowedHosts: Set<String> = ["racha-gray.vercel.app"]
+    ///
+    /// `useracha.app` ENTROU em 2026-09-25: o domínio NOSSO (registrador
+    /// Vercel, vence 2027-09-25), e é o que o QR imprime daqui em diante. O
+    /// `racha-gray.vercel.app` FICA: há cartão impresso com ele. Sai só pela
+    /// migração de `docs/domains.md`.
+    static let allowedHosts: Set<String> = ["useracha.app", "racha-gray.vercel.app"]
 
     /// A origem é aceitável? `https` e um host que a gente já conhece.
     ///

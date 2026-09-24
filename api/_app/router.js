@@ -2144,7 +2144,7 @@ async function route(req, res) {
           accountId = acct.recipientId;
           await store.setVenueStripeAccount(b.venueId, accountId);
         }
-        const base = process.env.CLIENT_URL || 'https://racha-gray.vercel.app';
+        const base = process.env.CLIENT_URL || 'https://useracha.app';   // domínio nosso; ver docs/domains.md
         const link = await stripePsp.createAccountLink({
           accountId,
           refreshUrl: `${base}/admin?stripe=refresh&v=${b.venueId}`,
