@@ -55,3 +55,13 @@ test('erro do auth sai como código traduzido — nunca a frase em inglês do Go
     assert.match(dict, new RegExp(`'err\\.auth_${c}':`), `sem tradução pra auth_${c}`);
   }
 });
+
+// Achado no teste de ponta a ponta do login próprio (2026-09-24): o `/api/me`
+// respondeu 501, o `.catch(() => {})` engoliu, e a tela ofereceu "cadastre seu
+// restaurante" — com o servidor fora, o dono de uma casa criava a segunda.
+test('o cadastro de casa espera o /api/me; falha vira erro e "tentar de novo"', () => {
+  const admin = ler('Admin.tsx');
+  assert.doesNotMatch(admin, /\/api\/me'\)[\s\S]{0,120}\.catch\(\(\) => \{\}\)/, 'a falha do /api/me voltou a ser engolida');
+  assert.match(admin, /\{meStatus === 'ok' && <section className="card">/, 'o formulário aparece sem a lista de casas');
+  assert.match(admin, /meStatus instanceof Error && \(/);
+});

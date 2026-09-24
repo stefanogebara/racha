@@ -767,7 +767,9 @@ async function avisarTetoDisparado(err) {
 }
 
 async function guardUser(req, res) {
-  if (!auth) { json(res, 501, { success: false, error: 'auth não configurado' }); return null; }
+  // Com CÓDIGO: sem ele a tela do dono mostrava 'auth não configurado' cru, em
+  // português, na tela em inglês (teste do login próprio, 2026-09-24).
+  if (!auth) { json(res, 501, { success: false, error: 'auth não configurado', code: 'auth_unavailable' }); return null; }
   try { return await auth.requireUser(req); }
   catch (e) {
     // O CÓDIGO viaja: um 503 `auth_unavailable` tem que chegar ao cliente

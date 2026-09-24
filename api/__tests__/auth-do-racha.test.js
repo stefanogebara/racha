@@ -41,3 +41,8 @@ test('nada fora do web aponta mais pro Seatable como auth: .env.example e o pref
     expect([f, /env\.AUTH_SUPABASE_URL \|\|/.test(src)]).toEqual([f, false]);
   }
 });
+
+test('sem auth, o 501 leva CÓDIGO — a tela do dono não mostra o português cru', () => {
+  const router = fs.readFileSync(path.join(RAIZ, 'api', '_app', 'router.js'), 'utf8');
+  expect(router).toMatch(/if \(!auth\) \{ json\(res, 501, \{[^}]*code: 'auth_unavailable'/);
+});

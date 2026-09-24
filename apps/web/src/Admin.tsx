@@ -40,14 +40,22 @@ function Onboarding() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mine, setMine] = useState<Venue[]>([]);
+  // O FORMULÁRIO ESPERA O `/api/me`. O `.catch(() => {})` de antes tratava a
+  // falha como "não tem casa": com o servidor fora, o dono de uma casa via
+  // "cadastre seu restaurante" e criava a segunda (achado no teste do login
+  // próprio, 2026-09-24 — o `/api/me` respondeu 501 e a tela ofereceu o
+  // cadastro). Sem a lista, não há formulário: há o erro e o "tentar de novo".
+  const [meStatus, setMeStatus] = useState<'loading' | 'ok' | Error>('loading');
+  const [tentativa, setTentativa] = useState(0);
   const cnpjValid = isValidCNPJ(cnpj); // opcional, mas se preenchido tem que valer
 
   // If this owner already has venues, offer them instead of a blank form.
   useEffect(() => {
+    setMeStatus('loading');
     req<{ user: unknown; venues: Venue[] }>('/api/me')
-      .then((d) => setMine(d.venues || []))
-      .catch(() => {});
-  }, []);
+      .then((d) => { setMine(d.venues || []); setMeStatus('ok'); })
+      .catch((e: Error) => setMeStatus(e));
+  }, [tentativa]);
 
   async function submit() {
     setBusy(true); setError(null);
@@ -69,7 +77,13 @@ function Onboarding() {
         <span className="venue">Racha</span>
         <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </header>
-      {mine.length > 0 && (
+      {meStatus instanceof Error && (
+        <section className="card">
+          <p className="muted small" role="alert" style={{ color: 'var(--erro)' }}>{tErr(meStatus)}</p>
+          <button className="cta" onClick={() => setTentativa((n) => n + 1)}>{t('common.retry')}</button>
+        </section>
+      )}
+      {meStatus === 'ok' && mine.length > 0 && (
         <section className="panel">
           <p className="label">{t('admin.yourVenues')}</p>
           {mine.map((v) => (
@@ -80,7 +94,7 @@ function Onboarding() {
           ))}
         </section>
       )}
-      <section className="card">
+      {meStatus === 'ok' && <section className="card">
         <p className="label">{mine.length > 0 ? t('admin.registerAnother') : t('admin.registerFirst')}</p>
         {/* `maxLength` no nome da casa: ele vai no cartão do QR, no painel e no
             recibo, e sem teto uma colagem acidental de trezentos caracteres
@@ -119,7 +133,7 @@ function Onboarding() {
         <button className="cta" disabled={busy || !name.trim() || (cnpj !== '' && !cnpjValid)} onClick={submit}>
           {busy ? t('admin.creating') : t('admin.createVenue')}
         </button>
-      </section>
+      </section>}
       <footer className="foot"><span>{t('admin.title')}</span><LangToggle compact /></footer>
     </main>
   );
