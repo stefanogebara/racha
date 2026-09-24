@@ -243,8 +243,26 @@ export function erroDaResposta(res: Response, body: unknown): ApiError {
   );
 }
 
+/**
+ * O fetch que falha SEM resposta (rede caiu, DNS, aba suspensa) rejeita com um
+ * TypeError do navegador — "Failed to fetch", "Load failed", em inglês e com
+ * outra frase em cada navegador. Chegava cru à tela: visto no painel de
+ * produção em 2026-09-24, com a rede da máquina caindo no meio do teste. Vira
+ * `ApiError` com código e SEM status — o "soluço de rede" continua
+ * distinguível de um 404, como a classe acima promete.
+ */
+export async function buscar(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch (e) {
+    // Cancelamento de propósito (AbortController) não é "sem conexão".
+    if (e instanceof DOMException && e.name === 'AbortError') throw e;
+    throw new ApiError('network_error', undefined, 'network_error');
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init); // falha de rede rejeita aqui, sem status
+  const res = await buscar(path, init); // falha de rede: ApiError sem status
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body.success === false) throw erroDaResposta(res, body);
   return body.data as T;
