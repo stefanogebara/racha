@@ -25,7 +25,7 @@ apontava pra um deles.
 
 | Host | Dono | Onde serve | Vence | Confiado pelo app? |
 |---|---|---|---|---|
-| `useracha.app` | **nós** — comprado em 2026-09-25 pelo dono, registrador Vercel (time `stefanogebaras-projects`), DNS na Vercel | produção; o que o QR imprime desde 2026-09-25 (`ORIGEM_DE_PRODUCAO`); remetente dos e-mails do auth (Resend, região sa-east-1) | **2027-09-25** (renovação US$15/ano) — renovar é obrigação: cartão impresso aponta pra ele | **sim** |
+| `useracha.app` | **nós** — comprado em 2026-09-25 pelo dono na Vercel (time `stefanogebaras-projects`); registrador de registro **Name.com, Inc.** (a Vercel revende), trava de transferência ligada, DNS na Vercel | produção; o que o QR imprime desde 2026-09-25 (`ORIGEM_DE_PRODUCAO`); remetente dos e-mails do auth (Resend, região sa-east-1) | **2027-09-24 22:51 UTC** (RDAP; renovação US$15/ano) — renovar é obrigação: cartão impresso aponta pra ele | **sim** |
 | `racha-gray.vercel.app` | nós (projeto `racha` em `stefanogebaras-projects`) | produção (mesmo projeto); impresso nos cartões anteriores a 2026-09-25 | subdomínio da Vercel: não vence, mas o nome volta a ser reivindicável se o projeto for renomeado ou apagado | **sim** |
 | `racha.app` | **terceiro** (GoDaddy + Wix) | não serve a Racha | — | não, e não pode voltar |
 
@@ -86,3 +86,32 @@ antigo (`POST /api/tables/rotate`) — hoje não há casa real com mesa impressa
 só teste; (2) redirect do `racha-gray` pro `useracha.app`; (3) só então tirar o
 `racha-gray` do `allowedHosts`. O webhook do Pagar.me ainda está cadastrado no
 host antigo (`docs/runbooks/pagarme-webhook-auth.md`) — trocar lá antes do (2).
+
+## `useracha.app` — renovação e DNS
+
+**Renovar é obrigação, não conveniência.** Se o domínio vencer, quem o
+registrar depois recebe o tráfego dos QR de pagamento em cima das mesas e pode
+servir uma página de Pix falsa com o nome da Racha (CDC art. 14). Antes do
+primeiro cartão impresso numa casa de verdade: **auto-renovação ligada** na
+Vercel com cartão válido (conferir no painel — o CLI não mostra), **2FA** na
+conta da Vercel, responsável nomeado (hoje: o fundador), e um **checador diário**
+do RDAP (`pubapi.registry.google/rdap/domain/useracha.app`) que alerte com
+menos de 60 dias pro vencimento (TASKS).
+
+DNS (2026-09-25): e-mail do Resend em `send.` (SPF, MX) + DKIM na raiz;
+**DMARC `p=quarantine; adkim=s; aspf=r`** (o e-mail do Resend sai assinado
+`d=useracha.app` — conferido no Gmail, "signed-by: useracha.app"); raiz com
+`v=spf1 -all` e **MX nulo** (`0 .`: o domínio não recebe e-mail). Falta `rua=`
+no DMARC — relatório externo pro Gmail não funciona sem autorização do lado
+de lá; precisa de uma caixa no próprio domínio ou de um serviço de relatório.
+
+- O `*` (curinga) é registro PADRÃO da Vercel, sem id no CLI: todo subdomínio
+  resolve pra Vercel, mas nenhum outro time consegue anexar um sem verificação.
+- `www.useracha.app` resolve e redireciona, mas o certificado não cobre `www`
+  (erro duro no navegador, por causa do HSTS do `.app`). Nada imprime nem linka
+  `www`, e ele não está no `allowedHosts`. Ou completar (adicionar `www` ao
+  projeto como redirect) ou deixar como está — não usar.
+
+**Quando a migração chegar no redirect do `racha-gray`:** redirecionar só o que
+NÃO é `/api/` (ou usar 308), e mover ANTES os webhooks (Pagar.me, Stripe) e os
+apps iOS antigos — PSP não segue redirect de webhook, e 301/302 vira POST em GET.
