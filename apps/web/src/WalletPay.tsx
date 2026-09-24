@@ -188,10 +188,16 @@ export default function WalletButtons({
      *
      * Uma afordância de demo não pode ter poder de reprovar um pagamento real.
      */
-    try {
-      await api.devConfirm(charge.txid); // demo: confirma na hora
-    } catch {
-      // Qualquer falha aqui é irrelevante pro pagamento: ele já aconteceu.
+    // SÓ NA SIMULAÇÃO. Uma captura REAL chamava a rota de demo também — hoje
+    // inofensivo (404 em produção, engolido), mas é a porta de confirmar um
+    // pagamento de verdade sem o adquirente no dia em que o modo demo estiver
+    // ligado num ambiente com dinheiro. Captura real confirma pelo webhook.
+    if (simulated) {
+      try {
+        await api.devConfirm(charge.txid); // demo: confirma na hora
+      } catch {
+        // Qualquer falha aqui é irrelevante pro pagamento: ele já aconteceu.
+      }
     }
     onPaid(charge);
   }
