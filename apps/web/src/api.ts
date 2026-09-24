@@ -254,7 +254,9 @@ export function erroDaResposta(res: Response, body: unknown): ApiError {
 export async function buscar(path: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(path, init);
-  } catch {
+  } catch (e) {
+    // Cancelamento de propósito (AbortController) não é "sem conexão".
+    if (e instanceof DOMException && e.name === 'AbortError') throw e;
     throw new ApiError('network_error', undefined, 'network_error');
   }
 }
