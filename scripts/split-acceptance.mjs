@@ -16,6 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
 const BASE = process.env.RACHA_BASE || 'https://racha-gray.vercel.app';
@@ -54,7 +55,10 @@ let venueId = null;
 
 async function main() {
   const email = `split.aceite.${Date.now()}@teste.demo`;
-  const password = 'x'.repeat(16);
+  // Sorteada: o dono efêmero nasce CONFIRMADO no projeto apontado, e uma
+  // senha escrita no repositório público valia enquanto a limpeza não rodasse
+  // (segurança, PR #22, LOW-D — o mesmo buraco do dono demo do dev-server).
+  const password = randomBytes(18).toString('base64url');
 
   // — dono efêmero
   const created = await admin.auth.admin.createUser({ email, password, email_confirm: true });
@@ -156,7 +160,17 @@ main()
   .catch((e) => { process.stderr.write(`\nFALHOU: ${e.message}\n`); process.exitCode = 1; })
   .finally(async () => {
     // limpeza: cascade apaga members/tables/checks; depois o usuário efêmero
-    try { if (venueId) await admin.from('venues').delete().eq('id', venueId); } catch { /* best-effort */ }
-    try { if (userId) await admin.auth.admin.deleteUser(userId); } catch { /* best-effort */ }
-    log('\n(limpeza: venue + dono efêmero removidos)');
+    // A limpeza GRITA quando falha: um dono confirmado esquecido no projeto é
+    // conta viva, e o `catch {}` de antes escondia isso.
+    const falhas = [];
+    try {
+      if (venueId) { const r = await admin.from('venues').delete().eq('id', venueId); if (r.error) falhas.push(`venue ${venueId}: ${r.error.message}`); }
+    } catch (e) { falhas.push(`venue ${venueId}: ${e.message}`); }
+    try {
+      if (userId) { const r = await admin.auth.admin.deleteUser(userId); if (r.error) falhas.push(`usuário ${userId}: ${r.error.message}`); }
+    } catch (e) { falhas.push(`usuário ${userId}: ${e.message}`); }
+    if (falhas.length) {
+      process.stderr.write(`\nLIMPEZA FALHOU — apague à mão:\n  ${falhas.join('\n  ')}\n`);
+      process.exitCode = 1;
+    } else log('\n(limpeza: venue + dono efêmero removidos)');
   });

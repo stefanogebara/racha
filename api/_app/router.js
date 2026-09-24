@@ -330,16 +330,17 @@ const {
 
 const DEMO_MODE = process.env.RACHA_DEMO_MODE === 'true';
 
-// Login COMPARTILHADO (opcional): a verificação de token pode apontar pra OUTRO
-// projeto Supabase que não o de dados. Com AUTH_SUPABASE_URL/KEY = Seatable, o
-// token vem do GoTrue do Seatable (então quem já tem conta no Seatable loga no
-// Racha), enquanto os DADOS do Racha (venues/checks) ficam no projeto do Racha.
-// Sem esses envs, cai no projeto do próprio Racha (comportamento antigo).
-// getUser() só VERIFICA o JWT — a chave publicável/anon do projeto de auth basta
-// (não precisa service-role pra isso). Requer soltar o FK venue_members→auth.users
-// (migração 0008), já que os user_ids passam a vir de outro projeto.
-const AUTH_SUPABASE_URL = process.env.AUTH_SUPABASE_URL || process.env.SUPABASE_URL;
-const AUTH_SUPABASE_KEY = process.env.AUTH_SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+// O AUTH É DO PRÓPRIO RACHA (decisão do dono, 2026-09-24): o token do dono é
+// conferido SEMPRE contra o projeto dos dados. Havia um desvio por env
+// (`AUTH_SUPABASE_URL/KEY`) pro projeto do Seatable — o login compartilhado. Ele
+// SAIU do código, não só da Vercel: com a env esquecida lá, todo token novo do
+// Racha seria recusado e os tokens do Seatable seguiriam abrindo as casas
+// antigas (compliance, PR #22, H1). Env esquecida agora só GRITA no boot.
+const AUTH_SUPABASE_URL = process.env.SUPABASE_URL;
+const AUTH_SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (process.env.AUTH_SUPABASE_URL || process.env.AUTH_SUPABASE_KEY) {
+  process.stderr.write('[auth] AUTH_SUPABASE_URL/KEY estão definidas e são IGNORADAS — o auth é o do projeto do Racha; tire-as da Vercel\n');
+}
 let auth = null;
 let authClient = null;
 if (AUTH_SUPABASE_URL && AUTH_SUPABASE_KEY) {
@@ -766,7 +767,9 @@ async function avisarTetoDisparado(err) {
 }
 
 async function guardUser(req, res) {
-  if (!auth) { json(res, 501, { success: false, error: 'auth não configurado' }); return null; }
+  // Com CÓDIGO: sem ele a tela do dono mostrava 'auth não configurado' cru, em
+  // português, na tela em inglês (teste do login próprio, 2026-09-24).
+  if (!auth) { json(res, 501, { success: false, error: 'auth não configurado', code: 'auth_unavailable' }); return null; }
   try { return await auth.requireUser(req); }
   catch (e) {
     // O CÓDIGO viaja: um 503 `auth_unavailable` tem que chegar ao cliente

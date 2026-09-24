@@ -51,10 +51,11 @@ const env = Object.fromEntries(
     .map((l) => l.match(/^([A-Z_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2].trim()]),
 );
 const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY: SERVICE, SUPABASE_PUBLISHABLE_KEY: PUB } = env;
-// Projeto de AUTH (onde os donos existem sob shared auth). Espelha o router.
-const AUTH_URL = env.AUTH_SUPABASE_URL || SUPABASE_URL;
-const AUTH_SERVICE = env.AUTH_SUPABASE_SERVICE_ROLE_KEY || SERVICE;
-const AUTH_PUB = env.AUTH_SUPABASE_PUBLISHABLE_KEY || env.AUTH_SUPABASE_KEY || PUB;
+// Projeto de AUTH = o do Racha (o login compartilhado com o Seatable acabou em
+// 2026-09-24). Espelha o router, que não aceita outro.
+const AUTH_URL = SUPABASE_URL;
+const AUTH_SERVICE = SERVICE;
+const AUTH_PUB = PUB;
 
 const log = (m) => process.stdout.write(`${m}\n`);
 const brl = (c) => `R$ ${(c / 100).toFixed(2).replace('.', ',')}`;
@@ -84,7 +85,7 @@ async function mintOwnerToken(venueId) {
   if (!mem.data.length) throw new Error(`venue ${venueId} não tem dono (owner) — confira o id`);
   const userId = mem.data[0].user_id;
   const gu = await authAdmin.auth.admin.getUserById(userId);
-  if (gu.error || !gu.data.user?.email) throw new Error('dono não encontrado no projeto de AUTH — configure AUTH_SUPABASE_* no .env, ou passe --token');
+  if (gu.error || !gu.data.user?.email) throw new Error('dono não encontrado no auth do Racha — confira SUPABASE_URL e a service key no .env, ou passe --token');
   const email = gu.data.user.email;
   const link = await authAdmin.auth.admin.generateLink({ type: 'magiclink', email });
   if (link.error) throw new Error(`generateLink: ${link.error.message}`);

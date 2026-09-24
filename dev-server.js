@@ -52,6 +52,19 @@ if (process.env.RACHA_ENV === undefined && process.env.VERCEL_ENV === undefined)
 
 const { ensureDemoCheck } = require('./api/_lib/demo');
 const crypto = require('crypto');
+/**
+ * NUNCA CONTRA PRODUÇÃO. Este arquivo SEMEIA: casa, mesas, contas abertas e um
+ * dono confirmado. Apontado pro projeto de produção (o `.env` com
+ * `RACHA_STORE=supabase`), ele deixou 7 "Bar do Zé [demo …]" `is_test=false`
+ * lá, com dono de senha escrita no repositório público (segurança, PR #22,
+ * LOW-A). Recusa antes de carregar o router — antes de qualquer escrita.
+ */
+const PROJETO_DE_PRODUCAO = 'worttfotxasxqjaqwpjf';
+if ((process.env.SUPABASE_URL || '').includes(PROJETO_DE_PRODUCAO) && (process.env.RACHA_STORE || '').trim() === 'supabase') {
+  process.stderr.write(`dev-server: recusado — SUPABASE_URL aponta pro projeto de PRODUÇÃO (${PROJETO_DE_PRODUCAO}) e este arquivo semeia dados. Use o store em memória ou outro projeto.\n`);
+  process.exit(1);
+}
+
 const { route, store, authClient, useSupabase, DEMO_MODE } = require('./api/_app/router');
 
 const PORT = 8787;
@@ -117,7 +130,13 @@ const PORT = 8787;
   await store.confirmHouseLoad({ txid: seedLoadTxid, confirmedAt: new Date().toISOString() });
 
   const DEMO_EMAIL = 'dono@bardoze.demo';
-  const DEMO_PASS = 'racha-demo-1234';
+  // SENHA NOVA A CADA SUBIDA, nunca escrita no código. Era `racha-demo-1234`,
+  // num repositório PÚBLICO, pra uma conta que este arquivo cria no projeto que
+  // o `.env` apontar — e ele apontou pro de produção: o `dono@bardoze.demo`
+  // existia lá como dono de 5 casas `is_test=false`. Com o auth próprio (PR #22)
+  // qualquer leitor do repo entraria no painel de produção como dono delas e
+  // poderia pôr um recebedor seu. Achado e apagado em 2026-09-24.
+  const DEMO_PASS = `demo-${crypto.randomBytes(9).toString('base64url')}`;
   let ownerLine = '';
   if (useSupabase && authClient) {
     const { data: created, error } = await authClient.auth.admin.createUser({
@@ -128,6 +147,8 @@ const PORT = 8787;
       const { data: list } = await authClient.auth.admin.listUsers();
       const u = (list && list.users || []).find((x) => x.email === DEMO_EMAIL);
       userId = u && u.id;
+      // Já existia: troca pela senha DESTA subida — a de antes não vale mais.
+      if (userId) await authClient.auth.admin.updateUserById(userId, { password: DEMO_PASS });
     }
     if (userId) { await store.addVenueMember(venue.id, userId, 'owner'); ownerLine = `  Login  ${DEMO_EMAIL} / ${DEMO_PASS}`; }
   } else {

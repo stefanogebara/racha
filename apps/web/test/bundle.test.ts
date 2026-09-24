@@ -69,7 +69,8 @@ test('o pacote de entrada não fala com terceiro nenhum', () => {
     'js.stripe.com',          // injeção da Stripe (impressão digital)
     'm.stripe.com',
     'm.stripe.network',
-    'ckforlwdhewexyqljsaf',   // o projeto Supabase do Seatable
+    'ckforlwdhewexyqljsaf',   // o projeto Supabase do Seatable (o auth antigo)
+    'worttfotxasxqjaqwpjf',   // o projeto de auth do Racha: o cliente da mesa não loga
   ];
   const achados: string[] = [];
   for (const arquivo of chunksDeEntrada()) {

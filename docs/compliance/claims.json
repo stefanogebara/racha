@@ -267,6 +267,7 @@
         "docs",
         "ios/Racha",
         "ios/docs",
+        "supabase/templates",
         "tools"
       ],
       "soltos": [

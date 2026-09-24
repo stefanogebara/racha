@@ -46,7 +46,7 @@ documentada, em nome próprio. Ver lacuna 4.
 | `retention_runs.txid` + as contagens | cliente cujo pedido de exclusão foi atendido | comprovar a execução da retenção e a resposta do art. 18 §4 | **controladora, em nome próprio** — art. 7º II c/c art. 16 I (obrigação legal) e art. 6º X (responsabilização). É o segundo fluxo em que a Racha trata pra si, junto com o `check_views`, e um DPA com a casa não cobre nenhum dos dois | Supabase `retention_runs` | 5 anos, executados pela própria purga |
 | `check_events.payload.note` + `.by` de um `PAYMENT_ISSUE_RESOLVED`, e a `.reference` (até 120 caracteres) + `.by` de uma devolução registrada fora do trilho (`record-restitution`) — quem encerrou uma pendência de dinheiro ou registrou uma devolução, e como | dono (o **id de usuário** dele, em `by` — não o e-mail) e, se ele escrever, quem pagou | registrar quem agiu e por quê — é o que prova, depois, que a marca não sumiu sozinha e que a devolução foi feita | **operadora, na base da casa** — art. 7º V (execução do contrato de fechamento da conta) e, pro registro de quem agiu, art. 7º VI (exercício regular de direitos) e IX da CASA: a hipótese é dela, controladora, e a Racha executa. A Racha não alega base própria aqui — quando ela trata pra si, está dito na linha (é o caso do `check_views` e do `retention_runs`) | Supabase `check_events`, o razão só-de-acréscimo | **segue o razão (5 anos do exercício)** — e é **lacuna**: não há ferramenta de apagar dentro de um razão imutável. Por isso a resposta do painel ao pago-depois-de-fechar é **texto fixo, escrito pelo servidor** ("a mesa não pagou no caixa"); a rota `resolve-issue` chamada à mão, pra falha de estorno, e a `reference` da devolução ainda aceitam texto livre — o runbook manda não escrever nome, CPF ou chave Pix do cliente |
 | `venues.cnpj`, `venues.notify_email`, `venues.notify_whatsapp` | dono | cadastro, KYC do recebedor, aviso de status | controladora, contrato (art. 7º V) | Supabase `venues` | vida do contrato |
-| e-mail e senha do dono | dono | login do painel | controladora, contrato | Supabase Auth (GoTrue), `auth.users` | vida do contrato |
+| e-mail e senha do dono, o idioma escolhido no cadastro (`user_metadata.lang` — só escolhe o idioma dos e-mails do auth; editável pelo próprio dono, então nunca serve pra autorização nem é impresso), e o que o GoTrue guarda da sessão (IP e navegador em `auth.sessions` / `auth.refresh_tokens` e no log de auditoria) | dono | login do painel | controladora, contrato | Supabase Auth (GoTrue) do **projeto do Racha**, `auth.users` | vida do contrato — e é **lacuna**: não há caminho de exclusão da conta do dono (art. 18 VI) nem prazo pra sessão e log |
 | `venue_members.user_id` + `.role` — o vínculo entre um usuário autenticado e uma casa (migração 0003) | dono ou funcionário do salão | AUTORIZAÇÃO: é aqui que se decide quem pode abrir o painel de uma casa, ver pagamento e registrar devolução | controladora, contrato (art. 7º V) — e o registro de quem tinha acesso, art. 7º VI | Supabase `venue_members` (só service-role, RLS ligada sem política) | **vida do contrato**, e é **lacuna**: o prazo que a linha DEVERIA ter é o do razão que ela explica (5 anos — é o que diz, numa disputa, quem podia ter agido na conta), mas `on delete cascade` em `venues` apaga o vínculo junto com a casa e não há job que o preserve. Duas frases contraditórias moravam aqui; a verdadeira é esta, e o conserto é não apagar a linha de `venues` no encerramento enquanto o prazo correr |
 | dados bancários da casa (banco, agência, conta, titular) | casa | criar o recebedor no PSP | controladora, contrato | **não persistidos aqui** — vão do formulário direto pro PSP | n/a |
 
@@ -54,8 +54,8 @@ documentada, em nome próprio. Ver lacuna 4.
 
 | Destinatário | O que sai | Por quê | Onde processa |
 |---|---|---|---|
-| **Supabase — projeto de dados da Racha** (`SUPABASE_URL`, sem literal no código) | tudo da tabela acima, menos o login | é o banco | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
-| **Supabase — projeto de auth do SEATABLE** (`ckforlwdhewexyqljsaf.supabase.co`) | e-mail do dono, hash de senha, identidade OAuth, sessão | login compartilhado entre os dois produtos (`apps/web/src/auth.ts`, `AUTH_SUPABASE_URL`) | AWS |
+| **Supabase — o projeto do Racha** (`worttfotxasxqjaqwpjf.supabase.co`: o `SUPABASE_URL` do servidor e o literal de `apps/web/src/auth.ts`) | tudo da tabela acima, **inclusive o login do dono** | é o banco e, desde 2026-09-24, o auth. Antes o auth era o projeto do Seatable (login compartilhado) e o cadastro do dono virava usuário do Seatable sem aviso; as contas antigas **não** foram copiadas (inegociável #10) — ver lacuna 10 | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
+| **Provedor de e-mail do auth** — **Resend** (EUA), SMTP ligado no projeto do Racha em 2026-09-24, chave só de envio e só do domínio. Remetente `Racha <racha@seatable.one>` é **PONTE** escolhida pelo dono: o domínio é do Seatable, e o primeiro envio caiu no SPAM do Gmail (marca 'Racha' + domínio de outra marca + link `*.supabase.co`). Troca pro domínio próprio do Racha antes de donos reais; DPA do Resend a anexar (lacuna 4) | e-mail do dono, o idioma dele, e o link de confirmação ou de redefinição de senha | confirmar o cadastro e redefinir a senha | a definir junto com o provedor — é operador novo |
 | **Vercel** | requisições, logs de função — **incluindo o `t` da mesa, que viaja na query string do `/api/check` e é consultado a cada 4s**, e as linhas `[teto]` quando o teto de cobranças dispara: id da conta, id da **conta de saldo** (pseudônimo, não é o token portador), id da casa, o id da reivindicação (`claim=<uuid>`), a chave de um aviso contido (`alerta:check:<id da conta>:<hash da geração do QR>`), até 80 caracteres da mensagem quando uma reivindicação ou leitura do aviso falha, **o texto inteiro do aviso ao fundador** (id da conta e da casa, nome da casa, rótulo da mesa) quando a ponte de aviso falha ou não tem segredo, e, quando a devolução de uma vaga falha, até 80 caracteres da mensagem de erro do banco — nenhum IP, telefone ou nome | hospedagem; as linhas `[teto]` são controle de abuso por interesse legítimo (LGPD arts. 7º IX e 10) | EUA/edge |
 | **Pagar.me** (`api.pagar.me`) | CPF do pagador quando informado, `payerLabel` dentro da descrição da cobrança (`Racha <label>`), valor, split | criar a cobrança Pix/cartão e liquidar direto pra casa | Brasil |
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
@@ -98,8 +98,8 @@ dele e o valor. `txid` resolve pro CPF do pagador no painel da adquirente, entã
 A posição defensável é que o Seatable é **suboperador de alertas**, e ela
 provavelmente está certa. Mas posição defensável precisa estar escrita e no
 contrato: o não-negociável 10 do `CLAUDE.md` proíbe compartilhamento entre os
-produtos sem consentimento, e o mesmo vale pro login compartilhado da linha de
-cima. Enquanto não estiver no DPA (lacuna 4), o que existe é uma prática sem
+produtos sem consentimento (o login compartilhado, que também caía nisso, acabou
+em 2026-09-24 — o auth é do próprio Racha). Enquanto não estiver no DPA (lacuna 4), o que existe é uma prática sem
 instrumento. A alternativa técnica é mandar alerta de fundador por um canal que
 não seja o outro produto.
 
@@ -197,8 +197,7 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    a maior parte) ou cláusulas-padrão + avaliação. Ver `docs/markets/README.md`.
 4. **Sem DPA com as casas — e o DPA não é o conserto inteiro.** A Racha é
    operadora do dado do cliente da casa e não há contrato de tratamento (art. 39
-   LGPD / art. 28 GDPR), nem menção ao login compartilhado com o Seatable nem
-   aos cinco caminhos de alerta do §2. Fecha com **duas** coisas, não uma:
+   LGPD / art. 28 GDPR), nem menção aos cinco caminhos de alerta do §2. Fecha com **duas** coisas, não uma:
    anexo de tratamento no contrato da casa, **e** — pro que a Racha trata em
    nome próprio (adoção, radar, prospecção) — aviso do art. 9º e avaliação de
    legítimo interesse dela mesma.
@@ -234,7 +233,37 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    hospedagem como base. O que falta é prazo: log é mais um lugar onde uma
    capacidade ao portador mora sem expirar. Anda junto com a lacuna 1.
 
-Nenhuma dessas bloqueia o piloto brasileiro assistido. Antes do primeiro QR numa
+10. **As contas de dono que ficaram no projeto do SEATABLE.** Até 2026-09-24 o
+   login do Racha era o do Seatable: os donos que se cadastraram "no Racha"
+   viraram usuários de lá, e os `venue_members.user_id` de produção são ids de
+   lá. Nada foi copiado pro Racha, e nada foi apagado lá. **O que fica decidido:**
+   (a) medir, pra cada id, se ele é SÓ do Racha ou se já era cliente do
+   Seatable — apagar um usuário real do Seatable seria incidente; (b) pros que
+   forem só do Racha, apagar o `auth.users` de lá; (c) avisar os donos. Medido
+   do lado do Racha em 2026-09-24: 7 donos; nenhum `check_events.payload.by` com
+   id deles; três casas com recebedor de verdade no Pagar.me — **Beira Mar**
+   (`active`, teste), **Kitos Food** (em afiliação, teste) e **Kris** (em
+   afiliação, `is_test=false` — mas é conta de teste do PRÓPRIO fundador,
+   confirmado por ele em 2026-09-24; não há dono terceiro a avisar). Se o
+   recebedor da Kris no Pagar.me foi criado com CNPJ ou conta bancária reais do
+   fundador, isso continua sendo dado a limpar — conta falsa não faz do dado
+   "dado de demonstração". Essas três se religam à mão, com
+   identidade conferida fora da banda — nunca por e-mail igual, que abriria
+   tomada de conta. As casas sem ninguém pra religar ficam órfãs com dado do dono
+   (`venues.cnpj`, contatos) sem titular com acesso (art. 18): apagar as que forem
+   só demonstração, depois da medição. E o controlador desses registros é a PJ,
+   que ainda não está decidida (ver `docs/rfp/README.md`) — o aviso do art. 9º e
+   o registro do art. 37 precisam nomeá-la.
+   **Prazos:** a medição (a) vem antes de qualquer exclusão no projeto do
+   Seatable; a exclusão (b) e o aviso aos donos (c), até 2026-10-31. (O aviso
+   prévio à Kris, que era condição do deploy, caiu em 2026-09-24: a Kris é do
+   fundador.) **Condição do deploy pra donos de verdade:** SMTP próprio com
+   remetente do Racha (domínio com SPF/DKIM/DMARC) e o provedor nomeado na
+   linha do "Provedor de e-mail do auth" — o envio embutido do Supabase só
+   entrega pro time do projeto, e com remetente "Supabase Auth".
+
+Nenhuma dessas bloqueia o piloto brasileiro assistido, **menos o SMTP próprio da
+lacuna 10, que é condição de abrir o auth próprio a donos de verdade.** Antes do primeiro QR numa
 mesa de cliente de verdade ficam a **4** (DPA) e a metade que sobra da **2** (uma
 caixa de correio que exista); as 3, 5 e 6 bloqueiam ligar a Espanha
 (`RACHA_ES_ENABLED`).

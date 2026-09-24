@@ -20,9 +20,9 @@ const args = Object.fromEntries(
 );
 const BASE = args.base || 'https://racha-gray.vercel.app';
 const VENUE = args.venue;
-// Auth compartilhada: os donos vivem no GoTrue do Seatable, não no do Racha.
-// --token <access_token> do dono logado pula o mint (jeito robusto sob shared
-// auth). Sem ele, mint via projeto de AUTH (AUTH_SUPABASE_* ou o próprio Racha).
+// Os donos vivem no GoTrue do PRÓPRIO Racha (o login compartilhado com o
+// Seatable acabou em 2026-09-24). --token <access_token> do dono logado pula o
+// mint; sem ele, mint via o projeto do Racha.
 const TOKEN = args.token || null;
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,11 +31,10 @@ const env = Object.fromEntries(
     .map((l) => l.match(/^([A-Z_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2].trim()]),
 );
 const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY: SERVICE, SUPABASE_PUBLISHABLE_KEY: PUB } = env;
-// Projeto de AUTH (onde os donos realmente existem). Espelha o router:
-// AUTH_SUPABASE_* → Seatable; ausente → cai no próprio Racha (auth antiga).
-const AUTH_URL = env.AUTH_SUPABASE_URL || SUPABASE_URL;
-const AUTH_SERVICE = env.AUTH_SUPABASE_SERVICE_ROLE_KEY || SERVICE;
-const AUTH_PUB = env.AUTH_SUPABASE_PUBLISHABLE_KEY || env.AUTH_SUPABASE_KEY || PUB;
+// Projeto de AUTH = o do Racha. Espelha o router, que não aceita outro.
+const AUTH_URL = SUPABASE_URL;
+const AUTH_SERVICE = SERVICE;
+const AUTH_PUB = PUB;
 
 const log = (m) => process.stdout.write(`${m}\n`);
 const brl = (c) => `R$ ${(c / 100).toFixed(2).replace('.', ',')}`;
@@ -63,7 +62,7 @@ async function mintOwnerToken(venueId) {
   if (mem.error) throw new Error(`venue_members: ${mem.error.message}`);
   if (!mem.data.length) throw new Error(`venue ${venueId} não tem dono (owner) — confira o id`);
   const gu = await authAdmin.auth.admin.getUserById(mem.data[0].user_id);
-  if (gu.error || !gu.data.user?.email) throw new Error('dono não encontrado no projeto de AUTH — configure AUTH_SUPABASE_* no .env, ou passe --token');
+  if (gu.error || !gu.data.user?.email) throw new Error('dono não encontrado no auth do Racha — confira SUPABASE_URL e a service key no .env, ou passe --token');
   const email = gu.data.user.email;
   const link = await authAdmin.auth.admin.generateLink({ type: 'magiclink', email });
   if (link.error) throw new Error(`generateLink: ${link.error.message}`);

@@ -1,0 +1,1 @@
+{{ $l := printf "%v" .Data.lang }}{{ if eq $l "pt" }}Redefina sua senha do Racha{{ else if eq $l "es" }}Restablece tu contraseña de Racha{{ else }}Reset your Racha password{{ end }}
