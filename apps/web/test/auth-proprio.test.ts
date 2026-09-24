@@ -83,4 +83,7 @@ test('o cadastro grava o idioma, e os modelos de e-mail o leem com guarda', () =
     }
     assert.match(readFileSync(new URL(nome + '.html', TPL), 'utf8'), /href="\{\{ \.ConfirmationURL \}\}"/);
   }
+  // A troca de e-mail vai pro endereço NOVO; o antigo é escolha de quem pediu —
+  // e pode ser um recado de atacante (segurança, PR #22, LOW-1).
+  assert.doesNotMatch(readFileSync(new URL('email_change.html', TPL), 'utf8'), /\{\{ \.Email \}\}/);
 });

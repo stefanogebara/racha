@@ -10,14 +10,14 @@ Supabase → Authentication → Emails, no projeto racha. O idioma sai de
 T = {
     'confirmation': {
         'subject': {'en': 'Confirm your Racha account', 'pt': 'Confirme sua conta no Racha', 'es': 'Confirma tu cuenta de Racha'},
-        'title': {'en': 'Confirm your e-mail', 'pt': 'Confirme seu e-mail', 'es': 'Confirma tu e-mail'},
+        'title': {'en': 'Confirm your e-mail', 'pt': 'Confirme seu e-mail', 'es': 'Confirma tu correo'},
         'body': {'en': 'You created a Racha owner account with this e-mail. Confirm it to open your restaurant panel.',
                  'pt': 'Você criou uma conta de dono no Racha com este e-mail. Confirme para abrir o painel do seu restaurante.',
-                 'es': 'Creaste una cuenta de dueño en Racha con este e-mail. Confírmala para abrir el panel de tu restaurante.'},
-        'cta': {'en': 'Confirm e-mail', 'pt': 'Confirmar e-mail', 'es': 'Confirmar e-mail'},
-        'foot': {'en': 'Open the link in the same browser where you signed up. If it was not you, ignore this e-mail — no account opens without it.',
-                 'pt': 'Abra o link no mesmo navegador em que você se cadastrou. Se não foi você, ignore este e-mail — nenhuma conta abre sem ele.',
-                 'es': 'Abre el enlace en el mismo navegador donde te registraste. Si no fuiste tú, ignora este e-mail: ninguna cuenta se abre sin él.'},
+                 'es': 'Creaste una cuenta de dueño en Racha con este correo. Confírmala para abrir el panel de tu restaurante.'},
+        'cta': {'en': 'Confirm e-mail', 'pt': 'Confirmar e-mail', 'es': 'Confirmar correo'},
+        'foot': {'en': 'Open the link in the same browser where you signed up. If it was not you, ignore this e-mail — no account is created without this confirmation.',
+                 'pt': 'Abra o link no mesmo navegador em que você se cadastrou. Se não foi você, ignore este e-mail — nenhuma conta é criada sem a confirmação.',
+                 'es': 'Abre el enlace en el mismo navegador donde te registraste. Si no fuiste tú, ignora este correo: ninguna cuenta se crea sin esta confirmación.'},
     },
     'recovery': {
         'subject': {'en': 'Reset your Racha password', 'pt': 'Redefina sua senha do Racha', 'es': 'Restablece tu contraseña de Racha'},
@@ -28,18 +28,20 @@ T = {
         'cta': {'en': 'Choose new password', 'pt': 'Escolher senha nova', 'es': 'Elegir contraseña nueva'},
         'foot': {'en': 'Open the link in the same browser where you asked for it. If it was not you, ignore this e-mail — your password stays the same.',
                  'pt': 'Abra o link no mesmo navegador em que você pediu. Se não foi você, ignore este e-mail — sua senha continua a mesma.',
-                 'es': 'Abre el enlace en el mismo navegador donde lo pediste. Si no fuiste tú, ignora este e-mail: tu contraseña sigue igual.'},
+                 'es': 'Abre el enlace en el mismo navegador donde lo pediste. Si no fuiste tú, ignora este correo: tu contraseña sigue igual.'},
     },
     'email_change': {
-        'subject': {'en': 'Confirm the new e-mail of your Racha account', 'pt': 'Confirme o novo e-mail da sua conta no Racha', 'es': 'Confirma el nuevo e-mail de tu cuenta de Racha'},
-        'title': {'en': 'Confirm the e-mail change', 'pt': 'Confirme a troca de e-mail', 'es': 'Confirma el cambio de e-mail'},
-        'body': {'en': 'The Racha account {{ .Email }} asked to change its e-mail to {{ .NewEmail }}.',
-                 'pt': 'A conta {{ .Email }} no Racha pediu para trocar o e-mail para {{ .NewEmail }}.',
-                 'es': 'La cuenta {{ .Email }} de Racha pidió cambiar su e-mail a {{ .NewEmail }}.'},
+        'subject': {'en': 'Confirm the new e-mail of your Racha account', 'pt': 'Confirme o novo e-mail da sua conta no Racha', 'es': 'Confirma el nuevo correo de tu cuenta de Racha'},
+        'title': {'en': 'Confirm the e-mail change', 'pt': 'Confirme a troca de e-mail', 'es': 'Confirma el cambio de correo'},
+        # Sem o endereço ANTIGO: o e-mail vai pro novo, e quem escolhe o antigo pode
+        # ser um atacante que escreve recado no endereço (segurança, PR #22, LOW-1).
+        'body': {'en': 'A Racha account asked to change its e-mail to {{ .NewEmail }}.',
+                 'pt': 'Uma conta do Racha pediu para trocar o e-mail para {{ .NewEmail }}.',
+                 'es': 'Una cuenta de Racha pidió cambiar su correo a {{ .NewEmail }}.'},
         'cta': {'en': 'Confirm change', 'pt': 'Confirmar troca', 'es': 'Confirmar cambio'},
-        'foot': {'en': 'If it was not you, do not click — and change your password.',
-                 'pt': 'Se não foi você, não clique — e troque sua senha.',
-                 'es': 'Si no fuiste tú, no hagas clic y cambia tu contraseña.'},
+        'foot': {'en': 'Open the link in the same browser where you asked for it. If you did not ask for this change, do not click. If the account is yours, change its password.',
+                 'pt': 'Abra o link no mesmo navegador em que você pediu. Se você não pediu esta troca, não clique. Se a conta é sua, troque a senha.',
+                 'es': 'Abre el enlace en el mismo navegador donde lo pediste. Si no pediste este cambio, no hagas clic. Si la cuenta es tuya, cambia la contraseña.'},
     },
 }
 
