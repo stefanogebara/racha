@@ -56,13 +56,15 @@ test('HousePay gira a chave de idempotência depois de uma recusa definitiva (PR
   assert.equal((bloco.match(/crypto\.randomUUID\(\)/g) || []).length, 1);
 });
 
-test('a empresa da Racha sai de UM lugar, com nome, CNPJ e cidade juntos (Decreto 7.962 art. 2º)', () => {
+test('a empresa da Racha sai de UM lugar, com nome, CNPJ e endereço físico juntos (Decreto 7.962 art. 2º)', () => {
   const empresa = readFileSync(new URL('../src/empresa.ts', import.meta.url), 'utf8');
   assert.match(empresa, /razaoSocial: '65\.087\.663 Stefano Chap Chap Gebara'/);
   assert.match(empresa, /const CNPJ_DA_RACHA = '65087663000130';/);
   assert.match(empresa, /cnpj: formatTaxId\(CNPJ_DA_RACHA\)/);
   const h = readFileSync(new URL('../src/Home.tsx', import.meta.url), 'utf8');
-  assert.match(h, /\{EMPRESA\.razaoSocial\} · CNPJ \{EMPRESA\.cnpj\} · \{EMPRESA\.cidade\}/);
+  assert.match(h, /\{EMPRESA\.razaoSocial\} · CNPJ \{EMPRESA\.cnpj\} · \{EMPRESA\.endereco\}/);
+  // Endereço FÍSICO (art. 2º II): rua, número e CEP — a cidade sozinha não basta.
+  assert.match(empresa, /endereco: 'Rua Professor Artur Ramos, 339 — Jardim Paulistano, São Paulo\/SP, CEP 01454-010'/);
   assert.doesNotMatch(h, /'65087663000130'/, 'o CNPJ voltou a ser escrito à mão na landing');
   const p = readFileSync(new URL('../src/PrivacyNotice.tsx', import.meta.url), 'utf8');
   assert.match(p, /t\('priv\.operator', \{ name: EMPRESA\.razaoSocial/);

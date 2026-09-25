@@ -70,7 +70,7 @@ não pode voltar.
 
 | Endereço | Entrega? | Onde aparece |
 |---|---|---|
-| `contato@useracha.app` | **entrega confirmada** 2026-09-26 — e-mail real da Racha (Resend → Forward Email → Gmail do dono) chegou na CAIXA DE ENTRADA, não no spam | rodapé da landing (a parte ELETRÔNICA do Decreto 7.962 art. 2º II; endereço físico pendente) e aviso de privacidade (`priv.rights`) |
+| `contato@useracha.app` | **entrega confirmada** 2026-09-26 — e-mail real da Racha (Resend → Forward Email → Gmail do dono) chegou na CAIXA DE ENTRADA, não no spam | rodapé da landing (Decreto 7.962 art. 2º II, com o endereço físico ao lado desde 2026-09-26) e aviso de privacidade (`priv.rights`) |
 | `privacidade@racha.com.br` | **NÃO** — `MX 0 .`, o domínio recusa e-mail | em lugar nenhum, e não pode voltar |
 
 **Antes de publicar um endereço novo:** mandar uma mensagem de teste e
