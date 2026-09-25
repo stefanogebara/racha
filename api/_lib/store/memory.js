@@ -1183,7 +1183,7 @@ function createMemoryStore() {
     async createHouseAccount({ venueId, phone, name }) {
       if (!venues.has(venueId)) throw new Error('unknown venue');
       for (const a of houseAccounts.values()) {
-        if (a.venueId === venueId && a.phone === phone) throw new Error('duplicate house account');
+        if (a.venueId === venueId && a.phone === phone) throw Object.assign(new Error('duplicate house account'), { code: 'house_duplicate_account' });
       }
       const id = crypto.randomUUID();
       const accountToken = crypto.randomUUID().replace(/-/g, '');
@@ -1295,7 +1295,7 @@ function createMemoryStore() {
 
     async setHouseAccountActive(accountId, active) {
       const a = houseAccounts.get(accountId);
-      if (!a) { const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e; }
+      if (!a) { const e = new Error('house_account_not_found'); e.statusCode = 404; e.code = 'house_account_not_found'; throw e; }
       a.active = !!active;
       return { id: a.id, active: a.active };
     },
@@ -1356,12 +1356,13 @@ function createMemoryStore() {
     },
     async redeemHouse({ accountId, checkId, txid, amountCents, nowIso }) {
       if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
-        throw new Error('invalid amount'); // parity with the RPC's raise
+        throw Object.assign(new Error('house_invalid_amount'), { statusCode: 400, code: 'house_invalid_amount' }); // = 22023 da 0040
       }
       const log = houseEvents.get(accountId);
-      if (!log) throw new Error('unknown house account');
+      const naoAchada = () => Object.assign(new Error('house_account_not_found'), { statusCode: 404, code: 'house_account_not_found' }); // = RH005
+      if (!log) throw naoAchada();
       const account = houseAccounts.get(accountId);
-      if (!account || !account.active) throw new Error(`unknown house account ${accountId}`);
+      if (!account || !account.active) throw naoAchada();
       const state = houseState.reduce(log);
       // idempotency: a retried redeem with the same txid returns the prior debit
       if (state && state.redeems[txid]) {
@@ -1376,7 +1377,7 @@ function createMemoryStore() {
         plan = houseState.planRedeem(state, amountCents, nowIso);
       } catch (e) {
         if (e instanceof houseState.HouseEventValidationError) {
-          const err = new Error('saldo insuficiente'); err.statusCode = 409; throw err;
+          const err = new Error('house_insufficient_balance'); err.statusCode = 409; err.code = 'house_insufficient_balance'; throw err;
         }
         throw e;
       }
@@ -1414,10 +1415,10 @@ function createMemoryStore() {
         return log.find((e) => e.type === 'PAYMENT_CONFIRMED' && e.payload.txid === txid).seq;
       }
       if (!state || state.status === 'fechada') {
-        const e = new Error('conta fechada'); e.statusCode = 409; throw e;
+        const e = new Error('check_closed'); e.statusCode = 409; e.code = 'check_closed'; throw e;
       }
       if (state.paidCents + amountCents > state.totalCents) {
-        const e = new Error('excede o que falta pagar'); e.statusCode = 409; throw e;
+        const e = new Error('house_exceeds_remaining'); e.statusCode = 409; e.code = 'house_exceeds_remaining'; throw e;
       }
       const seq = log.length + 1;
       // `created_at` aqui também: no Postgres a coluna tem `default now()`, e o
@@ -1432,10 +1433,10 @@ function createMemoryStore() {
     },
     async refundHousePrincipal({ accountId, amountCents, nowIso }) {
       const log = houseEvents.get(accountId);
-      if (!log) { const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e; }
+      if (!log) { const e = new Error('house_account_not_found'); e.statusCode = 404; e.code = 'house_account_not_found'; throw e; }
       const state = houseState.reduce(log);
       if (!state || amountCents > state.principalCents) {
-        const e = new Error('saldo insuficiente'); e.statusCode = 409; throw e;
+        const e = new Error('house_insufficient_balance'); e.statusCode = 409; e.code = 'house_insufficient_balance'; throw e;
       }
       const seq = _houseAppend(accountId, 'PRINCIPAL_REFUNDED', {
         amountCents, at: nowIso, settlement: 'manual',

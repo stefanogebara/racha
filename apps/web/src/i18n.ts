@@ -655,6 +655,31 @@ export const DICT = {
   'err.house_wrong_venue': { en: 'This balance is only good at the restaurant that issued it.',
                         pt: 'Este saldo vale somente no restaurante que o emitiu.',
                         es: 'Este saldo solo vale en el restaurante que lo emitió.' },
+  // As recusas da carteira pelo CÓDIGO (0040) — antes a frase em português do
+  // banco ia crua pra tela.
+  'err.house_insufficient_balance': { en: 'Not enough balance for this amount.',
+                        pt: 'Saldo insuficiente para este valor.',
+                        es: 'Saldo insuficiente para este importe.' },
+  'err.house_exceeds_remaining': { en: 'This is more than what is left to pay on the bill.',
+                        pt: 'Isso é mais do que falta pagar na conta.',
+                        es: 'Es más de lo que queda por pagar en la cuenta.' },
+  'err.house_account_not_found': { en: 'We could not find this balance. Ask at the counter.',
+                        pt: 'Não encontramos este saldo. Fale com o balcão.',
+                        es: 'No encontramos este saldo. Pregunta en la barra.' },
+  'err.house_invalid_amount': { en: 'Enter a valid amount.',
+                        pt: 'Informe um valor válido.',
+                        es: 'Introduce un importe válido.' },
+  'err.house_account_exists': { en: 'This phone already has an account here — ask for your link at the counter.',
+                        pt: 'Este telefone já tem conta aqui — peça seu link no balcão.',
+                        es: 'Este teléfono ya tiene cuenta aquí — pide tu enlace en la barra.' },
+  'err.house_duplicate_account': { en: 'This phone already has an account here — ask for your link at the counter.',
+                        pt: 'Este telefone já tem conta aqui — peça seu link no balcão.',
+                        es: 'Este teléfono ya tiene cuenta aquí — pide tu enlace en la barra.' },
+  // Neutro: o mesmo 409 vem de "alguém pagou antes" E de "a conta foi fechada"
+  // — "outra pessoa pagou" era falso no segundo (compliance, PR #31, LOW-2).
+  'err.house_raced': { en: 'This bill changed just now — your balance was not charged.',
+                        pt: 'A conta mudou agora há pouco — seu saldo não foi debitado.',
+                        es: 'La cuenta cambió hace un momento — tu saldo no se ha cobrado.' },
   // O limite chega em centavos e é formatado aqui, na moeda da casa: o
   // servidor escrevia `toFixed(2)`, sem moeda e sem idioma.
   'err.load_below_min': { en: 'The minimum top-up is {min}.',  pt: 'A recarga mínima é {min}.', es: 'La recarga mínima es {min}.' },

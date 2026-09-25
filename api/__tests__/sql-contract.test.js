@@ -1271,8 +1271,11 @@ function foraDoClassificador(fonteDoClassificador, decisoes) {
    * por SQLSTATE é uma decisão, e uma lista derivada deixaria ela acontecer sem
    * ninguém olhar.
    */
+  // + `recusaDaCarteira` e `unicidadeViolada` (2026-09-25, migração 0040): as
+  // RPCs da carteira e o rótulo de mesa decidiam pelo TEXTO da mensagem; agora
+  // decidem pelo código, AQUI — que é o ponto de a lista ser escrita à mão.
   const corpos = ['recusaProvada', 'desfechoDoLancamento', 'podeSerReentrega', 'linhaJaGravada',
-    'recusaProvadaDoErro', 'valeRepetir']
+    'recusaProvadaDoErro', 'valeRepetir', 'recusaDaCarteira', 'unicidadeViolada']
     .map(corpo).filter(Boolean);
   /**
    * "O `pgCode` é ARGUMENTO de um predicado do classificador" — com qualquer
@@ -1407,7 +1410,7 @@ test('`pgCode` e `pgConstraint` só são lidos pelo classificador', () => {
   // dentro passariam a ser acusadas — o censo acusaria o inocente em vez de
   // absolver o culpado, que é a direção certa de falhar, mas só se alguém
   // perceber. Este número é o que faz perceber.
-  expect(corpos.length).toBe(6);
+  expect(corpos.length).toBe(8);   // + recusaDaCarteira e unicidadeViolada (0040)
   expect(decisoes.length).toBeGreaterThan(0);
   expect(fora.map((d) => `${d.arquivo}: ${d.linha}`)).toEqual([]);
 });
