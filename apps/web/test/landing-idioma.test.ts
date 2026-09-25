@@ -33,3 +33,10 @@ test('a coluna "Como" some pela classe, e o rodapé não a conta (L6)', () => {
   assert.doesNotMatch(css, /\.razao t[hd]:nth-child\(3\)/);
   assert.doesNotMatch(home, /className="quem" colSpan=\{3\}/);
 });
+
+test('o extrato da carteira traduz pelo tipo e não mostra frase do servidor (PR #31, M-3)', () => {
+  const w = readFileSync(new URL('../src/Wallet.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(w, /entry\.label/);
+  assert.match(w, /redeem_reversed: 'ledger\.redeemReversed'/);
+  assert.match(w, /t\(key \|\| 'ledger\.other'\)/);
+});

@@ -17,11 +17,12 @@ import { storeWallet } from './house';
 
 const PRESETS_CENTS = [5000, 10000, 20000];
 
-// A API manda type curto ('load' | 'redeem' | 'refund') + label humano.
+// A API manda type curto ('load' | 'redeem' | 'redeem_reversed' | 'refund') e
+// valores — nenhuma frase. Tipo desconhecido vira "Movimentação".
 /** Tipo de lançamento → chave do dicionário. O texto sai traduzido na hora de
     renderizar, não aqui: um mapa de strings fixas volta a ser uma língua só. */
 const LEDGER_KEY = {
-  load: 'ledger.load', redeem: 'ledger.redeem', refund: 'ledger.refund',
+  load: 'ledger.load', redeem: 'ledger.redeem', redeem_reversed: 'ledger.redeemReversed', refund: 'ledger.refund',
 } as const;
 
 /**
@@ -304,12 +305,16 @@ function WalletView({ accountToken }: { accountToken: string }) {
 function LedgerRow({ entry }: { entry: HouseLedgerEntry }) {
   const { t, brl, dmy } = useT();
   const key = LEDGER_KEY[entry.type as keyof typeof LEDGER_KEY];
-  const title = key ? t(key) : entry.label;
-  const sign = entry.type === 'load' ? '+' : '−';
-  // Recarga com bônus: mostra o bônus como sublinha.
+  const title = t(key || 'ledger.other');
+  // O SINAL vem do VALOR, que o servidor já manda com sinal — não do tipo: um
+  // crédito de tipo novo (que cai em "Movimentação") sairia como débito, o
+  // extrato contradizendo o saldo (compliance, PR #32, M-1).
+  const sign = entry.amountCents >= 0 ? '+' : '−';
+  // Recarga com bônus: mostra o bônus como sublinha. Nada mais — a sublinha
+  // repetia o `label` do servidor, em português, embaixo do título traduzido.
   const detail = entry.type === 'load' && (entry.bonusCents ?? 0) > 0
     ? t('wallet.bonusLine', { amount: brl(entry.bonusCents!) })
-    : entry.label && entry.label !== title ? ` · ${entry.label}` : '';
+    : '';
   return (
     <div className="checkrow">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>

@@ -123,10 +123,57 @@ describe('o SERVIÇO com o store do Supabase: a recusa da conta estorna o débit
     expect(await saldo(house, accountToken)).toBe(5000);
   });
 
+  test('o EXTRATO mostra o estorno como linha própria, com o valor do débito desfeito — e sem frase do servidor (M-3)', async () => {
+    const { store, house, table, accountToken, guardada } = await mundo('RH003');
+    store.appendHousePaymentGuarded = guardada;
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-extrato-1' })).rejects.toMatchObject({ code: 'house_raced' });
+    const extrato = (await house.wallet(accountToken)).account.ledger;
+    expect(extrato.map((r) => [r.type, r.amountCents])).toEqual([['redeem_reversed', 1000], ['redeem', -1000], ['load', 5000]]);
+    for (const r of extrato) expect(r).not.toHaveProperty('label');
+  });
+
   test('erro que não é recusa provada → NÃO estorna (o débito fica e a conciliação acusa)', async () => {
     const { store, house, table, accountToken, estornos } = await mundo('RH003');
     store.appendHousePaymentGuarded = comErro({ code: 'P0001', message: 'excede o que falta pagar' }).appendHousePaymentGuarded;
     await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-tentativa-3' })).rejects.toThrow();
     expect(estornos).toHaveLength(0);
+  });
+});
+
+
+describe('extrato e erros da carteira sem frase (compliance, PR #32)', () => {
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { MockPsp } = require('../_lib/pay/mock-psp');
+  const { createHouseService } = require('../_lib/house/house-service');
+  const mk = () => {
+    const store = createMemoryStore();
+    return { store, house: createHouseService({ store, psp: new MockPsp({ webhookSecret: 'x'.repeat(32) }), now: () => '2026-09-25T12:00:00.000Z' }) };
+  };
+
+  test('o extrato conta um débito e uma volta por txid, mesmo com o razão repetido (at-least-once)', async () => {
+    const { store, house } = mk();
+    const venue = store.seedVenue({ name: 'Casa', servicoBp: 1000, pspRecipientId: 'rcpt_t' });
+    await house.updateConfig(venue.id, { enabled: true, bonusBp: 0, validityDays: 30 });
+    const table = store.seedTable(venue.id, 'Mesa 1');
+    const { accountToken } = await house.openAccount({ tableQrToken: table.qrToken, phone: '11911112222', name: 'B' });
+    const acc = await store.getHouseAccountByToken(accountToken);
+    const eventos = await store.loadHouseEvents(acc.id);
+    const { ledgerView } = require('../_lib/house/house-service');
+    const r = { type: 'REDEEMED', payload: { txid: 't1', at: 'a', principalCents: 500, bonusCents: 0 } };
+    const v = { type: 'REDEEM_REVERSED', payload: { txid: 't1', at: 'b' } };
+    expect(ledgerView([...eventos, r, r, v, v]).map((x) => [x.type, x.amountCents])).toEqual([['redeem_reversed', 500], ['redeem', -500]]);
+  });
+
+  test('cada erro do cliente na carteira tem código', async () => {
+    const { store, house } = mk();
+    await expect(house.publicConfig('nao-existe')).rejects.toMatchObject({ statusCode: 404, code: 'table_not_found' });
+    const venue = store.seedVenue({ name: 'Casa', servicoBp: 1000, pspRecipientId: 'rcpt_t' });
+    await house.updateConfig(venue.id, { enabled: true, bonusBp: 0, validityDays: 30 });
+    const table = store.seedTable(venue.id, 'Mesa 1');
+    await expect(house.openAccount({ tableQrToken: table.qrToken, phone: 'x', name: 'B' })).rejects.toMatchObject({ statusCode: 400, code: 'house_phone_invalid' });
+    await expect(house.wallet('token-que-nao-existe')).rejects.toMatchObject({ statusCode: 404, code: 'house_account_not_found' });
+    const { accountToken } = await house.openAccount({ tableQrToken: table.qrToken, phone: '11911112222', name: 'B' });
+    await expect(house.createLoad({ accountToken, amountCents: 0 })).rejects.toMatchObject({ statusCode: 400, code: 'house_invalid_amount' });
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 100 })).rejects.toMatchObject({ statusCode: 404, code: 'check_not_found' });
   });
 });
