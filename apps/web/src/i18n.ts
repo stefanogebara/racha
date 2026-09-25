@@ -677,6 +677,15 @@ export const DICT = {
                         es: 'Este teléfono ya tiene cuenta aquí — pide tu enlace en la barra.' },
   // Neutro: o mesmo 409 vem de "alguém pagou antes" E de "a conta foi fechada"
   // — "outra pessoa pagou" era falso no segundo (compliance, PR #31, LOW-2).
+  'err.table_not_found': { en: 'This table was not found. Scan the QR code on the table again.',
+                        pt: 'Não encontramos esta mesa. Escaneie o QR da mesa de novo.',
+                        es: 'No encontramos esta mesa. Vuelve a escanear el código QR de la mesa.' },
+  'err.house_phone_invalid': { en: 'Enter a valid phone number.',
+                        pt: 'Informe um telefone válido.',
+                        es: 'Introduce un teléfono válido.' },
+  'err.house_account_limit': { en: 'This restaurant cannot open new balances right now — ask at the counter.',
+                        pt: 'Este restaurante não pode abrir novos saldos agora — fale com o balcão.',
+                        es: 'Este restaurante no puede abrir saldos nuevos ahora — pregunta en la barra.' },
   'err.house_raced': { en: 'This bill changed just now — your balance was not charged.',
                         pt: 'A conta mudou agora há pouco — seu saldo não foi debitado.',
                         es: 'La cuenta cambió hace un momento — tu saldo no se ha cobrado.' },
@@ -1836,7 +1845,7 @@ export const DICT = {
   'ledger.load':   { en: 'Top-up',        pt: 'Recarga', es: 'Recarga' },
   'ledger.redeem': { en: 'Paid at table', pt: 'Pagamento na mesa', es: 'Pago en la mesa' },
   'ledger.refund': { en: 'Refund',        pt: 'Reembolso', es: 'Reembolso' },
-  'ledger.redeemReversed': { en: 'Payment undone — back to your balance', pt: 'Pagamento desfeito — voltou pro saldo', es: 'Pago deshecho — volvió a tu saldo' },
+  'ledger.redeemReversed': { en: 'Payment not completed — amount returned to your balance', pt: 'Pagamento não concluído — valor devolvido ao saldo', es: 'Pago no completado — devuelto a tu saldo' },
   'ledger.other':  { en: 'Movement', pt: 'Movimentação', es: 'Movimiento' },
 
   'wallet.bonusDays': { en: 'Bonus valid for {days} days after confirmation.',

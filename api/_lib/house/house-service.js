@@ -214,18 +214,26 @@ function quoteBonusCents(amountCents, bonusBp) {
  */
 function ledgerView(events) {
   const rows = [];
-  const debitos = new Map();   // txid → valor debitado (principal + bônus)
+  const debitos = new Map();   // txid → valor debitado (principal + bônus), ainda não estornado
+  const vistos = new Set();    // txids de REDEEMED já contados
   for (const evt of events) {
     const p = evt.payload || {};
     if (evt.type === 'LOAD_CONFIRMED') {
       rows.push({ at: p.at ?? null, type: 'load', amountCents: p.principalCents, bonusCents: p.bonusCents ?? 0 });
     } else if (evt.type === 'REDEEMED') {
+      // Dedup como o redutor (razão at-least-once): o mesmo txid duas vezes é
+      // UM débito — o extrato não pode divergir do saldo (compliance, PR #32, L-4).
+      if (vistos.has(p.txid)) continue;
+      vistos.add(p.txid);
       const valor = (p.principalCents ?? 0) + (p.bonusCents ?? 0);
       debitos.set(p.txid, valor);
       rows.push({ at: p.at ?? null, type: 'redeem', amountCents: -valor, bonusCents: 0 });
     } else if (evt.type === 'REDEEM_REVERSED') {
       const valor = debitos.get(p.txid);
-      if (valor !== undefined) rows.push({ at: p.at ?? null, type: 'redeem_reversed', amountCents: valor, bonusCents: 0 });
+      if (valor !== undefined) {
+        debitos.delete(p.txid);   // uma volta por débito
+        rows.push({ at: p.at ?? null, type: 'redeem_reversed', amountCents: valor, bonusCents: 0 });
+      }
     } else if (evt.type === 'PRINCIPAL_REFUNDED') {
       rows.push({ at: p.at ?? null, type: 'refund', amountCents: -p.amountCents, bonusCents: 0 });
     }
@@ -239,7 +247,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
   /** Public per-table config — what the diner sees before opening a wallet. */
   async function publicConfig(tableQrToken) {
     const hit = await store.getVenueByTableToken(tableQrToken || '');
-    if (!hit) throw httpError(404, 'Mesa não encontrada');
+    if (!hit) throw httpError(404, 'Mesa não encontrada', 'table_not_found');
     const cfg = venueHouseConfig(hit.venue);
     return {
       // Na mesa de treino o saldo não se oferece: abrir e recarregar é Pix real.
@@ -256,7 +264,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
 
   async function openAccount({ tableQrToken, phone, name }) {
     const hit = await store.getVenueByTableToken(tableQrToken || '');
-    if (!hit) throw httpError(404, 'Mesa não encontrada');
+    if (!hit) throw httpError(404, 'Mesa não encontrada', 'table_not_found');
     // Nem carteira nova a partir da mesa de treino: a recarga é Pix de verdade,
     // e "mesa de treino nunca cobra" não tem exceção (compliance, PR #18, LOW-1).
     if (eMesaDeTreino(hit)) throw httpError(409, 'mesa de treino não cobra', CODIGO_MESA_DE_TREINO);
@@ -270,7 +278,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const cfg = venueHouseConfig(hit.venue);
     if (!cfg.enabled) throw badRequest('house balance is off for this venue', 'house_off');
     const digits = normalizePhone(phone);
-    if (!digits) throw badRequest('Telefone inválido');
+    if (!digits) throw badRequest('Telefone inválido', 'house_phone_invalid');
     // PELO MESMO NORMALIZADOR das palavras da casa. Este nome aparece na tela
     // do balcão, então ele carrega o mesmo risco de marca bidi e zero-width; e
     // o `.length` que estava aqui conta unidades UTF-16 enquanto o CHECK da
@@ -289,7 +297,10 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const MAX_ACCOUNTS_PER_VENUE = 5000;
     if (store.countHouseAccounts
         && (await store.countHouseAccounts(hit.venue.id)) >= MAX_ACCOUNTS_PER_VENUE) {
-      throw httpError(503, 'Limite de contas deste restaurante atingido — fale com o balcão');
+      // 409 com CÓDIGO, não 503: é capacidade, não falha do servidor — e todo 5xx
+      // vira 'internal' no `errorBody`, então o 'fale com o balcão' nunca chegava
+      // (compliance, PR #32, M-2).
+      throw httpError(409, 'Limite de contas deste restaurante atingido — fale com o balcão', 'house_account_limit');
     }
     let account;
     try {
@@ -311,7 +322,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
 
   async function wallet(accountToken) {
     const account = await store.getHouseAccountByToken(accountToken || '');
-    if (!account) throw httpError(404, 'Conta não encontrada');
+    if (!account) throw httpError(404, 'Conta não encontrada', 'house_account_not_found');
     const venue = await store.getVenue(account.venueId);
     const events = await store.loadHouseEvents(account.id);
     const state = houseState.reduce(events);
@@ -345,12 +356,12 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
 
   async function createLoad({ accountToken, amountCents }) {
     const account = await store.getHouseAccountByToken(accountToken || '');
-    if (!account) throw httpError(404, 'Conta não encontrada');
+    if (!account) throw httpError(404, 'Conta não encontrada', 'house_account_not_found');
     const venue = await store.getVenue(account.venueId);
     if (!venue) throw httpError(404, 'venue not found', 'venue_not_found');
     const cfg = venueHouseConfig(venue);
     if (!cfg.enabled) throw badRequest('house balance is off for this venue', 'house_off');
-    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw badRequest('Valor inválido');
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw badRequest('Valor inválido', 'house_invalid_amount');
     // CÓDIGO + CENTAVOS CRUS, não a frase pronta. Estas duas formatavam
     // dinheiro no servidor (`toFixed(2)`, sem moeda e sem idioma) e mandavam
     // português pra quem quer que estivesse lendo. É a regra do CLAUDE.md, e o
@@ -456,9 +467,9 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
 
   async function redeem({ accountToken, tableQrToken, amountCents, idempotencyKey = null }) {
     const account = await store.getHouseAccountByToken(accountToken || '');
-    if (!account) throw httpError(404, 'Conta não encontrada');
+    if (!account) throw httpError(404, 'Conta não encontrada', 'house_account_not_found');
     const view = await store.getCheckByQrToken(tableQrToken || '');
-    if (!view) throw httpError(404, 'Mesa sem conta aberta');
+    if (!view) throw httpError(404, 'Mesa sem conta aberta', 'check_not_found');
     // Saldo da casa é dinheiro do cliente: mesa de treino não o gasta.
     if (eMesaDeTreino(view)) throw httpError(409, 'mesa de treino não cobra', CODIGO_MESA_DE_TREINO);
     const venue = await store.getVenueForCheck(view.check.id);
@@ -598,12 +609,12 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
 
   async function rotateToken(accountId) {
     const r = await store.rotateHouseAccountToken(accountId);
-    if (!r) throw httpError(404, 'Conta não encontrada');
+    if (!r) throw httpError(404, 'Conta não encontrada', 'house_account_not_found');
     return { accountToken: r.accountToken };
   }
 
   async function refundPrincipal({ accountId, amountCents }) {
-    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw badRequest('Valor inválido');
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw badRequest('Valor inválido', 'house_invalid_amount');
     const r = await store.refundHousePrincipal({ accountId, amountCents, nowIso: now() });
     // Surface the still-active bonus so the owner sees what a refunded
     // account can still spend (decision: bonus is NOT auto-revoked on
@@ -628,4 +639,4 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
   };
 }
 
-module.exports = { createHouseService, normalizePhone, maskPhone, quoteBonusCents };
+module.exports = { createHouseService, normalizePhone, maskPhone, quoteBonusCents, ledgerView };

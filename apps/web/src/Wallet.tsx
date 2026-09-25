@@ -306,8 +306,10 @@ function LedgerRow({ entry }: { entry: HouseLedgerEntry }) {
   const { t, brl, dmy } = useT();
   const key = LEDGER_KEY[entry.type as keyof typeof LEDGER_KEY];
   const title = t(key || 'ledger.other');
-  // Entra dinheiro: a recarga e o pagamento DESFEITO (a volta do débito).
-  const sign = entry.type === 'load' || entry.type === 'redeem_reversed' ? '+' : '−';
+  // O SINAL vem do VALOR, que o servidor já manda com sinal — não do tipo: um
+  // crédito de tipo novo (que cai em "Movimentação") sairia como débito, o
+  // extrato contradizendo o saldo (compliance, PR #32, M-1).
+  const sign = entry.amountCents >= 0 ? '+' : '−';
   // Recarga com bônus: mostra o bônus como sublinha. Nada mais — a sublinha
   // repetia o `label` do servidor, em português, embaixo do título traduzido.
   const detail = entry.type === 'load' && (entry.bonusCents ?? 0) > 0
