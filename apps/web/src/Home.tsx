@@ -39,9 +39,8 @@ const PROOF_PEOPLE = 3;
 // "1 · Scanned" → "Scanned": o ordinal vem da espinha, não do texto.
 const stripOrdinal = (s: string) => s.replace(/^\d+\s*·\s*/, '');
 
-// A empresa da Racha (nome, CNPJ, cidade, contato) vem de `empresa.ts`. Do
-// Decreto 7.962/2013 art. 2º o rodapé cumpre o inciso I e o canal eletrônico do
-// II; o ENDEREÇO FÍSICO ainda falta (TASKS).
+// A empresa da Racha (nome, CNPJ, endereço, contato) vem de `empresa.ts`: é o
+// que o Decreto 7.962/2013 art. 2º I e II pede de quem oferta pela internet.
 
 export default function Home() {
   const { t, lang } = useT();
@@ -240,7 +239,7 @@ export default function Home() {
         {/* Pelo formatador, não à mão. A versão manual daqui era a ÚNICA
             formatada no produto inteiro — o comprovante e o aviso, que são o
             que o cliente lê, imprimiam catorze dígitos crus. */}
-        <span className="legal">Racha · {EMPRESA.razaoSocial} · CNPJ {EMPRESA.cnpj} · {EMPRESA.cidade} · <a href={`mailto:${EMPRESA.contato}`}>{EMPRESA.contato}</a></span>
+        <span className="legal">Racha · {EMPRESA.razaoSocial} · CNPJ {EMPRESA.cnpj} · {EMPRESA.endereco} · <a href={`mailto:${EMPRESA.contato}`}>{EMPRESA.contato}</a></span>
       </footer>
     </main>
   );
