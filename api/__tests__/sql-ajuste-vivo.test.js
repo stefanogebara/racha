@@ -164,4 +164,17 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     // Conta FECHADA: a conta do começo do arquivo foi fechada no teste acima.
     expect(codigo(`public.append_house_payment_guarded('${conta}', 't2', 100)`)).toBe('RH002');
   });
+
+  test('0041: house_redeem recusa (RH006) o retry de um débito já estornado', () => {
+    Q(`insert into house_accounts (id, venue_id, phone, name, account_token, principal_cents)
+       values ('00000000-0000-0000-0000-00000000ca01', '00000000-0000-0000-0000-00000000000a', '11911112222', 'B', 'tok-ca01', 5000)`);
+    const conta = '00000000-0000-0000-0000-00000000ca01';
+    const agora = new Date().toISOString();
+    Q(`select public.house_redeem('${conta}', gen_random_uuid(), 'ha_x', 1000, '${agora}')`);
+    Q(`select public.house_redeem_reverse('${conta}', 'ha_x', '${agora}')`);
+    const err = QErr(`do $$ begin perform public.house_redeem('${conta}', gen_random_uuid(), 'ha_x', 1000, '${agora}');
+      exception when others then raise exception 'CODIGO=%', sqlstate; end $$`);
+    expect(err && err.match(/CODIGO=(\w+)/)[1]).toBe('RH006');
+    expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('5000');
+  });
 });

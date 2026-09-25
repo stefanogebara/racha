@@ -18,6 +18,7 @@ const comErro = (error) => createSupabaseStore({ url: 'http://falso', serviceRol
 const redeem = (s) => s.redeemHouse({ accountId: 'a', checkId: 'c', txid: 't', amountCents: 100, nowIso: 'n' });
 
 test.each([
+  ['RH006', 409, 'house_redeem_reversed'],
   ['RH001', 409, 'house_insufficient_balance'],
   ['RH005', 404, 'house_account_not_found'],
   ['22023', 400, 'house_invalid_amount'],
@@ -121,6 +122,25 @@ describe('o SERVIÇO com o store do Supabase: a recusa da conta estorna o débit
       .rejects.toMatchObject({ statusCode: 409, code: 'house_raced' });
     expect(estornos).toHaveLength(1);
     expect(await saldo(house, accountToken)).toBe(5000);
+  });
+
+  test('RETRY DEPOIS DO ESTORNO, com a mesma chave e a conta com espaço agora: recusa — a conta NÃO fica paga sem débito (0041)', async () => {
+    const { store, house, table, accountToken, guardada } = await mundo('RH003');
+    const gravacaoDeVerdade = store.appendHousePaymentGuarded.bind(store);
+    // 1ª: a conta recusa (RH003) → o débito é estornado.
+    store.appendHousePaymentGuarded = guardada;
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-do-estorno-1' }))
+      .rejects.toMatchObject({ code: 'house_raced' });
+    // A conta volta a ter espaço; o cliente toca de novo com a MESMA chave.
+    store.appendHousePaymentGuarded = gravacaoDeVerdade;
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-do-estorno-1' }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'house_redeem_reversed' });
+    const conta = await store.getCheckByQrToken(table.qrToken);
+    expect(conta.state.paidCents).toBe(0);                            // a conta NÃO ficou paga
+    expect((await house.wallet(accountToken)).account.principalCents).toBe(5000);   // o saldo intacto
+    // E uma chave NOVA paga normalmente.
+    await house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-do-estorno-2' });
+    expect((await store.getCheckByQrToken(table.qrToken)).state.paidCents).toBe(1000);
   });
 
   test('o EXTRATO mostra o estorno como linha própria, com o valor do débito desfeito — e sem frase do servidor (M-3)', async () => {
