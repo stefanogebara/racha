@@ -944,6 +944,10 @@ describe('dentro dos adaptadores: só os três métodos criam cobrança no adqui
 });
 
 describe('pelo router: demo, token, rotação, e o aviso que sai DEPOIS da recusa', () => {
+  // Centenas de requisições HTTP de verdade por teste: sob a suíte inteira (os
+  // Postgres descartáveis dos testes de SQL viva rodando em paralelo) os 5 s
+  // padrão do jest estouravam sem nada estar errado. Prazo do tamanho do teste.
+  jest.setTimeout(30_000);
   const { route, store: lojaDoRouter } = require('../_app/router');
   let porta; let srv;
   beforeAll(async () => {

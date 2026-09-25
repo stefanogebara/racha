@@ -1836,6 +1836,8 @@ export const DICT = {
   'ledger.load':   { en: 'Top-up',        pt: 'Recarga', es: 'Recarga' },
   'ledger.redeem': { en: 'Paid at table', pt: 'Pagamento na mesa', es: 'Pago en la mesa' },
   'ledger.refund': { en: 'Refund',        pt: 'Reembolso', es: 'Reembolso' },
+  'ledger.redeemReversed': { en: 'Payment undone — back to your balance', pt: 'Pagamento desfeito — voltou pro saldo', es: 'Pago deshecho — volvió a tu saldo' },
+  'ledger.other':  { en: 'Movement', pt: 'Movimentação', es: 'Movimiento' },
 
   'wallet.bonusDays': { en: 'Bonus valid for {days} days after confirmation.',
                         pt: 'Bônus válido por {days} dias após a confirmação.',

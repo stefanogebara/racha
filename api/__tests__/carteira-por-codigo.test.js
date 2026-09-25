@@ -123,6 +123,15 @@ describe('o SERVIÇO com o store do Supabase: a recusa da conta estorna o débit
     expect(await saldo(house, accountToken)).toBe(5000);
   });
 
+  test('o EXTRATO mostra o estorno como linha própria, com o valor do débito desfeito — e sem frase do servidor (M-3)', async () => {
+    const { store, house, table, accountToken, guardada } = await mundo('RH003');
+    store.appendHousePaymentGuarded = guardada;
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-extrato-1' })).rejects.toMatchObject({ code: 'house_raced' });
+    const extrato = (await house.wallet(accountToken)).account.ledger;
+    expect(extrato.map((r) => [r.type, r.amountCents])).toEqual([['redeem_reversed', 1000], ['redeem', -1000], ['load', 5000]]);
+    for (const r of extrato) expect(r).not.toHaveProperty('label');
+  });
+
   test('erro que não é recusa provada → NÃO estorna (o débito fica e a conciliação acusa)', async () => {
     const { store, house, table, accountToken, estornos } = await mundo('RH003');
     store.appendHousePaymentGuarded = comErro({ code: 'P0001', message: 'excede o que falta pagar' }).appendHousePaymentGuarded;

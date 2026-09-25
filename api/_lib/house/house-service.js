@@ -202,16 +202,32 @@ function quoteBonusCents(amountCents, bonusBp) {
 }
 
 // --- ledger → human view ----------------------------------------------------
+/**
+ * O EXTRATO: tipo e valores, SEM frase — a tela traduz pelo `type` (o servidor
+ * não escolhe língua por quem ele não vê; CLAUDE.md).
+ *
+ * E o ESTORNO APARECE. Um pagamento recusado pela conta é estornado
+ * (`REDEEM_REVERSED`) e a tela diz "seu saldo não foi debitado" — mas o extrato
+ * mostrava o `REDEEMED` como "Pagamento na mesa −R$X" e nenhuma linha de volta:
+ * saldo certo, extrato contradizendo (compliance, PR #31, M-3; CDC art. 6º III).
+ * Agora a volta tem linha própria, com o valor do débito que ela desfaz.
+ */
 function ledgerView(events) {
   const rows = [];
+  const debitos = new Map();   // txid → valor debitado (principal + bônus)
   for (const evt of events) {
     const p = evt.payload || {};
     if (evt.type === 'LOAD_CONFIRMED') {
-      rows.push({ at: p.at ?? null, type: 'load', label: 'Recarga', amountCents: p.principalCents, bonusCents: p.bonusCents ?? 0 });
+      rows.push({ at: p.at ?? null, type: 'load', amountCents: p.principalCents, bonusCents: p.bonusCents ?? 0 });
     } else if (evt.type === 'REDEEMED') {
-      rows.push({ at: p.at ?? null, type: 'redeem', label: 'Pagamento na mesa', amountCents: -((p.principalCents ?? 0) + (p.bonusCents ?? 0)), bonusCents: 0 });
+      const valor = (p.principalCents ?? 0) + (p.bonusCents ?? 0);
+      debitos.set(p.txid, valor);
+      rows.push({ at: p.at ?? null, type: 'redeem', amountCents: -valor, bonusCents: 0 });
+    } else if (evt.type === 'REDEEM_REVERSED') {
+      const valor = debitos.get(p.txid);
+      if (valor !== undefined) rows.push({ at: p.at ?? null, type: 'redeem_reversed', amountCents: valor, bonusCents: 0 });
     } else if (evt.type === 'PRINCIPAL_REFUNDED') {
-      rows.push({ at: p.at ?? null, type: 'refund', label: 'Reembolso', amountCents: -p.amountCents, bonusCents: 0 });
+      rows.push({ at: p.at ?? null, type: 'refund', amountCents: -p.amountCents, bonusCents: 0 });
     }
   }
   return rows.reverse(); // most recent first

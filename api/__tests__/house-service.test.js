@@ -100,7 +100,9 @@ describe('house service', () => {
     expect(w.account.principalCents).toBe(10000);
     expect(w.account.bonusCents).toBe(1500);
     expect(w.account.lots).toHaveLength(1);
-    expect(w.account.ledger[0].label).toBe('Recarga');
+    // Pelo TIPO — o servidor não manda frase; a tela traduz (PR #31, M-3).
+    expect(w.account.ledger[0].type).toBe('load');
+    expect(w.account.ledger[0]).not.toHaveProperty('label');
     expect(w.account.phoneMasked).toBe('•••• 4321');
 
     // Open a check R$80 and pay R$20 from balance → bonus first
