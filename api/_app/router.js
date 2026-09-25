@@ -2629,7 +2629,7 @@ async function route(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/checks') {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
-      if (!b.tableId) return json(res, 400, { success: false, error: 'tableId é obrigatório' });
+      if (!b.tableId) return json(res, 400, { success: false, code: 'table_id_required' });
       try { await auth.requireTableOwner(user, b.tableId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       try {
@@ -2640,9 +2640,9 @@ async function route(req, res) {
     if (req.method === 'POST' && (url.pathname === '/api/checks/adjust' || url.pathname === '/api/checks/close')) {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
-      if (!b.checkId) return json(res, 400, { success: false, error: 'checkId é obrigatório' });
+      if (!b.checkId) return json(res, 400, { success: false, code: 'check_id_required' });
       const venue = await store.getVenueForCheck(b.checkId);
-      if (!venue) return json(res, 404, { success: false, error: 'conta não encontrada', code: 'check_not_found' });
+      if (!venue) return json(res, 404, { success: false, code: 'check_not_found' });
       try { await auth.requireVenueOwner(user, venue.id); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       try {
@@ -2754,7 +2754,7 @@ async function route(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/tables/rotate') {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
-      if (!b.tableId) return json(res, 400, { success: false, error: 'tableId é obrigatório' });
+      if (!b.tableId) return json(res, 400, { success: false, code: 'table_id_required' });
       try { await auth.requireTableOwner(user, b.tableId); }
       catch (e) { return json(res, e.statusCode || 403, { success: false, error: e.message }); }
       const r = await store.rotateTableQr(b.tableId);

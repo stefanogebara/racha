@@ -65,10 +65,16 @@ async function lancarCondicional(store, checkId, decidir) {
   throw e;
 }
 
-function badRequest(msg) {
+function badRequest(msg, code) {
   const err = new Error(msg);
   err.statusCode = 400;
+  if (code) err.code = code;
   return err;
+}
+
+/** A recusa do validador como 400 — com `check_closed` quando é isso. */
+function codigoDaRecusa(e, state) {
+  return badRequest(e.message, state && state.closed ? 'check_closed' : undefined);
 }
 
 /**
@@ -127,7 +133,7 @@ function createCheckService({ store }) {
       const payload = { totalCents: newTotal, items: norm };
       // validateEvent throws (→ 400) if the check is closed.
       try { validateEvent({ type: 'ADJUSTED', payload }, state); }
-      catch (e) { throw badRequest(e.message); }
+      catch (e) { throw codigoDaRecusa(e, state); }
       // O `ADJUSTED` E OS ITENS NUMA TRANSAÇÃO SÓ (`adjust_check`, 0038).
       //
       // Eram duas escritas: o evento pelo compare-and-append e os itens depois.
@@ -160,7 +166,9 @@ function createCheckService({ store }) {
       // Valida o payload que VAI ser gravado (compliance, PR #21, L-4).
       const payload = { motivo: 'dono' };
       try { validateEvent({ type: 'CLOSED', payload }, state); }
-      catch (e) { throw badRequest(e.message); } // already closed → 400
+      // Com CÓDIGO: a frase do validador é inglês interno ('cannot CLOSE…') e ia
+      // crua pro painel. `check_closed` é o que a tela traduz.
+      catch (e) { throw codigoDaRecusa(e, state); } // already closed → 400
       return { type: 'CLOSED', payload, resultado };
     });
   }
