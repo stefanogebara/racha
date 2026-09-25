@@ -164,4 +164,20 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     // Conta FECHADA: a conta do começo do arquivo foi fechada no teste acima.
     expect(codigo(`public.append_house_payment_guarded('${conta}', 't2', 100)`)).toBe('RH002');
   });
+
+  test('0041: house_redeem recusa (RH006) o retry de um débito já estornado', () => {
+    // IDs e telefone ÚNICOS por execução: com fixos, o teste dependia da ordem
+    // e falhava rodando sozinho ou duas vezes no mesmo banco (segurança, PR #35).
+    const conta = require('node:crypto').randomUUID();
+    const fone = `119${String(Date.now()).slice(-8)}`;
+    Q(`insert into house_accounts (id, venue_id, phone, name, account_token, principal_cents)
+       values ('${conta}', '00000000-0000-0000-0000-00000000000a', '${fone}', 'B', 'tok-${conta}', 5000)`);
+    const agora = new Date().toISOString();
+    Q(`select public.house_redeem('${conta}', gen_random_uuid(), 'ha_${conta.slice(0, 8)}', 1000, '${agora}')`);
+    Q(`select public.house_redeem_reverse('${conta}', 'ha_${conta.slice(0, 8)}', '${agora}')`);
+    const err = QErr(`do $$ begin perform public.house_redeem('${conta}', gen_random_uuid(), 'ha_${conta.slice(0, 8)}', 1000, '${agora}');
+      exception when others then raise exception 'CODIGO=%', sqlstate; end $$`);
+    expect(err && err.match(/CODIGO=(\w+)/)[1]).toBe('RH006');
+    expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('5000');
+  });
 });

@@ -44,6 +44,11 @@ export default function HousePay({
       setResult(r);
       onPaid(r); // entrega o check view fresco pro App (null se a conta fechou no meio)
     } catch (e) {
+      // Recusa DEFINITIVA desta tentativa (a conta mudou e o débito foi
+      // estornado): a próxima é OUTRO pagamento, com outra chave. Com a mesma,
+      // o servidor via o débito estornado como "já feito" (PR #31, LOW-1; 0041).
+      const code = (e as { code?: string }).code;
+      if (code === 'house_raced' || code === 'house_redeem_reversed') idemKey.current = crypto.randomUUID();
       setError(tErr(e));
     } finally {
       setBusy(false);

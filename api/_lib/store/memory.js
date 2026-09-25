@@ -1367,6 +1367,11 @@ function createMemoryStore() {
       // idempotency: a retried redeem with the same txid returns the prior debit
       if (state && state.redeems[txid]) {
         const prior = state.redeems[txid];
+        // = RH006 da 0041: débito ESTORNADO não é "já feito" — o retry com a
+        // mesma chave pagaria a conta sem débito (compliance, PR #31, LOW-1).
+        if (prior.reversed) {
+          throw Object.assign(new Error('house_redeem_reversed'), { statusCode: 409, code: 'house_redeem_reversed' });
+        }
         return {
           seq: null, duplicate: true,
           principalUsedCents: prior.principalCents, bonusUsedCents: prior.bonusCents,
