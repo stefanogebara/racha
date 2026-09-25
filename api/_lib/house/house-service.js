@@ -281,10 +281,12 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
         venueId: hit.venue.id, phone: digits, name: nome.valor,
       });
     } catch (e) {
-      if (/duplicate/i.test(e.message)) {
+      // Pelo CÓDIGO que o store põe (23505 → `house_duplicate_account`), não
+      // pela palavra "duplicate" na mensagem.
+      if (e && e.code === 'house_duplicate_account') {
         // NEVER return the existing token — knowing a phone number must not
         // grant access to its balance. Recovery goes through the owner panel.
-        throw httpError(409, 'Conta já existe — peça seu link no balcão');
+        throw httpError(409, 'Conta já existe — peça seu link no balcão', 'house_account_exists');
       }
       throw e;
     }
@@ -506,7 +508,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
         // The check refused the payment (raced full / closed). Compensate:
         // put the exact breakdown back and tell the diner nothing was spent.
         await store.reverseHouseRedeem({ accountId: account.id, txid, nowIso: now() });
-        throw httpError(409, 'Outra pessoa pagou essa parte agora há pouco — seu saldo não foi debitado');
+        throw httpError(409, 'Outra pessoa pagou essa parte agora há pouco — seu saldo não foi debitado', 'house_raced');
       }
       throw e; // unknown failure: debit stands, reconciliation flags the pair
     }

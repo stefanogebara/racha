@@ -860,6 +860,9 @@ const RECUSA_DETERMINISTICA = [
   // pra manter o `40003` fora tirou este junto, sem querer.
   /^40P01$/,
   /^57014$/,  // …e query_canceled/statement timeout, idem
+  // As recusas da carteira da casa (0040): `raise` em plpgsql, então rollback
+  // determinístico — é a mesma natureza do P0001 que elas eram antes.
+  /^RH\d{3}$/,
 ];
 function recusaProvada(codigo) {
   if (typeof codigo !== 'string' || !/^[0-9A-Z]{5}$/.test(codigo)) return false;
@@ -948,6 +951,35 @@ function linhaJaGravada(err) {
  * (Os chamadores antigos continuam usando `recusaProvada(e.pgCode)` de dentro
  * deste módulo; esta é a porta pra quem está fora dele.)
  */
+/**
+ * A RECUSA DA CARTEIRA DA CASA, pelo CÓDIGO (0040), com o status e o código que
+ * a tela traduz. Decidia-se pelo TEXTO da mensagem (/saldo insuficiente/,
+ * /excede o que falta/): uma frase reformatada virava 500, e a frase em
+ * português ia crua pra tela do cliente (inegociável #7; censo de RPC,
+ * 2026-09-25). `null` quando o erro não é uma recusa conhecida da carteira —
+ * quem chama segue pelo caminho de erro de sempre.
+ *
+ * RH002 e RH003 SÃO 409 de propósito: o `redeem` estorna o débito quando a
+ * conta recusa o pagamento com 409 — mudar o status deixaria o saldo debitado.
+ */
+const RECUSAS_DA_CARTEIRA = Object.freeze({
+  RH001: Object.freeze({ statusCode: 409, code: 'house_insufficient_balance' }),
+  RH002: Object.freeze({ statusCode: 409, code: 'check_closed' }),
+  RH003: Object.freeze({ statusCode: 409, code: 'house_exceeds_remaining' }),
+  RH005: Object.freeze({ statusCode: 404, code: 'house_account_not_found' }),
+  22023: Object.freeze({ statusCode: 400, code: 'house_invalid_amount' }),
+});
+function recusaDaCarteira(err) {
+  const codigo = err && err.pgCode;
+  if (!recusaProvada(codigo)) return null;
+  return RECUSAS_DA_CARTEIRA[codigo] || null;
+}
+
+/** Violação de unicidade (23505), pelo CÓDIGO — conta da carteira ou rótulo de mesa repetidos. */
+function unicidadeViolada(err) {
+  return Boolean(err) && err.pgCode === '23505';
+}
+
 function recusaProvadaDoErro(err) {
   return recusaProvada(err && err.pgCode);
 }
@@ -1677,4 +1709,4 @@ async function reconcileVenueHouse(store, venueId) {
 
 module.exports = {
   acharServicoNuncaArrecadado, repararLinhasAtrasadas, resumoDoReparo, recusaProvada,
-  desfechoDoLancamento, podeSerReentrega, linhaJaGravada, recusaProvadaDoErro, valeRepetir, INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };
+  desfechoDoLancamento, podeSerReentrega, linhaJaGravada, recusaProvadaDoErro, recusaDaCarteira, unicidadeViolada, valeRepetir, INDICE_DA_DEVOLUCAO_FORA_DO_TRILHO, reconcileCheck, reconcileVenue, reconcileHouseAccount, reconcileVenueHouse };

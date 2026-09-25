@@ -38,6 +38,7 @@ const { rotuloDoPagador } = require('../texto-da-casa');
 
 const { criarClienteSupabase } = require('./cliente-supabase');
 const { reduce, paidAfterClose, itensDoRazao } = require('../checks/check-state');
+const { recusaDaCarteira, unicidadeViolada } = require('../checks/reconcile');
 const { idadeSemOpened, linhaDeAlarme } = require('../checks/conta-sem-opened');
 const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
@@ -68,6 +69,23 @@ function required(name) {
 /** SQLSTATE tem exatamente cinco caracteres; o PostgREST usa `PGRSTnnn`. */
 const SQLSTATE_RE = /^[0-9A-Z]{5}$/;
 const PGRST_RE = /^PGRST\d+$/;
+
+/**
+ * A RECUSA DA CARTEIRA com status e CÓDIGO (0040): o banco diz o quê pelo
+ * SQLSTATE, o classificador (`recusaDaCarteira`) decide, e a mensagem é o
+ * código — a tela traduz; o servidor não manda frase. Recusa desconhecida segue
+ * o `throwOn` de sempre.
+ */
+function throwDaCarteira(error, op) {
+  if (!error) return;
+  try { throwOn(error, op); } catch (e) {
+    const r = recusaDaCarteira(e);
+    if (!r) throw e;
+    const err = new Error(r.code);
+    err.statusCode = r.statusCode; err.code = r.code;
+    throw err;
+  }
+}
 
 function throwOn(error, op) {
   if (!error) return;
@@ -538,12 +556,14 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       // in cache", um texto de proxy) pra o dono ler "já existe uma mesa com
       // esse nome" sobre uma falha que não é essa. Segunda revisão de segurança
       // de 2026-09-16 (LOW-E).
-      if (error && /duplicate|unique/i.test(error.message)) {
-        const e = new Error('duplicate table label');
-        e.code = 'table_label_duplicate';
-        throw e;
+      if (error) {
+        // PELO CÓDIGO (23505), não pela substring: a frase podia conter
+        // "duplicate" por outro motivo (ver acima).
+        try { throwOn(error, 'createTable'); } catch (e) {
+          if (!unicidadeViolada(e)) throw e;
+          const dup = new Error('duplicate table label'); dup.code = 'table_label_duplicate'; throw dup;
+        }
       }
-      throwOn(error, 'createTable');
       return {
         id: data.id, venueId: data.venue_id, label: data.label,
         qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at, active: data.active,
@@ -1538,8 +1558,13 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const { data, error } = await client.rpc('house_open_account', {
         p_venue_id: venueId, p_phone: phone, p_name: name,
       });
-      if (error && /duplicate|unique/i.test(error.message)) throw new Error('duplicate house account');
-      throwOn(error, 'createHouseAccount');
+      if (error) {
+        // PELO CÓDIGO (23505 do índice único da 0005), não pela frase.
+        try { throwOn(error, 'createHouseAccount'); } catch (e) {
+          if (!unicidadeViolada(e)) throw e;
+          const dup = new Error('duplicate house account'); dup.code = 'house_duplicate_account'; throw dup;
+        }
+      }
       return {
         id: data.id, venueId: data.venueId, phone: data.phone,
         name: data.name, accountToken: data.accountToken, createdAt: data.createdAt,
@@ -1659,16 +1684,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         p_account_id: accountId, p_check_id: checkId, p_txid: txid,
         p_amount_cents: amountCents, p_now: nowIso,
       });
-      if (error && /saldo insuficiente/i.test(error.message)) {
-        const e = new Error('saldo insuficiente'); e.statusCode = 409; throw e;
-      }
-      if (error && /invalid amount/i.test(error.message)) {
-        const e = new Error('invalid amount'); e.statusCode = 400; throw e;
-      }
-      if (error && /unknown house account/i.test(error.message)) {
-        const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e;
-      }
-      throwOn(error, 'redeemHouse');
+      throwDaCarteira(error, 'redeemHouse');
       return {
         seq: data.seq, duplicate: data.duplicate === true,
         principalUsedCents: Number(data.principalUsedCents),
@@ -1686,24 +1702,14 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const { data, error } = await client.rpc('append_house_payment_guarded', {
         p_check_id: checkId, p_txid: txid, p_amount_cents: amountCents,
       });
-      if (error && /excede o que falta|conta fechada/i.test(error.message)) {
-        const e = new Error(error.message.replace(/^.*?(excede o que falta pagar|conta fechada).*$/i, '$1'));
-        e.statusCode = 409; throw e;
-      }
-      throwOn(error, 'appendHousePaymentGuarded');
+      throwDaCarteira(error, 'appendHousePaymentGuarded');
       return data;
     },
     async refundHousePrincipal({ accountId, amountCents, nowIso }) {
       const { data, error } = await client.rpc('house_refund_principal', {
         p_account_id: accountId, p_amount_cents: amountCents, p_now: nowIso,
       });
-      if (error && /saldo insuficiente/i.test(error.message)) {
-        const e = new Error('saldo insuficiente'); e.statusCode = 409; throw e;
-      }
-      if (error && /unknown house account/i.test(error.message)) {
-        const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e;
-      }
-      throwOn(error, 'refundHousePrincipal');
+      throwDaCarteira(error, 'refundHousePrincipal');
       return { seq: data.seq, principalCents: Number(data.principalCents) };
     },
     async recordHousePaymentRow({ checkId, venueId, txid, amountCents, confirmedAt }) {

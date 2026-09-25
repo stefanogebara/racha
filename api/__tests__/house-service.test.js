@@ -154,7 +154,8 @@ describe('house service', () => {
     const bigTable = store.seedTable(venueId, 'Mesa 9');
     await store.openCheck(bigTable.qrToken, [{ id: 'z', name: 'Z', priceCents: 99999 }]);
     await expect(house.redeem({ accountToken, tableQrToken: bigTable.qrToken, amountCents: 9000 }))
-      .rejects.toThrow(/saldo insuficiente/); // 8500 left (bonus 1500 spent first, then 1500 of principal)
+      // Pelo CÓDIGO (0040), não pela frase — é o que a tela traduz.
+      .rejects.toMatchObject({ statusCode: 409, code: 'house_insufficient_balance' }); // 8500 left (bonus 1500 spent first, then 1500 of principal)
   });
 
   test('bonus expires: unusable after validity, principal survives', async () => {

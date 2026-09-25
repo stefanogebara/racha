@@ -151,4 +151,17 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     // Acima de 64 KB: abre, mas sem itens no evento (o teto da 0038).
     expect(abrir('00000000-0000-0000-0000-0000000000c6', 1000, JSON.stringify([{ name: 'A'.repeat(70000), priceCents: 1000 }]))).toEqual({ totalCents: 1000 });
   });
+
+  test('0040: as funções da carteira recusam com CÓDIGO (a frase não decide mais)', () => {
+    const codigo = (sql) => {
+      const err = QErr(`do $$ begin perform ${sql}; exception when others then raise exception 'CODIGO=%', sqlstate; end $$`);
+      return err && err.match(/CODIGO=(\w+)/)[1];
+    };
+    expect(codigo("public.house_redeem(gen_random_uuid(), gen_random_uuid(), 't1', 0, now()::text)")).toBe('22023');
+    expect(codigo("public.house_redeem(gen_random_uuid(), gen_random_uuid(), 't1', 100, now()::text)")).toBe('RH005');
+    expect(codigo("public.house_refund_principal(gen_random_uuid(), 100, now()::text)")).toBe('RH005');
+    expect(codigo("public.append_house_payment_guarded(gen_random_uuid(), 't1', 100)")).toBe('RH004');
+    // Conta FECHADA: a conta do começo do arquivo foi fechada no teste acima.
+    expect(codigo(`public.append_house_payment_guarded('${conta}', 't2', 100)`)).toBe('RH002');
+  });
 });
