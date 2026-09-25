@@ -81,6 +81,7 @@ const { reconcileVenue, reconcileVenueHouse, desfechoDoLancamento, podeSerReentr
 const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
   formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
 const { vigiarRetencao } = require('../_lib/checks/retention-watch');
+const { vigiarDominio } = require('../_lib/checks/dominio-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 const { PAPEL_DE_DONO } = require('../_lib/store/papeis');
@@ -3116,6 +3117,23 @@ async function route(req, res) {
       if (!segredoConfere(req.headers.authorization, process.env.CRON_SECRET)) {
         return json(res, 401, { success: false, error: 'unauthorized' });
       }
+      /**
+       * O DOMÍNIO DOS QR NÃO VENCE EM SILÊNCIO (compliance, PR #27, HIGH).
+       * Lê, decide e avisa em `_lib/checks/dominio-watch.js`. Roda DEPOIS do
+       * aviso da conciliação — nos dois desfechos: até 16 s de RDAP + ponte
+       * antes do aviso de dinheiro podiam empurrá-lo pra fora do `maxDuration`
+       * numa noite vermelha (segurança, PR #28, MÉDIA) —, e roda também quando
+       * a conciliação explode, senão o domínio ficava sem conferência enquanto
+       * ela falhasse (compliance, PR #28, LOW-5). Falhar aqui só vai pro log.
+       */
+      const conferirDominio = async () => {
+        try {
+          return await vigiarDominio(notifyFounderMoneyEvent, { seco: url.searchParams.get('dry') === '1' });
+        } catch (e) {
+          process.stderr.write(`[dominio] vigia falhou: ${String((e && e.message) || e).slice(0, 160)}\n`);
+          return null;
+        }
+      };
       // Canário morto ≠ canário verde (#8 + #7). Se a varredura EXPLODE, ninguém
       // saberia: sem isto o catch-all devolvia 500 e o silêncio lia como "tudo
       // bate". Estourar é o pior estado possível, então pagina como crítico.
@@ -3190,6 +3208,7 @@ async function route(req, res) {
         await notifyFounderReconcile({
           mensagem: falha, venuesRed: 0, venuesChecked: 0, driftCents: 0, worstSeverity: 'critical',
         });
+        await conferirDominio();
         return json(res, 500, { success: false, error: 'reconcile falhou', code: 'reconcile_threw' });
       }
       /**
@@ -3260,7 +3279,8 @@ async function route(req, res) {
         + `reparadas=${report.rowsRepaired || 0} sem_resposta=${report.rowsRepairAckLost || 0} `
         + `corridas=${report.rowsRepairRaced || 0} recusadas=${report.rowsRepairRejected || 0} `
         + `info=${(report.infoCodes || []).join(',') || '-'}\n`);
-      return json(res, 200, { success: true, data: { ...report, mensagem, envio } });
+      const dominio = await conferirDominio();
+      return json(res, 200, { success: true, data: { ...report, mensagem, envio, dominio } });
     }
 
     // --- cron: radar de ativação ---------------------------------------------
