@@ -81,6 +81,7 @@ const { reconcileVenue, reconcileVenueHouse, desfechoDoLancamento, podeSerReentr
 const { reconcileAllVenues, reconcileOneVenue, formatReconcileAlert,
   formatReconcileHeartbeat } = require('../_lib/checks/reconcile-daily');
 const { vigiarRetencao } = require('../_lib/checks/retention-watch');
+const { vigiarDominio } = require('../_lib/checks/dominio-watch');
 const { resolvePosAdapter } = require('../_lib/pos/adapter');
 const { createAuth } = require('../_lib/auth');
 const { PAPEL_DE_DONO } = require('../_lib/store/papeis');
@@ -3210,6 +3211,18 @@ async function route(req, res) {
         seco: url.searchParams.get('dry') === '1',
       });
 
+      /**
+       * O DOMÍNIO DOS QR NÃO VENCE EM SILÊNCIO (compliance, PR #27, HIGH).
+       * Lê, decide e avisa em `_lib/checks/dominio-watch.js`. Falhar aqui não
+       * derruba a conciliação: o erro vai pro log e a noite segue.
+       */
+      let dominio = null;
+      try {
+        dominio = await vigiarDominio(notifyFounderMoneyEvent, { seco: url.searchParams.get('dry') === '1' });
+      } catch (e) {
+        process.stderr.write(`[dominio] vigia falhou: ${String((e && e.message) || e).slice(0, 160)}\n`);
+      }
+
       // A retenção atrasada NÃO pode apagar a batida noturna.
       //
       // A primeira versão somava a linha ao `mensagem`, e como `mensagem`
@@ -3260,7 +3273,7 @@ async function route(req, res) {
         + `reparadas=${report.rowsRepaired || 0} sem_resposta=${report.rowsRepairAckLost || 0} `
         + `corridas=${report.rowsRepairRaced || 0} recusadas=${report.rowsRepairRejected || 0} `
         + `info=${(report.infoCodes || []).join(',') || '-'}\n`);
-      return json(res, 200, { success: true, data: { ...report, mensagem, envio } });
+      return json(res, 200, { success: true, data: { ...report, mensagem, envio, dominio } });
     }
 
     // --- cron: radar de ativação ---------------------------------------------
