@@ -83,7 +83,7 @@ de fundador com 400, então nada era entregue — o mapa descrevia um canal que 
 prática não transmitia nada. Consertar a ponte tornou a transferência real, e a
 cadeia de suboperadores ficou duas pontas mais longa do que este mapa dizia:
 identificador de pagamento pseudonimizado e detalhe financeiro por casa passaram
-a sair pra dois processadores nos EUA, sob contrato da OUTRA empresa. É item do
+a sair pra dois processadores nos EUA, sob contrato do Seatable. (Desde 2026-09-25 a Racha e o Seatable são a MESMA empresa — MEI 65.087.663 — então não é mais "outra empresa": é o mesmo controlador em dois produtos, e a regra #10 vira limitação de FINALIDADE (LGPD art. 6º I-II) e transparência (art. 9º), não transferência entre controladores.) É item do
 art. 39 (a casa-controladora tem que poder conhecer a cadeia) e do art. 33
 (transferência internacional), e reforça a lacuna 4.
 
@@ -96,8 +96,9 @@ identificador de pagamento de UM cliente específico, o identificador da conta
 dele e o valor. `txid` resolve pro CPF do pagador no painel da adquirente, então
 é identificável por meios razoáveis — não é dado anônimo por não trazer nome.
 
-A posição defensável é que o Seatable é **suboperador de alertas**, e ela
-provavelmente está certa. Mas posição defensável precisa estar escrita e no
+A posição defensável ERA que o Seatable é **suboperador de alertas**. Com a mesma
+empresa por trás dos dois produtos (decisão de 2026-09-25), é o mesmo controlador;
+o que segue valendo é a separação de FINALIDADE entre os produtos. Mas posição defensável precisa estar escrita e no
 contrato: o não-negociável 10 do `CLAUDE.md` proíbe compartilhamento entre os
 produtos sem consentimento (o login compartilhado, que também caía nisso, acabou
 em 2026-09-24 — o auth é do próprio Racha). Enquanto não estiver no DPA (lacuna 4), o que existe é uma prática sem

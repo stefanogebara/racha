@@ -4,9 +4,9 @@
  * Decidido pelo dono em 2026-09-25: a mesma empresa do Seatable ("mesma
  * empresa, mesma máquina de vendas" — CLAUDE.md), o MEI 65.087.663 Stefano Chap
  * Chap Gebara, CNPJ 65.087.663/0001-30, São Paulo/SP — o mesmo que o rodapé do
- * Seatable já publica. Nome, CNPJ e endereço juntos: é o que o Decreto
- * 7.962/2013 art. 2º pede de quem oferta pela internet, e o que o aviso do
- * art. 9º III da LGPD pede do controlador do que a Racha trata em nome próprio.
+ * Seatable já publica. Nome e CNPJ cumprem o Decreto 7.962/2013 art. 2º I; o
+ * inciso II pede ainda ENDEREÇO FÍSICO e CANAL ELETRÔNICO, que faltam (a cidade
+ * não basta, e seatable.one não recebe e-mail) — ver TASKS (compliance, PR #38).
  *
  * Estes são dados PÚBLICOS da empresa (estão na porta e em todo recibo), não
  * dado pessoal de cliente — a regra #10 (não cruzar dado com o Seatable) é
