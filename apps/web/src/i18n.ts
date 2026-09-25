@@ -532,6 +532,10 @@ export const DICT = {
 
   // ── erros do servidor, por código ───────────────────────────────────────
   'err.check_not_found':  { en: 'Bill not found.',             pt: 'Conta não encontrada.', es: 'Cuenta no encontrada.' },
+  // Faltou o identificador na chamada do painel — bug do cliente, não do dono;
+  // a frase só não pode ser o português cru do servidor.
+  'err.table_id_required': { en: 'Choose a table first.', pt: 'Escolha uma mesa primeiro.', es: 'Elige una mesa primero.' },
+  'err.check_id_required': { en: 'Choose a bill first.', pt: 'Escolha uma conta primeiro.', es: 'Elige una cuenta primero.' },
   'err.check_closed':     { en: 'This bill is already closed.', pt: 'Esta conta já foi fechada.', es: 'Esta cuenta ya está cerrada.' },
   'err.amount_over':      { en: 'Amount is more than what is left ({left}).',
                             pt: 'Valor acima do que falta ({left}).',
