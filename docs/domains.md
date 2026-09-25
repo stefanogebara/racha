@@ -97,8 +97,8 @@ primeiro cartão impresso numa casa de verdade:
 | Controle | Estado |
 |---|---|
 | Auto-renovação na Vercel | **ligada** — conferida em 2026-09-25 pela API (`GET /v5/domains/useracha.app` → `renew: true`) |
-| Cartão válido na conta da Vercel | **não conferido** — dono |
-| 2FA na conta da Vercel | **não conferido** — dono. Até estar registrado aqui com data, conta como NÃO feito |
+| Cartão válido na conta da Vercel | **ok** — conferido em 2026-09-25 no painel: padrão MasterCard débito final 1245, válido até 09/2032 (há um Visa pré-pago final 3365 VENCIDO em 03/2026, não padrão — remover) |
+| 2FA na conta da Vercel | **DESLIGADO** — conferido em 2026-09-25 ("Two-Factor Authentication: Inactive"); o dono decidiu adiar. Conta como NÃO feito até estar registrado aqui com data |
 | Responsável | o fundador (Stefano Gebara); sem contato de reserva ainda |
 | Vigia diário | **existe**: `api/_lib/checks/dominio-watch.js`, na conciliação das 04:10, DEPOIS do aviso de dinheiro. Pagina (e-mail + WhatsApp, `account_alert`) com < 60 dias pro vencimento, estado ruim no registro, trava de transferência ausente, nameservers que não são os da Vercel, ou leitura do RDAP que falhou |
 
