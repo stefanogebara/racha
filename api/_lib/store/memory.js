@@ -34,7 +34,7 @@ const { disputeCounts } = require('../checks/disputes');
  */
 
 const crypto = require('crypto');
-const { reduce, paidAfterClose } = require('../checks/check-state');
+const { reduce, paidAfterClose, itensDoRazao } = require('../checks/check-state');
 const { idadeSemOpened, linhaDeAlarme } = require('../checks/conta-sem-opened');
 
 /**
@@ -348,7 +348,8 @@ function createMemoryStore() {
       // `OPENED` não entra, a linha sai. Sem isto o dublê seguia fabricando a
       // conta órfã que produção não fabrica mais.
       try {
-        await this.appendEvent(id, 'OPENED', { totalCents });
+        // Os itens vão no `OPENED`, como a `open_check` da 0039.
+        await this.appendEvent(id, 'OPENED', { totalCents, items: items.map((i) => ({ ...i })) });
       } catch (e) {
         checks.delete(id);
         events.delete(id);
@@ -415,7 +416,9 @@ function createMemoryStore() {
           ...publicMarketView(venue.market, { servicoBp: venue.servicoBp, cnpj: venue.cnpj }),
         },
         table: { label: table.label, training: table.training === true },
-        check: { id: check.id, items: check.items },
+        // Do RAZÃO, como no Supabase (ver `itensDoRazao`); `check.items` só pra
+        // conta semeada sem itens no evento.
+        check: { id: check.id, items: itensDoRazao(log) || check.items },
         state: reduce(log),
       };
     },

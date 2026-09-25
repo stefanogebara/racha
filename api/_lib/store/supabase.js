@@ -37,7 +37,7 @@ const { rotuloDoPagador } = require('../texto-da-casa');
  */
 
 const { criarClienteSupabase } = require('./cliente-supabase');
-const { reduce, paidAfterClose } = require('../checks/check-state');
+const { reduce, paidAfterClose, itensDoRazao } = require('../checks/check-state');
 const { idadeSemOpened, linhaDeAlarme } = require('../checks/conta-sem-opened');
 const { linhasDeSobra, acumularSobra } = require('../checks/sobra-do-painel');
 const { buildAtivacao, spDay } = require('../checks/ativacao');
@@ -765,8 +765,10 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
           continue;
         }
         if (state.status === 'fechada') continue;
-        let items = [];
-        try { items = JSON.parse(cand.pos_ref) || []; } catch { items = []; }
+        // Os itens do RAZÃO (a mesma leitura do total); o `pos_ref` só pra conta
+        // de antes da 0038/0039. Ver `itensDoRazao`.
+        let items = itensDoRazao(razoes.get(cand.id));
+        if (!items) { try { items = JSON.parse(cand.pos_ref) || []; } catch { items = []; } }
         return {
           venue: {
             name: table.venues.name,

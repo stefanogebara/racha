@@ -150,20 +150,13 @@ function validateEvent(evt, prevState) {
     case 'OPENED':
       if (prevState) invalid('OPENED must be the first event');
       assertCents(p.totalCents, 'OPENED.totalCents');
+      validarItensDoEvento('OPENED', p);
       break;
     case 'ADJUSTED':
       if (!prevState) invalid('ADJUSTED before OPENED');
       if (prevState.status === STATUS.FECHADA) invalid('cannot ADJUST a closed check');
       assertCents(p.totalCents, 'ADJUSTED.totalCents');
-      // Os itens viajam no evento desde a 0038 (o que o cliente viu, pra
-      // replay); quando vêm, somam o total. Eventos antigos, sem itens, seguem
-      // válidos — o razão não se reescreve (compliance, PR #29, M-2).
-      if (p.items !== undefined) {
-        if (!Array.isArray(p.items) || p.items.length === 0) invalid('ADJUSTED.items must be a non-empty array');
-        let soma = 0;
-        for (const it of p.items) { assertCents(it && it.priceCents, 'ADJUSTED.items[].priceCents'); soma += it.priceCents; }
-        if (soma !== p.totalCents) invalid(`ADJUSTED.items sum ${soma} != totalCents ${p.totalCents}`);
-      }
+      validarItensDoEvento('ADJUSTED', p);
       break;
     case 'PAYMENT_CONFIRMED':
       if (!prevState) invalid('PAYMENT_CONFIRMED before OPENED');
@@ -1170,10 +1163,45 @@ function paidAfterClose(state) {
   return out;
 }
 
+/**
+ * OS ITENS VIAJAM NO EVENTO (0038 no ADJUSTED, 0039 no OPENED): o que o
+ * cliente viu, replayável numa disputa. Quando vêm, somam o total. Eventos
+ * antigos, sem itens, seguem válidos — o razão não se reescreve.
+ */
+function validarItensDoEvento(tipo, p) {
+  if (p.items === undefined) return;
+  if (!Array.isArray(p.items)) invalid(`${tipo}.items must be an array`);
+  // Lista VAZIA é "sem itens", não evento inválido: o leitor cai no `pos_ref`
+  // (`itensDoRazao` devolve null). Um formato histórico com `items: []` nunca
+  // pode tornar inválido um razão que era válido.
+  if (p.items.length === 0) return;
+  let soma = 0;
+  for (const it of p.items) { assertCents(it && it.priceCents, `${tipo}.items[].priceCents`); soma += it.priceCents; }
+  if (soma !== p.totalCents) invalid(`${tipo}.items sum ${soma} != totalCents ${p.totalCents}`);
+}
+
+/**
+ * OS ITENS QUE A CONTA MOSTRA, tirados do RAZÃO — da mesma leitura que dá o
+ * total, então os dois nunca discordam. Antes o leitor pegava `pos_ref` numa ida
+ * e os eventos noutra: um ajuste no meio mostrava itens velhos com total novo
+ * (compliance e segurança, PR #29, M-1/L-3).
+ *
+ * É o ÚLTIMO `OPENED`/`ADJUSTED` que decide — não "o último que tem itens":
+ * esse devolveria os itens de um evento anterior a um ajuste antigo sem itens.
+ * Sem itens no último (conta de antes da 0038/0039), devolve `null` e o leitor
+ * cai no `pos_ref`, como sempre fez.
+ */
+function itensDoRazao(eventos) {
+  let ultimo = null;
+  for (const e of eventos || []) if (e && (e.type === 'OPENED' || e.type === 'ADJUSTED')) ultimo = e;
+  const itens = ultimo && ultimo.payload && ultimo.payload.items;
+  return Array.isArray(itens) && itens.length > 0 ? itens.map((i) => ({ ...i })) : null;
+}
+
 module.exports = {
   estornoDoTrilho, marcadoComoDisputa,
   ANOMALY_SEVERITIES,
   STATUS, EVENT_TYPES, EventValidationError,
   reduce, applyEvent, validateEvent, remainingCents, lateTxids, paidAfterClose,
-  naoNecessarioDosAtrasados, sobraPorPagamento, initialState,
+  naoNecessarioDosAtrasados, sobraPorPagamento, initialState, itensDoRazao,
 };

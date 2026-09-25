@@ -37,9 +37,11 @@ function freshWorld() {
 }
 
 async function openDemoCheck(store, table, priceCents = 12000) {
+  // Item NUNCA negativo (ver o mesmo ajuste em pay-layer.test.js; 0039).
+  const chopp = Math.min(2000, Math.floor(priceCents / 2));
   return store.openCheck(table.qrToken, [
-    { id: 'i1', name: 'Picanha', priceCents: priceCents - 2000 },
-    { id: 'i2', name: 'Chopp', priceCents: 2000 },
+    { id: 'i1', name: 'Picanha', priceCents: priceCents - chopp },
+    { id: 'i2', name: 'Chopp', priceCents: chopp },
   ]);
 }
 

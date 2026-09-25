@@ -115,7 +115,9 @@ describe('os itens viajam no evento (compliance, PR #29, M-2)', () => {
   });
   test('itens que não somam o total: o evento é recusado', () => {
     expect(() => validateEvent({ type: 'ADJUSTED', payload: { totalCents: 4000, items: [{ priceCents: 3999 }] } }, aberta())).toThrow(/sum 3999 != totalCents 4000/);
-    expect(() => validateEvent({ type: 'ADJUSTED', payload: { totalCents: 4000, items: [] } }, aberta())).toThrow(/non-empty/);
+    // Lista vazia = sem itens (formato histórico tolerado); não-lista é inválido.
+    expect(() => validateEvent({ type: 'ADJUSTED', payload: { totalCents: 4000, items: [] } }, aberta())).not.toThrow();
+    expect(() => validateEvent({ type: 'ADJUSTED', payload: { totalCents: 4000, items: 'x' } }, aberta())).toThrow(/must be an array/);
     expect(() => validateEvent({ type: 'ADJUSTED', payload: { totalCents: 4000, items: [{ priceCents: -1 }, { priceCents: 4001 }] } }, aberta())).toThrow();
   });
   test('evento antigo, sem itens, segue válido — o razão não se reescreve', () => {
