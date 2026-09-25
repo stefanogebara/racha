@@ -90,6 +90,11 @@ export const DICT = {
   'priv.who':         { en: '{venue} ({taxId}) decides what is collected to close your bill and why; Racha runs the payment for them. Separately, and in its own name, Racha counts how many people open a bill — a random per-tab number, no name attached — to know whether the product is being used.',
                         pt: '{venue} ({taxId}) é quem decide o que se coleta pra fechar sua conta e pra quê; a Racha opera o pagamento por ele. À parte, e em nome próprio, a Racha conta quantas pessoas abrem uma conta — um número aleatório por aba, sem nome nenhum junto — pra saber se o produto está sendo usado.',
                         es: '{venue} ({taxId}) decide qué se recoge para cerrar tu cuenta y para qué; Racha ejecuta el pago por él. Aparte, y en nombre propio, Racha cuenta cuántas personas abren una cuenta — un número aleatorio por pestaña, sin nombre — para saber si el producto se usa.' },
+  // "Produto de", não "operada por": aqui a empresa é CONTROLADORA do que a
+  // Racha trata em nome próprio, e "operador" é outro papel na LGPD (PR #38).
+  'priv.operator':   { en: 'Racha is a product of {name}, CNPJ {cnpj}, {city}.',
+                      pt: 'A Racha é um produto de {name}, CNPJ {cnpj}, {city}.',
+                      es: 'Racha es un producto de {name}, CNPJ {cnpj}, {city}.' },
   'priv.whatTitle':   { en: 'What we keep',                    pt: 'O que fica guardado', es: 'Qué se guarda' },
   // "apagado DA RACHA": o nome vai junto na descrição da cobrança, então o
   // provedor de pagamento guarda o registro dele sob as regras dele. Prometer
@@ -1350,6 +1355,11 @@ export const DICT = {
   'wallet.topUpEntry':{ en: 'Top-up',                          pt: 'Recarga', es: 'Recarga' },
   'wallet.bonusOf':   { en: 'of bonus',                        pt: 'de bônus', es: 'de bono' },
   'wallet.otherAmt':  { en: 'other amount',                    pt: 'outro valor', es: 'otro importe' },
+  // Quem EMITE o saldo e onde fica o dinheiro (auditoria da carteira, C3;
+  // inegociável #4): a recarga vai por Pix direto ao recebedor da casa.
+  'wallet.issuer':    { en: 'This balance is issued by {venue}: your top-up goes straight to the restaurant — Racha never holds the money.',
+                        pt: 'Este saldo é emitido por {venue}: sua recarga vai direto pra conta do restaurante — a Racha não guarda o dinheiro.',
+                        es: 'Este saldo lo emite {venue}: tu recarga va directo al restaurante — Racha no guarda el dinero.' },
   'wallet.onlyAt':    { en: 'Valid only at {venue}.',          pt: 'Válido somente no {venue}.', es: 'Válido solo en {venue}.' },
   'wallet.expires':   { en: 'expires on {date}',               pt: 'expira em {date}', es: 'caduca el {date}' },
   'wallet.neverExp':  { en: 'never expires and is refundable', pt: 'não expira e é reembolsável', es: 'no caduca y es reembolsable' },

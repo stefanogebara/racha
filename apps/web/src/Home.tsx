@@ -20,7 +20,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { LangToggle, useT } from './lang';
-import { formatTaxId } from './br';
+import { EMPRESA } from './empresa';
 import { dishMask } from './dish';
 import { money, LANDING_MARKET } from './i18n';
 import { splitEqualLocal } from './split';
@@ -39,9 +39,9 @@ const PROOF_PEOPLE = 3;
 // "1 · Scanned" → "Scanned": o ordinal vem da espinha, não do texto.
 const stripOrdinal = (s: string) => s.replace(/^\d+\s*·\s*/, '');
 
-/** O CNPJ da Racha (a empresa, não a casa). Dígitos crus; quem formata é o
- *  formatador — ver `taxid.ts`. */
-const RACHA_CNPJ = '65087663000130';
+// A empresa da Racha (nome, CNPJ, cidade) vem de `empresa.ts`. O Decreto
+// 7.962/2013 art. 2º II pede também endereço físico e canal eletrônico — ainda
+// NÃO publicados (TASKS); o rodapé por ora cumpre só o inciso I.
 
 export default function Home() {
   const { t, lang } = useT();
@@ -240,7 +240,7 @@ export default function Home() {
         {/* Pelo formatador, não à mão. A versão manual daqui era a ÚNICA
             formatada no produto inteiro — o comprovante e o aviso, que são o
             que o cliente lê, imprimiam catorze dígitos crus. */}
-        <span className="legal">Racha · CNPJ {formatTaxId(RACHA_CNPJ)} · São Paulo, SP</span>
+        <span className="legal">Racha · {EMPRESA.razaoSocial} · CNPJ {EMPRESA.cnpj} · {EMPRESA.cidade}</span>
       </footer>
     </main>
   );

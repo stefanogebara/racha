@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useT } from './lang';
 import { formatTaxId } from './br';
+import { EMPRESA } from './empresa';
 
 /**
  * O aviso do art. 9º, na tela da conta.
@@ -78,6 +79,9 @@ export default function PrivacyNotice(
         <section className="card privacy" style={{ textAlign: 'left', marginTop: 8 }}>
           <p className="label">{t('priv.title')}</p>
           <p className="muted small">{quem}</p>
+          {/* QUEM É A RACHA — o controlador do que ela trata em nome próprio (a
+              contagem de aberturas acima), com nome, CNPJ e cidade (art. 9º III). */}
+          <p className="muted small">{t('priv.operator', { name: EMPRESA.razaoSocial, cnpj: EMPRESA.cnpj, city: EMPRESA.cidade })}</p>
 
           <p className="label small" style={{ marginTop: 10 }}>{t('priv.whatTitle')}</p>
           <ul className="muted small" style={{ margin: '4px 0 0', paddingLeft: 18 }}>

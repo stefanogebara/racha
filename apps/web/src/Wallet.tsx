@@ -212,6 +212,8 @@ function WalletView({ accountToken }: { accountToken: string }) {
           )}
           {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
           <p className="muted small">{t('wallet.onlyAt', { venue: venue.name })}</p>
+          {/* No momento em que o dinheiro sai: pra quem ele vai (C3; inegociável #4). */}
+          <p className="muted small">{t('wallet.issuer', { venue: venue.name })}</p>
           <button className="linklike" onClick={() => { setCharge(null); void refresh(); }}>{t('common.backWallet')}</button>
         </section>
       </Shell>
@@ -229,6 +231,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
         <p className="label">{t('wallet.balance')}</p>
         <p className="bigmoney center">{brl(account.totalCents)}</p>
         <p className="muted small center">{t('wallet.onlyAt', { venue: venue.name })}</p>
+        <p className="muted small center">{t('wallet.issuer', { venue: venue.name })}</p>
         <div className="checkrow">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
             <span>{t('wallet.paidBal')}</span>

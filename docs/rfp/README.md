@@ -4,7 +4,7 @@ Drafts para o founder enviar. **Não enviados** — revise, preencha os
 `[placeholders]` e mande pelo canal comercial/parcerias de cada PSP.
 
 ## Antes de enviar (só você decide)
-- [ ] Entidade legal + CNPJ que assinará o contrato (holding/Seatable ou nova PJ)
+- [x] Entidade legal + CNPJ que assinará o contrato — **decidido pelo dono em 2026-09-25: a mesma do Seatable**, MEI 65.087.663 Stefano Chap Chap Gebara, CNPJ 65.087.663/0001-30, São Paulo/SP (`apps/web/src/empresa.ts`). Atenção (compliance, PR #38): MEI tem teto de faturamento anual (um só pra Seatable + Racha, mesmo CNPJ) e só pode ter CNAE da lista permitida — software/SaaS e pagamentos NÃO estão nela; conferir o CNAE do MEI e se o Pagar.me aceita MEI como plataforma de split ANTES de assinar o contrato. Provável ME/LTDA antes de volume real (`empresa.ts` é a fonte única pra essa troca).
 - [ ] Trimestre real de início do piloto
 - [ ] TPV projetado — os números abaixo são estimativa de planejamento da pesquisa, confira antes de citar
 - [ ] Telefone de contato
