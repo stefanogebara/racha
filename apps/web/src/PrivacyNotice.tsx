@@ -36,8 +36,9 @@ import { EMPRESA } from './empresa';
  *
  * Desde 2026-09-26 a caixa existe: `contato@useracha.app`, de `empresa.ts`, com
  * entrega conferida (um e-mail real chegou). A variável de ambiente que a
- * segurava saiu — o endereço tem UM lugar, e a frase sem e-mail (`rightsNoEmail`)
- * fica só pra quando esse lugar estiver vazio.
+ * segurava saiu — o endereço tem UM lugar. Com `contato` fixo em `empresa.ts`
+ * o ramo `rightsNoEmail` hoje não roda: fica como rede pro dia em que o campo
+ * for esvaziado (caixa perdida), em vez de publicar endereço morto.
  */
 const CONTATO = EMPRESA.contato.trim();
 

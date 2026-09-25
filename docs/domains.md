@@ -70,7 +70,7 @@ não pode voltar.
 
 | Endereço | Entrega? | Onde aparece |
 |---|---|---|
-| `contato@useracha.app` | **entrega confirmada** 2026-09-26 — e-mail real da Racha (Resend → Forward Email → Gmail do dono) chegou na CAIXA DE ENTRADA, não no spam | rodapé da landing (Decreto 7.962 art. 2º II) e aviso de privacidade (`priv.rights`) |
+| `contato@useracha.app` | **entrega confirmada** 2026-09-26 — e-mail real da Racha (Resend → Forward Email → Gmail do dono) chegou na CAIXA DE ENTRADA, não no spam | rodapé da landing (a parte ELETRÔNICA do Decreto 7.962 art. 2º II; endereço físico pendente) e aviso de privacidade (`priv.rights`) |
 | `privacidade@racha.com.br` | **NÃO** — `MX 0 .`, o domínio recusa e-mail | em lugar nenhum, e não pode voltar |
 
 **Antes de publicar um endereço novo:** mandar uma mensagem de teste e
@@ -100,7 +100,7 @@ primeiro cartão impresso numa casa de verdade:
 | Cartão válido na conta da Vercel | **ok** — conferido em 2026-09-25 no painel: padrão MasterCard débito final 1245, válido até 09/2032 (há um Visa pré-pago final 3365 VENCIDO em 03/2026, não padrão — remover) |
 | 2FA na conta da Vercel | **DESLIGADO** — conferido em 2026-09-25 ("Two-Factor Authentication: Inactive"); o dono decidiu adiar. Conta como NÃO feito até estar registrado aqui com data. **PORTÃO DURO antes do 1º cartão numa casa real**, como a auto-renovação e o cartão: quem toma a conta aponta o `useracha.app` (impresso nos QR) pra uma página de Pix falsa (compliance, PR #31, M-4; CDC art. 14) |
 | Responsável | o fundador (Stefano Gebara); sem contato de reserva ainda |
-| Vigia diário | **existe**: `api/_lib/checks/dominio-watch.js`, na conciliação das 04:10, DEPOIS do aviso de dinheiro. Pagina (e-mail + WhatsApp, `account_alert`) com < 60 dias pro vencimento, estado ruim no registro, trava de transferência ausente, nameservers que não são os da Vercel, ou leitura do RDAP que falhou |
+| Vigia diário | **existe**: `api/_lib/checks/dominio-watch.js`, na conciliação das 04:10, DEPOIS do aviso de dinheiro. Pagina (e-mail + WhatsApp, `account_alert`) com < 60 dias pro vencimento, estado ruim no registro, trava de transferência ausente, nameservers que não são os da Vercel, ou leitura do RDAP que falhou. **Desde 2026-09-26 também a caixa `contato@`**: MX da raiz diferente de `mx1`/`mx2.forwardemail.net`, o TXT `forward-email=` sumido, ou leitura do DNS que falhou (segurança, PR #39, M1) |
 
 Registrar por vários anos de uma vez baixa o risco e custa pouco.
 

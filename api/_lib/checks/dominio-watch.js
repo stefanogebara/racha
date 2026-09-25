@@ -29,6 +29,15 @@ const TETO_DA_RESPOSTA = 64 * 1024;   // um RDAP de domínio tem ~3 KB (seguran�
 const NAMESERVERS = ['ns1.vercel-dns.com', 'ns2.vercel-dns.com'];
 
 // Estados do EPP que querem dizer "o domínio está saindo do ar ou já saiu".
+// A CAIXA DE CONTATO (segurança, PR #39, M1). `contato@useracha.app` está
+// prometido no aviso de privacidade e no rodapé; a entrega depende de dois
+// registros de DNS que nada mais confere. Um MX nulo de volta ou o TXT apagado
+// numa edição na Vercel, e todo pedido do art. 18 leva bounce enquanto a tela
+// continua prometendo o canal — o `privacidade@racha.com.br` de novo, adiado.
+const MX_DA_CAIXA = ['mx1.forwardemail.net', 'mx2.forwardemail.net'];
+const PREFIXO_DA_REGRA = 'forward-email=';
+const PRAZO_DO_DNS_MS = 4000;
+
 const ESTADOS_RUINS = new Set([
   'client hold', 'server hold', 'redemption period', 'pending delete', 'pending restore',
 ]);
@@ -90,6 +99,47 @@ function avaliarDominio(rdap, { agoraMs = Date.now(), erro = null } = {}) {
   return { avisar: false, codigo: 'domain_ok', dias, linha: `domínio ${DOMINIO}: vence em ${dias} dias (${data})` };
 }
 
+/**
+ * Decide se a caixa de contato ainda recebe, a partir do MX e do TXT da raiz.
+ * Nunca lança. `mx` é a forma do `resolveMx` (`[{ exchange, priority }]`); `txt`,
+ * a do `resolveTxt` (`[[pedaço, ...], ...]`).
+ */
+function avaliarCaixa({ mx, txt, erro } = {}) {
+  if (erro || !Array.isArray(mx) || !Array.isArray(txt)) {
+    return {
+      avisar: true, codigo: 'mailbox_read_failed',
+      linha: `caixa contato@${DOMINIO}: não foi possível ler o MX/TXT (${erro || 'resposta vazia'}) — conferir à mão`,
+    };
+  }
+  const trocas = mx.map((r) => String((r && r.exchange) || '').toLowerCase().replace(/\.$/, '')).sort();
+  if (trocas.join(',') !== MX_DA_CAIXA.join(',')) {
+    return {
+      avisar: true, codigo: 'mailbox_mx_changed',
+      linha: `caixa contato@${DOMINIO}: o MX não é mais o do Forward Email (${trocas.join(', ') || 'nenhum'}) — pedido de titular pode estar levando bounce; conferir AGORA`,
+    };
+  }
+  const registros = txt.map((partes) => (Array.isArray(partes) ? partes.join('') : String(partes)));
+  if (!registros.some((r) => r.startsWith(PREFIXO_DA_REGRA))) {
+    return {
+      avisar: true, codigo: 'mailbox_rule_missing',
+      linha: `caixa contato@${DOMINIO}: o TXT "${PREFIXO_DA_REGRA}…" sumiu — o MX recebe e não encaminha pra ninguém; recriar (docs/domains.md)`,
+    };
+  }
+  return { avisar: false, codigo: 'mailbox_ok', linha: `caixa contato@${DOMINIO}: MX e regra no lugar` };
+}
+
+/** Lê MX e TXT da raiz com prazo, pelo resolvedor do sistema. Nunca lança. */
+async function lerCaixa() {
+  try {
+    const { Resolver } = require('node:dns').promises;
+    const r = new Resolver({ timeout: PRAZO_DO_DNS_MS, tries: 2 });
+    const [mx, txt] = await Promise.all([r.resolveMx(DOMINIO), r.resolveTxt(DOMINIO)]);
+    return { mx, txt };
+  } catch (e) {
+    return { erro: String((e && e.code) || (e && e.name) || 'erro') };
+  }
+}
+
 /** Lê o RDAP com prazo. Devolve `{ rdap }` ou `{ erro }` — nunca lança. */
 async function lerRdap(buscar = fetch) {
   try {
@@ -111,7 +161,7 @@ async function lerRdap(buscar = fetch) {
  * `account_alert` (a conta do registrador), que a ponte já entrega por e-mail
  * e WhatsApp com o texto no `detail`. `seco` (o `?dry=1` do cron) só cala o aviso.
  */
-async function vigiarDominio(notificar, { buscar = fetch, agoraMs = Date.now(), seco = false } = {}) {
+async function vigiarDominio(notificar, { buscar = fetch, agoraMs = Date.now(), seco = false, lerDns = lerCaixa } = {}) {
   const { rdap, erro } = await lerRdap(buscar);
   const resultado = avaliarDominio(rdap, { agoraMs, erro });
   process.stderr.write(`[dominio] ${resultado.codigo} ${resultado.linha}\n`);
@@ -120,7 +170,17 @@ async function vigiarDominio(notificar, { buscar = fetch, agoraMs = Date.now(), 
     // não diz se alguém recebeu (segurança, PR #28, LOW-2).
     resultado.envio = await notificar({ kind: 'account_alert', detail: `${resultado.codigo}: ${resultado.linha}` });
   }
+  // A caixa é conferida SEMPRE, também quando o domínio já avisou: são dois
+  // defeitos independentes, e um aviso não pode esconder o outro.
+  const caixa = avaliarCaixa(await lerDns());
+  process.stderr.write(`[dominio] ${caixa.codigo} ${caixa.linha}\n`);
+  if (caixa.avisar && !seco) {
+    caixa.envio = await notificar({ kind: 'account_alert', detail: `${caixa.codigo}: ${caixa.linha}` });
+  }
+  resultado.caixa = caixa;
   return resultado;
 }
 
-module.exports = { avaliarDominio, vigiarDominio, DOMINIO, RDAP_URL, DIAS_DE_AVISO, NAMESERVERS };
+module.exports = {
+  avaliarDominio, avaliarCaixa, vigiarDominio, DOMINIO, RDAP_URL, DIAS_DE_AVISO, NAMESERVERS, MX_DA_CAIXA,
+};

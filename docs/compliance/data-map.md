@@ -55,8 +55,9 @@ documentada, em nome próprio. Ver lacuna 4.
 | Destinatário | O que sai | Por quê | Onde processa |
 |---|---|---|---|
 | **Supabase — o projeto do Racha** (`worttfotxasxqjaqwpjf.supabase.co`: o `SUPABASE_URL` do servidor e o literal de `apps/web/src/auth.ts`) | tudo da tabela acima, **inclusive o login do dono** | é o banco e, desde 2026-09-24, o auth. Antes o auth era o projeto do Seatable (login compartilhado) e o cadastro do dono virava usuário do Seatable sem aviso; as contas antigas **não** foram copiadas (inegociável #10) — ver lacuna 10 | AWS, região do projeto (**hoje fora da UE — ver lacuna 3**) |
-| **Provedor de e-mail do auth** — **Resend** (empresa nos EUA; envio pela região **São Paulo, sa-east-1**, AWS SES), SMTP no projeto do Racha. Remetente `Racha <nao-responda@useracha.app>` desde 2026-09-25, no domínio PRÓPRIO (SPF e DKIM verificados, DKIM alinhado `d=useracha.app`; DMARC `p=quarantine; adkim=s` desde 2026-09-25, sem `rua` ainda; raiz com `v=spf1 -all` e MX nulo; `docs/domains.md`). Chave só de envio e só desse domínio; a chave TEMPORÁRIA do remetente do auth em `seatable.one` foi REVOGADA (é outra coisa que o aviso ao fundador da linha do Resend da Olímpia, que segue ativo e é outra conta/contrato). Sem rastreio de clique/abertura (o link do e-mail chega intacto — conferido). Teste real: redefinição em pt chegou na CAIXA DE ENTRADA do Gmail, sem aviso. DPA do Resend a anexar (lacuna 4) | e-mail do dono, o idioma dele, e o link de confirmação ou de redefinição de senha | confirmar o cadastro e redefinir a senha | operador: **Resend, Inc. (EUA)** — entrega pela AWS SES em sa-east-1, mas conta, API, logs (destinatário e, por padrão, o CORPO, que leva o link de uso único) e painel ficam nos EUA: **transferência internacional (LGPD art. 33)**. Pendente antes de donos de verdade: mecanismo documentado. **O DPA do Resend (resend.com/legal/dpa, lido em 2026-09-25) vale por aceite dos Termos — não há o que assinar — mas só traz as SCCs da UE e do Reino Unido; não cita LGPD nem ANPD.** Então: pedir ao Resend o adendo com as cláusulas-padrão da ANPD (Res. CD/ANPD 19/2024), ou registrar o fallback do art. 33 IX (execução de contrato com o titular: o dono pediu o login) POR ESCRITO, retenção de log/corpo no mínimo do plano, DPA anexado e Resend nomeado como suboperador no aviso do art. 9 (lacuna 4) |
-| **Registro do `.app`** (`pubapi.registry.google`, RDAP público, Google Registry) | **nada pessoal**: um GET do domínio `useracha.app`, sem corpo, sem identificador de cliente ou de casa | o vigia diário do vencimento do domínio impresso nos QR (`api/_lib/checks/dominio-watch.js`, na conciliação das 04:10) | não é operador — é leitura de dado público do registro; sem transferência de dado pessoal |
+| **Provedor de e-mail do auth** — **Resend** (empresa nos EUA; envio pela região **São Paulo, sa-east-1**, AWS SES), SMTP no projeto do Racha. Remetente `Racha <nao-responda@useracha.app>` desde 2026-09-25, no domínio PRÓPRIO (SPF e DKIM verificados, DKIM alinhado `d=useracha.app`; DMARC `p=quarantine; adkim=s` desde 2026-09-25, sem `rua` ainda; raiz desde 2026-09-26 com MX do Forward Email e `v=spf1 include:spf.forwardemail.net -all` — ver a linha da caixa de contato; `docs/domains.md`). Chave só de envio e só desse domínio; a chave TEMPORÁRIA do remetente do auth em `seatable.one` foi REVOGADA (é outra coisa que o aviso ao fundador da linha do Resend da Olímpia, que segue ativo e é outra conta/contrato). Sem rastreio de clique/abertura (o link do e-mail chega intacto — conferido). Teste real: redefinição em pt chegou na CAIXA DE ENTRADA do Gmail, sem aviso. DPA do Resend a anexar (lacuna 4) | e-mail do dono, o idioma dele, e o link de confirmação ou de redefinição de senha | confirmar o cadastro e redefinir a senha | operador: **Resend, Inc. (EUA)** — entrega pela AWS SES em sa-east-1, mas conta, API, logs (destinatário e, por padrão, o CORPO, que leva o link de uso único) e painel ficam nos EUA: **transferência internacional (LGPD art. 33)**. Pendente antes de donos de verdade: mecanismo documentado. **O DPA do Resend (resend.com/legal/dpa, lido em 2026-09-25) vale por aceite dos Termos — não há o que assinar — mas só traz as SCCs da UE e do Reino Unido; não cita LGPD nem ANPD.** Então: pedir ao Resend o adendo com as cláusulas-padrão da ANPD (Res. CD/ANPD 19/2024), ou registrar o fallback do art. 33 IX (execução de contrato com o titular: o dono pediu o login) POR ESCRITO, retenção de log/corpo no mínimo do plano, DPA anexado e Resend nomeado como suboperador no aviso do art. 9 (lacuna 4) |
+| **Caixa de contato** (`contato@useracha.app`, desde 2026-09-26) — **Forward Email, Inc.** (EUA; plano grátis, só DNS; encaminha em memória, sem gravar conteúdo nem metadados segundo a política deles; DPA existe, NÃO conferido se cobre o plano grátis) → **Gmail pessoal do dono** (Google LLC, EUA; **termos de consumidor, sem DPA nem papel de operador** — o elo fraco) | e-mail, nome e o texto de quem escreve: pedidos do art. 18 e demandas de consumidor (pode vir rótulo de pagamento, CPF, telefone) | receber e responder pedido de titular e ser o canal do Decreto 7.962 art. 2º II | EUA — **transferência internacional (art. 33)**. Base registrada: **art. 33 IX c/c art. 7º II** — responder ao art. 18 é obrigação legal, e a caixa existe pra isso. Fallback aceitável só pro piloto assistido: **antes do self-serve**, trocar por caixa com termos de operador (Google Workspace + Cloud Data Processing Addendum, ou caixa paga do Forward Email com DPA). Resposta sai do Gmail pessoal (o plano grátis não envia) — ver `docs/runbooks/contato.md`. Retenção: `retencao.md` |
+| **Registro do `.app`** (`pubapi.registry.google`, RDAP público, Google Registry) | **nada pessoal**: um GET do domínio `useracha.app`, sem corpo, sem identificador de cliente ou de casa; e, desde 2026-09-26, uma consulta de MX e TXT da raiz pelo resolvedor de DNS do sistema (a caixa de contato ainda recebe?) | o vigia diário do vencimento do domínio impresso nos QR (`api/_lib/checks/dominio-watch.js`, na conciliação das 04:10) | não é operador — é leitura de dado público do registro; sem transferência de dado pessoal |
 | **Vercel** | requisições, logs de função — **incluindo o `t` da mesa, que viaja na query string do `/api/check` e é consultado a cada 4s**, e as linhas `[teto]` quando o teto de cobranças dispara: id da conta, id da **conta de saldo** (pseudônimo, não é o token portador), id da casa, o id da reivindicação (`claim=<uuid>`), a chave de um aviso contido (`alerta:check:<id da conta>:<hash da geração do QR>`), até 80 caracteres da mensagem quando uma reivindicação ou leitura do aviso falha, **o texto inteiro do aviso ao fundador** (id da conta e da casa, nome da casa, rótulo da mesa) quando a ponte de aviso falha ou não tem segredo, e, quando a devolução de uma vaga falha, até 80 caracteres da mensagem de erro do banco — nenhum IP, telefone ou nome | hospedagem; as linhas `[teto]` são controle de abuso por interesse legítimo (LGPD arts. 7º IX e 10) | EUA/edge |
 | **Pagar.me** (`api.pagar.me`) | CPF do pagador quando informado, `payerLabel` dentro da descrição da cobrança (`Racha <label>`), valor, split | criar a cobrança Pix/cartão e liquidar direto pra casa | Brasil |
 | **Stripe** (`connect.stripe.com`, `js.stripe.com`, `m.stripe.com`) | dados do cartão/carteira **direto do navegador do cliente pra eles** (nunca pelos nossos servidores), valor, moeda, id da conta conectada | trilho de cartão/Apple/Google Pay e o mercado espanhol | EUA + UE |
@@ -174,27 +175,27 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    restaurante e a execução é manual com o `erase-payment-label.js` — aceitável
    num piloto assistido com poucas casas, inaceitável quando o produto for
    self-serve.
-2. **Aviso de privacidade: o texto existe, o CANAL PRÓPRIO não.** Parcialmente
-   fechada em 2026-09-12, e é importante não marcar como fechada. `PrivacyNotice.tsx`, no rodapé da tela da conta, nos três
+2. **Aviso de privacidade e canal próprio — FECHADA em 2026-09-26.** O texto
+   existe desde 2026-09-12; o canal, desde 2026-09-26. `PrivacyNotice.tsx`, no rodapé da tela da conta, nos três
    idiomas: quem é controlador (a casa, com a Racha como operadora), o que fica
    guardado e por quanto tempo, o que NUNCA chega aqui (cartão, CPF, cadastro),
    quem mais vê, e os direitos do art. 18. Fica na própria tela e não numa
    página à parte — o art. 9º pede informação acessível ANTES da decisão, e um
    link que tira a pessoa da tela de pagar é um link que ninguém toca no meio de
    um jantar. Cada frase aponta pra uma defesa que existe no código.
-   **O que falta:** um endereço que receba mensagem. A primeira versão publicou
+   **O canal:** um endereço que receba mensagem. A primeira versão publicou
    `privacidade@racha.com.br`, que eu inventei — o `dig` devolve `MX 0 .`, o MX
    nulo da RFC 7505, quer dizer que o domínio declara que NÃO recebe e-mail.
    Cliente que escrevesse levava bounce, e é o mesmo erro do `racha.app` uma
    camada pior: lá a frase falsa concedia confiança, aqui prometia um direito a
-   um consumidor na hora de pagar. Agora o endereço vem de
-   `VITE_PRIVACY_CONTACT` e, sem ele, a frase do canal direto não é renderizada
-   (**2026-09-26: FECHADO** — `contato@useracha.app`, em `empresa.ts`, com
-   entrega confirmada no `docs/domains.md`) —
-   o restaurante, que é o controlador do dado do pagamento, continua sendo rota
-   de verdade. Mas pro que a Racha trata EM NOME PRÓPRIO (a contagem de
-   aberturas) o contato tem que ser nosso, e isso exige uma caixa que exista.
-   **Antes do primeiro QR numa mesa de cliente de verdade.**
+   um consumidor na hora de pagar. Desde 2026-09-26 o endereço é
+   `contato@useracha.app`, em `empresa.ts`, com entrega confirmada no
+   `docs/domains.md` (e o censo do `data-map.test.js` recusa endereço sem essa
+   marca). O restaurante, controlador do dado do pagamento, continua sendo rota
+   de verdade; pro que a Racha trata EM NOME PRÓPRIO (a contagem de aberturas)
+   o contato agora é nosso. Continuam abertas, e não são esta: o
+   autoatendimento do art. 18 (**1**) e o DPA (**4**) — e a caixa é de consumidor
+   (ver a linha dela na seção 2 e o `docs/runbooks/contato.md`).
 3. **Transferência internacional sem papelada.** Dado de titular europeu no
    Supabase fora da UE e acessível do Brasil (LGPD art. 33; GDPR cap. V).
    Fecha com: projeto Supabase em região da UE (correção técnica que dispensa
@@ -287,8 +288,7 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
 Nenhuma dessas bloqueia o piloto brasileiro assistido. O SMTP próprio da
 lacuna 10 foi cumprido em 2026-09-25; **o mecanismo do art. 33 e o DPA do
 Resend** passam a ser a condição de abrir o auth próprio a donos de verdade. Antes do primeiro QR numa
-mesa de cliente de verdade ficam a **4** (DPA) e a metade que sobra da **2** (uma
-caixa de correio que exista); as 3, 5 e 6 bloqueiam ligar a Espanha
+mesa de cliente de verdade fica a **4** (DPA); a **2** fechou em 2026-09-26; as 3, 5 e 6 bloqueiam ligar a Espanha
 (`RACHA_ES_ENABLED`).
 
 ## 5. Dependências de runtime, classificadas

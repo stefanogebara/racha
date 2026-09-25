@@ -128,9 +128,9 @@ export const DICT = {
   // do pagador no painel do adquirente. Omitir isso e escrever "mais ninguém"
   // era o aviso afirmando menos do que o código faz, que é o defeito que este
   // aviso existe pra corrigir.
-  'priv.whoElse':     { en: 'The payment provider that issues the charge and settles the money to the restaurant; the companies that host the app and the database; and an operations channel that receives the charge reference and the amount so faults can be found. Never for advertising, and never sold.',
-                        pt: 'O provedor de pagamento que emite a cobrança e liquida o dinheiro pro restaurante; as empresas que hospedam o app e o banco de dados; e um canal de operação que recebe a referência da cobrança e o valor, pra que falhas sejam encontradas. Nunca pra publicidade, e nunca vendido.',
-                        es: 'El proveedor de pago que emite el cobro y liquida el dinero al restaurante; las empresas que alojan la app y la base de datos; y un canal de operación que recibe la referencia del cobro y el importe, para poder encontrar fallos. Nunca para publicidad, y nunca vendido.' },
+  'priv.whoElse':     { en: 'The payment provider that issues the charge and settles the money to the restaurant; the companies that host the app and the database; and an operations channel that receives the charge reference and the amount so faults can be found. Messages you send to our e-mail pass through e-mail providers in the US. Never for advertising, and never sold.',
+                        pt: 'O provedor de pagamento que emite a cobrança e liquida o dinheiro pro restaurante; as empresas que hospedam o app e o banco de dados; e um canal de operação que recebe a referência da cobrança e o valor, pra que falhas sejam encontradas. Mensagens pro nosso e-mail passam por provedores de e-mail nos EUA. Nunca pra publicidade, e nunca vendido.',
+                        es: 'El proveedor de pago que emite el cobro y liquida el dinero al restaurante; las empresas que alojan la app y la base de datos; y un canal de operación que recibe la referencia del cobro y el importe, para poder encontrar fallos. Los mensajes a nuestro e-mail pasan por proveedores de e-mail en EE. UU. Nunca para publicidad, y nunca vendido.' },
   // Inclui o direito de OPOR-SE, que é o que acompanha legítimo interesse
   // (art. 18 §2), e um canal DIRETO — "fale com o restaurante" como única via
   // lê como desvio, e o consumidor pode vir direto de qualquer jeito (CDC art.
@@ -149,9 +149,9 @@ export const DICT = {
   // desde 2026-09-26) e, sem ele, a frase do canal direto não existe. Publicar caixa que não existe é
   // pior do que mandar a pessoa ao restaurante, que é o controlador de verdade
   // do dado do pagamento.
-  'priv.rights':      { en: 'You can ask what is kept about you, have it corrected or erased, and object to the counting described above. Ask {venue}, or write to {email} and we will act with them.',
-                        pt: 'Você pode pedir o que está guardado sobre você, pedir correção ou exclusão, e se opor à contagem descrita acima. Peça a {venue}, ou escreva para {email} e a gente resolve junto com ele.',
-                        es: 'Puedes pedir qué se guarda sobre ti, pedir corrección o supresión, y oponerte al recuento descrito arriba. Pídeselo a {venue}, o escribe a {email} y lo resolvemos con él.' },
+  'priv.rights':      { en: 'You can ask what is kept about you, have it corrected or erased, and object to the counting described above. Ask {venue}, or write to {email} and we will sort it out (with the restaurant, when the data is theirs).',
+                        pt: 'Você pode pedir o que está guardado sobre você, pedir correção ou exclusão, e se opor à contagem descrita acima. Peça a {venue}, ou escreva para {email} e a gente resolve (com a casa, quando o dado for dela).',
+                        es: 'Puedes pedir qué se guarda sobre ti, pedir corrección o supresión, y oponerte al recuento descrito arriba. Pídeselo a {venue}, o escribe a {email} y lo resolvemos (con el local, cuando el dato sea suyo).' },
   'priv.rightsNoEmail': { en: 'You can ask what is kept about you, have it corrected or erased, and object to the counting described above. Ask {venue} and they will reach us.',
                         pt: 'Você pode pedir o que está guardado sobre você, pedir correção ou exclusão, e se opor à contagem descrita acima. Peça a {venue} e ele chega até a gente.',
                         es: 'Puedes pedir qué se guarda sobre ti, pedir corrección o supresión, y oponerte al recuento descrito arriba. Pídeselo a {venue} y llegará hasta nosotros.' },
