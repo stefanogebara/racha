@@ -514,8 +514,14 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     // Retry-safe txid: the same client attempt (idempotencyKey) always maps
     // to the same txid, so a lost-response retry dedups instead of debiting
     // twice (review finding). No key → per-call random.
+    //
+    // A CONTA e o VALOR entram no hash: com só carteira + chave, a mesma chave
+    // (que vem do cliente) numa segunda mesa, ou com valor maior, dava o MESMO
+    // txid, o débito voltava `duplicate`, e o pagamento entrava na outra conta
+    // sem débito novo (segurança, PR #36, CRÍTICO). A `house_redeem` (0042)
+    // ainda recusa com RH008 um duplicado de outra conta ou valor.
     const txid = idempotencyKey && typeof idempotencyKey === 'string' && idempotencyKey.length >= 8
-      ? `ha_${crypto.createHash('sha256').update(`${account.id}:${idempotencyKey}`).digest('hex').slice(0, 24)}`
+      ? `ha_${crypto.createHash('sha256').update(`${account.id}:${view.check.id}:${amountCents}:${idempotencyKey}`).digest('hex').slice(0, 24)}`
       : `ha_${crypto.randomBytes(12).toString('hex')}`;
     const nowIso = now();
 
@@ -541,10 +547,20 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       if (e.statusCode === 409) {
         // The check refused the payment (raced full / closed). Compensate:
         // put the exact breakdown back and tell the diner nothing was spent.
-        await store.reverseHouseRedeem({ accountId: account.id, txid, nowIso: now() });
-        throw httpError(409, 'A conta mudou agora há pouco — seu saldo não foi debitado', 'house_raced');
+        let jaEntrou = false;
+        try {
+          await store.reverseHouseRedeem({ accountId: account.id, txid, nowIso: now() });
+        } catch (r) {
+          // O estorno recusou porque OUTRO pedido com a mesma chave lançou este
+          // txid na conta entre a nossa recusa e o nosso estorno (0042, RH007).
+          // O pagamento EXISTE e o débito é dele: segue como sucesso.
+          if (!(r && r.code === 'house_redeem_landed')) throw r;
+          jaEntrou = true;
+        }
+        if (!jaEntrou) throw httpError(409, 'A conta mudou agora há pouco — seu saldo não foi debitado', 'house_raced');
+      } else {
+        throw e; // unknown failure: debit stands, reconciliation flags the pair
       }
-      throw e; // unknown failure: debit stands, reconciliation flags the pair
     }
 
     // 3. Payments row → panel totals + reconciliation see it like any
