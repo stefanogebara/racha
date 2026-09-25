@@ -693,6 +693,11 @@ export const DICT = {
   // "Confira a conta" antes de "pague de novo": este aviso chega quando a
   // resposta do "a conta mudou" se perdeu — o cliente não viu POR QUE a conta
   // recusou, e ela pode ter fechado (compliance, PR #35, LOW-2).
+  // O serviço trata este código como SUCESSO (0042) — ele não deveria chegar à
+  // tela. Se chegar, a frase diz a verdade: o pagamento entrou.
+  'err.house_redeem_landed': { en: 'This payment went through. Check the bill.',
+                        pt: 'Este pagamento entrou. Confira a conta.',
+                        es: 'Este pago se realizó. Revisa la cuenta.' },
   'err.house_redeem_reversed': { en: 'That attempt was undone and your balance was not charged. Check the bill and tap pay again.',
                         pt: 'Essa tentativa foi desfeita e seu saldo não foi debitado. Confira a conta e toque em pagar de novo.',
                         es: 'Ese intento se deshizo y tu saldo no se cobró. Revisa la cuenta y vuelve a tocar pagar.' },

@@ -1695,7 +1695,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       const { data, error } = await client.rpc('house_redeem_reverse', {
         p_account_id: accountId, p_txid: txid, p_now: nowIso,
       });
-      throwOn(error, 'reverseHouseRedeem');
+      throwDaCarteira(error, 'reverseHouseRedeem');   // RH007 → house_redeem_landed (0042)
       return { duplicate: data.duplicate === true, seq: data.seq };
     },
     async appendHousePaymentGuarded(checkId, txid, amountCents) {

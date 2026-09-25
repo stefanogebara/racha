@@ -18,6 +18,7 @@ const comErro = (error) => createSupabaseStore({ url: 'http://falso', serviceRol
 const redeem = (s) => s.redeemHouse({ accountId: 'a', checkId: 'c', txid: 't', amountCents: 100, nowIso: 'n' });
 
 test.each([
+  ['RH007', 409, 'house_redeem_landed'],
   ['RH006', 409, 'house_redeem_reversed'],
   ['RH001', 409, 'house_insufficient_balance'],
   ['RH005', 404, 'house_account_not_found'],
@@ -141,6 +142,22 @@ describe('o SERVIÇO com o store do Supabase: a recusa da conta estorna o débit
     // E uma chave NOVA paga normalmente.
     await house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-do-estorno-2' });
     expect((await store.getCheckByQrToken(table.qrToken)).state.paidCents).toBe(1000);
+  });
+
+  test('CORRIDA de dois pedidos com a mesma chave: o outro lançou o pagamento antes do nosso estorno → sucesso, débito mantido, conta paga uma vez (0042)', async () => {
+    const { store, house, table, accountToken } = await mundo('RH003');
+    const gravacaoDeVerdade = store.appendHousePaymentGuarded.bind(store);
+    // A nossa gravação "perde": no instante da recusa, o pedido B (mesma chave,
+    // mesmo txid) JÁ lançou o pagamento — é isso que o 409 esconde.
+    store.appendHousePaymentGuarded = async (checkId, txid, amountCents) => {
+      await gravacaoDeVerdade(checkId, txid, amountCents);   // B entrou
+      throw Object.assign(new Error('house_exceeds_remaining'), { statusCode: 409, code: 'house_exceeds_remaining' });   // A leu a conta cheia
+    };
+    const r = await house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-corrida-1' });
+    expect(r.principalUsedCents + r.bonusUsedCents).toBe(1000);
+    const conta = await store.getCheckByQrToken(table.qrToken);
+    expect(conta.state.paidCents).toBe(1000);                                          // paga UMA vez
+    expect((await house.wallet(accountToken)).account.principalCents).toBe(4000);   // o débito FICA — ele pagou
   });
 
   test('o EXTRATO mostra o estorno como linha própria, com o valor do débito desfeito — e sem frase do servidor (M-3)', async () => {

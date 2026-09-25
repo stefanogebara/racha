@@ -973,6 +973,9 @@ const RECUSAS_DA_CARTEIRA = Object.freeze({
   RH005: Object.freeze({ statusCode: 404, code: 'house_account_not_found' }),
   // RH006 (0041): retry com a chave de um débito já estornado — outra tentativa.
   RH006: Object.freeze({ statusCode: 409, code: 'house_redeem_reversed' }),
+  // RH007 (0042): o estorno recusou porque o pagamento JÁ ENTROU na conta — não
+  // é erro pro cliente; o serviço trata como pagamento concluído.
+  RH007: Object.freeze({ statusCode: 409, code: 'house_redeem_landed' }),
   22023: Object.freeze({ statusCode: 400, code: 'house_invalid_amount' }),
 });
 function recusaDaCarteira(err) {

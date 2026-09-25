@@ -1401,6 +1401,12 @@ function createMemoryStore() {
       const state = houseState.reduce(log);
       const orig = state ? state.redeems[txid] : null;
       if (!orig) throw new Error(`unknown redeem txid ${txid}`);
+      // = RH007 da 0042: o pagamento deste txid JÁ ENTROU na conta — estornar o
+      // débito deixaria a conta paga sem débito.
+      const logDaConta = events.get(orig.checkId) || [];
+      if (logDaConta.some((e) => e.type === 'PAYMENT_CONFIRMED' && e.payload && e.payload.txid === txid)) {
+        throw Object.assign(new Error('house_redeem_landed'), { statusCode: 409, code: 'house_redeem_landed' });
+      }
       if (orig.reversed) return { duplicate: true };
       const seq = _houseAppend(accountId, 'REDEEM_REVERSED', {
         txid, at: nowIso, reason: 'check_append_refused',

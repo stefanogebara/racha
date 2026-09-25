@@ -541,10 +541,20 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       if (e.statusCode === 409) {
         // The check refused the payment (raced full / closed). Compensate:
         // put the exact breakdown back and tell the diner nothing was spent.
-        await store.reverseHouseRedeem({ accountId: account.id, txid, nowIso: now() });
-        throw httpError(409, 'A conta mudou agora há pouco — seu saldo não foi debitado', 'house_raced');
+        let jaEntrou = false;
+        try {
+          await store.reverseHouseRedeem({ accountId: account.id, txid, nowIso: now() });
+        } catch (r) {
+          // O estorno recusou porque OUTRO pedido com a mesma chave lançou este
+          // txid na conta entre a nossa recusa e o nosso estorno (0042, RH007).
+          // O pagamento EXISTE e o débito é dele: segue como sucesso.
+          if (!(r && r.code === 'house_redeem_landed')) throw r;
+          jaEntrou = true;
+        }
+        if (!jaEntrou) throw httpError(409, 'A conta mudou agora há pouco — seu saldo não foi debitado', 'house_raced');
+      } else {
+        throw e; // unknown failure: debit stands, reconciliation flags the pair
       }
-      throw e; // unknown failure: debit stands, reconciliation flags the pair
     }
 
     // 3. Payments row → panel totals + reconciliation see it like any
