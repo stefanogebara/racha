@@ -976,6 +976,8 @@ const RECUSAS_DA_CARTEIRA = Object.freeze({
   // RH007 (0042): o estorno recusou porque o pagamento JÁ ENTROU na conta — não
   // é erro pro cliente; o serviço trata como pagamento concluído.
   RH007: Object.freeze({ statusCode: 409, code: 'house_redeem_landed' }),
+  // RH008 (0042): a chave de idempotência é de OUTRO pagamento (outra conta ou valor).
+  RH008: Object.freeze({ statusCode: 409, code: 'house_idempotency_mismatch' }),
   22023: Object.freeze({ statusCode: 400, code: 'house_invalid_amount' }),
 });
 function recusaDaCarteira(err) {

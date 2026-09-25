@@ -216,4 +216,19 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     expect(Q(`select count(*) from check_events where check_id = '${check}' and type = 'PAYMENT_CONFIRMED'`)).toBe('0');
     expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('5000');
   });
+
+  test('0042 (CRÍTICO): house_redeem recusa (RH008) um "duplicado" de outra conta ou outro valor', () => {
+    const conta = require('node:crypto').randomUUID();
+    const fone = `116${String(Date.now()).slice(-8)}`;
+    Q(`insert into house_accounts (id, venue_id, phone, name, account_token, principal_cents)
+       values ('${conta}', '00000000-0000-0000-0000-00000000000a', '${fone}', 'B', 'tok-${conta}', 5000)`);
+    const agora = new Date().toISOString();
+    const x = require('node:crypto').randomUUID();
+    Q(`select public.house_redeem('${conta}', '${x}', 'ha_k', 100, '${agora}')`);
+    const codigo = (sql) => { const e = QErr(`do $$ begin perform ${sql}; exception when others then raise exception 'CODIGO=%', sqlstate; end $$`); return e && e.match(/CODIGO=(\w+)/)[1]; };
+    expect(codigo(`public.house_redeem('${conta}', gen_random_uuid(), 'ha_k', 100, '${agora}')`)).toBe('RH008');   // outra conta
+    expect(codigo(`public.house_redeem('${conta}', '${x}', 'ha_k', 3000, '${agora}')`)).toBe('RH008');            // outro valor
+    expect(Q(`select (public.house_redeem('${conta}', '${x}', 'ha_k', 100, '${agora}'))->>'duplicate'`)).toBe('true');   // o MESMO segue duplicate
+    expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('4900');
+  });
 });

@@ -18,6 +18,7 @@ const comErro = (error) => createSupabaseStore({ url: 'http://falso', serviceRol
 const redeem = (s) => s.redeemHouse({ accountId: 'a', checkId: 'c', txid: 't', amountCents: 100, nowIso: 'n' });
 
 test.each([
+  ['RH008', 409, 'house_idempotency_mismatch'],
   ['RH007', 409, 'house_redeem_landed'],
   ['RH006', 409, 'house_redeem_reversed'],
   ['RH001', 409, 'house_insufficient_balance'],
@@ -172,6 +173,32 @@ describe('o SERVIÇO com o store do Supabase: a recusa da conta estorna o débit
     await expect(store.appendHousePaymentGuarded(conta.check.id, txid, 1000)).rejects.toMatchObject({ statusCode: 409, code: 'house_redeem_reversed' });
     expect((await store.getCheckByQrToken(table.qrToken)).state.paidCents).toBe(0);
     expect((await house.wallet(accountToken)).account.principalCents).toBe(5000);
+  });
+
+  test('CRÍTICO (PR #36): a mesma chave numa SEGUNDA mesa, ou com valor maior, não paga sem débito novo', async () => {
+    const { store, house, table, accountToken } = await mundo('RH003');
+    const acc = await store.getHouseAccountByToken(accountToken);
+    const outraMesa = store.seedTable(acc.venueId, 'Mesa Y');
+    await store.openCheck(outraMesa.qrToken, [{ id: 'y', name: 'Y', priceCents: 3000 }]);
+    // 1) R$10 na mesa X com a chave K.
+    await house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-reusada-K' });
+    // 2) A MESMA chave K na mesa Y, R$30: é OUTRO pagamento — débito novo, não 'duplicate'.
+    await house.redeem({ accountToken, tableQrToken: outraMesa.qrToken, amountCents: 3000, idempotencyKey: 'chave-reusada-K' });
+    expect((await house.wallet(accountToken)).account.principalCents).toBe(5000 - 1000 - 3000);   // os DOIS debitados
+    expect((await store.getCheckByQrToken(outraMesa.qrToken)).state.paidCents).toBe(3000);
+  });
+
+  test('guarda do banco (RH008): um "duplicado" de outra conta ou outro valor é recusado no store', async () => {
+    const { store, table, accountToken } = await mundo('RH003');
+    const acc = await store.getHouseAccountByToken(accountToken);
+    const c = (await store.getCheckByQrToken(table.qrToken)).check.id;
+    await store.redeemHouse({ accountId: acc.id, checkId: c, txid: 'ha_mesmo', amountCents: 1000, nowIso: '2026-09-25T12:00:00.000Z' });
+    await expect(store.redeemHouse({ accountId: acc.id, checkId: '00000000-0000-4000-8000-00000000ffff', txid: 'ha_mesmo', amountCents: 1000, nowIso: 'n' }))
+      .rejects.toMatchObject({ code: 'house_idempotency_mismatch' });
+    await expect(store.redeemHouse({ accountId: acc.id, checkId: c, txid: 'ha_mesmo', amountCents: 3000, nowIso: 'n' }))
+      .rejects.toMatchObject({ code: 'house_idempotency_mismatch' });
+    // O MESMO pagamento repetido segue sendo duplicate.
+    expect((await store.redeemHouse({ accountId: acc.id, checkId: c, txid: 'ha_mesmo', amountCents: 1000, nowIso: 'n' })).duplicate).toBe(true);
   });
 
   test('o EXTRATO mostra o estorno como linha própria, com o valor do débito desfeito — e sem frase do servidor (M-3)', async () => {

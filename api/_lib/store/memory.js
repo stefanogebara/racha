@@ -1372,6 +1372,10 @@ function createMemoryStore() {
         if (prior.reversed) {
           throw Object.assign(new Error('house_redeem_reversed'), { statusCode: 409, code: 'house_redeem_reversed' });
         }
+        // = RH008 da 0042: o "já feito" tem de ser o MESMO pagamento.
+        if (prior.checkId !== checkId || (prior.principalCents + prior.bonusCents) !== amountCents) {
+          throw Object.assign(new Error('house_idempotency_mismatch'), { statusCode: 409, code: 'house_idempotency_mismatch' });
+        }
         return {
           seq: null, duplicate: true,
           principalUsedCents: prior.principalCents, bonusUsedCents: prior.bonusCents,

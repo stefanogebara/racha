@@ -695,6 +695,10 @@ export const DICT = {
   // recusou, e ela pode ter fechado (compliance, PR #35, LOW-2).
   // O serviço trata este código como SUCESSO (0042) — ele não deveria chegar à
   // tela. Se chegar, a frase diz a verdade: o pagamento entrou.
+  // Uma chave de pagamento reusada pra OUTRA mesa ou OUTRO valor (0042).
+  'err.house_idempotency_mismatch': { en: 'This payment could not be completed. Check the bill and try again.',
+                        pt: 'Não deu pra concluir este pagamento. Confira a conta e tente de novo.',
+                        es: 'No se pudo completar este pago. Revisa la cuenta e inténtalo de nuevo.' },
   'err.house_redeem_landed': { en: 'This payment went through. Check the bill.',
                         pt: 'Este pagamento entrou. Confira a conta.',
                         es: 'Este pago se realizó. Revisa la cuenta.' },
