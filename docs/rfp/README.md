@@ -4,7 +4,7 @@ Drafts para o founder enviar. **Não enviados** — revise, preencha os
 `[placeholders]` e mande pelo canal comercial/parcerias de cada PSP.
 
 ## Antes de enviar (só você decide)
-- [ ] Entidade legal + CNPJ que assinará o contrato (holding/Seatable ou nova PJ)
+- [x] Entidade legal + CNPJ que assinará o contrato — **decidido pelo dono em 2026-09-25: a mesma do Seatable**, MEI 65.087.663 Stefano Chap Chap Gebara, CNPJ 65.087.663/0001-30, São Paulo/SP (`apps/web/src/empresa.ts`). Atenção: MEI tem teto de faturamento anual — rever o enquadramento antes de volume real.
 - [ ] Trimestre real de início do piloto
 - [ ] TPV projetado — os números abaixo são estimativa de planejamento da pesquisa, confira antes de citar
 - [ ] Telefone de contato

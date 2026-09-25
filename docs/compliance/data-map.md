@@ -266,8 +266,11 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    tomada de conta. As casas sem ninguém pra religar ficam órfãs com dado do dono
    (`venues.cnpj`, contatos) sem titular com acesso (art. 18): apagar as que forem
    só demonstração, depois da medição. E o controlador desses registros é a PJ,
-   que ainda não está decidida (ver `docs/rfp/README.md`) — o aviso do art. 9º e
-   o registro do art. 37 precisam nomeá-la.
+   decidida em 2026-09-25: **a mesma do Seatable, MEI 65.087.663 Stefano Chap Chap
+   Gebara, CNPJ 65.087.663/0001-30, São Paulo/SP** — nomeada no aviso de
+   privacidade (`priv.operator`) e no rodapé da landing, de `apps/web/src/empresa.ts`.
+   O registro do art. 37 passa a nomeá-la. É separação de PRODUTO, não de empresa:
+   a regra #10 (não cruzar dado de titular com o Seatable) segue valendo igual.
    **Prazos:** a medição (a) vem antes de qualquer exclusão no projeto do
    Seatable; a exclusão (b) e o aviso aos donos (c), até 2026-10-31. (O aviso
    prévio à Kris, que era condição do deploy, caiu em 2026-09-24: a Kris é do
