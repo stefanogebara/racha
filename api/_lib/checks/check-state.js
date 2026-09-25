@@ -1189,11 +1189,29 @@ function validarItensDoEvento(tipo, p) {
  * É o ÚLTIMO `OPENED`/`ADJUSTED` que decide — não "o último que tem itens":
  * esse devolveria os itens de um evento anterior a um ajuste antigo sem itens.
  * Sem itens no último (conta de antes da 0038/0039), devolve `null` e o leitor
- * cai no `pos_ref`, como sempre fez.
+ * cai no `pos_ref`, como sempre fez. Esse recuo só é seguro porque a 0038
+ * atualiza o `pos_ref` na MESMA transação do ADJUSTED — inclusive o de uma
+ * instância com código velho durante o rollout (compliance, PR #30, L-2).
+ * `pos_ref` é recuo de TELA: nada que move dinheiro o lê.
  */
 function itensDoRazao(eventos) {
+  // Só conta o evento que o REDUTOR aceitaria: o `reduce` pula um ADJUSTED
+  // inválido (vira anomalia) e o total fica o de antes — se os itens dele
+  // aparecessem, a tela mostraria itens novos com total velho (compliance,
+  // PR #30, M-1). Os escritores de hoje (`adjust_check`, `open_check`) não
+  // gravam evento inválido; isto é o leitor não depender só deles.
   let ultimo = null;
-  for (const e of eventos || []) if (e && (e.type === 'OPENED' || e.type === 'ADJUSTED')) ultimo = e;
+  let state = initialState();
+  for (const [i, e] of (eventos || []).entries()) {
+    let aceito = false;
+    if (e && (e.type === 'OPENED' || e.type === 'ADJUSTED')) {
+      // Só o erro de VALIDAÇÃO vira 'não aceito'; qualquer outro é bug e sobe,
+      // como no `applyEvent` (segurança, PR #30, LOW-1).
+      try { validateEvent(e, state); aceito = true; } catch (err) { if (!(err instanceof EventValidationError)) throw err; }
+    }
+    state = applyEvent(state, e, (e && e.seq) ?? i + 1);
+    if (aceito) ultimo = e;
+  }
   const itens = ultimo && ultimo.payload && ultimo.payload.items;
   return Array.isArray(itens) && itens.length > 0 ? itens.map((i) => ({ ...i })) : null;
 }

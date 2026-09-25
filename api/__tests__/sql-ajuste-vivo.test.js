@@ -148,5 +148,7 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     // Lista que NÃO soma o total, ou com elemento ruim: sem itens no evento.
     expect(abrir('00000000-0000-0000-0000-0000000000c4', 1000, JSON.stringify([{ name: 'A', priceCents: 999 }]))).toEqual({ totalCents: 1000 });
     expect(abrir('00000000-0000-0000-0000-0000000000c5', 1000, JSON.stringify([{ name: 'A', priceCents: 1000 }, null]))).toEqual({ totalCents: 1000 });
+    // Acima de 64 KB: abre, mas sem itens no evento (o teto da 0038).
+    expect(abrir('00000000-0000-0000-0000-0000000000c6', 1000, JSON.stringify([{ name: 'A'.repeat(70000), priceCents: 1000 }]))).toEqual({ totalCents: 1000 });
   });
 });

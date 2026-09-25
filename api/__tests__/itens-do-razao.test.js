@@ -100,3 +100,25 @@ function clienteFalso({ venue_tables: mesa, checks, check_events: eventos }) {
   return { from: q, rpc: async () => ({ data: null, error: null }) };
 }
 void reduce;
+
+describe('revisão do PR #30', () => {
+  test('ADJUSTED inválido no razão (itens não somam) é ignorado: ficam os itens aceitos, com o total aceito', () => {
+    const log = [
+      ev(1, 'OPENED', { totalCents: 1000, items: [it('A', 1000)] }),
+      ev(2, 'ADJUSTED', { totalCents: 2000, items: [it('B', 1999)] }),   // escrito por fora, inválido
+    ];
+    expect(itensDoRazao(log)).toEqual([it('A', 1000)]);
+    expect(reduce(log).totalCents).toBe(1000);
+  });
+  test('disputa: o que o cliente viu em CADA pagamento sai do razão até aquele ponto', () => {
+    const log = [
+      ev(1, 'OPENED', { totalCents: 1000, items: [it('A', 1000)] }),
+      ev(2, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 400 }),
+      ev(3, 'ADJUSTED', { totalCents: 1600, items: [it('A', 1000), it('B', 600)] }),
+      ev(4, 'PAYMENT_CONFIRMED', { txid: 'p2', amountCents: 1200 }),
+    ];
+    const vistoEm = (txid) => itensDoRazao(log.slice(0, log.findIndex((e) => e.payload.txid === txid) + 1));
+    expect(vistoEm('p1')).toEqual([it('A', 1000)]);
+    expect(vistoEm('p2')).toEqual([it('A', 1000), it('B', 600)]);
+  });
+});

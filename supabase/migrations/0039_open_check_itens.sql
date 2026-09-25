@@ -15,6 +15,12 @@
 -- verdade — objetos com `name` texto e `priceCents` inteiro — que SOMA o
 -- total. Qualquer outra coisa abre a conta como antes, sem itens no evento, e o
 -- leitor cai no `pos_ref`, como sempre fez.
+--
+-- LIMITE, POR ESCRITO (compliance, PR #30): conta aberta ANTES desta migração
+-- (e ajustada antes da 0038) NÃO tem os itens replayáveis — o `pos_ref` é
+-- sobrescrito a cada ajuste e só guarda a última lista. Numa disputa sobre
+-- conta dessas, o razão prova o VALOR de cada pagamento, não a lista de itens
+-- que o cliente viu. Produção em 2026-09-25: 0 de 43 eventos com itens.
 
 create or replace function public.open_check(
   p_table_id uuid,
@@ -54,8 +60,11 @@ begin
   exception when others then
     v_itens := null;
   end;
+  -- O mesmo teto de bytes da 0038: o `OPENED` é relido a cada leitura do QR
+  -- (segurança, PR #30, LOW-2).
   if v_itens is not null and jsonb_typeof(v_itens) = 'array'
-     and jsonb_array_length(v_itens) between 1 and 200 then
+     and jsonb_array_length(v_itens) between 1 and 200
+     and octet_length(p_pos_ref) <= 65536 then
     select count(*) into v_ruins
       from jsonb_array_elements(v_itens) e
      where jsonb_typeof(e) <> 'object'
