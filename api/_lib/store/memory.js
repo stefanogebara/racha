@@ -224,10 +224,29 @@ function createMemoryStore() {
       return t ? { ...t } : null;
     },
     /** Replace the itemized snapshot the diner sees (manual ADJUSTED). */
-    async setCheckItems(checkId, items) {
+    /** Paridade com a `adjust_check` (0038): confere, grava evento e itens juntos. */
+    async adjustCheck(checkId, expectedSeq, totalCents, items) {
       const c = checks.get(checkId);
-      if (!c) throw new Error('unknown check');
-      checks.set(checkId, { ...c, items });
+      if (!c) throw Object.assign(new Error('memory store adjustCheck: conta desconhecida'), { pgCode: '22023' });
+      if (!Number.isSafeInteger(totalCents) || totalCents <= 0) {
+        throw Object.assign(new Error('memory store adjustCheck: total inválido'), { pgCode: '22023' });
+      }
+      if (!Array.isArray(items) || items.length === 0
+          || items.some((i) => !i || !Number.isSafeInteger(i.priceCents) || i.priceCents < 0)) {
+        throw Object.assign(new Error('memory store adjustCheck: itens inválidos'), { pgCode: '22023' });
+      }
+      const soma = items.reduce((s, i) => s + i.priceCents, 0);
+      if (soma !== totalCents) {
+        throw Object.assign(new Error(`memory store adjustCheck: os itens somam ${soma} e o total é ${totalCents}`), { pgCode: '22023' });
+      }
+      // Os itens SÓ depois de o evento ter entrado de verdade — um append que
+      // recusa (40001, ou um dublê que recusa) não deixa item nenhum. A
+      // continuação logo após o `await` roda antes de qualquer outro ajuste
+      // completar o seu append E os seus itens, então no dublê de uma thread só
+      // o par fica junto, como a trava do banco garante na produção.
+      const seq = await this.appendEventIfUnchanged(checkId, 'ADJUSTED', { totalCents }, null, expectedSeq);
+      checks.set(checkId, { ...checks.get(checkId), items });
+      return seq;
     },
 
     // --- tables / QR --------------------------------------------------------

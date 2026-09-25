@@ -438,12 +438,19 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         qrToken: data.qr_token, qrRotatedAt: data.qr_rotated_at, active: data.active,
       };
     },
-    async setCheckItems(checkId, items) {
-      const { error } = await client
-        .from('checks')
-        .update({ pos_ref: JSON.stringify(items) }) // full JSON; count bounded upstream
-        .eq('id', checkId);
-      throwOn(error, 'setCheckItems');
+    /**
+     * O ajuste ATÔMICO: `ADJUSTED` + itens na mesma transação, com a soma
+     * conferida no banco (migração 0038). 40001 quando o razão mudou, 22023 em
+     * entrada ruim — chegam no `pgCode` pelo `throwOn` e o serviço decide pelo
+     * código (inegociável #7).
+     */
+    async adjustCheck(checkId, expectedSeq, totalCents, items) {
+      const { data, error } = await client.rpc('adjust_check', {
+        p_check_id: checkId, p_expected_seq: expectedSeq,
+        p_total_cents: totalCents, p_items: items,
+      });
+      throwOn(error, 'adjustCheck');
+      return data;
     },
 
     // --- ownership / membership ---------------------------------------------
