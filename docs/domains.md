@@ -58,8 +58,8 @@ dig +short MX racha.com.br  → 0 .                              (MX NULO, RFC 7
 levava bounce — e o canal que o `retencao.md` tinha acabado de chamar de "a
 condição que faltava" faltava de novo.
 
-Hoje o endereço vem de `VITE_PRIVACY_CONTACT` e, sem ele, a frase do canal
-direto não aparece. Publicar caixa que não existe é pior do que mandar a pessoa
+Desde 2026-09-26 o endereço é o `contato@` da tabela abaixo, em `apps/web/src/empresa.ts`
+(a variável `VITE_PRIVACY_CONTACT` saiu: um lugar só). Publicar caixa que não existe é pior do que mandar a pessoa
 ao restaurante, que é o controlador do dado do pagamento e uma rota de verdade.
 
 Um endereço só pode aparecer numa tela depois que a linha dele aqui disser
@@ -70,10 +70,10 @@ não pode voltar.
 
 | Endereço | Entrega? | Onde aparece |
 |---|---|---|
-| `VITE_PRIVACY_CONTACT` (não configurado) | pendente — marcar `entrega confirmada` aqui depois do teste de recebimento | aviso de privacidade, só quando setado |
+| `contato@useracha.app` | **entrega confirmada** 2026-09-26 — e-mail real da Racha (Resend → Forward Email → Gmail do dono) chegou na CAIXA DE ENTRADA, não no spam | rodapé da landing (a parte ELETRÔNICA do Decreto 7.962 art. 2º II; endereço físico pendente) e aviso de privacidade (`priv.rights`) |
 | `privacidade@racha.com.br` | **NÃO** — `MX 0 .`, o domínio recusa e-mail | em lugar nenhum, e não pode voltar |
 
-**Antes de setar `VITE_PRIVACY_CONTACT`:** mandar uma mensagem de teste e
+**Antes de publicar um endereço novo:** mandar uma mensagem de teste e
 confirmar que chegou numa caixa que alguém lê. Um endereço no aviso é um
 compromisso com um consumidor, não uma configuração.
 
@@ -100,14 +100,22 @@ primeiro cartão impresso numa casa de verdade:
 | Cartão válido na conta da Vercel | **ok** — conferido em 2026-09-25 no painel: padrão MasterCard débito final 1245, válido até 09/2032 (há um Visa pré-pago final 3365 VENCIDO em 03/2026, não padrão — remover) |
 | 2FA na conta da Vercel | **DESLIGADO** — conferido em 2026-09-25 ("Two-Factor Authentication: Inactive"); o dono decidiu adiar. Conta como NÃO feito até estar registrado aqui com data. **PORTÃO DURO antes do 1º cartão numa casa real**, como a auto-renovação e o cartão: quem toma a conta aponta o `useracha.app` (impresso nos QR) pra uma página de Pix falsa (compliance, PR #31, M-4; CDC art. 14) |
 | Responsável | o fundador (Stefano Gebara); sem contato de reserva ainda |
-| Vigia diário | **existe**: `api/_lib/checks/dominio-watch.js`, na conciliação das 04:10, DEPOIS do aviso de dinheiro. Pagina (e-mail + WhatsApp, `account_alert`) com < 60 dias pro vencimento, estado ruim no registro, trava de transferência ausente, nameservers que não são os da Vercel, ou leitura do RDAP que falhou |
+| Vigia diário | **existe**: `api/_lib/checks/dominio-watch.js`, na conciliação das 04:10, DEPOIS do aviso de dinheiro. Pagina (e-mail + WhatsApp, `account_alert`) com < 60 dias pro vencimento, estado ruim no registro, trava de transferência ausente, nameservers que não são os da Vercel, ou leitura do RDAP que falhou. **Desde 2026-09-26 também a caixa `contato@`**: MX da raiz diferente de `mx1`/`mx2.forwardemail.net`, o TXT `forward-email=` sumido, ou leitura do DNS que falhou (segurança, PR #39, M1) |
 
 Registrar por vários anos de uma vez baixa o risco e custa pouco.
 
 DNS (2026-09-25): e-mail do Resend em `send.` (SPF, MX) + DKIM na raiz;
 **DMARC `p=quarantine; adkim=s; aspf=r`** (o e-mail do Resend sai assinado
-`d=useracha.app` — conferido no Gmail, "signed-by: useracha.app"); raiz com
-`v=spf1 -all` e **MX nulo** (`0 .`: o domínio não recebe e-mail). Falta `rua=`
+`d=useracha.app` — conferido no Gmail, "signed-by: useracha.app"). Raiz desde
+2026-09-26: **MX `mx1`/`mx2.forwardemail.net`** (prioridade 10) e
+`v=spf1 include:spf.forwardemail.net -all` — o plano grátis do Forward Email,
+só DNS, sem conta nem cobrança. A regra de encaminhamento é o TXT
+`forward-email=…` CIFRADO pela API deles (`POST /v1/encrypt`): o Gmail do dono
+não fica legível no DNS público. Só `contato@` encaminha — sem curinga, então
+endereço inventado leva bounce em vez de spam. (O ImprovMX foi tentado antes:
+o plano grátis já está usado pelo `twinme.me`. A Vercel recusa MX novo enquanto
+o MX nulo existe — tirar o nulo PRIMEIRO; a raiz ficou ~1 min sem MX, sem efeito,
+porque o nulo já recusava tudo.) Falta `rua=`
 no DMARC — relatório externo pro Gmail não funciona sem autorização do lado
 de lá; precisa de uma caixa no próprio domínio ou de um serviço de relatório.
 

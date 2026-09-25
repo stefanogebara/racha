@@ -200,8 +200,8 @@ describe('o mapa de dados acompanha o código', () => {
     // idiomas como a rota pra exercer direitos, na tela de pagar.
     //
     // A regra: o cliente não vê endereço que não esteja no `docs/domains.md`
-    // com entrega confirmada. Configuração (`VITE_PRIVACY_CONTACT`) passa —
-    // quem a seta assume o compromisso, e o arquivo diz o que conferir antes.
+    // com entrega confirmada. Desde 2026-09-26 o único é `EMPRESA.contato`
+    // (empresa.ts); a variável `VITE_PRIVACY_CONTACT` saiu.
     const web = path.join(RAIZ, 'apps', 'web', 'src');
     const domains = fs.readFileSync(path.join(RAIZ, 'docs', 'domains.md'), 'utf8');
     const achados = [];

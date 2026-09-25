@@ -43,6 +43,12 @@ judicial.
 de propósito (é por isso que o `maskPixPayload` é lista de permissão). O prazo é
 do Pagar.me, sob o contrato deles.
 
+**E-mail pra `contato@useracha.app`** (pedido do art. 18, demanda de
+consumidor). Chega no Gmail do dono pelo Forward Email (ver o data-map, seção
+2). Guardar a PROVA da resposta (quem pediu, o quê, quando, o que foi feito) por
+**5 anos**, como os `retention_runs`; a mensagem original sai da caixa quando o
+pedido é resolvido. Manual, pelo `docs/runbooks/contato.md` — não há job.
+
 ## Como roda
 
 `purge_expired_personal_data()` é uma função SQL, chamada por

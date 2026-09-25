@@ -7,7 +7,12 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const { avaliarDominio, vigiarDominio, DIAS_DE_AVISO } = require('../_lib/checks/dominio-watch');
+const { avaliarDominio, avaliarCaixa, vigiarDominio, DIAS_DE_AVISO } = require('../_lib/checks/dominio-watch');
+
+// O DNS da raiz como está desde 2026-09-26 (a forma do `resolveMx`/`resolveTxt`).
+const MX_OK = [{ exchange: 'mx1.forwardemail.net', priority: 10 }, { exchange: 'mx2.forwardemail.net', priority: 10 }];
+const TXT_OK = [['v=spf1 include:spf.forwardemail.net -all'], ['forward-email=QWxh', 'YmFj']];
+const CAIXA_OK = async () => ({ mx: MX_OK, txt: TXT_OK });
 
 const AGORA = Date.parse('2026-09-25T12:00:00Z');
 const NS = [{ ldhName: 'ns1.vercel-dns.com' }, { ldhName: 'ns2.vercel-dns.com' }];
@@ -53,6 +58,29 @@ describe('avaliarDominio', () => {
   });
 });
 
+describe('avaliarCaixa — a caixa de contato prometida ao cliente ainda recebe', () => {
+  test('MX do Forward Email e a regra no TXT: não avisa; ordem, caixa e ponto final não importam', () => {
+    expect(avaliarCaixa({ mx: MX_OK, txt: TXT_OK })).toMatchObject({ avisar: false, codigo: 'mailbox_ok' });
+    const mx = [{ exchange: 'MX2.forwardemail.net.' }, { exchange: 'mx1.forwardemail.net' }];
+    expect(avaliarCaixa({ mx, txt: TXT_OK }).codigo).toBe('mailbox_ok');
+  });
+  test('MX nulo de volta, MX de outro provedor, sem MX ou com um a mais: avisa mailbox_mx_changed', () => {
+    for (const mx of [[{ exchange: '', priority: 0 }], [{ exchange: 'mx1.improvmx.com' }, { exchange: 'mx2.improvmx.com' }], [],
+      [...MX_OK, { exchange: 'mx.atacante.example' }]]) {
+      expect(avaliarCaixa({ mx, txt: TXT_OK }).codigo).toBe('mailbox_mx_changed');
+    }
+  });
+  test('o TXT da regra sumiu (só o SPF ficou): avisa mailbox_rule_missing', () => {
+    expect(avaliarCaixa({ mx: MX_OK, txt: [['v=spf1 include:spf.forwardemail.net -all']] }).codigo).toBe('mailbox_rule_missing');
+    expect(avaliarCaixa({ mx: MX_OK, txt: [] }).codigo).toBe('mailbox_rule_missing');
+  });
+  test('falha de leitura ou forma inesperada: avisa, nunca cala', () => {
+    expect(avaliarCaixa({ erro: 'ENOTFOUND' }).codigo).toBe('mailbox_read_failed');
+    expect(avaliarCaixa({}).codigo).toBe('mailbox_read_failed');
+    expect(avaliarCaixa().codigo).toBe('mailbox_read_failed');
+  });
+});
+
 describe('vigiarDominio lê, decide e AVISA', () => {
   const resposta = (json, ok = true, status = 200) => async () => ({ ok, status, text: async () => JSON.stringify(json) });
   const espiao = () => { const chamadas = []; return { chamadas, notificar: async (a) => { chamadas.push(a); return { ok: true, entregue: true }; } }; };
@@ -62,33 +90,47 @@ describe('vigiarDominio lê, decide e AVISA', () => {
 
   test('perto do vencimento → um account_alert com o código e o texto', async () => {
     const { chamadas, notificar } = espiao();
-    await vigiarDominio(notificar, { buscar: resposta(rdap(emDias(10))), agoraMs: AGORA });
+    await vigiarDominio(notificar, { buscar: resposta(rdap(emDias(10))), agoraMs: AGORA, lerDns: CAIXA_OK });
     expect(chamadas).toHaveLength(1);
     expect(chamadas[0].kind).toBe('account_alert');
     expect(chamadas[0].detail).toMatch(/^domain_expiring: domínio useracha\.app vence em 10 dia/);
   });
   test('o desfecho da entrega fica no resultado; resposta gigante vira falha de leitura', async () => {
     const a = espiao();
-    const r = await vigiarDominio(a.notificar, { buscar: resposta(rdap(emDias(10))), agoraMs: AGORA });
+    const r = await vigiarDominio(a.notificar, { buscar: resposta(rdap(emDias(10))), agoraMs: AGORA, lerDns: CAIXA_OK });
     expect(r.envio).toEqual({ ok: true, entregue: true });
     const b = espiao();
     const gigante = async () => ({ ok: true, status: 200, text: async () => 'x'.repeat(70 * 1024) });
-    expect((await vigiarDominio(b.notificar, { buscar: gigante, agoraMs: AGORA })).linha).toMatch(/too_large/);
+    expect((await vigiarDominio(b.notificar, { buscar: gigante, agoraMs: AGORA, lerDns: CAIXA_OK })).linha).toMatch(/too_large/);
   });
   test('RDAP fora do ar (HTTP 503 ou exceção) → avisa', async () => {
     for (const buscar of [resposta(null, false, 503), async () => { throw new Error('ENOTFOUND'); }]) {
       const { chamadas, notificar } = espiao();
-      await vigiarDominio(notificar, { buscar, agoraMs: AGORA });
+      await vigiarDominio(notificar, { buscar, agoraMs: AGORA, lerDns: CAIXA_OK });
       expect(chamadas.map((c) => c.detail.split(':')[0])).toEqual(['domain_read_failed']);
     }
   });
   test('tudo bem → não avisa; seco → não avisa nem perto do vencimento', async () => {
     const a = espiao();
-    await vigiarDominio(a.notificar, { buscar: resposta(rdap('2027-09-24T22:51:56Z')), agoraMs: AGORA });
+    await vigiarDominio(a.notificar, { buscar: resposta(rdap('2027-09-24T22:51:56Z')), agoraMs: AGORA, lerDns: CAIXA_OK });
     expect(a.chamadas).toHaveLength(0);
     const b = espiao();
-    await vigiarDominio(b.notificar, { buscar: resposta(rdap(emDias(5))), agoraMs: AGORA, seco: true });
+    await vigiarDominio(b.notificar, { buscar: resposta(rdap(emDias(5))), agoraMs: AGORA, lerDns: CAIXA_OK, seco: true });
     expect(b.chamadas).toHaveLength(0);
+  });
+  test('a caixa quebrada AVISA também com o domínio bem — e junto com um aviso do domínio', async () => {
+    const quebrada = async () => ({ mx: [{ exchange: '', priority: 0 }], txt: TXT_OK });
+    const a = espiao();
+    const r = await vigiarDominio(a.notificar, { buscar: resposta(rdap('2027-09-24T22:51:56Z')), agoraMs: AGORA, lerDns: quebrada });
+    expect(a.chamadas.map((c) => c.detail.split(':')[0])).toEqual(['mailbox_mx_changed']);
+    expect(a.chamadas[0].kind).toBe('account_alert');
+    expect(r.caixa.envio).toEqual({ ok: true, entregue: true });
+    const b = espiao();
+    await vigiarDominio(b.notificar, { buscar: resposta(rdap(emDias(10))), agoraMs: AGORA, lerDns: async () => ({ erro: 'ETIMEOUT' }) });
+    expect(b.chamadas.map((c) => c.detail.split(':')[0])).toEqual(['domain_expiring', 'mailbox_read_failed']);
+    const c = espiao();
+    await vigiarDominio(c.notificar, { buscar: resposta(rdap('2027-09-24T22:51:56Z')), agoraMs: AGORA, lerDns: quebrada, seco: true });
+    expect(c.chamadas).toHaveLength(0);
   });
   test('o kind é um que a ponte aceita', () => {
     const { KINDS_DE_FUNDADOR } = require('../_lib/notify');

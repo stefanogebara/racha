@@ -32,10 +32,15 @@ import { EMPRESA } from './empresa';
  * "a condição que faltava" faltava outra vez.
  *
  * Caixa que não existe é pior do que não prometer caixa nenhuma: o restaurante
- * é o controlador do dado do pagamento e é uma rota de verdade. Então sem
- * `VITE_PRIVACY_CONTACT` a frase do canal direto some, em vez de mentir.
+ * é o controlador do dado do pagamento e é uma rota de verdade.
+ *
+ * Desde 2026-09-26 a caixa existe: `contato@useracha.app`, de `empresa.ts`, com
+ * entrega conferida (um e-mail real chegou). A variável de ambiente que a
+ * segurava saiu — o endereço tem UM lugar. Com `contato` fixo em `empresa.ts`
+ * o ramo `rightsNoEmail` hoje não roda: fica como rede pro dia em que o campo
+ * for esvaziado (caixa perdida), em vez de publicar endereço morto.
  */
-const CONTATO = (import.meta.env.VITE_PRIVACY_CONTACT as string | undefined)?.trim() || '';
+const CONTATO = EMPRESA.contato.trim();
 
 /**
  * Os prazos que o aviso promete, num lugar só.
