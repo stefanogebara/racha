@@ -1601,7 +1601,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
       return count || 0;
     },
     async setHouseAccountActive(accountId, active) {
-      if (!isUuid(accountId)) { const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e; }
+      if (!isUuid(accountId)) { const e = new Error('house_account_not_found'); e.statusCode = 404; e.code = 'house_account_not_found'; throw e; }
       const { data, error } = await client
         .from('house_accounts')
         .update({ active: !!active })
@@ -1609,7 +1609,7 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         .select('id, active')
         .maybeSingle();
       throwOn(error, 'setHouseAccountActive');
-      if (!data) { const e = new Error('Conta não encontrada'); e.statusCode = 404; throw e; }
+      if (!data) { const e = new Error('house_account_not_found'); e.statusCode = 404; e.code = 'house_account_not_found'; throw e; }
       return { id: data.id, active: data.active };
     },
     async loadHouseEvents(accountId) {

@@ -966,6 +966,10 @@ const RECUSAS_DA_CARTEIRA = Object.freeze({
   RH001: Object.freeze({ statusCode: 409, code: 'house_insufficient_balance' }),
   RH002: Object.freeze({ statusCode: 409, code: 'check_closed' }),
   RH003: Object.freeze({ statusCode: 409, code: 'house_exceeds_remaining' }),
+  // RH004 (conta sem eventos) também é 409: nada foi lançado, então estornar o
+  // débito é o certo — e é o que o store em memória já fazia (as duas revisões
+  // do PR #31).
+  RH004: Object.freeze({ statusCode: 409, code: 'check_not_found' }),
   RH005: Object.freeze({ statusCode: 404, code: 'house_account_not_found' }),
   22023: Object.freeze({ statusCode: 400, code: 'house_invalid_amount' }),
 });

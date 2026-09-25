@@ -25,8 +25,8 @@ test.each([
   await expect(redeem(comErro({ code: codigo, message: 'qualquer coisa' }))).rejects.toMatchObject({ statusCode, code, message: code });
 });
 
-test('guarded: RH002 e RH003 são 409 — o redeem ESTORNA o débito no 409', async () => {
-  for (const [codigo, code] of [['RH002', 'check_closed'], ['RH003', 'house_exceeds_remaining']]) {
+test('guarded: RH002, RH003 e RH004 são 409 — o redeem ESTORNA o débito no 409', async () => {
+  for (const [codigo, code] of [['RH002', 'check_closed'], ['RH003', 'house_exceeds_remaining'], ['RH004', 'check_not_found']]) {
     await expect(comErro({ code: codigo, message: 'x' }).appendHousePaymentGuarded('c', 't', 100))
       .rejects.toMatchObject({ statusCode: 409, code });
   }
@@ -36,8 +36,8 @@ test('a FRASE sozinha não decide: "saldo insuficiente" com código genérico n�
   const e = await redeem(comErro({ code: 'P0001', message: 'saldo insuficiente' })).catch((x) => x);
   expect(e.statusCode).toBeUndefined();
   expect(e.code).toBeUndefined();
-  // E código desconhecido da classe da carteira também não inventa status.
-  const d = await redeem(comErro({ code: 'RH004', message: 'conta sem eventos' })).catch((x) => x);
+  // E um código fora da lista não inventa status.
+  const d = await redeem(comErro({ code: 'RH999', message: 'saldo insuficiente' })).catch((x) => x);
   expect(d.statusCode).toBeUndefined();
 });
 
@@ -70,4 +70,63 @@ test('a 0040 dá código a TODO raise das três funções, e não cria sobrecarg
   expect(raises.length).toBe(9);
   expect(raises.filter((r) => !/using errcode = '(RH00[1-5]|22023)'/.test(r))).toEqual([]);
   expect((sql.match(/create or replace function public\.(house_redeem|house_refund_principal|append_house_payment_guarded)\(/g) || []).length).toBe(3);
+});
+
+
+describe('o SERVIÇO com o store do Supabase: a recusa da conta estorna o débito de verdade', () => {
+  // As revisões do PR #31 apontaram: os testes do serviço rodavam só sobre o
+  // store em memória. Aqui a gravação guardada é a do SUPABASE (cliente falso
+  // devolvendo o SQLSTATE), e o resto do mundo é o dublê — o que prova a
+  // costura store→classificador→serviço, que é onde o estorno mora.
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { MockPsp } = require('../_lib/pay/mock-psp');
+  const { createHouseService } = require('../_lib/house/house-service');
+
+  async function mundo(codigoDaConta) {
+    const store = createMemoryStore();
+    const house = createHouseService({ store, psp: new MockPsp({ webhookSecret: 'x'.repeat(32) }), now: () => '2026-09-25T12:00:00.000Z' });
+    const venue = store.seedVenue({ name: 'Casa', servicoBp: 1000, pspRecipientId: 'rcpt_t' });
+    await house.updateConfig(venue.id, { enabled: true, bonusBp: 0, validityDays: 30 });
+    const table = store.seedTable(venue.id, 'Mesa 1');
+    const { accountToken } = await house.openAccount({ tableQrToken: table.qrToken, phone: '11911112222', name: 'B' });
+    const load = await house.createLoad({ accountToken, amountCents: 5000 });
+    await store.confirmHouseLoad({ txid: load.txid, confirmedAt: '2026-09-25T11:00:00.000Z' });
+    await store.openCheck(table.qrToken, [{ id: 'i', name: 'X', priceCents: 3000 }]);
+    const guardada = comErro({ code: codigoDaConta, message: 'qualquer' }).appendHousePaymentGuarded;
+    const estornos = [];
+    const reverse = store.reverseHouseRedeem.bind(store);
+    store.reverseHouseRedeem = async (args) => { estornos.push(args.txid); return reverse(args); };
+    return { store, house, table, accountToken, guardada, estornos };
+  }
+  const saldo = async (house, token) => (await house.wallet(token)).account.principalCents;
+
+  test.each(['RH002', 'RH003', 'RH004'])('%s na gravação guardada → débito estornado, saldo intacto, house_raced', async (codigo) => {
+    const { store, house, table, accountToken, guardada, estornos } = await mundo(codigo);
+    store.appendHousePaymentGuarded = guardada;
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-tentativa-1' }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'house_raced' });
+    expect(estornos).toHaveLength(1);
+    expect(await saldo(house, accountToken)).toBe(5000);
+  });
+
+  test('RETRY de um débito que ficou (duplicate) e a conta recusa → estorna também (compliance M-2)', async () => {
+    const { store, house, table, accountToken, guardada, estornos } = await mundo('RH003');
+    // 1ª tentativa: debita e a gravação cai por um erro que NÃO é recusa (rede).
+    store.appendHousePaymentGuarded = async () => { throw new Error('fetch failed'); };
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-tentativa-2' })).rejects.toThrow(/fetch failed/);
+    expect(await saldo(house, accountToken)).toBe(4000);   // débito ficou — a conciliação acusaria o par
+    // 2ª, mesma chave: o débito volta `duplicate`, e a conta recusa com 409.
+    store.appendHousePaymentGuarded = guardada;
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-tentativa-2' }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'house_raced' });
+    expect(estornos).toHaveLength(1);
+    expect(await saldo(house, accountToken)).toBe(5000);
+  });
+
+  test('erro que não é recusa provada → NÃO estorna (o débito fica e a conciliação acusa)', async () => {
+    const { store, house, table, accountToken, estornos } = await mundo('RH003');
+    store.appendHousePaymentGuarded = comErro({ code: 'P0001', message: 'excede o que falta pagar' }).appendHousePaymentGuarded;
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-tentativa-3' })).rejects.toThrow();
+    expect(estornos).toHaveLength(0);
+  });
 });

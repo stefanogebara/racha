@@ -1356,12 +1356,13 @@ function createMemoryStore() {
     },
     async redeemHouse({ accountId, checkId, txid, amountCents, nowIso }) {
       if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
-        throw new Error('invalid amount'); // parity with the RPC's raise
+        throw Object.assign(new Error('house_invalid_amount'), { statusCode: 400, code: 'house_invalid_amount' }); // = 22023 da 0040
       }
       const log = houseEvents.get(accountId);
-      if (!log) throw new Error('unknown house account');
+      const naoAchada = () => Object.assign(new Error('house_account_not_found'), { statusCode: 404, code: 'house_account_not_found' }); // = RH005
+      if (!log) throw naoAchada();
       const account = houseAccounts.get(accountId);
-      if (!account || !account.active) throw new Error(`unknown house account ${accountId}`);
+      if (!account || !account.active) throw naoAchada();
       const state = houseState.reduce(log);
       // idempotency: a retried redeem with the same txid returns the prior debit
       if (state && state.redeems[txid]) {

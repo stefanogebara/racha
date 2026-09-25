@@ -475,10 +475,10 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const live = chargingAllowed(venue.market);
     if (live) throw badRequest(`mercado ${venue.market}: ${live.code}`, live.code);
 
-    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw badRequest('Valor inválido');
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw badRequest('Valor inválido', 'house_invalid_amount');
     const remaining = remainingCents(view.state);
     if (amountCents > remaining) {
-      throw badRequest(`Valor excede o que falta pagar (${remaining} centavos)`);
+      throw badRequest(`Valor excede o que falta pagar (${remaining} centavos)`, 'house_exceeds_remaining');
     }
 
     // Retry-safe txid: the same client attempt (idempotencyKey) always maps
@@ -504,11 +504,15 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     try {
       await store.appendHousePaymentGuarded(view.check.id, txid, amountCents);
     } catch (e) {
-      if (e.statusCode === 409 && !debit.duplicate) {
+      // TAMBÉM no retry (`debit.duplicate`): o append é idempotente por txid,
+      // então um 409 prova que ESTE txid nunca entrou na conta — e o estorno é
+      // idempotente. Sem isto, a tentativa que debitou e caiu antes do append
+      // deixava o cliente debitado no retry (compliance, PR #31, M-2).
+      if (e.statusCode === 409) {
         // The check refused the payment (raced full / closed). Compensate:
         // put the exact breakdown back and tell the diner nothing was spent.
         await store.reverseHouseRedeem({ accountId: account.id, txid, nowIso: now() });
-        throw httpError(409, 'Outra pessoa pagou essa parte agora há pouco — seu saldo não foi debitado', 'house_raced');
+        throw httpError(409, 'A conta mudou agora há pouco — seu saldo não foi debitado', 'house_raced');
       }
       throw e; // unknown failure: debit stands, reconciliation flags the pair
     }

@@ -432,7 +432,8 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     await store.setHouseAccountActive(acc.id, false);
     expect(await store.getHouseAccountByToken(acc.accountToken)).toBeNull();
     await expect(store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `fz_${uniq}`, amountCents: 100, nowIso: t0 }))
-      .rejects.toThrow(/unknown house account|Conta não encontrada/);
+      // Pelo CÓDIGO nos dois stores (0040: RH005 → 404), não pela frase.
+      .rejects.toMatchObject({ statusCode: 404, code: 'house_account_not_found' });
     expect((await store.getHouseAccountById(acc.id)).active).toBe(false);
     await store.setHouseAccountActive(acc.id, true);
     expect((await store.getHouseAccountByToken(acc.accountToken)).id).toBe(acc.id);
