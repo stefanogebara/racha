@@ -133,4 +133,22 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     expect(Q(`select has_function_privilege('anon', 'public.adjust_check(uuid, integer, bigint, jsonb)', 'execute')
       || '|' || has_function_privilege('authenticated', 'public.adjust_check(uuid, integer, bigint, jsonb)', 'execute')`)).toBe('false|false');
   });
+
+  test('0039: open_check põe os itens no OPENED só quando o pos_ref é lista de itens que soma o total', () => {
+    const abrir = (mesa, total, posRef) => {
+      Q(`insert into venue_tables (id, venue_id, label) values ('${mesa}', '00000000-0000-0000-0000-00000000000a', 'Mesa ${mesa.slice(-2)}')`);
+      const id = Q(`select public.open_check('${mesa}', ${total}, ${posRef === null ? 'null' : `'${posRef.replace(/'/g, "''")}'`})`);
+      return JSON.parse(Q(`select payload::text from check_events where check_id = '${id}' and seq = 1`));
+    };
+    const itens = [{ id: 'a', name: 'A', priceCents: 700 }, { id: 'b', name: 'B', priceCents: 300 }];
+    expect(abrir('00000000-0000-0000-0000-0000000000c1', 1000, JSON.stringify(itens))).toEqual({ totalCents: 1000, items: itens });
+    // Um id de comanda de POS não é lista de itens: abre como antes.
+    expect(abrir('00000000-0000-0000-0000-0000000000c2', 1000, 'COLIBRI-4471')).toEqual({ totalCents: 1000 });
+    expect(abrir('00000000-0000-0000-0000-0000000000c3', 1000, null)).toEqual({ totalCents: 1000 });
+    // Lista que NÃO soma o total, ou com elemento ruim: sem itens no evento.
+    expect(abrir('00000000-0000-0000-0000-0000000000c4', 1000, JSON.stringify([{ name: 'A', priceCents: 999 }]))).toEqual({ totalCents: 1000 });
+    expect(abrir('00000000-0000-0000-0000-0000000000c5', 1000, JSON.stringify([{ name: 'A', priceCents: 1000 }, null]))).toEqual({ totalCents: 1000 });
+    // Acima de 64 KB: abre, mas sem itens no evento (o teto da 0038).
+    expect(abrir('00000000-0000-0000-0000-0000000000c6', 1000, JSON.stringify([{ name: 'A'.repeat(70000), priceCents: 1000 }]))).toEqual({ totalCents: 1000 });
+  });
 });

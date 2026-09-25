@@ -32,9 +32,13 @@ function freshWorld() {
 }
 
 async function openDemoCheck(store, table, priceCents = 12000) {
+  // Item NUNCA negativo: com `priceCents` < 2000 isto fazia um item de valor
+  // negativo, que o serviço recusa na entrada e o razão recusa desde que o
+  // `OPENED` leva os itens (0039). O dado de teste era inválido.
+  const chopp = Math.min(2000, Math.floor(priceCents / 2));
   return store.openCheck(table.qrToken, [
-    { id: 'i1', name: 'Picanha', priceCents: priceCents - 2000 },
-    { id: 'i2', name: 'Chopp', priceCents: 2000 },
+    { id: 'i1', name: 'Picanha', priceCents: priceCents - chopp },
+    { id: 'i2', name: 'Chopp', priceCents: chopp },
   ]);
 }
 

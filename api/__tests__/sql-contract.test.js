@@ -176,7 +176,11 @@ describe('as projeções SQL conhecem os mesmos eventos que o redutor', () => {
     // parâmetro a mais cria uma SOBRECARGA, as duas versões convivem, e o
     // chamador acerta a antiga — que é a errada. Quase aconteceu ao escrever a
     // 0019.
-    const sql = sqlNaOrdem();
+    //
+    // SEM OS COMENTÁRIOS de linha: o `[^)]*` abaixo parava no primeiro `)`, e
+    // a 0037 tem `-- a coluna é bigint (0001)` DENTRO da assinatura — a mesma
+    // `(uuid, bigint, text)` lia como duas quando a 0039 a redefiniu.
+    const sql = sqlNaOrdem().replace(/--[^\n]*/g, '');
     const porNome = new Map();
     for (const m of sql.matchAll(/create or replace function public\.(\w+)\s*\(([^)]*)\)/g)) {
       const tipos = m[2].split(',').map((a) => a.trim().split(/\s+/).slice(1).join(' ').replace(/\s+default[\s\S]*/i, '').trim()).filter(Boolean);
