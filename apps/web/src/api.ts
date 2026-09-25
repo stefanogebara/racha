@@ -109,7 +109,7 @@ export interface HouseLedgerEntry {
 
 export interface HouseAccountView {
   /** `demo`: só a casa de demonstração mostra o botão de simular a confirmação. */
-  venue: { name: string; demo?: boolean };
+  venue: { name: string; demo?: boolean; defaultLang?: 'pt' | 'en' | 'es' };
   config: { bonusBp: number; validityDays: number };
   account: {
     name: string;

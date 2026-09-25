@@ -177,3 +177,17 @@ describe('extrato e erros da carteira sem frase (compliance, PR #32)', () => {
     await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 100 })).rejects.toMatchObject({ statusCode: 404, code: 'check_not_found' });
   });
 });
+
+
+test('a carteira manda o idioma da casa, como a conta (auditoria da carteira, ALTA C1)', async () => {
+  const { createMemoryStore } = require('../_lib/store/memory');
+  const { MockPsp } = require('../_lib/pay/mock-psp');
+  const { createHouseService } = require('../_lib/house/house-service');
+  const store = createMemoryStore();
+  const house = createHouseService({ store, psp: new MockPsp({ webhookSecret: 'x'.repeat(32) }) });
+  const venue = store.seedVenue({ name: 'Casa', servicoBp: 1000, pspRecipientId: 'rcpt_t' });
+  await house.updateConfig(venue.id, { enabled: true, bonusBp: 0, validityDays: 30 });
+  const table = store.seedTable(venue.id, 'Mesa 1');
+  const { accountToken } = await house.openAccount({ tableQrToken: table.qrToken, phone: '11911112222', name: 'B' });
+  expect((await house.wallet(accountToken)).venue.defaultLang).toBe('pt');
+});

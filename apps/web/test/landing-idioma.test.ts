@@ -40,3 +40,8 @@ test('o extrato da carteira traduz pelo tipo e não mostra frase do servidor (PR
   assert.match(w, /redeem_reversed: 'ledger\.redeemReversed'/);
   assert.match(w, /t\(key \|\| 'ledger\.other'\)/);
 });
+
+test('a carteira adota o idioma da casa quando ninguém escolheu (ALTA C1)', () => {
+  const w = readFileSync(new URL('../src/Wallet.tsx', import.meta.url), 'utf8');
+  assert.match(w, /adotarPadraoDaCasa\(v\.venue\.defaultLang\)/);
+});

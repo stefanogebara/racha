@@ -118,7 +118,7 @@ async function assertLoadSlot(store, account) {
 const crypto = require('crypto');
 const { remainingCents } = require('../checks/check-state');
 const houseState = require('./account-state');
-const { marketGate, chargingAllowed } = require('../markets');
+const { marketGate, chargingAllowed, market } = require('../markets');
 
 function httpError(status, msg, code, vars) {
   const err = new Error(msg);
@@ -338,7 +338,10 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       // `demo`: a carteira só mostra o botão de SIMULAR a confirmação do banco na
       // casa de demonstração — aparecia pra todo cliente de verdade (auditorias
       // de fluxo H2 e de UI H3). A decisão é a da casa, a mesma do `isDemoVenue`.
-      venue: { name: venue ? venue.name : '?', demo: isDemoVenue(venue) },
+      // `defaultLang` viaja como na conta (`publicMarketView`): a carteira criada
+      // em português voltava em INGLÊS — "R$0.00", data americana — porque a
+      // tela nunca soube o idioma da casa (auditoria da carteira, ALTA C1).
+      venue: { name: venue ? venue.name : '?', demo: isDemoVenue(venue), defaultLang: market(venue && venue.market).defaultLang },
       // The load screen must disclose the bonus validity BEFORE money moves
       // (CDC art. 31 — review finding): the frontend renders these.
       config: { bonusBp: cfg.bonusBp, validityDays: cfg.validityDays },
