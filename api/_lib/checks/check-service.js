@@ -41,7 +41,10 @@ async function lancarCondicional(store, checkId, decidir) {
     const seq = eventos.length ? eventos[eventos.length - 1].seq : 0;
     let entrou = false;
     try {
-      await store.appendEventIfUnchanged(checkId, d.type, d.payload, null, seq);
+      // `gravar` é a escrita ATÔMICA de quem precisa de mais que o evento (o
+      // ajuste grava itens junto — migração 0038). Sem ele, o compare-and-append.
+      if (d.gravar) await d.gravar(seq);
+      else await store.appendEventIfUnchanged(checkId, d.type, d.payload, null, seq);
       entrou = true;
     } catch (e) {
       // Conflito: o razão andou entre a leitura e a gravação. Relê. Qualquer
@@ -84,7 +87,9 @@ function normalizeItems({ items, totalCents }) {
       if (!Number.isSafeInteger(it.priceCents) || it.priceCents < 0) throw badRequest(`item ${i + 1}: valor inválido`);
       sum += it.priceCents;
       if (sum > Number.MAX_SAFE_INTEGER) throw badRequest('total excede o limite');
-      return { id: String(it.id || `i${i + 1}`), name: it.name.trim().slice(0, 80), priceCents: it.priceCents };
+      // O `id` com teto: sem ele, um dono empurrava ~1 MB de ids pro `pos_ref`
+      // servido em toda leitura do QR (segurança, PR #29, L-1).
+      return { id: String(it.id || `i${i + 1}`).slice(0, 40), name: it.name.trim().slice(0, 80), priceCents: it.priceCents };
     });
     if (sum === 0) throw badRequest('a conta não pode ser zero');
     return out;
@@ -119,20 +124,21 @@ function createCheckService({ store }) {
     const norm = normalizeItems({ items, totalCents });
     const newTotal = norm.reduce((s, i) => s + i.priceCents, 0);
     return lancarCondicional(store, checkId, async (state) => {
-      const payload = { totalCents: newTotal };
+      const payload = { totalCents: newTotal, items: norm };
       // validateEvent throws (→ 400) if the check is closed.
       try { validateEvent({ type: 'ADJUSTED', payload }, state); }
       catch (e) { throw badRequest(e.message); }
-      // OS ITENS SÓ DEPOIS DE O `ADJUSTED` ENTRAR. Gravados antes, eles ficavam
-      // quando o evento não entrava (conflito esgotado, conta fechada no meio,
-      // erro): conta aberta com itens que não somam o total do razão, e o
-      // cliente pagando "por item" um item que a conta não tem (compliance,
-      // PR #21, H-1; CDC art. 6º III). Por um instante, entre as duas escritas,
-      // quem lê vê o total NOVO com os itens VELHOS — o teto do que falta segura
-      // o valor, e a conta se acerta na próxima leitura.
+      // O `ADJUSTED` E OS ITENS NUMA TRANSAÇÃO SÓ (`adjust_check`, 0038).
+      //
+      // Eram duas escritas: o evento pelo compare-and-append e os itens depois.
+      // Dois ajustes cruzados deixavam o TOTAL de um com os ITENS do outro — a
+      // escrita de itens do primeiro, lenta, chegava por último (segurança,
+      // PR #21, MÉDIA). E antes disso os itens iam ANTES do evento e ficavam
+      // quando ele não entrava (compliance, PR #21, H-1; CDC art. 6º III). Agora
+      // ou entra tudo, ou nada; e o banco confere que os itens somam o total.
       return {
         type: 'ADJUSTED', payload,
-        depois: () => store.setCheckItems(checkId, norm),
+        gravar: (seq) => store.adjustCheck(checkId, seq, newTotal, norm),
         resultado: { checkId, totalCents: newTotal, items: norm },
       };
     });
