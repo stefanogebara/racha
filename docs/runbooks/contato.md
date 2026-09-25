@@ -22,11 +22,14 @@ com SMTP, ou o Resend (que já assina `d=useracha.app`).
 | Responder a demanda de consumidor | **5 dias** | Decreto 7.962 art. 4º § único |
 | Declaração completa de um pedido de titular | **15 dias** | LGPD art. 19 II |
 
-**Confirmação automática: PENDENTE, e o dono é quem configura.** No Gmail,
-crie um filtro com `to:contato@useracha.app` e a ação "enviar modelo". O modelo
-deve dizer "recebemos, respondemos em até 5 dias". Enquanto o filtro não
-existir, confirme a mão no mesmo dia. Hoje ninguém mais cobre a caixa (não há
-contato de reserva, `docs/domains.md`), então olhe-a todo dia útil.
+**Confirmação automática: LIGADA desde 2026-09-26.** No Gmail do dono há um
+filtro `to:(contato@useracha.app)` que faz duas coisas: nunca manda pro spam, e
+envia o modelo "Racha contato — confirmação automática". O modelo é bilíngue
+(pt + en), promete resposta em até 5 dias (corridos, não úteis: o decreto não
+diz úteis) e pede o comprovante, ou a casa, a mesa e o horário. Ele sai do
+Gmail pessoal (ver acima). Se o filtro sumir, confirme à mão no mesmo dia. Hoje
+ninguém mais cobre a caixa (não há contato de reserva, `docs/domains.md`), então
+olhe-a todo dia.
 
 ## Ligar um pedido a um dado
 
