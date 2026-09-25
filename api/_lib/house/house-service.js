@@ -151,36 +151,36 @@ const CONFIG_FIELDS = ['enabled', 'bonusBp', 'validityDays', 'minLoadCents', 'ma
 
 /** Validate a config patch. validityDays ≥ 30 is the CDC-derived legal floor. */
 function validateConfigPatch(patch) {
-  if (!patch || typeof patch !== 'object') throw badRequest('config inválida');
+  if (!patch || typeof patch !== 'object') throw badRequest('config inválida', 'house_config_invalid');
   const out = {};
   for (const k of Object.keys(patch)) {
-    if (!CONFIG_FIELDS.includes(k)) throw badRequest(`campo desconhecido: ${k}`);
+    if (!CONFIG_FIELDS.includes(k)) throw badRequest(`campo desconhecido: ${k}`, 'house_config_invalid');
   }
   if ('enabled' in patch) {
-    if (typeof patch.enabled !== 'boolean') throw badRequest('enabled deve ser booleano');
+    if (typeof patch.enabled !== 'boolean') throw badRequest('enabled deve ser booleano', 'house_config_invalid');
     out.enabled = patch.enabled;
   }
   if ('bonusBp' in patch) {
     if (!Number.isInteger(patch.bonusBp) || patch.bonusBp < 0 || patch.bonusBp > 5000) {
-      throw badRequest('bônus fora do intervalo (0–50%)');
+      throw badRequest('bônus fora do intervalo (0–50%)', 'house_bonus_out_of_range');
     }
     out.bonusBp = patch.bonusBp;
   }
   if ('validityDays' in patch) {
     if (!Number.isInteger(patch.validityDays) || patch.validityDays < 30 || patch.validityDays > 365) {
-      throw badRequest('validade do bônus deve ficar entre 30 e 365 dias (mínimo legal: 30)');
+      throw badRequest('validade do bônus deve ficar entre 30 e 365 dias (mínimo legal: 30)', 'house_validity_out_of_range');
     }
     out.validityDays = patch.validityDays;
   }
   if ('minLoadCents' in patch) {
     if (!Number.isSafeInteger(patch.minLoadCents) || patch.minLoadCents < 100) {
-      throw badRequest('recarga mínima deve ser pelo menos R$ 1,00');
+      throw badRequest('recarga mínima deve ser pelo menos R$ 1,00', 'house_min_load_too_low', { minCents: 100 });
     }
     out.minLoadCents = patch.minLoadCents;
   }
   if ('maxLoadCents' in patch) {
     if (!Number.isSafeInteger(patch.maxLoadCents) || patch.maxLoadCents < 100) {
-      throw badRequest('recarga máxima inválida');
+      throw badRequest('recarga máxima inválida', 'house_max_load_invalid');
     }
     out.maxLoadCents = patch.maxLoadCents;
   }
@@ -613,14 +613,14 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
 
   async function updateConfig(venueId, patch) {
     const clean = validateConfigPatch(patch);
-    if (Object.keys(clean).length === 0) throw badRequest('nada para atualizar');
+    if (Object.keys(clean).length === 0) throw badRequest('nada para atualizar', 'house_config_invalid');
     if ('minLoadCents' in clean || 'maxLoadCents' in clean) {
       const venue = await store.getVenue(venueId);
       if (!venue) throw httpError(404, 'venue not found', 'venue_not_found');
       const cfg = venueHouseConfig(venue);
       const min = clean.minLoadCents ?? cfg.minLoadCents;
       const max = clean.maxLoadCents ?? cfg.maxLoadCents;
-      if (min > max) throw badRequest('recarga mínima maior que a máxima');
+      if (min > max) throw badRequest('recarga mínima maior que a máxima', 'house_min_above_max');
     }
     const venue = await store.setHouseConfig(venueId, clean);
     return { config: venueHouseConfig(venue) };

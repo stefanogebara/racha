@@ -269,3 +269,17 @@ test('a carteira manda o idioma da casa, como a conta (auditoria da carteira, AL
   const { accountToken } = await house.openAccount({ tableQrToken: table.qrToken, phone: '11911112222', name: 'B' });
   expect((await house.wallet(accountToken)).venue.defaultLang).toBe('pt');
 });
+
+
+test('censo: TODO erro do serviço da carteira sai com código (o painel e a tela traduzem; nada de frase crua)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', '_lib', 'house', 'house-service.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const semCodigo = [];
+  for (const m of src.matchAll(/\b(badRequest|httpError)\(([^;]*?)\);/g)) {
+    const args = m[2];
+    if (/^\s*(msg|status)\b|\bmsg, code\b/.test(args)) continue;   // a definição dos próprios helpers (repassam o código)
+    // o código é um literal 'snake_case' ou uma expressão que já carrega um (live.code, nome.code…)
+    if (!/'[a-z][a-z0-9_]+'\s*(,|$)|\b\w+\.code\b|CODIGO_/.test(args)) semCodigo.push(m[0].slice(0, 90));
+  }
+  expect(semCodigo).toEqual([]);
+});
