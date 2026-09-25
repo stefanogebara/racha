@@ -145,8 +145,8 @@ export const DICT = {
   // camada pior: lá a frase falsa CONCEDIA confiança, aqui ela promete um
   // direito a um consumidor na hora de pagar.
   //
-  // Então o endereço vem de fora (`VITE_PRIVACY_CONTACT`) e, sem ele, a frase
-  // do canal direto simplesmente não existe. Publicar caixa que não existe é
+  // Então o endereço só entra com entrega CONFERIDA (hoje `EMPRESA.contato`,
+  // desde 2026-09-26) e, sem ele, a frase do canal direto não existe. Publicar caixa que não existe é
   // pior do que mandar a pessoa ao restaurante, que é o controlador de verdade
   // do dado do pagamento.
   'priv.rights':      { en: 'You can ask what is kept about you, have it corrected or erased, and object to the counting described above. Ask {venue}, or write to {email} and we will act with them.',

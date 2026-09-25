@@ -68,6 +68,16 @@ test('a empresa da Racha sai de UM lugar, com nome, CNPJ e cidade juntos (Decret
   assert.match(p, /t\('priv\.operator', \{ name: EMPRESA\.razaoSocial/);
 });
 
+test('o canal de contato é o de empresa.ts, no rodapé e no aviso — não uma variável solta', () => {
+  const empresa = readFileSync(new URL('../src/empresa.ts', import.meta.url), 'utf8');
+  assert.match(empresa, /contato: 'contato@useracha\.app'/);
+  const h = readFileSync(new URL('../src/Home.tsx', import.meta.url), 'utf8');
+  assert.match(h, /href=\{`mailto:\$\{EMPRESA\.contato\}`\}>\{EMPRESA\.contato\}</);
+  const p = readFileSync(new URL('../src/PrivacyNotice.tsx', import.meta.url), 'utf8');
+  assert.match(p, /const CONTATO = EMPRESA\.contato\.trim\(\);/);
+  assert.doesNotMatch(p, /import\.meta\.env\.VITE_PRIVACY_CONTACT/);
+});
+
 test('a carteira diz quem emite o saldo e que a Racha não guarda o dinheiro (C3)', () => {
   const w = readFileSync(new URL('../src/Wallet.tsx', import.meta.url), 'utf8');
   assert.equal((w.match(/t\('wallet\.issuer'/g) || []).length, 2);

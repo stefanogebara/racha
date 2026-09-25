@@ -188,7 +188,9 @@ Cada linha aqui é uma defesa que existe no código, não uma intenção:
    Cliente que escrevesse levava bounce, e é o mesmo erro do `racha.app` uma
    camada pior: lá a frase falsa concedia confiança, aqui prometia um direito a
    um consumidor na hora de pagar. Agora o endereço vem de
-   `VITE_PRIVACY_CONTACT` e, sem ele, a frase do canal direto não é renderizada —
+   `VITE_PRIVACY_CONTACT` e, sem ele, a frase do canal direto não é renderizada
+   (**2026-09-26: FECHADO** — `contato@useracha.app`, em `empresa.ts`, com
+   entrega confirmada no `docs/domains.md`) —
    o restaurante, que é o controlador do dado do pagamento, continua sendo rota
    de verdade. Mas pro que a Racha trata EM NOME PRÓPRIO (a contagem de
    aberturas) o contato tem que ser nosso, e isso exige uma caixa que exista.
