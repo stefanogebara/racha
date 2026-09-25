@@ -223,7 +223,6 @@ function createMemoryStore() {
       const t = tableById.get(tableId);
       return t ? { ...t } : null;
     },
-    /** Replace the itemized snapshot the diner sees (manual ADJUSTED). */
     /** Paridade com a `adjust_check` (0038): confere, grava evento e itens juntos. */
     async adjustCheck(checkId, expectedSeq, totalCents, items) {
       const c = checks.get(checkId);
@@ -231,9 +230,15 @@ function createMemoryStore() {
       if (!Number.isSafeInteger(totalCents) || totalCents <= 0) {
         throw Object.assign(new Error('memory store adjustCheck: total inválido'), { pgCode: '22023' });
       }
-      if (!Array.isArray(items) || items.length === 0
-          || items.some((i) => !i || !Number.isSafeInteger(i.priceCents) || i.priceCents < 0)) {
+      // As MESMAS regras da 0038: objeto, `name` texto, `priceCents` inteiro >= 0,
+      // no máximo 200 itens, conta não fechada.
+      if (!Array.isArray(items) || items.length === 0 || items.length > 200
+          || items.some((i) => !i || typeof i !== 'object' || Array.isArray(i) || typeof i.name !== 'string'
+            || !Number.isSafeInteger(i.priceCents) || i.priceCents < 0)) {
         throw Object.assign(new Error('memory store adjustCheck: itens inválidos'), { pgCode: '22023' });
+      }
+      if ((events.get(checkId) || []).some((e) => e.type === 'CLOSED')) {
+        throw Object.assign(new Error('memory store adjustCheck: conta fechada'), { pgCode: '22023' });
       }
       const soma = items.reduce((s, i) => s + i.priceCents, 0);
       if (soma !== totalCents) {
@@ -244,8 +249,10 @@ function createMemoryStore() {
       // continuação logo após o `await` roda antes de qualquer outro ajuste
       // completar o seu append E os seus itens, então no dublê de uma thread só
       // o par fica junto, como a trava do banco garante na produção.
-      const seq = await this.appendEventIfUnchanged(checkId, 'ADJUSTED', { totalCents }, null, expectedSeq);
-      checks.set(checkId, { ...checks.get(checkId), items });
+      // Cópia, não a referência do chamador (imutabilidade; compliance L-3).
+      const copia = items.map((i) => ({ ...i }));
+      const seq = await this.appendEventIfUnchanged(checkId, 'ADJUSTED', { totalCents, items: copia }, null, expectedSeq);
+      checks.set(checkId, { ...checks.get(checkId), items: copia.map((i) => ({ ...i })) });
       return seq;
     },
 

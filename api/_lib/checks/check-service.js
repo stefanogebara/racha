@@ -87,7 +87,9 @@ function normalizeItems({ items, totalCents }) {
       if (!Number.isSafeInteger(it.priceCents) || it.priceCents < 0) throw badRequest(`item ${i + 1}: valor inválido`);
       sum += it.priceCents;
       if (sum > Number.MAX_SAFE_INTEGER) throw badRequest('total excede o limite');
-      return { id: String(it.id || `i${i + 1}`), name: it.name.trim().slice(0, 80), priceCents: it.priceCents };
+      // O `id` com teto: sem ele, um dono empurrava ~1 MB de ids pro `pos_ref`
+      // servido em toda leitura do QR (segurança, PR #29, L-1).
+      return { id: String(it.id || `i${i + 1}`).slice(0, 40), name: it.name.trim().slice(0, 80), priceCents: it.priceCents };
     });
     if (sum === 0) throw badRequest('a conta não pode ser zero');
     return out;
@@ -122,7 +124,7 @@ function createCheckService({ store }) {
     const norm = normalizeItems({ items, totalCents });
     const newTotal = norm.reduce((s, i) => s + i.priceCents, 0);
     return lancarCondicional(store, checkId, async (state) => {
-      const payload = { totalCents: newTotal };
+      const payload = { totalCents: newTotal, items: norm };
       // validateEvent throws (→ 400) if the check is closed.
       try { validateEvent({ type: 'ADJUSTED', payload }, state); }
       catch (e) { throw badRequest(e.message); }

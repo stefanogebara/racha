@@ -16,7 +16,7 @@
  *
  * Event types:
  *   OPENED             { totalCents }
- *   ADJUSTED           { totalCents }
+ *   ADJUSTED           { totalCents, items? }   (items desde a 0038; somam o total)
  *   PAYMENT_CONFIRMED  { txid, amountCents, tipCents, method }   (at-least-once!)
  *   PAYMENT_REFUNDED   { txid, amountCents, tipCents }           (Pix devolução / MED)
  *   CLOSED             {}
@@ -155,6 +155,15 @@ function validateEvent(evt, prevState) {
       if (!prevState) invalid('ADJUSTED before OPENED');
       if (prevState.status === STATUS.FECHADA) invalid('cannot ADJUST a closed check');
       assertCents(p.totalCents, 'ADJUSTED.totalCents');
+      // Os itens viajam no evento desde a 0038 (o que o cliente viu, pra
+      // replay); quando vêm, somam o total. Eventos antigos, sem itens, seguem
+      // válidos — o razão não se reescreve (compliance, PR #29, M-2).
+      if (p.items !== undefined) {
+        if (!Array.isArray(p.items) || p.items.length === 0) invalid('ADJUSTED.items must be a non-empty array');
+        let soma = 0;
+        for (const it of p.items) { assertCents(it && it.priceCents, 'ADJUSTED.items[].priceCents'); soma += it.priceCents; }
+        if (soma !== p.totalCents) invalid(`ADJUSTED.items sum ${soma} != totalCents ${p.totalCents}`);
+      }
       break;
     case 'PAYMENT_CONFIRMED':
       if (!prevState) invalid('PAYMENT_CONFIRMED before OPENED');

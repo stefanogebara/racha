@@ -101,3 +101,31 @@ test('censo: o serviço não escreve itens fora da transação; a função é fe
   expect(sql).toMatch(/public\.append_check_event_if_unchanged\(/);   // delega, não reescreve o corpo
   expect(sql).toMatch(/notify pgrst, 'reload schema';/);
 });
+
+describe('os itens viajam no evento (compliance, PR #29, M-2)', () => {
+  const { validateEvent } = require('../_lib/checks/check-state');
+  const aberta = () => reduce([{ seq: 1, type: 'OPENED', payload: { totalCents: 5000 } }]);
+
+  test('o ADJUSTED gravado leva os itens que o cliente viu', async () => {
+    const { store, svc, checkId } = await mesa();
+    await svc.adjustCheck({ checkId, items: [{ name: 'A', priceCents: 3000 }, { name: 'B', priceCents: 1000 }] });
+    const ev = (await store.loadEvents(checkId)).filter((e) => e.type === 'ADJUSTED').pop();
+    expect(ev.payload).toEqual({ totalCents: 4000, items: [
+      { id: 'i1', name: 'A', priceCents: 3000 }, { id: 'i2', name: 'B', priceCents: 1000 }] });
+  });
+  test('itens que não somam o total: o evento é recusado', () => {
+    expect(() => validateEvent({ type: 'ADJUSTED', payload: { totalCents: 4000, items: [{ priceCents: 3999 }] } }, aberta())).toThrow(/sum 3999 != totalCents 4000/);
+    expect(() => validateEvent({ type: 'ADJUSTED', payload: { totalCents: 4000, items: [] } }, aberta())).toThrow(/non-empty/);
+    expect(() => validateEvent({ type: 'ADJUSTED', payload: { totalCents: 4000, items: [{ priceCents: -1 }, { priceCents: 4001 }] } }, aberta())).toThrow();
+  });
+  test('evento antigo, sem itens, segue válido — o razão não se reescreve', () => {
+    expect(() => validateEvent({ type: 'ADJUSTED', payload: { totalCents: 4000 } }, aberta())).not.toThrow();
+  });
+  test('o store em memória guarda uma CÓPIA dos itens, não a referência de quem chamou', async () => {
+    const { store, table, checkId } = await mesa();
+    const itens = [{ id: 'x', name: 'X', priceCents: 5000 }];
+    await store.adjustCheck(checkId, (await store.loadEvents(checkId)).length, 5000, itens);
+    itens[0].priceCents = 1;
+    expect((await store.getCheckByQrToken(table.qrToken)).check.items[0].priceCents).toBe(5000);
+  });
+});
