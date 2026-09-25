@@ -92,11 +92,17 @@ host antigo (`docs/runbooks/pagarme-webhook-auth.md`) — trocar lá antes do (2
 **Renovar é obrigação, não conveniência.** Se o domínio vencer, quem o
 registrar depois recebe o tráfego dos QR de pagamento em cima das mesas e pode
 servir uma página de Pix falsa com o nome da Racha (CDC art. 14). Antes do
-primeiro cartão impresso numa casa de verdade: **auto-renovação ligada** na
-Vercel com cartão válido (conferir no painel — o CLI não mostra), **2FA** na
-conta da Vercel, responsável nomeado (hoje: o fundador), e um **checador diário**
-do RDAP (`pubapi.registry.google/rdap/domain/useracha.app`) que alerte com
-menos de 60 dias pro vencimento (TASKS).
+primeiro cartão impresso numa casa de verdade:
+
+| Controle | Estado |
+|---|---|
+| Auto-renovação na Vercel | **ligada** — conferida em 2026-09-25 pela API (`GET /v5/domains/useracha.app` → `renew: true`) |
+| Cartão válido na conta da Vercel | **não conferido** — dono |
+| 2FA na conta da Vercel | **não conferido** — dono. Até estar registrado aqui com data, conta como NÃO feito |
+| Responsável | o fundador (Stefano Gebara); sem contato de reserva ainda |
+| Vigia diário | **existe**: `api/_lib/checks/dominio-watch.js`, na conciliação das 04:10, DEPOIS do aviso de dinheiro. Pagina (e-mail + WhatsApp, `account_alert`) com < 60 dias pro vencimento, estado ruim no registro, trava de transferência ausente, nameservers que não são os da Vercel, ou leitura do RDAP que falhou |
+
+Registrar por vários anos de uma vez baixa o risco e custa pouco.
 
 DNS (2026-09-25): e-mail do Resend em `send.` (SPF, MX) + DKIM na raiz;
 **DMARC `p=quarantine; adkim=s; aspf=r`** (o e-mail do Resend sai assinado

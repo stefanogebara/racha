@@ -73,7 +73,7 @@ dois caminhos e afirmava que "nenhum dado de cliente atravessa". São **cinco**
 | função | o que sai |
 |---|---|
 | `notifyOwnerRecipientStatus` | `venueName`, `ownerEmail`, `ownerPhone`, `status`, `previousStatus`, `reason`, `pspRecipientId` |
-| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail`. Os `kind` são disputa e estorno (`dispute_opened`, `dispute_updated`, `dispute_funds`, `dispute_lost`, `account_alert`, `unusable_money_event`, `refund_failed`) mais os três da retenção (`retention_ok`, `retention_blocked`, `retention_late`), que levam só CONTAGENS — sem txid, sem casa |
+| `notifyFounderMoneyEvent` | `event`, **`txid`**, **`checkId`**, **`amountCents`**, `detail`. Os `kind` são disputa e estorno (`dispute_opened`, `dispute_updated`, `dispute_funds`, `dispute_lost`, `account_alert`, `unusable_money_event`, `refund_failed`) mais os três da retenção (`retention_ok`, `retention_blocked`, `retention_late`), que levam só CONTAGENS — sem txid, sem casa. O `account_alert` também carrega o vigia do DOMÍNIO dos QR (`detail` começando por `domain_*`: vencimento < 60 dias, trava de transferência, nameservers, estado ruim, leitura falhou) — sem txid, sem casa, sem dado pessoal; um kind próprio (`domain_alert`) exige mudança na ponte do Seatable e fica pra depois |
 | `notifyFounderReconcile` | o texto do alerta: nomes de casa, desvio por casa e a mensagem do pior achado de cada casa — valores em centavos; o id do pagamento de um `paid_after_close` fica no painel, fora da mensagem |
 | `notifyFounderActivationRadar` | o resumo do radar de ativação |
 | `notifyPreviaBeacon` | `{token, event}` do lead da Olímpia |

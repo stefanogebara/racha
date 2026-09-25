@@ -23,6 +23,10 @@ const RDAP_URL = `https://pubapi.registry.google/rdap/domain/${DOMINIO}`;
 const DIAS_DE_AVISO = 60;
 const DIA_MS = 24 * 60 * 60 * 1000;
 const PRAZO_DA_LEITURA_MS = 8000;
+const TETO_DA_RESPOSTA = 64 * 1024;   // um RDAP de domínio tem ~3 KB (segurança, PR #28, LOW-1)
+// Os nameservers que a Vercel serve. Trocados, o QR vai pra outro servidor sem
+// o vencimento mudar — o sequestro que o vigia do vencimento não vê.
+const NAMESERVERS = ['ns1.vercel-dns.com', 'ns2.vercel-dns.com'];
 
 // Estados do EPP que querem dizer "o domínio está saindo do ar ou já saiu".
 const ESTADOS_RUINS = new Set([
@@ -58,10 +62,29 @@ function avaliarDominio(rdap, { agoraMs = Date.now(), erro = null } = {}) {
       linha: `domínio ${DOMINIO}: estado "${ruim}" no registro (vence ${data}) — o QR das mesas pode parar; renovar/restaurar AGORA`,
     };
   }
+  // O SEQUESTRO que deixa o vencimento em paz (compliance, PR #28, MÉDIA-2): a
+  // trava de transferência some antes de um domínio ser levado, e o QR segue
+  // o nameserver — trocado, o tráfego vai pra outro lugar com a data intacta.
+  if (!estados.includes('client transfer prohibited')) {
+    return {
+      avisar: true, codigo: 'domain_unlocked', dias,
+      linha: `domínio ${DOMINIO}: a trava de transferência SUMIU do registro — confirmar na Vercel se foi você; se não, é tentativa de levar o domínio`,
+    };
+  }
+  const ns = (Array.isArray(rdap.nameservers) ? rdap.nameservers : [])
+    .map((n) => String((n && n.ldhName) || '').toLowerCase().replace(/\.$/, '')).sort();
+  if (ns.join(',') !== NAMESERVERS.join(',')) {
+    return {
+      avisar: true, codigo: 'domain_nameservers_changed', dias,
+      linha: `domínio ${DOMINIO}: os nameservers não são mais os da Vercel — o QR das mesas pode estar indo pra outro servidor; conferir AGORA`,
+    };
+  }
   if (dias < DIAS_DE_AVISO) {
     return {
       avisar: true, codigo: 'domain_expiring', dias,
-      linha: `domínio ${DOMINIO} vence em ${dias} dia(s) (${data}) — a auto-renovação não andou; renovar na Vercel`,
+      // Sem afirmar que a renovação falhou: a Vercel pode renovar perto do fim,
+      // e uma frase falsa todo ano ensina a ignorar o aviso (compliance, LOW-4).
+      linha: `domínio ${DOMINIO} vence em ${dias} dia(s) (${data}) — confirmar na Vercel que a renovação andou`,
     };
   }
   return { avisar: false, codigo: 'domain_ok', dias, linha: `domínio ${DOMINIO}: vence em ${dias} dias (${data})` };
@@ -75,7 +98,9 @@ async function lerRdap(buscar = fetch) {
       signal: AbortSignal.timeout(PRAZO_DA_LEITURA_MS),
     });
     if (!res.ok) return { erro: `HTTP ${res.status}` };
-    return { rdap: await res.json() };
+    const texto = await res.text();
+    if (texto.length > TETO_DA_RESPOSTA) return { erro: 'too_large' };
+    return { rdap: JSON.parse(texto) };
   } catch (e) {
     return { erro: String((e && e.name) || 'erro') };
   }
@@ -91,9 +116,11 @@ async function vigiarDominio(notificar, { buscar = fetch, agoraMs = Date.now(), 
   const resultado = avaliarDominio(rdap, { agoraMs, erro });
   process.stderr.write(`[dominio] ${resultado.codigo} ${resultado.linha}\n`);
   if (resultado.avisar && !seco) {
-    await notificar({ kind: 'account_alert', detail: `${resultado.codigo}: ${resultado.linha}` });
+    // O desfecho da entrega fica na resposta do cron: `avisar: true` sozinho
+    // não diz se alguém recebeu (segurança, PR #28, LOW-2).
+    resultado.envio = await notificar({ kind: 'account_alert', detail: `${resultado.codigo}: ${resultado.linha}` });
   }
   return resultado;
 }
 
-module.exports = { avaliarDominio, vigiarDominio, DOMINIO, RDAP_URL, DIAS_DE_AVISO };
+module.exports = { avaliarDominio, vigiarDominio, DOMINIO, RDAP_URL, DIAS_DE_AVISO, NAMESERVERS };
