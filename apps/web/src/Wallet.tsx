@@ -67,7 +67,7 @@ export default function Wallet() {
 
 // ------------------------------------------------------------------ carteira
 function WalletView({ accountToken }: { accountToken: string }) {
-  const { t, brl, dmy, tErr } = useT();
+  const { t, brl, dmy, tErr, adotarPadraoDaCasa } = useT();
   const [view, setView] = useState<HouseAccountView | null>(null);
   const [dead, setDead] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -88,6 +88,9 @@ function WalletView({ accountToken }: { accountToken: string }) {
     try {
       const v = await api.houseAccount(accountToken);
       setView(v);
+      // O IDIOMA DA CASA quando ninguém escolheu nada — o mesmo da conta
+      // (`App.tsx`). Escolha explícita (seletor ou `?lang=`) sempre vence.
+      adotarPadraoDaCasa(v.venue.defaultLang);
       setDead(false);
       setLoadFailed(false);
       storeWallet(accountToken, v.venue.name); // liga esta carteira ao aparelho (ver house.ts)
@@ -97,7 +100,7 @@ function WalletView({ accountToken }: { accountToken: string }) {
       if ((e as ApiError).status === 404) setDead(true);
       else setLoadFailed(true);
     }
-  }, [accountToken]);
+  }, [accountToken, adotarPadraoDaCasa]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 

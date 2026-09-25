@@ -20,7 +20,8 @@ test('a conta e a carteira só mostram o botão com a casa marcada como demo', (
 });
 
 test('a carteira recebe a marca da CASA, decidida pelo `isDemoVenue` — não pelo token', () => {
-  expect(ler('api', '_lib', 'house', 'house-service.js')).toMatch(/venue: \{ name: venue \? venue\.name : '\?', demo: isDemoVenue\(venue\) \}/);
+  // Campos DEPOIS do `demo` (o `defaultLang`, ALTA C1) não mudam a regra.
+  expect(ler('api', '_lib', 'house', 'house-service.js')).toMatch(/venue: \{ name: venue \? venue\.name : '\?', demo: isDemoVenue\(venue\)(,| \})/);
   const { isDemoVenue } = require('../_lib/demo');
   expect(isDemoVenue({ isTest: true, pspRecipientId: 'rcpt_demo' })).toBe(true);
   expect(isDemoVenue({ isTest: false, pspRecipientId: 're_real' })).toBe(false);
