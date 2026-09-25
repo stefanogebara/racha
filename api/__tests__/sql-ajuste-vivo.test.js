@@ -198,4 +198,22 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('4000');   // o débito ficou
     expect(Q(`select count(*) from house_account_events where account_id = '${conta}' and type = 'REDEEM_REVERSED'`)).toBe('0');
   });
+
+  test('0042, a OUTRA ordem: débito estornado ANTES do lançamento → o append recusa (RH006) e a conta não fica paga', () => {
+    const conta = require('node:crypto').randomUUID();
+    const fone = `117${String(Date.now()).slice(-8)}`;
+    Q(`insert into house_accounts (id, venue_id, phone, name, account_token, principal_cents)
+       values ('${conta}', '00000000-0000-0000-0000-00000000000a', '${fone}', 'B', 'tok-${conta}', 5000)`);
+    Q(`insert into venue_tables (id, venue_id, label) values ('${conta}', '00000000-0000-0000-0000-00000000000a', 'M ${fone}')`);
+    const check = Q(`select public.open_check('${conta}', 3000, null)`);
+    const txid = `ha_${conta.slice(0, 8)}`;
+    const agora = new Date().toISOString();
+    Q(`select public.house_redeem('${conta}', '${check}', '${txid}', 1000, '${agora}')`);
+    Q(`select public.house_redeem_reverse('${conta}', '${txid}', '${agora}')`);
+    const err = QErr(`do $$ begin perform public.append_house_payment_guarded('${check}', '${txid}', 1000);
+      exception when others then raise exception 'CODIGO=%', sqlstate; end $$`);
+    expect(err && err.match(/CODIGO=(\w+)/)[1]).toBe('RH006');
+    expect(Q(`select count(*) from check_events where check_id = '${check}' and type = 'PAYMENT_CONFIRMED'`)).toBe('0');
+    expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('5000');
+  });
 });

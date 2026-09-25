@@ -1425,6 +1425,12 @@ function createMemoryStore() {
       if (state && state.payments[txid]) {
         return log.find((e) => e.type === 'PAYMENT_CONFIRMED' && e.payload.txid === txid).seq;
       }
+      // = RH006 da 0042: o débito deste txid já foi estornado — não se lança.
+      for (const hlog of houseEvents.values()) {
+        if (hlog.some((e) => e.type === 'REDEEM_REVERSED' && e.payload && e.payload.txid === txid)) {
+          throw Object.assign(new Error('house_redeem_reversed'), { statusCode: 409, code: 'house_redeem_reversed' });
+        }
+      }
       if (!state || state.status === 'fechada') {
         const e = new Error('check_closed'); e.statusCode = 409; e.code = 'check_closed'; throw e;
       }

@@ -160,6 +160,20 @@ describe('o SERVIÇO com o store do Supabase: a recusa da conta estorna o débit
     expect((await house.wallet(accountToken)).account.principalCents).toBe(4000);   // o débito FICA — ele pagou
   });
 
+  test('CORRIDA, a outra ordem: o nosso estorno entrou ANTES do lançamento do outro → o lançamento recusa, conta não paga, saldo intacto (0042)', async () => {
+    const { store, house, table, accountToken } = await mundo('RH003');
+    // Débito + estorno de uma tentativa anterior, com o MESMO txid.
+    const acc = await store.getHouseAccountByToken(accountToken);
+    const txid = 'ha_corrida_outra_ordem';
+    const conta = await store.getCheckByQrToken(table.qrToken);
+    await store.redeemHouse({ accountId: acc.id, checkId: conta.check.id, txid, amountCents: 1000, nowIso: '2026-09-25T12:00:00.000Z' });
+    await store.reverseHouseRedeem({ accountId: acc.id, txid, nowIso: '2026-09-25T12:00:01.000Z' });
+    // O lançamento do outro pedido chega agora.
+    await expect(store.appendHousePaymentGuarded(conta.check.id, txid, 1000)).rejects.toMatchObject({ statusCode: 409, code: 'house_redeem_reversed' });
+    expect((await store.getCheckByQrToken(table.qrToken)).state.paidCents).toBe(0);
+    expect((await house.wallet(accountToken)).account.principalCents).toBe(5000);
+  });
+
   test('o EXTRATO mostra o estorno como linha própria, com o valor do débito desfeito — e sem frase do servidor (M-3)', async () => {
     const { store, house, table, accountToken, guardada } = await mundo('RH003');
     store.appendHousePaymentGuarded = guardada;
