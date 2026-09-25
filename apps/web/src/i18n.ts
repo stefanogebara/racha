@@ -690,9 +690,12 @@ export const DICT = {
   'err.house_account_limit': { en: 'This restaurant cannot open new balances right now — ask at the counter.',
                         pt: 'Este restaurante não pode abrir novos saldos agora — fale com o balcão.',
                         es: 'Este restaurante no puede abrir saldos nuevos ahora — pregunta en la barra.' },
-  'err.house_redeem_reversed': { en: 'That attempt was undone and your balance was not charged. Tap pay again.',
-                        pt: 'Essa tentativa foi desfeita e seu saldo não foi debitado. Toque em pagar de novo.',
-                        es: 'Ese intento se deshizo y tu saldo no se cobró. Vuelve a tocar pagar.' },
+  // "Confira a conta" antes de "pague de novo": este aviso chega quando a
+  // resposta do "a conta mudou" se perdeu — o cliente não viu POR QUE a conta
+  // recusou, e ela pode ter fechado (compliance, PR #35, LOW-2).
+  'err.house_redeem_reversed': { en: 'That attempt was undone and your balance was not charged. Check the bill and tap pay again.',
+                        pt: 'Essa tentativa foi desfeita e seu saldo não foi debitado. Confira a conta e toque em pagar de novo.',
+                        es: 'Ese intento se deshizo y tu saldo no se cobró. Revisa la cuenta y vuelve a tocar pagar.' },
   'err.house_raced': { en: 'This bill changed just now — your balance was not charged.',
                         pt: 'A conta mudou agora há pouco — seu saldo não foi debitado.',
                         es: 'La cuenta cambió hace un momento — tu saldo no se ha cobrado.' },

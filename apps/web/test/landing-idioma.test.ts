@@ -45,3 +45,13 @@ test('a carteira adota o idioma da casa quando ninguém escolheu (ALTA C1)', () 
   const w = readFileSync(new URL('../src/Wallet.tsx', import.meta.url), 'utf8');
   assert.match(w, /adotarPadraoDaCasa\(v\.venue\.defaultLang\)/);
 });
+
+test('HousePay gira a chave de idempotência depois de uma recusa definitiva (PR #35)', () => {
+  const src = readFileSync(new URL('../src/HousePay.tsx', import.meta.url), 'utf8');
+  // Sem isto, todo toque seguinte reusa a chave de um débito estornado e o
+  // servidor recusa pra sempre (RH006) — o cliente fica preso.
+  assert.match(src, /if \(code === 'house_raced' \|\| code === 'house_redeem_reversed'\) idemKey\.current = crypto\.randomUUID\(\);/);
+  // E NÃO gira em erro de rede/5xx: aí o retry TEM de ser o mesmo débito.
+  const bloco = src.slice(src.indexOf('} catch (e) {'), src.indexOf('} finally {'));
+  assert.equal((bloco.match(/crypto\.randomUUID\(\)/g) || []).length, 1);
+});
