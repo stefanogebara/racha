@@ -50,6 +50,16 @@ function readStored(): { lang: Lang; escolhido: boolean } {
     const stored = asLang(localStorage.getItem(STORAGE_KEY));
     if (stored) return { lang: stored, escolhido: true };
   } catch { /* storage bloqueado → fica no padrão */ }
+  // O IDIOMA DO NAVEGADOR, quando ninguém escolheu nada (auditoria do portão,
+  // P7): o dono brasileiro que digitava `useracha.app/admin` caía num login em
+  // inglês. Não é ESCOLHA (`escolhido: false`): o padrão da casa, quando a conta
+  // chega, ainda vale por cima. Inglês segue sendo o padrão pra qualquer outro.
+  try {
+    for (const l of (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language])) {
+      const base = asLang(String(l || '').slice(0, 2).toLowerCase());
+      if (base) return { lang: base, escolhido: false };
+    }
+  } catch { /* sem navigator (teste) */ }
   return { lang: 'en', escolhido: false };   // padrão do produto, não escolha
 }
 
@@ -72,6 +82,16 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
     setLangState(l);
     escolhidoRef.current = true;
     try { localStorage.setItem(STORAGE_KEY, l); } catch { /* segue sem lembrar */ }
+    // O `?lang=` da URL vence o armazenado ao recarregar — então a escolha pelo
+    // seletor o TIRA da barra, senão recarregar desfazia a escolha (auditoria da
+    // landing, L13). No iframe da landing não: lá o idioma é o da moldura.
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.has('lang') && u.searchParams.get('embed') !== '1') {
+        u.searchParams.delete('lang');
+        window.history.replaceState(window.history.state, '', u.pathname + (u.search ? u.search : '') + u.hash);
+      }
+    } catch { /* sem window (teste) */ }
   }, []);
   /**
    * O PADRÃO DA CASA, quando ninguém escolheu nada.
