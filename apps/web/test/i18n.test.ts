@@ -11,7 +11,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { semComentarios } from './censo-taxid.ts';
 import { join } from 'node:path';
 import {
-  DICT, LANGS, asLang, fill, money, tError, textoDoAchado, STRIPE_LOCALE, LANDING_MARKET,
+  DICT, LANGS, asLang, fill, money, tError, textoDoAchado, STRIPE_LOCALE, LANDING_MARKET, mensagemDeDevolucao,
 } from '../src/i18n.ts';
 
 const entries = Object.entries(DICT) as [string, { en: string; pt: string; es: string }][];
@@ -1055,4 +1055,18 @@ test('o {amount} do achado de conta reaberta é o BURACO, o que a mesa vê', asy
     assert.match(DICT['find.reopened_by_refund_mixed'][lang], /\{amount\}[\s\S]*\{refundable\}/,
       `${lang}: a frase do caso misto tem que nomear os dois números, nessa ordem`);
   }
+});
+
+test('a mensagem de devolução ao cliente sai em PORTUGUÊS, com pago e bônus separados, e sem reembolso quando não há parte paga (compliance, PR #45, M-1/M-2/L-2)', () => {
+  const misto = mensagemDeDevolucao({ name: 'Ana', venue: 'Bar X', paid: 1500, bonus: 500, bonusUntil: '2026-12-01T02:59:59.999Z' });
+  assert.match(misto, /^Olá, Ana! Aqui é Bar X\./);
+  assert.match(misto, /R\$\s?20,00/);
+  assert.match(misto, /R\$\s?15,00 pago \+ R\$\s?5,00 de bônus, válido até/);
+  assert.match(misto, /reembolso da parte paga \(R\$\s?15,00\)/);
+  const soBonus = mensagemDeDevolucao({ name: 'Ana', venue: 'Bar X', paid: 0, bonus: 700, bonusUntil: '2026-12-01T02:59:59.999Z' });
+  assert.match(soBonus, /\(bônus, válido até/);
+  assert.doesNotMatch(soBonus, /reembolso/);
+  const soPago = mensagemDeDevolucao({ name: 'Ana', venue: 'Bar X', paid: 900, bonus: 0 });
+  assert.doesNotMatch(soPago, /bônus/);
+  assert.match(soPago, /reembolso da parte paga/);
 });

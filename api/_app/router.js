@@ -365,7 +365,7 @@ const RANK = { critical: 3, high: 2, info: 1 };
  */
 const PRIMEIRO_NA_GRAVIDADE = { dispute_evidence_overdue: 3, dispute_evidence_due: 2 };
 const JUNTAR_NO_PAINEL = ['paid_after_close', 'paid_after_close_tip'];
-function projetarAchados(findings) {
+function projetarAchados(findings, { limite = 5 } = {}) {
   // Os DOIS códigos do pago-depois-de-fechar se juntam, cada um no seu grupo:
   // depois de 48 h, cinco `paid_after_close_tip` critical enchiam as vagas e
   // escondiam um prazo de disputa (compliance LOW-D de 57c0d2e).
@@ -390,7 +390,10 @@ function projetarAchados(findings) {
   return [...findings.filter((f) => !JUNTAR_NO_PAINEL.includes(f.code)), ...JUNTAR_NO_PAINEL.flatMap(juntar)]
     .sort((a, b) => ((RANK[b.severity] || 0) - (RANK[a.severity] || 0))
       || ((PRIMEIRO_NA_GRAVIDADE[b.code] || 0) - (PRIMEIRO_NA_GRAVIDADE[a.code] || 0)))
-    .slice(0, 5)
+    // O PAINEL corta nos 5 mais graves (é um resumo). A página da CARTEIRA pede
+    // mais: cada achado de débito travado tem o botão de devolver, e um achado
+    // cortado era um cliente sem botão (segurança, PR #44, L-4).
+    .slice(0, limite)
     .map((f) => ({
       severity: f.severity, code: f.code,
       ...(f.overpaidCents !== undefined ? { overpaidCents: f.overpaidCents } : {}),
@@ -2207,13 +2210,15 @@ async function route(req, res) {
         // que moram em `failed` e não em `findings` — sem eles, uma carteira
         // divergente chegava com a lista vazia e a página ficava verde
         // (segurança, PR #43, LOW-1). O mesmo formato do job diário.
-        house: {
-          failed: houseRecon.accountsFailed,
-          findings: projetarAchados([
+        house: (() => {
+          const todos = [
             ...houseRecon.findings,
             ...houseRecon.failed.flatMap((f) => (f.findings || []).map((x) => ({ ...x, accountId: f.accountId }))),
-          ]),
-        },
+          ];
+          // E QUANTOS são ao todo: acima de 100, a página diz "mostrando 100 de
+          // N" em vez de esconder o resto (segurança L-3, compliance L-4, PR #45).
+          return { failed: houseRecon.accountsFailed, total: todos.length, findings: projetarAchados(todos, { limite: 100 }) };
+        })(),
         checks: { failed: checkRecon.checksFailed, worst: checkRecon.worstSeverity },
       };
       for (const f of houseRecon.findings) {
@@ -2268,6 +2273,9 @@ async function route(req, res) {
         venueId, accountId: b.accountId, txid: b.txid, actorUserId: user.id,
       });
       process.stderr.write(`[carteira] devolvido ao saldo pelo dono venue=${venueId} txid=${String(b.txid).slice(0, 40)} duplicate=${data.duplicate}\n`);
+      // O telefone inteiro saiu pro dono, pra ele avisar o cliente: registrado
+      // (quem, qual carteira, quando) — sem o número no log.
+      if (data.whatsapp) process.stderr.write(`[carteira] telefone revelado ao dono pra aviso venue=${venueId} account=${b.accountId} user=${user.id}\n`);
       return json(res, 200, { success: true, data });
     }
 

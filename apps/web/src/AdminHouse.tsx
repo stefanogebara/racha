@@ -1,6 +1,7 @@
 
 import { useT } from './lang';import { useCallback, useEffect, useState } from 'react';
-import { textoDoAchado } from './i18n';
+import { textoDoAchado, mensagemDeDevolucao } from './i18n';
+
 import { parseBrlToCents } from './api';
 import { authedReq as req } from './auth';
 
@@ -38,11 +39,12 @@ interface HouseFinding {
 }
 
 interface HouseAdminData {
+  venueName?: string;
   config: HouseAdminConfig;
   liability: { principalCents: number; bonusCents: number; accountCount: number };
   accounts: HouseAdminAccount[];
   // Opcional: backend antigo ainda no ar não manda — a página segue de pé.
-  reconcile?: { ok: boolean; house: { failed: number; findings: HouseFinding[] } };
+  reconcile?: { ok: boolean; house: { failed: number; total?: number; findings: HouseFinding[] } };
 }
 
 export default function AdminHouse({ venueId }: { venueId: string }) {
@@ -60,6 +62,11 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
   const [freshLink, setFreshLink] = useState<{ accountId: string; url: string } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Depois de devolver ao saldo: o link do WhatsApp com a mensagem pronta, pro
+  // dono avisar o cliente no mesmo dia (compliance, PR #44, M-3).
+  // Fica até o dono dispensar: o número volta UMA vez, e um toque que não abriu
+  // o WhatsApp não pode perdê-lo (compliance, PR #45, L-3).
+  const [aviso, setAviso] = useState<{ url: string | null; name: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -170,12 +177,18 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
     if (!f.accountId || !f.txid || f.amountCents === undefined) return;
     if (!confirm(t('house.recreditAsk', { amount: brl(f.amountCents), name: quem }))) return;
     try {
-      await req<{ duplicate: boolean; amountCents: number }>('/api/house/admin/recredit', {
+      const r = await req<{ duplicate: boolean; amountCents: number; principalCents: number; bonusCents: number; bonusExpiresAt?: string; customerName?: string; whatsapp?: string }>('/api/house/admin/recredit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId: f.accountId, txid: f.txid }),
       });
       setNotice(t('house.recreditDone', { amount: brl(f.amountCents), name: quem }));
+      const nome = r.customerName || quem;
+      const texto = mensagemDeDevolucao({
+        name: nome, venue: data?.venueName ?? '', paid: r.principalCents, bonus: r.bonusCents, bonusUntil: r.bonusExpiresAt,
+      });
+      // Sem número válido: o aviso fica, sem link, pedindo outro caminho.
+      setAviso({ url: r.whatsapp ? `https://wa.me/${r.whatsapp}?text=${encodeURIComponent(texto)}` : null, name: nome });
       await refresh();
     } catch (e) {
       setError(tErr(e));
@@ -224,6 +237,9 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
             </div>
           ))}
           {achados.length === 0 && <p className="muted small">{t('house.reconNoDetail')}</p>}
+          {(data.reconcile?.house.total ?? 0) > achados.length && (
+            <p className="muted small">{t('house.reconShowing', { shown: achados.length, total: data.reconcile!.house.total! })}</p>
+          )}
         </div>
       )}
 
@@ -305,6 +321,18 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
         </div>
       ))}
       {notice && <p className="small" style={{ color: 'var(--ok)' }}>{notice}</p>}
+      {aviso && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {aviso.url
+            ? (
+              <a className="cta" href={aviso.url} target="_blank" rel="noopener noreferrer">
+                {t('house.notifyWhatsapp', { name: aviso.name })}
+              </a>
+            )
+            : <p className="muted small">{t('house.notifyNoPhone', { name: aviso.name })}</p>}
+          <button className="linklike small" onClick={() => setAviso(null)}>{t('house.notifyDone')}</button>
+        </div>
+      )}
     </section>
   );
 }

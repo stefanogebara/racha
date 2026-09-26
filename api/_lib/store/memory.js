@@ -425,6 +425,12 @@ function createMemoryStore() {
     async loadEvents(checkId) {
       return [...(events.get(checkId) || [])];
     },
+    async paymentTxidOnAnyCheck(txid) {
+      for (const log of events.values()) {
+        if (log.some((e) => e.type === 'PAYMENT_CONFIRMED' && e.payload && e.payload.txid === txid)) return true;
+      }
+      return false;
+    },
     async findCheckByTxid(txid) {
       const checkId = txidToCheck.get(txid);
       return checkId ? { id: checkId } : null;

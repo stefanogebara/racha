@@ -22,7 +22,8 @@ const PRESETS_CENTS = [5000, 10000, 20000];
 /** Tipo de lançamento → chave do dicionário. O texto sai traduzido na hora de
     renderizar, não aqui: um mapa de strings fixas volta a ser uma língua só. */
 const LEDGER_KEY = {
-  load: 'ledger.load', redeem: 'ledger.redeem', redeem_reversed: 'ledger.redeemReversed', refund: 'ledger.refund',
+  load: 'ledger.load', redeem: 'ledger.redeem', redeem_reversed: 'ledger.redeemReversed',
+  redeem_recredited: 'ledger.redeemRecredited', refund: 'ledger.refund',
 } as const;
 
 /**
@@ -176,6 +177,13 @@ function WalletView({ accountToken }: { accountToken: string }) {
   if (!view) return <Shell><p className="muted center">{t('wallet.loading')}</p></Shell>;
 
   const { venue, account, config } = view;
+  // A CASA DEVOLVEU AO SALDO nos últimos 30 dias: aviso no topo, não só uma
+  // linha no extrato — é o cliente saber que o dinheiro voltou (compliance,
+  // PR #44, M-3). A mais recente basta.
+  const TRINTA_DIAS_MS = 30 * 86400000;
+  const devolucao = account.ledger
+    .filter((e) => e.type === 'redeem_recredited' && e.at && Date.now() - Date.parse(e.at) < TRINTA_DIAS_MS)
+    .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))[0];
 
   if (charge) {
     return (
@@ -226,6 +234,22 @@ function WalletView({ accountToken }: { accountToken: string }) {
         <span className="venue">{venue.name}</span>
         <span className="mesa">{t('wallet.header')}</span>
       </header>
+
+      {devolucao && (
+        <section className="card" role="status">
+          <p className="small pos"><strong>{t('wallet.recredited', { amount: brl(devolucao.amountCents), date: dmy(devolucao.at!) })}</strong></p>
+          {/* Quanto é PAGO (reembolsável) e quanto é BÔNUS (não é), e até quando;
+              reembolso só se há parte paga (compliance, PR #45, M-2 e L-2). */}
+          <p className="muted small">
+            {t('wallet.recreditedWhy', { venue: venue.name })}
+            {(devolucao.bonusCents ?? 0) > 0 && (devolucao.principalCents ?? 0) > 0
+              ? t('wallet.recreditedSplit', { paid: brl(devolucao.principalCents!), bonus: brl(devolucao.bonusCents!) })
+              : (devolucao.bonusCents ?? 0) > 0 ? t('wallet.recreditedBonusOnly') : ''}
+            {devolucao.bonusExpiresAt ? t('wallet.bonusUntil', { date: dmy(devolucao.bonusExpiresAt) }) : ''}
+            {(devolucao.principalCents ?? 0) > 0 ? t('wallet.recreditedRefund', { venue: venue.name }) : ''}
+          </p>
+        </section>
+      )}
 
       <section className="card">
         <p className="label">{t('wallet.balance')}</p>
@@ -320,7 +344,11 @@ function LedgerRow({ entry }: { entry: HouseLedgerEntry }) {
   // repetia o `label` do servidor, em português, embaixo do título traduzido.
   const detail = entry.type === 'load' && (entry.bonusCents ?? 0) > 0
     ? t('wallet.bonusLine', { amount: brl(entry.bonusCents!) })
-    : '';
+    // Bônus reemitido com validade nova (0044): a data, pro cliente não
+    // achar que perdeu (compliance, PR #44, L-D).
+    : entry.type === 'redeem_recredited' && entry.bonusExpiresAt
+      ? t('wallet.bonusUntil', { date: dmy(entry.bonusExpiresAt) })
+      : '';
   return (
     <div className="checkrow">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>

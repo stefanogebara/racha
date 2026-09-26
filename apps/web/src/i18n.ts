@@ -118,9 +118,9 @@ export const DICT = {
   // A carteira pré-paga. O telefone é o dado mais identificável que este
   // produto recebe, e a primeira versão do aviso não o mencionava — a tela que
   // o COLETA também não tinha aviso nenhum.
-  'priv.what3':       { en: 'If you open a prepaid wallet at the restaurant, the name and phone you give, for as long as the wallet exists — and for {days} days after it is empty and unused.',
-                        pt: 'Se você abrir uma carteira pré-paga no restaurante, o nome e o telefone que você informa, enquanto a carteira existir — e por {days} dias depois de ela ficar vazia e sem uso.',
-                        es: 'Si abres una cartera prepago en el restaurante, el nombre y el teléfono que das, mientras la cartera exista — y {days} días después de quedar vacía y sin uso.' },
+  'priv.what3':       { en: 'If you open a prepaid wallet at the restaurant, the name and phone you give, for as long as the wallet exists — and for {days} days after it is empty and unused. The restaurant may contact you on WhatsApp about changes to your balance.',
+                        pt: 'Se você abrir uma carteira pré-paga no restaurante, o nome e o telefone que você informa, enquanto a carteira existir — e por {days} dias depois de ela ficar vazia e sem uso. O restaurante pode te avisar pelo WhatsApp sobre movimentações no seu saldo.',
+                        es: 'Si abres una cartera prepago en el restaurante, el nombre y el teléfono que das, mientras la cartera exista — y {days} días después de quedar vacía y sin uso. El restaurante puede avisarte por WhatsApp sobre movimientos en tu saldo.' },
   'priv.whoElseTitle': { en: 'Who else sees it',               pt: 'Quem mais vê', es: 'Quién más lo ve' },
   // "Mais ninguém" era falso. Existe uma ponte de OPERAÇÃO que leva o
   // identificador da cobrança e o valor pra quem cuida do sistema — e o mapa de
@@ -1758,6 +1758,24 @@ export const DICT = {
   'house.recreditAsk': { en: 'Put {amount} back into {name}’s balance? The payment never reached the bill. Any bonus that expired comes back with a new expiry date. If they want the money, use Refund afterwards — do not pay them another way first, or they get it twice.',
                         pt: 'Devolver {amount} ao saldo de {name}? O pagamento não entrou na conta. Bônus que tiver vencido volta com validade nova. Se ele quiser o dinheiro, use Reembolsar depois — não devolva por fora antes, senão ele recebe duas vezes.',
                         es: '¿Devolver {amount} al saldo de {name}? El pago no llegó a la cuenta. El bono que haya vencido vuelve con nueva validez. Si quiere el dinero, usa Reembolsar después — no se lo devuelvas de otra forma antes, o lo recibe dos veces.' },
+  'house.notifyWhatsapp': { en: 'Tell {name} on WhatsApp', pt: 'Avisar {name} pelo WhatsApp', es: 'Avisar a {name} por WhatsApp' },
+  // A mensagem que o DONO manda ao cliente. {venue} é o nome da casa, como ela
+  // escreve — não se traduz.
+  // Só a versão `pt` é enviada (CDC art. 31; a carteira é brasileira); en/es
+  // existem pro dicionário ficar em par e pra leitura.
+  'house.recreditMsg': { en: 'Hi {name}! This is {venue}. A payment with your balance did not reach the bill, so we put {amount} back into your balance{detail} — it is there to use.{refund} Sorry for the trouble.',
+                        pt: 'Olá, {name}! Aqui é {venue}. Um pagamento com o seu saldo não chegou na conta, então devolvemos {amount} pro seu saldo{detail} — já está lá pra usar.{refund} Desculpe o transtorno.',
+                        es: '¡Hola, {name}! Te escribimos de {venue}. Un pago con tu saldo no llegó a la cuenta, así que devolvimos {amount} a tu saldo{detail} — ya está ahí para usar.{refund} Perdona las molestias.' },
+  'house.recreditMsgSplit': { en: ' ({paid} paid + {bonus} bonus, valid until {date})', pt: ' ({paid} pago + {bonus} de bônus, válido até {date})', es: ' ({paid} pagado + {bonus} de bono, válido hasta {date})' },
+  'house.recreditMsgBonusOnly': { en: ' (bonus, valid until {date})', pt: ' (bônus, válido até {date})', es: ' (bono, válido hasta {date})' },
+  'house.recreditMsgRefund': { en: ' If you prefer, ask us to refund the paid part ({paid}).', pt: ' Se preferir, peça à casa o reembolso da parte paga ({paid}).', es: ' Si prefieres, pídenos el reembolso de la parte pagada ({paid}).' },
+  'house.notifyNoPhone': { en: 'The number on file for {name} is not valid for WhatsApp — tell them another way today.',
+                        pt: 'O número cadastrado de {name} não serve pro WhatsApp — avise por outro caminho hoje.',
+                        es: 'El número registrado de {name} no sirve para WhatsApp — avísale de otra forma hoy.' },
+  'house.notifyDone': { en: 'Done, customer told', pt: 'Pronto, cliente avisado', es: 'Listo, cliente avisado' },
+  'house.reconShowing': { en: 'Showing {shown} of {total} — the rest after these are fixed.',
+                        pt: 'Mostrando {shown} de {total} — o resto aparece conforme estes forem resolvidos.',
+                        es: 'Mostrando {shown} de {total} — el resto aparece a medida que se resuelvan estos.' },
   'house.recreditDone': { en: '{amount} is back in {name}’s balance. Tell the customer.',
                         pt: '{amount} voltou pro saldo de {name}. Avise o cliente.',
                         es: '{amount} volvió al saldo de {name}. Avisa al cliente.' },
@@ -1956,6 +1974,15 @@ export const DICT = {
   'ledger.load':   { en: 'Top-up',        pt: 'Recarga', es: 'Recarga' },
   'ledger.redeem': { en: 'Paid at table', pt: 'Pagamento na mesa', es: 'Pago en la mesa' },
   'ledger.refund': { en: 'Refund',        pt: 'Reembolso', es: 'Reembolso' },
+  'ledger.redeemRecredited': { en: 'Returned to your balance by the restaurant', pt: 'Devolvido ao saldo pela casa', es: 'Devuelto a tu saldo por el local' },
+  'wallet.bonusUntil': { en: ' · bonus valid until {date}', pt: ' · bônus vale até {date}', es: ' · bono válido hasta {date}' },
+  'wallet.recredited': { en: '{amount} is back in your balance ({date})', pt: '{amount} voltou pro seu saldo ({date})', es: '{amount} volvió a tu saldo ({date})' },
+  'wallet.recreditedWhy': { en: 'A payment with your balance did not reach the bill, and {venue} put the amount back — you can use it on your next visit.',
+                        pt: 'Um pagamento com o seu saldo não chegou na conta, e {venue} devolveu o valor — você pode usar na próxima visita.',
+                        es: 'Un pago con tu saldo no llegó a la cuenta, y {venue} devolvió el importe — puedes usarlo en tu próxima visita.' },
+  'wallet.recreditedSplit': { en: ' It is {paid} paid + {bonus} bonus.', pt: ' São {paid} pagos + {bonus} de bônus.', es: ' Son {paid} pagados + {bonus} de bono.' },
+  'wallet.recreditedBonusOnly': { en: ' It is bonus.', pt: ' É bônus.', es: ' Es bono.' },
+  'wallet.recreditedRefund': { en: ' If you prefer the money for the paid part, ask {venue}.', pt: ' Se preferir o dinheiro da parte paga, peça a {venue}.', es: ' Si prefieres el dinero de la parte pagada, pídeselo a {venue}.' },
   'ledger.redeemReversed': { en: 'Payment not completed — amount returned to your balance', pt: 'Pagamento não concluído — valor devolvido ao saldo', es: 'Pago no completado — devuelto a tu saldo' },
   'ledger.other':  { en: 'Movement', pt: 'Movimentação', es: 'Movimiento' },
 
@@ -2119,6 +2146,23 @@ export function textoDoAchado(
 }
 
 
+
+/**
+ * A MENSAGEM DO DONO AO CLIENTE, SEMPRE em português do Brasil — a carteira só
+ * abre no Brasil, e a informação ao consumidor é em português (CDC art. 31),
+ * não na língua da tela do dono (compliance, PR #45, M-1). Diz quanto é PAGO
+ * (reembolsável) e quanto é BÔNUS (não é) e até quando (M-2), e só oferece
+ * reembolso se houver parte paga (L-2).
+ */
+export function mensagemDeDevolucao(v: { name: string; venue: string; paid: number; bonus: number; bonusUntil?: string }): string {
+  const pt = (k: keyof typeof DICT, vars?: Record<string, string | number>) => fill(DICT[k].pt, vars);
+  const r = (c: number) => money(c, 'pt');
+  const ate = v.bonusUntil ? new Date(v.bonusUntil).toLocaleDateString(LOCALE.pt) : '';
+  const detalhe = v.bonus > 0 && v.paid > 0 ? pt('house.recreditMsgSplit', { paid: r(v.paid), bonus: r(v.bonus), date: ate })
+    : v.bonus > 0 ? pt('house.recreditMsgBonusOnly', { date: ate }) : '';
+  const reembolso = v.paid > 0 ? pt('house.recreditMsgRefund', { paid: r(v.paid) }) : '';
+  return pt('house.recreditMsg', { name: v.name, venue: v.venue, amount: r(v.paid + v.bonus), detail: detalhe, refund: reembolso });
+}
 
 /**
  * Dinheiro. A MOEDA não muda com o idioma — a conta é em reais nos dois casos,

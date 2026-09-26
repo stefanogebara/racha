@@ -811,6 +811,23 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
 
     loadEvents,
 
+    /**
+     * Este txid entrou no razão de ALGUMA conta (`PAYMENT_CONFIRMED`)? O
+     * `findCheckByTxid` lê a projeção (`payments`); aqui é o próprio razão, de
+     * qualquer conta — a pergunta da conciliação da carteira (segurança, PR #45,
+     * L-1). Um resultado basta.
+     */
+    async paymentTxidOnAnyCheck(txid) {
+      const { data, error } = await client
+        .from('check_events')
+        .select('check_id')
+        .eq('type', 'PAYMENT_CONFIRMED')
+        .eq('payload->>txid', txid)
+        .limit(1);
+      throwOn(error, 'paymentTxidOnAnyCheck');
+      return Array.isArray(data) && data.length > 0;
+    },
+
     async findCheckByTxid(txid) {
       const { data, error } = await client
         .from('payments')
