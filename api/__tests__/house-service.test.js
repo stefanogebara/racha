@@ -369,6 +369,9 @@ describe('house service', () => {
 
     test('devolve, grava o motivo e o AUTOR, e a conciliação fica limpa', async () => {
       const { store, house, clock, venue, account, saldo } = await travado();
+      // O predicado do serviço é o do achado: a conciliação aponta ESTE débito.
+      expect((await reconcileVenueHouse(store, venue.id)).findings
+        .some((f) => f.code === 'house_redeem_missing_payment_row' && f.txid === 'ha_travado')).toBe(true);
       const antes = await saldo();
       depois(clock, 6);
       const r = await house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_travado', actorUserId: 'user-dono-1' });
@@ -422,6 +425,19 @@ describe('house service', () => {
       expect(depois.principalCents).toBe(antes.principalCents + d.principalUsedCents);
       const ev = (await store.loadHouseEvents(account.id)).find((e) => e.type === 'REDEEM_REVERSED' && e.payload.txid === 'ha_meianoite');
       expect(ev.payload.reissue).toBeUndefined();
+    });
+
+    test('o irmão _paid (entrou na conta, sem linha de pagamento) NÃO se devolve — o conserto dele é a linha, não o saldo', async () => {
+      const { store, house, clock, venue, check, account, saldo } = await travado();
+      await store.redeemHouse({ accountId: account.id, checkId: check.id, txid: 'ha_semlinha', amountCents: 700, nowIso: clock.now() });
+      await store.appendHousePaymentGuarded(check.id, 'ha_semlinha', 700);
+      expect((await reconcileVenueHouse(store, venue.id)).findings
+        .find((f) => f.txid === 'ha_semlinha').code).toBe('house_redeem_missing_payment_row_paid');
+      depois(clock, 10);
+      const antes = await saldo();
+      await expect(house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_semlinha', actorUserId: 'u' }))
+        .rejects.toMatchObject({ statusCode: 409, code: 'house_recredit_not_flagged' });
+      expect(await saldo()).toBe(antes);
     });
 
     test('antes de 5 minutos: recusa (pagamento pode estar em voo), sem mexer no saldo', async () => {

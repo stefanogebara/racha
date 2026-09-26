@@ -87,13 +87,15 @@ linha e **não** devolva o saldo (`docs/house-accounts/README.md`).
   pelo `contato@useracha.app` se ele escreveu pra lá.
 - **Quem conserta:** o dono, pelo botão. Se o botão recusar ("não está mais
   pendente" = o achado sumiu, recarregue; "ainda pode estar em andamento" = o
-  débito tem menos de 5 min) ou a lista não mostrar a linha (o painel mostra os
-  5 achados mais graves), **acione o suporte Racha em `contato@useracha.app`**
-  no mesmo dia — o suporte usa o SQL acima.
+  débito tem menos de 5 min), **acione o suporte Racha em `contato@useracha.app`**
+  no mesmo dia — o suporte usa o SQL acima. (A página da carteira mostra todos
+  os achados; o painel resume nos 5 mais graves.)
+- **Avisar o cliente:** depois de devolver, a página mostra "Avisar {nome} pelo
+  WhatsApp", com a mensagem pronta. E a carteira do cliente mostra por 30 dias
+  que o valor voltou.
 
 ## O que ainda falta no produto (TASKS)
 
 - (Feito em 2026-09-26: o botão "devolver ao saldo", 0044.)
-- Avisar o cliente automaticamente (WhatsApp/e-mail) quando o saldo volta —
-  hoje o dono avisa, e a página só mostra o telefone mascarado (compliance,
-  PR #44, M-3).
+- Aviso AUTOMÁTICO (sem o dono tocar) exigiria WhatsApp Business com modelo
+  aprovado pela Meta, ou SMS pago — hoje o dono avisa com um toque (PR #45).

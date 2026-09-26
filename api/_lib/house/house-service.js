@@ -705,14 +705,28 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const acc = await store.getHouseAccountById(accountId);
     if (!acc || acc.venueId !== venueId) throw httpError(404, 'Conta não encontrada', 'house_recredit_not_flagged');
 
-    const { reconcileVenueHouse } = require('../checks/reconcile');
-    const recon = await reconcileVenueHouse(store, venueId);
-    const achado = recon.findings.find((f) => f.code === 'house_redeem_missing_payment_row'
-      && f.txid === txid && f.accountId === accountId);
-    if (!achado) throw httpError(409, 'Este débito não está pendente', 'house_recredit_not_flagged');
+    // O MESMO predicado do achado `house_redeem_missing_payment_row` da
+    // conciliação, só pra ESTE débito — rodar a conciliação da casa inteira a
+    // cada clique era caro e sem limite de taxa (segurança, PR #44, L-4):
+    //   1. o débito existe nesta carteira e não foi estornado;
+    //   2. não há linha de pagamento com este txid;
+    //   3. ele não entrou no razão da conta que o débito nomeia — desde a 0043
+    //      o lançamento da carteira só entra nessa conta.
+    const eventos = await store.loadHouseEvents(accountId);
+    const estado = houseState.reduce(eventos);
+    const rd = estado && estado.redeems[txid];
+    const naoPendente = () => httpError(409, 'Este débito não está pendente', 'house_recredit_not_flagged');
+    if (!rd || rd.reversed) throw naoPendente();
+    if (await store.getPayment(txid)) throw naoPendente();
+    const { reduce: reduzirConta } = require('../checks/check-state');
+    let razaoDaConta = null;
+    try { razaoDaConta = reduzirConta(await store.loadEvents(rd.checkId) || []); } catch { razaoDaConta = null; }
+    // Razão da conta ilegível: não se decide no escuro — a conciliação aponta.
+    if (!razaoDaConta || (razaoDaConta.payments && razaoDaConta.payments[txid])) throw naoPendente();
+    const achado = { amountCents: (rd.principalCents || 0) + (rd.bonusCents || 0) };
 
     // A HORA do débito sai do próprio evento: o estado reduzido não guarda `at`.
-    const debito = (await store.loadHouseEvents(accountId))
+    const debito = eventos
       .find((e) => e.type === 'REDEEMED' && e.payload && e.payload.txid === txid);
     const quando = debito ? Date.parse(debito.payload.at) : NaN;
     if (!Number.isFinite(quando) || Date.parse(now()) - quando < ESPERA_PRA_DEVOLVER_MS) {
