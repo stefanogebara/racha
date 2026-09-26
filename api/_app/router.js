@@ -2203,7 +2203,17 @@ async function route(req, res) {
         // PELA PROJEÇÃO, como o painel: código, centavos e endereço — não a
         // `message` em inglês montada no servidor, com id de conta dentro
         // (acordo de trabalho: o servidor manda código, o cliente traduz).
-        house: { failed: houseRecon.accountsFailed, findings: projetarAchados(houseRecon.findings) },
+        // E os achados POR CARTEIRA (principal/lote divergente, razão ilegível),
+        // que moram em `failed` e não em `findings` — sem eles, uma carteira
+        // divergente chegava com a lista vazia e a página ficava verde
+        // (segurança, PR #43, LOW-1). O mesmo formato do job diário.
+        house: {
+          failed: houseRecon.accountsFailed,
+          findings: projetarAchados([
+            ...houseRecon.findings,
+            ...houseRecon.failed.flatMap((f) => (f.findings || []).map((x) => ({ ...x, accountId: f.accountId }))),
+          ]),
+        },
         checks: { failed: checkRecon.checksFailed, worst: checkRecon.worstSeverity },
       };
       for (const f of houseRecon.findings) {

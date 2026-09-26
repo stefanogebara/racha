@@ -808,6 +808,7 @@ test('todo achado com {amount} na frase tem um campo de centavos que o painel l�
     // Saldo da casa: o quanto debitado (principal + bônus) — PR #42, M-2.
     'find.house_redeem_missing_payment_row': 'amountCents',
     'find.house_redeem_missing_payment_row_paid': 'amountCents',
+    'find.house_payment_row_without_redeem': 'amountCents',
   };
   for (const [chave, campo] of Object.entries(comValor)) {
     assert.ok(chave in DICT, `${chave} não está no dicionário`);

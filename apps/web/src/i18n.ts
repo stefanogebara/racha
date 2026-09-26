@@ -1208,15 +1208,18 @@ export const DICT = {
   // Saldo da casa sem pagamento — o conserto é do suporte Racha (estorno por
   // SQL, `docs/runbooks/saldo-debitado-sem-pagamento.md`); a frase diz o valor
   // e quem acionar, porque a casa não conserta sozinha (compliance, PR #42).
-  'find.house_redeem_missing_payment_row': { en: 'a customer’s balance went down by {amount} and the payment never reached the bill — contact Racha support (contato@useracha.app) today; the amount goes back to their balance',
-                        pt: 'o saldo de um cliente baixou {amount} e o pagamento não entrou na conta — acione o suporte Racha (contato@useracha.app) hoje; o valor volta pro saldo dele',
-                        es: 'el saldo de un cliente disminuyó {amount} y el pago no llegó a la cuenta — contacta con el soporte de Racha (contato@useracha.app) hoy; el importe vuelve a su saldo' },
-  'find.house_redeem_missing_payment_row_paid': { en: 'a {amount} balance payment reached the bill but has no payment record — Racha support fixes the record; do not give the balance back',
-                        pt: 'um pagamento de {amount} com saldo entrou na conta mas ficou sem registro de pagamento — o suporte Racha corrige o registro; não devolva o saldo',
-                        es: 'un pago de {amount} con saldo llegó a la cuenta pero no tiene registro de pago — el soporte de Racha corrige el registro; no devuelvas el saldo' },
-  'find.house_payment_row_without_redeem': { en: 'a balance payment record has no matching debit in the wallet — contact Racha support (contato@useracha.app)',
-                        pt: 'um registro de pagamento com saldo não tem débito na carteira — acione o suporte Racha (contato@useracha.app)',
-                        es: 'un registro de pago con saldo no tiene cargo en el monedero — contacta con el soporte de Racha (contato@useracha.app)' },
+  // "Avise o cliente" e "não devolva por fora": avisar é da casa (runbook), e
+  // devolver por Pix/dinheiro ANTES do estorno do suporte paga o cliente duas
+  // vezes (compliance, PR #43, M-2 e M-3).
+  'find.house_redeem_missing_payment_row': { en: 'a customer’s balance went down by {amount} and the payment never reached the bill — contact Racha support (contato@useracha.app) today and tell the customer; the amount goes back to their balance. Do not pay it back yourself',
+                        pt: 'o saldo de um cliente baixou {amount} e o pagamento não entrou na conta — acione o suporte Racha (contato@useracha.app) hoje e avise o cliente; o valor volta pro saldo dele. Não devolva por fora',
+                        es: 'el saldo de un cliente disminuyó {amount} y el pago no llegó a la cuenta — contacta con el soporte de Racha (contato@useracha.app) hoy y avisa al cliente; el importe vuelve a su saldo. No lo devuelvas por tu cuenta' },
+  'find.house_redeem_missing_payment_row_paid': { en: 'a {amount} balance payment reached the bill but has no payment record — Racha support (contato@useracha.app) fixes the record; do not give the balance back',
+                        pt: 'um pagamento de {amount} com saldo entrou na conta mas ficou sem registro de pagamento — o suporte Racha (contato@useracha.app) corrige o registro; não devolva o saldo',
+                        es: 'un pago de {amount} con saldo llegó a la cuenta pero no tiene registro de pago — el soporte de Racha (contato@useracha.app) corrige el registro; no devuelvas el saldo' },
+  'find.house_payment_row_without_redeem': { en: 'a {amount} balance payment record has no matching debit in the wallet — contact Racha support (contato@useracha.app)',
+                        pt: 'um registro de pagamento de {amount} com saldo não tem débito na carteira — acione o suporte Racha (contato@useracha.app)',
+                        es: 'un registro de pago de {amount} con saldo no tiene cargo en el monedero — contacta con el soporte de Racha (contato@useracha.app)' },
   'find.other':       { en: 'needs a look: {code}',
                         pt: 'precisa de atenção: {code}',
                         es: 'necesita atención: {code}' },
@@ -1743,6 +1746,9 @@ export const DICT = {
   'house.saving':     { en: 'saving…',                         pt: 'salvando…', es: 'guardando…' },
   'house.saveConfig': { en: 'Save settings',                   pt: 'Salvar configuração', es: 'Guardar configuración' },
   'house.since':      { en: 'since {date}', pt: 'desde {date}', es: 'desde {date}' },
+  'house.reconNoDetail': { en: 'Something in the balances or the bills does not match. Contact Racha support (contato@useracha.app).',
+                        pt: 'Algo nos saldos ou nas contas não bate. Acione o suporte Racha (contato@useracha.app).',
+                        es: 'Algo en los saldos o en las cuentas no cuadra. Contacta con el soporte de Racha (contato@useracha.app).' },
   'house.reconTitle': { en: 'The wallet does not add up',
                         pt: 'A carteira não fecha',
                         es: 'El monedero no cuadra' },

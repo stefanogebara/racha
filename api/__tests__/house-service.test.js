@@ -322,6 +322,11 @@ describe('house service', () => {
     const p = projetarAchados(hr.findings).find((f) => f.txid === 'ha_crash_a');
     expect(p).toMatchObject({ code: 'house_redeem_missing_payment_row', amountCents: 1000, accountId: account.id });
     expect(p.message).toBeUndefined();
+    // E a ROTA da página da carteira leva também os achados POR CARTEIRA (os
+    // que moram em `failed`) — sem eles, carteira divergente chegava com a
+    // lista vazia e a página ficava verde (as duas revisões do PR #43).
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', '_app', 'router.js'), 'utf8');
+    expect(src).toMatch(/\.\.\.houseRecon\.findings,\s*\.\.\.houseRecon\.failed\.flatMap\(\(f\) => \(f\.findings \|\| \[\]\)\.map\(\(x\) => \(\{ \.\.\.x, accountId: f\.accountId \}\)\)\),/);
     expect(a.message).toMatch(/re-credit/);
     expect(b.code).toBe('house_redeem_missing_payment_row_paid');
     expect(b.message).toMatch(/BACKFILL|do NOT re-credit/);

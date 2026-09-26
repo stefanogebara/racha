@@ -174,20 +174,27 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
   // mandava o crítico pro stderr: um saldo debitado sem pagamento era invisível
   // aqui (compliance, PR #42, M-2). Traduzida, com o valor e o cliente.
   const achados = data.reconcile?.house.findings ?? [];
-  const nomeDa = (id?: string) => accounts.find((a) => a.id === id)?.name;
+  // Vermelho quando a conciliação diz que não fecha, MESMO sem achado na lista
+  // (a do lado das contas só manda contagem): verde por falta de linha é o
+  // defeito "degrade-open" (segurança, PR #43, LOW-1).
+  const naoFecha = data.reconcile ? !data.reconcile.ok : false;
+  // Sem o nome na lista, um pedaço do id — nunca um achado sem dono
+  // (segurança, PR #43, LOW-2).
+  const quemE = (id?: string) => (id ? (accounts.find((a) => a.id === id)?.name ?? `#${id.slice(0, 8)}`) : undefined);
 
   return (
     <section className="panel">
       <p className="label">{t('home.houseBalance')}</p>
 
-      {achados.length > 0 && (
+      {(naoFecha || achados.length > 0) && (
         <div role="alert">
           <p className="small" style={{ color: 'var(--erro)' }}><strong>{t('house.reconTitle')}</strong></p>
           {achados.map((f, i) => (
             <p className="muted small" key={i}>
-              · {nomeDa(f.accountId) ? `${nomeDa(f.accountId)}: ` : ''}{textoDoAchado(f, t, brl)}
+              · {quemE(f.accountId) ? `${quemE(f.accountId)}: ` : ''}{textoDoAchado(f, t, brl)}
             </p>
           ))}
+          {achados.length === 0 && <p className="muted small">{t('house.reconNoDetail')}</p>}
         </div>
       )}
 
