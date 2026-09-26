@@ -1686,18 +1686,21 @@ async function reconcileVenueHouse(store, venueId) {
     for (const [txid, rd] of Object.entries(r.state.redeems)) {
       if (rd.reversed) continue; // compensated — correctly absent everywhere
       redeemTxids.add(txid);
+      // QUANTO e DE QUEM: sem isto o dono via "precisa de atenção" sem valor
+      // nem cliente, e não tinha como agir (compliance, PR #42, H-2).
+      const debitadoCents = (rd.principalCents || 0) + (rd.bonusCents || 0);
       if (!housePayRows.has(txid)) {
         if (checkLedgerTxids.has(txid)) {
           venueFindings.push({
             severity: 'critical', code: 'house_redeem_missing_payment_row_paid',
             message: `redeem ${txid} paid the check but has no payments row — BACKFILL the row; do NOT re-credit account ${r.accountId}`,
-            txid, accountId: r.accountId,
+            txid, accountId: r.accountId, amountCents: debitadoCents,
           });
         } else {
           venueFindings.push({
             severity: 'critical', code: 'house_redeem_missing_payment_row',
             message: `redeem ${txid} debited account ${r.accountId} but never reached the check — re-credit the customer (or replay the redeem)`,
-            txid, accountId: r.accountId,
+            txid, accountId: r.accountId, amountCents: debitadoCents,
           });
         }
       }
@@ -1708,7 +1711,7 @@ async function reconcileVenueHouse(store, venueId) {
       venueFindings.push({
         severity: 'critical', code: 'house_payment_row_without_redeem',
         message: `house payment row ${txid} has no REDEEMED ledger event (credit paid a check without a debit)`,
-        txid,
+        txid, ...(Number.isSafeInteger(row.amountCents) ? { amountCents: row.amountCents } : {}),
       });
     }
   }

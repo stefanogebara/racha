@@ -312,6 +312,16 @@ describe('house service', () => {
     const a = hr.findings.find((f) => f.txid === 'ha_crash_a');
     const b = hr.findings.find((f) => f.txid === 'ha_crash_b');
     expect(a.code).toBe('house_redeem_missing_payment_row');
+    // QUANTO e DE QUEM, pro dono agir (compliance, PR #42, M-2).
+    expect(a.amountCents).toBe(1000);
+    expect(a.accountId).toBe(account.id);
+    expect(b.amountCents).toBe(2000);
+    // A projeção (a que a página da carteira e o painel recebem) leva valor e
+    // carteira, e NÃO leva a frase montada no servidor.
+    const { projetarAchados } = require('../_app/router');
+    const p = projetarAchados(hr.findings).find((f) => f.txid === 'ha_crash_a');
+    expect(p).toMatchObject({ code: 'house_redeem_missing_payment_row', amountCents: 1000, accountId: account.id });
+    expect(p.message).toBeUndefined();
     expect(a.message).toMatch(/re-credit/);
     expect(b.code).toBe('house_redeem_missing_payment_row_paid');
     expect(b.message).toMatch(/BACKFILL|do NOT re-credit/);

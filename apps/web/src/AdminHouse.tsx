@@ -1,5 +1,6 @@
 
 import { useT } from './lang';import { useCallback, useEffect, useState } from 'react';
+import { textoDoAchado } from './i18n';
 import { parseBrlToCents } from './api';
 import { authedReq as req } from './auth';
 
@@ -27,10 +28,20 @@ interface HouseAdminAccount {
   createdAt: string;
 }
 
+/** Um achado da conciliação da carteira, já projetado: código e centavos, sem frase do servidor. */
+interface HouseFinding {
+  severity: string;
+  code: string;
+  amountCents?: number;
+  accountId?: string;
+}
+
 interface HouseAdminData {
   config: HouseAdminConfig;
   liability: { principalCents: number; bonusCents: number; accountCount: number };
   accounts: HouseAdminAccount[];
+  // Opcional: backend antigo ainda no ar não manda — a página segue de pé.
+  reconcile?: { ok: boolean; house: { failed: number; findings: HouseFinding[] } };
 }
 
 export default function AdminHouse({ venueId }: { venueId: string }) {
@@ -159,10 +170,26 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
   }
 
   const { liability, accounts } = data;
+  // A CONCILIAÇÃO DA CARTEIRA, onde o conserto mora. A rota já calculava e só
+  // mandava o crítico pro stderr: um saldo debitado sem pagamento era invisível
+  // aqui (compliance, PR #42, M-2). Traduzida, com o valor e o cliente.
+  const achados = data.reconcile?.house.findings ?? [];
+  const nomeDa = (id?: string) => accounts.find((a) => a.id === id)?.name;
 
   return (
     <section className="panel">
       <p className="label">{t('home.houseBalance')}</p>
+
+      {achados.length > 0 && (
+        <div role="alert">
+          <p className="small" style={{ color: 'var(--erro)' }}><strong>{t('house.reconTitle')}</strong></p>
+          {achados.map((f, i) => (
+            <p className="muted small" key={i}>
+              · {nomeDa(f.accountId) ? `${nomeDa(f.accountId)}: ` : ''}{textoDoAchado(f, t, brl)}
+            </p>
+          ))}
+        </div>
+      )}
 
       <label className="servico" style={{ alignItems: 'center' }}>
         <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
