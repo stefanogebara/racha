@@ -34,6 +34,7 @@ interface HouseFinding {
   code: string;
   amountCents?: number;
   accountId?: string;
+  txid?: string;
 }
 
 interface HouseAdminData {
@@ -160,6 +161,27 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
     }
   }
 
+  /**
+   * DEVOLVER AO SALDO o débito que nunca chegou à conta (0044). O servidor só
+   * aceita o txid que a conciliação aponta agora, e só 5 min depois do débito;
+   * a confirmação diz o valor e o cliente antes de mexer no dinheiro.
+   */
+  async function recredit(f: HouseFinding, quem: string) {
+    if (!f.accountId || !f.txid || f.amountCents === undefined) return;
+    if (!confirm(t('house.recreditAsk', { amount: brl(f.amountCents), name: quem }))) return;
+    try {
+      await req<{ duplicate: boolean; amountCents: number }>('/api/house/admin/recredit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: f.accountId, txid: f.txid }),
+      });
+      setNotice(t('house.recreditDone', { amount: brl(f.amountCents), name: quem }));
+      await refresh();
+    } catch (e) {
+      setError(tErr(e));
+    }
+  }
+
   if (!data) {
     return (
       <section className="panel">
@@ -190,9 +212,16 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
         <div role="alert">
           <p className="small" style={{ color: 'var(--erro)' }}><strong>{t('house.reconTitle')}</strong></p>
           {achados.map((f, i) => (
-            <p className="muted small" key={i}>
-              · {quemE(f.accountId) ? `${quemE(f.accountId)}: ` : ''}{textoDoAchado(f, t, brl)}
-            </p>
+            <div key={i}>
+              <p className="muted small">
+                · {quemE(f.accountId) ? `${quemE(f.accountId)}: ` : ''}{textoDoAchado(f, t, brl)}
+              </p>
+              {f.code === 'house_redeem_missing_payment_row' && f.accountId && f.txid && f.amountCents !== undefined && (
+                <button className="ghost" onClick={() => recredit(f, quemE(f.accountId) ?? '')}>
+                  {t('house.recredit', { amount: brl(f.amountCents) })}
+                </button>
+              )}
+            </div>
           ))}
           {achados.length === 0 && <p className="muted small">{t('house.reconNoDetail')}</p>}
         </div>

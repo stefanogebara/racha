@@ -673,6 +673,47 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     return { principalCents: r.principalCents, bonusCents: avail.bonusCents };
   }
 
+  /**
+   * O DONO DEVOLVE AO SALDO um débito que nunca chegou à conta (0044).
+   *
+   * Só o débito que a conciliação aponta AGORA como
+   * `house_redeem_missing_payment_row` — nunca um txid qualquer que o dono
+   * mande: o botão conserta o achado, não abre uma porta pra desfazer
+   * pagamento. E só depois de `ESPERA_PRA_DEVOLVER_MS` do débito: um pagamento
+   * em voo (débito gravado, lançamento a caminho) aparece no achado por uma
+   * fração de segundo, e estornar ali atropelaria a compra.
+   *
+   * O banco ainda guarda as duas pontas: RH007 se o pagamento entrou nesse
+   * meio-tempo, RH010 se o débito não existe, `duplicate` no repetido.
+   */
+  const ESPERA_PRA_DEVOLVER_MS = 5 * 60 * 1000;
+  async function recreditStuckDebit({ venueId, accountId, txid, actorUserId }) {
+    if (typeof txid !== 'string' || !txid || !actorUserId) throw badRequest('Pedido inválido', 'house_recredit_not_flagged');
+    const acc = await store.getHouseAccountById(accountId);
+    if (!acc || acc.venueId !== venueId) throw httpError(404, 'Conta não encontrada', 'house_account_not_found');
+
+    const { reconcileVenueHouse } = require('../checks/reconcile');
+    const recon = await reconcileVenueHouse(store, venueId);
+    const achado = recon.findings.find((f) => f.code === 'house_redeem_missing_payment_row'
+      && f.txid === txid && f.accountId === accountId);
+    if (!achado) throw httpError(409, 'Este débito não está pendente', 'house_recredit_not_flagged');
+
+    // A HORA do débito sai do próprio evento: o estado reduzido não guarda `at`.
+    const debito = (await store.loadHouseEvents(accountId))
+      .find((e) => e.type === 'REDEEMED' && e.payload && e.payload.txid === txid);
+    const quando = debito ? Date.parse(debito.payload.at) : NaN;
+    if (!Number.isFinite(quando) || Date.parse(now()) - quando < ESPERA_PRA_DEVOLVER_MS) {
+      throw httpError(409, 'Débito recente demais', 'house_recredit_too_soon');
+    }
+
+    // RH007 (`house_redeem_landed`) e RH010 (`house_redeem_unknown`) sobem com
+    // o código do banco: 409/404, e a tela traduz.
+    const r = await store.reverseHouseRedeem({
+      accountId, txid, nowIso: now(), reason: 'owner_recredit', actor: actorUserId,
+    });
+    return { duplicate: r.duplicate === true, amountCents: achado.amountCents };
+  }
+
   /** venueId for an account token — the router's ownership guard for admin ops. */
   async function venueIdForAccount(accountId) {
     const acc = await store.getHouseAccountById(accountId);
@@ -682,7 +723,7 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
   return {
     publicConfig, openAccount, wallet, createLoad, confirmLoadFromWebhook,
     redeem, adminView, updateConfig, rotateToken, refundPrincipal,
-    venueIdForAccount,
+    recreditStuckDebit, venueIdForAccount,
     // exported for tests
     quoteBonusCents, normalizePhone, maskPhone, validateConfigPatch, venueHouseConfig,
   };

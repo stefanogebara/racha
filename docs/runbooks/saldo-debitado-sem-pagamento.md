@@ -39,12 +39,20 @@ select seq from house_account_events
 
 ## Consertar
 
-Se há o débito, não há `PAYMENT_CONFIRMED` e não há estorno, rode o estorno do
-próprio banco:
+**Pelo botão (desde 2026-09-26, 0044).** Na página da carteira, a linha do
+achado tem o botão "Devolver R$ X ao saldo". O servidor só aceita o débito que
+a conciliação aponta **agora**, e só **5 minutos** depois do débito (pra não
+atropelar um pagamento em voo). O estorno grava `reason: owner_recredit` e o
+**autor** (o id do usuário que clicou). É o caminho normal.
+
+**Pela mão (se o botão não servir).** Se há o débito, não há
+`PAYMENT_CONFIRMED` e não há estorno, rode o estorno do próprio banco, com
+motivo e autor:
 
 ```sql
 select public.house_redeem_reverse('<account_id>', '<txid>',
-  to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'));
+  to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+  'owner_recredit', '<quem rodou: id do usuário ou "ops:nome">');
 ```
 
 - Se ele devolver **RH007**, o pagamento entrou na conta nesse meio-tempo. Então
@@ -74,5 +82,4 @@ linha e **não** devolva o saldo (`docs/house-accounts/README.md`).
 
 ## O que ainda falta no produto (TASKS)
 
-- O dono não tem um botão de "devolver ao saldo". Hoje o estorno é por SQL, na
-  mão de quem opera o Racha.
+- (Feito em 2026-09-26: o botão "devolver ao saldo", 0044.)

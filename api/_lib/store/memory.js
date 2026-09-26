@@ -1399,7 +1399,12 @@ function createMemoryStore() {
       return { seq, duplicate: false, principalUsedCents: plan.principalCents, bonusUsedCents: plan.bonusCents };
     },
     /** Compensation: put the exact REDEEMED breakdown back (idempotent by txid). */
-    async reverseHouseRedeem({ accountId, txid, nowIso }) {
+    async reverseHouseRedeem({ accountId, txid, nowIso, reason = 'check_append_refused', actor = null }) {
+      // = 22023 da 0044: motivo de lista fechada; o do dono exige autor.
+      if (!['check_append_refused', 'owner_recredit'].includes(reason)
+        || (reason === 'owner_recredit' && !actor)) {
+        throw Object.assign(new Error('house_invalid_amount'), { statusCode: 400, code: 'house_invalid_amount' });
+      }
       const log = houseEvents.get(accountId);
       if (!log) throw new Error('unknown house account');
       const state = houseState.reduce(log);
@@ -1414,7 +1419,7 @@ function createMemoryStore() {
       }
       if (orig.reversed) return { duplicate: true };
       const seq = _houseAppend(accountId, 'REDEEM_REVERSED', {
-        txid, at: nowIso, reason: 'check_append_refused',
+        txid, at: nowIso, reason, ...(actor ? { actor } : {}),
       });
       return { duplicate: false, seq };
     },

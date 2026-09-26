@@ -2247,6 +2247,28 @@ async function route(req, res) {
     }
 
     /**
+     * O DONO DEVOLVE AO SALDO o débito que nunca chegou à conta (0044).
+     *
+     * Dono da casa DA CARTEIRA (a casa sai da carteira, não do corpo), e o
+     * serviço só aceita o txid que a conciliação aponta agora. O autor é o id
+     * do usuário — gravado no `REDEEM_REVERSED`.
+     */
+    if (req.method === 'POST' && url.pathname === '/api/house/admin/recredit') {
+      const user = await guardUser(req, res); if (!user) return;
+      const b = JSON.parse(await readBody(req) || '{}');
+      if (!b.accountId || !b.txid) return json(res, 400, { success: false, code: 'house_recredit_not_flagged' });
+      const venueId = await houseSvc.venueIdForAccount(b.accountId);
+      if (!venueId) return json(res, 404, { success: false, code: 'house_account_not_found' });
+      try { await auth.requireVenueOwner(user, venueId); }
+      catch (e) { return json(res, e.statusCode || 403, { success: false, code: 'forbidden' }); }
+      const data = await houseSvc.recreditStuckDebit({
+        venueId, accountId: b.accountId, txid: b.txid, actorUserId: user.id,
+      });
+      process.stderr.write(`[carteira] devolvido ao saldo pelo dono venue=${venueId} txid=${String(b.txid).slice(0, 40)} duplicate=${data.duplicate}\n`);
+      return json(res, 200, { success: true, data });
+    }
+
+    /**
      * O dono declara que resolveu uma pendência de dinheiro.
      *
      * O caso concreto: o estorno falhou, o dinheiro voltou pro restaurante e o
