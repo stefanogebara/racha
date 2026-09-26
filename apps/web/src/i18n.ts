@@ -1446,6 +1446,10 @@ export const DICT = {
                         pt: 'Isto não parece um e-mail — confira o @ e o domínio.',
                         es: 'Esto no parece un correo — revisa la @ y el dominio.' },
   'gate.password':    { en: 'password',                        pt: 'senha', es: 'contraseña' },
+  // O portão não tinha link nenhum (auditoria, P8): quem trava no login não
+  // tinha a quem perguntar. Termos e privacidade próprios ainda não existem
+  // (texto de advogado — TASKS); o contato existe e tem entrega conferida.
+  'gate.help':        { en: 'Help', pt: 'Ajuda', es: 'Ayuda' },
   'gate.signIn':      { en: 'Sign in',                         pt: 'Entrar', es: 'Entrar' },
   'gate.ownerPanel':  { en: 'owner panel',                     pt: 'painel do dono', es: 'panel del dueño' },
 
@@ -1995,11 +1999,11 @@ export const DICT = {
                         es: '{venue} todavía no ofrece saldo de la casa.' },
 
   // ── landing: o herói (a noite do bar) ───────────────────────────────────
-  'land.eyebrow':   { en: 'Pay at the table · Brazil',        pt: 'Pagamento na mesa · Brasil', es: 'Pago en la mesa · España' },
+  'land.eyebrow':   { en: 'Pay at the table · Brazil',        pt: 'Pagamento na mesa · Brasil', es: 'Pago en la mesa · Brasil' },
   'land.h1a':       { en: 'Say who had what.',                pt: 'Fala o que foi de quem.', es: 'Di quién tomó qué.' },
   'land.sub':       { en: 'Scan the table QR, say who had what, and everyone pays the house straight over Pix. No app, no sign-up, no card machine passed around the table.',
                       pt: 'Escaneia o QR da mesa, fala o que foi de quem, e cada um paga a casa direto no Pix. Sem app, sem cadastro, sem maquininha passando de mão em mão.',
-                        es: 'Escanea el QR de la mesa, di quién tomó qué, y cada uno paga a la casa con Bizum. Sin app, sin registro, sin datáfono pasando de mano en mano.' },
+                        es: 'Escanea el QR de la mesa, di quién tomó qué, y cada uno paga a la casa directo por Pix. Sin app, sin registro, sin datáfono pasando de mano en mano.' },
   'land.try':       { en: 'Try the live demo',                pt: 'Experimente a demo ao vivo', es: 'Prueba la demo en directo' },
   'land.tryHint':   { en: 'This phone is the real product. Tap it.',
                       pt: 'Este telefone é o produto de verdade. Toque nele.',
@@ -2026,7 +2030,7 @@ export const DICT = {
   'land.venueTitle':{ en: 'For the house',                     pt: 'Para a casa', es: 'Para la casa' },
   'land.venueSub':  { en: 'The table turns faster at the rush. Tips go to payroll, the way the law wants. Reconciliation to the cent, every night.',
                       pt: 'A mesa gira mais rápido no rush. Gorjeta vai pra folha, do jeito que a lei pede. Conciliação ao centavo, toda noite.',
-                        es: 'La mesa rota más rápido en hora punta. La propina llega a la nómina, como pide la ley. Conciliación al céntimo, cada noche.' },
+                        es: 'La mesa rota más rápido en hora punta. La propina llega a la nómina, como pide la ley brasileña. Conciliación al céntimo, cada noche.' },
   'land.openPanel': { en: 'Open the restaurant panel',         pt: 'Abrir o painel do restaurante', es: 'Abrir el panel del restaurante' },
 
   'cat.carne': { en: 'Meat', pt: 'Carne', es: 'Carne' }, 'cat.peixe': { en: 'Fish', pt: 'Peixe', es: 'Pescado' },
@@ -2038,14 +2042,14 @@ export const DICT = {
   'cat.suco': { en: 'Juice', pt: 'Suco', es: 'Zumo' }, 'cat.couvert': { en: 'Cover charge', pt: 'Couvert', es: 'Cubierto' },
   'land.proofs':    { en: 'Pix lands in the restaurant’s own account · Service optional, tracked for payroll · We never hold your money',
                       pt: 'O Pix cai na conta do próprio restaurante · Serviço opcional, rastreado pra folha · A gente nunca segura o seu dinheiro',
-                        es: 'El pago cae en la cuenta del propio restaurante · Servicio opcional, registrado para la nómina · Nunca retenemos tu dinero' },
+                        es: 'El Pix cae en la cuenta del propio restaurante · Servicio opcional, registrado para la nómina · Nunca retenemos tu dinero' },
   'land.specimen':  { en: 'The bill, illustrated',              pt: 'A conta, ilustrada', es: 'La cuenta, ilustrada' },
   'land.specimenSub':{ en: 'One woodcut for each thing a bar bill prints.',
                        pt: 'Uma xilogravura pra cada coisa que uma conta de bar imprime.',
                         es: 'Una xilografía para cada cosa que imprime la cuenta de un bar.' },
   'land.h2how':     { en: 'Three moves. Under a minute.',        pt: 'Três gestos. Menos de um minuto.', es: 'Tres gestos. Menos de un minuto.' },
   'land.house1':    { en: 'The table turns faster at the rush.', pt: 'A mesa gira mais rápido no rush.', es: 'La mesa rota más rápido en hora punta.' },
-  'land.house2':    { en: 'Tips reach payroll, as the law requires.', pt: 'A gorjeta chega na folha, como a lei exige.', es: 'La propina llega a la nómina, como exige la ley.' },
+  'land.house2':    { en: 'Tips reach payroll, as the law requires.', pt: 'A gorjeta chega na folha, como a lei exige.', es: 'La propina llega a la nómina, como exige la ley brasileña.' },
   'land.house3':    { en: 'Reconciled to the cent, every night.', pt: 'Conciliado ao centavo, toda noite.', es: 'Conciliado al céntimo, cada noche.' },
   'land.house4':    { en: 'Prepaid house balance turns loyalty into cash up front.', pt: 'Saldo da casa pré-pago transforma fidelidade em caixa antecipado.', es: 'El saldo prepago de la casa convierte fidelidad en caja por adelantado.' },
 
@@ -2203,10 +2207,21 @@ export const STRIPE_LOCALE: Record<Lang, 'en' | 'pt-BR' | 'es'> = {
  * "· Brazil", e uma página que fala dos dois não vende nenhum. Quando a Espanha
  * tiver landing própria, é esta tabela que muda.
  */
+/**
+ * A LANDING DESCREVE O PRODUTO QUE EXISTE — em todas as línguas.
+ *
+ * O espanhol vendia Bizum e euro, mas a Espanha está DESLIGADA
+ * (`RACHA_ES_ENABLED`, `docs/markets/README.md`): nenhuma cobrança espanhola
+ * sai, e a demo que o botão abre é brasileira (R$ e Pix). Prometer um trilho
+ * que o produto não cobra é propaganda que não se cumpre (auditoria da
+ * landing, L1/L5). O espanhol agora descreve o produto brasileiro pra quem lê
+ * espanhol — o turista na mesa, o dono hispanofalante. Quando a Espanha ligar,
+ * `es` volta pra `{ EUR, bizum }` e o censo do trilho acusa as frases.
+ */
 export const LANDING_MARKET: Record<Lang, { currency: CurrencyCode; rail: 'pix' | 'bizum' }> = {
   en: { currency: 'BRL', rail: 'pix' },
   pt: { currency: 'BRL', rail: 'pix' },
-  es: { currency: 'EUR', rail: 'bizum' },
+  es: { currency: 'BRL', rail: 'pix' },
 };
 
 /** As moedas que o produto atende. Ambas de 2 casas — ver api/_lib/markets.js. */

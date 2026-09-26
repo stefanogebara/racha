@@ -1,0 +1,14 @@
+# Racha — o que os buscadores podem ler.
+# A landing sim. Conta (`?t=`), carteira e painel NÃO: o token da mesa e o da
+# carteira são capacidades ao portador, e o painel é do dono (auditoria da
+# landing, L11 — antes este arquivo nem existia e a URL servia o HTML do app).
+User-agent: *
+Allow: /$
+Disallow: /*?t=
+Disallow: /*&t=
+Disallow: /carteira
+Disallow: /admin
+Disallow: /api/
+Disallow: /ios
+
+Sitemap: https://useracha.app/sitemap.xml

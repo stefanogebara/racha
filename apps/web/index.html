@@ -1,6 +1,8 @@
 <!doctype html>
 <!--
-  O `lang` ESTÁTICO é o PADRÃO DO PRODUTO, e o produto abre em inglês.
+  O `lang` ESTÁTICO é o PADRÃO DO PRODUTO, e o produto abre em inglês — ou no
+  idioma do navegador, se for pt/es e ninguém tiver escolhido (`lang.tsx`, P7);
+  o efeito corrige o atributo depois do mount.
 
   Era `pt-BR` — uma língua que este documento não tem como saber. O app monta
   em `en` (`lang.tsx`: o padrão quando não há `?lang=` nem escolha guardada) e
@@ -44,6 +46,24 @@
          frase assim que o idioma se resolve. Achado testando no navegador,
          2026-09-13. -->
     <title>Racha</title>
+    <!--
+      A PRÉVIA DO LINK (auditoria da landing, L10). WhatsApp, iMessage e
+      buscadores leem só este HTML estático — o `<title>` que o `lang.tsx` põe
+      depois não chega a eles, e o link colado numa conversa saía como "Racha"
+      e mais nada. Em português: o link é compartilhado no Brasil, onde o
+      produto cobra. Nenhum token entra aqui: a prévia é a da landing.
+    -->
+    <meta name="description" content="Pague na mesa pelo celular: escaneie o QR, diga o que foi de quem e cada um paga a casa direto no Pix. Sem app, sem cadastro." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Racha" />
+    <meta property="og:title" content="Racha" />
+    <meta property="og:description" content="Escaneie o QR da mesa, diga o que foi de quem e cada um paga a casa direto no Pix. Sem app, sem cadastro." />
+    <meta property="og:url" content="https://useracha.app/" />
+    <meta property="og:image" content="https://useracha.app/icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta name="twitter:card" content="summary" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <!-- iOS: instalável pela folha de compartilhar ("Adicionar à Tela de Início") -->
