@@ -52,6 +52,14 @@ mensagem original sai da caixa quando o pedido é resolvido. Ver `retencao.md`.
 
 - **Testado em 2026-09-26:** um e-mail da própria Racha (Resend, DKIM alinhado)
   chegou na caixa de entrada do Gmail.
-- **Falta:** uma mensagem de remetente de fora, com DMARC estrito, vinda de um
-  Gmail de terceiro e de um Outlook/Hotmail. Encaminhador pode mandar esse
-  e-mail pro spam. Anote o resultado aqui e em `docs/domains.md`.
+- **Testado em 2026-09-26, remetente de fora:** uma conta Microsoft 365
+  (`student.ie.edu`) escreveu pro `contato@`. Chegou na CAIXA DE ENTRADA,
+  marcada como importante. SPF, DKIM e DMARC passaram, e o ARC também: o Forward
+  Email reassina com `d=forwardemail.net` e preserva o resultado original. A
+  resposta automática saiu 9 s depois e CHEGOU ao remetente, confirmado pelo
+  dono. O caminho dela: o Gmail responde ao Return-Path, que é o endereço SRS
+  `SRS0=…@forwardemail.net`, e o Forward Email o desfaz e entrega. Ela sai como
+  `stefanogebara+canned.response@gmail.com`, então expõe o Gmail pessoal (ver
+  "Responder").
+- **Não dá pra testar do próprio Gmail do dono:** a cópia que volta é mesclada
+  com a enviada (ganha o rótulo INBOX), e o filtro não roda sobre ela.
