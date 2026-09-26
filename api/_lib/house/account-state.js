@@ -26,7 +26,7 @@
  *   LOAD_CONFIRMED     { txid, principalCents, bonusCents, bonusExpiresAt }
  *   REDEEMED           { txid, checkId, at, principalCents, bonusCents,
  *                        lots: [{ seq, useCents }] }
- *   REDEEM_REVERSED    { txid, at, reason }  — compensation: puts the exact
+ *   REDEEM_REVERSED    { txid, at, reason, by?, reissue? }  — compensation: puts the exact
  *                        breakdown of REDEEMED(txid) back (used when the
  *                        check-side append is refused after the debit)
  *   PRINCIPAL_REFUNDED { amountCents, settlement }
@@ -157,6 +157,27 @@ function validateEvent(evt, prevState) {
       const orig = prevState.redeems[p.txid];
       if (!orig) invalid(`REDEEM_REVERSED for unknown redeem txid ${p.txid}`);
       if (orig.reversed) invalid(`redeem txid ${p.txid} already reversed`);
+      // 0044: o bônus de lote vencido volta como lote NOVO. Os lotes de onde
+      // ele sai têm que ser lotes que ESTE débito usou.
+      if (p.reissue !== undefined) {
+        const r = p.reissue;
+        if (!r || typeof r !== 'object') invalid('REDEEM_REVERSED.reissue must be an object');
+        assertCents(r.bonusCents, 'REDEEM_REVERSED.reissue.bonusCents');
+        if (r.bonusCents <= 0) invalid('REDEEM_REVERSED.reissue.bonusCents must be > 0');
+        assertIso(r.expiresAt, 'REDEEM_REVERSED.reissue.expiresAt');
+        if (!Array.isArray(r.fromLots)) invalid('REDEEM_REVERSED.reissue.fromLots must be an array');
+        // SOMA por lote: um débito que usasse o mesmo lote duas vezes não pode
+        // ter o estorno correto marcado como anomalia (compliance, PR #44, L-B).
+        const usados = new Map();
+        for (const u of orig.lots || []) usados.set(u.seq, (usados.get(u.seq) || 0) + u.useCents);
+        if (new Set(r.fromLots).size !== r.fromLots.length) invalid('REDEEM_REVERSED.reissue.fromLots repeats a lot');
+        let soma = 0;
+        for (const s of r.fromLots) {
+          if (!usados.has(s)) invalid(`REDEEM_REVERSED.reissue.fromLots: lot ${s} not used by redeem ${p.txid}`);
+          soma += usados.get(s);
+        }
+        if (soma !== r.bonusCents) invalid(`REDEEM_REVERSED.reissue: ${r.bonusCents} != lots used ${soma}`);
+      }
       break;
     }
     case 'PRINCIPAL_REFUNDED':
@@ -245,9 +266,21 @@ function applyEvent(state, evt, seq = null) {
       const next = cloneState(state);
       const orig = next.redeems[p.txid];
       next.principalCents += orig.principalCents;
+      // 0044: lote vencido no estorno NÃO recebe o bônus de volta — ele vira um
+      // lote novo (`reissue`), com validade nova. Evento antigo, sem `reissue`,
+      // devolve tudo aos lotes de origem, como sempre.
+      const reemitidos = new Set(p.reissue ? p.reissue.fromLots : []);
+      // (O mesmo lote duas vezes no débito: cada uso volta pro lote, ou os dois
+      // vão pro lote novo — nunca metade.)
       for (const use of orig.lots || []) {
+        if (reemitidos.has(use.seq)) continue;
         const lot = next.lots.find((l) => l.seq === use.seq);
         if (lot) lot.remainingCents += use.useCents;
+      }
+      if (p.reissue) {
+        next.lots.push({
+          seq, grantedCents: p.reissue.bonusCents, remainingCents: p.reissue.bonusCents, expiresAt: p.reissue.expiresAt,
+        });
       }
       orig.reversed = true;
       return next;

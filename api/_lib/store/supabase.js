@@ -1691,9 +1691,13 @@ function createSupabaseStore({ url, serviceRoleKey, client: injected } = {}) {
         bonusUsedCents: Number(data.bonusUsedCents),
       };
     },
-    async reverseHouseRedeem({ accountId, txid, nowIso }) {
+    async reverseHouseRedeem({ accountId, txid, nowIso, reason, actor }) {
+      // `reason`/`actor` só quando vêm (0044): o estorno do serviço segue com
+      // os padrões do banco ('check_append_refused', sem autor).
       const { data, error } = await client.rpc('house_redeem_reverse', {
         p_account_id: accountId, p_txid: txid, p_now: nowIso,
+        ...(reason ? { p_reason: reason } : {}),
+        ...(actor ? { p_actor: actor } : {}),
       });
       throwDaCarteira(error, 'reverseHouseRedeem');   // RH007 → house_redeem_landed (0042)
       return { duplicate: data.duplicate === true, seq: data.seq };

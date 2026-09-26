@@ -65,6 +65,29 @@ describe('rotas /api/checks*', () => {
     expect((await post('/api/checks', { tableId: table.id, totalCents: 1000 }, 'tok-outro')).status).toBe(404);
   });
 
+  test('/api/house/admin/recredit: sem token 401; dono de OUTRA casa e não-dono: o mesmo 404, e nada estornado; o dono chega ao serviço (segurança, PR #44, L-1/L-2)', async () => {
+    const { venue, table } = await casaDoDono();
+    const outraCasa = store.seedVenue({ name: 'Outra', servicoBp: 1000, pspRecipientId: 'rcpt_o' });
+    await store.addVenueMember(outraCasa.id, OUTRO.id, 'owner');
+    const conta = await store.createHouseAccount({ venueId: venue.id, phone: '11955554444', name: 'C' });
+    await store.registerHouseLoad({ accountId: conta.id, txid: `l_${conta.id.slice(0, 6)}`, amountCents: 5000, bonusCents: 0, validityDays: 30 });
+    await store.confirmHouseLoad({ txid: `l_${conta.id.slice(0, 6)}`, confirmedAt: new Date().toISOString() });
+    const check = await store.openCheck(table.qrToken, [{ id: 'a', name: 'A', priceCents: 3000 }]);
+    const txid = `ha_rota_${conta.id.slice(0, 6)}`;
+    await store.redeemHouse({ accountId: conta.id, checkId: check.id, txid, amountCents: 1000, nowIso: new Date().toISOString() });
+    const corpo = { accountId: conta.id, txid };
+    expect((await post('/api/house/admin/recredit', corpo)).status).toBe(401);
+    const doOutro = await post('/api/house/admin/recredit', corpo, 'tok-outro');
+    const inexistente = await post('/api/house/admin/recredit', { accountId: '00000000-0000-4000-8000-00000000beef', txid }, 'tok-outro');
+    expect(doOutro).toMatchObject({ status: 404, body: { code: 'house_recredit_not_flagged' } });
+    expect(inexistente).toMatchObject({ status: 404, body: { code: 'house_recredit_not_flagged' } });   // indistinguíveis
+    // O dono chega ao serviço — e o débito de agora é recente demais (pagamento pode estar em voo).
+    expect(await post('/api/house/admin/recredit', corpo, 'tok-dono'))
+      .toMatchObject({ status: 409, body: { code: 'house_recredit_too_soon' } });
+    const eventos = await store.loadHouseEvents(conta.id);
+    expect(eventos.some((e) => e.type === 'REDEEM_REVERSED')).toBe(false);
+  });
+
   test('campo obrigatório faltando: 400 com CÓDIGO', async () => {
     expect(await post('/api/checks', {}, 'tok-dono')).toMatchObject({ status: 400, body: { code: 'table_id_required' } });
     expect(await post('/api/checks/adjust', {}, 'tok-dono')).toMatchObject({ status: 400, body: { code: 'check_id_required' } });

@@ -1399,7 +1399,14 @@ function createMemoryStore() {
       return { seq, duplicate: false, principalUsedCents: plan.principalCents, bonusUsedCents: plan.bonusCents };
     },
     /** Compensation: put the exact REDEEMED breakdown back (idempotent by txid). */
-    async reverseHouseRedeem({ accountId, txid, nowIso }) {
+    async reverseHouseRedeem({ accountId, txid, nowIso, reason = 'check_append_refused', actor = null }) {
+      // = RH011 da 0044: motivo de lista fechada; o do dono exige autor (sem
+      // contar espaço em branco).
+      const autor = typeof actor === 'string' ? actor.trim() : '';
+      if (!['check_append_refused', 'owner_recredit'].includes(reason)
+        || (reason === 'owner_recredit' && !autor)) {
+        throw Object.assign(new Error('house_reverse_bad_reason'), { statusCode: 400, code: 'house_reverse_bad_reason' });
+      }
       const log = houseEvents.get(accountId);
       if (!log) throw new Error('unknown house account');
       const state = houseState.reduce(log);
@@ -1408,15 +1415,34 @@ function createMemoryStore() {
       if (!orig) throw Object.assign(new Error('house_redeem_unknown'), { statusCode: 404, code: 'house_redeem_unknown' });
       // = RH007 da 0042: o pagamento deste txid JÁ ENTROU na conta — estornar o
       // débito deixaria a conta paga sem débito.
+      // "Já estornado" ANTES do "já lançado", na ordem do banco (0042/0044).
+      if (orig.reversed) return { duplicate: true };
       const logDaConta = events.get(orig.checkId) || [];
       if (logDaConta.some((e) => e.type === 'PAYMENT_CONFIRMED' && e.payload && e.payload.txid === txid)) {
         throw Object.assign(new Error('house_redeem_landed'), { statusCode: 409, code: 'house_redeem_landed' });
       }
-      if (orig.reversed) return { duplicate: true };
+      // = 0044: bônus de lote VENCIDO no instante do estorno volta como lote
+      // NOVO, com a validade da casa contada de agora — a mesma conta do banco.
+      const agora = Date.parse(nowIso);
+      let reissue = 0;
+      const fromLots = [];
+      // Só no estorno do DONO: no automático o cliente escolhe o instante e
+      // renovaria o bônus cruzando a meia-noite (segurança, PR #44, re-revisão L-1).
+      for (const use of reason === 'owner_recredit' ? (orig.lots || []) : []) {
+        const lot = state.lots.find((l) => l.seq === use.seq);
+        if (!lot || !(Date.parse(lot.expiresAt) > agora)) { reissue += use.useCents; fromLots.push(use.seq); }
+      }
+      const conta = houseAccounts.get(accountId);
+      const casa = conta ? venues.get(conta.venueId) : null;
       const seq = _houseAppend(accountId, 'REDEEM_REVERSED', {
-        txid, at: nowIso, reason: 'check_append_refused',
+        txid, at: nowIso, reason, ...(autor ? { by: autor } : {}),
+        ...(reissue > 0 ? { reissue: {
+          bonusCents: reissue,
+          expiresAt: _spEndOfDay(nowIso, (casa && casa.houseValidityDays) || 90),
+          fromLots,
+        } } : {}),
       });
-      return { duplicate: false, seq };
+      return { duplicate: false, seq, reissuedBonusCents: reissue };
     },
     /**
      * Check-side append for credit redeems, validated ATOMICALLY (no await

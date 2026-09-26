@@ -159,12 +159,30 @@ Crash permutations and their reconciliation findings (the canary RUNS on
 every `GET /api/house/admin` — findings ride the response and criticals hit
 stderr):
 - crash after 1: `house_redeem_missing_payment_row` — check never paid →
-  re-credit the customer (or replay the redeem with the same key).
+  re-credit the customer. Since 0044 (2026-09-26) the **owner** does it with the
+  "Devolver R$ X ao saldo" button on the wallet page:
+  `POST /api/house/admin/recredit`. Rules:
+  - The server accepts only the txid that reconciliation flags **right now**,
+    and only **5 minutes** after the debit.
+  - It uses the same `house_redeem_reverse`, with `reason: 'owner_recredit'`
+    and `by` (the owner's user id).
+  - Bonus from a lot that **expired** before the reversal comes back as a new
+    lot (`reissue`) with the venue's validity, counted from the reversal. It
+    never becomes principal.
 - crash after 2: `house_redeem_missing_payment_row_paid` — check WAS paid →
   backfill the payments row; do **not** re-credit.
 - reversed redeems are correctly absent from both and flag nothing.
 
 ## Decisions recorded
+
+- **A reversed bonus that expired comes back with FULL validity (0044,
+  2026-09-26).** Bonus from a lot that expired before the reversal returns as a
+  new lot with the venue's validity counted from the reversal. That holds even
+  if the original lot had one day left when it was spent. The customer keeps
+  the bonus they lost because of our failure (CDC art. 47, the reading that
+  favours the consumer). The cost falls on the restaurant, and the
+  confirmation dialog tells the owner ("volta com validade nova"). It never
+  becomes principal: principal can be withdrawn as cash, bonus cannot.
 
 - **Refund keeps bonus.** `PRINCIPAL_REFUNDED` never touches bonus lots; a
   fully refunded load's bonus stays spendable until it expires. The refund

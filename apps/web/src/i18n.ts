@@ -1187,6 +1187,9 @@ export const DICT = {
   'find.house_lot_unknown': { en: 'a stored balance lot is absent from the ledger',
                         pt: 'um lote gravado não está no razão',
                         es: 'un lote guardado no está en el libro' },
+  'find.house_lot_expiry_drift': { en: 'a balance lot’s expiry date does not match the ledger',
+                        pt: 'a validade de um lote de saldo não bate com o razão',
+                        es: 'la validez de un lote de saldo no coincide con el libro' },
   'find.house_principal_drift': { en: 'the wallet principal does not match the ledger',
                         pt: 'o principal da carteira não bate com o razão',
                         es: 'el principal del monedero no coincide con el libro' },
@@ -1205,15 +1208,15 @@ export const DICT = {
   'find.check_closed_without_opened': { en: 'a bill that never finished opening was closed by hand — the table is free; kept for the record',
                         pt: 'uma conta que não terminou de abrir foi fechada à mão — a mesa está livre; fica o registro',
                         es: 'una cuenta que no terminó de abrirse se cerró a mano — la mesa está libre; queda el registro' },
-  // Saldo da casa sem pagamento — o conserto é do suporte Racha (estorno por
-  // SQL, `docs/runbooks/saldo-debitado-sem-pagamento.md`); a frase diz o valor
-  // e quem acionar, porque a casa não conserta sozinha (compliance, PR #42).
+  // Saldo da casa sem pagamento — desde a 0044 o DONO conserta pelo botão da
+  // página da carteira; a frase diz o valor, o que fazer e o contato pra dúvida
+  // (`docs/runbooks/saldo-debitado-sem-pagamento.md`).
   // "Avise o cliente" e "não devolva por fora": avisar é da casa (runbook), e
   // devolver por Pix/dinheiro ANTES do estorno do suporte paga o cliente duas
   // vezes (compliance, PR #43, M-2 e M-3).
-  'find.house_redeem_missing_payment_row': { en: 'a customer’s balance went down by {amount} and the payment never reached the bill — contact Racha support (contato@useracha.app) today and tell the customer; the amount goes back to their balance. Do not pay it back yourself',
-                        pt: 'o saldo de um cliente baixou {amount} e o pagamento não entrou na conta — acione o suporte Racha (contato@useracha.app) hoje e avise o cliente; o valor volta pro saldo dele. Não devolva por fora',
-                        es: 'el saldo de un cliente disminuyó {amount} y el pago no llegó a la cuenta — contacta con el soporte de Racha (contato@useracha.app) hoy y avisa al cliente; el importe vuelve a su saldo. No lo devuelvas por tu cuenta' },
+  'find.house_redeem_missing_payment_row': { en: 'a customer’s balance went down by {amount} and the payment never reached the bill — put it back with the button below and tell the customer today. If they prefer the money, put it back into the balance first, then use Refund. Questions: contato@useracha.app',
+                        pt: 'o saldo de um cliente baixou {amount} e o pagamento não entrou na conta — devolva ao saldo pelo botão abaixo e avise o cliente hoje. Se ele preferir o dinheiro, devolva ao saldo primeiro e depois use Reembolsar. Dúvidas: contato@useracha.app',
+                        es: 'el saldo de un cliente disminuyó {amount} y el pago no llegó a la cuenta — devuélvelo al saldo con el botón de abajo y avisa al cliente hoy. Si prefiere el dinero, devuélvelo al saldo primero y luego usa Reembolsar. Dudas: contato@useracha.app' },
   'find.house_redeem_missing_payment_row_paid': { en: 'a {amount} balance payment reached the bill but has no payment record — Racha support (contato@useracha.app) fixes the record; do not give the balance back',
                         pt: 'um pagamento de {amount} com saldo entrou na conta mas ficou sem registro de pagamento — o suporte Racha (contato@useracha.app) corrige o registro; não devolva o saldo',
                         es: 'un pago de {amount} con saldo llegó a la cuenta pero no tiene registro de pago — el soporte de Racha (contato@useracha.app) corrige el registro; no devuelvas el saldo' },
@@ -1749,6 +1752,25 @@ export const DICT = {
   'house.reconNoDetail': { en: 'Something in the balances or the bills does not match. Contact Racha support (contato@useracha.app).',
                         pt: 'Algo nos saldos ou nas contas não bate. Acione o suporte Racha (contato@useracha.app).',
                         es: 'Algo en los saldos o en las cuentas no cuadra. Contacta con el soporte de Racha (contato@useracha.app).' },
+  'house.recredit':   { en: 'Put {amount} back into the balance',
+                        pt: 'Devolver {amount} ao saldo',
+                        es: 'Devolver {amount} al saldo' },
+  'house.recreditAsk': { en: 'Put {amount} back into {name}’s balance? The payment never reached the bill. Any bonus that expired comes back with a new expiry date. If they want the money, use Refund afterwards — do not pay them another way first, or they get it twice.',
+                        pt: 'Devolver {amount} ao saldo de {name}? O pagamento não entrou na conta. Bônus que tiver vencido volta com validade nova. Se ele quiser o dinheiro, use Reembolsar depois — não devolva por fora antes, senão ele recebe duas vezes.',
+                        es: '¿Devolver {amount} al saldo de {name}? El pago no llegó a la cuenta. El bono que haya vencido vuelve con nueva validez. Si quiere el dinero, usa Reembolsar después — no se lo devuelvas de otra forma antes, o lo recibe dos veces.' },
+  'house.recreditDone': { en: '{amount} is back in {name}’s balance. Tell the customer.',
+                        pt: '{amount} voltou pro saldo de {name}. Avise o cliente.',
+                        es: '{amount} volvió al saldo de {name}. Avisa al cliente.' },
+  // Estorno com motivo fora da lista ou sem autor (0044, RH011): bug nosso.
+  'err.house_reverse_bad_reason': { en: 'This could not be done. Contact Racha support (contato@useracha.app).',
+                        pt: 'Não deu pra fazer isso. Acione o suporte Racha (contato@useracha.app).',
+                        es: 'No se pudo hacer. Contacta con el soporte de Racha (contato@useracha.app).' },
+  'err.house_recredit_not_flagged': { en: 'This debit is no longer pending — reload the page.',
+                        pt: 'Este débito não está mais pendente — recarregue a página.',
+                        es: 'Este cargo ya no está pendiente — recarga la página.' },
+  'err.house_recredit_too_soon': { en: 'This payment may still be going through. Try again in a few minutes.',
+                        pt: 'Este pagamento ainda pode estar em andamento. Tente de novo em alguns minutos.',
+                        es: 'Este pago aún puede estar en curso. Inténtalo de nuevo en unos minutos.' },
   'house.reconTitle': { en: 'The wallet does not add up',
                         pt: 'A carteira não fecha',
                         es: 'El monedero no cuadra' },

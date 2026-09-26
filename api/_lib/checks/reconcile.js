@@ -984,6 +984,9 @@ const RECUSAS_DA_CARTEIRA = Object.freeze({
   RH009: Object.freeze({ statusCode: 500, code: 'house_debit_missing' }),
   // RH010 (0043): o estorno não achou débito com este txid — nada foi debitado.
   RH010: Object.freeze({ statusCode: 404, code: 'house_redeem_unknown' }),
+  // RH011 (0044): motivo do estorno fora da lista, ou o do dono sem autor —
+  // bug nosso, nunca do cliente; código próprio pra não parecer "valor inválido".
+  RH011: Object.freeze({ statusCode: 400, code: 'house_reverse_bad_reason' }),
   22023: Object.freeze({ statusCode: 400, code: 'house_invalid_amount' }),
 });
 function recusaDaCarteira(err) {
@@ -1639,6 +1642,14 @@ function reconcileHouseAccount({ accountId, events, stored }) {
       if (s.remainingCents !== lot.remainingCents) {
         add('critical', 'house_lot_drift',
           `bonus lot seq ${lot.seq}: stored ${s.remainingCents}¢ vs ledger ${lot.remainingCents}¢`);
+      }
+      // A VALIDADE também: o bônus gastável depende dela, e desde a 0044 há um
+      // segundo lugar que a escreve (o lote reemitido). Pelo INSTANTE, não pelo
+      // texto — o banco devolve `+00:00`, o razão grava `Z` (segurança, PR #44,
+      // re-revisão L-2).
+      if (s.expiresAt && lot.expiresAt && Date.parse(s.expiresAt) !== Date.parse(lot.expiresAt)) {
+        add('critical', 'house_lot_expiry_drift',
+          `bonus lot seq ${lot.seq}: stored expiry ${s.expiresAt} vs ledger ${lot.expiresAt}`);
       }
       storedBySeq.delete(lot.seq);
     }

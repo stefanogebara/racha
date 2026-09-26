@@ -255,6 +255,65 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     expect(codigoDe(`public.house_redeem_reverse('${conta}', 'ha_nunca_existiu', '${agora}')`)).toBe('RH010');
   });
 
+  test('0044: o estorno do dono grava motivo e AUTOR; lista de motivos fechada; UMA versão da função', () => {
+    const conta = require('node:crypto').randomUUID();
+    const fone = `114${String(Date.now()).slice(-8)}`;
+    Q(`insert into house_accounts (id, venue_id, phone, name, account_token, principal_cents)
+       values ('${conta}', '00000000-0000-0000-0000-00000000000a', '${fone}', 'B', 'tok-${conta}', 5000)`);
+    Q(`insert into venue_tables (id, venue_id, label) values ('${conta}', '00000000-0000-0000-0000-00000000000a', 'M ${fone}')`);
+    const check = Q(`select public.open_check('${conta}', 3000, null)`);
+    const agora = new Date().toISOString();
+    const codigoDe = (sql) => {
+      const err = QErr(`do $$ begin perform ${sql}; exception when others then raise exception 'CODIGO=%', sqlstate; end $$`);
+      return err && err.match(/CODIGO=(\w+)/)[1];
+    };
+    const t1 = `hc_${conta.slice(0, 8)}`;
+    Q(`select public.house_redeem('${conta}', '${check}', '${t1}', 1000, '${agora}')`);
+    // motivo fora da lista, e o do dono sem autor: 22023, nada estornado
+    expect(codigoDe(`public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'qualquer', 'u1')`)).toBe('RH011');
+    expect(codigoDe(`public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'owner_recredit', null)`)).toBe('RH011');
+    expect(codigoDe(`public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'owner_recredit', '   ')`)).toBe('RH011');
+    expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('4000');
+    // o do dono, com autor: grava os dois
+    Q(`select public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'owner_recredit', 'user-dono')`);
+    expect(Q(`select payload->>'reason' || '|' || (payload->>'by') from house_account_events
+              where account_id = '${conta}' and type = 'REDEEM_REVERSED' and payload->>'txid' = '${t1}'`)).toBe('owner_recredit|user-dono');
+    expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('5000');
+    // a chamada de TRÊS argumentos (a do serviço) segue valendo, com o padrão e sem autor
+    const t2 = `hd_${conta.slice(0, 8)}`;
+    Q(`select public.house_redeem('${conta}', '${check}', '${t2}', 500, '${agora}')`);
+    Q(`select public.house_redeem_reverse('${conta}', '${t2}', '${agora}')`);
+    expect(Q(`select payload->>'reason' || '|' || coalesce(payload->>'by', '-') from house_account_events
+              where account_id = '${conta}' and type = 'REDEEM_REVERSED' and payload->>'txid' = '${t2}'`)).toBe('check_append_refused|-');
+    // bônus de lote que VENCEU até o estorno: volta como lote NOVO, válido, no
+    // seq do estorno — e não ao lote velho (compliance, PR #44, H-1)
+    Q(`insert into house_bonus_lots (account_id, event_seq, granted_cents, remaining_cents, expires_at)
+       values ('${conta}', 900, 300, 300, now() + interval '1 day')`);
+    const t3 = `he_${conta.slice(0, 8)}`;
+    Q(`select public.house_redeem('${conta}', '${check}', '${t3}', 1000, '${agora}')`);
+    expect(Q(`select remaining_cents from house_bonus_lots where account_id = '${conta}' and event_seq = 900`)).toBe('0');
+    const futuro = new Date(Date.now() + 10 * 86400000).toISOString();
+    const rr = JSON.parse(Q(`select public.house_redeem_reverse('${conta}', '${t3}', '${futuro}', 'owner_recredit', 'dono')`));
+    expect(rr.reissuedBonusCents).toBe(300);
+    expect(Q(`select remaining_cents from house_bonus_lots where account_id = '${conta}' and event_seq = 900`)).toBe('0');
+    expect(Q(`select remaining_cents || '|' || (expires_at > '${futuro}'::timestamptz) from house_bonus_lots
+              where account_id = '${conta}' and event_seq = ${rr.seq}`)).toBe('300|true');
+    expect(Q(`select (payload->'reissue'->>'bonusCents') || '|' || (payload->'reissue'->'fromLots')::text from house_account_events
+              where account_id = '${conta}' and seq = ${rr.seq}`)).toBe('300|[900]');
+    // o AUTOMÁTICO depois do vencimento NÃO reemite — devolve ao lote velho
+    Q(`insert into house_bonus_lots (account_id, event_seq, granted_cents, remaining_cents, expires_at)
+       values ('${conta}', 901, 200, 200, now() + interval '1 day')`);
+    const t4 = `hf_${conta.slice(0, 8)}`;
+    Q(`select public.house_redeem('${conta}', '${check}', '${t4}', 200, '${agora}')`);
+    const ra = JSON.parse(Q(`select public.house_redeem_reverse('${conta}', '${t4}', '${futuro}')`));
+    expect(ra.reissuedBonusCents).toBe(0);
+    expect(Q(`select remaining_cents from house_bonus_lots where account_id = '${conta}' and event_seq = 901`)).toBe('200');
+    expect(Q(`select count(*) from house_bonus_lots where account_id = '${conta}' and event_seq = ${ra.seq}`)).toBe('0');
+    // e não há SOBRECARGA: uma função só com esse nome
+    expect(Q(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'house_redeem_reverse'`)).toBe('1');
+  });
+
   test('0042 (CRÍTICO): house_redeem recusa (RH008) um "duplicado" de outra conta ou outro valor', () => {
     const conta = require('node:crypto').randomUUID();
     const fone = `116${String(Date.now()).slice(-8)}`;

@@ -332,6 +332,124 @@ describe('house service', () => {
     expect(b.message).toMatch(/BACKFILL|do NOT re-credit/);
   });
 
+  test('a conciliação compara a VALIDADE do lote, pelo instante (0044; segurança, re-revisão L-2)', () => {
+    const { reconcileHouseAccount } = require('../_lib/checks/reconcile');
+    const ev = (seq, type, payload) => ({ seq, type, payload });
+    const events = [
+      ev(1, 'OPENED', {}),
+      ev(2, 'LOAD_CONFIRMED', { txid: 'l', at: '2026-09-01T12:00:00.000Z', principalCents: 1000, bonusCents: 100, bonusExpiresAt: '2026-10-01T02:59:59.999Z' }),
+    ];
+    const ok = reconcileHouseAccount({ accountId: 'a', events, stored: { principalCents: 1000, lots: [{ seq: 2, remainingCents: 100, expiresAt: '2026-10-01T02:59:59.999+00:00' }] } });
+    expect(ok.findings.map((f) => f.code)).not.toContain('house_lot_expiry_drift');
+    const ruim = reconcileHouseAccount({ accountId: 'a', events, stored: { principalCents: 1000, lots: [{ seq: 2, remainingCents: 100, expiresAt: '2027-10-01T02:59:59.999+00:00' }] } });
+    expect(ruim.findings.map((f) => f.code)).toContain('house_lot_expiry_drift');
+  });
+
+  describe('o dono devolve ao saldo o débito que não chegou à conta (0044)', () => {
+    async function travado() {
+      const ctx = setup();
+      const { store, house, clock } = ctx;
+      const { venue, table } = await seedVenueWithHouse(store, house);
+      const { accountToken } = await house.openAccount({ tableQrToken: table.qrToken, phone: '11915151515', name: 'Q' });
+      const l = await house.createLoad({ accountToken, amountCents: 20000 });
+      await store.confirmHouseLoad({ txid: l.txid, confirmedAt: clock.now() });
+      const check = await store.openCheck(table.qrToken, [{ id: 'a', name: 'A', priceCents: 15000 }]);
+      const account = await store.getHouseAccountByToken(accountToken);
+      // O débito que "caiu" antes do lançamento: é o achado.
+      await store.redeemHouse({ accountId: account.id, checkId: check.id, txid: 'ha_travado', amountCents: 1000, nowIso: clock.now() });
+      const saldo = async () => (await house.wallet(accountToken)).account.totalCents;
+      return { ...ctx, venue, table, check, account, accountToken, saldo };
+    }
+    const depois = (clock, min) => clock.set(new Date(Date.parse(clock.now()) + min * 60000).toISOString());
+
+    test('devolve, grava o motivo e o AUTOR, e a conciliação fica limpa', async () => {
+      const { store, house, clock, venue, account, saldo } = await travado();
+      const antes = await saldo();
+      depois(clock, 6);
+      const r = await house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_travado', actorUserId: 'user-dono-1' });
+      expect(r).toEqual({ duplicate: false, amountCents: 1000 });
+      expect(await saldo()).toBe(antes + 1000);
+      const ev = (await store.loadHouseEvents(account.id)).find((e) => e.type === 'REDEEM_REVERSED');
+      expect(ev.payload).toMatchObject({ txid: 'ha_travado', reason: 'owner_recredit', by: 'user-dono-1' });
+      expect((await reconcileVenueHouse(store, venue.id)).ok).toBe(true);
+      // Repetir não devolve de novo: o achado sumiu, então recusa.
+      await expect(house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_travado', actorUserId: 'user-dono-1' }))
+        .rejects.toMatchObject({ statusCode: 409, code: 'house_recredit_not_flagged' });
+      expect(await saldo()).toBe(antes + 1000);
+    });
+
+    test('bônus que VENCEU entre o débito e a devolução volta como lote NOVO, válido — o saldo usável sobe o valor inteiro (compliance, PR #44, H-1)', async () => {
+      const { store, house, clock, venue, check, account, accountToken } = await travado();
+      const conta = async () => (await house.wallet(accountToken)).account;
+      // Um débito que usa BÔNUS (gasto primeiro): 15% de 20000 = 3000 de bônus, validade 30 dias.
+      const d = await store.redeemHouse({ accountId: account.id, checkId: check.id, txid: 'ha_bonus', amountCents: 2500, nowIso: clock.now() });
+      expect(d.bonusUsedCents).toBeGreaterThan(0);
+      // 40 dias depois o lote original venceu; o dono devolve.
+      clock.advanceDays(40);
+      const antes = await conta();
+      const r = await house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_bonus', actorUserId: 'dono' });
+      expect(r.amountCents).toBe(2500);
+      const depois = await conta();
+      expect(depois.totalCents).toBe(antes.totalCents + 2500);                        // o valor INTEIRO é usável
+      expect(depois.principalCents).toBe(antes.principalCents + d.principalUsedCents); // principal só a parte principal
+      expect(depois.bonusCents).toBe(antes.bonusCents + d.bonusUsedCents);             // bônus volta como BÔNUS
+      const ev = (await store.loadHouseEvents(account.id)).find((e) => e.type === 'REDEEM_REVERSED' && e.payload.txid === 'ha_bonus');
+      expect(ev.payload).toMatchObject({ reason: 'owner_recredit', by: 'dono' });
+      expect(ev.payload.reissue.bonusCents).toBe(d.bonusUsedCents);
+      expect(Date.parse(ev.payload.reissue.expiresAt)).toBeGreaterThan(Date.parse(clock.now()));
+    });
+
+    test('estorno AUTOMÁTICO depois do vencimento NÃO renova o bônus — senão o cliente o eterniza cruzando a meia-noite (segurança, PR #44, re-revisão L-1)', async () => {
+      const { store, house, clock, check, account, accountToken } = await travado();
+      const d = await store.redeemHouse({ accountId: account.id, checkId: check.id, txid: 'ha_meianoite', amountCents: 2500, nowIso: clock.now() });
+      expect(d.bonusUsedCents).toBeGreaterThan(0);
+      clock.advanceDays(40);
+      const antes = (await house.wallet(accountToken)).account;
+      const r = await store.reverseHouseRedeem({ accountId: account.id, txid: 'ha_meianoite', nowIso: clock.now() });
+      expect(r.reissuedBonusCents).toBe(0);
+      const depois = (await house.wallet(accountToken)).account;
+      expect(depois.bonusCents).toBe(antes.bonusCents);   // o bônus voltou ao lote VENCIDO: não gastável
+      expect(depois.principalCents).toBe(antes.principalCents + d.principalUsedCents);
+      const ev = (await store.loadHouseEvents(account.id)).find((e) => e.type === 'REDEEM_REVERSED' && e.payload.txid === 'ha_meianoite');
+      expect(ev.payload.reissue).toBeUndefined();
+    });
+
+    test('antes de 5 minutos: recusa (pagamento pode estar em voo), sem mexer no saldo', async () => {
+      const { house, clock, venue, account, saldo } = await travado();
+      const antes = await saldo();
+      depois(clock, 4);
+      await expect(house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_travado', actorUserId: 'u' }))
+        .rejects.toMatchObject({ statusCode: 409, code: 'house_recredit_too_soon' });
+      expect(await saldo()).toBe(antes);
+    });
+
+    test('só o txid que a conciliação aponta: um pagamento que ENTROU não se devolve', async () => {
+      const { store, house, clock, venue, check, account, saldo } = await travado();
+      await store.redeemHouse({ accountId: account.id, checkId: check.id, txid: 'ha_pago', amountCents: 2000, nowIso: clock.now() });
+      await store.appendHousePaymentGuarded(check.id, 'ha_pago', 2000);
+      await store.recordHousePaymentRow({ checkId: check.id, venueId: venue.id, txid: 'ha_pago', amountCents: 2000, confirmedAt: clock.now() });
+      depois(clock, 10);
+      const antes = await saldo();
+      for (const txid of ['ha_pago', 'ha_inventado']) {
+        await expect(house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid, actorUserId: 'u' }))
+          .rejects.toMatchObject({ statusCode: 409, code: 'house_recredit_not_flagged' });
+      }
+      expect(await saldo()).toBe(antes);
+    });
+
+    test('carteira de OUTRA casa: 404; sem autor: 400 — e nada muda', async () => {
+      const { store, house, clock, account, saldo } = await travado();
+      const outra = store.seedVenue({ name: 'Outra', servicoBp: 1000, pspRecipientId: 'rcpt_o' });
+      depois(clock, 10);
+      const antes = await saldo();
+      await expect(house.recreditStuckDebit({ venueId: outra.id, accountId: account.id, txid: 'ha_travado', actorUserId: 'u' }))
+        .rejects.toMatchObject({ statusCode: 404, code: 'house_recredit_not_flagged' });
+      await expect(house.recreditStuckDebit({ venueId: account.venueId, accountId: account.id, txid: 'ha_travado', actorUserId: '' }))
+        .rejects.toMatchObject({ statusCode: 400 });
+      expect(await saldo()).toBe(antes);
+    });
+  });
+
   test('bonus expiry is end-of-day São Paulo on the displayed date (review finding)', async () => {
     const { store, house, clock } = setup();
     const { table } = await seedVenueWithHouse(store, house); // validity 30d
