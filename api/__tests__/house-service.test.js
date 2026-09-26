@@ -322,6 +322,11 @@ describe('house service', () => {
     const p = projetarAchados(hr.findings).find((f) => f.txid === 'ha_crash_a');
     expect(p).toMatchObject({ code: 'house_redeem_missing_payment_row', amountCents: 1000, accountId: account.id });
     expect(p.message).toBeUndefined();
+    // O painel corta em 5; a página da carteira pede até 100 — nenhum débito
+    // travado fica sem botão (segurança, PR #44, L-4).
+    const muitos = Array.from({ length: 8 }, (_, i) => ({ severity: 'critical', code: 'house_redeem_missing_payment_row', txid: `t${i}`, accountId: 'a', amountCents: 1 }));
+    expect(projetarAchados(muitos)).toHaveLength(5);
+    expect(projetarAchados(muitos, { limite: 100 })).toHaveLength(8);
     // E a ROTA da página da carteira leva também os achados POR CARTEIRA (os
     // que moram em `failed`) — sem eles, carteira divergente chegava com a
     // lista vazia e a página ficava verde (as duas revisões do PR #43).

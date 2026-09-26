@@ -365,7 +365,7 @@ const RANK = { critical: 3, high: 2, info: 1 };
  */
 const PRIMEIRO_NA_GRAVIDADE = { dispute_evidence_overdue: 3, dispute_evidence_due: 2 };
 const JUNTAR_NO_PAINEL = ['paid_after_close', 'paid_after_close_tip'];
-function projetarAchados(findings) {
+function projetarAchados(findings, { limite = 5 } = {}) {
   // Os DOIS códigos do pago-depois-de-fechar se juntam, cada um no seu grupo:
   // depois de 48 h, cinco `paid_after_close_tip` critical enchiam as vagas e
   // escondiam um prazo de disputa (compliance LOW-D de 57c0d2e).
@@ -390,7 +390,10 @@ function projetarAchados(findings) {
   return [...findings.filter((f) => !JUNTAR_NO_PAINEL.includes(f.code)), ...JUNTAR_NO_PAINEL.flatMap(juntar)]
     .sort((a, b) => ((RANK[b.severity] || 0) - (RANK[a.severity] || 0))
       || ((PRIMEIRO_NA_GRAVIDADE[b.code] || 0) - (PRIMEIRO_NA_GRAVIDADE[a.code] || 0)))
-    .slice(0, 5)
+    // O PAINEL corta nos 5 mais graves (é um resumo). A página da CARTEIRA pede
+    // mais: cada achado de débito travado tem o botão de devolver, e um achado
+    // cortado era um cliente sem botão (segurança, PR #44, L-4).
+    .slice(0, limite)
     .map((f) => ({
       severity: f.severity, code: f.code,
       ...(f.overpaidCents !== undefined ? { overpaidCents: f.overpaidCents } : {}),
@@ -2212,7 +2215,7 @@ async function route(req, res) {
           findings: projetarAchados([
             ...houseRecon.findings,
             ...houseRecon.failed.flatMap((f) => (f.findings || []).map((x) => ({ ...x, accountId: f.accountId }))),
-          ]),
+          ], { limite: 100 }),
         },
         checks: { failed: checkRecon.checksFailed, worst: checkRecon.worstSeverity },
       };
