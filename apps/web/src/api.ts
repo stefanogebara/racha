@@ -101,7 +101,9 @@ export interface HouseLedgerEntry {
   // saber dele — mas escrito assim a união inteira colapsava em `string` e os
   // três literais não checavam nada. `(string & {})` mantém a autocompletar e
   // a checagem dos conhecidos sem fechar a porta pro desconhecido.
-  type: 'load' | 'redeem' | 'redeem_reversed' | 'refund' | (string & {});
+  type: 'load' | 'redeem' | 'redeem_reversed' | 'redeem_recredited' | 'refund' | (string & {});
+  // Só no `redeem_recredited` com bônus reemitido: até quando ele vale.
+  bonusExpiresAt?: string;
   // SEM `label`: o servidor não manda frase; a tela traduz pelo `type`.
   amountCents: number;
   bonusCents?: number;

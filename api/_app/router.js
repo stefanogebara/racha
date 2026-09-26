@@ -2268,6 +2268,9 @@ async function route(req, res) {
         venueId, accountId: b.accountId, txid: b.txid, actorUserId: user.id,
       });
       process.stderr.write(`[carteira] devolvido ao saldo pelo dono venue=${venueId} txid=${String(b.txid).slice(0, 40)} duplicate=${data.duplicate}\n`);
+      // O telefone inteiro saiu pro dono, pra ele avisar o cliente: registrado
+      // (quem, qual carteira, quando) — sem o número no log.
+      if (data.whatsapp) process.stderr.write(`[carteira] telefone revelado ao dono pra aviso venue=${venueId} account=${b.accountId} user=${user.id}\n`);
       return json(res, 200, { success: true, data });
     }
 

@@ -367,7 +367,8 @@ describe('house service', () => {
       const antes = await saldo();
       depois(clock, 6);
       const r = await house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_travado', actorUserId: 'user-dono-1' });
-      expect(r).toEqual({ duplicate: false, amountCents: 1000 });
+      // O telefone inteiro, com o país, SÓ nesta resposta — pro dono avisar (M-3).
+      expect(r).toEqual({ duplicate: false, amountCents: 1000, customerName: 'Q', whatsapp: '5511915151515' });
       expect(await saldo()).toBe(antes + 1000);
       const ev = (await store.loadHouseEvents(account.id)).find((e) => e.type === 'REDEEM_REVERSED');
       expect(ev.payload).toMatchObject({ txid: 'ha_travado', reason: 'owner_recredit', by: 'user-dono-1' });
@@ -397,6 +398,10 @@ describe('house service', () => {
       expect(ev.payload).toMatchObject({ reason: 'owner_recredit', by: 'dono' });
       expect(ev.payload.reissue.bonusCents).toBe(d.bonusUsedCents);
       expect(Date.parse(ev.payload.reissue.expiresAt)).toBeGreaterThan(Date.parse(clock.now()));
+      // O EXTRATO do cliente: linha própria da devolução da casa, com a data do
+      // bônus novo (compliance, PR #44, M-3 e L-D).
+      const linha = (await house.wallet(accountToken)).account.ledger.find((e) => e.type === 'redeem_recredited');
+      expect(linha).toMatchObject({ amountCents: 2500, bonusExpiresAt: ev.payload.reissue.expiresAt });
     });
 
     test('estorno AUTOMÁTICO depois do vencimento NÃO renova o bônus — senão o cliente o eterniza cruzando a meia-noite (segurança, PR #44, re-revisão L-1)', async () => {

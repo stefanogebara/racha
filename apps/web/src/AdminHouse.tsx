@@ -38,6 +38,7 @@ interface HouseFinding {
 }
 
 interface HouseAdminData {
+  venueName?: string;
   config: HouseAdminConfig;
   liability: { principalCents: number; bonusCents: number; accountCount: number };
   accounts: HouseAdminAccount[];
@@ -60,6 +61,9 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
   const [freshLink, setFreshLink] = useState<{ accountId: string; url: string } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Depois de devolver ao saldo: o link do WhatsApp com a mensagem pronta, pro
+  // dono avisar o cliente no mesmo dia (compliance, PR #44, M-3).
+  const [aviso, setAviso] = useState<{ url: string; name: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -170,12 +174,17 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
     if (!f.accountId || !f.txid || f.amountCents === undefined) return;
     if (!confirm(t('house.recreditAsk', { amount: brl(f.amountCents), name: quem }))) return;
     try {
-      await req<{ duplicate: boolean; amountCents: number }>('/api/house/admin/recredit', {
+      const r = await req<{ duplicate: boolean; amountCents: number; customerName?: string; whatsapp?: string }>('/api/house/admin/recredit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId: f.accountId, txid: f.txid }),
       });
       setNotice(t('house.recreditDone', { amount: brl(f.amountCents), name: quem }));
+      const nome = r.customerName || quem;
+      if (r.whatsapp) {
+        const texto = t('house.recreditMsg', { name: nome, venue: data?.venueName ?? '', amount: brl(f.amountCents) });
+        setAviso({ url: `https://wa.me/${r.whatsapp}?text=${encodeURIComponent(texto)}`, name: nome });
+      }
       await refresh();
     } catch (e) {
       setError(tErr(e));
@@ -305,6 +314,11 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
         </div>
       ))}
       {notice && <p className="small" style={{ color: 'var(--ok)' }}>{notice}</p>}
+      {aviso && (
+        <a className="cta" href={aviso.url} target="_blank" rel="noopener noreferrer" onClick={() => setAviso(null)}>
+          {t('house.notifyWhatsapp', { name: aviso.name })}
+        </a>
+      )}
     </section>
   );
 }

@@ -232,7 +232,17 @@ function ledgerView(events) {
       const valor = debitos.get(p.txid);
       if (valor !== undefined) {
         debitos.delete(p.txid);   // uma volta por débito
-        rows.push({ at: p.at ?? null, type: 'redeem_reversed', amountCents: valor, bonusCents: 0 });
+        // A devolução que a CASA fez (0044) tem linha própria — é a que o
+        // cliente precisa saber que aconteceu —, e, se o bônus voltou com
+        // validade nova, a data dela (compliance, PR #44, L-D).
+        if (p.reason === 'owner_recredit') {
+          rows.push({
+            at: p.at ?? null, type: 'redeem_recredited', amountCents: valor, bonusCents: 0,
+            ...(p.reissue && p.reissue.expiresAt ? { bonusExpiresAt: p.reissue.expiresAt } : {}),
+          });
+        } else {
+          rows.push({ at: p.at ?? null, type: 'redeem_reversed', amountCents: valor, bonusCents: 0 });
+        }
       }
     } else if (evt.type === 'PRINCIPAL_REFUNDED') {
       rows.push({ at: p.at ?? null, type: 'refund', amountCents: -p.amountCents, bonusCents: 0 });
@@ -635,6 +645,9 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       });
     }
     return {
+      // O nome da casa entra na mensagem que o dono manda ao cliente depois de
+      // devolver ao saldo — texto da CASA, não traduzido.
+      venueName: venue.name,
       config: venueHouseConfig(venue),
       liability: { principalCents, bonusCents, accountCount: accounts.length },
       accounts,
@@ -721,7 +734,17 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
       }
       throw e;
     }
-    return { duplicate: r.duplicate === true, amountCents: achado.amountCents };
+    // O TELEFONE INTEIRO, só aqui (compliance, PR #44, M-3): o dono tem de
+    // avisar o cliente no mesmo dia, e a página só mostra o mascarado. Sai uma
+    // vez, pra este ato, e a rota registra que saiu. Em dígitos com o país:
+    // o número do cadastro é brasileiro (a carteira só abre no Brasil).
+    const digitos = String(acc.phone || '').replace(/\D/g, '');
+    const whatsapp = digitos.length >= 12 && digitos.startsWith('55') ? digitos
+      : (digitos.length === 10 || digitos.length === 11) ? `55${digitos}` : null;
+    return {
+      duplicate: r.duplicate === true, amountCents: achado.amountCents,
+      customerName: acc.name, ...(whatsapp ? { whatsapp } : {}),
+    };
   }
 
   /** venueId for an account token — the router's ownership guard for admin ops. */

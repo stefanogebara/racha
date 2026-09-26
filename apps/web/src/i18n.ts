@@ -1758,6 +1758,12 @@ export const DICT = {
   'house.recreditAsk': { en: 'Put {amount} back into {name}’s balance? The payment never reached the bill. Any bonus that expired comes back with a new expiry date. If they want the money, use Refund afterwards — do not pay them another way first, or they get it twice.',
                         pt: 'Devolver {amount} ao saldo de {name}? O pagamento não entrou na conta. Bônus que tiver vencido volta com validade nova. Se ele quiser o dinheiro, use Reembolsar depois — não devolva por fora antes, senão ele recebe duas vezes.',
                         es: '¿Devolver {amount} al saldo de {name}? El pago no llegó a la cuenta. El bono que haya vencido vuelve con nueva validez. Si quiere el dinero, usa Reembolsar después — no se lo devuelvas de otra forma antes, o lo recibe dos veces.' },
+  'house.notifyWhatsapp': { en: 'Tell {name} on WhatsApp', pt: 'Avisar {name} pelo WhatsApp', es: 'Avisar a {name} por WhatsApp' },
+  // A mensagem que o DONO manda ao cliente. {venue} é o nome da casa, como ela
+  // escreve — não se traduz.
+  'house.recreditMsg': { en: 'Hi {name}! This is {venue}. A payment with your balance did not reach the bill, so we put {amount} back into your balance — it is there to use. If you prefer, we can refund the paid part. Sorry for the trouble.',
+                        pt: 'Olá, {name}! Aqui é {venue}. Um pagamento com o seu saldo não chegou na conta, então devolvemos {amount} pro seu saldo — já está lá pra usar. Se preferir, reembolsamos a parte paga. Desculpe o transtorno.',
+                        es: '¡Hola, {name}! Te escribimos de {venue}. Un pago con tu saldo no llegó a la cuenta, así que devolvimos {amount} a tu saldo — ya está ahí para usar. Si prefieres, te reembolsamos la parte pagada. Perdona las molestias.' },
   'house.recreditDone': { en: '{amount} is back in {name}’s balance. Tell the customer.',
                         pt: '{amount} voltou pro saldo de {name}. Avise o cliente.',
                         es: '{amount} volvió al saldo de {name}. Avisa al cliente.' },
@@ -1956,6 +1962,12 @@ export const DICT = {
   'ledger.load':   { en: 'Top-up',        pt: 'Recarga', es: 'Recarga' },
   'ledger.redeem': { en: 'Paid at table', pt: 'Pagamento na mesa', es: 'Pago en la mesa' },
   'ledger.refund': { en: 'Refund',        pt: 'Reembolso', es: 'Reembolso' },
+  'ledger.redeemRecredited': { en: 'Returned to your balance by the restaurant', pt: 'Devolvido ao saldo pela casa', es: 'Devuelto a tu saldo por el local' },
+  'wallet.bonusUntil': { en: ' · bonus valid until {date}', pt: ' · bônus vale até {date}', es: ' · bono válido hasta {date}' },
+  'wallet.recredited': { en: '{amount} is back in your balance ({date})', pt: '{amount} voltou pro seu saldo ({date})', es: '{amount} volvió a tu saldo ({date})' },
+  'wallet.recreditedWhy': { en: 'A payment with your balance did not reach the bill, and {venue} put the amount back. You can use it on your next visit or ask for a refund of the paid part.',
+                        pt: 'Um pagamento com o seu saldo não chegou na conta, e {venue} devolveu o valor. Você pode usar na próxima visita ou pedir o reembolso da parte paga.',
+                        es: 'Un pago con tu saldo no llegó a la cuenta, y {venue} devolvió el importe. Puedes usarlo en tu próxima visita o pedir el reembolso de la parte pagada.' },
   'ledger.redeemReversed': { en: 'Payment not completed — amount returned to your balance', pt: 'Pagamento não concluído — valor devolvido ao saldo', es: 'Pago no completado — devuelto a tu saldo' },
   'ledger.other':  { en: 'Movement', pt: 'Movimentação', es: 'Movimiento' },
 
