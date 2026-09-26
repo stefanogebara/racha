@@ -60,7 +60,12 @@ test('o razão do dublê data TODO evento — inclusive o da carteira da casa', 
   const conta = await store.openCheck(mesa.qrToken, [{ id: 'a', name: 'Item', priceCents: 5000 }]);
   await store.appendEvent(conta.id, 'PAYMENT_CONFIRMED', { txid: 'p1', amountCents: 1000, tipCents: 0, method: 'pix' });
   // E o caminho da CARTEIRA DA CASA, que grava direto no log sem passar pelo
-  // `appendEvent` — era o que estava sem data.
+  // `appendEvent` — era o que estava sem data. Com débito antes: desde a 0043
+  // o lançamento sem débito que o pague é recusado.
+  const carteira = await store.createHouseAccount({ venueId: venue.id, phone: '11987654321', name: 'D' });
+  await store.registerHouseLoad({ accountId: carteira.id, txid: 'l1', amountCents: 5000, bonusCents: 0, validityDays: 30 });
+  await store.confirmHouseLoad({ txid: 'l1', confirmedAt: '2026-09-26T12:00:00.000Z' });
+  await store.redeemHouse({ accountId: carteira.id, checkId: conta.id, txid: 'h1', amountCents: 1000, nowIso: '2026-09-26T12:01:00.000Z' });
   await store.appendHousePaymentGuarded(conta.id, 'h1', 1000);
   const eventos = await store.loadEvents(conta.id);
   expect(eventos.every((e) => typeof e.created_at === 'string')).toBe(true);

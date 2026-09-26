@@ -35,6 +35,11 @@ test('guarded: RH002, RH003 e RH004 são 409 — o redeem ESTORNA o débito no 4
   }
 });
 
+test('guarded: RH009 (0043, sem débito que pague) é 500 house_debit_missing — NÃO 409, que mandaria estornar', async () => {
+  await expect(comErro({ code: 'RH009', message: 'x' }).appendHousePaymentGuarded('c', 't', 100))
+    .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing', message: 'house_debit_missing' });
+});
+
 test('a FRASE sozinha não decide: "saldo insuficiente" com código genérico não vira 409', async () => {
   const e = await redeem(comErro({ code: 'P0001', message: 'saldo insuficiente' })).catch((x) => x);
   expect(e.statusCode).toBeUndefined();
@@ -173,6 +178,20 @@ describe('o SERVIÇO com o store do Supabase: a recusa da conta estorna o débit
     await expect(store.appendHousePaymentGuarded(conta.check.id, txid, 1000)).rejects.toMatchObject({ statusCode: 409, code: 'house_redeem_reversed' });
     expect((await store.getCheckByQrToken(table.qrToken)).state.paidCents).toBe(0);
     expect((await house.wallet(accountToken)).account.principalCents).toBe(5000);
+  });
+
+  test('RH009 (0043) no lançamento: o serviço NÃO estorna o débito — sobe o erro, e a conciliação acha o par', async () => {
+    const { store, house, table, accountToken } = await mundo('RH003');
+    let estornos = 0;
+    const estornoDeVerdade = store.reverseHouseRedeem.bind(store);
+    store.reverseHouseRedeem = async (a) => { estornos += 1; return estornoDeVerdade(a); };
+    store.appendHousePaymentGuarded = async () => {
+      throw Object.assign(new Error('house_debit_missing'), { statusCode: 500, code: 'house_debit_missing' });
+    };
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-rh009-1' }))
+      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    expect(estornos).toBe(0);
+    expect((await store.getCheckByQrToken(table.qrToken)).state.paidCents).toBe(0);
   });
 
   test('CRÍTICO (PR #36): a mesma chave numa SEGUNDA mesa, ou com valor maior, não paga sem débito novo', async () => {

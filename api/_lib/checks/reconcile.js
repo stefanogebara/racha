@@ -978,6 +978,11 @@ const RECUSAS_DA_CARTEIRA = Object.freeze({
   RH007: Object.freeze({ statusCode: 409, code: 'house_redeem_landed' }),
   // RH008 (0042): a chave de idempotência é de OUTRO pagamento (outra conta ou valor).
   RH008: Object.freeze({ statusCode: 409, code: 'house_idempotency_mismatch' }),
+  // RH009 (0043): o lançamento não tem débito que o pague (mesmo txid, conta e
+  // valor). 500 e NÃO 409, de propósito: o 409 manda o serviço estornar o
+  // débito, e aqui não há débito que bata — cai no caminho de falha
+  // desconhecida, e a conciliação aponta o par.
+  RH009: Object.freeze({ statusCode: 500, code: 'house_debit_missing' }),
   22023: Object.freeze({ statusCode: 400, code: 'house_invalid_amount' }),
 });
 function recusaDaCarteira(err) {

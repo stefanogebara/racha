@@ -704,6 +704,12 @@ export const DICT = {
   'err.house_idempotency_mismatch': { en: 'This payment could not be completed. Check the bill and try again.',
                         pt: 'Não deu pra concluir este pagamento. Confira a conta e tente de novo.',
                         es: 'No se pudo completar este pago. Revisa la cuenta e inténtalo de nuevo.' },
+  // Um lançamento sem débito que o pague (0043, RH009). Não deveria acontecer:
+  // o serviço sempre debita antes. Sem prometer que o saldo está intacto — não
+  // se sabe —, e dizendo quem acerta: a conciliação da casa acha o par.
+  'err.house_debit_missing': { en: 'This payment could not be completed. If your balance went down, the restaurant will see it and fix it. Check the bill before trying again.',
+                        pt: 'Não deu pra concluir este pagamento. Se o seu saldo baixou, a casa vê e acerta. Confira a conta antes de tentar de novo.',
+                        es: 'No se pudo completar este pago. Si tu saldo disminuyó, el local lo verá y lo corregirá. Revisa la cuenta antes de volver a intentarlo.' },
   'err.house_redeem_landed': { en: 'This payment went through. Check the bill.',
                         pt: 'Este pagamento entrou. Confira a conta.',
                         es: 'Este pago se realizó. Revisa la cuenta.' },

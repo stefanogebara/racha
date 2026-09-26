@@ -388,6 +388,7 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     const hv = await store.seedVenue({ name: 'CasaDura', servicoBp: 1000, pspRecipientId: 'rcpt_dura' });
     await store.setHouseConfig(hv.id, { enabled: true, bonusBp: 1000, validityDays: 30 });
     const hTable = await store.seedTable(hv.id, `Mesa ${crypto.randomInt(1000, 9999)}`);
+    const hTable2 = await store.seedTable(hv.id, `Mesa ${crypto.randomInt(10000, 99999)}`);
     const phone = '118' + String(crypto.randomInt(10000000, 99999999));
     const acc = await store.createHouseAccount({ venueId: hv.id, phone, name: 'Dura' });
     const t0 = '2026-07-19T12:00:00.000Z';
@@ -413,9 +414,28 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     // guarded append: pays, dedups by txid, and REFUSES overpay
     const seq1 = await store.appendHousePaymentGuarded(check.id, `ir_${uniq}`, 2000);
     expect(await store.appendHousePaymentGuarded(check.id, `ir_${uniq}`, 2000)).toBe(seq1); // replay no-op
+    // O excesso COM débito (0043: sem débito seria RH009, não 409) — e o
+    // estorno que o serviço faria no 409, pra o saldo voltar inteiro.
+    await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `over_${uniq}`, amountCents: 3001, nowIso: t0 });
     await expect(store.appendHousePaymentGuarded(check.id, `over_${uniq}`, 3001))
       .rejects.toMatchObject({ statusCode: 409 }); // 2000 paid + 3001 > 5000
+    await store.reverseHouseRedeem({ accountId: acc.id, txid: `over_${uniq}`, nowIso: t0 });
     expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(2000);
+
+    // 0043: lançamento SEM débito que o pague — txid sem débito, valor
+    // diferente do debitado, ou débito de OUTRA conta — não entra (RH009 → 500,
+    // não 409: não há débito que bata pra estornar).
+    await expect(store.appendHousePaymentGuarded(check.id, `nodebit_${uniq}`, 100))
+      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `amt_${uniq}`, amountCents: 100, nowIso: t0 });
+    await expect(store.appendHousePaymentGuarded(check.id, `amt_${uniq}`, 200))
+      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    const outra = await store.openCheck(hTable2.qrToken, [{ id: 'b', name: 'B', priceCents: 5000 }]);
+    await expect(store.appendHousePaymentGuarded(outra.id, `amt_${uniq}`, 100))
+      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    await store.reverseHouseRedeem({ accountId: acc.id, txid: `amt_${uniq}`, nowIso: t0 });
+    expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(2000);
+    expect(reduce(await store.loadEvents(outra.id)).paidCents).toBe(0);
 
     // reversal restores the exact breakdown, idempotently
     await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `rv_${uniq}`, amountCents: 1000, nowIso: t0 });

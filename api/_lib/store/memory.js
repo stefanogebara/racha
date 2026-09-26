@@ -1438,6 +1438,18 @@ function createMemoryStore() {
       if (!state || state.status === 'fechada') {
         const e = new Error('check_closed'); e.statusCode = 409; e.code = 'check_closed'; throw e;
       }
+      // = RH009 da 0043: só entra na conta o pagamento que tem DÉBITO — mesmo
+      // txid, mesma conta, principal + bônus = valor. Antes do "excede", como
+      // no banco: sem débito não se manda estornar nada.
+      let temDebito = false;
+      for (const hlog of houseEvents.values()) {
+        if (hlog.some((e) => e.type === 'REDEEMED' && e.payload && e.payload.txid === txid
+          && e.payload.checkId === checkId
+          && (e.payload.principalCents || 0) + (e.payload.bonusCents || 0) === amountCents)) { temDebito = true; break; }
+      }
+      if (!temDebito) {
+        throw Object.assign(new Error('house_debit_missing'), { statusCode: 500, code: 'house_debit_missing' });
+      }
       if (state.paidCents + amountCents > state.totalCents) {
         const e = new Error('house_exceeds_remaining'); e.statusCode = 409; e.code = 'house_exceeds_remaining'; throw e;
       }
