@@ -27,6 +27,18 @@ Drafts para o founder enviar. **Não enviados** — revise, preencha os
 5. **Devolução Pix** (parcial e total) via API + tratamento de MED.
 6. **Onboarding de subcontas por API** (KYC dos restaurantes).
 
+**Preços-alvo (o que a Racha precisa pra ser viável — contexto em `docs/pricing/README.md`):**
+- **Pix: no máximo R$ 0,10–0,30 por cobrança, ou % baixo SEM parte fixa.** Nas
+  mesas a conta é dividida: uma conta de R$ 150 em 3 vira 3 Pix de R$ 50, e uma
+  tarifa fixa de R$ 1,99 por Pix vira ~4% da conta — enquanto na maquininha do
+  restaurante o Pix custa 0%. Este é o critério que mais pesa.
+- **Crédito à vista: ≤ 2,3–2,6%**, e **débito ≤ 1,2–1,5%** — abaixo do que o
+  restaurante paga na maquininha (crédito 1,6–3,5%, débito 0,75–1,9%), pra
+  sobrar uma margem pequena (0,3–0,5 p.p.) sem ficar mais caro que ela.
+- **Split incluso**, sem mensalidade de plataforma no piloto.
+- **Antecipação do cartão** com custo informado (% a.m.) — referência pública:
+  Asaas 1,25% a.m.
+
 **Perguntas comerciais (por favor respondam numeradas):**
 1. MDR no nosso volume projetado: **Pix (%), débito (%), crédito à vista (%), crédito parcelado (%)**.
 2. **Tarifa fixa por transação** (ex.: R$0,99): existe? Num split, quem a suporta — plataforma, recebedor, ou é configurável?
@@ -111,8 +123,10 @@ Conseguimos 30 min esta ou próxima semana? Obrigado!
 
 | Critério | Peso | Pagar.me | Iugu | Zoop |
 |---|---|---|---|---|
+| Custo por Pix numa conta dividida (R$/cobrança) — alvo ≤ R$ 0,10–0,30 | **crítico** | | | |
 | MDR Pix (%) | alto | | | |
-| MDR crédito à vista (%) | médio | | | |
+| MDR crédito à vista (%) — alvo ≤ 2,3–2,6% | alto | | | |
+| MDR débito (%) — alvo ≤ 1,2–1,5% | médio | | | |
 | Tarifa fixa/transação + quem arca | alto | | | |
 | Split Pix liquida D+0? | alto | | | |
 | Gorjeta separada p/ CNPJ do restaurante | **crítico** | | | |
