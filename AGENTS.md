@@ -5,6 +5,22 @@
 brand), same company and sales machine (Olímpia). Strategy doc:
 `restaurant-ai-mcp/.claude/plans/2026-07-17-racha-pay-at-table-brazil/README.md`.
 
+## Who you are working with — read this first
+
+The team is **two: Stefano (the founder) and Claude.** Stefano is not a
+specialist in product, sales, engineering, law or finance. So **every
+explanation to him is in simple terms**:
+- Plain words. The first time a technical, legal or financial term appears,
+  say what it means in one short phrase. Examples: "MDR (the % the card
+  company keeps)", "split (the payment is divided automatically between the
+  restaurant and Racha)".
+- Lead with **what it means for him and the business**, then the detail.
+- Concrete examples in reais ("a R$150 bill split 3 ways…"), not abstractions.
+- Short. Say what you need him to decide, and your recommendation.
+- This goes for chat answers AND for any document written for him to read
+  (pricing, plans, reports). Code comments and review notes keep the repo's
+  usual style.
+
 ## Non-negotiables (each one is paid-for knowledge)
 
 1. **NO consumer-side fee. Ever.** sunday's 0.5–2% checkout fee → US class action
