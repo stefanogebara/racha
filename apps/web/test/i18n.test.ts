@@ -132,6 +132,8 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     // "completa ✓" é a mesma palavra em português e espanhol — não é tradução
     // esquecida, é a língua sendo a mesma aqui.
     'setup.done:pt=es',
+    // "desde" é a mesma palavra nas duas línguas.
+    'house.since:pt=es',
     'card.demoCard:en=pt', 'card.demoCard:en=es', 'card.demoCard:pt=es',
     'rcpt.statusOther:en=pt', // "status" é a mesma palavra
     // Espanhol e português: palavras que são MESMO iguais. Cada uma é uma
@@ -803,6 +805,10 @@ test('todo achado com {amount} na frase tem um campo de centavos que o painel l�
     'find.reopened_by_refund': 'deltaCents',
     'find.reopened_by_refund_mixed': 'deltaCents',
     'find.reopened_by_chargeback': 'deltaCents',
+    // Saldo da casa: o quanto debitado (principal + bônus) — PR #42, M-2.
+    'find.house_redeem_missing_payment_row': 'amountCents',
+    'find.house_redeem_missing_payment_row_paid': 'amountCents',
+    'find.house_payment_row_without_redeem': 'amountCents',
   };
   for (const [chave, campo] of Object.entries(comValor)) {
     assert.ok(chave in DICT, `${chave} não está no dicionário`);

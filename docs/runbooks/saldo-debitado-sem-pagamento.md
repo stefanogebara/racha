@@ -6,8 +6,12 @@ nossa, é outro: ver `dinheiro-sem-conta.md`.
 
 ## Como aparece
 
-- **Conciliação da casa:** achado crítico `house_redeem_missing_payment_row`.
-  Ele aparece no painel (`/api/panel`) e no stderr do `/api/house/admin`.
+- **Conciliação da casa:** achado crítico `house_redeem_missing_payment_row`,
+  com o valor e o cliente. Aparece na **página da carteira** (`AdminHouse`,
+  desde 2026-09-26), no painel (`/api/panel`) e no stderr do
+  `/api/house/admin`. A frase manda o dono acionar o suporte, avisar o cliente e
+  **não devolver por fora** (senão o cliente recebe duas vezes quando o suporte
+  estornar).
 - **Cliente:** viu "Se o seu saldo baixou, fale com o balcão: o valor volta pro
   seu saldo" (`err.house_debit_missing`). Isso só acontece quando o lançamento
   foi recusado sem débito que o pagasse (0043, RH009) **e** o estorno automático
@@ -70,7 +74,5 @@ linha e **não** devolva o saldo (`docs/house-accounts/README.md`).
 
 ## O que ainda falta no produto (TASKS)
 
-- A página da carteira (`AdminHouse`) não mostra a conciliação.
-- O achado não traz valor nem cliente, e não tem tradução própria.
 - O dono não tem um botão de "devolver ao saldo". Hoje o estorno é por SQL, na
   mão de quem opera o Racha.

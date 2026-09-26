@@ -420,6 +420,10 @@ function projetarAchados(findings) {
        * Achado pela terceira revisão de compliance de 2026-09-16.
        */
       ...(f.checkId ? { checkId: f.checkId } : {}),
+      // A CARTEIRA do achado da casa: é por ela que o dono acha o cliente na
+      // lista da página da carteira (compliance, PR #42, M-2). Id pseudônimo
+      // de conta da própria casa — quem vê é o dono dela.
+      ...(f.accountId ? { accountId: f.accountId } : {}),
     }));
 }
 
@@ -2196,7 +2200,20 @@ async function route(req, res) {
       ]);
       data.reconcile = {
         ok: houseRecon.ok && checkRecon.checksFailed === 0,
-        house: { failed: houseRecon.accountsFailed, findings: houseRecon.findings },
+        // PELA PROJEÇÃO, como o painel: código, centavos e endereço — não a
+        // `message` em inglês montada no servidor, com id de conta dentro
+        // (acordo de trabalho: o servidor manda código, o cliente traduz).
+        // E os achados POR CARTEIRA (principal/lote divergente, razão ilegível),
+        // que moram em `failed` e não em `findings` — sem eles, uma carteira
+        // divergente chegava com a lista vazia e a página ficava verde
+        // (segurança, PR #43, LOW-1). O mesmo formato do job diário.
+        house: {
+          failed: houseRecon.accountsFailed,
+          findings: projetarAchados([
+            ...houseRecon.findings,
+            ...houseRecon.failed.flatMap((f) => (f.findings || []).map((x) => ({ ...x, accountId: f.accountId }))),
+          ]),
+        },
         checks: { failed: checkRecon.checksFailed, worst: checkRecon.worstSeverity },
       };
       for (const f of houseRecon.findings) {

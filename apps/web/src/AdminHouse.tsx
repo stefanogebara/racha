@@ -1,5 +1,6 @@
 
 import { useT } from './lang';import { useCallback, useEffect, useState } from 'react';
+import { textoDoAchado } from './i18n';
 import { parseBrlToCents } from './api';
 import { authedReq as req } from './auth';
 
@@ -27,10 +28,20 @@ interface HouseAdminAccount {
   createdAt: string;
 }
 
+/** Um achado da conciliação da carteira, já projetado: código e centavos, sem frase do servidor. */
+interface HouseFinding {
+  severity: string;
+  code: string;
+  amountCents?: number;
+  accountId?: string;
+}
+
 interface HouseAdminData {
   config: HouseAdminConfig;
   liability: { principalCents: number; bonusCents: number; accountCount: number };
   accounts: HouseAdminAccount[];
+  // Opcional: backend antigo ainda no ar não manda — a página segue de pé.
+  reconcile?: { ok: boolean; house: { failed: number; findings: HouseFinding[] } };
 }
 
 export default function AdminHouse({ venueId }: { venueId: string }) {
@@ -153,16 +164,39 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
     return (
       <section className="panel">
         <p className="label">{t('home.houseBalance')}</p>
-        <p className="muted small">{error ?? 'carregando…'}</p>
+        <p className="muted small">{error ?? t('admin.loading')}</p>
       </section>
     );
   }
 
   const { liability, accounts } = data;
+  // A CONCILIAÇÃO DA CARTEIRA, onde o conserto mora. A rota já calculava e só
+  // mandava o crítico pro stderr: um saldo debitado sem pagamento era invisível
+  // aqui (compliance, PR #42, M-2). Traduzida, com o valor e o cliente.
+  const achados = data.reconcile?.house.findings ?? [];
+  // Vermelho quando a conciliação diz que não fecha, MESMO sem achado na lista
+  // (a do lado das contas só manda contagem): verde por falta de linha é o
+  // defeito "degrade-open" (segurança, PR #43, LOW-1).
+  const naoFecha = data.reconcile ? !data.reconcile.ok : false;
+  // Sem o nome na lista, um pedaço do id — nunca um achado sem dono
+  // (segurança, PR #43, LOW-2).
+  const quemE = (id?: string) => (id ? (accounts.find((a) => a.id === id)?.name ?? `#${id.slice(0, 8)}`) : undefined);
 
   return (
     <section className="panel">
       <p className="label">{t('home.houseBalance')}</p>
+
+      {(naoFecha || achados.length > 0) && (
+        <div role="alert">
+          <p className="small" style={{ color: 'var(--erro)' }}><strong>{t('house.reconTitle')}</strong></p>
+          {achados.map((f, i) => (
+            <p className="muted small" key={i}>
+              · {quemE(f.accountId) ? `${quemE(f.accountId)}: ` : ''}{textoDoAchado(f, t, brl)}
+            </p>
+          ))}
+          {achados.length === 0 && <p className="muted small">{t('house.reconNoDetail')}</p>}
+        </div>
+      )}
 
       <label className="servico" style={{ alignItems: 'center' }}>
         <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
@@ -220,7 +254,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
           <div className="checkrow" style={{ flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 150 }}>
               <strong>{a.name}</strong>
-              <span className="muted small">{a.phoneMasked} · desde {dmy(a.createdAt)}</span>
+              <span className="muted small">{a.phoneMasked} · {t('house.since', { date: dmy(a.createdAt) })}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right' }}>
               <span className="mono">{t('house.paidTag', { amount: brl(a.principalCents) })}</span>
