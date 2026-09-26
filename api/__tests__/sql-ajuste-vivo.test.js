@@ -245,6 +245,14 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     expect(Q(`select public.append_house_payment_guarded('${check}', '${txid}', 1000)`)).toBe(seq);
     // 4. sem débito E excedendo: RH009, não RH003 (o 409 mandaria estornar um débito que não existe)
     expect(codigoDe(`public.append_house_payment_guarded('${check}', 'ha_excede', 9999)`)).toBe('RH009');
+    // 5. débito ESTORNADO: RH006 vence o RH009 — "tente de novo" (409), não 500
+    //    (segurança, PR #42, LOW-2: a ordem dos blocos é o contrato).
+    const txid2 = `hb_${conta.slice(0, 8)}`;
+    Q(`select public.house_redeem('${conta}', '${check}', '${txid2}', 500, '${agora}')`);
+    Q(`select public.house_redeem_reverse('${conta}', '${txid2}', '${agora}')`);
+    expect(codigoDe(`public.append_house_payment_guarded('${check}', '${txid2}', 500)`)).toBe('RH006');
+    // 6. estornar um débito que NÃO existe: RH010 (antes, P0001 só com a frase)
+    expect(codigoDe(`public.house_redeem_reverse('${conta}', 'ha_nunca_existiu', '${agora}')`)).toBe('RH010');
   });
 
   test('0042 (CRÍTICO): house_redeem recusa (RH008) um "duplicado" de outra conta ou outro valor', () => {

@@ -554,10 +554,31 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
           // O estorno recusou porque OUTRO pedido com a mesma chave lançou este
           // txid na conta entre a nossa recusa e o nosso estorno (0042, RH007).
           // O pagamento EXISTE e o débito é dele: segue como sucesso.
-          if (!(r && r.code === 'house_redeem_landed')) throw r;
-          jaEntrou = true;
+          // `house_redeem_unknown` (RH010, 0043): não havia débito — nada foi
+          // debitado, e o "seu saldo não foi debitado" abaixo é verdade
+          // (compliance, PR #42, LOW-1).
+          if (r && r.code === 'house_redeem_landed') jaEntrou = true;
+          else if (!(r && r.code === 'house_redeem_unknown')) throw r;
         }
         if (!jaEntrou) throw httpError(409, 'A conta mudou agora há pouco — seu saldo não foi debitado', 'house_raced');
+      } else if (e && e.code === 'house_debit_missing') {
+        // RH009 (0043): o banco recusou um lançamento sem débito que o pague.
+        // Pelo serviço de hoje isso só nasce de um bug em que o débito DESTE
+        // txid existe com outra conta ou valor — e o certo pro cliente é
+        // devolvê-lo (CDC art. 42). Três desfechos, todos por código:
+        //   estornou (ou já estava)   → 409 `house_debit_mismatch`: saldo não debitado;
+        //   `house_redeem_unknown`    → nada foi debitado: o mesmo 409;
+        //   `house_redeem_landed`     → o pagamento entrou por outro pedido: sucesso.
+        // Só o estorno que FALHA deixa subir o 500 original — a conciliação
+        // aponta o débito sem pagamento (compliance, PR #42, HIGH-1).
+        let jaEntrou = false;
+        try {
+          await store.reverseHouseRedeem({ accountId: account.id, txid, nowIso: now() });
+        } catch (r) {
+          if (r && r.code === 'house_redeem_landed') jaEntrou = true;
+          else if (!(r && r.code === 'house_redeem_unknown')) throw e;
+        }
+        if (!jaEntrou) throw httpError(409, 'Não deu pra concluir o pagamento — seu saldo não foi debitado', 'house_debit_mismatch');
       } else {
         throw e; // unknown failure: debit stands, reconciliation flags the pair
       }

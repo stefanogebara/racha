@@ -18,6 +18,7 @@ const comErro = (error) => createSupabaseStore({ url: 'http://falso', serviceRol
 const redeem = (s) => s.redeemHouse({ accountId: 'a', checkId: 'c', txid: 't', amountCents: 100, nowIso: 'n' });
 
 test.each([
+  ['RH010', 404, 'house_redeem_unknown'],
   ['RH008', 409, 'house_idempotency_mismatch'],
   ['RH007', 409, 'house_redeem_landed'],
   ['RH006', 409, 'house_redeem_reversed'],
@@ -180,18 +181,53 @@ describe('o SERVIÇO com o store do Supabase: a recusa da conta estorna o débit
     expect((await house.wallet(accountToken)).account.principalCents).toBe(5000);
   });
 
-  test('RH009 (0043) no lançamento: o serviço NÃO estorna o débito — sobe o erro, e a conciliação acha o par', async () => {
+  // RH009 (0043) no lançamento: o serviço ESTORNA o débito deste txid e diz,
+  // com certeza, que o saldo não foi debitado (compliance, PR #42, HIGH-1).
+  const semDebito = () => Object.assign(new Error('house_debit_missing'), { statusCode: 500, code: 'house_debit_missing' });
+
+  test('RH009 → o serviço estorna o débito e responde 409 house_debit_mismatch; o saldo volta inteiro', async () => {
     const { store, house, table, accountToken } = await mundo('RH003');
-    let estornos = 0;
-    const estornoDeVerdade = store.reverseHouseRedeem.bind(store);
-    store.reverseHouseRedeem = async (a) => { estornos += 1; return estornoDeVerdade(a); };
-    store.appendHousePaymentGuarded = async () => {
-      throw Object.assign(new Error('house_debit_missing'), { statusCode: 500, code: 'house_debit_missing' });
-    };
+    store.appendHousePaymentGuarded = async () => { throw semDebito(); };
     await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-rh009-1' }))
-      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
-    expect(estornos).toBe(0);
+      .rejects.toMatchObject({ statusCode: 409, code: 'house_debit_mismatch' });
+    expect((await house.wallet(accountToken)).account.principalCents).toBe(5000);
     expect((await store.getCheckByQrToken(table.qrToken)).state.paidCents).toBe(0);
+  });
+
+  test('RH009 e o estorno diz RH010 (não havia débito): o mesmo 409 — nada foi debitado', async () => {
+    const { store, house, table, accountToken } = await mundo('RH003');
+    store.appendHousePaymentGuarded = async () => { throw semDebito(); };
+    store.reverseHouseRedeem = async () => { throw Object.assign(new Error('house_redeem_unknown'), { statusCode: 404, code: 'house_redeem_unknown' }); };
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-rh009-2' }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'house_debit_mismatch' });
+  });
+
+  test('RH009 e o estorno diz RH007 (o pagamento entrou por outro pedido): SUCESSO', async () => {
+    const { store, house, table, accountToken } = await mundo('RH003');
+    store.appendHousePaymentGuarded = async () => { throw semDebito(); };
+    store.reverseHouseRedeem = async () => { throw Object.assign(new Error('house_redeem_landed'), { statusCode: 409, code: 'house_redeem_landed' }); };
+    const r = await house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-rh009-3' });
+    expect(r.principalUsedCents + r.bonusUsedCents).toBe(1000);
+  });
+
+  test('RH009 e o estorno FALHA: sobe o 500 house_debit_missing — e o código atravessa a resposta da rota', async () => {
+    const { store, house, table, accountToken } = await mundo('RH003');
+    store.appendHousePaymentGuarded = async () => { throw semDebito(); };
+    store.reverseHouseRedeem = async () => { throw new Error('banco caiu'); };
+    const e = await house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-rh009-4' }).catch((x) => x);
+    expect(e).toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    // A RESPOSTA, não só o erro lançado: um 5xx troca o código por `internal`,
+    // a não ser que ele esteja na lista (segurança, PR #42, LOW-1).
+    const { errorBody } = require('../_lib/http-error');
+    expect(errorBody(e)).toMatchObject({ code: 'house_debit_missing' });
+  });
+
+  test('409 com estorno RH010 (conta recusou e não havia débito): house_raced, não erro cru', async () => {
+    const { store, house, table, accountToken } = await mundo('RH003');
+    store.appendHousePaymentGuarded = async () => { throw Object.assign(new Error('check_closed'), { statusCode: 409, code: 'check_closed' }); };
+    store.reverseHouseRedeem = async () => { throw Object.assign(new Error('house_redeem_unknown'), { statusCode: 404, code: 'house_redeem_unknown' }); };
+    await expect(house.redeem({ accountToken, tableQrToken: table.qrToken, amountCents: 1000, idempotencyKey: 'chave-rh009-5' }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'house_raced' });
   });
 
   test('CRÍTICO (PR #36): a mesma chave numa SEGUNDA mesa, ou com valor maior, não paga sem débito novo', async () => {

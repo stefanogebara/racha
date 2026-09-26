@@ -704,12 +704,24 @@ export const DICT = {
   'err.house_idempotency_mismatch': { en: 'This payment could not be completed. Check the bill and try again.',
                         pt: 'Não deu pra concluir este pagamento. Confira a conta e tente de novo.',
                         es: 'No se pudo completar este pago. Revisa la cuenta e inténtalo de nuevo.' },
-  // Um lançamento sem débito que o pague (0043, RH009). Não deveria acontecer:
-  // o serviço sempre debita antes. Sem prometer que o saldo está intacto — não
-  // se sabe —, e dizendo quem acerta: a conciliação da casa acha o par.
-  'err.house_debit_missing': { en: 'This payment could not be completed. If your balance went down, the restaurant will see it and fix it. Check the bill before trying again.',
-                        pt: 'Não deu pra concluir este pagamento. Se o seu saldo baixou, a casa vê e acerta. Confira a conta antes de tentar de novo.',
-                        es: 'No se pudo completar este pago. Si tu saldo disminuyó, el local lo verá y lo corregirá. Revisa la cuenta antes de volver a intentarlo.' },
+  // O lançamento da carteira não teve débito que o pagasse (0043, RH009) e o
+  // serviço DEVOLVEU o débito: aqui a frase pode ser definitiva (compliance,
+  // PR #42, HIGH-1). A próxima tentativa usa outra chave (HousePay).
+  'err.house_debit_mismatch': { en: 'This payment could not be completed, and your balance was not charged. Check the bill and try again.',
+                        pt: 'Não deu pra concluir este pagamento, e seu saldo não foi debitado. Confira a conta e tente de novo.',
+                        es: 'No se pudo completar este pago, y tu saldo no se cobró. Revisa la cuenta e inténtalo de nuevo.' },
+  // O mesmo, mas o estorno FALHOU: o saldo pode ter baixado sem pagamento. Não
+  // se promete que "a casa vê" (o painel da carteira não mostra a conciliação
+  // ainda — TASKS); diz-se o canal: o balcão (compliance, PR #42, HIGH-2).
+  'err.house_debit_missing': { en: 'This payment could not be completed. If your balance went down, speak to the counter: the amount goes back to your balance.',
+                        pt: 'Não deu pra concluir este pagamento. Se o seu saldo baixou, fale com o balcão: o valor volta pro seu saldo.',
+                        es: 'No se pudo completar este pago. Si tu saldo disminuyó, habla con el mostrador: el importe vuelve a tu saldo.' },
+  // O estorno não achou débito com este txid (0043, RH010): nada foi debitado.
+  // O serviço o converte em `house_raced`/`house_debit_mismatch` — a frase é a
+  // rede, dizendo a mesma verdade.
+  'err.house_redeem_unknown': { en: 'This payment could not be completed, and your balance was not charged. Check the bill and try again.',
+                        pt: 'Não deu pra concluir este pagamento, e seu saldo não foi debitado. Confira a conta e tente de novo.',
+                        es: 'No se pudo completar este pago, y tu saldo no se cobró. Revisa la cuenta e inténtalo de nuevo.' },
   'err.house_redeem_landed': { en: 'This payment went through. Check the bill.',
                         pt: 'Este pagamento entrou. Confira a conta.',
                         es: 'Este pago se realizó. Revisa la cuenta.' },

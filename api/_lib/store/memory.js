@@ -1404,7 +1404,8 @@ function createMemoryStore() {
       if (!log) throw new Error('unknown house account');
       const state = houseState.reduce(log);
       const orig = state ? state.redeems[txid] : null;
-      if (!orig) throw new Error(`unknown redeem txid ${txid}`);
+      // = RH010 da 0043: não há débito com este txid — nada foi debitado.
+      if (!orig) throw Object.assign(new Error('house_redeem_unknown'), { statusCode: 404, code: 'house_redeem_unknown' });
       // = RH007 da 0042: o pagamento deste txid JÁ ENTROU na conta — estornar o
       // débito deixaria a conta paga sem débito.
       const logDaConta = events.get(orig.checkId) || [];

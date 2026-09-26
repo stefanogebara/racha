@@ -137,6 +137,24 @@ resolves load txids.
 3. upsert `payments` row (idempotent by txid; always attempted so a healed
    retry backfills a row lost to a crash).
 
+Since 0043 (2026-09-26) step 2 also **requires the debit**. The append writes
+only if a `REDEEMED` event exists with the same txid, the same check, and
+principal + bonus equal to the amount. Otherwise it raises **RH009**, which
+the classifier maps to 500 `house_debit_missing`, and nothing is written.
+
+The service handles RH009 on its own path: it reverses the debit and answers
+409 `house_debit_mismatch` ("your balance was not charged").
+- If the reverse returns **RH010** (`house_redeem_unknown`, 0043: there was no
+  debit), the answer is the same 409.
+- If the reverse returns **RH007**, the payment already landed, and the result
+  is success.
+- If the reverse fails, the 500 `house_debit_missing` reaches the diner. That
+  code is on the 5xx allowlist, and it tells them to go to the counter.
+  Runbook: `docs/runbooks/saldo-debitado-sem-pagamento.md`.
+
+Refusal order inside the append: idempotency → RH006 → RH002 → RH004 → RH009
+→ RH003.
+
 Crash permutations and their reconciliation findings (the canary RUNS on
 every `GET /api/house/admin` — findings ride the response and criticals hit
 stderr):
