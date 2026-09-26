@@ -164,7 +164,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
     return (
       <section className="panel">
         <p className="label">{t('home.houseBalance')}</p>
-        <p className="muted small">{error ?? 'carregando…'}</p>
+        <p className="muted small">{error ?? t('admin.loading')}</p>
       </section>
     );
   }
@@ -247,7 +247,7 @@ export default function AdminHouse({ venueId }: { venueId: string }) {
           <div className="checkrow" style={{ flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 150 }}>
               <strong>{a.name}</strong>
-              <span className="muted small">{a.phoneMasked} · desde {dmy(a.createdAt)}</span>
+              <span className="muted small">{a.phoneMasked} · {t('house.since', { date: dmy(a.createdAt) })}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right' }}>
               <span className="mono">{t('house.paidTag', { amount: brl(a.principalCents) })}</span>

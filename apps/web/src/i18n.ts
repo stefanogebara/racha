@@ -1742,6 +1742,7 @@ export const DICT = {
   'house.badAmount':  { en: 'Enter a valid amount.',           pt: 'Informe um valor válido.', es: 'Introduce un importe válido.' },
   'house.saving':     { en: 'saving…',                         pt: 'salvando…', es: 'guardando…' },
   'house.saveConfig': { en: 'Save settings',                   pt: 'Salvar configuração', es: 'Guardar configuración' },
+  'house.since':      { en: 'since {date}', pt: 'desde {date}', es: 'desde {date}' },
   'house.reconTitle': { en: 'The wallet does not add up',
                         pt: 'A carteira não fecha',
                         es: 'El monedero no cuadra' },

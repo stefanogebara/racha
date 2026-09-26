@@ -132,6 +132,8 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
     // "completa ✓" é a mesma palavra em português e espanhol — não é tradução
     // esquecida, é a língua sendo a mesma aqui.
     'setup.done:pt=es',
+    // "desde" é a mesma palavra nas duas línguas.
+    'house.since:pt=es',
     'card.demoCard:en=pt', 'card.demoCard:en=es', 'card.demoCard:pt=es',
     'rcpt.statusOther:en=pt', // "status" é a mesma palavra
     // Espanhol e português: palavras que são MESMO iguais. Cada uma é uma
