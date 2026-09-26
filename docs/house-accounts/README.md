@@ -175,6 +175,15 @@ stderr):
 
 ## Decisions recorded
 
+- **A reversed bonus that expired comes back with FULL validity (0044,
+  2026-09-26).** Bonus from a lot that expired before the reversal returns as a
+  new lot with the venue's validity counted from the reversal. That holds even
+  if the original lot had one day left when it was spent. The customer keeps
+  the bonus they lost because of our failure (CDC art. 47, the reading that
+  favours the consumer). The cost falls on the restaurant, and the
+  confirmation dialog tells the owner ("volta com validade nova"). It never
+  becomes principal: principal can be withdrawn as cash, bonus cannot.
+
 - **Refund keeps bonus.** `PRINCIPAL_REFUNDED` never touches bonus lots; a
   fully refunded load's bonus stays spendable until it expires. The refund
   response returns the account's still-active `bonusCents` and the admin UI

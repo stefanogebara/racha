@@ -27,7 +27,12 @@
 --    (23:59:59.999 de São Paulo no dia de hoje + validade). O evento grava
 --    `reissue: { bonusCents, expiresAt, fromLots }`, e o redutor
 --    (`account-state.js`) lê o mesmo campo: banco e razão contam igual.
---    Vale pros DOIS motivos — o automático que cruzar a meia-noite também.
+--    SÓ no `owner_recredit` (segurança, PR #44, re-revisão L-1): no estorno
+--    AUTOMÁTICO o cliente escolhe o instante — dois pagamentos disparados às
+--    23:59:59.9 do último dia do lote, um recusado e estornado depois da
+--    meia-noite, e o bônus renasceria com validade cheia, toda vez. O
+--    automático roda em segundos e devolve ao lote de origem, como sempre; o
+--    do dono exige achado da conciliação, 5 min de espera e o clique do dono.
 --
 -- ASSINATURA NOVA, com dois parâmetros opcionais. `create or replace` com
 -- parâmetro a mais criaria uma SOBRECARGA — as duas versões convivendo, e a
@@ -40,6 +45,10 @@
 -- sem `-1`, cada comando fecharia sozinho: entre o DROP e o CREATE nenhum
 -- estorno funcionaria (cliente debitado sem pagamento), e entre o CREATE e o
 -- REVOKE a função `security definer` ficaria exposta ao `anon`.
+-- COMO FOI APLICADA: pelo `apply_migration` do MCP do Supabase, antes do merge,
+-- como as outras (conferida depois pelo md5 do corpo). Se a ferramenta já
+-- abrir transação, o `begin` vira aviso e o `commit` fecha a mesma — o DROP, o
+-- CREATE e o REVOKE continuam juntos. Pela mão: `psql -1 -v ON_ERROR_STOP=1 -f`.
 
 begin;
 
@@ -117,14 +126,15 @@ begin
      set principal_cents = principal_cents + (v_orig->>'principalCents')::bigint
    where id = p_account_id;
 
-  -- Cada lote usado: se ainda vale AGORA, o bônus volta pra ele; se venceu (ou
-  -- sumiu da tabela), vai pro lote novo.
+  -- Cada lote usado: se ainda vale AGORA — ou se o estorno é o AUTOMÁTICO —, o
+  -- bônus volta pra ele; se venceu (ou sumiu da tabela) num estorno do DONO,
+  -- vai pro lote novo.
   for u in select * from jsonb_to_recordset(coalesce(v_orig->'lots', '[]'::jsonb))
              as x(seq integer, "useCents" bigint)
   loop
     select expires_at into v_lot_exp
       from house_bonus_lots where account_id = p_account_id and event_seq = u.seq;
-    if v_lot_exp is not null and v_lot_exp > v_now then
+    if p_reason <> 'owner_recredit' or (v_lot_exp is not null and v_lot_exp > v_now) then
       update house_bonus_lots
          set remaining_cents = remaining_cents + u."useCents"
        where account_id = p_account_id and event_seq = u.seq;

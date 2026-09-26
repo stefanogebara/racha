@@ -332,6 +332,19 @@ describe('house service', () => {
     expect(b.message).toMatch(/BACKFILL|do NOT re-credit/);
   });
 
+  test('a conciliação compara a VALIDADE do lote, pelo instante (0044; segurança, re-revisão L-2)', () => {
+    const { reconcileHouseAccount } = require('../_lib/checks/reconcile');
+    const ev = (seq, type, payload) => ({ seq, type, payload });
+    const events = [
+      ev(1, 'OPENED', {}),
+      ev(2, 'LOAD_CONFIRMED', { txid: 'l', at: '2026-09-01T12:00:00.000Z', principalCents: 1000, bonusCents: 100, bonusExpiresAt: '2026-10-01T02:59:59.999Z' }),
+    ];
+    const ok = reconcileHouseAccount({ accountId: 'a', events, stored: { principalCents: 1000, lots: [{ seq: 2, remainingCents: 100, expiresAt: '2026-10-01T02:59:59.999+00:00' }] } });
+    expect(ok.findings.map((f) => f.code)).not.toContain('house_lot_expiry_drift');
+    const ruim = reconcileHouseAccount({ accountId: 'a', events, stored: { principalCents: 1000, lots: [{ seq: 2, remainingCents: 100, expiresAt: '2027-10-01T02:59:59.999+00:00' }] } });
+    expect(ruim.findings.map((f) => f.code)).toContain('house_lot_expiry_drift');
+  });
+
   describe('o dono devolve ao saldo o débito que não chegou à conta (0044)', () => {
     async function travado() {
       const ctx = setup();
@@ -384,6 +397,21 @@ describe('house service', () => {
       expect(ev.payload).toMatchObject({ reason: 'owner_recredit', by: 'dono' });
       expect(ev.payload.reissue.bonusCents).toBe(d.bonusUsedCents);
       expect(Date.parse(ev.payload.reissue.expiresAt)).toBeGreaterThan(Date.parse(clock.now()));
+    });
+
+    test('estorno AUTOMÁTICO depois do vencimento NÃO renova o bônus — senão o cliente o eterniza cruzando a meia-noite (segurança, PR #44, re-revisão L-1)', async () => {
+      const { store, house, clock, check, account, accountToken } = await travado();
+      const d = await store.redeemHouse({ accountId: account.id, checkId: check.id, txid: 'ha_meianoite', amountCents: 2500, nowIso: clock.now() });
+      expect(d.bonusUsedCents).toBeGreaterThan(0);
+      clock.advanceDays(40);
+      const antes = (await house.wallet(accountToken)).account;
+      const r = await store.reverseHouseRedeem({ accountId: account.id, txid: 'ha_meianoite', nowIso: clock.now() });
+      expect(r.reissuedBonusCents).toBe(0);
+      const depois = (await house.wallet(accountToken)).account;
+      expect(depois.bonusCents).toBe(antes.bonusCents);   // o bônus voltou ao lote VENCIDO: não gastável
+      expect(depois.principalCents).toBe(antes.principalCents + d.principalUsedCents);
+      const ev = (await store.loadHouseEvents(account.id)).find((e) => e.type === 'REDEEM_REVERSED' && e.payload.txid === 'ha_meianoite');
+      expect(ev.payload.reissue).toBeUndefined();
     });
 
     test('antes de 5 minutos: recusa (pagamento pode estar em voo), sem mexer no saldo', async () => {

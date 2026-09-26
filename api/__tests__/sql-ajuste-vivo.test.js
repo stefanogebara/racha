@@ -300,6 +300,15 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
               where account_id = '${conta}' and event_seq = ${rr.seq}`)).toBe('300|true');
     expect(Q(`select (payload->'reissue'->>'bonusCents') || '|' || (payload->'reissue'->'fromLots')::text from house_account_events
               where account_id = '${conta}' and seq = ${rr.seq}`)).toBe('300|[900]');
+    // o AUTOMÁTICO depois do vencimento NÃO reemite — devolve ao lote velho
+    Q(`insert into house_bonus_lots (account_id, event_seq, granted_cents, remaining_cents, expires_at)
+       values ('${conta}', 901, 200, 200, now() + interval '1 day')`);
+    const t4 = `hf_${conta.slice(0, 8)}`;
+    Q(`select public.house_redeem('${conta}', '${check}', '${t4}', 200, '${agora}')`);
+    const ra = JSON.parse(Q(`select public.house_redeem_reverse('${conta}', '${t4}', '${futuro}')`));
+    expect(ra.reissuedBonusCents).toBe(0);
+    expect(Q(`select remaining_cents from house_bonus_lots where account_id = '${conta}' and event_seq = 901`)).toBe('200');
+    expect(Q(`select count(*) from house_bonus_lots where account_id = '${conta}' and event_seq = ${ra.seq}`)).toBe('0');
     // e não há SOBRECARGA: uma função só com esse nome
     expect(Q(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where n.nspname = 'public' and p.proname = 'house_redeem_reverse'`)).toBe('1');

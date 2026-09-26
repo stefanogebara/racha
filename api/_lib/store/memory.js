@@ -1426,7 +1426,9 @@ function createMemoryStore() {
       const agora = Date.parse(nowIso);
       let reissue = 0;
       const fromLots = [];
-      for (const use of orig.lots || []) {
+      // Só no estorno do DONO: no automático o cliente escolhe o instante e
+      // renovaria o bônus cruzando a meia-noite (segurança, PR #44, re-revisão L-1).
+      for (const use of reason === 'owner_recredit' ? (orig.lots || []) : []) {
         const lot = state.lots.find((l) => l.seq === use.seq);
         if (!lot || !(Date.parse(lot.expiresAt) > agora)) { reissue += use.useCents; fromLots.push(use.seq); }
       }

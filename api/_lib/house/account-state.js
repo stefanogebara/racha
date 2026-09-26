@@ -166,7 +166,11 @@ function validateEvent(evt, prevState) {
         if (r.bonusCents <= 0) invalid('REDEEM_REVERSED.reissue.bonusCents must be > 0');
         assertIso(r.expiresAt, 'REDEEM_REVERSED.reissue.expiresAt');
         if (!Array.isArray(r.fromLots)) invalid('REDEEM_REVERSED.reissue.fromLots must be an array');
-        const usados = new Map((orig.lots || []).map((u) => [u.seq, u.useCents]));
+        // SOMA por lote: um débito que usasse o mesmo lote duas vezes não pode
+        // ter o estorno correto marcado como anomalia (compliance, PR #44, L-B).
+        const usados = new Map();
+        for (const u of orig.lots || []) usados.set(u.seq, (usados.get(u.seq) || 0) + u.useCents);
+        if (new Set(r.fromLots).size !== r.fromLots.length) invalid('REDEEM_REVERSED.reissue.fromLots repeats a lot');
         let soma = 0;
         for (const s of r.fromLots) {
           if (!usados.has(s)) invalid(`REDEEM_REVERSED.reissue.fromLots: lot ${s} not used by redeem ${p.txid}`);
@@ -266,6 +270,8 @@ function applyEvent(state, evt, seq = null) {
       // lote novo (`reissue`), com validade nova. Evento antigo, sem `reissue`,
       // devolve tudo aos lotes de origem, como sempre.
       const reemitidos = new Set(p.reissue ? p.reissue.fromLots : []);
+      // (O mesmo lote duas vezes no débito: cada uso volta pro lote, ou os dois
+      // vão pro lote novo — nunca metade.)
       for (const use of orig.lots || []) {
         if (reemitidos.has(use.seq)) continue;
         const lot = next.lots.find((l) => l.seq === use.seq);

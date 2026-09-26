@@ -1643,6 +1643,14 @@ function reconcileHouseAccount({ accountId, events, stored }) {
         add('critical', 'house_lot_drift',
           `bonus lot seq ${lot.seq}: stored ${s.remainingCents}¢ vs ledger ${lot.remainingCents}¢`);
       }
+      // A VALIDADE também: o bônus gastável depende dela, e desde a 0044 há um
+      // segundo lugar que a escreve (o lote reemitido). Pelo INSTANTE, não pelo
+      // texto — o banco devolve `+00:00`, o razão grava `Z` (segurança, PR #44,
+      // re-revisão L-2).
+      if (s.expiresAt && lot.expiresAt && Date.parse(s.expiresAt) !== Date.parse(lot.expiresAt)) {
+        add('critical', 'house_lot_expiry_drift',
+          `bonus lot seq ${lot.seq}: stored expiry ${s.expiresAt} vs ledger ${lot.expiresAt}`);
+      }
       storedBySeq.delete(lot.seq);
     }
     for (const [seq, s] of storedBySeq) {
