@@ -215,6 +215,7 @@ function quoteBonusCents(amountCents, bonusBp) {
 function ledgerView(events) {
   const rows = [];
   const debitos = new Map();   // txid → valor debitado (principal + bônus), ainda não estornado
+  const partesDoDebito = new Map();   // txid → { principalCents, bonusCents }
   const vistos = new Set();    // txids de REDEEMED já contados
   for (const evt of events) {
     const p = evt.payload || {};
@@ -227,6 +228,7 @@ function ledgerView(events) {
       vistos.add(p.txid);
       const valor = (p.principalCents ?? 0) + (p.bonusCents ?? 0);
       debitos.set(p.txid, valor);
+      partesDoDebito.set(p.txid, { principalCents: p.principalCents ?? 0, bonusCents: p.bonusCents ?? 0 });
       rows.push({ at: p.at ?? null, type: 'redeem', amountCents: -valor, bonusCents: 0 });
     } else if (evt.type === 'REDEEM_REVERSED') {
       const valor = debitos.get(p.txid);
@@ -236,8 +238,11 @@ function ledgerView(events) {
         // cliente precisa saber que aconteceu —, e, se o bônus voltou com
         // validade nova, a data dela (compliance, PR #44, L-D).
         if (p.reason === 'owner_recredit') {
+          const orig = partesDoDebito.get(p.txid) || { principalCents: valor, bonusCents: 0 };
           rows.push({
-            at: p.at ?? null, type: 'redeem_recredited', amountCents: valor, bonusCents: 0,
+            at: p.at ?? null, type: 'redeem_recredited', amountCents: valor,
+            // quanto é pago (reembolsável) e quanto é bônus (compliance, PR #45, M-2)
+            principalCents: orig.principalCents, bonusCents: orig.bonusCents,
             ...(p.reissue && p.reissue.expiresAt ? { bonusExpiresAt: p.reissue.expiresAt } : {}),
           });
         } else {
@@ -705,25 +710,36 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const acc = await store.getHouseAccountById(accountId);
     if (!acc || acc.venueId !== venueId) throw httpError(404, 'Conta não encontrada', 'house_recredit_not_flagged');
 
-    // O MESMO predicado do achado `house_redeem_missing_payment_row` da
-    // conciliação, só pra ESTE débito — rodar a conciliação da casa inteira a
-    // cada clique era caro e sem limite de taxa (segurança, PR #44, L-4):
+    // O predicado do achado `house_redeem_missing_payment_row` da conciliação,
+    // só pra ESTE débito (igual ou mais estrito) — rodar a conciliação da casa
+    // inteira a cada clique era caro e sem limite de taxa (segurança, PR #44, L-4):
     //   1. o débito existe nesta carteira e não foi estornado;
     //   2. não há linha de pagamento com este txid;
-    //   3. ele não entrou no razão da conta que o débito nomeia — desde a 0043
-    //      o lançamento da carteira só entra nessa conta.
+    //   3. ele não entrou no razão de NENHUMA conta — a conciliação olha todas;
+    //      só a do débito bastaria desde a 0043, mas o histórico de antes não
+    //      tem essa garantia (segurança, PR #45, L-1; produção em 2026-09-26: 0
+    //      pagamentos da carteira em conta diferente da do débito);
+    //   4. a conta do débito existe e tem razão — razão vazio não é "não
+    //      entrou", é não saber (segurança, PR #45, L-2).
     const eventos = await store.loadHouseEvents(accountId);
     const estado = houseState.reduce(eventos);
     const rd = estado && estado.redeems[txid];
     const naoPendente = () => httpError(409, 'Este débito não está pendente', 'house_recredit_not_flagged');
     if (!rd || rd.reversed) throw naoPendente();
     if (await store.getPayment(txid)) throw naoPendente();
+    if (await store.paymentTxidOnAnyCheck(txid)) throw naoPendente();
+    const eventosDaConta = await store.loadEvents(rd.checkId) || [];
+    if (eventosDaConta.length === 0) throw naoPendente();
     const { reduce: reduzirConta } = require('../checks/check-state');
     let razaoDaConta = null;
-    try { razaoDaConta = reduzirConta(await store.loadEvents(rd.checkId) || []); } catch { razaoDaConta = null; }
+    try { razaoDaConta = reduzirConta(eventosDaConta); } catch { razaoDaConta = null; }
     // Razão da conta ilegível: não se decide no escuro — a conciliação aponta.
     if (!razaoDaConta || (razaoDaConta.payments && razaoDaConta.payments[txid])) throw naoPendente();
-    const achado = { amountCents: (rd.principalCents || 0) + (rd.bonusCents || 0) };
+    const achado = {
+      amountCents: (rd.principalCents || 0) + (rd.bonusCents || 0),
+      principalCents: rd.principalCents || 0,
+      bonusCents: rd.bonusCents || 0,
+    };
 
     // A HORA do débito sai do próprio evento: o estado reduzido não guarda `at`.
     const debito = eventos
@@ -755,8 +771,22 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
     const digitos = String(acc.phone || '').replace(/\D/g, '');
     const whatsapp = digitos.length >= 12 && digitos.startsWith('55') ? digitos
       : (digitos.length === 10 || digitos.length === 11) ? `55${digitos}` : null;
+    // Quanto é PAGO (reembolsável) e quanto é BÔNUS (não é), e até quando o
+    // bônus vale — a mensagem ao cliente diz os dois (compliance, PR #45, M-2).
+    const depoisDoEstorno = houseState.reduce(await store.loadHouseEvents(accountId));
+    const evEstorno = (await store.loadHouseEvents(accountId))
+      .find((e) => e.type === 'REDEEM_REVERSED' && e.payload && e.payload.txid === txid);
+    const reemitido = evEstorno && evEstorno.payload.reissue;
+    let bonusAte = reemitido ? reemitido.expiresAt : null;
+    if (!bonusAte && achado.bonusCents > 0 && depoisDoEstorno) {
+      const usados = new Set((rd.lots || []).map((u) => u.seq));
+      const datas = depoisDoEstorno.lots.filter((l) => usados.has(l.seq)).map((l) => l.expiresAt).sort();
+      bonusAte = datas[0] || null;   // a MAIS CEDO dos lotes de volta
+    }
     return {
       duplicate: r.duplicate === true, amountCents: achado.amountCents,
+      principalCents: achado.principalCents, bonusCents: achado.bonusCents,
+      ...(achado.bonusCents > 0 && bonusAte ? { bonusExpiresAt: bonusAte } : {}),
       customerName: acc.name, ...(whatsapp ? { whatsapp } : {}),
     };
   }

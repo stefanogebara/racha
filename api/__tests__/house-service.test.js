@@ -376,7 +376,9 @@ describe('house service', () => {
       depois(clock, 6);
       const r = await house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_travado', actorUserId: 'user-dono-1' });
       // O telefone inteiro, com o país, SÓ nesta resposta — pro dono avisar (M-3).
-      expect(r).toEqual({ duplicate: false, amountCents: 1000, customerName: 'Q', whatsapp: '5511915151515' });
+      // + quanto é pago e quanto é bônus, e até quando o bônus vale (compliance, PR #45, M-2).
+      expect(r).toMatchObject({ duplicate: false, amountCents: 1000, principalCents: 0, bonusCents: 1000, customerName: 'Q', whatsapp: '5511915151515' });
+      expect(Date.parse(r.bonusExpiresAt)).toBeGreaterThan(Date.parse(clock.now()));
       expect(await saldo()).toBe(antes + 1000);
       const ev = (await store.loadHouseEvents(account.id)).find((e) => e.type === 'REDEEM_REVERSED');
       expect(ev.payload).toMatchObject({ txid: 'ha_travado', reason: 'owner_recredit', by: 'user-dono-1' });
@@ -438,6 +440,25 @@ describe('house service', () => {
       await expect(house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_semlinha', actorUserId: 'u' }))
         .rejects.toMatchObject({ statusCode: 409, code: 'house_recredit_not_flagged' });
       expect(await saldo()).toBe(antes);
+    });
+
+    test('pagamento em OUTRA conta (histórico de antes da 0043) e conta sem razão: não se devolve (segurança, PR #45, L-1/L-2)', async () => {
+      const { store, house, clock, venue, table, check, account, saldo } = await travado();
+      // débito que nomeia a conta A, mas o pagamento entrou na conta B
+      const mesaB = store.seedTable(venue.id, 'Mesa B');
+      const contaB = await store.openCheck(mesaB.qrToken, [{ id: 'b', name: 'B', priceCents: 5000 }]);
+      await store.redeemHouse({ accountId: account.id, checkId: check.id, txid: 'ha_cruzado', amountCents: 500, nowIso: clock.now() });
+      await store.appendEvent(contaB.id, 'PAYMENT_CONFIRMED', { txid: 'ha_cruzado', amountCents: 500, tipCents: 0, method: 'house_account' });
+      // débito que nomeia uma conta sem razão nenhum
+      await store.redeemHouse({ accountId: account.id, checkId: '00000000-0000-4000-8000-00000000c0de', txid: 'ha_semrazao', amountCents: 300, nowIso: clock.now() });
+      depois(clock, 10);
+      const antes = await saldo();
+      for (const txid of ['ha_cruzado', 'ha_semrazao']) {
+        await expect(house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid, actorUserId: 'u' }))
+          .rejects.toMatchObject({ statusCode: 409, code: 'house_recredit_not_flagged' });
+      }
+      expect(await saldo()).toBe(antes);
+      expect(table).toBeTruthy();
     });
 
     test('antes de 5 minutos: recusa (pagamento pode estar em voo), sem mexer no saldo', async () => {

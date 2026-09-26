@@ -2210,13 +2210,15 @@ async function route(req, res) {
         // que moram em `failed` e não em `findings` — sem eles, uma carteira
         // divergente chegava com a lista vazia e a página ficava verde
         // (segurança, PR #43, LOW-1). O mesmo formato do job diário.
-        house: {
-          failed: houseRecon.accountsFailed,
-          findings: projetarAchados([
+        house: (() => {
+          const todos = [
             ...houseRecon.findings,
             ...houseRecon.failed.flatMap((f) => (f.findings || []).map((x) => ({ ...x, accountId: f.accountId }))),
-          ], { limite: 100 }),
-        },
+          ];
+          // E QUANTOS são ao todo: acima de 100, a página diz "mostrando 100 de
+          // N" em vez de esconder o resto (segurança L-3, compliance L-4, PR #45).
+          return { failed: houseRecon.accountsFailed, total: todos.length, findings: projetarAchados(todos, { limite: 100 }) };
+        })(),
         checks: { failed: checkRecon.checksFailed, worst: checkRecon.worstSeverity },
       };
       for (const f of houseRecon.findings) {

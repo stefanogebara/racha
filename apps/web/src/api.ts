@@ -104,6 +104,8 @@ export interface HouseLedgerEntry {
   type: 'load' | 'redeem' | 'redeem_reversed' | 'redeem_recredited' | 'refund' | (string & {});
   // Só no `redeem_recredited` com bônus reemitido: até quando ele vale.
   bonusExpiresAt?: string;
+  // Só no `redeem_recredited`: quanto da devolução é pago (reembolsável).
+  principalCents?: number;
   // SEM `label`: o servidor não manda frase; a tela traduz pelo `type`.
   amountCents: number;
   bonusCents?: number;

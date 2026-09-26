@@ -238,7 +238,16 @@ function WalletView({ accountToken }: { accountToken: string }) {
       {devolucao && (
         <section className="card" role="status">
           <p className="small pos"><strong>{t('wallet.recredited', { amount: brl(devolucao.amountCents), date: dmy(devolucao.at!) })}</strong></p>
-          <p className="muted small">{t('wallet.recreditedWhy', { venue: venue.name })}</p>
+          {/* Quanto é PAGO (reembolsável) e quanto é BÔNUS (não é), e até quando;
+              reembolso só se há parte paga (compliance, PR #45, M-2 e L-2). */}
+          <p className="muted small">
+            {t('wallet.recreditedWhy', { venue: venue.name })}
+            {(devolucao.bonusCents ?? 0) > 0 && (devolucao.principalCents ?? 0) > 0
+              ? t('wallet.recreditedSplit', { paid: brl(devolucao.principalCents!), bonus: brl(devolucao.bonusCents!) })
+              : (devolucao.bonusCents ?? 0) > 0 ? t('wallet.recreditedBonusOnly') : ''}
+            {devolucao.bonusExpiresAt ? t('wallet.bonusUntil', { date: dmy(devolucao.bonusExpiresAt) }) : ''}
+            {(devolucao.principalCents ?? 0) > 0 ? t('wallet.recreditedRefund', { venue: venue.name }) : ''}
+          </p>
         </section>
       )}
 
