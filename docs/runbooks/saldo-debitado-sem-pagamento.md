@@ -39,12 +39,15 @@ Se há o débito, não há `PAYMENT_CONFIRMED` e não há estorno, rode o estorn
 próprio banco:
 
 ```sql
-select public.house_redeem_reverse('<account_id>', '<txid>', now()::text);
+select public.house_redeem_reverse('<account_id>', '<txid>',
+  to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'));
 ```
 
 - Se ele devolver **RH007**, o pagamento entrou na conta nesse meio-tempo. Então
   não há o que devolver; encerre o chamado.
 - Se devolver **RH010**, não havia débito com esse txid. Confira o txid.
+- O terceiro argumento é a data no MESMO formato ISO que o serviço grava;
+  `now()::text` deixaria o `REDEEM_REVERSED` com outro formato no razão.
 - **Nunca** edite `principal_cents` à mão. O estorno devolve o principal e cada
   lote de bônus exatamente, e deixa o `REDEEM_REVERSED` no razão (inegociável
   #6).
@@ -60,6 +63,10 @@ linha e **não** devolva o saldo (`docs/house-accounts/README.md`).
   § único).
 - **Quem avisa o cliente:** o dono (a casa), pelo canal que o cliente usou, ou
   pelo `contato@useracha.app` se ele escreveu pra lá.
+- **O balcão não conserta sozinho:** o estorno é SQL, na mão de quem opera o
+  Racha. A casa que recebe o cliente, ou que vê o achado no painel, **aciona o
+  suporte Racha em `contato@useracha.app`** no mesmo dia. Sem isso, o prazo
+  acima é uma promessa que ninguém ouve (compliance, PR #42, re-revisão M-B).
 
 ## O que ainda falta no produto (TASKS)
 

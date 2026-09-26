@@ -568,17 +568,26 @@ function createHouseService({ store, psp, now = () => new Date().toISOString() }
         // devolvê-lo (CDC art. 42). Três desfechos, todos por código:
         //   estornou (ou já estava)   → 409 `house_debit_mismatch`: saldo não debitado;
         //   `house_redeem_unknown`    → nada foi debitado: o mesmo 409;
-        //   `house_redeem_landed`     → o pagamento entrou por outro pedido: sucesso.
-        // Só o estorno que FALHA deixa subir o 500 original — a conciliação
-        // aponta o débito sem pagamento (compliance, PR #42, HIGH-1).
-        let jaEntrou = false;
+        //   qualquer outra coisa      → o 500 original (`house_debit_missing`).
+        // `house_redeem_landed` NÃO é sucesso AQUI, ao contrário do ramo 409: o
+        // RH009 diz que ESTA conta não tem o pagamento, e o RH007 diz que ele
+        // entrou na conta que o DÉBITO nomeia — outra. O saldo foi gasto, mas não
+        // nesta mesa; dizer "pago" e gravar a linha de pagamento desta conta
+        // seria mentir e sujar o razão (compliance, PR #42, re-revisão M-A).
+        // A conciliação aponta o par; o cliente é mandado ao balcão.
         try {
           await store.reverseHouseRedeem({ accountId: account.id, txid, nowIso: now() });
         } catch (r) {
-          if (r && r.code === 'house_redeem_landed') jaEntrou = true;
-          else if (!(r && r.code === 'house_redeem_unknown')) throw e;
+          if (!(r && r.code === 'house_redeem_unknown')) {
+            // O PORQUÊ do estorno ter falhado vai pro log — é o que o runbook
+            // precisa investigar; sem isto só o RH009 aparecia (segurança, PR
+            // #42, re-revisão LOW-1). Só código e mensagem do banco, sem dado
+            // do cliente.
+            process.stderr.write(`[carteira] RH009 e o estorno falhou: ${String((r && r.code) || '')} ${String((r && r.message) || r).slice(0, 160)}\n`);
+            throw e;
+          }
         }
-        if (!jaEntrou) throw httpError(409, 'Não deu pra concluir o pagamento — seu saldo não foi debitado', 'house_debit_mismatch');
+        throw httpError(409, 'Não deu pra concluir o pagamento — seu saldo não foi debitado', 'house_debit_mismatch');
       } else {
         throw e; // unknown failure: debit stands, reconciliation flags the pair
       }

@@ -437,11 +437,24 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(2000);
     expect(reduce(await store.loadEvents(outra.id)).paidCents).toBe(0);
 
+    // A classe de bug do RH009, de ponta a ponta nos stores de verdade: o débito
+    // T nomeia a conta X e ENTROU em X; o lançamento de T na conta Y recusa
+    // (RH009), e o estorno de T recusa (RH007) — é por isso que, no ramo do
+    // RH009, o serviço NÃO trata RH007 como sucesso (as duas re-revisões do PR #42).
+    await store.redeemHouse({ accountId: acc.id, checkId: outra.id, txid: `x_${uniq}`, amountCents: 700, nowIso: t0 });
+    await store.appendHousePaymentGuarded(outra.id, `x_${uniq}`, 700);
+    await expect(store.appendHousePaymentGuarded(check.id, `x_${uniq}`, 700))
+      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    await expect(store.reverseHouseRedeem({ accountId: acc.id, txid: `x_${uniq}`, nowIso: t0 }))
+      .rejects.toMatchObject({ code: 'house_redeem_landed' });
+    expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(2000);
+    expect(reduce(await store.loadEvents(outra.id)).paidCents).toBe(700);
+
     // reversal restores the exact breakdown, idempotently
     await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `rv_${uniq}`, amountCents: 1000, nowIso: t0 });
     expect((await store.reverseHouseRedeem({ accountId: acc.id, txid: `rv_${uniq}`, nowIso: t0 })).duplicate).toBe(false);
     expect((await store.reverseHouseRedeem({ accountId: acc.id, txid: `rv_${uniq}`, nowIso: t0 })).duplicate).toBe(true);
-    expect(houseState2.reduce(await store.loadHouseEvents(acc.id)).principalCents).toBe(8000);
+    expect(houseState2.reduce(await store.loadHouseEvents(acc.id)).principalCents).toBe(7300); // 8000 − os 700 que PAGARAM a outra conta (x_)
 
     // payments-row idempotency: a second write never clobbers the first
     await store.recordHousePaymentRow({ checkId: check.id, venueId: hv.id, txid: `ir_${uniq}`, amountCents: 2000, confirmedAt: t0 });
