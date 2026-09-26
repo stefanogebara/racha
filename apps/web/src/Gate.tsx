@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useT, LangToggle } from './lang';
+import { EMPRESA } from './empresa';
 import { Campo } from './Campo';
 import { isValidEmail } from './br';
 import { onSession, signIn, signUp, signInWithGoogle, resetPassword, signOut, supabase, GOOGLE_LIGADO, SENHA_MINIMA, emRecuperacaoDeSenha, definirSenhaNova } from './auth';
@@ -67,7 +68,7 @@ function SenhaNova({ onDone }: { onDone: () => void }) {
         {/* Uma saída: não é a minha conta, ou desisti. */}
         <button type="button" className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </form>
-      <footer className="foot"><span>{t('gate.title')}</span><LangToggle compact /></footer>
+      <footer className="foot"><span>{t('gate.title')}</span><a className="small" href={`mailto:${EMPRESA.contato}`}>{t('gate.help')}</a><LangToggle compact /></footer>
     </main>
   );
 }
@@ -196,7 +197,7 @@ function Login({ onDone }: { onDone: () => void }) {
           {mode === 'in' && <button type="button" className="linklike" onClick={forgot} disabled={busy}>{t('gate.forgot')}</button>}
         </div>
       </form>
-      <footer className="foot"><span>{t('gate.title')}</span><LangToggle compact /></footer>
+      <footer className="foot"><span>{t('gate.title')}</span><a className="small" href={`mailto:${EMPRESA.contato}`}>{t('gate.help')}</a><LangToggle compact /></footer>
     </main>
   );
 }
