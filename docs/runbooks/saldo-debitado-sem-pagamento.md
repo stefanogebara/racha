@@ -9,9 +9,10 @@ nossa, é outro: ver `dinheiro-sem-conta.md`.
 - **Conciliação da casa:** achado crítico `house_redeem_missing_payment_row`,
   com o valor e o cliente. Aparece na **página da carteira** (`AdminHouse`,
   desde 2026-09-26), no painel (`/api/panel`) e no stderr do
-  `/api/house/admin`. A frase manda o dono acionar o suporte, avisar o cliente e
-  **não devolver por fora** (senão o cliente recebe duas vezes quando o suporte
-  estornar).
+  `/api/house/admin`. Desde a 0044 a linha tem o botão **"Devolver R$ X ao
+  saldo"**. A frase manda o dono devolver pelo botão, avisar o cliente e, se ele
+  preferir o dinheiro, devolver ao saldo PRIMEIRO e só depois usar Reembolsar;
+  devolver por fora antes paga o cliente duas vezes.
 - **Cliente:** viu "Se o seu saldo baixou, fale com o balcão: o valor volta pro
   seu saldo" (`err.house_debit_missing`). Isso só acontece quando o lançamento
   foi recusado sem débito que o pagasse (0043, RH009) **e** o estorno automático
@@ -52,7 +53,7 @@ motivo e autor:
 ```sql
 select public.house_redeem_reverse('<account_id>', '<txid>',
   to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-  'owner_recredit', '<quem rodou: id do usuário ou "ops:nome">');
+  'owner_recredit', '<quem rodou: id do usuário, ou um identificador de ops como "ops:01">');
 ```
 
 - Se ele devolver **RH007**, o pagamento entrou na conta nesse meio-tempo. Então
@@ -60,9 +61,13 @@ select public.house_redeem_reverse('<account_id>', '<txid>',
 - Se devolver **RH010**, não havia débito com esse txid. Confira o txid.
 - O terceiro argumento é a data no MESMO formato ISO que o serviço grava;
   `now()::text` deixaria o `REDEEM_REVERSED` com outro formato no razão.
-- **Nunca** edite `principal_cents` à mão. O estorno devolve o principal e cada
-  lote de bônus exatamente, e deixa o `REDEEM_REVERSED` no razão (inegociável
-  #6).
+- O autor fica pra sempre num razão que só cresce: use um **identificador**, nunca
+  o nome de uma pessoa (LGPD art. 6º III).
+- **Nunca** edite `principal_cents` à mão. O estorno devolve o principal, o
+  bônus de lote ainda válido ao lote dele, e o bônus de lote que já VENCEU como
+  um lote novo com a validade da casa contada do estorno (0044) — o cliente não
+  perde bônus por uma falha nossa. E deixa o `REDEEM_REVERSED` no razão
+  (inegociável #6).
 
 O achado irmão `house_redeem_missing_payment_row_paid` é outra coisa: ali a
 conta **foi** paga, e o que falta é a linha em `payments`. Nesse caso preencha a
@@ -71,15 +76,24 @@ linha e **não** devolva o saldo (`docs/house-accounts/README.md`).
 ## Prazo e quem avisa
 
 - **No mesmo dia do alerta**, e no máximo em 24 h. O saldo é pré-pago do
-  cliente, e segurar valor debitado sem entrega é cobrança indevida (CDC art. 42
-  § único).
+  cliente, e segurar valor debitado sem entrega é cobrança indevida.
+- **A posição do produto sobre o CDC art. 42 § único** (que prevê devolução em
+  DOBRO salvo "engano justificável"): uma falha automática, achada pela
+  conciliação e desfeita inteira no mesmo dia, é engano justificável — o STJ
+  (EAREsp 676.608) liga a dobra à conduta contrária à boa-fé objetiva. O que
+  sustenta a posição é o prazo: tratar o "mesmo dia" como compromisso de
+  serviço, não como meta.
 - **Quem avisa o cliente:** o dono (a casa), pelo canal que o cliente usou, ou
   pelo `contato@useracha.app` se ele escreveu pra lá.
-- **O balcão não conserta sozinho:** o estorno é SQL, na mão de quem opera o
-  Racha. A casa que recebe o cliente, ou que vê o achado no painel, **aciona o
-  suporte Racha em `contato@useracha.app`** no mesmo dia. Sem isso, o prazo
-  acima é uma promessa que ninguém ouve (compliance, PR #42, re-revisão M-B).
+- **Quem conserta:** o dono, pelo botão. Se o botão recusar ("não está mais
+  pendente" = o achado sumiu, recarregue; "ainda pode estar em andamento" = o
+  débito tem menos de 5 min) ou a lista não mostrar a linha (o painel mostra os
+  5 achados mais graves), **acione o suporte Racha em `contato@useracha.app`**
+  no mesmo dia — o suporte usa o SQL acima.
 
 ## O que ainda falta no produto (TASKS)
 
 - (Feito em 2026-09-26: o botão "devolver ao saldo", 0044.)
+- Avisar o cliente automaticamente (WhatsApp/e-mail) quando o saldo volta —
+  hoje o dono avisa, e a página só mostra o telefone mascarado (compliance,
+  PR #44, M-3).

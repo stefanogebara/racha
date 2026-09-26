@@ -357,12 +357,33 @@ describe('house service', () => {
       expect(r).toEqual({ duplicate: false, amountCents: 1000 });
       expect(await saldo()).toBe(antes + 1000);
       const ev = (await store.loadHouseEvents(account.id)).find((e) => e.type === 'REDEEM_REVERSED');
-      expect(ev.payload).toMatchObject({ txid: 'ha_travado', reason: 'owner_recredit', actor: 'user-dono-1' });
+      expect(ev.payload).toMatchObject({ txid: 'ha_travado', reason: 'owner_recredit', by: 'user-dono-1' });
       expect((await reconcileVenueHouse(store, venue.id)).ok).toBe(true);
       // Repetir não devolve de novo: o achado sumiu, então recusa.
       await expect(house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_travado', actorUserId: 'user-dono-1' }))
         .rejects.toMatchObject({ statusCode: 409, code: 'house_recredit_not_flagged' });
       expect(await saldo()).toBe(antes + 1000);
+    });
+
+    test('bônus que VENCEU entre o débito e a devolução volta como lote NOVO, válido — o saldo usável sobe o valor inteiro (compliance, PR #44, H-1)', async () => {
+      const { store, house, clock, venue, check, account, accountToken } = await travado();
+      const conta = async () => (await house.wallet(accountToken)).account;
+      // Um débito que usa BÔNUS (gasto primeiro): 15% de 20000 = 3000 de bônus, validade 30 dias.
+      const d = await store.redeemHouse({ accountId: account.id, checkId: check.id, txid: 'ha_bonus', amountCents: 2500, nowIso: clock.now() });
+      expect(d.bonusUsedCents).toBeGreaterThan(0);
+      // 40 dias depois o lote original venceu; o dono devolve.
+      clock.advanceDays(40);
+      const antes = await conta();
+      const r = await house.recreditStuckDebit({ venueId: venue.id, accountId: account.id, txid: 'ha_bonus', actorUserId: 'dono' });
+      expect(r.amountCents).toBe(2500);
+      const depois = await conta();
+      expect(depois.totalCents).toBe(antes.totalCents + 2500);                        // o valor INTEIRO é usável
+      expect(depois.principalCents).toBe(antes.principalCents + d.principalUsedCents); // principal só a parte principal
+      expect(depois.bonusCents).toBe(antes.bonusCents + d.bonusUsedCents);             // bônus volta como BÔNUS
+      const ev = (await store.loadHouseEvents(account.id)).find((e) => e.type === 'REDEEM_REVERSED' && e.payload.txid === 'ha_bonus');
+      expect(ev.payload).toMatchObject({ reason: 'owner_recredit', by: 'dono' });
+      expect(ev.payload.reissue.bonusCents).toBe(d.bonusUsedCents);
+      expect(Date.parse(ev.payload.reissue.expiresAt)).toBeGreaterThan(Date.parse(clock.now()));
     });
 
     test('antes de 5 minutos: recusa (pagamento pode estar em voo), sem mexer no saldo', async () => {
@@ -394,7 +415,7 @@ describe('house service', () => {
       depois(clock, 10);
       const antes = await saldo();
       await expect(house.recreditStuckDebit({ venueId: outra.id, accountId: account.id, txid: 'ha_travado', actorUserId: 'u' }))
-        .rejects.toMatchObject({ statusCode: 404, code: 'house_account_not_found' });
+        .rejects.toMatchObject({ statusCode: 404, code: 'house_recredit_not_flagged' });
       await expect(house.recreditStuckDebit({ venueId: account.venueId, accountId: account.id, txid: 'ha_travado', actorUserId: '' }))
         .rejects.toMatchObject({ statusCode: 400 });
       expect(await saldo()).toBe(antes);

@@ -2257,10 +2257,13 @@ async function route(req, res) {
       const user = await guardUser(req, res); if (!user) return;
       const b = JSON.parse(await readBody(req) || '{}');
       if (!b.accountId || !b.txid) return json(res, 400, { success: false, code: 'house_recredit_not_flagged' });
+      // O MESMO 404 pra "não existe" e "não é sua": códigos diferentes diziam
+      // a qualquer logado se uma carteira existe em outra casa (segurança, PR
+      // #44, L-2). E um código com frase pro DONO, não a do balcão (L-3).
       const venueId = await houseSvc.venueIdForAccount(b.accountId);
-      if (!venueId) return json(res, 404, { success: false, code: 'house_account_not_found' });
+      if (!venueId) return json(res, 404, { success: false, code: 'house_recredit_not_flagged' });
       try { await auth.requireVenueOwner(user, venueId); }
-      catch (e) { return json(res, e.statusCode || 403, { success: false, code: 'forbidden' }); }
+      catch (e) { return json(res, 404, { success: false, code: 'house_recredit_not_flagged' }); }
       const data = await houseSvc.recreditStuckDebit({
         venueId, accountId: b.accountId, txid: b.txid, actorUserId: user.id,
       });

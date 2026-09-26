@@ -270,21 +270,36 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     const t1 = `hc_${conta.slice(0, 8)}`;
     Q(`select public.house_redeem('${conta}', '${check}', '${t1}', 1000, '${agora}')`);
     // motivo fora da lista, e o do dono sem autor: 22023, nada estornado
-    expect(codigoDe(`public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'qualquer', 'u1')`)).toBe('22023');
-    expect(codigoDe(`public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'owner_recredit', null)`)).toBe('22023');
-    expect(codigoDe(`public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'owner_recredit', '')`)).toBe('22023');
+    expect(codigoDe(`public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'qualquer', 'u1')`)).toBe('RH011');
+    expect(codigoDe(`public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'owner_recredit', null)`)).toBe('RH011');
+    expect(codigoDe(`public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'owner_recredit', '   ')`)).toBe('RH011');
     expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('4000');
     // o do dono, com autor: grava os dois
     Q(`select public.house_redeem_reverse('${conta}', '${t1}', '${agora}', 'owner_recredit', 'user-dono')`);
-    expect(Q(`select payload->>'reason' || '|' || (payload->>'actor') from house_account_events
+    expect(Q(`select payload->>'reason' || '|' || (payload->>'by') from house_account_events
               where account_id = '${conta}' and type = 'REDEEM_REVERSED' and payload->>'txid' = '${t1}'`)).toBe('owner_recredit|user-dono');
     expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('5000');
     // a chamada de TRÊS argumentos (a do serviço) segue valendo, com o padrão e sem autor
     const t2 = `hd_${conta.slice(0, 8)}`;
     Q(`select public.house_redeem('${conta}', '${check}', '${t2}', 500, '${agora}')`);
     Q(`select public.house_redeem_reverse('${conta}', '${t2}', '${agora}')`);
-    expect(Q(`select payload->>'reason' || '|' || coalesce(payload->>'actor', '-') from house_account_events
+    expect(Q(`select payload->>'reason' || '|' || coalesce(payload->>'by', '-') from house_account_events
               where account_id = '${conta}' and type = 'REDEEM_REVERSED' and payload->>'txid' = '${t2}'`)).toBe('check_append_refused|-');
+    // bônus de lote que VENCEU até o estorno: volta como lote NOVO, válido, no
+    // seq do estorno — e não ao lote velho (compliance, PR #44, H-1)
+    Q(`insert into house_bonus_lots (account_id, event_seq, granted_cents, remaining_cents, expires_at)
+       values ('${conta}', 900, 300, 300, now() + interval '1 day')`);
+    const t3 = `he_${conta.slice(0, 8)}`;
+    Q(`select public.house_redeem('${conta}', '${check}', '${t3}', 1000, '${agora}')`);
+    expect(Q(`select remaining_cents from house_bonus_lots where account_id = '${conta}' and event_seq = 900`)).toBe('0');
+    const futuro = new Date(Date.now() + 10 * 86400000).toISOString();
+    const rr = JSON.parse(Q(`select public.house_redeem_reverse('${conta}', '${t3}', '${futuro}', 'owner_recredit', 'dono')`));
+    expect(rr.reissuedBonusCents).toBe(300);
+    expect(Q(`select remaining_cents from house_bonus_lots where account_id = '${conta}' and event_seq = 900`)).toBe('0');
+    expect(Q(`select remaining_cents || '|' || (expires_at > '${futuro}'::timestamptz) from house_bonus_lots
+              where account_id = '${conta}' and event_seq = ${rr.seq}`)).toBe('300|true');
+    expect(Q(`select (payload->'reissue'->>'bonusCents') || '|' || (payload->'reissue'->'fromLots')::text from house_account_events
+              where account_id = '${conta}' and seq = ${rr.seq}`)).toBe('300|[900]');
     // e não há SOBRECARGA: uma função só com esse nome
     expect(Q(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where n.nspname = 'public' and p.proname = 'house_redeem_reverse'`)).toBe('1');

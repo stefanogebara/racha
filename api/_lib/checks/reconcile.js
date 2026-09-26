@@ -984,6 +984,9 @@ const RECUSAS_DA_CARTEIRA = Object.freeze({
   RH009: Object.freeze({ statusCode: 500, code: 'house_debit_missing' }),
   // RH010 (0043): o estorno não achou débito com este txid — nada foi debitado.
   RH010: Object.freeze({ statusCode: 404, code: 'house_redeem_unknown' }),
+  // RH011 (0044): motivo do estorno fora da lista, ou o do dono sem autor —
+  // bug nosso, nunca do cliente; código próprio pra não parecer "valor inválido".
+  RH011: Object.freeze({ statusCode: 400, code: 'house_reverse_bad_reason' }),
   22023: Object.freeze({ statusCode: 400, code: 'house_invalid_amount' }),
 });
 function recusaDaCarteira(err) {

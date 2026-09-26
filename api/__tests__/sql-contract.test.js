@@ -171,6 +171,22 @@ describe('as projeções SQL conhecem os mesmos eventos que o redutor', () => {
     }
   });
 
+  test('migração que faz DROP FUNCTION roda numa transação explícita (0044 em diante)', () => {
+    // Com `psql -f` sem `-1`, cada comando fecha sozinho: entre o DROP e o
+    // CREATE a função não existe, e entre o CREATE e o REVOKE uma função
+    // `security definer` nova fica aberta ao `anon` (segurança, PR #44, M-1).
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const dir = path.join(__dirname, '..', '..', 'supabase', 'migrations');
+    const ruins = fs.readdirSync(dir)
+      .filter((f) => /^\d{4}_.*\.sql$/.test(f) && Number(f.slice(0, 4)) >= 44)
+      .filter((f) => {
+        const sql = fs.readFileSync(path.join(dir, f), 'utf8').replace(/--[^\n]*/g, '');
+        return /\bdrop\s+function\b/i.test(sql) && !(/^\s*begin\s*;/im.test(sql) && /^\s*commit\s*;/im.test(sql));
+      });
+    expect(ruins).toEqual([]);
+  });
+
   test('nenhuma função SQL redefinida trocou de assinatura sem querer', () => {
     // `create or replace` só substitui quando a assinatura bate EXATAMENTE. Um
     // parâmetro a mais cria uma SOBRECARGA, as duas versões convivem, e o
