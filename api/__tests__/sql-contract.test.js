@@ -283,6 +283,8 @@ describe('redefinir uma função não pode APAGAR o que outra migração acresce
         /pg_advisory_xact_lock/i,
         /PAYMENT_REFUND_REVERSED/,   // da 0019
         /excede o que falta pagar/,  // da 0006
+        /errcode = 'RH009'/,         // da 0043: sem débito que pague, não entra
+        /type = 'REDEEMED'/,         // da 0043
       ],
     },
     {

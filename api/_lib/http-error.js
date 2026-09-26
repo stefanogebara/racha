@@ -76,6 +76,11 @@ const CODIGOS_QUE_ATRAVESSAM_5XX = new Set([
   // O login não respondeu. Sem o código o cliente trata como 401 e desloga o
   // dono no meio do turno.
   'auth_unavailable',
+  // O lançamento da carteira não teve débito que o pagasse (0043, RH009) E o
+  // estorno falhou — o saldo pode ter baixado sem pagamento. Sem o código, o
+  // cliente lê "tente de novo" e não sabe que precisa falar com o balcão
+  // (segurança, PR #42, LOW-1).
+  'house_debit_missing',
 ]);
 
 function errorBody(err, status = errorStatus(err)) {

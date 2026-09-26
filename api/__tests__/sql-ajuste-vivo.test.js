@@ -217,6 +217,44 @@ d(temPg ? 'adjust_check no Postgres de verdade (0038)' : 'adjust_check no Postgr
     expect(Q(`select principal_cents from house_accounts where id = '${conta}'`)).toBe('5000');
   });
 
+  test('0043: o append da carteira só lança com DÉBITO que pague — sem débito, outro valor ou outra conta: RH009, nada gravado', () => {
+    const conta = require('node:crypto').randomUUID();
+    const fone = `115${String(Date.now()).slice(-8)}`;
+    Q(`insert into house_accounts (id, venue_id, phone, name, account_token, principal_cents)
+       values ('${conta}', '00000000-0000-0000-0000-00000000000a', '${fone}', 'B', 'tok-${conta}', 5000)`);
+    Q(`insert into venue_tables (id, venue_id, label) values ('${conta}', '00000000-0000-0000-0000-00000000000a', 'M ${fone}')`);
+    const outraMesa = require('node:crypto').randomUUID();
+    Q(`insert into venue_tables (id, venue_id, label) values ('${outraMesa}', '00000000-0000-0000-0000-00000000000a', 'N ${fone}')`);
+    const check = Q(`select public.open_check('${conta}', 3000, null)`);
+    const outra = Q(`select public.open_check('${outraMesa}', 3000, null)`);
+    const agora = new Date().toISOString();
+    const codigoDe = (sql) => {
+      const err = QErr(`do $$ begin perform ${sql}; exception when others then raise exception 'CODIGO=%', sqlstate; end $$`);
+      return err && err.match(/CODIGO=(\w+)/)[1];
+    };
+    // 1. txid sem débito nenhum
+    expect(codigoDe(`public.append_house_payment_guarded('${check}', 'ha_semdebito', 1000)`)).toBe('RH009');
+    // 2. débito de 1000, lançamento de 2000 — e lançamento de 1000 em OUTRA conta
+    const txid = `ha_${conta.slice(0, 8)}`;
+    Q(`select public.house_redeem('${conta}', '${check}', '${txid}', 1000, '${agora}')`);
+    expect(codigoDe(`public.append_house_payment_guarded('${check}', '${txid}', 2000)`)).toBe('RH009');
+    expect(codigoDe(`public.append_house_payment_guarded('${outra}', '${txid}', 1000)`)).toBe('RH009');
+    expect(Q(`select count(*) from check_events where check_id in ('${check}', '${outra}') and type = 'PAYMENT_CONFIRMED'`)).toBe('0');
+    // 3. o certo entra — e o replay devolve o mesmo seq
+    const seq = Q(`select public.append_house_payment_guarded('${check}', '${txid}', 1000)`);
+    expect(Q(`select public.append_house_payment_guarded('${check}', '${txid}', 1000)`)).toBe(seq);
+    // 4. sem débito E excedendo: RH009, não RH003 (o 409 mandaria estornar um débito que não existe)
+    expect(codigoDe(`public.append_house_payment_guarded('${check}', 'ha_excede', 9999)`)).toBe('RH009');
+    // 5. débito ESTORNADO: RH006 vence o RH009 — "tente de novo" (409), não 500
+    //    (segurança, PR #42, LOW-2: a ordem dos blocos é o contrato).
+    const txid2 = `hb_${conta.slice(0, 8)}`;
+    Q(`select public.house_redeem('${conta}', '${check}', '${txid2}', 500, '${agora}')`);
+    Q(`select public.house_redeem_reverse('${conta}', '${txid2}', '${agora}')`);
+    expect(codigoDe(`public.append_house_payment_guarded('${check}', '${txid2}', 500)`)).toBe('RH006');
+    // 6. estornar um débito que NÃO existe: RH010 (antes, P0001 só com a frase)
+    expect(codigoDe(`public.house_redeem_reverse('${conta}', 'ha_nunca_existiu', '${agora}')`)).toBe('RH010');
+  });
+
   test('0042 (CRÍTICO): house_redeem recusa (RH008) um "duplicado" de outra conta ou outro valor', () => {
     const conta = require('node:crypto').randomUUID();
     const fone = `116${String(Date.now()).slice(-8)}`;

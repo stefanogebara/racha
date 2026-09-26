@@ -388,6 +388,7 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     const hv = await store.seedVenue({ name: 'CasaDura', servicoBp: 1000, pspRecipientId: 'rcpt_dura' });
     await store.setHouseConfig(hv.id, { enabled: true, bonusBp: 1000, validityDays: 30 });
     const hTable = await store.seedTable(hv.id, `Mesa ${crypto.randomInt(1000, 9999)}`);
+    const hTable2 = await store.seedTable(hv.id, `Mesa ${crypto.randomInt(10000, 99999)}`);
     const phone = '118' + String(crypto.randomInt(10000000, 99999999));
     const acc = await store.createHouseAccount({ venueId: hv.id, phone, name: 'Dura' });
     const t0 = '2026-07-19T12:00:00.000Z';
@@ -413,15 +414,47 @@ describe.each(impls)('store contract [$name]', ({ make }) => {
     // guarded append: pays, dedups by txid, and REFUSES overpay
     const seq1 = await store.appendHousePaymentGuarded(check.id, `ir_${uniq}`, 2000);
     expect(await store.appendHousePaymentGuarded(check.id, `ir_${uniq}`, 2000)).toBe(seq1); // replay no-op
+    // O excesso COM débito (0043: sem débito seria RH009, não 409) — e o
+    // estorno que o serviço faria no 409, pra o saldo voltar inteiro.
+    await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `over_${uniq}`, amountCents: 3001, nowIso: t0 });
     await expect(store.appendHousePaymentGuarded(check.id, `over_${uniq}`, 3001))
       .rejects.toMatchObject({ statusCode: 409 }); // 2000 paid + 3001 > 5000
+    await store.reverseHouseRedeem({ accountId: acc.id, txid: `over_${uniq}`, nowIso: t0 });
     expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(2000);
+
+    // 0043: lançamento SEM débito que o pague — txid sem débito, valor
+    // diferente do debitado, ou débito de OUTRA conta — não entra (RH009 → 500,
+    // não 409: não há débito que bata pra estornar).
+    await expect(store.appendHousePaymentGuarded(check.id, `nodebit_${uniq}`, 100))
+      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `amt_${uniq}`, amountCents: 100, nowIso: t0 });
+    await expect(store.appendHousePaymentGuarded(check.id, `amt_${uniq}`, 200))
+      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    const outra = await store.openCheck(hTable2.qrToken, [{ id: 'b', name: 'B', priceCents: 5000 }]);
+    await expect(store.appendHousePaymentGuarded(outra.id, `amt_${uniq}`, 100))
+      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    await store.reverseHouseRedeem({ accountId: acc.id, txid: `amt_${uniq}`, nowIso: t0 });
+    expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(2000);
+    expect(reduce(await store.loadEvents(outra.id)).paidCents).toBe(0);
+
+    // A classe de bug do RH009, de ponta a ponta nos stores de verdade: o débito
+    // T nomeia a conta X e ENTROU em X; o lançamento de T na conta Y recusa
+    // (RH009), e o estorno de T recusa (RH007) — é por isso que, no ramo do
+    // RH009, o serviço NÃO trata RH007 como sucesso (as duas re-revisões do PR #42).
+    await store.redeemHouse({ accountId: acc.id, checkId: outra.id, txid: `x_${uniq}`, amountCents: 700, nowIso: t0 });
+    await store.appendHousePaymentGuarded(outra.id, `x_${uniq}`, 700);
+    await expect(store.appendHousePaymentGuarded(check.id, `x_${uniq}`, 700))
+      .rejects.toMatchObject({ statusCode: 500, code: 'house_debit_missing' });
+    await expect(store.reverseHouseRedeem({ accountId: acc.id, txid: `x_${uniq}`, nowIso: t0 }))
+      .rejects.toMatchObject({ code: 'house_redeem_landed' });
+    expect(reduce(await store.loadEvents(check.id)).paidCents).toBe(2000);
+    expect(reduce(await store.loadEvents(outra.id)).paidCents).toBe(700);
 
     // reversal restores the exact breakdown, idempotently
     await store.redeemHouse({ accountId: acc.id, checkId: check.id, txid: `rv_${uniq}`, amountCents: 1000, nowIso: t0 });
     expect((await store.reverseHouseRedeem({ accountId: acc.id, txid: `rv_${uniq}`, nowIso: t0 })).duplicate).toBe(false);
     expect((await store.reverseHouseRedeem({ accountId: acc.id, txid: `rv_${uniq}`, nowIso: t0 })).duplicate).toBe(true);
-    expect(houseState2.reduce(await store.loadHouseEvents(acc.id)).principalCents).toBe(8000);
+    expect(houseState2.reduce(await store.loadHouseEvents(acc.id)).principalCents).toBe(7300); // 8000 − os 700 que PAGARAM a outra conta (x_)
 
     // payments-row idempotency: a second write never clobbers the first
     await store.recordHousePaymentRow({ checkId: check.id, venueId: hv.id, txid: `ir_${uniq}`, amountCents: 2000, confirmedAt: t0 });

@@ -48,7 +48,7 @@ export default function HousePay({
       // estornado): a próxima é OUTRO pagamento, com outra chave. Com a mesma,
       // o servidor via o débito estornado como "já feito" (PR #31, LOW-1; 0041).
       const code = (e as { code?: string }).code;
-      if (code === 'house_raced' || code === 'house_redeem_reversed') idemKey.current = crypto.randomUUID();
+      if (code === 'house_raced' || code === 'house_redeem_reversed' || code === 'house_debit_mismatch') idemKey.current = crypto.randomUUID();
       setError(tErr(e));
     } finally {
       setBusy(false);
