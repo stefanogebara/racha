@@ -1,5 +1,9 @@
 # How Racha charges: the plan, in simple terms
 
+**DECIDED by Stefano on 2026-09-26.** The landing page shows only the pilot
+part (free, the customer never pays); the R$ 89/month goes on the site after
+the payment provider gives us its real Pix price.
+
 *Written 2026-09-26. The numbers come from public price pages, checked that day.
 Sources and details are at the end. This is a proposal: the final prices depend
 on what the payment provider (Pagar.me or Zoop) actually offers us.*

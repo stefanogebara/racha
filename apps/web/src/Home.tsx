@@ -227,7 +227,18 @@ export default function Home() {
         <ul className="itens">
           {claims.map((c, i) => <li key={i}>{c}</li>)}
         </ul>
+        {/* QUANTO CUSTA — decidido pelo dono em 2026-09-26 (docs/pricing). Só o
+            que é verdade HOJE: o piloto é grátis e o cliente nunca paga taxa. A
+            mensalidade de depois do piloto não entra aqui antes do preço real do
+            Pix que o provedor oferecer (auditoria da landing, L4). */}
+        <p className="kicker" style={{ marginTop: 32 }}>{t('land.priceTitle')}</p>
+        <ul className="itens">
+          <li>{t('land.price1')}</li>
+          <li>{t('land.price2')}</li>
+          <li>{t('land.price3')}</li>
+        </ul>
         <a className="pilula" href={`/admin?lang=${lang}`}>{t('land.openPanel')} <span aria-hidden="true">→</span></a>
+        <p className="small" style={{ marginTop: 16 }}>{t('land.talk')} <a href={`mailto:${EMPRESA.contato}`}>{EMPRESA.contato}</a></p>
       </section>
 
       <footer className="rodape env">
