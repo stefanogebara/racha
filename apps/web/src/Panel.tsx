@@ -3,6 +3,7 @@ import { LangToggle, useT } from './lang';
 import { type PanelAtivacao } from './api';
 import { textoDoAchado, type CurrencyCode } from './i18n';
 import { authedReq, signOut } from './auth';
+import { NavDono } from './NavDono';
 
 /**
  * Painel do restaurante — live view of every table's check + day totals.
@@ -195,56 +196,11 @@ export default function Panel() {
         <span className="venue">{data.venue.name}</span>
         <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </header>
+      <NavDono venueId={venueId} aqui="painel" />
 
-      <section className="statgrid">
-        <div className="stat">
-          <b className="mono">{brl(data.today.confirmedCents)}</b>
-          <span>{t('panel.receivedToday', { n: data.today.paymentsCount })}</span>
-        </div>
-        <div className="stat">
-          <b className="mono">{brl(data.today.tipsCents)}</b>
-          <span>
-            {t('panel.tip')}
-            {/* O que foi COBRADO ao lado do que foi ARRECADADO — só quando os
-                dois diferem, senão é ruído. A diferença nasce do Pix pago a
-                menor, onde o serviço é o resíduo: ela precisa estar à vista de
-                quem distribui a gorjeta (Lei 13.419). */}
-            {typeof data.today.tipsChargedCents === 'number'
-              && data.today.tipsChargedCents !== data.today.tipsCents
-              ? ` · ${t('panel.tipShort', { charged: brl(data.today.tipsChargedCents) })}`
-              : ''}
-          </span>
-        </div>
-        {/* Dinheiro a DEVOLVER. Só aparece quando existe, e nunca some dentro
-            do faturamento: quem recebeu o indevido tem que restituir. */}
-        {(data.today.overpaidCents || 0) > 0 && (
-          <div className="stat">
-            <b className="mono" style={{ color: 'var(--erro)' }}>{brl(data.today.overpaidCents || 0)}</b>
-            <span>{t('panel.toRefund')}</span>
-          </div>
-        )}
-        {/* Chargebacks: só aparece quando existe. Um zero permanente numa tela
-            de operação é ruído — e a taxa é o número pelo qual o adquirente
-            julga a casa, então quando aparece tem que ser visível. */}
-        {disputas.total > 0 && (
-          <div className="stat">
-            <b className="mono">{disputas.lost}</b>
-            <span>
-              {t('panel.disputes')}
-              {disputas.open > 0 ? ` · ${t('panel.disputesOpen', { n: disputas.open })}` : ''}
-            </span>
-          </div>
-        )}
-        <div className="stat">
-          <b className="mono">{data.today.anomalies}</b>
-          <span>{data.today.anomalies === 0 ? t('panel.noAnomaly') : t('panel.anomalies')}</span>
-        </div>
-      </section>
-
-      <Conciliacao r={data.reconcile} currency={currency} />
-
-      <Ativacao a={data.ativacao} currency={currency} />
-
+      {/* AS MESAS PRIMEIRO: no meio do serviço, a pergunta é "qual mesa ainda
+          deve?". Ficavam no fim, embaixo dos totais do dia, da conciliação e
+          da ativação (auditoria e2e, 27/09/2026). */}
       <section className="panel">
         <p className="label">{t('panel.tables')}</p>
         {data.checks.length === 0 && <p className="muted small">{t('panel.noOpenBill')}</p>}
@@ -312,6 +268,57 @@ export default function Panel() {
           );
         })}
       </section>
+
+
+      <section className="statgrid">
+        <div className="stat">
+          <b className="mono">{brl(data.today.confirmedCents)}</b>
+          <span>{t('panel.receivedToday', { n: data.today.paymentsCount })}</span>
+        </div>
+        <div className="stat">
+          <b className="mono">{brl(data.today.tipsCents)}</b>
+          <span>
+            {t('panel.tip')}
+            {/* O que foi COBRADO ao lado do que foi ARRECADADO — só quando os
+                dois diferem, senão é ruído. A diferença nasce do Pix pago a
+                menor, onde o serviço é o resíduo: ela precisa estar à vista de
+                quem distribui a gorjeta (Lei 13.419). */}
+            {typeof data.today.tipsChargedCents === 'number'
+              && data.today.tipsChargedCents !== data.today.tipsCents
+              ? ` · ${t('panel.tipShort', { charged: brl(data.today.tipsChargedCents) })}`
+              : ''}
+          </span>
+        </div>
+        {/* Dinheiro a DEVOLVER. Só aparece quando existe, e nunca some dentro
+            do faturamento: quem recebeu o indevido tem que restituir. */}
+        {(data.today.overpaidCents || 0) > 0 && (
+          <div className="stat">
+            <b className="mono" style={{ color: 'var(--erro)' }}>{brl(data.today.overpaidCents || 0)}</b>
+            <span>{t('panel.toRefund')}</span>
+          </div>
+        )}
+        {/* Chargebacks: só aparece quando existe. Um zero permanente numa tela
+            de operação é ruído — e a taxa é o número pelo qual o adquirente
+            julga a casa, então quando aparece tem que ser visível. */}
+        {disputas.total > 0 && (
+          <div className="stat">
+            <b className="mono">{disputas.lost}</b>
+            <span>
+              {t('panel.disputes')}
+              {disputas.open > 0 ? ` · ${t('panel.disputesOpen', { n: disputas.open })}` : ''}
+            </span>
+          </div>
+        )}
+        <div className="stat">
+          <b className="mono">{data.today.anomalies}</b>
+          <span>{data.today.anomalies === 0 ? t('panel.noAnomaly') : t('panel.anomalies')}</span>
+        </div>
+      </section>
+
+      <Conciliacao r={data.reconcile} currency={currency} />
+
+      <Ativacao a={data.ativacao} currency={currency} />
+
 
       <footer className="foot">
         <LangToggle compact />

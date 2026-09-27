@@ -350,7 +350,7 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 /* O 10% é opcional e removível (CDC). O valor sai em TINTA, não em verde: é um
    custo que o cliente paga, e verde diz "boa notícia" — errado pra quem paga. */
 .servico { display: flex; gap: 10px; align-items: flex-start; font: 400 14px/21px var(--ui); color: var(--ink); }
-.servico input { width: 18px; height: 18px; accent-color: var(--azul); margin-top: 2px; flex: none; }
+.servico input { width: 18px; height: 18px; accent-color: var(--ink); margin-top: 2px; flex: none; }
 .servico em { font-style: normal; color: var(--ink); font-weight: 600; }
 
 /* O CAMPO do Presence: raio de 16, papel alto, fio fino — e 16px de corpo,
@@ -475,6 +475,28 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
   display: grid; place-items: center;
 }
 .paid h2 { font: italic 400 30px/1.15 var(--serif); }
+/* "Pode ir tranquilo": a frase que libera a pessoa da mesa. Musgo porque é
+   dinheiro que entrou; do tamanho do texto, não de rodapé. */
+.saida { margin: 0; padding: 10px 14px; border-radius: var(--rad-s);
+  background: var(--ok-bg); color: var(--ok); font: 500 14px/1.45 var(--ui); }
+
+/* O fim da demo: o próximo passo de quem testou. */
+.quero { gap: 12px; text-align: center; align-items: stretch; }
+.quero h2 { font: italic 400 26px/1.2 var(--serif); margin: 0; }
+.quero p { margin: 0; }
+/* O `.cta` nasceu pra <button>: num <a> precisa perder o sublinhado. */
+a.cta { text-decoration: none; }
+
+/* O atalho até "Sua parte", fixo no rodapé enquanto ela está fora da tela.
+   Mesma largura da coluna do app; o fundo esmaece a comanda por baixo. */
+.atalho-pagar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; justify-content: center;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--papel) 65%, transparent);
+}
+.atalho-pagar .cta { width: 100%; max-width: 440px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 .paid .progresswrap { width: 100%; }
 
 /* ── painel ─────────────────────────────────────────────────────────────── */
@@ -899,3 +921,30 @@ select.namefield { appearance: none; -webkit-appearance: none; background-image:
 @media (prefers-reduced-motion: reduce) {
   .landing .pilula { transition: none; }
 }
+
+/* "Restaurante novo?": o caminho de quem chega, fora do formulário de entrar. */
+.novoaqui { gap: 10px; align-items: flex-start; }
+
+/* A folha de QRs antes da casa receber: prévia na tela, nunca no papel. */
+.qrprevia { opacity: .8; }
+
+/* A mesa no /admin: nome numa linha, ações embaixo (era lado a lado e
+   espremia o nome no telefone). */
+.mesarow { flex-direction: column; align-items: stretch; gap: 10px; }
+.mesarow .acoes, .abrirconta .acoes { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.abrirconta { display: flex; flex-direction: column; gap: 8px; }
+
+/* A barra que liga painel, mesas e QRs (NavDono). Abas de texto, a atual em
+   tinta; sem ícone, sem emoji. */
+.navdono { display: flex; gap: 4px; flex-wrap: wrap; margin: -4px 0 4px; }
+.navdono a { padding: 10px 12px; min-height: 44px; display: inline-flex; align-items: center;
+  border-radius: var(--rad-s); color: var(--grafite); font: 500 13px/1 var(--ui); text-decoration: none; }
+.navdono a.on { background: var(--ink); color: var(--papel); }
+.navdono a:not(.on):hover { background: var(--fundo2); color: var(--ink); }
+
+/* Mesas em lote: fechado por padrão, três campos lado a lado. */
+.lote { display: flex; flex-direction: column; gap: 8px; }
+.lote[open] { gap: 10px; }
+.lote summary { list-style: none; width: fit-content; }
+.lote summary::-webkit-details-marker { display: none; }
+.lotecampos { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; }

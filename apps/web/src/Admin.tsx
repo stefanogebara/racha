@@ -15,6 +15,8 @@ import { authedReq as req, signOut } from './auth';
 import { isValidCNPJ, maskCpfCnpj, normalizarDocumento } from './br';
 import { setupComplete, useVenueAdmin, type VenueAdmin } from './useVenueAdmin';
 import { LIMITES } from './limites';
+import { NavDono } from './NavDono';
+import { MesasEmLote } from './MesasEmLote';
 
 /**
  * Painel de gestão do restaurante — onboarding + mesas/QR. Warm Glass.
@@ -74,7 +76,7 @@ function Onboarding() {
   return (
     <main className="shell">
       <header className="head">
-        <span className="venue">Racha</span>
+        <span className="venue">racha</span>
         <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </header>
       {meStatus instanceof Error && (
@@ -168,6 +170,8 @@ function VenueAdminSurface({ venueId }: { venueId: string }) {
         <span className="venue">{admin.venue?.name ?? 'Restaurante'}</span>
         <button className="linklike" onClick={() => signOut().then(() => window.location.reload())}>{t('common.signOut')}</button>
       </header>
+      {/* No dia a dia (não no assistente, que tem a trilha dele). */}
+      {mode === 'manage' && <NavDono venueId={venueId} aqui="mesas" />}
 
       {mode === null && <p className="muted small">{t('admin.loading')}</p>}
       {mode === 'wizard' && (
@@ -187,6 +191,9 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
   admin: VenueAdmin; venueId: string; onPrint: (t: VenueTable) => void; onConfigure: () => void;
 }) {
   const [newLabel, setNewLabel] = useState('');
+  // A mesa cuja conta está sendo aberta (o campo do total aparece nela).
+  const [abrindo, setAbrindo] = useState<string | null>(null);
+  const [valorAbrir, setValorAbrir] = useState('');
   const { t } = useT();
   const { venue, tables, error } = admin;
 
@@ -250,31 +257,51 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
             ec86b37 (LOW-3) destruiu seis mensagens boas pra consertar uma, e a
             que ele queria consertar também ficou vazia (segurança HIGH-2 de
             d7f2683). O código cru que sobrava vira frase na ORIGEM, no hook. */}
+        <MesasEmLote admin={admin} />
         {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
         {tables.length === 0 && <p className="muted small">{t('admin.noTables')}</p>}
         {/* `table`, não `t`: o parâmetro chamava-se `t` e sombreava o tradutor,
             então `t('admin.openBill')` chamaria a MESA como função. */}
+        {/* Uma mesa por BLOCO: o nome numa linha, as ações embaixo. Lado a lado,
+            num telefone de 390 px, o nome espremia pra "Mesa / 1" ao lado de
+            cinco botões (e2e 27/09/2026). */}
         {tables.map((table) => (
-          <div className="checkrow" key={table.id}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, flexWrap: 'wrap' }}>
+          <div className="checkrow mesarow" key={table.id}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <strong style={{ opacity: table.active ? 1 : 0.45 }}>{table.label}</strong>
               {table.hasOpenCheck && <span className="pill parcial">{t('admin.openBill')}</span>}
               {!table.active && <span className="pill fechada">{t('admin.disabled')}</span>}
               {table.training && <span className="muted small">{t('admin.trainingTable')}</span>}
               {table.qrRotatedAt && <span className="muted small">{t('admin.qrRotated')}</span>}
             </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {abrindo === table.id ? (
+              // Abrir a conta com o TOTAL, na própria linha — era um `prompt()`.
+              <form className="abrirconta" onSubmit={async (e) => {
+                e.preventDefault();
+                if (await admin.openManualCheck(table, valorAbrir)) { setAbrindo(null); setValorAbrir(''); }
+              }}>
+                <Campo rotulo={t('admin.openCheckTotal', { symbol: venue?.market === 'es' ? '€' : 'R$' })}
+                  inputMode="decimal" placeholder="0,00" autoFocus value={valorAbrir}
+                  onChange={(e) => setValorAbrir(e.target.value)} />
+                <div className="acoes">
+                  <button className="cta" type="submit" disabled={!valorAbrir.trim()}>{t('admin.openBillCta')}</button>
+                  <button className="linklike" type="button" onClick={() => { setAbrindo(null); setValorAbrir(''); }}>{t('rcpt.cancel')}</button>
+                </div>
+              </form>
+            ) : (
+            <div className="acoes">
               {table.active && (table.hasOpenCheck
                 ? <button className="ghost" onClick={() => admin.closeManualCheck(table)}>{t('admin.closeBill')}</button>
-                : <button className="cta" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => admin.openManualCheck(table)}>{t('admin.openBillCta')}</button>)}
+                : <button className="cta" onClick={() => { setAbrindo(table.id); setValorAbrir(''); }}>{t('admin.openBillCta')}</button>)}
               {/* O QR da mesa de treino existe — o workshop precisa dele —, mas
                   o cartão sai CARIMBADO: um cartão de treino esquecido numa mesa
                   de verdade se anuncia (auditoria dos QRs, Q1; compliance, PR #18). */}
               <button className="ghost" onClick={() => onPrint(table)}>QR</button>
               <button className="ghost" onClick={() => admin.rotate(table)}>{t('admin.rotate')}</button>
-              <button className="linklike" onClick={() => admin.toggleTraining(table)}>{table.training ? t('admin.untrain') : t('admin.training')}</button>
+              <button className="ghost" onClick={() => admin.toggleTraining(table)}>{table.training ? t('admin.untrain') : t('admin.trainingCta')}</button>
               <button className="ghost" onClick={() => admin.toggle(table)}>{table.active ? t('admin.deactivate') : t('admin.activate')}</button>
             </div>
+            )}
           </div>
         ))}
       </section>
@@ -336,7 +363,7 @@ function PrintCard({ venue, table, onClose }: { venue: Venue | null; table: Venu
         {!table.training && <p className="muted small">{textoDoCartao(DICT['qr.scanToPay'], venue?.market, { rail: trilhoDoCartao(venue?.market) })}</p>}
         <p className="muted" style={{ fontSize: 11, wordBreak: 'break-all' }}>{url}</p>
         {/* Sem recebedor, só o cartão de TREINO imprime (ele não promete pagar). */}
-        {!table.training && !casaRecebe(venue) && <p className="small" role="status" style={{ color: 'var(--erro)' }}>{t('rcpt.none')}</p>}
+        {!table.training && !casaRecebe(venue) && <p className="small" role="status">{t('qrs.previewOnly')}</p>}
         <button className="cta" disabled={!table.training && !casaRecebe(venue)} onClick={() => window.print()}>{t('qrs.print')}</button>
         <button className="linklike" onClick={onClose}>{t('common.backShort')}</button>
       </section>

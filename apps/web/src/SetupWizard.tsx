@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Campo } from './Campo';
+import { MesasEmLote } from './MesasEmLote';
 import AdminRecipient from './AdminRecipient';
 import AdminStripe from './AdminStripe';
 import type { VenueTable } from './api';
@@ -82,7 +83,10 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
                     1px, a régua do sistema. Estava em 2px, que era a terceira
                     medida do mesmo objeto neste produto. */}
                 {i < STEP_KEYS.length - 1 && (
-                  <div style={{ flex: 1, height: 1, background: done[i] ? 'var(--ok-fio)' : 'var(--fio)', margin: '14px 6px 0' }} />
+                  // `minWidth`: com o rótulo longo ("Recebimento") o fio encolhia
+                  // até sumir entre o 2 e o 3, e a trilha parecia quebrada (e2e
+                  // 27/09/2026).
+                  <div style={{ flex: 1, minWidth: 14, height: 1, background: done[i] ? 'var(--ok-fio)' : 'var(--fio)', margin: '14px 6px 0' }} />
                 )}
               </div>
             );
@@ -101,6 +105,7 @@ export default function SetupWizard({ admin, venueId, onPrint, onDone }: {
               </div>
               <button className="cta" style={{ padding: '12px 20px' }} disabled={!newLabel.trim()} onClick={add}>{t('admin.add')}</button>
             </div>
+            <MesasEmLote admin={admin} />
             {error && <p className="muted small" style={{ color: 'var(--erro)' }}>{error}</p>}
             {tables.length === 0 && <p className="muted small">{t('admin.noTables')}</p>}
             {tables.map((table) => (

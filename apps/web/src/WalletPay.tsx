@@ -280,7 +280,7 @@ export default function WalletButtons({
             void realGooglePay();
           }}
         >
-          {busy ? t('wallet.authorizing') : 'G Pay'}
+          {busy ? t('wallet.authorizing') : WALLET_LABEL.google_pay}
         </button>
         <p className="muted small" role="alert" style={{ margin: 0 }}>
           {error && <span style={{ color: 'var(--erro)' }}>{error}</span>}
@@ -311,7 +311,10 @@ export default function WalletButtons({
             disabled={disabled || travado}
             onClick={() => { setError(null); setSheet(w); }}
           >
-            {w === 'apple_pay' ? ' Pay' : 'G Pay'}
+            {/* O NOME, não o logotipo: o sinal da Apple é um caractere de uso
+                privado que só a fonte da Apple desenha — num Android o botão
+                dizia só "Pay". */}
+            {WALLET_LABEL[w]}
           </button>
         ))}
       </div>

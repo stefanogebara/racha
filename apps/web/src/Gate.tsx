@@ -81,6 +81,9 @@ function Login({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // O e-mail da conta recém-criada que ainda falta confirmar — liga a tela de
+  // "confira seu e-mail" no lugar do formulário.
+  const [confirmando, setConfirmando] = useState<string | null>(null);
 
   function swap() {
     setMode(mode === 'in' ? 'up' : 'in'); setError(null); setNotice(null);
@@ -99,7 +102,10 @@ function Login({ onDone }: { onDone: () => void }) {
       if (mode === 'up') {
         const { needsConfirm } = await signUp(email.trim(), password, lang);
         if (needsConfirm) {
-          setNotice(t('gate.created'));
+          // Uma TELA, não uma linha: o "confira seu e-mail" era uma frase
+          // pequena em cima de um botão "Entrar" ativo — o dono tocava nele
+          // antes de confirmar e levava "e-mail não confirmado" (e2e 27/09).
+          setConfirmando(email.trim());
           setMode('in'); setBusy(false); return;
         }
       } else {
@@ -125,10 +131,31 @@ function Login({ onDone }: { onDone: () => void }) {
     finally { setBusy(false); }
   }
 
+  if (confirmando) {
+    return (
+      <main className="shell">
+        <header className="head">
+          <span className="venue">racha</span>
+          <span className="mesa">{t('gate.ownerPanel')}</span>
+        </header>
+        <section className="card" role="status" aria-live="polite">
+          <h1 className="label">{t('gate.checkTitle')}</h1>
+          <p style={{ margin: 0 }}>{t('gate.checkBody', { email: confirmando })}</p>
+          <p className="muted small" style={{ margin: 0 }}>{t('gate.checkSpam')}</p>
+          <button type="button" className="ghost" onClick={() => { setConfirmando(null); setPassword(''); }}>
+            {t('gate.checkDone')}
+          </button>
+        </section>
+        <footer className="foot"><span>{t('gate.title')}</span><a className="small" href={`mailto:${EMPRESA.contato}`}>{t('gate.help')}</a><LangToggle compact /></footer>
+      </main>
+    );
+  }
+
   return (
     <main className="shell">
       <header className="head">
-        <span className="venue">Racha</span>
+        {/* Minúsculo, como na landing e no e-mail: era "Racha" só aqui. */}
+        <span className="venue">racha</span>
         <span className="mesa">{t('gate.ownerPanel')}</span>
       </header>
       <form className="card" noValidate onSubmit={(e) => { e.preventDefault(); void submit(); }}>
@@ -188,15 +215,27 @@ function Login({ onDone }: { onDone: () => void }) {
         {/* O dono de ANTES da troca de auth: a senha antiga dá "e-mail ou senha
             errados", e o "esqueci" não chega (a conta não existe aqui). Sem
             esta linha ele ficava num beco (compliance, PR #22, H4). */}
-        {mode === 'in' && <p className="muted small" style={{ margin: 0 }}>{t('gate.moved')}</p>}
+        {/* Só DEPOIS de um login que falhou: é aí que o dono de antes da troca
+            precisa dela. Aparecendo sempre, o restaurante que chegava pela
+            primeira vez lia um aviso de migração que não era com ele (e2e
+            27/09/2026). O beco que o compliance fechou continua fechado. */}
+        {mode === 'in' && error && <p className="muted small" style={{ margin: 0 }}>{t('gate.moved')}</p>}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-          <button type="button" className="linklike" onClick={swap}>
-            {mode === 'in' ? t('gate.signUp') : t('gate.haveAccount')}
-          </button>
+        <div style={{ display: 'flex', justifyContent: mode === 'in' ? 'flex-end' : 'flex-start', gap: 8 }}>
+          {mode === 'up' && (
+            <button type="button" className="linklike" onClick={swap}>{t('gate.haveAccount')}</button>
+          )}
           {mode === 'in' && <button type="button" className="linklike" onClick={forgot} disabled={busy}>{t('gate.forgot')}</button>}
         </div>
       </form>
+      {/* Criar conta é o caminho de TODO restaurante novo — era um link cinza
+          no canto do formulário de entrar. */}
+      {mode === 'in' && (
+        <section className="card novoaqui">
+          <p style={{ margin: 0 }}>{t('gate.newHere')}</p>
+          <button type="button" className="ghost" onClick={swap}>{t('gate.signUpCta')}</button>
+        </section>
+      )}
       <footer className="foot"><span>{t('gate.title')}</span><a className="small" href={`mailto:${EMPRESA.contato}`}>{t('gate.help')}</a><LangToggle compact /></footer>
     </main>
   );
