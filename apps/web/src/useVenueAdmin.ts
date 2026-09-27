@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useT } from './lang';
 import { api, parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
 import { authedReq as req } from './auth';
+import { criarMesasNumeradas } from './mesas-lote';
 
 /**
  * Estado + ações de um restaurante (mesas/QR/contas manuais), compartilhado
@@ -24,9 +25,6 @@ export interface VenueAdmin {
   openManualCheck: (t: VenueTable, raw: string) => Promise<boolean>;
   closeManualCheck: (t: VenueTable) => Promise<void>;
 }
-
-/** Teto de mesas por lote: um salão grande faz dois lotes; um erro de digitação ("1 a 2000") não vira 2000 idas ao servidor. */
-export const MESAS_POR_LOTE = 60;
 
 export function useVenueAdmin(venueId: string): VenueAdmin {
   // Um hook pode chamar outro: as mensagens que ESTE arquivo escreve saem
@@ -71,24 +69,19 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
   const addTablesNumbered = useCallback(async (
     prefixo: string, de: number, ate: number, onProgress?: (feitas: number, total: number) => void,
   ): Promise<number> => {
-    const base = prefixo.trim();
-    if (!base || !Number.isInteger(de) || !Number.isInteger(ate) || de < 0 || ate < de || ate - de >= MESAS_POR_LOTE) return 0;
-    const total = ate - de + 1;
-    let criadas = 0;
-    for (let n = de; n <= ate; n++) {
-      try {
-        await req('/api/tables', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ venueId, label: `${base} ${n}` }),
-        });
-        criadas++;
-      } catch (e) {
-        if ((e as { status?: number }).status !== 409) { setError(trErr(e)); break; }
-      }
-      onProgress?.(n - de + 1, total);
-    }
+    // Limpa o erro de um lote anterior: sem isto, repetir o lote que falhou
+    // deixava a frase velha ao lado do sucesso novo (segurança, PR do lote 1).
+    setError(null);
+    const r = await criarMesasNumeradas(
+      (label) => req('/api/tables', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venueId, label }),
+      }),
+      prefixo, de, ate, onProgress);
     await refresh();
-    return criadas;
+    // Depois do refresh: ele zera o erro quando a leitura vem boa.
+    if (r.erro) setError(trErr(r.erro));
+    return r.criadas;
   }, [venueId, refresh, trErr]);
 
   const rotate = useCallback(async (t: VenueTable) => {

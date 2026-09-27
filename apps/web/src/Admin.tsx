@@ -194,6 +194,9 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
   // A mesa cuja conta está sendo aberta (o campo do total aparece nela).
   const [abrindo, setAbrindo] = useState<string | null>(null);
   const [valorAbrir, setValorAbrir] = useState('');
+  // Um envio por vez: dois toques rápidos mandavam dois POST, e o segundo
+  // (check_already_open) punha um erro ao lado da conta que abriu (segurança).
+  const [enviandoConta, setEnviandoConta] = useState(false);
   const { t } = useT();
   const { venue, tables, error } = admin;
 
@@ -278,13 +281,17 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
               // Abrir a conta com o TOTAL, na própria linha — era um `prompt()`.
               <form className="abrirconta" onSubmit={async (e) => {
                 e.preventDefault();
-                if (await admin.openManualCheck(table, valorAbrir)) { setAbrindo(null); setValorAbrir(''); }
+                if (enviandoConta) return;
+                setEnviandoConta(true);
+                try {
+                  if (await admin.openManualCheck(table, valorAbrir)) { setAbrindo(null); setValorAbrir(''); }
+                } finally { setEnviandoConta(false); }
               }}>
                 <Campo rotulo={t('admin.openCheckTotal', { symbol: venue?.market === 'es' ? '€' : 'R$' })}
                   inputMode="decimal" placeholder="0,00" autoFocus value={valorAbrir}
                   onChange={(e) => setValorAbrir(e.target.value)} />
                 <div className="acoes">
-                  <button className="cta" type="submit" disabled={!valorAbrir.trim()}>{t('admin.openBillCta')}</button>
+                  <button className="cta" type="submit" disabled={enviandoConta || !valorAbrir.trim()}>{t('admin.openBillCta')}</button>
                   <button className="linklike" type="button" onClick={() => { setAbrindo(null); setValorAbrir(''); }}>{t('rcpt.cancel')}</button>
                 </div>
               </form>

@@ -47,7 +47,8 @@ export default function Qrs() {
 
       <section className="card noprint">
         <p className="label">{t('qrs.title', { n: printable.length })}</p>
-        <p className="muted small">{t('qrs.help')}</p>
+        {/* A dica de mandar à gráfica só quando a folha pode ir à gráfica. */}
+        {casaRecebe(data.venue) && <p className="muted small">{t('qrs.help')}</p>}
         {/* Sem recebedor, o cartão que promete "pagar no Pix" mentiria — a
             folha não imprime até a casa receber (ver `casaRecebe`). */}
         {!casaRecebe(data.venue) && <p className="small" role="status">{t('qrs.previewOnly')}</p>}
@@ -65,7 +66,7 @@ export default function Qrs() {
         // inteira deixava o dono novo sem ver o cartão que vai pra mesa, nem
         // testar o QR com a equipe (e2e 27/09/2026).
         <section className={casaRecebe(data.venue) ? 'qrgrid' : 'qrgrid qrprevia noprint'}>
-          {printable.map((t) => <QrCard key={t.id} venueName={data.venue.name} market={data.venue.market} table={t} />)}
+          {printable.map((t) => <QrCard key={t.id} venueName={data.venue.name} market={data.venue.market} table={t} previa={!casaRecebe(data.venue)} />)}
         </section>
       )}
 
@@ -76,7 +77,7 @@ export default function Qrs() {
   );
 }
 
-function QrCard({ venueName, market, table }: { venueName: string; market?: string; table: VenueTable }) {
+function QrCard({ venueName, market, table, previa }: { venueName: string; market?: string; table: VenueTable; previa: boolean }) {
   // O CARTÃO fala o idioma do MERCADO, não o da aba — ver `textoDoCartao`.
   return (
     <article className="qrcard">
@@ -85,7 +86,11 @@ function QrCard({ venueName, market, table }: { venueName: string; market?: stri
         <QRCodeSVG value={urlDaMesa(table.qrToken)} size={190} level="M" marginSize={2} />
       </div>
       <h2 className="qrmesa">{tituloDaMesa(table.label, (label) => textoDoCartao(DICT['qrs.tableTitle'], market, { label }))}</h2>
-      <p className="qrhint">{textoDoCartao(DICT['qr.scanToPay'], market, { rail: trilhoDoCartao(market) })}</p>
+      {/* Na PRÉVIA o cartão não promete pagar: carimbo no lugar da frase do Pix.
+          Uma captura de tela não passa pelo `noprint` (compliance, lote 1, M2). */}
+      {previa
+        ? <p className="qrstamp" role="note">{textoDoCartao(DICT['qrs.previewStamp'], market)}</p>
+        : <p className="qrhint">{textoDoCartao(DICT['qr.scanToPay'], market, { rail: trilhoDoCartao(market) })}</p>}
       <span className="qrbrand">racha</span>
     </article>
   );

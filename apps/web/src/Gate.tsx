@@ -52,7 +52,7 @@ function SenhaNova({ onDone }: { onDone: () => void }) {
   return (
     <main className="shell">
       <header className="head">
-        <span className="venue">Racha</span>
+        <span className="venue">racha</span>
         <span className="mesa">{t('gate.ownerPanel')}</span>
       </header>
       <form className="card" onSubmit={(e) => { e.preventDefault(); void enviar(); }}>
@@ -215,11 +215,12 @@ function Login({ onDone }: { onDone: () => void }) {
         {/* O dono de ANTES da troca de auth: a senha antiga dá "e-mail ou senha
             errados", e o "esqueci" não chega (a conta não existe aqui). Sem
             esta linha ele ficava num beco (compliance, PR #22, H4). */}
-        {/* Só DEPOIS de um login que falhou: é aí que o dono de antes da troca
-            precisa dela. Aparecendo sempre, o restaurante que chegava pela
+        {/* Só DEPOIS de um login que falhou OU de um "esqueci a senha" (o link
+            não chega pra conta de antes da troca — compliance, lote 1, M3): é aí
+            que o dono de antes da troca precisa dela. Aparecendo sempre, o restaurante que chegava pela
             primeira vez lia um aviso de migração que não era com ele (e2e
             27/09/2026). O beco que o compliance fechou continua fechado. */}
-        {mode === 'in' && error && <p className="muted small" style={{ margin: 0 }}>{t('gate.moved')}</p>}
+        {mode === 'in' && (error || notice) && <p className="muted small" style={{ margin: 0 }}>{t('gate.moved')}</p>}
 
         <div style={{ display: 'flex', justifyContent: mode === 'in' ? 'flex-end' : 'flex-start', gap: 8 }}>
           {mode === 'up' && (

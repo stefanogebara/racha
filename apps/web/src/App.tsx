@@ -268,6 +268,13 @@ export default function App() {
   // A MARCA da minha cobrança na conta pública (ver `pagamento-ref.ts`). O ✓
   // espera ESTA marca cair — não o total da mesa subir.
   const [ownRef, setOwnRef] = useState<string | null>(null);
+  /**
+   * A MARCA do pagamento da tela de "pago", pra dizer "pode ir" só com o
+   * pagamento DENTRO da conta. A carteira e o cartão chamam `onPaid` antes do
+   * webhook: por alguns segundos o painel da casa ainda não mostra — e "o
+   * restaurante já vê o seu pagamento" seria falso (compliance, lote 1, H1).
+   */
+  const [refPago, setRefPago] = useState<string | null>(null);
   /** Quando o pagamento foi confirmado NESTA sessão — o carimbo do comprovante.
    *  Fixado na transição, não no render: no render ele andaria a cada poll. */
   const [paidAt, setPaidAt] = useState<string | null>(null);
@@ -384,6 +391,14 @@ export default function App() {
         .catch(() => {}); // sem saldo da casa neste restaurante — segue só o Pix
     }
   }, [view, houseChecked, token]);
+
+  useEffect(() => {
+    const txid = step === 'pago' && charge ? charge.txid : null;
+    if (!txid) { setRefPago(null); return; }
+    let vivo = true;
+    refDoPagamento(txid).then((r) => { if (vivo) setRefPago(r); }).catch(() => { if (vivo) setRefPago(null); });
+    return () => { vivo = false; };
+  }, [step, charge]);
 
   // Auto-avança pro ✓ quando o MEU pagamento cai — webhook real OU Simulador da
   // demo, sem depender de botão. Comparava o `paidCents` da MESA com o de antes
@@ -816,9 +831,15 @@ export default function App() {
             // O recibo afirma só o que sabe — o pagamento dela está registrado.
             <p className="muted small">{t('paid.newBill')}</p>
           )}
-          {/* O que a pessoa precisa pra levantar da mesa, logo abaixo do ✓. */}
-          {recibo.mostrarProgresso && (
-            <p className="saida">{t(remaining === 0 ? 'paid.canLeave' : 'paid.canLeaveShare')}</p>
+          {/* O que a pessoa precisa pra levantar da mesa, logo abaixo do ✓ — e
+              só quando é VERDADE: o pagamento dela já está na conta que o painel
+              da casa lê. Antes disso, "confirmando". Com aviso de dinheiro (pagou
+              a mais, estorno que falhou), nada de "pode ir": a casa deve algo a
+              ela e o aviso manda falar com a equipe (compliance, lote 1, M1). */}
+          {recibo.mostrarProgresso && recibo.avisos.length === 0 && (
+            refPago && Object.values(state.payments || {}).some((p) => p.ref === refPago)
+              ? <p className="saida">{t(remaining === 0 ? 'paid.canLeave' : 'paid.canLeaveShare')}</p>
+              : <p className="muted small">{t('paid.confirming')}</p>
           )}
           {/* O QUE ELE PAGOU. A barra acima é o progresso da CONTA — consumo —
               e o comprovante mostrava só esse número: o cliente pagava

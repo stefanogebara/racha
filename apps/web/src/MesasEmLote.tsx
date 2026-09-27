@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useT } from './lang';
 import { Campo } from './Campo';
-import { MESAS_POR_LOTE, type VenueAdmin } from './useVenueAdmin';
+import type { VenueAdmin } from './useVenueAdmin';
+import { MESAS_POR_LOTE, loteValido } from './mesas-lote';
 
 /**
  * "Mesa 1 até Mesa 20" num toque, embaixo do campo da mesa avulsa. Fechado por
@@ -21,8 +22,7 @@ export function MesasEmLote({ admin }: { admin: VenueAdmin }) {
   const nDe = Number(de);
   const nAte = Number(ate);
   const total = nAte - nDe + 1;
-  const valido = prefixo.trim() !== '' && de !== '' && ate !== '' && Number.isInteger(nDe) && Number.isInteger(nAte)
-    && nDe >= 0 && total >= 1 && total <= MESAS_POR_LOTE;
+  const valido = de !== '' && ate !== '' && loteValido(prefixo, nDe, nAte);
 
   async function criar() {
     if (!valido || rodando) return;
