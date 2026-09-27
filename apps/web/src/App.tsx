@@ -38,6 +38,7 @@ import { clearStoredWallet, readStoredWallet } from './house';
 import { computeShare, splitEqualLocal, type SplitMode } from './split';
 import { formatTaxId, isValidCPF, maskCpfCnpj } from './br';
 import { Campo } from './Campo';
+import { EMPRESA, whatsappDoFundador } from './empresa';
 import { refDoPagamento } from './pagamento-ref';
 
 import { lembrarToken, tokenDaVolta, voltandoDePagamento } from './payReturn';
@@ -208,6 +209,25 @@ export default function App() {
   const [servicoOn, setServicoOn] = useState(true);
   const [payerLabel, setPayerLabel] = useState('');
   /**
+   * "SUA PARTE" ESTÁ NA TELA? No telefone de 390×844 a comanda ocupa a
+   * primeira tela inteira e o botão de pagar ficava abaixo da dobra — quem
+   * escaneou o QR via a conta e não via como pagar (auditoria e2e,
+   * 27/09/2026). Enquanto o BOTÃO DE PAGAR está fora da tela, um atalho fixo
+   * no rodapé leva até o cartão de "Sua parte" (o começo dele: a divisão vem
+   * antes do valor). Refs por callback: os dois só existem depois que a conta
+   * chega.
+   */
+  const [cartaoDaParte, setCartaoDaParte] = useState<HTMLElement | null>(null);
+  const [botaoPagar, setBotaoPagar] = useState<HTMLElement | null>(null);
+  const [parteNaTela, setParteNaTela] = useState(true);
+  useEffect(() => {
+    // Sem botão (mesa de treino, conta paga, outro trilho): sem atalho.
+    if (!botaoPagar || typeof IntersectionObserver === 'undefined') { setParteNaTela(true); return; }
+    const io = new IntersectionObserver(([e]) => setParteNaTela(e.isIntersecting), { threshold: 0 });
+    io.observe(botaoPagar);
+    return () => io.disconnect();
+  }, [botaoPagar]);
+  /**
    * CPF do pagador. QUEM EXIGE É O GATEWAY, e cada um exige de um jeito.
    *
    * Este comentário dizia "o adquirente exige o documento do customer em TODO
@@ -248,6 +268,13 @@ export default function App() {
   // A MARCA da minha cobrança na conta pública (ver `pagamento-ref.ts`). O ✓
   // espera ESTA marca cair — não o total da mesa subir.
   const [ownRef, setOwnRef] = useState<string | null>(null);
+  /**
+   * A MARCA do pagamento da tela de "pago", pra dizer "pode ir" só com o
+   * pagamento DENTRO da conta. A carteira e o cartão chamam `onPaid` antes do
+   * webhook: por alguns segundos o painel da casa ainda não mostra — e "o
+   * restaurante já vê o seu pagamento" seria falso (compliance, lote 1, H1).
+   */
+  const [refPago, setRefPago] = useState<string | null>(null);
   /** Quando o pagamento foi confirmado NESTA sessão — o carimbo do comprovante.
    *  Fixado na transição, não no render: no render ele andaria a cada poll. */
   const [paidAt, setPaidAt] = useState<string | null>(null);
@@ -364,6 +391,14 @@ export default function App() {
         .catch(() => {}); // sem saldo da casa neste restaurante — segue só o Pix
     }
   }, [view, houseChecked, token]);
+
+  useEffect(() => {
+    const txid = step === 'pago' && charge ? charge.txid : null;
+    if (!txid) { setRefPago(null); return; }
+    let vivo = true;
+    refDoPagamento(txid).then((r) => { if (vivo) setRefPago(r); }).catch(() => { if (vivo) setRefPago(null); });
+    return () => { vivo = false; };
+  }, [step, charge]);
 
   // Auto-avança pro ✓ quando o MEU pagamento cai — webhook real OU Simulador da
   // demo, sem depender de botão. Comparava o `paidCents` da MESA com o de antes
@@ -545,6 +580,7 @@ export default function App() {
   const { venue, table, state } = view;
   const remaining = Math.max(0, state.totalCents - state.paidCents);
   const progress = state.totalCents > 0 ? Math.min(100, (state.paidCents / state.totalCents) * 100) : 0;
+  const porItem = view.check.items.length > 1;
 
   // parseBrlToCents devolve null para entrada inválida ('R$ 47,50' colado com
   // lixo, '1.234,56', etc. resolvem certo; 'abc' → null) — null desarma o CTA.
@@ -795,22 +831,15 @@ export default function App() {
             // O recibo afirma só o que sabe — o pagamento dela está registrado.
             <p className="muted small">{t('paid.newBill')}</p>
           )}
-          {recibo.oferecerMais && (
-            <button className="cta" onClick={() => {
-              setSelectedItems(new Set());
-              // LIMPA o comprovante anterior. Sem isto: paga a 1ª parte no Pix
-              // (recibo certo), toca aqui, paga a 2ª na carteira — e a tela
-              // mostrava a quantia da PRIMEIRA com a data da SEGUNDA. Valor
-              // afirmativamente errado num comprovante é pior que valor
-              // ausente.
-              setCharge(null);
-              setPaidAt(null);
-              esquecerDaMesa(); // uma parte NOVA: o recibo desta fica no extrato, não na tela
-              setStep('conta');
-              void refresh();
-            }}>
-              {t('paid.payMore')}
-            </button>
+          {/* O que a pessoa precisa pra levantar da mesa, logo abaixo do ✓ — e
+              só quando é VERDADE: o pagamento dela já está na conta que o painel
+              da casa lê. Antes disso, "confirmando". Com aviso de dinheiro (pagou
+              a mais, estorno que falhou), nada de "pode ir": a casa deve algo a
+              ela e o aviso manda falar com a equipe (compliance, lote 1, M1). */}
+          {recibo.mostrarProgresso && recibo.avisos.length === 0 && (
+            refPago && Object.values(state.payments || {}).some((p) => p.ref === refPago)
+              ? <p className="saida">{t(remaining === 0 ? 'paid.canLeave' : 'paid.canLeaveShare')}</p>
+              : <p className="muted small">{t('paid.confirming')}</p>
           )}
           {/* O QUE ELE PAGOU. A barra acima é o progresso da CONTA — consumo —
               e o comprovante mostrava só esse número: o cliente pagava
@@ -866,7 +895,31 @@ export default function App() {
             </p>
           ))}
           <p className="muted small center">{t('paid.notInvoice')}</p>
+          {/* PAGAR OUTRA PARTE vem DEPOIS do comprovante e como botão de contorno.
+              Era o botão escuro logo abaixo do ✓: a ação principal da tela de
+              "pago" convidava a pagar de novo (auditoria e2e, 27/09/2026). */}
+          {recibo.oferecerMais && (
+            <button className="ghost" onClick={() => {
+              setSelectedItems(new Set());
+              // LIMPA o comprovante anterior. Sem isto: paga a 1ª parte no Pix
+              // (recibo certo), toca aqui, paga a 2ª na carteira — e a tela
+              // mostrava a quantia da PRIMEIRA com a data da SEGUNDA. Valor
+              // afirmativamente errado num comprovante é pior que valor
+              // ausente.
+              setCharge(null);
+              setPaidAt(null);
+              esquecerDaMesa(); // uma parte NOVA: o recibo desta fica no extrato, não na tela
+              setStep('conta');
+              void refresh();
+            }}>
+              {t('paid.payMore')}
+            </button>
+          )}
         </section>
+        {/* Quem paga a conta da DEMO é um restaurante testando o produto. O ✓ é o
+            momento de maior interesse, e a tela acabava ali, sem próximo passo.
+            Só na casa de demonstração, que o servidor declara (`venue.demo`). */}
+        {venue.demo === true && <QueroNoMeuRestaurante />}
       </Shell>
     );
   }
@@ -965,20 +1018,28 @@ export default function App() {
           estava emoldurando um emoji, no lugar onde a quantia costuma estar. A
           marca de pago já existe e diz a mesma coisa sem fingir ser dinheiro. */}
       {remaining === 0 ? (
+        <>
         <section className="card paid">
           <div className="paidmark" aria-hidden="true">✓</div>
           <h2>{t('check.allPaid')}</h2>
         </section>
+        {venue.demo === true && <QueroNoMeuRestaurante />}
+        </>
       ) : (
-        <section className="card">
+        <section className="card" ref={setCartaoDaParte} id="sua-parte">
           <p className="label">{t('share.title')}</p>
-          <div className="modes modes3" role="tablist">
+          {/* "Por item" só com itens pra escolher. A conta aberta pelo garçom com
+              só o total tem UMA linha ("Total da conta"): a aba escolhia a conta
+              inteira e não dividia nada (auditoria e2e, 27/09/2026). */}
+          <div className={porItem ? 'modes modes3' : 'modes'} role="tablist">
             <button role="tab" aria-selected={mode === 'igual'} className={mode === 'igual' ? 'mode on' : 'mode'} onClick={() => setMode('igual')}>
               {t('share.equal')}
             </button>
+            {porItem && (
             <button role="tab" aria-selected={mode === 'item'} className={mode === 'item' ? 'mode on' : 'mode'} onClick={() => setMode('item')}>
               {t('share.byItem')}
             </button>
+            )}
             <button role="tab" aria-selected={mode === 'valor'} className={mode === 'valor' ? 'mode on' : 'mode'} onClick={() => setMode('valor')}>
               {t('share.custom')}
             </button>
@@ -992,7 +1053,6 @@ export default function App() {
                 <strong>{people}</strong>
                 <button aria-label={t('share.more')} onClick={() => setPeople(Math.min(20, people + 1))}>+</button>
               </div>
-              <span>{t('share.people')}</span>
             </div>
           )}
           {mode === 'igual' && (
@@ -1151,7 +1211,7 @@ export default function App() {
               )}
             </>
           ) : (
-            <button className="cta" disabled={totalToPay === 0 || paying} onClick={onPayOnce}>
+            <button className="cta" ref={setBotaoPagar} disabled={totalToPay === 0 || paying} onClick={onPayOnce}>
               {t('pay.cta', { amount: brl(totalToPay) })}
             </button>
           )}
@@ -1249,6 +1309,20 @@ export default function App() {
         <PrivacyNotice venue={venue.name} taxId={venue.taxId} market={venue.market} />
         <LangToggle compact />
       </footer>
+
+      {/* O atalho até "Sua parte" enquanto ela está fora da tela. Rola, não
+          paga: o valor depende de como a pessoa divide, e pagar daqui pularia
+          essa escolha. Some na landing (embed) e quando não há o que pagar. */}
+      {!EMBED && remaining > 0 && !parteNaTela && (
+        <div className="atalho-pagar">
+          <button
+            type="button" className="cta"
+            onClick={() => cartaoDaParte?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          >
+            {t('share.jump')} ↓
+          </button>
+        </div>
+      )}
     </Shell>
   );
 }
@@ -1259,6 +1333,29 @@ export default function App() {
  * imprime quase-preto na comanda e creme na mesa, sem uma segunda cópia.
  * Linha sem figura honesta (serviço, taxa) simplesmente não ganha uma.
  */
+/**
+ * O fim da demo: quem pagou a conta de mentira é, quase sempre, o dono de um
+ * restaurante que a Olímpia chamou. O próximo passo é falar com o fundador —
+ * o WhatsApp abre com a mensagem pronta. Dentro da landing (`?embed=1`) não
+ * aparece: a própria landing já é a página de venda em volta do telefone.
+ */
+function QueroNoMeuRestaurante() {
+  const { t } = useT();
+  if (EMBED) return null;
+  return (
+    <section className="card quero">
+      <h2>{t('demo.wantTitle')}</h2>
+      <p className="muted">{t('demo.wantBody')}</p>
+      <a className="cta" href={whatsappDoFundador(t('demo.wantMsg'))} target="_blank" rel="noopener noreferrer">
+        {t('demo.wantCta')}
+      </a>
+      <p className="muted small center">
+        {t('demo.wantEmail', { email: EMPRESA.contato })}
+      </p>
+    </section>
+  );
+}
+
 function Dish({ name }: { name: string }) {
   const cat = dishFor(name);
   if (!cat) return null;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useT } from './lang';
 import { api, parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
 import { authedReq as req } from './auth';
+import { criarMesasNumeradas } from './mesas-lote';
 
 /**
  * Estado + ações de um restaurante (mesas/QR/contas manuais), compartilhado
@@ -17,10 +18,11 @@ export interface VenueAdmin {
   refresh: () => Promise<void>;
   /** cria a mesa; retorna true no sucesso (pra tela limpar o input). */
   addTable: (label: string) => Promise<boolean>;
+  addTablesNumbered: (prefixo: string, de: number, ate: number, onProgress?: (feitas: number, total: number) => void) => Promise<number>;
   rotate: (t: VenueTable) => Promise<void>;
   toggle: (t: VenueTable) => Promise<void>;
   toggleTraining: (t: VenueTable) => Promise<void>;
-  openManualCheck: (t: VenueTable) => Promise<void>;
+  openManualCheck: (t: VenueTable, raw: string) => Promise<boolean>;
   closeManualCheck: (t: VenueTable) => Promise<void>;
 }
 
@@ -55,6 +57,31 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
       await refresh();
       return true;
     } catch (e) { setError(trErr(e)); return false; }
+  }, [venueId, refresh, trErr]);
+
+  /**
+   * VÁRIAS MESAS NUMERADAS DE UMA VEZ ("Mesa 1" até "Mesa 20"). Um salão de
+   * 30 mesas eram 30 digitações e 30 toques (auditoria e2e, 27/09/2026).
+   * Uma por vez, na ordem, pela MESMA rota da mesa avulsa — o servidor segue
+   * validando cada rótulo e barrando duplicata. Nome repetido (409) é pulado,
+   * não é erro: reabrir a tela e pedir "1 a 20" de novo completa o que falta.
+   */
+  const addTablesNumbered = useCallback(async (
+    prefixo: string, de: number, ate: number, onProgress?: (feitas: number, total: number) => void,
+  ): Promise<number> => {
+    // Limpa o erro de um lote anterior: sem isto, repetir o lote que falhou
+    // deixava a frase velha ao lado do sucesso novo (segurança, PR do lote 1).
+    setError(null);
+    const r = await criarMesasNumeradas(
+      (label) => req('/api/tables', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venueId, label }),
+      }),
+      prefixo, de, ate, onProgress);
+    await refresh();
+    // Depois do refresh: ele zera o erro quando a leitura vem boa.
+    if (r.erro) setError(trErr(r.erro));
+    return r.criadas;
   }, [venueId, refresh, trErr]);
 
   const rotate = useCallback(async (t: VenueTable) => {
@@ -92,19 +119,19 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
   }, [refresh, tr, trErr]);
 
   // Modo manual (POS adapter): o dono abre/fecha a conta pelo painel.
-  const openManualCheck = useCallback(async (t: VenueTable) => {
-    // O símbolo vem do MERCADO da casa, não da linha: esta tela também abre
-    // numa casa espanhola.
-    const raw = prompt(tr('admin.openCheckPrompt',
-      { table: t.label, symbol: venue?.market === 'es' ? '€' : 'R$' }));
-    if (raw == null) return;
+  // O valor vem de um campo NA TELA (Admin.tsx), não de um `prompt()`: a
+  // caixinha nativa do navegador parecia erro no telefone e sumia a moldura do
+  // produto (e2e 27/09/2026). Devolve se abriu, pra tela fechar o campo.
+  const openManualCheck = useCallback(async (t: VenueTable, raw: string): Promise<boolean> => {
     const totalCents = parseBrlToCents(raw); // "1.234,56" e "R$ 47,50" resolvem certo
-    if (totalCents == null || totalCents <= 0) { setError(tr('admin.totalInvalid')); return; }
+    if (totalCents == null || totalCents <= 0) { setError(tr('admin.totalInvalid')); return false; }
     try {
       await req('/api/checks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, totalCents }) });
+      setError(null);
       await refresh();
-    } catch (e) { setError(trErr(e)); }
-  }, [refresh, tr, venue?.market, trErr]);
+      return true;
+    } catch (e) { setError(trErr(e)); return false; }
+  }, [refresh, tr, trErr]);
 
   const closeManualCheck = useCallback(async (t: VenueTable) => {
     if (!confirm(tr('admin.closeCheckConfirm', { table: t.label }))) return;
@@ -134,7 +161,7 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
     } catch (e) { setError(trErr(e)); }
   }, [refresh, tr, trErr]);
 
-  return { venue, tables, error, setError, refresh, addTable, rotate, toggle, toggleTraining, openManualCheck, closeManualCheck };
+  return { venue, tables, error, setError, refresh, addTable, addTablesNumbered, rotate, toggle, toggleTraining, openManualCheck, closeManualCheck };
 }
 
 /** "Configurado" = tem recebedor real + ≥1 mesa operante. Decide qual tela abre. */

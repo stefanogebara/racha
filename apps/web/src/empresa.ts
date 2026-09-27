@@ -29,4 +29,13 @@ export const EMPRESA = Object.freeze({
   // Encaminhado pro Gmail do dono (Forward Email, só DNS). Só está aqui porque
   // um e-mail de verdade chegou por ele — o censo do data-map confere a marca.
   contato: 'contato@useracha.app',
+  // O WhatsApp do fundador — o mesmo número que a Olímpia passa aos
+  // restaurantes (confirmado pelo dono em 2026-09-27). Só dígitos: é o formato
+  // do wa.me. Usado no fim da demo ("quero no meu restaurante").
+  whatsapp: '5511999002121',
 });
+
+/** Link do WhatsApp do fundador com a mensagem já escrita. */
+export function whatsappDoFundador(mensagem: string): string {
+  return `https://wa.me/${EMPRESA.whatsapp}?text=${encodeURIComponent(mensagem)}`;
+}

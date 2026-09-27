@@ -217,8 +217,14 @@ export default function AdminRecipient({ venueId, onChanged }: { venueId: string
           tem âmbar, e este era o amber-500 do Tailwind, num fio de 1,33:1 contra
           o papel (WCAG 1.4.11 pede 3). "Sem recebedor real" é uma pendência que
           trava o dinheiro: coral. */}
+      {/* Coral só quando algo DEU ERRADO (a conta cadastrada sumiu do
+          provedor). Ainda-não-conectada é o passo em que o dono está, não um
+          erro: azul do "em curso". Pintada de coral, a primeira coisa que o
+          dono novo via no passo 2 era um alarme (e2e 27/09/2026). */}
       {!realId && (
-        <div style={{ border: '1px solid var(--erro-fio)', background: 'var(--erro-bg)', borderRadius: 'var(--rad-s)', padding: '10px 12px' }}>
+        <div style={loadError
+          ? { border: '1px solid var(--erro-fio)', background: 'var(--erro-bg)', borderRadius: 'var(--rad-s)', padding: '10px 12px' }
+          : { border: '1px solid var(--fio)', background: 'var(--emcurso-bg)', borderRadius: 'var(--rad-s)', padding: '10px 12px' }}>
           {loadError
             ? <p className="small">{t('rcpt.notFound')}</p>
             : <p className="small">{t('rcpt.none')}</p>}
