@@ -146,3 +146,31 @@ test('conta já quitada: nada a pagar em nenhum modo', () => {
     assert.equal(s.total, 0, mode);
   }
 });
+
+test('item dividido: o teto do centavo, como o "Igual"', async () => {
+  const { itemShareCents } = await import('../src/split.ts');
+  assert.equal(itemShareCents(3290, 3), 1097);   // R$ 32,90 entre 3 → R$ 10,97 (teto)
+  assert.equal(itemShareCents(5560, 4), 1390);   // chopp (4x) entre 4 → um chopp
+  assert.equal(itemShareCents(1000, 1), 1000);
+  assert.equal(itemShareCents(1000, 0), 1000);   // 0/NaN valem 1: nunca divide por zero
+  assert.equal(itemShareCents(1000, NaN), 1000);
+  assert.equal(itemShareCents(100, 1000), 5);    // teto de 20 partes
+});
+
+test('cada parte × pessoas cobre o item, e passa dele por menos de 1 centavo por pessoa', async () => {
+  const { itemShareCents } = await import('../src/split.ts');
+  for (let price = 1; price <= 5000; price += 37) {
+    for (let n = 1; n <= 20; n++) {
+      const parte = itemShareCents(price, n);
+      assert.ok(parte * n >= price, `${price}/${n}`);
+      assert.ok(parte * n - price < n, `${price}/${n}`);
+    }
+  }
+});
+
+test('a soma do que foi marcado usa a parte de cada item', async () => {
+  const { selectedItemsCents } = await import('../src/split.ts');
+  const itens = [{ id: 'a', priceCents: 8990 }, { id: 'b', priceCents: 3290 }, { id: 'c', priceCents: 1890 }];
+  assert.equal(selectedItemsCents(itens, new Set(['a', 'b']), new Map([['b', 3]])), 8990 + 1097);
+  assert.equal(selectedItemsCents(itens, new Set(), new Map()), 0);
+});

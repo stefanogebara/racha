@@ -3,6 +3,7 @@ import { useT } from './lang';
 import { api, parseBrlToCents, type TablesView, type Venue, type VenueTable } from './api';
 import { authedReq as req } from './auth';
 import { criarMesasNumeradas } from './mesas-lote';
+import type { ItemDaComanda } from './comanda';
 
 /**
  * Estado + ações de um restaurante (mesas/QR/contas manuais), compartilhado
@@ -22,9 +23,16 @@ export interface VenueAdmin {
   rotate: (t: VenueTable) => Promise<void>;
   toggle: (t: VenueTable) => Promise<void>;
   toggleTraining: (t: VenueTable) => Promise<void>;
-  openManualCheck: (t: VenueTable, raw: string) => Promise<boolean>;
+  openManualCheck: (t: VenueTable, pedido: PedidoDeConta) => Promise<boolean>;
   closeManualCheck: (t: VenueTable) => Promise<void>;
 }
+
+/**
+ * O que abre a conta: os ITENS da comanda (lidos por `lerComanda`) ou só o
+ * TOTAL digitado. O servidor aceita os dois (`normalizeItems`); com itens o
+ * cliente vê o que consumiu e pode pagar "por item".
+ */
+export type PedidoDeConta = { items: ItemDaComanda[] } | { total: string };
 
 export function useVenueAdmin(venueId: string): VenueAdmin {
   // Um hook pode chamar outro: as mensagens que ESTE arquivo escreve saem
@@ -122,11 +130,18 @@ export function useVenueAdmin(venueId: string): VenueAdmin {
   // O valor vem de um campo NA TELA (Admin.tsx), não de um `prompt()`: a
   // caixinha nativa do navegador parecia erro no telefone e sumia a moldura do
   // produto (e2e 27/09/2026). Devolve se abriu, pra tela fechar o campo.
-  const openManualCheck = useCallback(async (t: VenueTable, raw: string): Promise<boolean> => {
-    const totalCents = parseBrlToCents(raw); // "1.234,56" e "R$ 47,50" resolvem certo
-    if (totalCents == null || totalCents <= 0) { setError(tr('admin.totalInvalid')); return false; }
+  const openManualCheck = useCallback(async (t: VenueTable, pedido: PedidoDeConta): Promise<boolean> => {
+    let corpo: { tableId: string; items?: ItemDaComanda[]; totalCents?: number };
+    if ('items' in pedido) {
+      if (pedido.items.length === 0) { setError(tr('admin.totalInvalid')); return false; }
+      corpo = { tableId: t.id, items: pedido.items };
+    } else {
+      const totalCents = parseBrlToCents(pedido.total); // "1.234,56" e "R$ 47,50" resolvem certo
+      if (totalCents == null || totalCents <= 0) { setError(tr('admin.totalInvalid')); return false; }
+      corpo = { tableId: t.id, totalCents };
+    }
     try {
-      await req('/api/checks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: t.id, totalCents }) });
+      await req('/api/checks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
       setError(null);
       await refresh();
       return true;

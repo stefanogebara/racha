@@ -88,3 +88,29 @@ export function computeShare(opts: {
   const servico = opts.servicoOn ? servicoCents(base, opts.servicoBp) : 0;
   return { base, servico, total: base + servico, capped: rawBase > base };
 }
+
+/**
+ * A PARTE de um item dividido entre `parts` pessoas ("a batata, entre três";
+ * "1 dos 4 chopps" = o chopp (4x) entre quatro). Mesma regra do "Igual" — o
+ * TETO, índice 0 —, e pelo mesmo motivo: cada telefone calcula sozinho, sem
+ * saber quem mais marcou o item, então o centavo do resto não se distribui por
+ * posição. Com o teto, ninguém paga mais do que a tela prometeu e o último é
+ * limitado ao que falta (`computeShare`). `parts` 1 é o item inteiro.
+ */
+export function itemShareCents(priceCents: number, parts: number): number {
+  return splitEqualLocal(Math.max(0, priceCents), Math.min(Math.max(1, Math.floor(parts || 1)), MAX_PARTES_DO_ITEM), 0);
+}
+
+/** Até quantas pessoas um item se divide na tela (o mesmo teto do "Igual"). */
+export const MAX_PARTES_DO_ITEM = 20;
+
+/** A soma do que a pessoa marcou como seu, cada item na parte dela. */
+export function selectedItemsCents(
+  items: { id: string; priceCents: number }[],
+  selected: ReadonlySet<string>,
+  parts: ReadonlyMap<string, number>,
+): number {
+  let soma = 0;
+  for (const i of items) if (selected.has(i.id)) soma += itemShareCents(i.priceCents, parts.get(i.id) ?? 1);
+  return soma;
+}

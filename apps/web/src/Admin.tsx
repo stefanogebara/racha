@@ -17,6 +17,7 @@ import { setupComplete, useVenueAdmin, type VenueAdmin } from './useVenueAdmin';
 import { LIMITES } from './limites';
 import { NavDono } from './NavDono';
 import { MesasEmLote } from './MesasEmLote';
+import { AbrirConta } from './AbrirConta';
 
 /**
  * Painel de gestão do restaurante — onboarding + mesas/QR. Warm Glass.
@@ -193,10 +194,6 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
   const [newLabel, setNewLabel] = useState('');
   // A mesa cuja conta está sendo aberta (o campo do total aparece nela).
   const [abrindo, setAbrindo] = useState<string | null>(null);
-  const [valorAbrir, setValorAbrir] = useState('');
-  // Um envio por vez: dois toques rápidos mandavam dois POST, e o segundo
-  // (check_already_open) punha um erro ao lado da conta que abriu (segurança).
-  const [enviandoConta, setEnviandoConta] = useState(false);
   const { t } = useT();
   const { venue, tables, error } = admin;
 
@@ -278,28 +275,12 @@ function ManageView({ admin, venueId, onPrint, onConfigure }: {
               {table.qrRotatedAt && <span className="muted small">{t('admin.qrRotated')}</span>}
             </div>
             {abrindo === table.id ? (
-              // Abrir a conta com o TOTAL, na própria linha — era um `prompt()`.
-              <form className="abrirconta" onSubmit={async (e) => {
-                e.preventDefault();
-                if (enviandoConta) return;
-                setEnviandoConta(true);
-                try {
-                  if (await admin.openManualCheck(table, valorAbrir)) { setAbrindo(null); setValorAbrir(''); }
-                } finally { setEnviandoConta(false); }
-              }}>
-                <Campo rotulo={t('admin.openCheckTotal', { symbol: venue?.market === 'es' ? '€' : 'R$' })}
-                  inputMode="decimal" placeholder="0,00" autoFocus value={valorAbrir}
-                  onChange={(e) => setValorAbrir(e.target.value)} />
-                <div className="acoes">
-                  <button className="cta" type="submit" disabled={enviandoConta || !valorAbrir.trim()}>{t('admin.openBillCta')}</button>
-                  <button className="linklike" type="button" onClick={() => { setAbrindo(null); setValorAbrir(''); }}>{t('rcpt.cancel')}</button>
-                </div>
-              </form>
+              <AbrirConta admin={admin} table={table} market={venue?.market} onClose={() => setAbrindo(null)} />
             ) : (
             <div className="acoes">
               {table.active && (table.hasOpenCheck
                 ? <button className="ghost" onClick={() => admin.closeManualCheck(table)}>{t('admin.closeBill')}</button>
-                : <button className="cta" onClick={() => { setAbrindo(table.id); setValorAbrir(''); }}>{t('admin.openBillCta')}</button>)}
+                : <button className="cta" onClick={() => setAbrindo(table.id)}>{t('admin.openBillCta')}</button>)}
               {/* O QR da mesa de treino existe — o workshop precisa dele —, mas
                   o cartão sai CARIMBADO: um cartão de treino esquecido numa mesa
                   de verdade se anuncia (auditoria dos QRs, Q1; compliance, PR #18). */}
