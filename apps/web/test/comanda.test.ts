@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lerComanda as ler, linhaVazia, QTD_MAXIMA, type LinhaDaComanda } from '../src/comanda.ts';
+import { lerComanda as ler, linhaVazia, QTD_MAXIMA, unitarioDoItem, type LinhaDaComanda } from '../src/comanda.ts';
 import { parseBrlToCents } from '../src/api.ts';
 
 const lerComanda = (l: LinhaDaComanda[]) => ler(l, parseBrlToCents);
@@ -46,4 +46,35 @@ test('quantidade e preço inválidos são recusados', () => {
   for (const preco of ['0', '0,00', 'abc', '-5']) {
     assert.equal((lerComanda([{ nome: 'X', qtd: '1', preco }]) as { erro?: string }).erro, 'preco_invalido', preco);
   }
+});
+
+test('serviço digitado como item é recusado — ele não é consumo', () => {
+  for (const nome of ['Serviço 10%', 'servico', 'Gorjeta', 'Taxa de serviço', '10 %']) {
+    assert.deepEqual(lerComanda([{ nome, qtd: '1', preco: '15,00' }]), { ok: false, erro: 'servico_como_item', linha: 1 }, nome);
+  }
+  assert.ok(lerComanda([{ nome: 'Chopp 300ml', qtd: '1', preco: '12,00' }]).ok);
+});
+
+test('o unitário aparece só quando a divisão é exata', () => {
+  assert.deepEqual(unitarioDoItem('Chopp artesanal (4x)', 5560), { qtd: 4, unitCents: 1390 });
+  assert.equal(unitarioDoItem('Picanha na chapa', 8990), null);
+  assert.equal(unitarioDoItem('Coisa (3x)', 1000), null);
+  assert.equal(unitarioDoItem('Coisa (1x)', 1000), null);
+});
+
+test('o que a comanda gera passa INTACTO pelo normalizeItems do servidor', async () => {
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  const { normalizeItems } = require('../../../api/_lib/checks/check-service.js');
+  const linhas = [
+    { nome: 'X'.repeat(200), qtd: '99', preco: '1.234,56' },
+    { nome: 'Chopp artesanal', qtd: '4', preco: '13,90' },
+    ...Array.from({ length: 198 }, (_, i) => ({ nome: `Item ${i}`, qtd: '1', preco: '0,01' })),
+  ];
+  const r = lerComanda(linhas);
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.itens.length, 200);
+  assert.deepEqual(normalizeItems({ items: r.itens }), r.itens);
+  assert.equal(lerComanda([...linhas, { nome: 'mais um', qtd: '1', preco: '1,00' }]).ok, false);
 });

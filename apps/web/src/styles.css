@@ -963,3 +963,6 @@ a.cta { text-decoration: none; }
 /* Mais compacto por fora, mas o botão fica em 44 (o mínimo do .stepper). */
 .stepper-mini { padding: 2px 6px; gap: 8px; }
 .stepper-mini strong { min-width: 22px; text-align: center; }
+
+/* O unitário embaixo do nome do item ("4 × R$ 13,90"). */
+.unitario { display: block; font: 400 12px/16px var(--ui); font-style: normal; color: var(--grafite); }

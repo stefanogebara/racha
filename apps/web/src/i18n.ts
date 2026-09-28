@@ -1582,6 +1582,8 @@ export const DICT = {
   'abrir.errIncomplete': { en: 'Line {n}: fill in the name and the price.', pt: 'Linha {n}: falta o nome ou o preço.', es: 'Línea {n}: falta el nombre o el precio.' },
   'abrir.errQty':     { en: 'Line {n}: quantity from 1 to 99.', pt: 'Linha {n}: quantidade de 1 a 99.', es: 'Línea {n}: cantidad de 1 a 99.' },
   'abrir.errPrice':   { en: 'Line {n}: price must be more than zero.', pt: 'Linha {n}: o preço tem que ser maior que zero.', es: 'Línea {n}: el precio tiene que ser mayor que cero.' },
+  'abrir.errService': { en: 'Line {n}: the service charge is not an item — Racha adds it by itself, and the guest can remove it.', pt: 'Linha {n}: o serviço não é item — o Racha soma sozinho, e o cliente pode tirar.', es: 'Línea {n}: el servicio no es un producto — Racha lo suma solo, y el cliente puede quitarlo.' },
+  'check.unitPrice':  { en: '{n} × {unit}',                    pt: '{n} × {unit}', es: '{n} × {unit}' },
   'abrir.errTooMany': { en: 'Up to 200 items per bill.',       pt: 'Até 200 itens por conta.', es: 'Hasta 200 productos por cuenta.' },
   // O rótulo do campo que abre a conta NA LINHA da mesa (era um `prompt()`).
   'admin.openCheckTotal': { en: 'Bill total ({symbol})', pt: 'Total da conta ({symbol})', es: 'Total de la cuenta ({symbol})' },

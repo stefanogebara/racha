@@ -128,6 +128,8 @@ test('nenhuma tradução é só uma cópia da outra, exceto quando deve ser', ()
   const same = new Set([
     'check.total:en=pt', 'check.total:en=es', 'check.total:pt=es',
     'share.item:en=pt',
+    // '{n} × {unit}' — o unitário embaixo do item: só números e o sinal de vezes.
+    'check.unitPrice:en=pt', 'check.unitPrice:en=es', 'check.unitPrice:pt=es',
     'gate.email:en=pt',
     // "completa ✓" é a mesma palavra em português e espanhol — não é tradução
     // esquecida, é a língua sendo a mesma aqui.

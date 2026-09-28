@@ -17,6 +17,7 @@ const ERRO_DA_COMANDA = {
   qtd_invalida: 'abrir.errQty',
   preco_invalido: 'abrir.errPrice',
   muitos_itens: 'abrir.errTooMany',
+  servico_como_item: 'abrir.errService',
 } as const;
 
 export function AbrirConta({ admin, table, market, onClose }: {

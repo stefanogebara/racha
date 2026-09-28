@@ -39,6 +39,7 @@ import { computeShare, splitEqualLocal, itemShareCents, selectedItemsCents, MAX_
 import { formatTaxId, isValidCPF, maskCpfCnpj } from './br';
 import { Campo } from './Campo';
 import { EMPRESA, whatsappDoFundador } from './empresa';
+import { unitarioDoItem } from './comanda';
 import { refDoPagamento } from './pagamento-ref';
 
 import { lembrarToken, tokenDaVolta, voltandoDePagamento } from './payReturn';
@@ -527,7 +528,10 @@ export default function App() {
   // A ESCOLHA POR ITEM NÃO ATRAVESSA CONTAS. Os ids de item são por conta (na
   // demo, fixos: `d1`…`d5`), então uma seleção feita numa conta aparecia
   // marcada na seguinte. Revisão de compliance, LOW-1.
-  const contaVivaId = view ? view.check.id : null;
+  // A conta E a lista de itens: o garçom pode ajustar a conta (`adjustCheck`)
+  // mantendo o id, e os ids de item são posicionais — a batata marcada viraria
+  // outro item (segurança, lote 2, LOW-1).
+  const contaVivaId = view ? `${view.check.id}|${view.check.items.map((i) => `${i.id}:${i.priceCents}`).join(',')}` : null;
   const contaAnterior = useRef<string | null>(null);
   useEffect(() => {
     if (contaAnterior.current && contaVivaId && contaAnterior.current !== contaVivaId) {
@@ -1004,7 +1008,7 @@ export default function App() {
                 <li key={i.id}>
                   <span className="iwrap">
                     <Dish name={i.name} />
-                    <span>{i.name}</span>
+                    <span>{i.name}<Unitario name={i.name} priceCents={i.priceCents} /></span>
                   </span>
                   <span className="mono">{brl(i.priceCents)}</span>
                 </li>
@@ -1021,7 +1025,7 @@ export default function App() {
                 >
                   <span className="tick" aria-hidden="true">{picked ? '✓' : '+'}</span>
                   <Dish name={i.name} />
-                  <span className="iname">{i.name}</span>
+                  <span className="iname">{i.name}<Unitario name={i.name} priceCents={i.priceCents} /></span>
                   <span className="mono">{brl(i.priceCents)}</span>
                 </button>
                 {/* DIVIDIR ESTE ITEM: a batata que três pediram, o chopp (4x) de que
@@ -1383,6 +1387,18 @@ export default function App() {
  * o WhatsApp abre com a mensagem pronta. Dentro da landing (`?embed=1`) não
  * aparece: a própria landing já é a página de venda em volta do telefone.
  */
+/**
+ * "4 × R$ 13,90" embaixo do "Chopp artesanal (4x)": o cliente confere a conta e
+ * sabe quanto é UM chopp (CDC art. 6º III; compliance, lote 2, M-1). Só quando
+ * a divisão é exata — ver `unitarioDoItem`.
+ */
+function Unitario({ name, priceCents }: { name: string; priceCents: number }) {
+  const { t, brl } = useT();
+  const u = unitarioDoItem(name, priceCents);
+  if (!u) return null;
+  return <em className="unitario">{t('check.unitPrice', { n: u.qtd, unit: brl(u.unitCents) })}</em>;
+}
+
 function QueroNoMeuRestaurante() {
   const { t } = useT();
   if (EMBED) return null;
