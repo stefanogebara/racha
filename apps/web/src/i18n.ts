@@ -204,6 +204,12 @@ export const DICT = {
   // O atalho fixo no rodapé enquanto "Sua parte" está fora da tela: a comanda
   // ocupa a primeira tela inteira e o botão de pagar ficava abaixo da dobra.
   'share.jump':       { en: 'Split and pay',                   pt: 'Dividir e pagar', es: 'Dividir y pagar' },
+  // Dividir UM item marcado ("a batata, entre três").
+  'share.itemSplitWith': { en: 'Shared by',                    pt: 'Dividido entre', es: 'Repartido entre' },
+  'share.itemFewer':  { en: 'fewer people sharing {item}',     pt: 'menos gente dividindo {item}', es: 'menos personas compartiendo {item}' },
+  'share.itemMore':   { en: 'more people sharing {item}',      pt: 'mais gente dividindo {item}', es: 'más personas compartiendo {item}' },
+  'share.itemYours':  { en: 'yours: {amount}',                 pt: 'sua parte: {amount}', es: 'tu parte: {amount}' },
+  'share.itemWhole':  { en: 'all yours',                       pt: 'só seu', es: 'todo tuyo' },
   'share.fewer':      { en: 'fewer people',                    pt: 'menos pessoas', es: 'menos personas' },
   'share.more':       { en: 'more people',                     pt: 'mais pessoas', es: 'más personas' },
   'share.each':       { en: '{amount} each',                   pt: '{amount} por pessoa', es: '{amount} cada uno' },
@@ -1561,6 +1567,24 @@ export const DICT = {
   'house.refundAsk':  { en: 'Refund {name}\n{label}: {balance}\n\nRefund amount ({symbol}):',
                         pt: 'Reembolsar {name}\n{label}: {balance}\n\nValor do reembolso ({symbol}):',
                         es: 'Reembolsar a {name}\n{label}: {balance}\n\nImporte del reembolso ({symbol}):' },
+  // Abrir a conta com os itens (AbrirConta.tsx). O nome do item é palavra da
+  // CASA e não se traduz; estes são só os rótulos dos campos.
+  'abrir.byItems':    { en: 'With the items',                  pt: 'Com os itens', es: 'Con los productos' },
+  'abrir.onlyTotal':  { en: 'Total only',                      pt: 'Só o total', es: 'Solo el total' },
+  'abrir.item':       { en: 'Item name',                            pt: 'Item', es: 'Producto' },
+  'abrir.itemEg':     { en: 'e.g. Chopp',                      pt: 'ex.: Chopp', es: 'p. ej. Caña' },
+  'abrir.qty':        { en: 'Qty',                             pt: 'Qtd', es: 'Cant.' },
+  'abrir.unitPrice':  { en: 'Each ({symbol})',                 pt: 'Cada ({symbol})', es: 'Cada uno ({symbol})' },
+  'abrir.removeItem': { en: 'remove item {n}',                 pt: 'tirar o item {n}', es: 'quitar el producto {n}' },
+  'abrir.addItem':    { en: '+ add item',                          pt: '+ item', es: '+ producto' },
+  'abrir.total':      { en: 'Bill total: {amount}',            pt: 'Total da conta: {amount}', es: 'Total de la cuenta: {amount}' },
+  'abrir.errEmpty':   { en: 'Add at least one item.',          pt: 'Coloque pelo menos um item.', es: 'Añade al menos un producto.' },
+  'abrir.errIncomplete': { en: 'Line {n}: fill in the name and the price.', pt: 'Linha {n}: falta o nome ou o preço.', es: 'Línea {n}: falta el nombre o el precio.' },
+  'abrir.errQty':     { en: 'Line {n}: quantity from 1 to 99.', pt: 'Linha {n}: quantidade de 1 a 99.', es: 'Línea {n}: cantidad de 1 a 99.' },
+  'abrir.errPrice':   { en: 'Line {n}: price must be more than zero.', pt: 'Linha {n}: o preço tem que ser maior que zero.', es: 'Línea {n}: el precio tiene que ser mayor que cero.' },
+  'abrir.errService': { en: 'Line {n}: the service charge is not an item — Racha adds it by itself, and the guest can remove it.', pt: 'Linha {n}: o serviço não é item — o Racha soma sozinho, e o cliente pode tirar.', es: 'Línea {n}: el servicio no es un producto — Racha lo suma solo, y el cliente puede quitarlo.' },
+  'check.unitPrice':  { en: '{n} × {unit}',                    pt: '{n} × {unit}', es: '{n} × {unit}' },
+  'abrir.errTooMany': { en: 'Up to 200 items per bill.',       pt: 'Até 200 itens por conta.', es: 'Hasta 200 productos por cuenta.' },
   // O rótulo do campo que abre a conta NA LINHA da mesa (era um `prompt()`).
   'admin.openCheckTotal': { en: 'Bill total ({symbol})', pt: 'Total da conta ({symbol})', es: 'Total de la cuenta ({symbol})' },
   // Fechar ANTES de cobrar no caixa: o Racha não registra o caixa, e um

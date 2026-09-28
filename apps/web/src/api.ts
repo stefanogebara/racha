@@ -267,7 +267,9 @@ export async function buscar(path: string, init?: RequestInit): Promise<Response
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await buscar(path, init); // falha de rede: ApiError sem status
-  const body = await res.json().catch(() => ({}));
+  // O formato do envelope DITO: sem o tipo, o `json()` sem a lib do DOM (o
+  // tsconfig dos testes) vira `unknown` e o acesso a `.success` não compila.
+  const body = (await res.json().catch(() => ({}))) as { success?: boolean; data?: unknown };
   if (!res.ok || body.success === false) throw erroDaResposta(res, body);
   return body.data as T;
 }

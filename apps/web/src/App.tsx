@@ -35,10 +35,11 @@ const STRIPE_READY = !!(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 const StripeWalletPay = lazy(() => import('./StripeWalletPay'));
 const BizumPay = lazy(() => import('./BizumPay'));
 import { clearStoredWallet, readStoredWallet } from './house';
-import { computeShare, splitEqualLocal, type SplitMode } from './split';
+import { computeShare, splitEqualLocal, itemShareCents, selectedItemsCents, MAX_PARTES_DO_ITEM, type SplitMode } from './split';
 import { formatTaxId, isValidCPF, maskCpfCnpj } from './br';
 import { Campo } from './Campo';
 import { EMPRESA, whatsappDoFundador } from './empresa';
+import { unitarioDoItem } from './comanda';
 import { refDoPagamento } from './pagamento-ref';
 
 import { lembrarToken, tokenDaVolta, voltandoDePagamento } from './payReturn';
@@ -206,6 +207,8 @@ export default function App() {
   const [customValue, setCustomValue] = useState('');
   // Modo "Por item": ids dos itens que o diner marcou como seus.
   const [selectedItems, setSelectedItems] = useState<Set<string>>(() => new Set());
+  // Em quantas pessoas cada item marcado foi dividido (ausente = 1, só meu).
+  const [partesDoItem, setPartesDoItem] = useState<Map<string, number>>(() => new Map());
   const [servicoOn, setServicoOn] = useState(true);
   const [payerLabel, setPayerLabel] = useState('');
   /**
@@ -408,14 +411,28 @@ export default function App() {
   // espera a marca da PRÓPRIA cobrança aparecer entre os pagamentos da conta.
   // A cobrança que voltou de um RECARREGAR: o ✓ dela não tem hora sabida.
   const restaurada = useRef(false);
+  /**
+   * NA DEMO, A TELA DO PIX FICA À VISTA UNS SEGUNDOS. A demo se confirma na
+   * hora (o MockPsp assina o próprio webhook), então o dono que testava pulava
+   * direto pro ✓ e nunca via a tela que o CLIENTE dele vai ver — o QR e o
+   * copia-e-cola (auditoria e2e, 27/09/2026; decisão do dono, 28/09). Só na
+   * casa que o servidor declara demo; numa mesa de verdade o ✓ vem na hora.
+   */
+  const [pixVisto, setPixVisto] = useState(false);
+  const ehDemo = view?.venue.demo === true;
   useEffect(() => {
-    if (step === 'pagar' && charge && ownRef && view
+    if (step !== 'pagar' || !ehDemo) { setPixVisto(false); return; }
+    const timer = setTimeout(() => setPixVisto(true), DEMO_PIX_A_VISTA_MS);
+    return () => clearTimeout(timer);
+  }, [step, ehDemo]);
+  useEffect(() => {
+    if (step === 'pagar' && charge && ownRef && view && (!ehDemo || pixVisto)
         && Object.values(view.state.payments || {}).some((p) => p.ref === ownRef)) {
       // Depois de um recarregar, "agora" é a hora da VOLTA, não do pagamento:
       // sem data é melhor que data inventada (segurança, PR #17, L-1).
       setPaidAt(restaurada.current ? null : new Date().toISOString()); setStep('pago');
     }
-  }, [view, step, charge, ownRef]);
+  }, [view, step, charge, ownRef, ehDemo, pixVisto]);
 
   /**
    * A COBRANÇA E O RECIBO SOBREVIVEM A UM RECARREGAR — ver `cobranca-viva.ts`.
@@ -511,11 +528,14 @@ export default function App() {
   // A ESCOLHA POR ITEM NÃO ATRAVESSA CONTAS. Os ids de item são por conta (na
   // demo, fixos: `d1`…`d5`), então uma seleção feita numa conta aparecia
   // marcada na seguinte. Revisão de compliance, LOW-1.
-  const contaVivaId = view ? view.check.id : null;
+  // A conta E a lista de itens: o garçom pode ajustar a conta (`adjustCheck`)
+  // mantendo o id, e os ids de item são posicionais — a batata marcada viraria
+  // outro item (segurança, lote 2, LOW-1).
+  const contaVivaId = view ? `${view.check.id}|${view.check.items.map((i) => `${i.id}:${i.priceCents}`).join(',')}` : null;
   const contaAnterior = useRef<string | null>(null);
   useEffect(() => {
     if (contaAnterior.current && contaVivaId && contaAnterior.current !== contaVivaId) {
-      setSelectedItems(new Set());
+      setSelectedItems(new Set()); setPartesDoItem(new Map());
     }
     contaAnterior.current = contaVivaId;
   }, [contaVivaId]);
@@ -585,9 +605,9 @@ export default function App() {
   // parseBrlToCents devolve null para entrada inválida ('R$ 47,50' colado com
   // lixo, '1.234,56', etc. resolvem certo; 'abc' → null) — null desarma o CTA.
   const customCents = parseBrlToCents(customValue);
-  const selectedCents = view.check.items
-    .filter((i) => selectedItems.has(i.id))
-    .reduce((s, i) => s + i.priceCents, 0);
+  // Cada item marcado entra na PARTE da pessoa: inteiro, ou dividido ("a batata
+  // entre três", "1 dos 4 chopps"). Ver `itemShareCents`.
+  const selectedCents = selectedItemsCents(view.check.items, selectedItems, partesDoItem);
   // Split proporcional em TODO modo: o serviço é sempre % da SUA parte
   // (split.ts espelha o backend). Quem paga mais, paga mais serviço.
   // A parte igual sai do TOTAL da conta, não do que falta — senão cada pessoa
@@ -607,6 +627,16 @@ export default function App() {
     setSelectedItems((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  /** Em quantas pessoas ESTE item foi dividido (1 = só meu). */
+  function mudarPartes(id: string, delta: number) {
+    setPartesDoItem((prev) => {
+      const next = new Map(prev);
+      const n = Math.min(MAX_PARTES_DO_ITEM, Math.max(1, (prev.get(id) ?? 1) + delta));
+      if (n === 1) next.delete(id); else next.set(id, n);
       return next;
     });
   }
@@ -900,7 +930,7 @@ export default function App() {
               "pago" convidava a pagar de novo (auditoria e2e, 27/09/2026). */}
           {recibo.oferecerMais && (
             <button className="ghost" onClick={() => {
-              setSelectedItems(new Set());
+              setSelectedItems(new Set()); setPartesDoItem(new Map());
               // LIMPA o comprovante anterior. Sem isto: paga a 1ª parte no Pix
               // (recibo certo), toca aqui, paga a 2ª na carteira — e a tela
               // mostrava a quantia da PRIMEIRA com a data da SEGUNDA. Valor
@@ -978,7 +1008,7 @@ export default function App() {
                 <li key={i.id}>
                   <span className="iwrap">
                     <Dish name={i.name} />
-                    <span>{i.name}</span>
+                    <span>{i.name}<Unitario name={i.name} priceCents={i.priceCents} /></span>
                   </span>
                   <span className="mono">{brl(i.priceCents)}</span>
                 </li>
@@ -995,9 +1025,27 @@ export default function App() {
                 >
                   <span className="tick" aria-hidden="true">{picked ? '✓' : '+'}</span>
                   <Dish name={i.name} />
-                  <span className="iname">{i.name}</span>
+                  <span className="iname">{i.name}<Unitario name={i.name} priceCents={i.priceCents} /></span>
                   <span className="mono">{brl(i.priceCents)}</span>
                 </button>
+                {/* DIVIDIR ESTE ITEM: a batata que três pediram, o chopp (4x) de que
+                    você tomou um. Só no item marcado — a pergunta só existe pra
+                    quem disse que o item é (também) seu. */}
+                {picked && (
+                  <div className="partesdoitem">
+                    <span className="small">{t('share.itemSplitWith')}</span>
+                    <div className="stepper stepper-mini">
+                      <button type="button" aria-label={t('share.itemFewer', { item: i.name })} onClick={() => mudarPartes(i.id, -1)}>−</button>
+                      <strong>{partesDoItem.get(i.id) ?? 1}</strong>
+                      <button type="button" aria-label={t('share.itemMore', { item: i.name })} onClick={() => mudarPartes(i.id, 1)}>+</button>
+                    </div>
+                    <span className="small mono">
+                      {(partesDoItem.get(i.id) ?? 1) > 1
+                        ? t('share.itemYours', { amount: brl(itemShareCents(i.priceCents, partesDoItem.get(i.id) ?? 1)) })
+                        : t('share.itemWhole')}
+                    </span>
+                  </div>
+                )}
               </li>
             );
           })}
@@ -1339,6 +1387,18 @@ export default function App() {
  * o WhatsApp abre com a mensagem pronta. Dentro da landing (`?embed=1`) não
  * aparece: a própria landing já é a página de venda em volta do telefone.
  */
+/**
+ * "4 × R$ 13,90" embaixo do "Chopp artesanal (4x)": o cliente confere a conta e
+ * sabe quanto é UM chopp (CDC art. 6º III; compliance, lote 2, M-1). Só quando
+ * a divisão é exata — ver `unitarioDoItem`.
+ */
+function Unitario({ name, priceCents }: { name: string; priceCents: number }) {
+  const { t, brl } = useT();
+  const u = unitarioDoItem(name, priceCents);
+  if (!u) return null;
+  return <em className="unitario">{t('check.unitPrice', { n: u.qtd, unit: brl(u.unitCents) })}</em>;
+}
+
 function QueroNoMeuRestaurante() {
   const { t } = useT();
   if (EMBED) return null;
@@ -1368,6 +1428,8 @@ function Dish({ name }: { name: string }) {
  * e rodapé (CSS `.shell.embed`). Nada muda no comportamento; só no que aparece.
  */
 const EMBED = new URLSearchParams(window.location.search).get('embed') === '1';
+/** Quanto tempo a tela do Pix fica à vista na DEMO antes do ✓ (ver `pixVisto`). */
+const DEMO_PIX_A_VISTA_MS = 3000;
 function Shell({ children }: { children: React.ReactNode }) {
   return <main className={EMBED ? 'shell embed' : 'shell'}>{children}</main>;
 }
