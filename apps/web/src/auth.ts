@@ -3,6 +3,7 @@ import { createClient, type Session } from '@supabase/supabase-js';
 // também, ou o painel do dono mostra "HTTP 404". Ver `erroDaResposta`.
 import { buscar, erroDaResposta } from './api';
 import type { Lang } from './i18n';
+import { destinoDoLinkDoEmail } from './link-do-email';
 
 /**
  * Frontend auth — Supabase Auth (GoTrue). The publishable key is browser-safe;
@@ -105,6 +106,11 @@ export const supabase = createClient(AUTH_URL, AUTH_PUBLISHABLE, {
  */
 export async function recoverOAuthSession(): Promise<void> {
   if (!supabase || typeof window === 'undefined') return;
+  // O botão do e-mail chega aqui (useracha.app), não no Supabase: repassa pro
+  // verify, que volta com `?code=` pra linha de baixo. A promessa não resolve —
+  // a página está indo embora, e o portão fica em "carregando" até lá.
+  const destino = destinoDoLinkDoEmail(window.location.href, AUTH_URL);
+  if (destino) { window.location.replace(destino); return new Promise<void>(() => {}); }
   const url = new URL(window.location.href);
   const code = url.searchParams.get('code');
   const hashTinhaToken = window.location.hash.includes('access_token');

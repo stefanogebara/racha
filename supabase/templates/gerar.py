@@ -63,8 +63,19 @@ HEAD = """<!--
 
 SANS = 'Manrope,Helvetica,Arial,sans-serif'
 
+# O BOTÃO APONTA PRO useracha.app, não pro `{{ .ConfirmationURL }}` — que é o
+# endereço do Supabase (`worttfotxasxqjaqwpjf.supabase.co`), cara de phishing
+# num e-mail do Racha. A página repassa pro MESMO verify, com o mesmo token e o
+# mesmo PKCE (`apps/web/src/link-do-email.ts`). O tipo é o do verify do GoTrue.
+SITE = 'https://useracha.app'
+TIPO = {'confirmation': 'signup', 'recovery': 'recovery', 'email_change': 'email_change'}
 
-def corpo(d):
+
+def link(nome):
+    return f'{SITE}/admin?token_hash={{{{ .TokenHash }}}}&amp;type={TIPO[nome]}'
+
+
+def corpo(nome, d):
     return HEAD + LANG + f"""<!doctype html>
 <html><body style="margin:0;padding:0;background:#F2F0EB;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F2F0EB;padding:32px 16px;">
@@ -73,7 +84,7 @@ def corpo(d):
 <tr><td style="padding:28px 28px 8px;font-family:{SANS};font-size:15px;font-weight:700;letter-spacing:.02em;color:#161714;">Racha</td></tr>
 <tr><td style="padding:8px 28px 0;font-family:Newsreader,Georgia,serif;font-size:26px;line-height:1.2;color:#161714;">{pick(d['title'])}</td></tr>
 <tr><td style="padding:14px 28px 0;font-family:{SANS};font-size:15px;line-height:1.55;color:#3A3B36;">{pick(d['body'])}</td></tr>
-<tr><td style="padding:24px 28px;"><a href="{{{{ .ConfirmationURL }}}}" style="display:inline-block;background:#161714;color:#F8F7F3;font-family:{SANS};font-size:15px;font-weight:600;text-decoration:none;padding:13px 22px;border-radius:999px;">{pick(d['cta'])}</a></td></tr>
+<tr><td style="padding:24px 28px;"><a href="{link(nome)}" style="display:inline-block;background:#161714;color:#F8F7F3;font-family:{SANS};font-size:15px;font-weight:600;text-decoration:none;padding:13px 22px;border-radius:999px;">{pick(d['cta'])}</a></td></tr>
 <tr><td style="padding:0 28px 28px;font-family:{SANS};font-size:13px;line-height:1.5;color:#6B6C66;">{pick(d['foot'])}</td></tr>
 </table>
 </td></tr></table>
@@ -84,7 +95,7 @@ def corpo(d):
 if __name__ == '__main__':
     for nome, d in T.items():
         with open(f'{nome}.html', 'w') as f:
-            f.write(corpo(d))
+            f.write(corpo(nome, d))
         with open(f'{nome}.subject.txt', 'w') as f:
             f.write(LANG + pick(d['subject']) + '\n')
     print('ok')
