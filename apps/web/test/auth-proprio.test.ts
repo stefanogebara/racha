@@ -82,7 +82,7 @@ test('o cadastro grava o idioma, e os modelos de e-mail o leem com guarda', () =
       for (const l of ['pt', 'es']) assert.match(s, new RegExp(`eq \\$l "${l}"`), `${nome}${ext} sem ${l}`);
     }
     // O botão leva o token pro useracha.app (ver link-do-email.test.ts).
-    assert.match(readFileSync(new URL(nome + '.html', TPL), 'utf8'), /href="https:\/\/useracha\.app\/admin\?token_hash=\{\{ \.TokenHash \}\}&amp;type=[a-z_]+"/);
+    assert.match(readFileSync(new URL(nome + '.html', TPL), 'utf8'), /href="https:\/\/useracha\.app\/admin#token_hash=\{\{ \.TokenHash \}\}&amp;type=[a-z_]+"/);
   }
   // A troca de e-mail vai pro endereço NOVO; o antigo é escolha de quem pediu —
   // e pode ser um recado de atacante (segurança, PR #22, LOW-1).

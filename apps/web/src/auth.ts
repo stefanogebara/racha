@@ -3,7 +3,7 @@ import { createClient, type Session } from '@supabase/supabase-js';
 // também, ou o painel do dono mostra "HTTP 404". Ver `erroDaResposta`.
 import { buscar, erroDaResposta } from './api';
 import type { Lang } from './i18n';
-import { destinoDoLinkDoEmail } from './link-do-email';
+import { destinoDoLinkDoEmail, erroDoLinkDoEmail } from './link-do-email';
 
 /**
  * Frontend auth — Supabase Auth (GoTrue). The publishable key is browser-safe;
@@ -85,8 +85,11 @@ try {
  *
  * Com PKCE, um link de confirmação ou de redefinição volta com `?code=`, e o
  * código só vira sessão com o `code_verifier` que ficou no navegador que PEDIU
- * o link. Um link forjado, aberto em outro navegador, não troca por nada. O
- * custo: o link tem de ser aberto no mesmo navegador — pro painel do dono, ok
+ * o link. Um link FORJADO (o de um atacante, aberto no navegador do dono) não
+ * troca por nada — é contra isso que o PKCE protege. NÃO protege contra o roubo
+ * do link VERDADEIRO: o token do e-mail troca direto por sessão num POST
+ * `/verify`, sem verifier (ver `link-do-email.ts` — por isso ele viaja no `#`).
+ * O custo: o link tem de ser aberto no mesmo navegador — pro painel do dono, ok
  * (a confirmação de e-mail vale mesmo assim; ele só entra com a senha).
  */
 export const supabase = createClient(AUTH_URL, AUTH_PUBLISHABLE, {
@@ -104,6 +107,17 @@ export const supabase = createClient(AUTH_URL, AUTH_PUBLISHABLE, {
  * o código não ficam na barra de endereço. Hash com token é IGNORADO e apagado:
  * é a porta que o implícito deixava aberta.
  */
+let erroDoLink: string | null = null;
+/** O erro do link do e-mail, UMA vez — a tela de login mostra e ele some. */
+export function erroPendenteDoLink(): Error | null {
+  const c = erroDoLink;
+  erroDoLink = null;
+  if (!c) return null;
+  const e = new Error(c) as Error & { code?: string };
+  e.code = c;
+  return e;
+}
+
 export async function recoverOAuthSession(): Promise<void> {
   if (!supabase || typeof window === 'undefined') return;
   // O botão do e-mail chega aqui (useracha.app), não no Supabase: repassa pro
@@ -111,9 +125,12 @@ export async function recoverOAuthSession(): Promise<void> {
   // a página está indo embora, e o portão fica em "carregando" até lá.
   const destino = destinoDoLinkDoEmail(window.location.href, AUTH_URL);
   if (destino) { window.location.replace(destino); return new Promise<void>(() => {}); }
+  // Link vencido ou já usado: o verify volta com `#error…`. Sai da barra, e o
+  // login diz o porquê em vez de aparecer mudo.
+  erroDoLink = erroDoLinkDoEmail(window.location.href);
   const url = new URL(window.location.href);
   const code = url.searchParams.get('code');
-  const hashTinhaToken = window.location.hash.includes('access_token');
+  const hashTinhaToken = window.location.hash.includes('access_token') || !!erroDoLink;
   if (!code && !hashTinhaToken) return;
   url.searchParams.delete('code');
   history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));

@@ -67,12 +67,14 @@ SANS = 'Manrope,Helvetica,Arial,sans-serif'
 # endereço do Supabase (`worttfotxasxqjaqwpjf.supabase.co`), cara de phishing
 # num e-mail do Racha. A página repassa pro MESMO verify, com o mesmo token e o
 # mesmo PKCE (`apps/web/src/link-do-email.ts`). O tipo é o do verify do GoTrue.
+# O token vai no FRAGMENTO (`#`): é credencial, e o `#` nunca chega ao servidor
+# nem ao log da Vercel (segurança, revisão do link, MEDIUM).
 SITE = 'https://useracha.app'
 TIPO = {'confirmation': 'signup', 'recovery': 'recovery', 'email_change': 'email_change'}
 
 
 def link(nome):
-    return f'{SITE}/admin?token_hash={{{{ .TokenHash }}}}&amp;type={TIPO[nome]}'
+    return f'{SITE}/admin#token_hash={{{{ .TokenHash }}}}&amp;type={TIPO[nome]}'
 
 
 def corpo(nome, d):
