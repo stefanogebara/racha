@@ -3,7 +3,7 @@ import { useT, LangToggle } from './lang';
 import { EMPRESA } from './empresa';
 import { Campo } from './Campo';
 import { isValidEmail } from './br';
-import { onSession, signIn, signUp, signInWithGoogle, resetPassword, signOut, supabase, GOOGLE_LIGADO, SENHA_MINIMA, emRecuperacaoDeSenha, definirSenhaNova } from './auth';
+import { onSession, signIn, signUp, signInWithGoogle, resetPassword, signOut, supabase, GOOGLE_LIGADO, SENHA_MINIMA, emRecuperacaoDeSenha, definirSenhaNova, erroPendenteDoLink } from './auth';
 
 /**
  * Owner login gate — wraps the restaurant surfaces (/admin, /painel). Diners
@@ -79,7 +79,8 @@ function Login({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Voltou de um link do e-mail vencido ou já usado: diz, em vez de um login mudo.
+  const [error, setError] = useState<string | null>(() => { const e = erroPendenteDoLink(); return e ? tErr(e) : null; });
   const [notice, setNotice] = useState<string | null>(null);
   // O e-mail da conta recém-criada que ainda falta confirmar — liga a tela de
   // "confira seu e-mail" no lugar do formulário.

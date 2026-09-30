@@ -3,6 +3,7 @@ import { createClient, type Session } from '@supabase/supabase-js';
 // também, ou o painel do dono mostra "HTTP 404". Ver `erroDaResposta`.
 import { buscar, erroDaResposta } from './api';
 import type { Lang } from './i18n';
+import { destinoDoLinkDoEmail, erroDoLinkDoEmail } from './link-do-email';
 
 /**
  * Frontend auth — Supabase Auth (GoTrue). The publishable key is browser-safe;
@@ -84,8 +85,11 @@ try {
  *
  * Com PKCE, um link de confirmação ou de redefinição volta com `?code=`, e o
  * código só vira sessão com o `code_verifier` que ficou no navegador que PEDIU
- * o link. Um link forjado, aberto em outro navegador, não troca por nada. O
- * custo: o link tem de ser aberto no mesmo navegador — pro painel do dono, ok
+ * o link. Um link FORJADO (o de um atacante, aberto no navegador do dono) não
+ * troca por nada — é contra isso que o PKCE protege. NÃO protege contra o roubo
+ * do link VERDADEIRO: o token do e-mail troca direto por sessão num POST
+ * `/verify`, sem verifier (ver `link-do-email.ts` — por isso ele viaja no `#`).
+ * O custo: o link tem de ser aberto no mesmo navegador — pro painel do dono, ok
  * (a confirmação de e-mail vale mesmo assim; ele só entra com a senha).
  */
 export const supabase = createClient(AUTH_URL, AUTH_PUBLISHABLE, {
@@ -103,13 +107,35 @@ export const supabase = createClient(AUTH_URL, AUTH_PUBLISHABLE, {
  * o código não ficam na barra de endereço. Hash com token é IGNORADO e apagado:
  * é a porta que o implícito deixava aberta.
  */
+let erroDoLink: string | null = null;
+/** O erro do link do e-mail, UMA vez — a tela de login mostra e ele some. */
+export function erroPendenteDoLink(): Error | null {
+  const c = erroDoLink;
+  erroDoLink = null;
+  if (!c) return null;
+  const e = new Error(c) as Error & { code?: string };
+  e.code = c;
+  return e;
+}
+
 export async function recoverOAuthSession(): Promise<void> {
   if (!supabase || typeof window === 'undefined') return;
+  // O botão do e-mail chega aqui (useracha.app), não no Supabase: repassa pro
+  // verify, que volta com `?code=` pra linha de baixo. A promessa não resolve —
+  // a página está indo embora, e o portão fica em "carregando" até lá.
+  const destino = destinoDoLinkDoEmail(window.location.href, AUTH_URL);
+  if (destino) { window.location.replace(destino); return new Promise<void>(() => {}); }
+  // Link vencido ou já usado: o verify volta com `#error…`. Sai da barra, e o
+  // login diz o porquê em vez de aparecer mudo.
+  erroDoLink = erroDoLinkDoEmail(window.location.href);
   const url = new URL(window.location.href);
   const code = url.searchParams.get('code');
-  const hashTinhaToken = window.location.hash.includes('access_token');
+  // Fragmento com token (um `token_hash` recusado também: é credencial e não
+  // fica na tela) ou com erro sai da barra, junto do erro que o PKCE escreve na
+  // query (revisão do link, LOW-1 e LOW-2).
+  const hashTinhaToken = /access_token|token_hash/.test(window.location.hash) || !!erroDoLink;
   if (!code && !hashTinhaToken) return;
-  url.searchParams.delete('code');
+  for (const k of ['code', 'error', 'error_code', 'error_description']) url.searchParams.delete(k);
   history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
   if (!code) return;
   try {
@@ -135,13 +161,18 @@ export function onSession(cb: (s: Session | null) => void): () => void {
     .then(() => supabase.auth.getSession())
     .then(({ data }) => cb(data.session))
     .catch(() => cb(null));
+  // O link do e-mail aberto numa aba que JÁ está no /admin só muda o `#` — o
+  // navegador não recarrega e nada rodaria, com o token parado na barra.
+  // Recarrega, e a volta passa pelo `recoverOAuthSession` (revisão do link, LOW-1).
+  const aoMudarOHash = () => { if (/token_hash|error/.test(window.location.hash)) window.location.reload(); };
+  window.addEventListener('hashchange', aoMudarOHash);
   const { data: sub } = supabase.auth.onAuthStateChange((evento, s) => {
     // O evento de recuperação vem do PRÓPRIO cliente, depois de uma troca de
     // código bem-feita — nunca de um parâmetro que alguém pôs na URL.
     if (evento === 'PASSWORD_RECOVERY') marcarRecuperacao(true);
     cb(s);
   });
-  return () => sub.subscription.unsubscribe();
+  return () => { sub.subscription.unsubscribe(); window.removeEventListener('hashchange', aoMudarOHash); };
 }
 
 export async function signIn(email: string, password: string) {
