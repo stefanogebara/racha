@@ -65,12 +65,15 @@ test('link vencido ou já usado vira código traduzido — nunca um login mudo',
   assert.equal(erroDoLinkDoEmail('https://useracha.app/admin#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired'), 'auth_otp_expired');
   assert.equal(erroDoLinkDoEmail('https://useracha.app/admin#error=server_error&error_code=unexpected_failure'), 'auth_link_invalid');
   assert.equal(erroDoLinkDoEmail('https://useracha.app/admin#error=x'), 'auth_link_invalid');
+  assert.equal(erroDoLinkDoEmail('https://useracha.app/admin?error=access_denied&error_code=otp_expired'), 'auth_otp_expired');
   assert.equal(erroDoLinkDoEmail('https://useracha.app/admin'), null);
   assert.equal(erroDoLinkDoEmail(`https://useracha.app/admin#token_hash=${HASH}&type=signup`), null);
   const dict = readFileSync(new URL('../src/i18n.ts', import.meta.url), 'utf8');
   for (const c of ['auth_otp_expired', 'auth_link_invalid']) assert.match(dict, new RegExp(`'err\\.${c}':`));
   const auth = readFileSync(new URL('../src/auth.ts', import.meta.url), 'utf8');
   assert.match(auth, /erroDoLink = erroDoLinkDoEmail\(window\.location\.href\)/);
-  assert.match(auth, /hashTinhaToken = window\.location\.hash\.includes\('access_token'\) \|\| !!erroDoLink/, 'o #error fica na barra');
+  assert.match(auth, /hashTinhaToken = \/access_token\|token_hash\/\.test\(window\.location\.hash\) \|\| !!erroDoLink/, 'token recusado ou #error fica na barra');
+  assert.match(auth, /for \(const k of \['code', 'error', 'error_code', 'error_description'\]\) url\.searchParams\.delete\(k\)/);
+  assert.match(auth, /addEventListener\('hashchange', aoMudarOHash\)/, 'link aberto na aba do /admin não roda');
   assert.match(readFileSync(new URL('../src/Gate.tsx', import.meta.url), 'utf8'), /erroPendenteDoLink\(\)/);
 });

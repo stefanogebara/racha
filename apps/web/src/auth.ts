@@ -130,9 +130,12 @@ export async function recoverOAuthSession(): Promise<void> {
   erroDoLink = erroDoLinkDoEmail(window.location.href);
   const url = new URL(window.location.href);
   const code = url.searchParams.get('code');
-  const hashTinhaToken = window.location.hash.includes('access_token') || !!erroDoLink;
+  // Fragmento com token (um `token_hash` recusado também: é credencial e não
+  // fica na tela) ou com erro sai da barra, junto do erro que o PKCE escreve na
+  // query (revisão do link, LOW-1 e LOW-2).
+  const hashTinhaToken = /access_token|token_hash/.test(window.location.hash) || !!erroDoLink;
   if (!code && !hashTinhaToken) return;
-  url.searchParams.delete('code');
+  for (const k of ['code', 'error', 'error_code', 'error_description']) url.searchParams.delete(k);
   history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
   if (!code) return;
   try {
@@ -158,13 +161,18 @@ export function onSession(cb: (s: Session | null) => void): () => void {
     .then(() => supabase.auth.getSession())
     .then(({ data }) => cb(data.session))
     .catch(() => cb(null));
+  // O link do e-mail aberto numa aba que JÁ está no /admin só muda o `#` — o
+  // navegador não recarrega e nada rodaria, com o token parado na barra.
+  // Recarrega, e a volta passa pelo `recoverOAuthSession` (revisão do link, LOW-1).
+  const aoMudarOHash = () => { if (/token_hash|error/.test(window.location.hash)) window.location.reload(); };
+  window.addEventListener('hashchange', aoMudarOHash);
   const { data: sub } = supabase.auth.onAuthStateChange((evento, s) => {
     // O evento de recuperação vem do PRÓPRIO cliente, depois de uma troca de
     // código bem-feita — nunca de um parâmetro que alguém pôs na URL.
     if (evento === 'PASSWORD_RECOVERY') marcarRecuperacao(true);
     cb(s);
   });
-  return () => sub.subscription.unsubscribe();
+  return () => { sub.subscription.unsubscribe(); window.removeEventListener('hashchange', aoMudarOHash); };
 }
 
 export async function signIn(email: string, password: string) {

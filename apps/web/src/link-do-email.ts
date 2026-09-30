@@ -63,6 +63,12 @@ export function destinoDoLinkDoEmail(href: string, authUrl: string): string | nu
  */
 export function erroDoLinkDoEmail(href: string): 'auth_otp_expired' | 'auth_link_invalid' | null {
   const f = doFragmento(href);
-  if (!f || (!f.p.has('error') && !f.p.has('error_code'))) return null;
-  return f.p.get('error_code') === 'otp_expired' ? 'auth_otp_expired' : 'auth_link_invalid';
+  if (!f) return null;
+  // No PKCE o GoTrue escreve o erro também na QUERY; vale qualquer um dos dois.
+  for (const p of [f.p, f.url.searchParams]) {
+    if (p.has('error') || p.has('error_code')) {
+      return p.get('error_code') === 'otp_expired' ? 'auth_otp_expired' : 'auth_link_invalid';
+    }
+  }
+  return null;
 }
